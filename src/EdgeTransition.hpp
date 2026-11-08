@@ -52,8 +52,8 @@ class EdgeTransition {
   public:
     // Invalid frame, parameters or non-positive strength leave it idle. A Close begun during an Open continues
     // from the current bead on the Open's edge and ignores `frame`; visible open liquid snaps into a recoil. For a
-    // Close, `closeSplash` plays a single splash bump at the dive point once the bead is behind the edge; false
-    // ends the close at the drain. Ignored for an Open.
+    // Close: `closeSplash` plays a single splash bump at the dive point once the bead is
+    // behind the edge; false ends the close at the drain. Ignored for an Open.
     void begin(Transition kind, const EdgeFrame& frame, const MaterialParams& params, double strength,
                bool closeSplash = true) noexcept;
     // Nonfinite, negative or > 0.25 s steps abort: Open returns to idle, Close to closed.
@@ -150,6 +150,7 @@ class EdgeTransition {
     double    m_nc        = 0.0;   // displayed centre n (absolute, from the edge)
     double    m_nc0       = 0.0, m_sT0 = 1.0, m_sN0 = 1.0; // close timeline start
     double    m_duration  = 0.0, m_time = 0.0;
+    double    m_closeMomentum = 0.5; // changes the dive curve; 0.5 preserves the original trajectory
     bool      m_drained   = false;
     bool      m_closeSplash = true;
     bool      m_splashing   = false;

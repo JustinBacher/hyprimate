@@ -7,6 +7,8 @@ Currently, hyprimate animates windows as they move, open, and close:
 - **Liquid** gives moving windows a fluid, elastic feel and animates them in and out from the edge of the screen.
 - **Wiggle** is an alternative movement style that emerged while experimenting with Liquid. It brought to mind that old-school wiggly window animation from years ago—if you know, you know.
 
+[Watch the demo](hyprimate-demo-closing.mp4)
+
 ## Installation
 
 hyprimate currently targets **Hyprland 0.57.0**. Other versions have not been verified. You'll need `hyprpm`, matching Hyprland development headers, CMake, Ninja, and a C++26-capable compiler, along with hyprpm's dependencies. Rebuild the plugin after updating Hyprland.
@@ -25,7 +27,9 @@ To load enabled plugins at startup, add `hyprpm reload` to your Hyprland autosta
 
 ## Configuration
 
-Disable Hyprland's built-in wobble before using hyprimate; both effects cannot run together. The example below disables wobble and shows all available settings with their defaults. Add it to your Hyprland Lua configuration after the plugin has been loaded.
+Hyprland 0.57 has a built-in **wobble** effect for moving and resizing windows, separate from hyprimate's **wiggle** style. Its `decoration.wobble.enabled` setting defaults to `false`. If you enabled it, disable it before loading hyprimate: the two window-deformation effects conflict, and the plugin will refuse to load while both are enabled. You do not need to disable Hyprland's regular window or workspace animations.
+
+The example below explicitly disables Hyprland's wobble and shows all hyprimate settings with their defaults. Add the plugin settings to your Hyprland Lua configuration after the plugin has been loaded.
 
 The movement, open, and close animations can be enabled and configured independently. To use the old-school movement effect, set `window.movement.style` to `"wiggle"`; open and close retain their own settings.
 

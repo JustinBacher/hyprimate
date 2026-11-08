@@ -23,9 +23,9 @@
 // Deforms the native window-close fadeout through two narrow hooks, each selected by exact demangled signature:
 //   * Desktop::CWindowFadeout::create - associates the created fadeout with the staged closing window.
 //   * Render::IHyprRenderer::renderFadeouts (MONITOR mode only) - substitutes a mesh element for associated fadeouts.
-// A Liquid close that is not texture-blurred is owned: its edge transition drives shape and placement from a retained
-// snapshot, so it keeps drawing after the native fadeout has finished. Every other fadeout, scene mode, or missing
-// association runs the original native code.
+// A close that is not texture-blurred is owned, whatever the movement mode: its edge transition drives shape and
+// placement from a retained snapshot, so it keeps drawing after the native fadeout has finished. Every other fadeout,
+// scene mode, or missing association runs the original native code.
 class CLiquidCloseRenderer {
   public:
     using clock = std::chrono::steady_clock;
@@ -72,9 +72,10 @@ class CLiquidCloseRenderer {
     // Captures a closing window's pose (mesh, transition, compensation). A Close begun during an opening continues
     // from its travel; otherwise `closeFrame` picks the edge the window drains behind. Call from the window.close
     // listener, before the window is detached.
-    // `closeSplash` plays the splash bump at the dive point after the drain (EdgeTransition::begin).
+    // `closeSplash` plays the splash bump at the dive point after the drain (EdgeTransition::begin). `transition`
+    // carries the close's own elasticity/momentum; the movement mesh's params never drive the close edge transition.
     void stage(const PHLWINDOW& window, const SLiquidPose& pose, double strength, std::optional<liquid_glass::EdgeFrame> closeFrame, double drive,
-               bool closeSplash);
+               bool closeSplash, const liquid_glass::MaterialParams& transition);
 
     // Advances closing records. Returns true while any record still animates; `activeMonitors` is refilled with the
     // monitors to damage, including the frame in which an owned close finishes or a record is pruned.
@@ -108,6 +109,7 @@ class CLiquidCloseRenderer {
         double                                   drive    = 0.0;
         std::optional<liquid_glass::EdgeFrame>   closeFrame;
         bool                                     closeSplash = true;
+        liquid_glass::MaterialParams             closeParams{};
         clock::time_point                        staged{};
     };
 

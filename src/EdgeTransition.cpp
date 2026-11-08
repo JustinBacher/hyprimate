@@ -104,11 +104,6 @@ double lerp(double a, double b, double t) {
     return a + (b - a) * t;
 }
 
-double easeInCubic(double t) {
-    t = std::clamp(t, 0.0, 1.0);
-    return t * t * t;
-}
-
 double easeInOutCubic(double t) {
     t = std::clamp(t, 0.0, 1.0);
     return t < 0.5 ? 4.0 * t * t * t : 1.0 - std::pow(-2.0 * t + 2.0, 3.0) / 2.0;
@@ -337,6 +332,7 @@ void EdgeTransition::begin(Transition kind, const EdgeFrame& frame, const Materi
         m_phase    = Phase::Opening;
     } else {
         m_duration       = kCloseSeconds * std::exp2(0.5 - e);
+        m_closeMomentum  = m;
         m_closeSplash    = closeSplash;
         m_splashDuration = kSplashSeconds * std::exp2(0.5 - e);
         m_nc0            = continuing ? previous.m_nc : m_frame.edgeDistance;
@@ -522,8 +518,16 @@ void EdgeTransition::step() noexcept {
         m_spreadN.value = m_sN0 * (1.0 - easeInOutCubic(p / kShrinkEnd));
         m_spreadT.value = m_sT0 * (1.0 - easeInOutCubic((p - kShrinkTangentStart) / kShrinkTangentSpan));
         // Centre: rise to the hover point while shrinking, then dive behind the edge.
-        m_nc = p < kShrinkEnd ? lerp(m_nc0, m_hover, easeInOutCubic(p / kShrinkEnd))
-                              : lerp(m_hover, -m_radius - kDiveMargin, easeInCubic((p - kShrinkEnd) / (1.0 - kShrinkEnd)));
+        // Blend quadratic/cubic/quartic curves so the default momentum retains the original dive.
+        if (p < kShrinkEnd) {
+            m_nc = lerp(m_nc0, m_hover, easeInOutCubic(p / kShrinkEnd));
+        } else {
+            const double q = (p - kShrinkEnd) / (1.0 - kShrinkEnd);
+            const double square = q * q, cubic = square * q;
+            const double dive = m_closeMomentum < 0.5 ? lerp(cubic * q, cubic, m_closeMomentum * 2.0)
+                                                     : lerp(cubic, square, (m_closeMomentum - 0.5) * 2.0);
+            m_nc = lerp(m_hover, -m_radius - kDiveMargin, dive);
+        }
         if (m_recoiling)
             advanceRecoil(); // residual recoil from an interrupted opening keeps falling
         if (m_time < m_duration - kAccumulatorTolerance)

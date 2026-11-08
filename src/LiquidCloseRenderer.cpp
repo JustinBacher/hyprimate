@@ -200,7 +200,7 @@ void CLiquidCloseRenderer::clear() {
 }
 
 void CLiquidCloseRenderer::stage(const PHLWINDOW& window, const SLiquidPose& pose, double strength, std::optional<liquid_glass::EdgeFrame> closeFrame,
-                                 double drive, bool closeSplash) {
+                                 double drive, bool closeSplash, const liquid_glass::MaterialParams& transition) {
     if (!window || !std::isfinite(strength) || strength <= 0.0)
         return;
 
@@ -235,6 +235,7 @@ void CLiquidCloseRenderer::stage(const PHLWINDOW& window, const SLiquidPose& pos
         .drive          = drive,
         .closeFrame     = closeFrame,
         .closeSplash    = closeSplash,
+        .closeParams    = transition,
         .staged         = clock::now(),
     });
 }
@@ -280,14 +281,13 @@ void CLiquidCloseRenderer::onFadeoutCreated(const PHLWINDOW& window, const SP<De
     record->snapshotSize   = snapshot->getTexture()->m_size;
     record->lastAdvance    = clock::now();
 
-    // Owned only for a Liquid close without texture blur: the edge transition begins Close from the copied pose, so
-    // an in-progress opening is kept as the start of the close.
-    const bool liquid      = record->mesh.mode() == liquid_glass::MotionMode::Liquid;
+    // Owned for any movement mode without texture blur: the edge transition begins Close from the copied pose, so an
+    // in-progress opening is kept as the start of the close. The close's own params drive it, not the movement mesh's.
     const bool textureBlur = created->effects().textureBlur.enabled;
-    if (liquid && !textureBlur) {
+    if (!textureBlur) {
         record->transition = pending.transition;
         // Continuing an opening keeps its edge; otherwise the staged frame (invalid when none, which leaves it idle).
-        record->transition.begin(Transition::Close, pending.closeFrame.value_or(record->transition.frame()), record->mesh.params(), pending.strength,
+        record->transition.begin(Transition::Close, pending.closeFrame.value_or(record->transition.frame()), pending.closeParams, pending.strength,
                                  pending.closeSplash);
     }
     record->strength = pending.strength;

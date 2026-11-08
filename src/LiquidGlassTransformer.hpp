@@ -9,6 +9,7 @@
 #include <hyprutils/memory/WeakPtr.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <vector>
 
@@ -59,7 +60,7 @@ void fillLiquidMeniscusMesh(const SLiquidPose& pose, const CBox& sourceDevice, d
 
 class CLiquidGlassTransformer final : public Render::IWindowTransformer {
   public:
-    explicit CLiquidGlassTransformer(PHLWINDOWREF window, liquid_glass::MotionMode mode, liquid_glass::MaterialParams params,
+    explicit CLiquidGlassTransformer(PHLWINDOWREF window, liquid_glass::MotionMode mode, liquid_glass::MaterialParams params, std::uint64_t seed,
                                      SP<CSolidFill> solid);
     ~CLiquidGlassTransformer() override = default;
 

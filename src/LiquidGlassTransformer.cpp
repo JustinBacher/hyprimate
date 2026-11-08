@@ -233,8 +233,8 @@ void fillLiquidMeniscusMesh(const SLiquidPose& pose, const CBox& sourceDevice, d
 }
 
 CLiquidGlassTransformer::CLiquidGlassTransformer(PHLWINDOWREF window, liquid_glass::MotionMode mode, liquid_glass::MaterialParams params,
-                                                 SP<CSolidFill> solid)
-    : m_window(std::move(window)), m_mesh(mode, params), m_solid(std::move(solid)), m_vertices(LIQUID_RENDER_VERTEX_COUNT),
+                                                 std::uint64_t seed, SP<CSolidFill> solid)
+    : m_window(std::move(window)), m_mesh(mode, params, seed), m_solid(std::move(solid)), m_vertices(LIQUID_RENDER_VERTEX_COUNT),
       m_meniscusVertices(LIQUID_MENISCUS_VERTEX_COUNT) {}
 
 void CLiquidGlassTransformer::beginOpen(const liquid_glass::EdgeFrame& frame, const liquid_glass::MaterialParams& params, double strength,

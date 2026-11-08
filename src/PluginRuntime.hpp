@@ -13,6 +13,7 @@
 #include "SolidFill.hpp"
 
 #include <chrono>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -47,13 +48,16 @@ class CPluginRuntime {
         std::optional<liquid_glass::Edge> openEdge; // edge the opening began from; close_side=origin drains here
     };
 
-    // Config and wobble conflict.
+    // Config gates. The window `enabled` master gates everything; movement, open, and close are independent below it.
     bool                          pluginEnabled() const;
+    bool                          movementEnabled() const;
+    bool                          openEnabled() const;
+    bool                          closeEnabled() const;
     double                        effectiveStrength() const;
     double                        effectiveViscosity() const;
     liquid_glass::MotionMode      effectiveMode() const;
     liquid_glass::MaterialParams  effectiveMaterialParams() const;
-    bool                          transitionsEnabled() const;
+    liquid_glass::MaterialParams  transitionParams(double elasticity, double momentum) const;
     bool                          materialUsable() const;
     bool                          materialChanged(const liquid_glass::LiquidMesh& mesh) const;
     bool                          wobbleEnabled() const;
@@ -72,7 +76,7 @@ class CPluginRuntime {
     liquid_glass::Edge                     firstWindowEdge() const;
     bool                                   workspaceHasOtherWindows(const PHLWINDOW& window) const;
     void                                   gatherNeighbours(const PHLWINDOW& window) const;
-    CBox                                   edgeBoundsBox(const PHLMONITOR& monitor) const;
+    CBox                                   edgeBoundsBox(const PHLMONITOR& monitor, bool opening) const;
     std::optional<liquid_glass::EdgeFrame> edgeFrameFor(const PHLWINDOW& window, bool opening, std::optional<liquid_glass::Edge> origin = std::nullopt) const;
     double                                 effectiveEmergeDrag() const;
     CHyprColor                             effectiveLiquidColor() const;
@@ -93,19 +97,33 @@ class CPluginRuntime {
     void                     detachAll();
 
     HANDLE                            m_handle = nullptr;
+    // window
     SP<Config::Values::CBoolValue>    m_enabled;
     SP<Config::Values::CFloatValue>   m_strength;
+    SP<Config::Values::CColorValue>   m_liquidColor;
+    // movement
+    SP<Config::Values::CBoolValue>    m_movementEnabled;
+    SP<Config::Values::CStringValue>  m_mode;
     SP<Config::Values::CFloatValue>   m_viscosity;
     SP<Config::Values::CFloatValue>   m_elasticity;
     SP<Config::Values::CFloatValue>   m_momentum;
-    SP<Config::Values::CBoolValue>    m_transitions;
-    SP<Config::Values::CBoolValue>    m_closeSplash;
-    SP<Config::Values::CStringValue>  m_mode;
+    SP<Config::Values::CFloatValue>   m_variation;
+    // open
+    SP<Config::Values::CBoolValue>    m_openEnabled;
+    SP<Config::Values::CStringValue>  m_openStyle;
     SP<Config::Values::CStringValue>  m_firstWindowSide;
     SP<Config::Values::CStringValue>  m_edgeBounds;
-    SP<Config::Values::CStringValue>  m_closeSide;
-    SP<Config::Values::CColorValue>   m_liquidColor;
     SP<Config::Values::CFloatValue>   m_emergeDrag;
+    SP<Config::Values::CFloatValue>   m_openElasticity;
+    SP<Config::Values::CFloatValue>   m_openMomentum;
+    // close
+    SP<Config::Values::CBoolValue>    m_closeEnabled;
+    SP<Config::Values::CStringValue>  m_closeStyle;
+    SP<Config::Values::CStringValue>  m_closeSide;
+    SP<Config::Values::CStringValue>  m_closeEdgeBounds;
+    SP<Config::Values::CBoolValue>    m_closeSplash;
+    SP<Config::Values::CFloatValue>   m_closeElasticity;
+    SP<Config::Values::CFloatValue>   m_closeMomentum;
     CConfigValue<Config::INTEGER>     m_wobble{"decoration:wobble:enabled"};
 
     std::vector<STracked>                   m_tracked;
@@ -114,6 +132,8 @@ class CPluginRuntime {
     std::unique_ptr<CLiquidCloseRenderer>   m_close;
     std::vector<PHLMONITORREF>              m_closeMonitors;
     mutable std::vector<liquid_glass::Box> m_neighbours; // tiled neighbours for the contact rule; rebuilt per edge choice
+    // Next per-window movement seed; random per load (set in the constructor), so loads do not replay characters.
+    std::uint64_t                          m_nextSeed = 0;
 
     CHyprSignalListener m_listenOpenLate;
     CHyprSignalListener m_listenClose;

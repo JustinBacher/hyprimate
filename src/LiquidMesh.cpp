@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <cmath>
 #include <cstddef>
 #include <numbers>
@@ -69,6 +70,18 @@ constexpr double kLiquidMaxSpeedScale = 10.0;
 // Head grip ramps from 0 at this q (on the trailing side of the leading face) to 1 at q = 1.
 constexpr double kLiquidGripStartQ = 0.25;
 
+// Per-motion variation spreads at variation 1; each factor takes an independent uniform draw r in [-1, 1].
+constexpr double kVaryOmegaOctaves = 0.4;  // body frequency x 2^(0.4 r): -24% to +32%
+constexpr double kVaryDamping = 0.35;      // underdamped ratio x (1 + 0.35 r), never above critical
+constexpr double kVaryLag = 0.3;           // lag x (1 + 0.3 r)
+constexpr double kVaryBowDepth = 0.3;      // bow depth 0.5 + 0.3 r
+constexpr double kVaryTaper = 0.6;         // taper x (1 + 0.6 r)
+constexpr double kVarySkew = 0.5;          // bow centre offset across the motion, in s units
+constexpr double kVaryLean = 0.25;         // sideways tail shear as a share of the lag
+constexpr double kVaryKick = 0.4;          // stop kick x (1 + 0.4 r)
+constexpr double kVaryVelocitySeconds = 0.35; // velocity filter x (1 + 0.35 r): response latency 39-81 ms
+constexpr double kMinDampingRatio = 0.1;
+
 constexpr double kMaxDisplacementLimit = 120.0;
 constexpr double kMaxDisplacementFraction = 0.2;
 // Wiggle keeps its original hard bound: min(96 px, 12% of the shorter side).
@@ -108,11 +121,21 @@ MaterialParams normalizeParams(MaterialParams p) noexcept {
     p.viscosity = normalizeParam(p.viscosity);
     p.elasticity = normalizeParam(p.elasticity);
     p.momentum = normalizeParam(p.momentum);
+    p.variation = normalizeParam(p.variation);
     return p;
 }
 
 bool hasFiniteParams(const MaterialParams& p) noexcept {
-    return std::isfinite(p.viscosity) && std::isfinite(p.elasticity) && std::isfinite(p.momentum);
+    return std::isfinite(p.viscosity) && std::isfinite(p.elasticity) && std::isfinite(p.momentum) &&
+           std::isfinite(p.variation);
+}
+
+// splitmix64 step: equal seeds give equal streams; neighbouring seeds give unrelated ones.
+std::uint64_t splitmix64(std::uint64_t& state) noexcept {
+    std::uint64_t z = (state += 0x9E3779B97F4A7C15ULL);
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+    return z ^ (z >> 31);
 }
 
 // Damping ratio from momentum: 1 = critically damped (no overshoot). Momentum 0.5 gives a trailing
@@ -279,17 +302,42 @@ double catmullRom(double p0, double p1, double p2, double p3, double t) noexcept
 
 } // namespace
 
-LiquidMesh::LiquidMesh(MotionMode mode, MaterialParams params) noexcept
+LiquidMesh::LiquidMesh(MotionMode mode, MaterialParams params, std::uint64_t seed) noexcept
     : m_mode(mode), m_params(normalizeParams(params)),
-      m_shearDamping(kLiquidShearDampingMin + kLiquidShearDampingRange * m_params.viscosity) {
-    // Gains depend only on elasticity and momentum, so compute once here, not per substep.
-    const double omega = kLiquidBaseOmega * std::exp2(m_params.elasticity - 0.5);
-    const double zeta = dampingRatio(m_params.momentum);
+      m_shearDamping(kLiquidShearDampingMin + kLiquidShearDampingRange * m_params.viscosity), m_rng(seed) {
+    rollCharacter();
+}
+
+double LiquidMesh::drawUnit() noexcept {
+    // Top 53 bits give a uniform double in [0, 1); map it to [-1, 1).
+    return static_cast<double>(splitmix64(m_rng) >> 11) * 0x1.0p-52 - 1.0;
+}
+
+void LiquidMesh::rollCharacter() noexcept {
+    // Nonfinite variation is rejected before integration; draw neutral so the gains stay finite meanwhile.
+    const double amount = std::isfinite(m_params.variation) ? m_params.variation : 0.0;
+    // Always draw every factor, so the stream position never depends on the variation amount.
+    std::array<double, 9> r{};
+    for (double& value : r)
+        value = amount * drawUnit();
+
+    const double omega = kLiquidBaseOmega * std::exp2(m_params.elasticity - 0.5 + kVaryOmegaOctaves * r[0]);
+    double zeta = dampingRatio(m_params.momentum);
+    if (zeta < 1.0)
+        zeta = std::clamp(zeta * (1.0 + kVaryDamping * r[1]), kMinDampingRatio, 1.0);
     m_bodyStiffness = omega * omega;
     m_bodyDamping = 2.0 * zeta * omega;
     m_headStiffness = kLiquidHeadStiffnessScale * m_bodyStiffness;
     // Head is always critically damped, so its damping is 2 * sqrt(stiffness).
     m_headDamping = 2.0 * std::sqrt(m_headStiffness);
+
+    m_lagGain = 1.0 + kVaryLag * r[2];
+    m_bowDepth = kLiquidBowDepth + kVaryBowDepth * r[3];
+    m_taperRatio = kLiquidTaperRatio * (1.0 + kVaryTaper * r[4]);
+    m_skew = kVarySkew * r[5];
+    m_lean = kVaryLean * r[6];
+    m_kickGain = 1.0 + kVaryKick * r[7];
+    m_velocitySeconds = kLiquidVelocitySeconds * (1.0 + kVaryVelocitySeconds * r[8]);
 }
 
 void LiquidMesh::reset() noexcept {
@@ -348,6 +396,9 @@ void LiquidMesh::recordTranslation(Vec2 delta, Vec2 size, double strength) noexc
             }
         }
         if (m_mode == MotionMode::Liquid) {
+            // Each movement from rest gets its own character, so meshes moved by the same delta still differ.
+            if (settled())
+                rollCharacter();
             m_pendingDelta.x += delta.x;
             m_pendingDelta.y += delta.y;
             m_strength = strength;
@@ -392,7 +443,7 @@ void LiquidMesh::integrateLiquidSubstep(Vec2 size) noexcept {
     // Lag magnitude in px: quadratic in speed for slow drags, about linear for fast ones.
     const double speed = std::hypot(m_windowVelocity.x, m_windowVelocity.y);
     const double lag = speed > 0.0
-                           ? kLiquidLagSeconds * m_strength * speed * speed / (speed + kLiquidLagSpeed)
+                           ? kLiquidLagSeconds * m_lagGain * m_strength * speed * speed / (speed + kLiquidLagSpeed)
                            : 0.0;
     // With no motion the lag is zero, so the direction is unused and any unit vector serves.
     const double dirX = speed > 0.0 ? m_windowVelocity.x / speed : 1.0;
@@ -403,6 +454,9 @@ void LiquidMesh::integrateLiquidSubstep(Vec2 size) noexcept {
     const double normalizer = 0.5 * (std::abs(dirX) + std::abs(dirY));
     const double gripBlend = 1.0 - std::exp(-kSubstepSeconds / kLiquidGripRelaxSeconds);
     const double shearDamping = m_shearDamping;
+    // The bow's deepest point sits at s = m_skew; dividing by 1 + |skew| keeps the far corner's lag at
+    // (1 - bow depth) of the deepest point, so a skewed bow never turns a trailing corner forward.
+    const double skewScale = 1.0 / (1.0 + std::abs(m_skew));
     // Landing: smoothed deceleration is a large share of speed, so the front releases at once instead of
     // waiting for the smoothed speed to fall through the quiet threshold.
     const bool landing = std::hypot(m_inertia.x, m_inertia.y) > kLiquidGripLandingRate * speed;
@@ -423,16 +477,18 @@ void LiquidMesh::integrateLiquidSubstep(Vec2 size) noexcept {
             const double lead = std::max(q, 0.0);
             const double trail = std::max(-q, 0.0);
             // Inertia weights: the leading face carries the push forward and the trailing edge a weaker share.
-            const double kickWeight = kLiquidStopKick * m_params.momentum *
+            const double kickWeight = kLiquidStopKick * m_kickGain * m_params.momentum *
                                       (lead * lead + kLiquidStopTrailRatio * trail * trail);
             const double damping = m_bodyDamping * (1.0 - g) + m_headDamping * g;
 
             // t: 1 at the trailing edge, 0 at the leading face. The trailing edge bows back at its middle and
             // the trailing corners taper cross-axis; both follow t^2 so the side edges curve toward the tail.
+            // The character skews the bow off-centre and leans the tail sideways (a shear along perp).
             const double t = 0.5 * (1.0 - q);
             const double t2 = t * t;
-            const double bow = t2 * (1.0 - kLiquidBowDepth * s * s);
-            const double taper = lag * kLiquidTaperRatio * t2 * s;
+            const double offset = (s - m_skew) * skewScale;
+            const double bow = t2 * (1.0 - m_bowDepth * offset * offset);
+            const double taper = lag * t2 * (m_taperRatio * s + m_lean);
             const Vec2 lagField{-(lag * bow * dirX + taper * perpX), -(lag * bow * dirY + taper * perpY)};
 
             const double gradX = lineSlope([&](unsigned k) { return div[gridIndex(k, y)]; }, x, spacing.x);
@@ -470,7 +526,7 @@ bool LiquidMesh::advance(double elapsedSeconds, Vec2 size) noexcept {
     // zero-delta frames average into the true speed instead of reading as a stop. Its change between ticks
     // gives the inertia pseudo-force: only deceleration or reversal along the previous motion is carried forward.
     if (m_mode == MotionMode::Liquid && elapsedSeconds > 0.0) {
-        const double decay = std::exp(-elapsedSeconds / kLiquidVelocitySeconds);
+        const double decay = std::exp(-elapsedSeconds / m_velocitySeconds);
         m_smoothDelta = {m_smoothDelta.x * decay + m_pendingDelta.x, m_smoothDelta.y * decay + m_pendingDelta.y};
         m_smoothTime = m_smoothTime * decay + elapsedSeconds;
         Vec2 velocity{m_smoothDelta.x / m_smoothTime, m_smoothDelta.y / m_smoothTime};

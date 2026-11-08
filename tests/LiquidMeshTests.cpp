@@ -7,6 +7,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <limits>
 
@@ -418,8 +419,8 @@ struct StopTrace {
 };
 
 // Drags at 2000 px/s for 0.25 s at 60 Hz, then stops and records the trailing response.
-StopTrace traceStop(const MaterialParams& params, double hz = 60.0) {
-    LiquidMesh mesh{MotionMode::Liquid, params};
+StopTrace traceStop(const MaterialParams& params, double hz = 60.0, std::uint64_t seed = 0) {
+    LiquidMesh mesh{MotionMode::Liquid, params, seed};
     for (int f = 0; f < static_cast<int>(std::lround(hz * 0.25)); ++f)
         driveFrame(mesh, Vec2{2000.0, 0.0}, hz, kWindow, kStrength);
 
@@ -458,8 +459,8 @@ struct LiquidSnapshots {
     std::array<Vec2, 81> stop;
 };
 
-LiquidSnapshots runLiquidSchedule(double hz, const MaterialParams& params) {
-    LiquidMesh mesh{MotionMode::Liquid, params};
+LiquidSnapshots runLiquidSchedule(double hz, const MaterialParams& params, std::uint64_t seed = 0) {
+    LiquidMesh mesh{MotionMode::Liquid, params, seed};
     const int framesDrag = static_cast<int>(std::lround(hz * 0.25));
     const int framesTotal = static_cast<int>(std::lround(hz * 0.5));
     for (int f = 0; f < framesDrag; ++f)
@@ -588,6 +589,7 @@ void testLiquidDegenerateGeometrySettles() {
         CHECK(maxMagnitude(mesh.displacements()) == 0.0);
     }
 }
+
 
 // Elasticity: higher elasticity returns faster.
 void testLiquidElasticitySettleTime() {
@@ -831,6 +833,79 @@ void testLiquidIrregularCadenceSteadyDrag() {
     }
 }
 
+// Variation 0: the seed has no effect, so every window moves exactly alike.
+void testVariationZeroIgnoresSeed() {
+    const LiquidSnapshots a = runLiquidSchedule(60.0, MaterialParams{}, 1);
+    const LiquidSnapshots b = runLiquidSchedule(60.0, MaterialParams{}, 0x9E3779B97F4A7C15ULL);
+    CHECK(maxDifference(a.drag, b.drag) == 0.0);
+    CHECK(maxDifference(a.stop, b.stop) == 0.0);
+}
+
+// Variation > 0: two windows given the same motion (a scrolling-layout pan) deform visibly differently,
+// while equal seeds stay reproducible.
+void testVariationSeedsDiffer() {
+    MaterialParams params{};
+    params.variation = 0.5;
+    const LiquidSnapshots a = runLiquidSchedule(60.0, params, 1);
+    const LiquidSnapshots b = runLiquidSchedule(60.0, params, 2);
+    const LiquidSnapshots again = runLiquidSchedule(60.0, params, 1);
+    CHECK(maxDifference(a.drag, b.drag) > 2.0);
+    CHECK(maxDifference(a.drag, again.drag) == 0.0);
+    CHECK(maxDifference(a.stop, again.stop) == 0.0);
+}
+
+// Each movement from rest draws a new character: the same window repeating the same move responds differently.
+void testVariationRerollsPerMotion() {
+    MaterialParams params{};
+    params.variation = 0.5;
+    LiquidMesh mesh{MotionMode::Liquid, params, 7};
+    const auto dragOnce = [&] {
+        for (int f = 0; f < 15; ++f)
+            driveFrame(mesh, Vec2{2000.0, 0.0}, 60.0, kWindow, kStrength);
+        const auto field = mesh.displacements();
+        for (int f = 0; f < 240 && !mesh.settled(); ++f)
+            coastFrame(mesh, 60.0, kWindow);
+        CHECK(mesh.settled());
+        return field;
+    };
+    const auto first = dragOnce();
+    const auto second = dragOnce();
+    CHECK(maxDifference(first, second) > 2.0);
+}
+
+// Full variation never folds the render mesh, still settles exactly, and keeps momentum 0 free of overshoot.
+void testVariationStaysValidAndSettles() {
+    for (const double momentum : {0.0, 0.5, 1.0}) {
+        MaterialParams params{};
+        params.variation = 1.0;
+        params.momentum = momentum;
+        for (std::uint64_t seed = 0; seed < 48; ++seed) {
+            LiquidMesh mesh{MotionMode::Liquid, params, seed};
+            bool valid = true;
+            for (int f = 0; f < 15; ++f) {
+                driveFrame(mesh, Vec2{2400.0, 900.0}, 60.0, kWindow, kStrength);
+                valid = valid && renderValid(mesh, kWindow) && latticeValid(mesh, kWindow);
+            }
+            for (int f = 0; f < 10; ++f) {
+                driveFrame(mesh, Vec2{-2400.0, -900.0}, 60.0, kWindow, kStrength);
+                valid = valid && renderValid(mesh, kWindow) && latticeValid(mesh, kWindow);
+            }
+            int frames = 0;
+            for (; frames < 150 && !mesh.settled(); ++frames) {
+                coastFrame(mesh, 60.0, kWindow);
+                valid = valid && renderValid(mesh, kWindow) && latticeValid(mesh, kWindow);
+            }
+            CHECK(valid);
+            CHECK(mesh.settled());
+
+            if (momentum == 0.0) {
+                const StopTrace t = traceStop(params, 60.0, seed);
+                CHECK(t.overshoot <= 0.02 * t.peakLag);
+            }
+        }
+    }
+}
+
 } // namespace
 
 int main() {
@@ -854,6 +929,10 @@ int main() {
     testSampleDisplacement();
     testViscosityResistsInternalFlow();
     testViscosityBoundariesAndCadence();
+    testVariationZeroIgnoresSeed();
+    testVariationSeedsDiffer();
+    testVariationRerollsPerMotion();
+    testVariationStaysValidAndSettles();
 
     if (g_failures == 0) {
         std::printf("liquid-mesh-tests: all checks passed\n");

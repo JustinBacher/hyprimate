@@ -960,7 +960,7 @@ Follow README "Isolated nested verification" exactly:
 
 1. Launch `Hyprland --config tests/nested/hyprland.lua` with the `env -u …` prefix.
 2. Pick the instance by exact PID and set `NEST_SIGNATURE`.
-3. `hyprctl -i "$NEST_SIGNATURE" plugin load /home/justin/projects/hypr-bubble/build/liquid-glass.so`.
+3. From the project root, `hyprctl -i "$NEST_SIGNATURE" plugin load "$PWD/build/liquid-glass.so"`.
 4. Enable the fixture's commented settings block and reload.
 
 Approve plugin permission only for this nested instance.

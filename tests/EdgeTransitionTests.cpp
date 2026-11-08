@@ -218,6 +218,7 @@ void testOpenEdgesPointTheRightWay() {
     }
 }
 
+
 // Meniscus during open: the neck attaches, snaps once, and recoils.
 void testOpenNeckAttachesSnapsOnceAndRecoils() {
     EdgeTransition tr;
@@ -320,6 +321,7 @@ void testCloseContinuesAnInterruptedOpen() {
 }
 
 
+
 // A close from rest shows no liquid until the drain (0.46 s at default elasticity = substep 111).
 void testCloseFromRestHasNoLiquidBeforeDrain() {
     constexpr int kDrainStep = 111;
@@ -329,6 +331,20 @@ void testCloseFromRestHasNoLiquidBeforeDrain() {
         tr.advance(kStep);
         CHECK(tr.meniscusPeak() == 0.0);
     }
+}
+
+// Close momentum changes the dive even when no opening was interrupted.
+void testCloseMomentumChangesDive() {
+    EdgeTransition low, high;
+    low.begin(Transition::Close, kQuarter, MaterialParams{.momentum = 0.0}, kStrength, false);
+    high.begin(Transition::Close, kQuarter, MaterialParams{.momentum = 1.0}, kStrength, false);
+    for (int i = 0; i < 90; ++i) {
+        low.advance(kStep);
+        high.advance(kStep);
+    }
+    const double lowNormal = liquid_glass::edgeNormal(kQuarter, low.map({0, 0}, kCapture));
+    const double highNormal = liquid_glass::edgeNormal(kQuarter, high.map({0, 0}, kCapture));
+    CHECK(highNormal < lowNormal);
 }
 
 // Movement-field guard: idle and settled meshes give 1; a moving mesh gives a power-of-two gain in [0, 1].
@@ -396,6 +412,28 @@ void testDisplacementGainKeepsTrianglesWhenCompensated() {
     }
 }
 
+
+// Closing from rest returns the dive's final travel when it reaches Closed; nothing is returned afterwards.
+void testCloseReturnsFinalTravel() {
+    EdgeTransition tr;
+    tr.begin(Transition::Close, kQuarter, MaterialParams{}, kStrength, false);
+    const Vec2 inward = liquid_glass::inwardNormal(kQuarter.edge);
+    bool       sawClosed = false;
+    double     closingTravel = 0.0;
+    for (int i = 0; i < 480 && tr.active(); ++i) {
+        tr.advance(kStep);
+        const bool reached = tr.closed();
+        const Vec2 t = tr.takeTravel();
+        if (reached && !sawClosed) {
+            sawClosed = true;
+            closingTravel = t.x * inward.x + t.y * inward.y;
+        }
+    }
+    CHECK(sawClosed);
+    CHECK(std::abs(closingTravel) > 1e-3);
+    const Vec2 after = tr.takeTravel();
+    CHECK(after.x == 0.0 && after.y == 0.0);
+}
 
 // Close begun on the same substep as an open: the open's neck is still hidden, so there is no liquid until the drain.
 void testCloseAfterOpenBeginHasNoLiquid() {
@@ -545,8 +583,10 @@ int main() {
     testCloseFromRestDrainsIntoTheEdge();
     testCloseContinuesAnInterruptedOpen();
     testCloseFromRestHasNoLiquidBeforeDrain();
+    testCloseMomentumChangesDive();
     testDisplacementGainGuard();
     testDisplacementGainKeepsTrianglesWhenCompensated();
+    testCloseReturnsFinalTravel();
     testCloseAfterOpenBeginHasNoLiquid();
     testCloseSplashAfterDrain();
     testCloseSplashOffLeavesNoLiquid();

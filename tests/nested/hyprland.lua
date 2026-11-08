@@ -40,10 +40,56 @@ hl.bind("ALT + C", hl.dsp.window.close())
 hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, suppress_event = "maximize" })
 
 -- Only add plugin settings AFTER the first plugin load registers its keys.
+-- BEGIN GENERATED PLUGIN CONFIG
 -- hl.config({
 --     decoration = { wobble = { enabled = false } },
---     plugin = { ["liquid_glass"] = { enabled = true, strength = 0.65, mode = "liquid", viscosity = 0.75,
---                                     elasticity = 0.5, momentum = 0.5, transitions = true,
---                                     first_window_side = "bottom", edge_bounds = "screen", close_side = "auto",
---                                     liquid_color = 0xff000000, emerge_drag = 0.5, close_splash = true } },
+--     plugin = {
+--         ["liquid_glass"] = {
+--             window = {
+--                 enabled = true,
+--                 strength = 0.65,
+--                 liquid_color = 0xff000000,
+--                 movement = {
+--                     enabled = true,
+--                     style = "liquid",
+--                     options = {
+--                         liquid = {
+--                             viscosity = 0.75,
+--                             elasticity = 0.5,
+--                             momentum = 0.5,
+--                             variation = 0.5,
+--                         },
+--                         wiggle = {},
+--                     },
+--                 },
+--                 open = {
+--                     enabled = true,
+--                     style = "liquid",
+--                     options = {
+--                         liquid = {
+--                             first_window_side = "bottom",
+--                             edge_bounds = "screen",
+--                             emerge_drag = 0.5,
+--                             elasticity = 0.5,
+--                             momentum = 0.5,
+--                         },
+--                     },
+--                 },
+--                 close = {
+--                     enabled = true,
+--                     style = "liquid",
+--                     options = {
+--                         liquid = {
+--                             side = "auto",
+--                             edge_bounds = "screen",
+--                             splash = true,
+--                             elasticity = 0.5,
+--                             momentum = 0.5,
+--                         },
+--                     },
+--                 },
+--             },
+--         },
+--     },
 -- })
+-- END GENERATED PLUGIN CONFIG

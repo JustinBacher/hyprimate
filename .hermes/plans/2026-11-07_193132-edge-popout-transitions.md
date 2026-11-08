@@ -472,7 +472,6 @@ void testOpenEdgesPointTheRightWay() {
         CHECK(o.x * sign.x + o.y * sign.y > 500.0);                                                // pushed out through that edge
     }
 }
-
 ```
 
 **Step 2:** Run → FAIL (undefined `begin`…).
@@ -829,7 +828,6 @@ void testCloseContinuesAnInterruptedOpen() {
     for (int i = 0; i < 480 && tr.active(); ++i) tr.advance(kStep);
     CHECK(tr.closed());
 }
-
 ```
 
 **Step 2:** Run → FAIL (the close branch is empty).
@@ -1214,15 +1212,15 @@ Expected: no matches.
 
 ## Phase C: Nested verification and tuning (real compositor)
 
-Use the README procedure. Never touch the primary instance.
+Use the README procedure from the project root. Never touch the primary instance.
 
 ### Task 13: Launch and load
 
 ```bash
 env -u HYPRLAND_INSTANCE_SIGNATURE HYPRLAND_NO_SD_VARS=1 HYPRLAND_NO_SD_NOTIFY=1 \
-  Hyprland --config /home/justin/projects/hypr-bubble/tests/nested/hyprland.lua &
+  Hyprland --config "$PWD/tests/nested/hyprland.lua" &
 hyprctl instances -j   # pick the entry whose pid == $! ; export NEST_SIGNATURE=<signature>
-hyprctl -i "$NEST_SIGNATURE" plugin load /home/justin/projects/hypr-bubble/build/liquid-glass.so
+hyprctl -i "$NEST_SIGNATURE" plugin load "$PWD/build/liquid-glass.so"
 hyprctl -i "$NEST_SIGNATURE" plugin list
 ```
 
@@ -1284,7 +1282,7 @@ After each change, rerun `ctest` (the invariants must hold) and recapture scenar
   - rewrite the **Open** and **Close** bullets from section 1 (edge rule, travel spring, fillet/neck/snap/recoil, constants, monitor-edge choice)
   - state that native `windowsIn` scale and translation are neutralised during the pop-out
   - state that native `fadeIn` alpha still applies (see the open questions)
-- Test sentence (line 84): `tests/EdgeTransitionTests.cpp` covers edge choice, hidden start, pop overshoot and exact rest, neck attach/snap/recoil, liquid bounds and continuity, refresh-rate agreement, close reach/drain/continuity, invalid input. Evidence lives in `.project-manager/evidence/edge/`.
+- Test sentence (line 84): `tests/EdgeTransitionTests.cpp` covers edge choice, hidden start, pop overshoot and exact rest, neck attach/snap/recoil, liquid bounds and continuity, refresh-rate agreement, close reach/drain/continuity and invalid input. Evidence lives in `.project-manager/evidence/edge/`.
 - `### Closing seam`: owned closes keep the snapshot alpha and disappear through the edge. The drain uses the edge chosen at close.
 - `tests/nested/hyprland.lua`: add `first_window_side = "bottom"` to the commented plugin settings block. No other changes.
 - Remove `/tmp/edge` captures and any throwaway helpers. Append the progress entry to `.project-manager/progress.md` with the build/CTest result, the evidence list and the final fingerprint.

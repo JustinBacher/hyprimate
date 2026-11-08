@@ -24,7 +24,7 @@ add_custom_command(
 )
 add_custom_target(generate-config DEPENDS ${CONFIG_GENERATED_DIR}/config_registration.inc ${CONFIG_GENERATED_DIR}/config_constants.inc)
 add_custom_target(update-config-docs
-    COMMAND ${Python3_EXECUTABLE} ${CONFIG_GENERATOR} --schema ${CONFIG_SCHEMA} --readme ${CMAKE_CURRENT_SOURCE_DIR}/README.md
+    COMMAND ${Python3_EXECUTABLE} ${CONFIG_GENERATOR} --schema ${CONFIG_SCHEMA} --readme ${CMAKE_CURRENT_SOURCE_DIR}/README.md --lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/nested/hyprland.lua
     VERBATIM
 )
 
@@ -46,7 +46,7 @@ target_compile_options(liquid-glass PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>:-fno
 
 include(CTest)
 if(BUILD_TESTING)
-    add_test(NAME config-docs-check COMMAND ${Python3_EXECUTABLE} ${CONFIG_GENERATOR} --schema ${CONFIG_SCHEMA} --readme ${CMAKE_CURRENT_SOURCE_DIR}/README.md --check)
+    add_test(NAME config-docs-check COMMAND ${Python3_EXECUTABLE} ${CONFIG_GENERATOR} --schema ${CONFIG_SCHEMA} --readme ${CMAKE_CURRENT_SOURCE_DIR}/README.md --lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/nested/hyprland.lua --check)
     add_test(NAME config-generator-tests COMMAND ${Python3_EXECUTABLE} -m unittest discover -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p test_config_generator.py)
     add_executable(liquid-mesh-tests tests/LiquidMeshTests.cpp src/LiquidMesh.cpp)
     target_include_directories(liquid-mesh-tests PRIVATE src)
