@@ -183,6 +183,27 @@ void testOpenStartsHiddenAndSettlesExactly() {
     CHECK(maxInward > 5.0);                                                    // visible pop overshoot
 }
 
+// The frame's capture is taken when the open begins, before the shadow reports its extents; the live capture is
+// larger. Once the spring is nearly settled, the window must fill the live capture along the normal, not the frame's.
+void testOpenFillsLiveCaptureAlongNormal() {
+    EdgeTransition tr;
+    tr.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
+    constexpr Vec2 kLive{kCapture.x, kCapture.y + 24.0}; // Bottom edge: the normal is vertical
+    double         worst   = 0.0;
+    int            checked = 0;
+    for (int i = 0; i < 960 && tr.active(); ++i) {
+        tr.advance(kStep);
+        if (i < 240 || !tr.active())
+            continue; // from 1 s of 240 Hz steps the spring is within a fraction of a pixel
+        const double far  = liquid_glass::edgeNormal(kQuarter, tr.map({0.0, -0.5 * kLive.y}, kLive));
+        const double near = liquid_glass::edgeNormal(kQuarter, tr.map({0.0, 0.5 * kLive.y}, kLive));
+        worst             = std::max(worst, std::abs((far - near) - kLive.y));
+        ++checked;
+    }
+    CHECK(checked > 0);
+    CHECK(worst < 1.0);
+}
+
 // The map never folds the image: every cell of a 33x33 grid keeps its positive orientation during the open.
 void testBeadMapDoesNotFold() {
     EdgeTransition tr;
@@ -305,6 +326,26 @@ void testCloseFromRestDrainsIntoTheEdge() {
     CHECK(tr.meniscusPeak() == 0.0);
 }
 
+// Shrinking into a bead must not brake to a hover before the dive.
+void testCloseKeepsMovingThroughTheShrink() {
+    for (double momentum : {0.0, 0.5, 1.0}) {
+        EdgeTransition tr;
+        tr.begin(Transition::Close, kQuarter, MaterialParams{.momentum = momentum}, kStrength, false);
+        double previousTravel = 0.0;
+        bool continuous = true;
+        for (int i = 0; i < 100; ++i) {
+            tr.advance(kStep);
+            const Vec2 travel = tr.takeTravel();
+            const Vec2 inward = liquid_glass::inwardNormal(kQuarter.edge);
+            const double outward = -(travel.x * inward.x + travel.y * inward.y);
+            if (i >= 24)
+                continuous = continuous && outward > 0.0 && outward >= 0.95 * previousTravel;
+            previousTravel = outward;
+        }
+        CHECK(continuous);
+    }
+}
+
 void testCloseContinuesAnInterruptedOpen() {
     EdgeTransition tr;
     tr.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
@@ -345,6 +386,32 @@ void testCloseMomentumChangesDive() {
     const double lowNormal = liquid_glass::edgeNormal(kQuarter, low.map({0, 0}, kCapture));
     const double highNormal = liquid_glass::edgeNormal(kQuarter, high.map({0, 0}, kCapture));
     CHECK(highNormal < lowNormal);
+}
+
+// A window whose real box follows the pop-out must sit exactly where the outline map puts the capture's extremes, on
+// every step, and be the rest box once the open has settled.
+void testBeadBoxMatchesMap() {
+    EdgeTransition tr;
+    tr.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
+    double worst = 0.0;
+    for (int i = 0; i < 960 && tr.active(); ++i) {
+        tr.advance(kStep);
+        if (!tr.active())
+            break;
+        const Vec2 c = tr.beadCentre();
+        const Vec2 h = tr.beadHalf(kCapture);
+        const Vec2 top    = tr.map({0.0, -0.5 * kCapture.y}, kCapture);
+        const Vec2 bottom = tr.map({0.0, 0.5 * kCapture.y}, kCapture);
+        const Vec2 left   = tr.map({-0.5 * kCapture.x, 0.0}, kCapture);
+        const Vec2 right  = tr.map({0.5 * kCapture.x, 0.0}, kCapture);
+        worst = std::max({worst, std::abs(top.y - (c.y - h.y)), std::abs(bottom.y - (c.y + h.y)), std::abs(left.x - (c.x - h.x)),
+                          std::abs(right.x - (c.x + h.x))});
+    }
+    CHECK(worst < 1e-6);
+    const Vec2 c = tr.beadCentre();
+    const Vec2 h = tr.beadHalf(kCapture);
+    CHECK(c.x == 0.0 && c.y == 0.0);
+    CHECK(h.x == 0.5 * kCapture.x && h.y == 0.5 * kCapture.y);
 }
 
 // Movement-field guard: idle and settled meshes give 1; a moving mesh gives a power-of-two gain in [0, 1].
@@ -574,13 +641,16 @@ int main() {
     testInvalidContactCandidateFallsBackToNearest();
     testOnlyTouchingNeighboursCount();
     testOpenStartsHiddenAndSettlesExactly();
+    testOpenFillsLiveCaptureAlongNormal();
     testBeadMapDoesNotFold();
     testOpenEdgesPointTheRightWay();
     testOpenNeckAttachesSnapsOnceAndRecoils();
+    testBeadBoxMatchesMap();
     testMeniscusShapeBounds();
     testOpenAgreesAcrossRefreshRates();
     testOpenTravelSumsToCentreDisplacement();
     testCloseFromRestDrainsIntoTheEdge();
+    testCloseKeepsMovingThroughTheShrink();
     testCloseContinuesAnInterruptedOpen();
     testCloseFromRestHasNoLiquidBeforeDrain();
     testCloseMomentumChangesDive();

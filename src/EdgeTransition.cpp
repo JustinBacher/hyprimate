@@ -42,7 +42,7 @@ constexpr double kRecoilSkirtGrowth = 0.6, kRecoilSkirtSeconds = 0.06, kRecoilPl
 constexpr double kRestHopPixels = 0.5, kRestHopPixelsPerSecond = 5.0;
 // Close.
 constexpr double kCloseSeconds = 0.46;
-constexpr double kShrinkEnd = 0.45;   // normal shrink and the first centre leg end here (fraction of the close)
+constexpr double kShrinkEnd = 0.45;   // normal shrink ends here (fraction of the close)
 constexpr double kShrinkTangentStart = 0.05, kShrinkTangentSpan = 0.5;
 constexpr double kDiveMargin = 2.0;   // px beyond the bead's far side when the close completes
 constexpr double kSplashSeconds      = 0.42;          // at elasticity 0.5; scaled by 2^(0.5 - elasticity)
@@ -368,6 +368,28 @@ void EdgeTransition::abort() noexcept {
 bool EdgeTransition::active() const noexcept { return m_phase == Phase::Opening || m_phase == Phase::Closing; }
 bool EdgeTransition::closed() const noexcept { return m_phase == Phase::Closed; }
 
+Vec2 EdgeTransition::beadCentre() const noexcept {
+    if (!active())
+        return {0.0, 0.0};
+    const bool   hz     = runsHorizontally(m_frame.edge);
+    const Vec2   in     = inwardNormal(m_frame.edge);
+    const Vec2   along  = hz ? Vec2{1.0, 0.0} : Vec2{0.0, 1.0};
+    const double tc     = 0.5 * (m_frame.bodyT0 + m_frame.bodyT1) * (1.0 - m_spreadT.value);
+    const double nc     = m_nc - m_frame.edgeDistance;
+    return {along.x * tc + in.x * nc, along.y * tc + in.y * nc};
+}
+
+Vec2 EdgeTransition::beadHalf(Vec2 restSize) const noexcept {
+    const bool   hz    = runsHorizontally(m_frame.edge);
+    const double halfT = 0.5 * (hz ? restSize.x : restSize.y);
+    const double halfN = 0.5 * (hz ? restSize.y : restSize.x);
+    if (!active())
+        return {0.5 * restSize.x, 0.5 * restSize.y};
+    const double eT = m_radius + (halfT - m_radius) * m_spreadT.value;
+    const double eN = m_radius + (halfN - m_radius) * m_spreadN.value;
+    return hz ? Vec2{eT, eN} : Vec2{eN, eT};
+}
+
 Vec2 EdgeTransition::map(Vec2 fromCentre, Vec2 size) const noexcept {
     if (!active() || !std::isfinite(fromCentre.x) || !std::isfinite(fromCentre.y) || !std::isfinite(size.x) ||
         !std::isfinite(size.y) || size.x <= 0.0 || size.y <= 0.0)
@@ -390,11 +412,13 @@ Vec2 EdgeTransition::map(Vec2 fromCentre, Vec2 size) const noexcept {
 
     const double centreT = 0.5 * (m_frame.bodyT0 + m_frame.bodyT1);
     const double tOut    = centreT * (1.0 - sT) + (m_radius + (halfT - m_radius) * sT) * shape.x;
-    const double nOut    = (m_nc - m_frame.edgeDistance) + eNormal() * shape.y;
+    // The normal extent comes from `size`, like the tangential one: the frame's capture is taken when the open begins,
+    // before decorations (shadow) report their extents, and a stale extent leaves the window short of its rest box.
+    const double nOut    = (m_nc - m_frame.edgeDistance) + (m_radius + (halfN - m_radius) * sN) * shape.y;
     return {along.x * tOut + in.x * nOut, along.y * tOut + in.y * nOut};
 }
 
-double EdgeTransition::displacementGain(const LiquidMesh& mesh, Vec2 restSize, Vec2 compensation) const noexcept {
+double EdgeTransition::displacementGain(const LiquidMesh& mesh, Vec2 restSize, Vec2 compensation, bool boxCarriesPose) const noexcept {
     if (!active() || mesh.settled())
         return 1.0;
     if (!std::isfinite(restSize.x) || !std::isfinite(restSize.y) || !std::isfinite(compensation.x)
@@ -413,16 +437,17 @@ double EdgeTransition::displacementGain(const LiquidMesh& mesh, Vec2 restSize, V
             const int    k = j * kGridSide + i;
             base[k]        = {(u - 0.5) * restSize.x, (v - 0.5) * restSize.y};
             flow[k]        = mesh.sampleDisplacement(u, v);
-            mapOnly[k]     = map({base[k].x * compensation.x, base[k].y * compensation.y}, scaled);
+            mapOnly[k]     = boxCarriesPose ? base[k] : map({base[k].x * compensation.x, base[k].y * compensation.y}, scaled);
         }
     }
 
     for (int h = 0; h <= kGainHalvings; ++h) {
         const double gain = std::ldexp(1.0, -h);
         for (int k = 0; k < kVertices; ++k)
-            moved[k] = map({(base[k].x + gain * flow[k].x) * compensation.x,
-                            (base[k].y + gain * flow[k].y) * compensation.y},
-                           scaled);
+            moved[k] = boxCarriesPose ? Vec2{base[k].x + gain * flow[k].x, base[k].y + gain * flow[k].y}
+                                      : map({(base[k].x + gain * flow[k].x) * compensation.x,
+                                             (base[k].y + gain * flow[k].y) * compensation.y},
+                                            scaled);
 
         bool ok = true;
         for (int j = 0; ok && j + 1 < kGridSide; ++j) {
@@ -517,17 +542,12 @@ void EdgeTransition::step() noexcept {
         // Shrink: the pill folds back into a circle, normal first, then tangential.
         m_spreadN.value = m_sN0 * (1.0 - easeInOutCubic(p / kShrinkEnd));
         m_spreadT.value = m_sT0 * (1.0 - easeInOutCubic((p - kShrinkTangentStart) / kShrinkTangentSpan));
-        // Centre: rise to the hover point while shrinking, then dive behind the edge.
-        // Blend quadratic/cubic/quartic curves so the default momentum retains the original dive.
-        if (p < kShrinkEnd) {
-            m_nc = lerp(m_nc0, m_hover, easeInOutCubic(p / kShrinkEnd));
-        } else {
-            const double q = (p - kShrinkEnd) / (1.0 - kShrinkEnd);
-            const double square = q * q, cubic = square * q;
-            const double dive = m_closeMomentum < 0.5 ? lerp(cubic * q, cubic, m_closeMomentum * 2.0)
-                                                     : lerp(cubic, square, (m_closeMomentum - 0.5) * 2.0);
-            m_nc = lerp(m_hover, -m_radius - kDiveMargin, dive);
-        }
+        // One continuous trajectory: shrinking must not stop the centre at a hover point.
+        // Momentum advances the dive without introducing a second launch.
+        const double square = p * p, cubic = square * p;
+        const double dive = m_closeMomentum < 0.5 ? lerp(cubic, square, m_closeMomentum * 2.0)
+                                                 : lerp(square, 2.0 * square - cubic, (m_closeMomentum - 0.5) * 2.0);
+        m_nc = lerp(m_nc0, -m_radius - kDiveMargin, dive);
         if (m_recoiling)
             advanceRecoil(); // residual recoil from an interrupted opening keeps falling
         if (m_time < m_duration - kAccumulatorTolerance)

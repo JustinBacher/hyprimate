@@ -3,6 +3,8 @@
 #include "EdgeTransition.hpp"
 #include "LiquidGlassTransformer.hpp"
 #include "LiquidMesh.hpp"
+#include "PaperCrumple.hpp"
+#include "PaperRenderer.hpp"
 #include "SolidFill.hpp"
 
 #include <hyprland/src/desktop/state/Fadeout.hpp>
@@ -56,10 +58,17 @@ class CLiquidCloseRenderer {
         bool                                   hasLiquid = false;      // edge liquid present this frame
         CBox                                   liquidDevice;           // edge liquid box inside the snapshot, device px
         std::vector<SMeshRenderVertex>         liquidVertices;         // normalized to liquidDevice; sized once
+        // Paper close: the crumple drives shape, shading and placement; the liquid fields above stay unused.
+        bool                                   paper = false;
+        liquid_glass::PaperCrumple             paperState;
+        liquid_glass::PaperFacets              paperFacets{};
+        std::vector<SMeshRenderVertex>         paperVertices;      // normalized to extentsDevice; sized once
+        std::vector<SMeshRenderVertex>         paperShadeVertices; // same placement; uv addresses the shade ramp
+        bool                                   paperStale = false; // paper advanced since the meshes were filled
         clock::time_point                      lastAdvance{};
     };
 
-    explicit CLiquidCloseRenderer(HANDLE handle, SP<CSolidFill> solid);
+    explicit CLiquidCloseRenderer(HANDLE handle, SP<CSolidFill> solid, SP<CPaperShade> shade);
     ~CLiquidCloseRenderer();
 
     CLiquidCloseRenderer(const CLiquidCloseRenderer&)            = delete;
@@ -76,6 +85,11 @@ class CLiquidCloseRenderer {
     // carries the close's own elasticity/momentum; the movement mesh's params never drive the close edge transition.
     void stage(const PHLWINDOW& window, const SLiquidPose& pose, double strength, std::optional<liquid_glass::EdgeFrame> closeFrame, double drive,
                bool closeSplash, const liquid_glass::MaterialParams& transition);
+
+    // Captures a paper close from the window's current crumple `from` (idle when the window opened in liquid style, so
+    // the close starts flat). Call from the window.close listener, before the window is detached.
+    void stagePaper(const PHLWINDOW& window, const liquid_glass::PaperCrumple& from, const liquid_glass::PaperParams& params,
+                    std::uint64_t seed);
 
     // Advances closing records. Returns true while any record still animates; `activeMonitors` is refilled with the
     // monitors to damage, including the frame in which an owned close finishes or a record is pruned.
@@ -110,6 +124,10 @@ class CLiquidCloseRenderer {
         std::optional<liquid_glass::EdgeFrame>   closeFrame;
         bool                                     closeSplash = true;
         liquid_glass::MaterialParams             closeParams{};
+        bool                                     paper = false;
+        liquid_glass::PaperCrumple               paperState;
+        liquid_glass::PaperParams                paperParams{};
+        std::uint64_t                            paperSeed = 0;
         clock::time_point                        staged{};
     };
 
@@ -122,9 +140,12 @@ class CLiquidCloseRenderer {
 
     SClosing* recordFor(const SP<Desktop::IFadeout>& fadeout) const;
     void      fillVertices(SClosing& record) const;
+    std::optional<SPending>                pendingFor(const PHLWINDOW& window) const;
+    void                                   push(SPending pending);
 
     HANDLE                                 m_handle;
     SP<CSolidFill>                         m_solid;
+    SP<CPaperShade>                        m_shade;
     // Owned by the host hook system; created and removed only through HyprlandAPI.
     CFunctionHook*                         m_createHook = nullptr;
     CFunctionHook*                         m_renderHook = nullptr;
@@ -154,6 +175,36 @@ class CLiquidClosePassElement final : public IPassElement {
 
     explicit CLiquidClosePassElement(SData data);
     ~CLiquidClosePassElement() override = default;
+
+    std::vector<UP<IPassElement>> draw(Render::CRenderContext& ctx) override;
+    bool                          needsLiveBlur(Render::CRenderContext& ctx) override;
+    bool                          needsPrecomputeBlur(Render::CRenderContext& ctx) override;
+    const char*                   passName() override;
+    ePassElementType              type() override;
+    std::optional<CBox>           boundingBox(Render::CRenderContext& ctx) override;
+    CRegion                       opaqueRegion(Render::CRenderContext& ctx) override;
+
+  private:
+    SData m_data;
+};
+
+// Draws a paper close: the crumpled sheet, lit through the shade layer when one is present. Same lifetime rules as
+// CLiquidClosePassElement; it borrows its vertices from the record.
+class CPaperClosePassElement final : public IPassElement {
+  public:
+    struct SData {
+        SP<Render::ITexture>                  tex;
+        SP<Render::ITexture>                  shade;               // lit tint layer; null draws unlit
+        CBox                                  box;                 // output box, monitor-local device px
+        const std::vector<SMeshRenderVertex>* vertices      = nullptr;
+        const std::vector<SMeshRenderVertex>* shadeVertices = nullptr;
+        float                                 alpha         = 1.F;
+        double                                scale         = 1.0;
+        CRegion                               damage;
+    };
+
+    explicit CPaperClosePassElement(SData data);
+    ~CPaperClosePassElement() override = default;
 
     std::vector<UP<IPassElement>> draw(Render::CRenderContext& ctx) override;
     bool                          needsLiveBlur(Render::CRenderContext& ctx) override;

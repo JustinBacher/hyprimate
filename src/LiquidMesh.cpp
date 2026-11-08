@@ -130,14 +130,6 @@ bool hasFiniteParams(const MaterialParams& p) noexcept {
            std::isfinite(p.variation);
 }
 
-// splitmix64 step: equal seeds give equal streams; neighbouring seeds give unrelated ones.
-std::uint64_t splitmix64(std::uint64_t& state) noexcept {
-    std::uint64_t z = (state += 0x9E3779B97F4A7C15ULL);
-    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
-    z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
-    return z ^ (z >> 31);
-}
-
 // Damping ratio from momentum: 1 = critically damped (no overshoot). Momentum 0.5 gives a trailing
 // surge of about 20% of the lag after a stop; momentum 1 gives a larger, still decaying surge.
 double dampingRatio(double momentum) noexcept {

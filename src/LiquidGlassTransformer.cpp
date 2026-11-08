@@ -31,11 +31,14 @@ namespace {
         return static_cast<double>(i) / LIQUID_RENDER_CELLS;
     }
 
-    // Window sample offset from the box centre, in logical px: mesh displacement, pop-out travel and open geometry.
+    // Window sample offset from the box centre, in logical px. A box-driven open leaves only the movement field: the
+    // real window box already is the pop-out. Otherwise (a retained closing snapshot) the pop-out maps the rest box.
     Vec2 poseOffset(const SLiquidPose& pose, double u, double v, Vec2 size) {
         const Vec2   d        = pose.mesh.sampleDisplacement(u, v);
-        const Vec2   c        = pose.compensation;
         const double gain     = pose.displacementGain;
+        if (pose.boxPose)
+            return {(u - 0.5) * size.x + d.x * gain, (v - 0.5) * size.y + d.y * gain};
+        const Vec2   c        = pose.compensation;
         const Vec2   scaled{size.x * c.x, size.y * c.y};
         const Vec2   mapped   = pose.transition.map({((u - 0.5) * size.x + d.x * gain) * c.x, ((v - 0.5) * size.y + d.y * gain) * c.y}, scaled);
         return {mapped.x + pose.openOffset.x, mapped.y + pose.openOffset.y};
@@ -233,54 +236,147 @@ void fillLiquidMeniscusMesh(const SLiquidPose& pose, const CBox& sourceDevice, d
 }
 
 CLiquidGlassTransformer::CLiquidGlassTransformer(PHLWINDOWREF window, liquid_glass::MotionMode mode, liquid_glass::MaterialParams params,
-                                                 std::uint64_t seed, SP<CSolidFill> solid)
-    : m_window(std::move(window)), m_mesh(mode, params, seed), m_solid(std::move(solid)), m_vertices(LIQUID_RENDER_VERTEX_COUNT),
-      m_meniscusVertices(LIQUID_MENISCUS_VERTEX_COUNT) {}
+                                                 std::uint64_t seed, SP<CSolidFill> solid, SP<CPaperShade> shade)
+    : m_window(std::move(window)), m_mesh(mode, params, seed), m_solid(std::move(solid)), m_shade(std::move(shade)),
+      m_vertices(LIQUID_RENDER_VERTEX_COUNT), m_meniscusVertices(LIQUID_MENISCUS_VERTEX_COUNT), m_paperVertices(PAPER_VERTEX_COUNT),
+      m_paperShadeVertices(PAPER_VERTEX_COUNT) {}
 
 void CLiquidGlassTransformer::beginOpen(const liquid_glass::EdgeFrame& frame, const liquid_glass::MaterialParams& params, double strength,
                                         Vec2 captureSize) {
     m_transition.begin(liquid_glass::Transition::Open, frame, params, strength);
-    m_openGeometry = m_transition.active();
+    m_boxDriven = m_transition.active();
+    m_warped    = false;
+    if (const auto window = m_window.lock(); window && m_boxDriven)
+        m_goalBody = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
     refreshPose(captureSize);
 }
 
-Vec2 CLiquidGlassTransformer::openCompensation(const PHLWINDOW& window) const {
-    if (!m_openGeometry || !window->presentation().animatingIn())
-        return {1.0, 1.0};
-    const CBox current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
-    const CBox goal = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
-    if (!(current.w > 0.0 && current.h > 0.0 && std::isfinite(goal.w) && std::isfinite(goal.h) && goal.w > 0.0 && goal.h > 0.0))
-        return {1.0, 1.0};
-    return {std::clamp(goal.w / current.w, 0.25, 4.0), std::clamp(goal.h / current.h, 0.25, 4.0)};
+void CLiquidGlassTransformer::cancelOpening() {
+    restoreBox();
+    m_transition.reset();
+    m_boxDriven        = false;
+    m_displacementGain = 1.0;
+    m_paper.reset();
 }
 
-Vec2 CLiquidGlassTransformer::openOffset(const PHLWINDOW& window) const {
-    if (!m_openGeometry || !window->presentation().animatingIn())
-        return {0.0, 0.0};
+void CLiquidGlassTransformer::beginPaperOpen(const liquid_glass::PaperParams& params, std::uint64_t seed, Vec2 captureSize) {
+    cancelOpening();
+    m_paper.begin(liquid_glass::Transition::Open, params, seed);
+    m_paperCaptureSize = captureSize;
+    m_paperFacetsStale = true;
+}
+
+void CLiquidGlassTransformer::advancePaper(double elapsed, Vec2 captureSize) {
+    if (!m_paper.active())
+        return;
+    m_paper.advance(elapsed);
+    m_paperCaptureSize = captureSize;
+    m_paperFacetsStale = true;
+}
+
+const liquid_glass::PaperFacets& CLiquidGlassTransformer::paperFacets() const noexcept {
+    if (m_paperFacetsStale) {
+        m_paper.facets(m_paperCaptureSize, m_paperFacets);
+        m_paperFacetsStale = false;
+    }
+    return m_paperFacets;
+}
+
+void CLiquidGlassTransformer::restoreBox() {
+    if (!m_boxDriven || !m_warped)
+        return;
+    m_warped = false;
+    const auto window = m_window.lock();
+    if (!window || !(m_goalBody.w > 0.0 && m_goalBody.h > 0.0))
+        return;
+    window->positionAnimation()->setValueAndWarp(m_goalBody.pos());
+    window->sizeAnimation()->setValueAndWarp(m_goalBody.size());
+}
+
+void CLiquidGlassTransformer::driveBox() {
+    if (!m_boxDriven)
+        return;
+    if (!m_transition.active()) {
+        restoreBox();
+        m_boxDriven = false;
+        return;
+    }
+    const auto window = m_window.lock();
+    if (!window)
+        return;
+
+    auto& positionVar = window->positionAnimation();
+    auto& sizeVar     = window->sizeAnimation();
+    // The layout retargets the real box through the same variables. A goal other than the one this wrote is the layout's.
+    if (m_warped && (positionVar->goal() != m_warpPosition || sizeVar->goal() != m_warpSize))
+        m_goalBody = CBox{positionVar->goal(), sizeVar->goal()};
+    if (!(m_goalBody.w > 0.0 && m_goalBody.h > 0.0))
+        return;
+
+    // Decorations (border, shadow) do not scale with the box, so the live margins hold at any size.
+    const CBox   current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+    const CBox   capture = window->getFullWindowBoundingBox();
+    const double left    = current.x - capture.x;
+    const double top     = current.y - capture.y;
+    const double right   = (capture.x + capture.w) - (current.x + current.w);
+    const double bottom  = (capture.y + capture.h) - (current.y + current.h);
+    if (!(std::isfinite(left) && std::isfinite(top) && std::isfinite(right) && std::isfinite(bottom)))
+        return;
+
+    const CBox   rest   = {m_goalBody.x - left, m_goalBody.y - top, m_goalBody.w + left + right, m_goalBody.h + top + bottom};
+    const Vec2   half   = m_transition.beadHalf({rest.w, rest.h});
+    const Vec2   centre = m_transition.beadCentre();
+    const double cx     = rest.x + 0.5 * rest.w + centre.x;
+    const double cy     = rest.y + 0.5 * rest.h + centre.y;
+    constexpr double MIN_SIDE = 2.0;
+    const double w = std::max(MIN_SIDE, 2.0 * half.x - left - right);
+    const double h = std::max(MIN_SIDE, 2.0 * half.y - top - bottom);
+    const Vector2D position{cx - half.x + left, cy - half.y + top};
+    const Vector2D size{w, h};
+
+    positionVar->setValueAndWarp(position);
+    sizeVar->setValueAndWarp(size);
+    m_warpPosition = position;
+    m_warpSize     = size;
+    m_warped       = true;
+}
+
+// Pop-out geometry for a retained closing snapshot: the window as drawn at its driven box, scaled and moved back to the
+// rest box. The scale is large for a small bead; the bound only guards against degenerate boxes.
+SLiquidPose CLiquidGlassTransformer::closePose() const {
+    const auto window = m_window.lock();
+    if (!window || !m_boxDriven)
+        return {m_mesh, m_transition, {1.0, 1.0}, {0.0, 0.0}, m_displacementGain, false};
     const CBox current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
-    const CBox goal    = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
-    if (!(std::isfinite(current.x) && std::isfinite(current.y) && std::isfinite(current.w) && std::isfinite(current.h) &&
-          std::isfinite(goal.x) && std::isfinite(goal.y) && std::isfinite(goal.w) && std::isfinite(goal.h)))
-        return {0.0, 0.0};
-    return {(goal.x + 0.5 * goal.w) - (current.x + 0.5 * current.w), (goal.y + 0.5 * goal.h) - (current.y + 0.5 * current.h)};
+    const CBox goal    = m_goalBody;
+    if (!(current.w > 0.0 && current.h > 0.0 && goal.w > 0.0 && goal.h > 0.0))
+        return {m_mesh, m_transition, {1.0, 1.0}, {0.0, 0.0}, m_displacementGain, false};
+    constexpr double MAX_SCALE = 64.0;
+    return {m_mesh,
+            m_transition,
+            {std::clamp(goal.w / current.w, 1.0 / MAX_SCALE, MAX_SCALE), std::clamp(goal.h / current.h, 1.0 / MAX_SCALE, MAX_SCALE)},
+            {(goal.x + 0.5 * goal.w) - (current.x + 0.5 * current.w), (goal.y + 0.5 * goal.h) - (current.y + 0.5 * current.h)},
+            m_displacementGain,
+            false};
 }
 
 SLiquidPose CLiquidGlassTransformer::renderPose() const {
-    const auto window = m_window.lock();
-    return {m_mesh, m_transition, m_compensation, window ? openOffset(window) : Vec2{0.0, 0.0}, m_displacementGain};
+    if (!m_boxDriven)
+        return {m_mesh, m_transition, {1.0, 1.0}, {0.0, 0.0}, m_displacementGain, false};
+    // The window is drawn at the pop-out box, so the rest centre sits at minus the bead's centre from it.
+    const Vec2 bead = m_transition.beadCentre();
+    return {m_mesh, m_transition, {1.0, 1.0}, {-bead.x, -bead.y}, m_displacementGain, true};
 }
 
 void CLiquidGlassTransformer::refreshPose(Vec2 captureSize) {
-    const auto window = m_window.lock();
-    m_compensation     = window ? openCompensation(window) : Vec2{1.0, 1.0};
-    m_displacementGain = m_transition.displacementGain(m_mesh, captureSize, m_compensation);
+    m_displacementGain = m_transition.displacementGain(m_mesh, captureSize, {1.0, 1.0}, m_boxDriven);
 }
 
 bool CLiquidGlassTransformer::active() const {
     const auto window = m_window.lock();
     if (m_detached || !window || !window->mapped() || Fullscreen::controller()->isFullscreen(window))
         return false;
-    if (m_mesh.settled() && !m_transition.active() && !(m_openGeometry && window->presentation().animatingIn()))
+    if (m_mesh.settled() && !m_transition.active() && !m_paper.active())
         return false;
     const auto box = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
     return std::isfinite(box.x) && std::isfinite(box.y) && std::isfinite(box.w) && std::isfinite(box.h) && !box.empty();
@@ -297,6 +393,12 @@ bool CLiquidGlassTransformer::blocksDirectScanout() const {
 CBox CLiquidGlassTransformer::transformedExtents(const CBox& currentBox) const {
     if (!active())
         return currentBox;
+
+    if (m_paper.active()) {
+        CBox extents = paperExtents(paperFacets(), currentBox);
+        extents.expand(EXTENTS_PADDING);
+        return extents;
+    }
 
     const SLiquidPose pose = renderPose();
     CBox extents = liquidRenderExtents(pose, currentBox);
@@ -330,6 +432,37 @@ SWindowTransformBuffer CLiquidGlassTransformer::transform(CRenderContext& ctx, c
     if (OUTPUTCANVAS.empty() || SOURCEBOX.empty() || OUTPUTBOX.empty())
         return in;
 
+    const auto   texSize = in.framebuffer->getTexture()->m_size;
+    const double texW    = texSize.x;
+    const double texH    = texSize.y;
+    if (!(texW > 0.0 && texH > 0.0))
+        return in;
+
+    if (m_paper.active()) {
+        // The paper branch draws its own work buffer, so it never allocates the liquid OUT buffer.
+        fillPaperMeshes(paperFacets(), SOURCEBOX, SCALE, OUTPUTBOX, Vec2{in.box.x, in.box.y}, Vec2{texW, texH}, m_paperVertices,
+                        m_paperShadeVertices);
+        const auto layer = renderPaper(ctx, SPaperDraw{
+            .window         = in.framebuffer->getTexture(),
+            .shade          = m_paper.shaded() && m_shade ? m_shade->texture() : SP<Render::ITexture>{},
+            .canvas         = OUTPUTCANVAS.size(),
+            .meshBox        = LOCALOUTPUTBOX,
+            .windowVertices = &m_paperVertices,
+            .shadeVertices  = &m_paperShadeVertices,
+            .alpha          = float(m_paper.opacity()),
+        });
+        if (!layer)
+            return {
+                .framebuffer = in.framebuffer,
+                .box         = in.box,
+                .success     = false,
+            };
+        return {
+            .framebuffer = layer,
+            .box         = OUTPUTCANVAS,
+        };
+    }
+
     const auto OUT = g_pHyprRenderer->getWorkBuffer(ctx, OUTPUTCANVAS.size());
     if (!OUT)
         return {
@@ -337,12 +470,6 @@ SWindowTransformBuffer CLiquidGlassTransformer::transform(CRenderContext& ctx, c
             .box         = in.box,
             .success     = false,
         };
-
-    const auto   texSize = in.framebuffer->getTexture()->m_size;
-    const double texW    = texSize.x;
-    const double texH    = texSize.y;
-    if (!(texW > 0.0 && texH > 0.0))
-        return in;
 
     const SLiquidPose pose    = renderPose();
     const auto        visible = liquidVisibleBox(pose, context.currentBox);

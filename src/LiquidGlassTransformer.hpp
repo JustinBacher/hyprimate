@@ -2,6 +2,8 @@
 
 #include "EdgeTransition.hpp"
 #include "LiquidMesh.hpp"
+#include "PaperCrumple.hpp"
+#include "PaperRenderer.hpp"
 #include "SolidFill.hpp"
 
 #include <hyprland/src/helpers/DeformableMesh.hpp>
@@ -22,7 +24,10 @@ inline constexpr std::size_t LIQUID_RENDER_VERTEX_COUNT =
 inline constexpr int LIQUID_MENISCUS_COLUMNS = 96;
 inline constexpr std::size_t LIQUID_MENISCUS_VERTEX_COUNT = static_cast<std::size_t>(LIQUID_MENISCUS_COLUMNS) * 6;
 
-// One pose for both live-window transforms and retained closing snapshots.
+// One pose for both live-window transforms and retained closing snapshots. With `boxPose` the real window box is driven
+// to follow the pop-out, so the renderer applies only the movement field to the window and `openOffset` only places the
+// edge liquid. Without it (closing snapshots) `compensation` and `openOffset` carry the window from its drawn box to the
+// rest box.
 struct SLiquidPose {
     const liquid_glass::LiquidMesh&       mesh;
     const liquid_glass::EdgeTransition&   transition;
@@ -30,6 +35,7 @@ struct SLiquidPose {
     liquid_glass::Vec2                    openOffset{0.0, 0.0};
     // Cached movement-field guard (EdgeTransition::displacementGain); 1 when idle.
     double                                displacementGain = 1.0;
+    bool                                  boxPose          = false;
 };
 
 // Advances the edge pop-out and the movement field one frame. `drive` (0-1) is the share of pop-out travel fed to the
@@ -61,7 +67,7 @@ void fillLiquidMeniscusMesh(const SLiquidPose& pose, const CBox& sourceDevice, d
 class CLiquidGlassTransformer final : public Render::IWindowTransformer {
   public:
     explicit CLiquidGlassTransformer(PHLWINDOWREF window, liquid_glass::MotionMode mode, liquid_glass::MaterialParams params, std::uint64_t seed,
-                                     SP<CSolidFill> solid);
+                                     SP<CSolidFill> solid, SP<CPaperShade> shade);
     ~CLiquidGlassTransformer() override = default;
 
     CLiquidGlassTransformer(const CLiquidGlassTransformer&)            = delete;
@@ -80,27 +86,57 @@ class CLiquidGlassTransformer final : public Render::IWindowTransformer {
     const liquid_glass::EdgeTransition& transition() const noexcept { return m_transition; }
     // `captureSize` is the decorated capture size the physics advances with; it also refreshes the cached gain.
     void beginOpen(const liquid_glass::EdgeFrame& frame, const liquid_glass::MaterialParams& params, double strength, liquid_glass::Vec2 captureSize);
+    // The pose the transformer draws with.
     SLiquidPose renderPose() const;
-    void cancelOpening() noexcept { m_transition.reset(); m_openGeometry = false; m_displacementGain = 1.0; m_compensation = {1.0, 1.0}; }
+    // The same pop-out for a closing snapshot taken now: the window as drawn at its driven box, mapped to the rest box.
+    SLiquidPose closePose() const;
+    // Follows the pop-out with the window's real box, so decorations that draw at that box (borders, HyprGlass) grow out
+    // of the bead with the window. Called once per physics advance after the transition has stepped; restores the layout
+    // box when the pop-out ends.
+    void driveBox();
+    // Ends the pop-out and returns the real box to the layout's.
+    void cancelOpening();
     // Recomputes the cached movement-field gain. Called once per physics advance, never from the render path.
     void refreshPose(liquid_glass::Vec2 captureSize);
+    // Starts the paper crumple at the window's box. `captureSize` is the decorated capture size; the transformer
+    // cancels any liquid pop-out first, so the box drive is never shared with the paper.
+    void beginPaperOpen(const liquid_glass::PaperParams& params, std::uint64_t seed, liquid_glass::Vec2 captureSize);
+    // Advances the paper model. Facets are recomputed lazily by the render path, once per drawn frame: physics ticks
+    // run several times per frame, and refreshing the facets on each tick multiplied their cost for nothing.
+    void advancePaper(double elapsed, liquid_glass::Vec2 captureSize);
+    liquid_glass::PaperCrumple&       paper() noexcept { return m_paper; }
+    const liquid_glass::PaperCrumple& paper() const noexcept { return m_paper; }
 
     // Set by the runtime right before this transformer is removed from its owner list.
-    void markDetached() noexcept { m_detached = true; m_mesh.reset(); cancelOpening(); }
+    void markDetached() { m_detached = true; m_mesh.reset(); cancelOpening(); }
 
   private:
-    liquid_glass::Vec2 openCompensation(const PHLWINDOW& window) const;
-    liquid_glass::Vec2 openOffset(const PHLWINDOW& window) const;
+    // The paper's facets for its current state, recomputed only after the model advanced.
+    const liquid_glass::PaperFacets& paperFacets() const noexcept;
+    void restoreBox();
     PHLWINDOWREF                    m_window;
     liquid_glass::LiquidMesh        m_mesh;
     liquid_glass::EdgeTransition    m_transition;
     SP<CSolidFill>                  m_solid;
-    bool                            m_openGeometry = false;
+    SP<CPaperShade>                 m_shade;
+    // True from beginOpen until the layout box is restored: the real window box follows the pop-out.
+    bool                            m_boxDriven = false;
+    // The layout's box for the window (body, without decorations), tracked while the real box is driven.
+    CBox                            m_goalBody{};
+    // Last box written to the real box; a different goal in the animation means the layout retargeted it.
+    Vector2D                        m_warpPosition{};
+    Vector2D                        m_warpSize{};
+    bool                            m_warped = false;
     double                          m_displacementGain = 1.0;
-    // Open scale the cached gain was computed with; the render path uses this exact value so gain and map agree.
-    liquid_glass::Vec2              m_compensation{1.0, 1.0};
     bool                            m_detached     = false;
     // Fixed size, sized once in the constructor; the render path only writes into them.
     std::vector<SMeshRenderVertex>  m_vertices;
     std::vector<SMeshRenderVertex>  m_meniscusVertices;
+    // Paper crumple: the model, its facets, and the window and shade meshes. Each is sized once; the render path only writes.
+    liquid_glass::PaperCrumple      m_paper;
+    mutable liquid_glass::PaperFacets m_paperFacets{};
+    mutable bool                    m_paperFacetsStale = false;
+    liquid_glass::Vec2              m_paperCaptureSize{};
+    std::vector<SMeshRenderVertex>  m_paperVertices;
+    std::vector<SMeshRenderVertex>  m_paperShadeVertices;
 };

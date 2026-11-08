@@ -11,6 +11,14 @@ struct Vec2 {
     double y = 0;
 };
 
+// splitmix64 step: equal seeds give equal streams; neighbouring seeds give unrelated ones.
+inline std::uint64_t splitmix64(std::uint64_t& state) noexcept {
+    std::uint64_t z = (state += 0x9E3779B97F4A7C15ULL);
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+    return z ^ (z >> 31);
+}
+
 enum class MotionMode { Liquid, Wiggle };
 
 // Liquid material tuning. Finite values are clamped to [0, 1]; nonfinite Liquid values reset before integration.
