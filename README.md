@@ -28,6 +28,11 @@ hyprctl -i "$SIGNATURE" plugin load /home/justin/projects/hypr-bubble/build/liqu
 hyprctl -i "$SIGNATURE" plugin list
 ```
 
+The configuration reference and example below are generated from `config/settings.json`.
+After editing that file, run `cmake --build build --target update-config-docs`.
+`ctest --test-dir build --output-on-failure` checks for stale documentation.
+
+<!-- BEGIN GENERATED CONFIGURATION -->
 After the first load has registered the settings, add this Lua configuration:
 
 ```lua
@@ -35,10 +40,19 @@ hl.config({
     decoration = { wobble = { enabled = false } },
     plugin = {
         ["liquid_glass"] = {
-            enabled = true, strength = 0.65, mode = "liquid", viscosity = 0.75,
-            elasticity = 0.5, momentum = 0.5, transitions = true,
-            first_window_side = "bottom", edge_bounds = "screen", close_side = "auto",
-            liquid_color = 0xff000000, emerge_drag = 0.5, close_splash = true,
+            enabled = true,
+            strength = 0.65,
+            mode = "liquid",
+            viscosity = 0.75,
+            elasticity = 0.5,
+            momentum = 0.5,
+            transitions = true,
+            first_window_side = "bottom",
+            edge_bounds = "screen",
+            close_side = "auto",
+            liquid_color = 0xff000000,
+            emerge_drag = 0.5,
+            close_splash = true,
         },
     },
 })
@@ -48,19 +62,20 @@ Hyprland 0.57 normalizes hyphens to underscores in Lua config names: use `liquid
 
 | Setting | Type / default | Meaning |
 |---|---|---|
-| `plugin:liquid-glass:enabled` | boolean / `true` | Enable deformation |
-| `plugin:liquid-glass:strength` | float / `0.65` | Deformation intensity; finite values clamped to 0–1.5; zero is undeformed |
-| `plugin:liquid-glass:mode` | string / `"liquid"` | `"liquid"` or `"wiggle"`; invalid names are rejected |
-| `plugin:liquid-glass:viscosity` | float / `0.75` | Liquid-only internal flow resistance (damping), clamped to 0–1; higher is thicker/more cohesive |
-| `plugin:liquid-glass:elasticity` | float / `0.5` | Liquid-only stiffness / recovery speed, clamped to 0–1; higher snaps back faster and firmer |
-| `plugin:liquid-glass:momentum` | float / `0.5` | Liquid-only inertia carried past a stop (landing surge/overshoot), clamped to 0–1; `0` lands without overshoot |
-| `plugin:liquid-glass:transitions` | boolean / `true` | Edge pop-out on open and drain on close; movement deformation is unaffected |
-| `plugin:liquid-glass:first_window_side` | string / `"bottom"` | `bottom`, `top`, `left` or `right`: edge the first window on a workspace pops out of; later windows come from the side they appear on (see **Edge choice**) |
-| `plugin:liquid-glass:edge_bounds` | string / `"screen"` | `screen`: the monitor's edges (windows emerge from under bars and docks); `work_area`: the edges inside reserved areas |
-| `plugin:liquid-glass:close_side` | string / `"auto"` | `auto`: drain by the same side-of-appearance rule as opening, using the neighbours at close time; `nearest`: the valid edge nearest the window centre; `origin`: the edge the window opened from, falling back to `auto` when unknown or no longer valid |
-| `plugin:liquid-glass:liquid_color` | color / `0xff000000` | Edge liquid colour (ARGB); alpha `0` draws no liquid |
-| `plugin:liquid-glass:emerge_drag` | float / `0.5` | Share of pop-out travel fed to the movement field as drag, clamped to 0–1; `0` is a rigid pop |
-| `plugin:liquid-glass:close_splash` | boolean / `true` | Small edge-liquid splash where a closing window disappears; `false` closes without any liquid |
+| `plugin:liquid-glass:enabled` | boolean / `true` | Enable deformation. |
+| `plugin:liquid-glass:strength` | float / `0.65` | Deformation intensity; zero is undeformed. Finite values clamped to 0–1.5. |
+| `plugin:liquid-glass:mode` | string / `"liquid"` | Motion material; invalid names are rejected. Allowed: `liquid`, `wiggle`. |
+| `plugin:liquid-glass:viscosity` | float / `0.75` | Liquid-only internal flow resistance; higher is thicker and more cohesive. Finite values clamped to 0–1. |
+| `plugin:liquid-glass:elasticity` | float / `0.5` | Liquid-only stiffness and recovery speed; higher snaps back faster. Finite values clamped to 0–1. |
+| `plugin:liquid-glass:momentum` | float / `0.5` | Liquid-only inertia after a stop; zero lands without overshoot. Finite values clamped to 0–1. |
+| `plugin:liquid-glass:transitions` | boolean / `true` | Edge pop-out on open and drain on close; movement deformation is unaffected. |
+| `plugin:liquid-glass:first_window_side` | string / `"bottom"` | Edge the first window on a workspace pops out of; later windows use the side they appear on (see Edge choice). Allowed: `bottom`, `top`, `left`, `right`. |
+| `plugin:liquid-glass:edge_bounds` | string / `"screen"` | Use monitor edges (screen) or edges inside reserved areas (work_area). Allowed: `screen`, `work_area`. |
+| `plugin:liquid-glass:close_side` | string / `"auto"` | Drain by side of appearance (auto), nearest valid edge, or opening edge (origin, falling back to auto). Allowed: `auto`, `nearest`, `origin`. |
+| `plugin:liquid-glass:liquid_color` | color / `0xff000000` | Edge liquid colour (ARGB); alpha zero draws no liquid. |
+| `plugin:liquid-glass:emerge_drag` | float / `0.5` | Share of pop-out travel fed to the movement field as drag; zero is a rigid pop. Finite values clamped to 0–1. |
+| `plugin:liquid-glass:close_splash` | boolean / `true` | Small edge-liquid splash where a closing window disappears; false closes without liquid. |
+<!-- END GENERATED CONFIGURATION -->
 
 Select `mode = "wiggle"` to retain the original wiggle effect; it ignores the Liquid-only numeric knobs and has no edge transitions. Disabled mode: `enabled = false` or `strength = 0`. Changing mode or any Liquid parameter clears the previous field instead of carrying incompatible displacement or velocity forward. Reload drops pending closes: native fades still alive resume natively; retained snapshots whose native fades already ended disappear immediately. Nonfinite strength or Liquid parameters bypass deformation; disable/reload restores original geometry. No low-level solver options are registered.
 

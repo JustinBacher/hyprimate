@@ -21,7 +21,7 @@
 namespace {
 
 constexpr const char* WOBBLE_MESSAGE   = "[liquid-glass] Disable decoration:wobble:enabled before enabling liquid-glass";
-constexpr double      MAX_STRENGTH     = 1.5;
+#include "config_constants.inc"
 constexpr double      MAX_GAP_SECONDS  = 0.25;
 constexpr double      MAX_JUMP_FACTOR  = 1.5;
 
@@ -45,57 +45,7 @@ CHyprColor colorFromArgb(std::uint32_t argb) {
 } // namespace
 
 CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
-    m_enabled  = makeShared<Config::Values::CBoolValue>("plugin:liquid-glass:enabled", "Enable movement deformation", true);
-    m_strength = makeShared<Config::Values::CFloatValue>("plugin:liquid-glass:strength", "Deformation strength; zero is undeformed", 0.65F,
-                                                         Config::Values::SFloatValueOptions{.min = 0.F, .max = static_cast<float>(MAX_STRENGTH)});
-    m_viscosity = makeShared<Config::Values::CFloatValue>("plugin:liquid-glass:viscosity", "Liquid material viscosity", 0.75F,
-                                                          Config::Values::SFloatValueOptions{.min = 0.F, .max = 1.F});
-    m_elasticity = makeShared<Config::Values::CFloatValue>("plugin:liquid-glass:elasticity", "Liquid material elasticity", 0.5F,
-                                                           Config::Values::SFloatValueOptions{.min = 0.F, .max = 1.F});
-    m_momentum = makeShared<Config::Values::CFloatValue>("plugin:liquid-glass:momentum", "Liquid material momentum", 0.5F,
-                                                         Config::Values::SFloatValueOptions{.min = 0.F, .max = 1.F});
-    m_transitions   = makeShared<Config::Values::CBoolValue>("plugin:liquid-glass:transitions", "Liquid open and close transitions", true);
-    m_closeSplash  = makeShared<Config::Values::CBoolValue>("plugin:liquid-glass:close_splash", "Black liquid splash where a closing window disappears", true);
-    m_mode = makeShared<Config::Values::CStringValue>(
-        "plugin:liquid-glass:mode", "Motion material: liquid or wiggle", "liquid",
-        Config::Values::SStringValueOptions{.validator = [](const Config::STRING& value) -> std::expected<void, std::string> {
-            if (value == "liquid" || value == "wiggle")
-                return {};
-            return std::unexpected(std::string("plugin:liquid-glass:mode must be \"liquid\" or \"wiggle\""));
-        }});
-    m_firstWindowSide = makeShared<Config::Values::CStringValue>(
-        "plugin:liquid-glass:first_window_side", "Screen edge the first window on a workspace pops out of", "bottom",
-        Config::Values::SStringValueOptions{.validator = [](const Config::STRING& value) -> std::expected<void, std::string> {
-            if (value == "bottom" || value == "top" || value == "left" || value == "right")
-                return {};
-            return std::unexpected(std::string("plugin:liquid-glass:first_window_side must be \"bottom\", \"top\", \"left\" or \"right\""));
-        }});
-    m_edgeBounds = makeShared<Config::Values::CStringValue>(
-        "plugin:liquid-glass:edge_bounds", "Edge reference: screen or work_area", "screen",
-        Config::Values::SStringValueOptions{.validator = [](const Config::STRING& value) -> std::expected<void, std::string> {
-            if (value == "screen" || value == "work_area")
-                return {};
-            return std::unexpected(std::string("plugin:liquid-glass:edge_bounds must be \"screen\" or \"work_area\""));
-        }});
-    m_closeSide = makeShared<Config::Values::CStringValue>(
-        "plugin:liquid-glass:close_side", "Close drains away from tiled neighbours (auto), into the nearest edge (nearest), or into the opening edge (origin)",
-        "auto", Config::Values::SStringValueOptions{.validator = [](const Config::STRING& value) -> std::expected<void, std::string> {
-            if (value == "auto" || value == "nearest" || value == "origin")
-                return {};
-            return std::unexpected(std::string("plugin:liquid-glass:close_side must be \"auto\", \"nearest\" or \"origin\""));
-        }});
-    m_liquidColor = makeShared<Config::Values::CColorValue>("plugin:liquid-glass:liquid_color", "Edge liquid colour; alpha 0 draws none", 0xff000000);
-    m_emergeDrag  = makeShared<Config::Values::CFloatValue>("plugin:liquid-glass:emerge_drag", "Share of pop-out travel fed to the movement field; 0 is rigid", 0.5F,
-                                                           Config::Values::SFloatValueOptions{.min = 0.F, .max = 1.F});
-
-    if (!HyprlandAPI::addConfigValueV2(m_handle, m_enabled) || !HyprlandAPI::addConfigValueV2(m_handle, m_strength)
-        || !HyprlandAPI::addConfigValueV2(m_handle, m_viscosity) || !HyprlandAPI::addConfigValueV2(m_handle, m_elasticity)
-        || !HyprlandAPI::addConfigValueV2(m_handle, m_momentum)
-        || !HyprlandAPI::addConfigValueV2(m_handle, m_transitions) || !HyprlandAPI::addConfigValueV2(m_handle, m_mode)
-        || !HyprlandAPI::addConfigValueV2(m_handle, m_firstWindowSide) || !HyprlandAPI::addConfigValueV2(m_handle, m_edgeBounds)
-        || !HyprlandAPI::addConfigValueV2(m_handle, m_closeSide) || !HyprlandAPI::addConfigValueV2(m_handle, m_liquidColor)
-        || !HyprlandAPI::addConfigValueV2(m_handle, m_emergeDrag) || !HyprlandAPI::addConfigValueV2(m_handle, m_closeSplash))
-        throw std::runtime_error("[liquid-glass] failed to register configuration values");
+#include "config_registration.inc"
 
     if (pluginEnabled() && wobbleEnabled()) {
         notify(WOBBLE_MESSAGE);
