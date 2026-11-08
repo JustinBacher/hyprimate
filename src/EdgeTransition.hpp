@@ -2,6 +2,7 @@
 
 #include "LiquidMesh.hpp"
 
+#include <array>
 #include <optional>
 #include <span>
 
@@ -50,8 +51,11 @@ Vec2 inwardNormal(Edge edge) noexcept;
 class EdgeTransition {
   public:
     // Invalid frame, parameters or non-positive strength leave it idle. A Close begun during an Open continues
-    // from the current bead on the Open's edge and ignores `frame`.
-    void begin(Transition kind, const EdgeFrame& frame, const MaterialParams& params, double strength) noexcept;
+    // from the current bead on the Open's edge and ignores `frame`; visible open liquid snaps into a recoil. For a
+    // Close, `closeSplash` plays a single splash bump at the dive point once the bead is behind the edge; false
+    // ends the close at the drain. Ignored for an Open.
+    void begin(Transition kind, const EdgeFrame& frame, const MaterialParams& params, double strength,
+               bool closeSplash = true) noexcept;
     // Nonfinite, negative or > 0.25 s steps abort: Open returns to idle, Close to closed.
     bool advance(double elapsedSeconds) noexcept;
     void reset() noexcept;
@@ -84,22 +88,48 @@ class EdgeTransition {
         double value    = 0.0;
         double velocity = 0.0;
     };
-    struct Profile {
-        double height  = 0.0;
+    // One bell of edge liquid, centred on the body's tangential centre.
+    struct Lobe {
+        double height  = 0.0; // px into the screen; 0 means unused
         double plateau = 0.0; // half-width of the flat top
         double skirt   = 1.0; // falloff width beyond the plateau
+    };
+    // Liquid is the maximum over the visible lobes: the open liquid or a recoil, plus the splash during a close (a
+    // close interrupting an opening can carry a decaying recoil into the splash).
+    struct Profile {
+        static constexpr int kMaxLobes = 2;
+        std::array<Lobe, kMaxLobes>   lobes{};
+        // Adds a visible lobe to the first free slot. Callers stay within kMaxLobes.
+        void add(const Lobe& lobe) noexcept {
+            if (!(lobe.height > 0.0))
+                return;
+            for (Lobe& slot : lobes) {
+                if (!(slot.height > 0.0)) {
+                    slot = lobe;
+                    return;
+                }
+            }
+        }
+        double peak() const noexcept {
+            double h = 0.0;
+            for (const Lobe& l : lobes)
+                h = l.height > h ? l.height : h;
+            return h;
+        }
     };
 
     void    step() noexcept;
     void    abort() noexcept;
-    void    startRecoil() noexcept;
+    void    startRecoil(const Lobe& snap) noexcept; // the recoil starts at snap.height with snap's plateau and skirt
     void    advanceRecoil() noexcept;
     bool    quiet() const noexcept;
+    bool    recoilSettled() const noexcept;
     double  eNormal() const noexcept;   // bead half-extent into the screen (n)
     double  nearSide() const noexcept;  // n of the bead's side nearest the edge
     double  farSide() const noexcept;   // n of the bead's side farthest from the edge
-    Profile liveProfile() const noexcept;
-    Profile recoilProfile() const noexcept;
+    Lobe    liveLobe() const noexcept;  // opening only: attached neck or crossing fillets
+    Lobe    recoilLobe() const noexcept;
+    Lobe    splashLobe() const noexcept;
     void    refreshProfile() noexcept;
 
     Phase     m_phase   = Phase::Idle;
@@ -120,12 +150,14 @@ class EdgeTransition {
     double    m_nc        = 0.0;   // displayed centre n (absolute, from the edge)
     double    m_nc0       = 0.0, m_sT0 = 1.0, m_sN0 = 1.0; // close timeline start
     double    m_duration  = 0.0, m_time = 0.0;
-    double    m_startPeak = 0.0;   // liquid height a close inherits from an interrupted open
     bool      m_drained   = false;
+    bool      m_closeSplash = true;
+    bool      m_splashing   = false;
+    double    m_splashTime = 0.0, m_splashDuration = 0.0; // splash clock and length (s)
     bool      m_recoiling = false;
     Spring    m_recoil{};
     double    m_recoilOmega = 0.0, m_recoilZeta = 1.0, m_recoilTime = 0.0;
-    Profile   m_snap{};    // profile at the snap
+    Lobe      m_snap{};    // the recoil's plateau and skirt at the snap
     Profile   m_profile{}; // cached profile for the current state
     double    m_taken       = 0.0; // centre n at the last takeTravel()
     double    m_accumulator = 0.0;

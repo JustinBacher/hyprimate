@@ -99,6 +99,7 @@ class CPluginRuntime {
     SP<Config::Values::CFloatValue>   m_elasticity;
     SP<Config::Values::CFloatValue>   m_momentum;
     SP<Config::Values::CBoolValue>    m_transitions;
+    SP<Config::Values::CBoolValue>    m_closeSplash;
     SP<Config::Values::CStringValue>  m_mode;
     SP<Config::Values::CStringValue>  m_firstWindowSide;
     SP<Config::Values::CStringValue>  m_edgeBounds;

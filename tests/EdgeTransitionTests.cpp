@@ -7,6 +7,7 @@
 #include <limits>
 #include <optional>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -286,19 +287,19 @@ void testOpenTravelSumsToCentreDisplacement() {
 }
 
 // Close.
+// Substep of the drain from rest at defaults (0.46 s): no liquid before it.
+constexpr int kDrainSubstep = 111;
+
 void testCloseFromRestDrainsIntoTheEdge() {
     EdgeTransition tr;
     tr.begin(Transition::Close, kQuarter, MaterialParams{}, kStrength);
     CHECK(tr.active() && std::abs(centreOf(tr).x) < 1e-9 && std::abs(centreOf(tr).y) < 1e-9);
     double prev = centreInward(tr);
-    bool   reached = false;
     for (int i = 0; i < 480 && tr.active(); ++i) {
         tr.advance(kStep);
         if (!tr.active()) break;
         CHECK(centreInward(tr) <= prev + 1e-9); prev = centreInward(tr); // always toward the edge
-        if (tr.meniscusPeak() > 0.0 && nearSide(tr) > 0.0) reached = true; // edge rose before contact
     }
-    CHECK(reached);
     CHECK(tr.closed());
     CHECK(tr.meniscusPeak() == 0.0);
 }
@@ -318,19 +319,16 @@ void testCloseContinuesAnInterruptedOpen() {
     CHECK(tr.closed());
 }
 
-// A close from rest ramps its liquid in: zero at begin, then at most |Δn| + 8 px per substep.
-void testCloseFromRestEngagesGradually() {
+
+// A close from rest shows no liquid until the drain (0.46 s at default elasticity = substep 111).
+void testCloseFromRestHasNoLiquidBeforeDrain() {
+    constexpr int kDrainStep = 111;
     EdgeTransition tr;
     tr.begin(Transition::Close, kQuarter, MaterialParams{}, kStrength);
-    CHECK(tr.meniscusPeak() == 0.0);
-    double prevPeak = tr.meniscusPeak(), prevNear = nearSide(tr);
-    for (int i = 0; i < 480 && tr.active(); ++i) {
+    for (int i = 1; i < kDrainStep && tr.active(); ++i) {
         tr.advance(kStep);
-        const double peak = tr.meniscusPeak(), n = nearSide(tr);
-        CHECK(std::abs(peak - prevPeak) <= std::abs(n - prevNear) + 8.0);
-        prevPeak = peak; prevNear = n;
+        CHECK(tr.meniscusPeak() == 0.0);
     }
-    CHECK(tr.closed());
 }
 
 // Movement-field guard: idle and settled meshes give 1; a moving mesh gives a power-of-two gain in [0, 1].
@@ -399,25 +397,116 @@ void testDisplacementGainKeepsTrianglesWhenCompensated() {
 }
 
 
-// Close begun on the same substep as an open (F1): the liquid ramps in from zero, never jumps, and grows across 0.04-0.12 s.
-void testCloseAfterOpenBeginRampsLiquid() {
+// Close begun on the same substep as an open: the open's neck is still hidden, so there is no liquid until the drain.
+void testCloseAfterOpenBeginHasNoLiquid() {
     EdgeTransition tr;
     tr.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
     tr.begin(Transition::Close, kQuarter, MaterialParams{}, kStrength);
     CHECK(tr.meniscusPeak() == 0.0);
-    double prevPeak = tr.meniscusPeak(), prevNear = nearSide(tr);
-    double peakEarly = -1.0, peakLate = -1.0;
-    for (int i = 1; i <= 29 && tr.active(); ++i) {
+    for (int i = 1; i < kDrainSubstep && tr.active(); ++i) {
+        tr.advance(kStep);
+        CHECK(tr.meniscusPeak() == 0.0);
+    }
+}
+
+constexpr double kBeadRadius = 0.14 * 508.0; // kQuarter bead radius (px)
+
+// Local maxima of the meniscus above 5% of `peak`, sampled every 0.02 r across +-2 r of the window centre `c`.
+std::vector<double> lobeCentres(const EdgeTransition& tr, double c, double peak) {
+    constexpr int kHalf = 100;
+    std::vector<double> v(2 * kHalf + 1);
+    for (int k = -kHalf; k <= kHalf; ++k)
+        v[k + kHalf] = tr.meniscus(c + k * 0.02 * kBeadRadius);
+    std::vector<double> centres;
+    for (int k = 1; k + 1 < static_cast<int>(v.size()); ++k)
+        if (v[k] > 0.05 * peak && v[k] > v[k - 1] && v[k] >= v[k + 1])
+            centres.push_back(c + (k - kHalf) * 0.02 * kBeadRadius);
+    return centres;
+}
+
+// After the drain the splash rises as a single bump centred where the window went under (no side ripples), then
+// returns to exactly zero and the transition is closed.
+void testCloseSplashAfterDrain() {
+    EdgeTransition tr;
+    tr.begin(Transition::Close, kQuarter, MaterialParams{}, kStrength);
+    const double c = centreT(kQuarter);
+    double splashPeak = 0.0, prevPeak = 0.0, prevNear = nearSide(tr);
+    int firstSplash = -1, lastSplash = -1;
+    bool oneCentredLobe = false;
+    for (int i = 1; i <= 600 && tr.active(); ++i) {
         tr.advance(kStep);
         const double peak = tr.meniscusPeak(), n = nearSide(tr);
-        if (i <= 19) CHECK(peak >= prevPeak - 1e-9); // non-decreasing over the first 0.08 s
         CHECK(std::abs(peak - prevPeak) <= std::abs(n - prevNear) + 8.0);
-        if (i == 10) peakEarly = peak;  // ~0.042 s
-        if (i == 29) peakLate = peak;   // ~0.121 s
         prevPeak = peak;
         prevNear = n;
+        if (peak > 0.0) {
+            if (firstSplash < 0) firstSplash = i;
+            lastSplash = i;
+        }
+        if (peak > splashPeak) {
+            splashPeak = peak;
+            const auto lobes = lobeCentres(tr, c, peak);
+            oneCentredLobe = lobes.size() == 1 && std::abs(lobes[0] - c) < 0.1 * kBeadRadius;
+        }
     }
-    CHECK(peakEarly > 0.0 && peakEarly < peakLate);
+    CHECK(splashPeak > 0.3 * kBeadRadius);
+    CHECK(oneCentredLobe);
+    CHECK(firstSplash >= kDrainSubstep);
+    CHECK(lastSplash - firstSplash >= 95 && lastSplash - firstSplash <= 110); // 0.42 s = ~101 substeps
+    CHECK(tr.meniscusPeak() == 0.0);
+    CHECK(tr.closed());
+}
+
+// closeSplash = false: no liquid at any time, and the transition is closed by the drain.
+void testCloseSplashOffLeavesNoLiquid() {
+    EdgeTransition tr;
+    tr.begin(Transition::Close, kQuarter, MaterialParams{}, kStrength, false);
+    int closedAt = -1;
+    for (int i = 1; i <= 480 && tr.active(); ++i) {
+        tr.advance(kStep);
+        CHECK(tr.meniscusPeak() == 0.0);
+        if (tr.closed() && closedAt < 0)
+            closedAt = i;
+    }
+    CHECK(closedAt == kDrainSubstep);
+}
+
+// A close interrupting an opening with a visible neck: the liquid snaps into the recoil within the continuity
+// tolerance, decays away, and only then does the splash rise.
+void testCloseInterruptingOpenNeckDecaysThenSplashes() {
+    EdgeTransition tr;
+    tr.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
+    for (int i = 0; i < 240 && tr.active() && tr.meniscusPeak() < 5.0; ++i)
+        tr.advance(kStep);
+    CHECK(tr.meniscusPeak() >= 5.0);
+    tr.begin(Transition::Close, kQuarter, MaterialParams{}, kStrength);
+    double prevPeak = tr.meniscusPeak(), prevNear = nearSide(tr);
+    bool   sawQuiet = false, splashAfterQuiet = false;
+    for (int i = 0; i < 960 && tr.active(); ++i) {
+        tr.advance(kStep);
+        const double peak = tr.meniscusPeak(), n = nearSide(tr);
+        CHECK(std::abs(peak - prevPeak) <= std::abs(n - prevNear) + 8.0);
+        prevPeak = peak;
+        prevNear = n;
+        if (peak <= 0.5)
+            sawQuiet = true;
+        else if (sawQuiet && peak > 0.3 * kBeadRadius)
+            splashAfterQuiet = true;
+    }
+    CHECK(sawQuiet && splashAfterQuiet);
+    CHECK(tr.closed());
+}
+
+// The splash agrees between 60 Hz and 144 Hz frame clocks within 0.5 px, sampled every 1/12 s.
+void testCloseSplashAgreesAcrossRefreshRates() {
+    EdgeTransition a, b;
+    a.begin(Transition::Close, kQuarter, MaterialParams{}, kStrength);
+    b.begin(Transition::Close, kQuarter, MaterialParams{}, kStrength);
+    for (int k = 1; k <= 12; ++k) {
+        for (int i = 0; i < 5; ++i) a.advance(1.0 / 60.0);
+        for (int i = 0; i < 12; ++i) b.advance(1.0 / 144.0);
+        CHECK(std::abs(a.meniscusPeak() - b.meniscusPeak()) < 0.5);
+    }
 }
 
 // Invalid input.
@@ -455,10 +544,14 @@ int main() {
     testOpenTravelSumsToCentreDisplacement();
     testCloseFromRestDrainsIntoTheEdge();
     testCloseContinuesAnInterruptedOpen();
-    testCloseFromRestEngagesGradually();
+    testCloseFromRestHasNoLiquidBeforeDrain();
     testDisplacementGainGuard();
     testDisplacementGainKeepsTrianglesWhenCompensated();
-    testCloseAfterOpenBeginRampsLiquid();
+    testCloseAfterOpenBeginHasNoLiquid();
+    testCloseSplashAfterDrain();
+    testCloseSplashOffLeavesNoLiquid();
+    testCloseInterruptingOpenNeckDecaysThenSplashes();
+    testCloseSplashAgreesAcrossRefreshRates();
     testInvalidInputs();
     return g_failures == 0 ? 0 : 1;
 }

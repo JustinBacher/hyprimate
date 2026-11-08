@@ -200,7 +200,7 @@ void CLiquidCloseRenderer::clear() {
 }
 
 void CLiquidCloseRenderer::stage(const PHLWINDOW& window, const SLiquidPose& pose, double strength, std::optional<liquid_glass::EdgeFrame> closeFrame,
-                                 double drive) {
+                                 double drive, bool closeSplash) {
     if (!window || !std::isfinite(strength) || strength <= 0.0)
         return;
 
@@ -234,6 +234,7 @@ void CLiquidCloseRenderer::stage(const PHLWINDOW& window, const SLiquidPose& pos
         .strength       = strength,
         .drive          = drive,
         .closeFrame     = closeFrame,
+        .closeSplash    = closeSplash,
         .staged         = clock::now(),
     });
 }
@@ -286,7 +287,8 @@ void CLiquidCloseRenderer::onFadeoutCreated(const PHLWINDOW& window, const SP<De
     if (liquid && !textureBlur) {
         record->transition = pending.transition;
         // Continuing an opening keeps its edge; otherwise the staged frame (invalid when none, which leaves it idle).
-        record->transition.begin(Transition::Close, pending.closeFrame.value_or(record->transition.frame()), record->mesh.params(), pending.strength);
+        record->transition.begin(Transition::Close, pending.closeFrame.value_or(record->transition.frame()), record->mesh.params(), pending.strength,
+                                 pending.closeSplash);
     }
     record->strength = pending.strength;
     record->drive    = pending.drive;

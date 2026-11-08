@@ -55,6 +55,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     m_momentum = makeShared<Config::Values::CFloatValue>("plugin:liquid-glass:momentum", "Liquid material momentum", 0.5F,
                                                          Config::Values::SFloatValueOptions{.min = 0.F, .max = 1.F});
     m_transitions   = makeShared<Config::Values::CBoolValue>("plugin:liquid-glass:transitions", "Liquid open and close transitions", true);
+    m_closeSplash  = makeShared<Config::Values::CBoolValue>("plugin:liquid-glass:close_splash", "Black liquid splash where a closing window disappears", true);
     m_mode = makeShared<Config::Values::CStringValue>(
         "plugin:liquid-glass:mode", "Motion material: liquid or wiggle", "liquid",
         Config::Values::SStringValueOptions{.validator = [](const Config::STRING& value) -> std::expected<void, std::string> {
@@ -93,7 +94,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
         || !HyprlandAPI::addConfigValueV2(m_handle, m_transitions) || !HyprlandAPI::addConfigValueV2(m_handle, m_mode)
         || !HyprlandAPI::addConfigValueV2(m_handle, m_firstWindowSide) || !HyprlandAPI::addConfigValueV2(m_handle, m_edgeBounds)
         || !HyprlandAPI::addConfigValueV2(m_handle, m_closeSide) || !HyprlandAPI::addConfigValueV2(m_handle, m_liquidColor)
-        || !HyprlandAPI::addConfigValueV2(m_handle, m_emergeDrag))
+        || !HyprlandAPI::addConfigValueV2(m_handle, m_emergeDrag) || !HyprlandAPI::addConfigValueV2(m_handle, m_closeSplash))
         throw std::runtime_error("[liquid-glass] failed to register configuration values");
 
     if (pluginEnabled() && wobbleEnabled()) {
@@ -119,11 +120,11 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                 const bool continuing = transformer && transformer->transition().active();
                 const auto closeFrame = continuing ? std::optional<liquid_glass::EdgeFrame>{} : edgeFrameFor(window, false, entry->openEdge);
                 if (transformer && transformer->active())
-                    m_close->stage(window, transformer->renderPose(), effectiveStrength(), closeFrame, effectiveEmergeDrag());
+                    m_close->stage(window, transformer->renderPose(), effectiveStrength(), closeFrame, effectiveEmergeDrag(), m_closeSplash->value());
                 else {
                     const liquid_glass::LiquidMesh     mesh{effectiveMode(), effectiveMaterialParams()};
                     const liquid_glass::EdgeTransition transition;
-                    m_close->stage(window, SLiquidPose{mesh, transition}, effectiveStrength(), closeFrame, effectiveEmergeDrag());
+                    m_close->stage(window, SLiquidPose{mesh, transition}, effectiveStrength(), closeFrame, effectiveEmergeDrag(), m_closeSplash->value());
                 }
             }
             detachWindow(*entry, window);

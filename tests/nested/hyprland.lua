@@ -45,5 +45,5 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --     plugin = { ["liquid_glass"] = { enabled = true, strength = 0.65, mode = "liquid", viscosity = 0.75,
 --                                     elasticity = 0.5, momentum = 0.5, transitions = true,
 --                                     first_window_side = "bottom", edge_bounds = "screen", close_side = "auto",
---                                     liquid_color = 0xff000000, emerge_drag = 0.5 } },
+--                                     liquid_color = 0xff000000, emerge_drag = 0.5, close_splash = true } },
 -- })

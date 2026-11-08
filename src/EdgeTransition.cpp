@@ -34,7 +34,6 @@ constexpr double kTuckPerRadius = 0.35, kTuckMin = 5.0, kTuckMax = 20.0;
 constexpr double kPinchPerRadius = 1.1, kPinchMin = 16.0, kPinchMax = 72.0;
 constexpr double kNeckPerRadius = 0.9, kNeckMin = 12.0, kNeckMax = 64.0;
 constexpr double kCrossSkirtPerTuck = 2.5;
-constexpr double kReachFactor       = 2.5;
 // Recoil after the snap.
 constexpr double kRecoilOmega       = 28.0;
 constexpr double kRecoilZetaStiff   = 0.6, kRecoilZetaLoose = 0.2;
@@ -46,7 +45,10 @@ constexpr double kCloseSeconds = 0.46;
 constexpr double kShrinkEnd = 0.45;   // normal shrink and the first centre leg end here (fraction of the close)
 constexpr double kShrinkTangentStart = 0.05, kShrinkTangentSpan = 0.5;
 constexpr double kDiveMargin = 2.0;   // px beyond the bead's far side when the close completes
-constexpr double kCloseEngageSeconds = 0.08; // liquid ramp for a close (from rest, or from an interrupted peak)
+constexpr double kSplashSeconds      = 0.42;          // at elasticity 0.5; scaled by 2^(0.5 - elasticity)
+constexpr double kSplashPeakX        = 0.22;          // impulse peak in normalised time
+constexpr double kSplashPerRadius    = 0.9;           // height at the peak, per radius
+constexpr double kSplashSkirt        = 0.55;          // skirt half-width per radius
 // Settling thresholds.
 constexpr double kQuietPixels = 0.15, kQuietPixelsPerSecond = 2.0;
 constexpr double kQuietSpread = 1e-4, kQuietSpreadPerSecond = 1e-3; // spreads are unitless; ~0.1 px on a 1000 px half-extent
@@ -110,6 +112,14 @@ double easeInCubic(double t) {
 double easeInOutCubic(double t) {
     t = std::clamp(t, 0.0, 1.0);
     return t < 0.5 ? 4.0 * t * t * t : 1.0 - std::pow(-2.0 * t + 2.0, 3.0) / 2.0;
+}
+
+// Splash impulse in normalised time x: peaks at 1 when x = kSplashPeakX, is 0 outside (0, 1) and ends at 0 at x = 1.
+double splashImpulse(double x) {
+    if (x <= 0.0 || x >= 1.0)
+        return 0.0;
+    const double a = x / kSplashPeakX;
+    return a * std::exp(1.0 - a) * (1.0 - smooth(0.7, 1.0, x));
 }
 
 // Semi-implicit Euler toward `target`. Stable for omega * dt < 2; the largest omega used (recoil, ~40 rad/s) gives
@@ -288,7 +298,8 @@ std::optional<EdgeFrame> resolveEdgeFrame(const Box& body, const Box& capture, c
     return f;
 }
 
-void EdgeTransition::begin(Transition kind, const EdgeFrame& frame, const MaterialParams& params, double strength) noexcept {
+void EdgeTransition::begin(Transition kind, const EdgeFrame& frame, const MaterialParams& params, double strength,
+                           bool closeSplash) noexcept {
     const bool           continuing = kind == Transition::Close && m_phase == Phase::Opening;
     const EdgeTransition previous   = *this;
     reset();
@@ -325,19 +336,23 @@ void EdgeTransition::begin(Transition kind, const EdgeFrame& frame, const Materi
         m_nc       = -m_radius;
         m_phase    = Phase::Opening;
     } else {
-        m_duration = kCloseSeconds * std::exp2(0.5 - e);
-        m_nc0      = continuing ? previous.m_nc : m_frame.edgeDistance;
-        m_sT0      = continuing ? previous.m_spreadT.value : 1.0;
-        m_sN0      = continuing ? previous.m_spreadN.value : 1.0;
-        m_spreadT  = {m_sT0, 0.0};
-        m_spreadN  = {m_sN0, 0.0};
-        m_nc       = m_nc0;
-        m_startPeak = continuing ? previous.m_profile.height : 0.0; // F1: the liquid starts from the current peak
+        m_duration       = kCloseSeconds * std::exp2(0.5 - e);
+        m_closeSplash    = closeSplash;
+        m_splashDuration = kSplashSeconds * std::exp2(0.5 - e);
+        m_nc0            = continuing ? previous.m_nc : m_frame.edgeDistance;
+        m_sT0            = continuing ? previous.m_spreadT.value : 1.0;
+        m_sN0            = continuing ? previous.m_spreadN.value : 1.0;
+        m_spreadT        = {m_sT0, 0.0};
+        m_spreadN        = {m_sN0, 0.0};
+        m_nc             = m_nc0;
         if (continuing && previous.m_recoiling) {
             m_recoiling  = true;
             m_recoil     = previous.m_recoil;
             m_snap       = previous.m_snap;
             m_recoilTime = previous.m_recoilTime;
+        } else if (continuing && previous.m_profile.peak() > 0.0) {
+            // Visible open liquid (neck or fillets) snaps into a recoil from its current profile.
+            startRecoil(previous.m_profile.lobes[0]);
         }
         m_phase = Phase::Closing;
     }
@@ -491,7 +506,7 @@ void EdgeTransition::step() noexcept {
             const bool apex    = before > 0.0 && m_hop.velocity <= 0.0;
             const bool resting = std::abs(m_hop.value - m_hover) < kRestHopPixels && std::abs(m_hop.velocity) < kRestHopPixelsPerSecond;
             if (nearSide() >= m_pinch || apex || resting) {
-                startRecoil(); // m_profile still holds the attached profile from before this substep
+                startRecoil(m_profile.lobes[0]); // m_profile still holds the attached profile from before this substep
                 m_growing = true;
             }
         }
@@ -511,62 +526,71 @@ void EdgeTransition::step() noexcept {
                               : lerp(m_hover, -m_radius - kDiveMargin, easeInCubic((p - kShrinkEnd) / (1.0 - kShrinkEnd)));
         if (m_recoiling)
             advanceRecoil(); // residual recoil from an interrupted opening keeps falling
-        if (m_time >= m_duration - kAccumulatorTolerance) {
-            refreshProfile(); // crossing fillets at the moment the far side passes the edge
-            startRecoil();
-            m_drained = true;
+        if (m_time < m_duration - kAccumulatorTolerance)
+            return;
+        m_drained   = true;
+        m_splashing = m_closeSplash; // the splash starts with the next substep
+    } else {
+        if (m_recoiling)
+            advanceRecoil();
+        if (m_splashing) {
+            m_splashTime += kSubstepSeconds;
+            m_splashing = m_splashTime < m_splashDuration - kAccumulatorTolerance;
         }
-        return;
     }
-    advanceRecoil();
-    if (std::abs(m_recoil.value) < kQuietPixels && std::abs(m_recoil.velocity) < kQuietPixelsPerSecond)
+    if (!m_splashing && recoilSettled())
         m_phase = Phase::Closed;
 }
 
-EdgeTransition::Profile EdgeTransition::liveProfile() const noexcept {
+EdgeTransition::Lobe EdgeTransition::liveLobe() const noexcept {
     const double n = nearSide();
     if (n < 0.0) {
-        // Crossing: fillets hug the bead where it passes through the edge. Opening ramps them in as the bead's far
-        // side breaks the surface; closing holds them until the bead is gone.
-        const double rise = m_phase == Phase::Opening ? smooth(0.0, 2.0 * m_tuck, farSide()) : 1.0;
-        return {m_tuck * rise, m_radius, m_crossSkirt};
+        // Crossing: fillets hug the bead where it passes through the edge. They ramp in as the bead's far side breaks
+        // the surface.
+        return {m_tuck * smooth(0.0, 2.0 * m_tuck, farSide()), m_radius, m_crossSkirt};
     }
     if (n <= m_pinch) {
         // Attached: the tip stays tucked under the near side while the contact patch necks down.
         const double q = smooth(0.0, m_pinch, n);
         return {n + m_tuck, m_radius * (1.0 - q), lerp(m_crossSkirt, m_neckSkirt, q)};
     }
-    if (m_phase == Phase::Closing && n <= kReachFactor * m_pinch)
-        // Reach: the edge rises to meet an incoming bead.
-        return {(m_pinch + m_tuck) * smooth(kReachFactor * m_pinch, m_pinch, n), 0.0, m_neckSkirt};
     return {};
 }
 
-EdgeTransition::Profile EdgeTransition::recoilProfile() const noexcept {
+EdgeTransition::Lobe EdgeTransition::recoilLobe() const noexcept {
     const double t = m_recoilTime;
     return {std::max(0.0, m_recoil.value), m_snap.plateau * std::exp(-t / kRecoilPlateauSeconds),
             m_snap.skirt * (1.0 + kRecoilSkirtGrowth * (1.0 - std::exp(-t / kRecoilSkirtSeconds)))};
 }
 
-void EdgeTransition::refreshProfile() noexcept {
-    if (!active()) {
-        m_profile = {};
-        return;
-    }
-    const bool liveOver = (m_phase == Phase::Opening && m_recoiling) || (m_phase == Phase::Closing && m_drained);
-    Profile    live     = liveOver ? Profile{} : liveProfile();
-    if (m_phase == Phase::Closing && !m_drained)
-        // A close ramps its liquid in from the peak it inherits (zero from rest).
-        live.height = lerp(m_startPeak, live.height, smooth(0.0, kCloseEngageSeconds, m_time));
-    const Profile residual = m_recoiling ? recoilProfile() : Profile{};
-    m_profile              = residual.height > live.height ? residual : live;
+EdgeTransition::Lobe EdgeTransition::splashLobe() const noexcept {
+    const double x = m_splashTime / m_splashDuration;
+    return {kSplashPerRadius * m_radius * splashImpulse(x), 0.0, kSplashSkirt * m_radius};
 }
 
-void EdgeTransition::startRecoil() noexcept {
-    m_snap       = m_profile;
-    m_recoil     = {m_snap.height, 0.0};
+void EdgeTransition::refreshProfile() noexcept {
+    m_profile = {};
+    if (!active())
+        return;
+    // Open liquid (attached neck or crossing fillets) until the snap; the recoil after a snap (or an interrupted open's
+    // residual during a close); the splash once a close has drained.
+    if (m_phase == Phase::Opening && !m_recoiling)
+        m_profile.add(liveLobe());
+    if (m_recoiling)
+        m_profile.add(recoilLobe());
+    if (m_phase == Phase::Closing && m_drained && m_splashing)
+        m_profile.add(splashLobe());
+}
+
+void EdgeTransition::startRecoil(const Lobe& snap) noexcept {
+    m_snap       = snap;
+    m_recoil     = {snap.height, 0.0};
     m_recoilTime = 0.0;
     m_recoiling  = true;
+}
+
+bool EdgeTransition::recoilSettled() const noexcept {
+    return !m_recoiling || (std::abs(m_recoil.value) < kQuietPixels && std::abs(m_recoil.velocity) < kQuietPixelsPerSecond);
 }
 
 void EdgeTransition::advanceRecoil() noexcept {
@@ -575,29 +599,53 @@ void EdgeTransition::advanceRecoil() noexcept {
 }
 
 double EdgeTransition::meniscus(double t) const noexcept {
-    const Profile& p = m_profile;
-    if (!(p.height > 0.0))
-        return 0.0;
-    const double x = std::abs(t - 0.5 * (m_frame.bodyT0 + m_frame.bodyT1)) - p.plateau;
-    if (x <= 0.0)
-        return p.height;
-    const double u = x / p.skirt;
-    if (u >= 1.0)
-        return 0.0;
-    const double w = 1.0 - u * u;
-    return p.height * w * w; // tangent to the edge at the skirt's foot, like the bar's concave flanks
+    const double c = 0.5 * (m_frame.bodyT0 + m_frame.bodyT1);
+    double       h = 0.0;
+    for (const Lobe& l : m_profile.lobes) {
+        if (!(l.height > 0.0))
+            continue;
+        const double x = std::abs(t - c) - l.plateau;
+        if (x <= 0.0) {
+            h = std::max(h, l.height);
+            continue;
+        }
+        const double u = x / l.skirt;
+        if (u >= 1.0)
+            continue;
+        const double w = 1.0 - u * u;
+        h              = std::max(h, l.height * w * w); // tangent to the edge at the skirt's foot, like the bar's concave flanks
+    }
+    return h;
 }
 
 double EdgeTransition::meniscusLow() const noexcept {
-    const double c = 0.5 * (m_frame.bodyT0 + m_frame.bodyT1);
-    return m_profile.height > 0.0 ? c - m_profile.plateau - m_profile.skirt : c;
+    const double c   = 0.5 * (m_frame.bodyT0 + m_frame.bodyT1);
+    double       low = c;
+    bool         any = false;
+    for (const Lobe& l : m_profile.lobes) {
+        if (!(l.height > 0.0))
+            continue;
+        const double lo = c - l.plateau - l.skirt;
+        low             = any ? std::min(low, lo) : lo;
+        any             = true;
+    }
+    return low;
 }
 
 double EdgeTransition::meniscusHigh() const noexcept {
-    const double c = 0.5 * (m_frame.bodyT0 + m_frame.bodyT1);
-    return m_profile.height > 0.0 ? c + m_profile.plateau + m_profile.skirt : c;
+    const double c    = 0.5 * (m_frame.bodyT0 + m_frame.bodyT1);
+    double       high = c;
+    bool         any  = false;
+    for (const Lobe& l : m_profile.lobes) {
+        if (!(l.height > 0.0))
+            continue;
+        const double hi = c + l.plateau + l.skirt;
+        high            = any ? std::max(high, hi) : hi;
+        any             = true;
+    }
+    return high;
 }
 
-double EdgeTransition::meniscusPeak() const noexcept { return m_profile.height; }
+double EdgeTransition::meniscusPeak() const noexcept { return m_profile.peak(); }
 
 } // namespace liquid_glass

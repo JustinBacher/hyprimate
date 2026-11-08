@@ -72,7 +72,9 @@ class CLiquidCloseRenderer {
     // Captures a closing window's pose (mesh, transition, compensation). A Close begun during an opening continues
     // from its travel; otherwise `closeFrame` picks the edge the window drains behind. Call from the window.close
     // listener, before the window is detached.
-    void stage(const PHLWINDOW& window, const SLiquidPose& pose, double strength, std::optional<liquid_glass::EdgeFrame> closeFrame, double drive);
+    // `closeSplash` plays the splash bump at the dive point after the drain (EdgeTransition::begin).
+    void stage(const PHLWINDOW& window, const SLiquidPose& pose, double strength, std::optional<liquid_glass::EdgeFrame> closeFrame, double drive,
+               bool closeSplash);
 
     // Advances closing records. Returns true while any record still animates; `activeMonitors` is refilled with the
     // monitors to damage, including the frame in which an owned close finishes or a record is pruned.
@@ -105,6 +107,7 @@ class CLiquidCloseRenderer {
         double                                   strength = 0.0;
         double                                   drive    = 0.0;
         std::optional<liquid_glass::EdgeFrame>   closeFrame;
+        bool                                     closeSplash = true;
         clock::time_point                        staged{};
     };
 
