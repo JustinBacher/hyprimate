@@ -7,7 +7,9 @@ Currently, hyprimate animates windows as they move, open, and close:
 - **Liquid** gives moving windows a fluid, elastic feel and animates them in and out from the edge of the screen.
 - **Wiggle** is an alternative movement style that emerged while experimenting with Liquid. It brought to mind that old-school wiggly window animation from years ago—if you know, you know.
 
-[Watch the demo](hyprimate-demo-closing.mp4)
+![Demo of hyprimate's window animations](hyprimate-demo.webp)
+
+[Watch the full-quality video](hyprimate-demo-closing.mp4)
 
 ## Installation
 
