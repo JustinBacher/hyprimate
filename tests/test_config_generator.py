@@ -86,12 +86,6 @@ class ConfigGeneratorTests(unittest.TestCase):
         self.assertIn('window.close.options.liquid.splash', paths)
         self.assertFalse(any(p.endswith(('close_side', 'close_splash')) for p in paths))
 
-    def test_wiggle_table_is_empty_and_unregistered(self):
-        self.assertEqual([item['path'] for item in TABLES], ['window.movement.options.wiggle'])
-        header = GEN.registration(SCHEMA)
-        self.assertNotIn('movement:options:wiggle', header)
-        self.assertIn('wiggle = {},', GEN.lua_config(SCHEMA))
-
     def test_registration_keys_and_members(self):
         header = GEN.registration(SCHEMA)
         for item in REGISTERED:
@@ -120,12 +114,13 @@ class ConfigGeneratorTests(unittest.TestCase):
         block = GEN.documentation(SCHEMA)
         documented = set(re.findall(r'`(plugin:liquid-glass:[a-z_:]+)`', block))
         self.assertEqual(documented, {GEN.key(item) for item in REGISTERED})
-        self.assertIn('`window.movement.options.wiggle`', block)
 
     def test_strength_zero_contract_is_documented_in_schema(self):
-        strength = next(item for item in SCHEMA if item['path'] == 'window.strength')
-        self.assertEqual(strength['min'], 0)
-        self.assertIn('zero', strength['description'].lower())
+        strengths = [item for item in SCHEMA if item['path'].endswith('.strength')]
+        self.assertEqual(len(strengths), 4)
+        for strength in strengths:
+            self.assertEqual(strength['min'], 0)
+            self.assertIn('zero', strength['description'].lower())
 
     def test_repository_artifacts_are_current(self):
         result = self.run_generator('--readme', str(README), '--lua', str(LUA), '--check')
@@ -133,7 +128,7 @@ class ConfigGeneratorTests(unittest.TestCase):
 
     def test_schema_change_regenerates_outputs_and_flags_stale_repo_copies(self):
         items = json.loads(SCHEMA_PATH.read_text())
-        next(item for item in items if item['path'] == 'window.strength')['default'] = 0.7
+        next(item for item in items if item['path'] == 'window.movement.options.liquid.strength')['default'] = 0.7
         schema = self.write_schema(items)
         readme, lua = self.copies()
         header, constants = self.tmp / 'config_registration.inc', self.tmp / 'config_constants.inc'
@@ -159,8 +154,7 @@ class ConfigGeneratorTests(unittest.TestCase):
 
     def test_table_with_member_is_rejected(self):
         items = json.loads(SCHEMA_PATH.read_text())
-        wiggle = next(item for item in items if item['type'] == 'table')
-        wiggle['member'] = 'm_wiggle'
+        items.append({'path': 'window.example', 'type': 'table', 'description': 'x', 'member': 'm_example'})
         with self.assertRaisesRegex(ValueError, 'table entries register nothing'):
             GEN.validate(items)
 

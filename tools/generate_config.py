@@ -202,7 +202,7 @@ def main():
     if args.header:
         outputs.append((args.header, registration(settings)))
     if args.constants:
-        strength = next(item for item in settings if item['path'] == 'window.strength')
+        strength = next(item for item in settings if item['path'] == 'window.movement.options.liquid.strength')
         outputs.append((args.constants, f'// Generated from config/settings.json; do not edit.\nconstexpr double MAX_STRENGTH = {float(strength["max"])};\n'))
     if args.readme:
         text = args.readme.read_text()

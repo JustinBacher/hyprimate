@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.25)
 project(liquid-glass VERSION 0.1.0 LANGUAGES CXX)
 
+# The plugin runs inside the compositor's frame loop: an unoptimised build halves the frame rate during paper
+# crumples. Default to the same build type hyprpm uses.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
+endif()
+
 set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -36,7 +42,12 @@ add_library(liquid-glass SHARED
     src/SolidFill.cpp
     src/LiquidGlassTransformer.cpp
     src/LiquidCloseRenderer.cpp
+    src/PaperCrumple.cpp
+    src/PaperTakes.cpp
+    src/PaperRenderer.cpp
 )
+# PaperTakes.cpp #embeds the baked crumples; rebuild it whenever they are re-packed.
+set_source_files_properties(src/PaperTakes.cpp PROPERTIES OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/paper_takes.bin)
 set_target_properties(liquid-glass PROPERTIES PREFIX "" INTERPROCEDURAL_OPTIMIZATION FALSE)
 add_dependencies(liquid-glass generate-config)
 target_include_directories(liquid-glass PRIVATE ${CONFIG_GENERATED_DIR})
@@ -57,4 +68,9 @@ if(BUILD_TESTING)
     target_include_directories(edge-transition-tests PRIVATE src)
     target_compile_options(edge-transition-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME edge-transition-tests COMMAND edge-transition-tests)
+
+    add_executable(paper-crumple-tests tests/PaperCrumpleTests.cpp src/PaperCrumple.cpp src/PaperTakes.cpp)
+    target_include_directories(paper-crumple-tests PRIVATE src)
+    target_compile_options(paper-crumple-tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME paper-crumple-tests COMMAND paper-crumple-tests)
 endif()

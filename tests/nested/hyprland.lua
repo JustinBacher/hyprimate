@@ -47,19 +47,20 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --         ["liquid_glass"] = {
 --             window = {
 --                 enabled = true,
---                 strength = 0.65,
---                 liquid_color = 0xff000000,
 --                 movement = {
 --                     enabled = true,
 --                     style = "liquid",
 --                     options = {
 --                         liquid = {
+--                             strength = 0.65,
 --                             viscosity = 0.75,
 --                             elasticity = 0.5,
 --                             momentum = 0.5,
 --                             variation = 0.5,
 --                         },
---                         wiggle = {},
+--                         wiggle = {
+--                             strength = 0.65,
+--                         },
 --                     },
 --                 },
 --                 open = {
@@ -67,11 +68,19 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                     style = "liquid",
 --                     options = {
 --                         liquid = {
+--                             strength = 0.65,
+--                             color = 0xff000000,
 --                             first_window_side = "bottom",
 --                             edge_bounds = "screen",
 --                             emerge_drag = 0.5,
 --                             elasticity = 0.5,
 --                             momentum = 0.5,
+--                         },
+--                         paper = {
+--                             duration = 0.6,
+--                             crumpliness = 0.6,
+--                             shading = 0.7,
+--                             variation = 0.5,
 --                         },
 --                     },
 --                 },
@@ -80,11 +89,19 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                     style = "liquid",
 --                     options = {
 --                         liquid = {
+--                             strength = 0.65,
+--                             color = 0xff000000,
 --                             side = "auto",
 --                             edge_bounds = "screen",
 --                             splash = true,
 --                             elasticity = 0.5,
 --                             momentum = 0.5,
+--                         },
+--                         paper = {
+--                             duration = 0.5,
+--                             crumpliness = 0.6,
+--                             shading = 0.7,
+--                             variation = 0.5,
 --                         },
 --                     },
 --                 },
