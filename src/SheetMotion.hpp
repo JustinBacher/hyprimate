@@ -10,7 +10,7 @@ class SheetMotion {
   public:
     void   beginPaper(Transition kind, const PaperParams &params, std::uint64_t seed);
     void   beginCloth(Transition kind, const ClothParams &params, std::uint64_t seed, const Box &window,
-                      std::span<const Box> obstacles);
+                      std::span<const Box> obstacles, std::optional<ClothCloseGeometry> close = std::nullopt);
     bool   advance(double elapsedSeconds) noexcept;
     void   reset() noexcept;
     bool   active() const noexcept;

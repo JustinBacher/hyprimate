@@ -7,8 +7,8 @@ usage() {
     cat <<'EOF'
 Usage: tests/nested/run.sh [options]
 
-  --open STYLE        open style: liquid | paper     (default: paper)
-  --close STYLE       close style: liquid | paper    (default: paper)
+  --open STYLE        open style: liquid | paper | cloth (default: paper)
+  --close STYLE       close style: liquid | paper | cloth (default: paper)
   --movement STYLE    movement style: liquid | wiggle (default: liquid)
   --lua TABLE         extra settings merged into plugin.liquid_glass, e.g.
                       --lua 'window = { close = { options = { paper = { shading = 0 } } } }'

@@ -232,7 +232,10 @@ void CLiquidCloseRenderer::stage(const PHLWINDOW &window, const SLiquidPose &pos
 void CLiquidCloseRenderer::stageSheet(const PHLWINDOW &window, const liquid_glass::SheetMotion &from,
                                       const liquid_glass::PaperParams &paper, const liquid_glass::ClothParams &cloth,
                                       bool useCloth, std::uint64_t seed, const liquid_glass::Box &capture,
-                                      std::span<const liquid_glass::Box> obstacles) {
+                                      std::span<const liquid_glass::Box>              obstacles,
+                                      std::optional<liquid_glass::ClothCloseGeometry> closeGeometry) {
+    if (useCloth && !closeGeometry)
+        return; // no valid shared exit: retain the native close
     auto pending = pendingFor(window);
     if (!pending)
         return;
@@ -245,6 +248,7 @@ void CLiquidCloseRenderer::stageSheet(const PHLWINDOW &window, const liquid_glas
     pending->sheetSeed = seed;
     pending->sheetCapture = capture;
     pending->sheetObstacles.assign(obstacles.begin(), obstacles.end());
+    pending->clothCloseGeometry = closeGeometry;
     push(std::move(*pending));
 }
 
@@ -342,7 +346,7 @@ void CLiquidCloseRenderer::onFadeoutCreated(const PHLWINDOW &window, const SP<De
         record->sheet = std::move(pending.sheet);
         if (pending.useCloth)
             record->sheet.beginCloth(Transition::Close, pending.clothParams, pending.sheetSeed, pending.sheetCapture,
-                                     pending.sheetObstacles);
+                                     pending.sheetObstacles, pending.clothCloseGeometry);
         else
             record->sheet.beginPaper(Transition::Close, pending.paperParams, pending.sheetSeed);
     } else if (!textureBlur) {

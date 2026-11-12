@@ -9,10 +9,10 @@ void SheetMotion::beginPaper(Transition kind, const PaperParams &params, std::ui
 }
 
 void SheetMotion::beginCloth(Transition kind, const ClothParams &params, std::uint64_t seed, const Box &window,
-                             std::span<const Box> obstacles) {
+                             std::span<const Box> obstacles, std::optional<ClothCloseGeometry> close) {
     m_paper.reset();
     m_driver = Driver::Cloth;
-    m_cloth.begin(kind, params, seed, window, obstacles);
+    m_cloth.begin(kind, params, seed, window, obstacles, close);
 }
 
 bool SheetMotion::advance(double elapsedSeconds) noexcept {

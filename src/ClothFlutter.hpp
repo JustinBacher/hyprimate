@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 
 namespace liquid_glass {
@@ -14,50 +15,61 @@ struct ClothParams {
     bool   operator==(const ClothParams &) const = default;
 };
 
-// Keeps Jolt's process-wide state (allocator hooks, factory, type registry) alive. Construct one before any cloth
-// begins and destroy it after every ClothFlutter is gone; at most one may exist at a time. Without one, begin()
-// leaves the cloth idle.
+struct ClothCloseGeometry {
+    Edge edge = Edge::Bottom;
+    Box  screen; // physical monitor boundary, including reserved areas, in logical pixels
+};
+
+// Owns Jolt's process-wide state and a worker reaper. Shutdown stops and joins every simulation before destroying
+// Jolt. Releasing/cancelling a cloth only requests stop; joining and recording destruction happen on the reaper.
 class ClothPhysics {
   public:
     ClothPhysics();
     ~ClothPhysics();
     ClothPhysics(const ClothPhysics &) = delete;
     ClothPhysics &operator=(const ClothPhysics &) = delete;
+
+    // Deterministic worker starvation control for model tests. Does not affect already published snapshots.
+    static void pauseWorkersForTesting(bool pause, int afterSnapshots = 0) noexcept;
 };
 
-// The window as a cloth hanging from its top edge. Opening drops it from a roll at the top: it unrolls downward,
-// flutters and settles flat. Closing winds it back up from the bottom faster than it takes up the cloth, so the
-// slack billows out, then fades the roll. The desktop is a wall behind the cloth and other windows are slabs on it
-// that the cloth collides with.
-//
-// Each animation runs a Jolt simulation on its own worker thread, which records frames ahead of playback; advance()
-// never plays past the recorded frames, so a slow worker delays the cloth instead of skipping it. Copies share the
-// recording.
+// A fully simulated 57x57 sheet. Opening drops an outward-raised sheet from its fixed top edge. Closing releases
+// all particles to fall downward, or pulls the complete leading edge upward/sideways while the rest trails behind.
+// Copies retain the same immutable recording; each copy has its own playback clock.
 class ClothFlutter {
   public:
-    // `window` is the rest capture box and `obstacles` the boxes of other windows, all logical pixels in one space.
-    // Obstacles that overlap the window are ignored. Open always starts from the roll; Close continues an opening
-    // from its current shape, otherwise starts flat. Invalid params or no live ClothPhysics leave the cloth idle.
+    // Coordinates are logical pixels. Overlapping obstacles are ignored. Close inherits an active opening's
+    // displayed shape, opacity and real-time velocity. Missing close geometry defaults to a downward exit just
+    // below the window; provided invalid geometry, invalid params or no live ClothPhysics leave the model idle.
     void   begin(Transition kind, const ClothParams &params, std::uint64_t seed, const Box &window,
-                 std::span<const Box> obstacles);
-    bool   advance(double elapsedSeconds) noexcept; // returns active()
-    void   reset() noexcept;                        // -> Idle
-    bool   active() const noexcept;                 // Opening or Closing
-    bool   closed() const noexcept;                 // Closed
+                 std::span<const Box> obstacles, std::optional<ClothCloseGeometry> closeGeometry = std::nullopt);
+    bool   advance(double elapsedSeconds) noexcept;
+    void   reset() noexcept;
+    bool   active() const noexcept;
+    bool   closed() const noexcept;
     double opacity() const noexcept;
-    bool   shaded() const noexcept;                            // params.shading > 0
-    void   facets(Vec2 size, PaperFacets &out) const noexcept; // back-to-front
+    bool   shaded() const noexcept;
+    void   facets(Vec2 size, PaperFacets &out) const noexcept;
 
-    struct Run; // one recorded simulation; defined in ClothFlutter.cpp
+    // Model diagnostics: wait off the compositor path for a complete recording; sample the displayed normalized
+    // sheet (x right, y up from the top, z towards viewer) and its velocity per real second.
+    bool waitForRecording(double timeoutSeconds = 10.0) const noexcept;
+    bool waitForSnapshots(int count, double timeoutSeconds = 10.0) const noexcept;
+    void sampleVertices(SheetGrid &positions, SheetGrid &velocities) const noexcept;
+
+    struct Run;
+    struct Fallback;
 
   private:
     enum class Phase { Idle, Opening, Closing, Closed };
+    void startFallback() noexcept;
 
-    Phase                m_phase = Phase::Idle;
-    ClothParams          m_params{};
-    double               m_t = 0;    // simulated seconds played
-    double               m_rate = 0; // simulated seconds per real second
-    std::shared_ptr<Run> m_run;
+    Phase                     m_phase = Phase::Idle;
+    ClothParams               m_params{};
+    double                    m_t = 0, m_rate = 0;
+    double                    m_startupWait = 0, m_fallbackTime = 0, m_initialOpacity = 1;
+    std::shared_ptr<Run>      m_run;
+    std::shared_ptr<Fallback> m_fallback;
 };
 
 } // namespace liquid_glass

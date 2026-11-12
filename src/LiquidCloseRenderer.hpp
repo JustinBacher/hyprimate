@@ -90,7 +90,8 @@ class CLiquidCloseRenderer {
     // Stage the sheet and parameters before detaching; begin when the fadeout is created.
     void stageSheet(const PHLWINDOW &window, const liquid_glass::SheetMotion &from,
                     const liquid_glass::PaperParams &paper, const liquid_glass::ClothParams &cloth, bool useCloth,
-                    std::uint64_t seed, const liquid_glass::Box &capture, std::span<const liquid_glass::Box> obstacles);
+                    std::uint64_t seed, const liquid_glass::Box &capture, std::span<const liquid_glass::Box> obstacles,
+                    std::optional<liquid_glass::ClothCloseGeometry> closeGeometry = std::nullopt);
 
     // Advances closing records. Returns true while any record still animates; `activeMonitors` is refilled with the
     // monitors to damage, including the frame in which an owned close finishes or a record is pruned.
@@ -134,7 +135,9 @@ class CLiquidCloseRenderer {
         std::uint64_t                          sheetSeed = 0;
         liquid_glass::Box                      sheetCapture{};
         std::vector<liquid_glass::Box>         sheetObstacles;
-        clock::time_point                      staged{};
+        // Physical screen exit geometry is separate from the resolver's optional work-area boundary.
+        std::optional<liquid_glass::ClothCloseGeometry> clothCloseGeometry;
+        clock::time_point                               staged{};
     };
 
     // One MONITOR-mode batch entry. `fadeout` is null for an owned record drawn after its native fadeout ended.

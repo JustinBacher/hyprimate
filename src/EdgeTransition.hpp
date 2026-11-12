@@ -5,6 +5,7 @@
 #include <array>
 #include <optional>
 #include <span>
+#include <string_view>
 
 namespace liquid_glass {
 
@@ -36,6 +37,12 @@ struct EdgeFrame {
 // within 1 px go to `fallback`, then Bottom, Right, Left, Top. nullopt for unusable boxes or when no edge is valid.
 std::optional<EdgeFrame> resolveEdgeFrame(const Box &body, const Box &capture, const Box &screen,
                                           std::span<const Box> neighbours, Edge fallback, bool preferFallback) noexcept;
+
+// Shared liquid/cloth close policy. nearest ignores neighbours; origin prefers the recorded opening edge;
+// top/bottom/left/right prefer that fixed edge. An unavailable or invalid preference uses the usual resolver.
+std::optional<EdgeFrame> resolveCloseEdgeFrame(const Box &body, const Box &capture, const Box &bounds,
+                                               std::span<const Box> neighbours, Edge fallback, std::string_view side,
+                                               std::optional<Edge> origin = std::nullopt) noexcept;
 
 // Edge frame <-> point relative to the capture centre.
 Vec2   edgePoint(const EdgeFrame &frame, double t, double n) noexcept;

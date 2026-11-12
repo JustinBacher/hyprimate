@@ -79,7 +79,18 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
             if (closeEnabled() && eligible(window)) {
                 auto *transformer = transformerOf(window);
                 if (closePaper() || closeCloth()) {
-                    const CBox capture = window->getFullWindowBoundingBox();
+                    const CBox                                      capture = window->getFullWindowBoundingBox();
+                    std::optional<liquid_glass::ClothCloseGeometry> closeGeometry;
+                    if (closeCloth()) {
+                        // Resolve first: edgeFrameFor reuses m_neighbours, which is then filled with collision boxes.
+                        const auto frame = edgeFrameFor(window, false, entry->openEdge);
+                        const auto monitor = window->m_monitor.lock();
+                        if (frame && monitor) {
+                            const CBox screen = monitor->logicalBox();
+                            closeGeometry =
+                                liquid_glass::ClothCloseGeometry{frame->edge, {screen.x, screen.y, screen.w, screen.h}};
+                        }
+                    }
                     m_neighbours.clear();
                     if (closeCloth())
                         gatherClothObstacles(window);
@@ -89,7 +100,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                                         clothParams(m_closeClothDuration->value(), m_closeClothFlutter->value(),
                                                     m_closeClothShading->value(), m_closeClothVariation->value()),
                                         closeCloth(), m_nextSeed++, {capture.x, capture.y, capture.w, capture.h},
-                                        m_neighbours);
+                                        m_neighbours, closeGeometry);
                 } else {
                     const bool continuing = transformer && transformer->transition().active();
                     const auto closeFrame = continuing ? std::optional<liquid_glass::EdgeFrame>{}
@@ -279,20 +290,14 @@ std::optional<liquid_glass::EdgeFrame> CPluginRuntime::edgeFrameFor(const PHLWIN
                     body.w + (capture.w - current.w), body.h + (capture.h - current.h)};
     const auto box = [](const CBox &b) { return liquid_glass::Box{b.x, b.y, b.w, b.h}; };
 
-    // Fallback edge: a workspace's first window uses first_window_side; close_side=origin prefers the opening edge.
-    // Otherwise the contact rule picks the side away from tiled neighbours; close_side=nearest ignores them.
-    liquid_glass::Edge fallback = firstWindowEdge();
-    bool               preferFallback = opening && !workspaceHasOtherWindows(window);
-    if (!opening && origin && m_closeSide->value() == "origin") {
-        fallback = *origin;
-        preferFallback = true;
-    }
     m_neighbours.clear();
-    const bool useContact = !window->isFloating() && (opening || m_closeSide->value() != "nearest");
-    if (useContact)
+    if (!window->isFloating())
         gatherNeighbours(window);
+    if (!opening)
+        return liquid_glass::resolveCloseEdgeFrame(box(body), box(rest), box(edgeBoundsBox(monitor, false)),
+                                                   m_neighbours, firstWindowEdge(), m_closeSide->value(), origin);
     return liquid_glass::resolveEdgeFrame(box(body), box(rest), box(edgeBoundsBox(monitor, opening)), m_neighbours,
-                                          fallback, preferFallback);
+                                          firstWindowEdge(), !workspaceHasOtherWindows(window));
 }
 
 bool CPluginRuntime::materialUsable() const {
@@ -532,13 +537,30 @@ void CPluginRuntime::beginOpening(STracked &entry, const PHLWINDOW &window) {
                         m_openPaperVariation->value()),
             m_nextSeed++, {capture.w, capture.h});
     } else if (openCloth()) {
+        // Cloth opens in place, but keeps the same logical origin as liquid for close side=origin.
+        if (const auto frame = edgeFrameFor(window, true))
+            entry.openEdge = frame->edge;
+        const CBox current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+        const CBox goal = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
         const CBox capture = window->getFullWindowBoundingBox();
+        // Native popin changes both size and position. The physical top attachment belongs to the final box;
+        // retain its decoration margins and stop native geometry motion only once the cloth actually starts.
+        const CBox rest{goal.x + (capture.x - current.x), goal.y + (capture.y - current.y),
+                        goal.w + (capture.w - current.w), goal.h + (capture.h - current.h)};
+        if (!isUsableBox(goal) || !isUsableBox(rest))
+            return;
         m_neighbours.clear();
         gatherClothObstacles(window);
-        acquireTransformer(window)->beginClothOpen(
-            clothParams(m_openClothDuration->value(), m_openClothFlutter->value(), m_openClothShading->value(),
-                        m_openClothVariation->value()),
-            m_nextSeed++, {capture.x, capture.y, capture.w, capture.h}, m_neighbours);
+        auto *transformer = acquireTransformer(window);
+        transformer->beginClothOpen(clothParams(m_openClothDuration->value(), m_openClothFlutter->value(),
+                                                m_openClothShading->value(), m_openClothVariation->value()),
+                                    m_nextSeed++, {rest.x, rest.y, rest.w, rest.h}, m_neighbours);
+        if (transformer->sheet().active()) {
+            g_pHyprRenderer->damageBox(capture);
+            window->positionAnimation()->setValueAndWarp(goal.pos());
+            window->sizeAnimation()->setValueAndWarp(goal.size());
+            baseline(entry, window);
+        }
     } else {
         const auto frame = edgeFrameFor(window, true);
         if (!frame)

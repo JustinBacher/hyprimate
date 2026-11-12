@@ -29,12 +29,15 @@ struct Vec3 {
 // Logical pixels relative to the rest capture centre: x right, y down, z towards the viewer.
 using SheetGrid = std::array<Vec3, PAPER_GRID_VERTICES>;
 
+enum class SheetLighting { PaperCreases, ClothSmooth };
+
 // The window at rest: every facet in place and unlit.
 void flatSheetFacets(PaperFacets &out) noexcept;
 
 // Projects `world` onto the screen with a fixed perspective (eye 3 * sqrt(W * H) in front of the sheet), orders the
 // triangles back to front and lights them. `size` is the rest capture size in logical pixels; `shading` in [0, 1]
 // scales the lighting and 0 draws unlit.
-void sheetFacets(const SheetGrid &world, Vec2 size, double shading, PaperFacets &out) noexcept;
+void sheetFacets(const SheetGrid &world, Vec2 size, double shading, PaperFacets &out,
+                 SheetLighting lighting = SheetLighting::PaperCreases) noexcept;
 
 } // namespace liquid_glass

@@ -144,6 +144,61 @@ void testOnlyTouchingNeighboursCount() {
     CHECK(pick(body, Edge::Bottom, false, overlapping) == Edge::Bottom);
 }
 
+// Both materials call this close policy, including an in-place cloth opening's logical origin.
+void testSharedCloseDirectionPolicy() {
+    using liquid_glass::Box;
+    using liquid_glass::Edge;
+    const Box                body{972, 548, 924, 508};
+    const std::array<Box, 1> left{{{600, 548, 308, 508}}};
+    const auto               close = [&](std::string_view side, std::optional<Edge> origin = std::nullopt) {
+        const auto frame =
+            liquid_glass::resolveCloseEdgeFrame(body, withShadow(body), kScreen, left, Edge::Bottom, side, origin);
+        return frame ? std::optional{frame->edge} : std::nullopt;
+    };
+    CHECK(close("auto") == Edge::Right);
+    CHECK(close("nearest") == Edge::Bottom); // ignores tiled contact
+    CHECK(close("origin", Edge::Top) == Edge::Top);
+    CHECK(close("origin") == close("auto"));
+    for (const auto &[side, edge] : std::array<std::pair<std::string_view, Edge>, 4>{
+             {{"left", Edge::Left}, {"right", Edge::Right}, {"top", Edge::Top}, {"bottom", Edge::Bottom}}}) {
+        CHECK(close(side) == edge);
+        CHECK(close(side, Edge::Top) == edge); // an opening origin does not override a fixed direction
+    }
+
+    const Box  crossingBottom{500, 900, 400, 300};
+    const auto fallback = liquid_glass::resolveCloseEdgeFrame(crossingBottom, withShadow(crossingBottom), kScreen, {},
+                                                              Edge::Bottom, "bottom");
+    CHECK(fallback && fallback->edge == Edge::Left); // fixed preference invalid: normal resolver fallback
+    const auto originFallback = liquid_glass::resolveCloseEdgeFrame(crossingBottom, withShadow(crossingBottom), kScreen,
+                                                                    {}, Edge::Bottom, "origin", Edge::Bottom);
+    CHECK(originFallback && originFallback->edge == Edge::Left);
+}
+
+void testCloseMonitorAndWorkAreaBounds() {
+    using liquid_glass::Box;
+    using liquid_glass::Edge;
+    const Box  body{760, 340, 400, 400};
+    const auto screen =
+        liquid_glass::resolveCloseEdgeFrame(body, withShadow(body), kScreen, {}, Edge::Bottom, "nearest");
+    const auto work =
+        liquid_glass::resolveCloseEdgeFrame(body, withShadow(body), {0, 100, 1920, 980}, {}, Edge::Bottom, "nearest");
+    CHECK(screen && screen->edge == Edge::Bottom);
+    CHECK(work && work->edge == Edge::Top);
+
+    // Translating the monitor, window, capture and neighbours must preserve every direction and boundary distance.
+    const Box shiftedBody{body.x - 1920, body.y - 200, body.w, body.h};
+    for (std::string_view side : {"auto", "nearest", "origin", "top", "bottom", "left", "right"}) {
+        const auto a =
+            liquid_glass::resolveCloseEdgeFrame(body, withShadow(body), kScreen, {}, Edge::Bottom, side, Edge::Right);
+        const auto b = liquid_glass::resolveCloseEdgeFrame(
+            shiftedBody, withShadow(shiftedBody), {-1920, -200, 1920, 1080}, {}, Edge::Bottom, side, Edge::Right);
+        CHECK(a && b && a->edge == b->edge);
+        CHECK(a && b && std::abs(a->edgeDistance - b->edgeDistance) < 1e-9);
+    }
+    CHECK(!liquid_glass::resolveCloseEdgeFrame(body, withShadow(body), {}, {}, Edge::Bottom, "auto"));
+    CHECK(!liquid_glass::resolveCloseEdgeFrame({-10, -10, 1940, 1100}, kScreen, kScreen, {}, Edge::Bottom, "right"));
+}
+
 // Bead transitions.
 using liquid_glass::EdgeFrame;
 using liquid_glass::EdgeTransition;
@@ -679,6 +734,8 @@ int main() {
     testScrollingColumnsEmergeAwayFromNeighbours();
     testInvalidContactCandidateFallsBackToNearest();
     testOnlyTouchingNeighboursCount();
+    testSharedCloseDirectionPolicy();
+    testCloseMonitorAndWorkAreaBounds();
     testOpenStartsHiddenAndSettlesExactly();
     testOpenFillsLiveCaptureAlongNormal();
     testBeadMapDoesNotFold();
