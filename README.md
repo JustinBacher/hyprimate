@@ -6,6 +6,7 @@ Currently, hyprimate animates windows as they move, open, and close:
 
 - **Liquid** gives moving windows a fluid, elastic feel and animates them in and out from the edge of the screen.
 - **Wiggle** is an alternative movement style that emerged while experimenting with Liquid. It brought to mind that old-school wiggly window animation from years ago—if you know, you know.
+- **Cloth** lets moving windows trail and fold like a sheet pulled from the cursor or a corner, then settle flat.
 - **Paper** is an alternative open and close style. A closing window crumples into a creased, lit ball where it is and disappears; an opening window starts as a ball at its own position and uncrumples into place.
 
 ![Demo of hyprimate's window animations](hyprimate-demo.webp)
@@ -36,13 +37,13 @@ While a window opens, hyprimate drives the window's real box along the pop-out, 
 
 The example below explicitly disables Hyprland's wobble and shows all hyprimate settings with their defaults. Add the plugin settings to your Hyprland Lua configuration after the plugin has been loaded.
 
-The movement, open, and close animations can be enabled and configured independently. To use the old-school movement effect, set `window.movement.style` to `"wiggle"`; open and close retain their own settings.
+The movement, open, and close animations can be enabled and configured independently. Set `window.movement.style` to `"wiggle"` for the old-school movement effect or `"cloth"` for floating drags and tiled rearrangements; open and close retain their own settings.
 
 Liquid closing shrinks and travels toward the screen edge in one continuous motion, without stopping at a bead-sized hover. Close momentum advances the dive; elasticity controls its speed. The optional splash follows once the window has disappeared.
 
 Paper (`window.open.style` or `window.close.style` set to `"paper"`) has no screen edge, bead or splash, and does not drive the window box. Its crumples are real cloth simulations of a stiff sheet squeezed from all sides into a solid ball, baked offline with Blender and shipped inside the plugin (`assets/paper_takes.bin`); `tools/paper_bake/bake_all.sh` rebakes them. The window crumples in place, facing you: it creases all over while its outline pulls in, then collapses into the ball, without spinning. Each of open and close has its own `duration`, `crumpliness`, `shading` and `variation` under `options.paper`. Closing a window that is still uncrumpling recrumples it from its current shape. Settings used by only one style live under that style's `options` table, so the liquid `strength` and `color` are set per section.
 
-Cloth (`window.open.style` or `window.close.style` set to `"cloth"`) opens as a raised sheet that drops under gravity from its pinned top edge, then settles into the flat window. Closing downward releases the whole sheet to fall; closing upward or sideways pulls the full leading edge while the rest trails behind it. Jolt Physics simulates all 57×57 vertices at 120 Hz. Open and close each have their own `duration`, `flutter`, `shading` and `variation` under `options.cloth`; zero flutter removes gusts while gravity still moves the sheet. Closing during a cloth opening inherits its displayed shape, opacity and motion.
+Cloth (`window.movement.style`, `window.open.style` or `window.close.style` set to `"cloth"`) moves as a sheet. A floating mouse drag pulls from the cursor location; tiled rearrangements and other moves pull from the corner facing the direction of travel. The sheet trails in folds while moving, then settles back to the exact flat window. Movement has its own `strength`, `flutter`, `shading` and `variation` under `window.movement.options.cloth`. Opening still drops a raised sheet from its pinned top edge under gravity; closing downward releases the whole sheet to fall, while upward or sideways closing pulls the leading edge. Jolt Physics simulates all 57×57 vertices at 120 Hz. Open and close keep their own cloth controls, and handoffs between cloth opening, movement and cloth closing carry the current shape and motion.
 
 <!-- BEGIN GENERATED CONFIGURATION -->
 After the first load has registered the settings, add this Lua configuration:
@@ -67,6 +68,12 @@ hl.config({
                         },
                         wiggle = {
                             strength = 0.65,
+                        },
+                        cloth = {
+                            strength = 0.65,
+                            flutter = 0.5,
+                            shading = 0.7,
+                            variation = 0.5,
                         },
                     },
                 },
@@ -136,13 +143,17 @@ Hyprland 0.57 normalizes hyphens to underscores in Lua config names: use `liquid
 |---|---|---|
 | `plugin:liquid-glass:window:enabled` | boolean / `true` | Master switch: when false, no movement, open or close deformation runs. |
 | `plugin:liquid-glass:window:movement:enabled` | boolean / `true` | Deform windows while they move. Does not enable or disable open or close. |
-| `plugin:liquid-glass:window:movement:style` | string / `"liquid"` | Movement material; invalid names are rejected. Allowed: `liquid`, `wiggle`. |
+| `plugin:liquid-glass:window:movement:style` | string / `"liquid"` | Movement material; cloth follows a cursor grab or travel-facing corner, trails in folds, then settles flat. Open and close styles stay independent; invalid names are rejected. Allowed: `liquid`, `wiggle`, `cloth`. |
 | `plugin:liquid-glass:window:movement:options:liquid:strength` | float / `0.65` | Liquid-only movement deformation intensity; zero moves windows undeformed. Finite values clamped to 0–1.5. |
 | `plugin:liquid-glass:window:movement:options:liquid:viscosity` | float / `0.75` | Liquid-only internal flow resistance; higher is thicker and more cohesive. Finite values clamped to 0–1. |
 | `plugin:liquid-glass:window:movement:options:liquid:elasticity` | float / `0.5` | Liquid-only movement stiffness and recovery speed; higher snaps back faster. Finite values clamped to 0–1. |
 | `plugin:liquid-glass:window:movement:options:liquid:momentum` | float / `0.5` | Liquid-only movement inertia after a stop; zero lands without overshoot. Finite values clamped to 0–1. |
 | `plugin:liquid-glass:window:movement:options:liquid:variation` | float / `0.5` | Liquid-only per-window and per-movement randomness; zero moves windows identically. Finite values clamped to 0–1. |
 | `plugin:liquid-glass:window:movement:options:wiggle:strength` | float / `0.65` | Wiggle-only movement deformation intensity; zero moves windows undeformed. Finite values clamped to 0–1.5. |
+| `plugin:liquid-glass:window:movement:options:cloth:strength` | float / `0.65` | Cloth-only movement deformation intensity; zero moves windows undeformed. Finite values clamped to 0–1.5. |
+| `plugin:liquid-glass:window:movement:options:cloth:flutter` | float / `0.5` | Cloth-only gust strength during movement; zero removes flutter while the sheet still trails and settles. Finite values clamped to 0–1. |
+| `plugin:liquid-glass:window:movement:options:cloth:shading` | float / `0.7` | Cloth-only light and shadow on movement folds; zero draws the folds unlit. Finite values clamped to 0–1. |
+| `plugin:liquid-glass:window:movement:options:cloth:variation` | float / `0.5` | Cloth-only per-window movement variation; zero uses the same motion for every window. Finite values clamped to 0–1. |
 | `plugin:liquid-glass:window:open:enabled` | boolean / `true` | Animate windows as they open (see style); false opens without it. Movement is unaffected. |
 | `plugin:liquid-glass:window:open:style` | string / `"liquid"` | Open material; invalid names are rejected. Allowed: `liquid`, `paper`, `cloth`. |
 | `plugin:liquid-glass:window:open:options:liquid:strength` | float / `0.65` | Liquid-only pop-out size and deformation intensity; zero opens without the pop-out. Finite values clamped to 0–1.5. |

@@ -15,6 +15,11 @@ struct ClothParams {
     bool   operator==(const ClothParams &) const = default;
 };
 
+struct ClothMovementParams {
+    double strength = 0.65, flutter = 0.5, shading = 0.7, variation = 0.5;
+    bool   operator==(const ClothMovementParams &) const = default;
+};
+
 struct ClothCloseGeometry {
     Edge edge = Edge::Bottom;
     Box  screen; // physical monitor boundary, including reserved areas, in logical pixels
@@ -38,11 +43,22 @@ class ClothPhysics {
 // Copies retain the same immutable recording; each copy has its own playback clock.
 class ClothFlutter {
   public:
+    ClothFlutter();
+    ~ClothFlutter();
+    ClothFlutter(const ClothFlutter &);
+    ClothFlutter &operator=(const ClothFlutter &);
+    ClothFlutter(ClothFlutter &&) noexcept;
+    ClothFlutter &operator=(ClothFlutter &&) noexcept;
     // Coordinates are logical pixels. Overlapping obstacles are ignored. Close inherits an active opening's
     // displayed shape, opacity and real-time velocity. Missing close geometry defaults to a downward exit just
     // below the window; provided invalid geometry, invalid params or no live ClothPhysics leave the model idle.
-    void   begin(Transition kind, const ClothParams &params, std::uint64_t seed, const Box &window,
-                 std::span<const Box> obstacles, std::optional<ClothCloseGeometry> closeGeometry = std::nullopt);
+    void begin(Transition kind, const ClothParams &params, std::uint64_t seed, const Box &window,
+               std::span<const Box> obstacles, std::optional<ClothCloseGeometry> closeGeometry = std::nullopt);
+    // The grab coordinate is in [0,1] across the decorated capture. Geometry updates only set a target;
+    // advance() sends one timestamped target per tick, including stationary ticks while the sheet settles.
+    void   beginMovement(const ClothMovementParams &params, std::uint64_t seed, const Box &capture, Vec2 grabUV);
+    void   updateMovement(const Box &capture, double elapsedSeconds) noexcept;
+    bool   moving() const noexcept;
     bool   advance(double elapsedSeconds) noexcept;
     void   reset() noexcept;
     bool   active() const noexcept;
@@ -59,17 +75,19 @@ class ClothFlutter {
 
     struct Run;
     struct Fallback;
+    struct MovementPlayback;
 
   private:
-    enum class Phase { Idle, Opening, Closing, Closed };
+    enum class Phase { Idle, Opening, Movement, Closing, Closed };
     void startFallback() noexcept;
 
-    Phase                     m_phase = Phase::Idle;
-    ClothParams               m_params{};
-    double                    m_t = 0, m_rate = 0;
-    double                    m_startupWait = 0, m_fallbackTime = 0, m_initialOpacity = 1;
-    std::shared_ptr<Run>      m_run;
-    std::shared_ptr<Fallback> m_fallback;
+    Phase                             m_phase = Phase::Idle;
+    ClothParams                       m_params{};
+    double                            m_t = 0, m_rate = 0;
+    double                            m_startupWait = 0, m_fallbackTime = 0, m_initialOpacity = 1;
+    std::shared_ptr<Run>              m_run;
+    std::shared_ptr<Fallback>         m_fallback;
+    std::unique_ptr<MovementPlayback> m_movement;
 };
 
 } // namespace liquid_glass

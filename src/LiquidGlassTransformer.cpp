@@ -237,10 +237,12 @@ void fillLiquidMeniscusMesh(const SLiquidPose &pose, const CBox &sourceDevice, d
 
 CLiquidGlassTransformer::CLiquidGlassTransformer(PHLWINDOWREF window, liquid_glass::MotionMode mode,
                                                  liquid_glass::MaterialParams params, std::uint64_t seed,
-                                                 SP<CSolidFill> solid, SP<CPaperShade> shade)
+                                                 SP<CSolidFill> solid, SP<CPaperShade> shade,
+                                                 std::optional<liquid_glass::ClothMovementParams> clothMovement)
     : m_window(std::move(window)), m_mesh(mode, params, seed), m_solid(std::move(solid)), m_shade(std::move(shade)),
       m_vertices(LIQUID_RENDER_VERTEX_COUNT), m_meniscusVertices(LIQUID_MENISCUS_VERTEX_COUNT),
-      m_paperVertices(PAPER_VERTEX_COUNT), m_paperShadeVertices(PAPER_VERTEX_COUNT) {}
+      m_clothMovementParams(clothMovement), m_paperVertices(PAPER_VERTEX_COUNT),
+      m_paperShadeVertices(PAPER_VERTEX_COUNT) {}
 
 void CLiquidGlassTransformer::beginOpen(const liquid_glass::EdgeFrame      &frame,
                                         const liquid_glass::MaterialParams &params, double strength, Vec2 captureSize) {
@@ -257,12 +259,21 @@ void CLiquidGlassTransformer::cancelOpening() {
     m_transition.reset();
     m_boxDriven = false;
     m_displacementGain = 1.0;
-    m_sheet.reset();
+    if (m_sheet.opening())
+        m_sheet.reset();
+}
+
+void CLiquidGlassTransformer::cancelMovement() {
+    m_mesh.reset();
+    if (m_sheet.moving())
+        m_sheet.reset();
+    m_sheetFacetsStale = true;
 }
 
 void CLiquidGlassTransformer::beginPaperOpen(const liquid_glass::PaperParams &params, std::uint64_t seed,
                                              Vec2 captureSize) {
     cancelOpening();
+    m_sheet.reset();
     m_sheet.beginPaper(liquid_glass::Transition::Open, params, seed);
     m_sheetCaptureSize = captureSize;
     m_sheetFacetsStale = true;
@@ -272,7 +283,28 @@ void CLiquidGlassTransformer::beginClothOpen(const liquid_glass::ClothParams &pa
                                              const liquid_glass::Box           &window,
                                              std::span<const liquid_glass::Box> obstacles) {
     cancelOpening();
+    m_sheet.reset();
     m_sheet.beginCloth(liquid_glass::Transition::Open, params, seed, window, obstacles);
+    m_sheetCaptureSize = {window.w, window.h};
+    m_sheetFacetsStale = true;
+}
+
+void CLiquidGlassTransformer::beginClothMovement(std::uint64_t seed, const liquid_glass::Box &window, Vec2 grabUV) {
+    if (!m_clothMovementParams)
+        return;
+    // Keep the sheet's displayed pose for an interrupted cloth opening. The movement model inherits it.
+    restoreBox();
+    m_transition.reset();
+    m_boxDriven = false;
+    m_displacementGain = 1.0;
+    m_mesh.reset();
+    m_sheet.beginMovement(*m_clothMovementParams, seed, window, grabUV);
+    m_sheetCaptureSize = {window.w, window.h};
+    m_sheetFacetsStale = true;
+}
+
+void CLiquidGlassTransformer::updateClothMovement(const liquid_glass::Box &window, double elapsedSeconds) {
+    m_sheet.updateMovement(window, elapsedSeconds);
     m_sheetCaptureSize = {window.w, window.h};
     m_sheetFacetsStale = true;
 }

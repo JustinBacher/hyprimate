@@ -69,7 +69,8 @@ class CLiquidGlassTransformer final : public Render::IWindowTransformer {
   public:
     explicit CLiquidGlassTransformer(PHLWINDOWREF window, liquid_glass::MotionMode mode,
                                      liquid_glass::MaterialParams params, std::uint64_t seed, SP<CSolidFill> solid,
-                                     SP<CPaperShade> shade);
+                                     SP<CPaperShade>                                  shade,
+                                     std::optional<liquid_glass::ClothMovementParams> clothMovement = std::nullopt);
     ~CLiquidGlassTransformer() override = default;
 
     CLiquidGlassTransformer(const CLiquidGlassTransformer &) = delete;
@@ -100,13 +101,19 @@ class CLiquidGlassTransformer final : public Render::IWindowTransformer {
     void driveBox();
     // Ends the pop-out and returns the real box to the layout's.
     void cancelOpening();
+    void cancelMovement();
     // Recomputes the cached movement-field gain. Called once per physics advance, never from the render path.
     void refreshPose(liquid_glass::Vec2 captureSize);
     // Sheet animations stay at the capture box and do not drive the window's layout box.
     void beginPaperOpen(const liquid_glass::PaperParams &params, std::uint64_t seed, liquid_glass::Vec2 captureSize);
     void beginClothOpen(const liquid_glass::ClothParams &params, std::uint64_t seed, const liquid_glass::Box &window,
                         std::span<const liquid_glass::Box> obstacles);
-    void advanceSheet(double elapsed, liquid_glass::Vec2 captureSize);
+    void beginClothMovement(std::uint64_t seed, const liquid_glass::Box &window, liquid_glass::Vec2 grabUV);
+    void updateClothMovement(const liquid_glass::Box &window, double elapsedSeconds);
+    const std::optional<liquid_glass::ClothMovementParams> &clothMovementParams() const noexcept {
+        return m_clothMovementParams;
+    }
+    void                             advanceSheet(double elapsed, liquid_glass::Vec2 captureSize);
     liquid_glass::SheetMotion       &sheet() noexcept { return m_sheet; }
     const liquid_glass::SheetMotion &sheet() const noexcept { return m_sheet; }
 
@@ -115,6 +122,7 @@ class CLiquidGlassTransformer final : public Render::IWindowTransformer {
         m_detached = true;
         m_mesh.reset();
         cancelOpening();
+        m_sheet.reset();
     }
 
   private:
@@ -140,10 +148,11 @@ class CLiquidGlassTransformer final : public Render::IWindowTransformer {
     std::vector<SMeshRenderVertex> m_vertices;
     std::vector<SMeshRenderVertex> m_meniscusVertices;
     // The model and its cached facets share the paper renderer's preallocated meshes.
-    liquid_glass::SheetMotion         m_sheet;
-    mutable liquid_glass::PaperFacets m_sheetFacets{};
-    mutable bool                      m_sheetFacetsStale = false;
-    liquid_glass::Vec2                m_sheetCaptureSize{};
-    std::vector<SMeshRenderVertex>    m_paperVertices;
-    std::vector<SMeshRenderVertex>    m_paperShadeVertices;
+    liquid_glass::SheetMotion                        m_sheet;
+    std::optional<liquid_glass::ClothMovementParams> m_clothMovementParams;
+    mutable liquid_glass::PaperFacets                m_sheetFacets{};
+    mutable bool                                     m_sheetFacetsStale = false;
+    liquid_glass::Vec2                               m_sheetCaptureSize{};
+    std::vector<SMeshRenderVertex>                   m_paperVertices;
+    std::vector<SMeshRenderVertex>                   m_paperShadeVertices;
 };

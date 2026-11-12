@@ -9,6 +9,8 @@
 #include <hyprland/src/desktop/view/window/WindowEffectsController.hpp>
 #include <hyprland/src/render/transformer/TransformerList.hpp>
 #include <hyprland/src/managers/fullscreen/FullscreenController.hpp>
+#include <hyprland/src/layout/LayoutManager.hpp>
+#include <hyprland/src/managers/input/InputManager.hpp>
 #include <hyprland/src/output/Monitor.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 
@@ -158,6 +160,8 @@ CPluginRuntime::~CPluginRuntime() {
 bool CPluginRuntime::pluginEnabled() const { return m_enabled->value(); }
 
 double CPluginRuntime::movementStrength() const {
+    if (movementCloth())
+        return clampStrength(m_movementClothStrength->value());
     const auto value =
         effectiveMode() == liquid_glass::MotionMode::Wiggle ? m_movementWiggleStrength : m_movementLiquidStrength;
     return clampStrength(value->value());
@@ -181,6 +185,8 @@ liquid_glass::MaterialParams CPluginRuntime::effectiveMaterialParams() const {
 bool CPluginRuntime::movementEnabled() const {
     return pluginEnabled() && m_movementEnabled->value() && materialUsable() && movementStrength() > 0.0;
 }
+
+bool CPluginRuntime::movementCloth() const { return m_mode->value() == "cloth"; }
 
 bool CPluginRuntime::openEnabled() const { return pluginEnabled() && !m_inert && m_openEnabled->value(); }
 
@@ -220,6 +226,13 @@ liquid_glass::ClothParams CPluginRuntime::clothParams(double duration, double fl
             .flutter = clampUnit(flutter),
             .shading = clampUnit(shading),
             .variation = clampUnit(variation)};
+}
+
+liquid_glass::ClothMovementParams CPluginRuntime::clothMovementParams() const {
+    return {.strength = movementStrength(),
+            .flutter = clampUnit(m_movementClothFlutter->value()),
+            .shading = clampUnit(m_movementClothShading->value()),
+            .variation = clampUnit(m_movementClothVariation->value())};
 }
 
 double CPluginRuntime::effectiveEmergeDrag() const {
@@ -301,6 +314,10 @@ std::optional<liquid_glass::EdgeFrame> CPluginRuntime::edgeFrameFor(const PHLWIN
 }
 
 bool CPluginRuntime::materialUsable() const {
+    if (movementCloth()) {
+        const auto params = clothMovementParams();
+        return std::isfinite(params.flutter) && std::isfinite(params.shading) && std::isfinite(params.variation);
+    }
     if (effectiveMode() == liquid_glass::MotionMode::Wiggle)
         return true;
     const auto params = effectiveMaterialParams();
@@ -308,12 +325,33 @@ bool CPluginRuntime::materialUsable() const {
            std::isfinite(params.variation);
 }
 
-bool CPluginRuntime::materialChanged(const liquid_glass::LiquidMesh &mesh) const {
+bool CPluginRuntime::materialChanged(const CLiquidGlassTransformer &transformer) const {
     if (!movementEnabled())
         return false;
+    const auto &cloth = transformer.clothMovementParams();
+    if (movementCloth())
+        return !cloth || *cloth != clothMovementParams();
+    if (cloth)
+        return true;
+    const auto &mesh = transformer.mesh();
     if (mesh.mode() != effectiveMode())
         return true;
     return mesh.mode() == liquid_glass::MotionMode::Liquid && mesh.params() != effectiveMaterialParams();
+}
+
+liquid_glass::Vec2 CPluginRuntime::movementGrab(const PHLWINDOW &window, const CBox &capture, Vector2D delta) const {
+    if (window->isFloating() && g_layoutManager && g_pInputManager) {
+        const auto &drag = g_layoutManager->dragController();
+        const auto  target = drag ? drag->target() : nullptr;
+        if (drag && drag->mode() == MBIND_MOVE && target && target->window() == window) {
+            const auto cursor = g_pInputManager->getMouseCoordsInternal();
+            if (std::isfinite(cursor.x) && std::isfinite(cursor.y))
+                return {std::clamp((cursor.x - capture.x) / capture.w, 0.0, 1.0),
+                        std::clamp((cursor.y - capture.y) / capture.h, 0.0, 1.0)};
+        }
+    }
+    // An axis without travel chooses the top/left side. The selected corner stays fixed for this run.
+    return {delta.x > 0 ? 1.0 : 0.0, delta.y > 0 ? 1.0 : 0.0};
 }
 
 bool CPluginRuntime::wobbleEnabled() const { return *m_wobble != 0; }
@@ -365,7 +403,7 @@ void CPluginRuntime::forget(const PHLWINDOW &window) {
 
 void CPluginRuntime::baseline(STracked &entry, const PHLWINDOW &window) const {
     entry.lastBox = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
-    entry.lastCaptureSize = window->getFullWindowBoundingBox().size();
+    entry.lastCapture = window->getFullWindowBoundingBox();
     entry.monitor = window->m_monitor;
     entry.baselined = true;
     entry.lastAdvance = std::chrono::steady_clock::now();
@@ -436,10 +474,11 @@ void CPluginRuntime::sampleWindow(STracked &entry, const PHLWINDOW &window) {
     const CBox     current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
     const CBox     capture = window->getFullWindowBoundingBox();
     const Vector2D captureSize = capture.size();
+    const double   sampleElapsed = std::chrono::duration<double>(now - entry.lastSample).count();
 
     if (!canDeform || !entry.wasEligible || !entry.baselined || !isUsableBox(entry.lastBox) || !isUsableBox(current) ||
-        !isUsableBox(capture) || entry.monitor != window->m_monitor ||
-        std::chrono::duration<double>(now - entry.lastSample).count() > MAX_GAP_SECONDS) {
+        !isUsableBox(entry.lastCapture) || !isUsableBox(capture) || entry.monitor != window->m_monitor ||
+        sampleElapsed > MAX_GAP_SECONDS) {
         detachWindow(entry, window);
         baseline(entry, window);
         entry.wasEligible = canDeform && isUsableBox(capture);
@@ -449,7 +488,7 @@ void CPluginRuntime::sampleWindow(STracked &entry, const PHLWINDOW &window) {
     }
     entry.lastSample = now;
 
-    if (auto *existing = transformerOf(window); existing && materialChanged(existing->mesh())) {
+    if (auto *existing = transformerOf(window); existing && materialChanged(*existing)) {
         detachWindow(entry, window);
         baseline(entry, window);
         entry.wasEligible = true;
@@ -463,27 +502,30 @@ void CPluginRuntime::sampleWindow(STracked &entry, const PHLWINDOW &window) {
 
     if (openingEdge) {
         beginOpening(entry, window);
-        entry.lastBox = current;
-        entry.lastCaptureSize = captureSize;
+        // A cloth opening may warp native popin geometry to its goal. Baseline the box actually displayed.
+        baseline(entry, window);
         return;
     }
-    const auto *existing = transformerOf(window);
-    if (animating || wasAnimating || (existing && (existing->transition().active() || existing->sheet().active()))) {
-        // Native open/close motion and the driven open box move the window; neither is a drag impulse.
+    auto      *transformer = transformerOf(window);
+    const bool clothHandoff =
+        movementCloth() && transformer && (transformer->sheet().clothOpening() || transformer->sheet().moving());
+    if (((animating || wasAnimating) && !clothHandoff) ||
+        (transformer && (transformer->transition().active() || (transformer->sheet().active() && !clothHandoff)))) {
+        // Native opening and a liquid box-driven transition are not movement impulses. Cloth's opening box
+        // is already fixed at its goal, so subsequent geometry changes can take over its displayed sheet.
         entry.lastBox = current;
-        entry.lastCaptureSize = captureSize;
+        entry.lastCapture = capture;
         return;
     }
 
+    const CBox   previousCapture = entry.lastCapture;
     const auto   delta = current.pos() - entry.lastBox.pos();
     const bool   translated = delta.x != 0.0 || delta.y != 0.0;
     const bool   resized = current.size() != entry.lastBox.size();
-    const bool   captureResized = captureSize != entry.lastCaptureSize;
+    const bool   captureChanged = capture.pos() != previousCapture.pos() || capture.size() != previousCapture.size();
     const double largest = std::max({current.w, current.h, entry.lastBox.w, entry.lastBox.h});
     entry.lastBox = current;
-    entry.lastCaptureSize = captureSize;
-    if (!translated && !resized && !captureResized)
-        return;
+    entry.lastCapture = capture;
 
     if (std::hypot(delta.x, delta.y) > MAX_JUMP_FACTOR * largest) {
         detachWindow(entry, window);
@@ -491,8 +533,11 @@ void CPluginRuntime::sampleWindow(STracked &entry, const PHLWINDOW &window) {
         return;
     }
 
-    auto      *transformer = transformerOf(window);
-    const bool moving = translated && movementEnabled();
+    const bool enabled = movementEnabled();
+    const bool cancelledMovement = transformer && transformer->sheet().moving() && !enabled;
+    if (!translated && !resized && !captureChanged && !cancelledMovement)
+        return;
+    const bool moving = translated && enabled;
     if (!moving && !transformer)
         return;
     if (entry.hasFootprint) {
@@ -502,15 +547,32 @@ void CPluginRuntime::sampleWindow(STracked &entry, const PHLWINDOW &window) {
     if (!transformer)
         transformer = acquireTransformer(window);
     const bool wasActive = transformer->active();
-    if (moving)
-        transformer->mesh().recordTranslation({delta.x, delta.y}, {captureSize.x, captureSize.y}, movementStrength());
-    else if (movementEnabled())
-        transformer->mesh().advance(0.0, {captureSize.x, captureSize.y});
-    else
+    if (cancelledMovement)
+        transformer->cancelMovement();
+    if (movementCloth()) {
+        if (moving && !transformer->sheet().moving())
+            transformer->beginClothMovement(
+                m_nextSeed++, {previousCapture.x, previousCapture.y, previousCapture.w, previousCapture.h},
+                movementGrab(window, capture, delta));
+        if (enabled && transformer->sheet().moving())
+            transformer->updateClothMovement({capture.x, capture.y, capture.w, capture.h}, sampleElapsed);
         transformer->mesh().reset();
+    } else if (moving) {
+        transformer->mesh().recordTranslation({delta.x, delta.y}, {captureSize.x, captureSize.y}, movementStrength());
+    } else if (enabled) {
+        transformer->mesh().advance(0.0, {captureSize.x, captureSize.y});
+    } else {
+        transformer->mesh().reset();
+    }
     transformer->refreshPose({captureSize.x, captureSize.y});
-    if (!wasActive)
-        entry.lastAdvance = now;
+    if (!wasActive) {
+        // The first live target spans the observed geometry interval, even when the next tick follows this
+        // render sample immediately. Otherwise its initial velocity would be compressed into almost zero time.
+        entry.lastAdvance = movementCloth() && moving
+                                ? now - std::chrono::duration_cast<clock::duration>(
+                                            std::chrono::duration<double>(std::max(0.0, sampleElapsed)))
+                                : now;
+    }
 
     if (transformer->active()) {
         entry.footprint = worldFootprint(window);
@@ -603,7 +665,7 @@ void CPluginRuntime::advanceWindow(STracked &entry, const PHLWINDOW &window,
         return;
     }
 
-    if (materialChanged(transformer->mesh())) {
+    if (materialChanged(*transformer)) {
         detachWindow(entry, window);
         baseline(entry, window);
         entry.wasEligible = eligible(window);
@@ -628,9 +690,12 @@ void CPluginRuntime::advanceWindow(STracked &entry, const PHLWINDOW &window,
         entry.wasEligible = false;
         return;
     }
-    entry.lastCaptureSize = capture.size();
+    entry.lastCapture = capture;
     const liquid_glass::Vec2 size{capture.w, capture.h};
-    const bool               moving = movementEnabled();
+    const bool               enabled = movementEnabled();
+    const bool               moving = enabled && !movementCloth();
+    if (!enabled && transformer->sheet().moving())
+        transformer->cancelMovement();
     if (!moving)
         transformer->mesh().reset();
     advanceLiquidPose(transformer->mesh(), transformer->transition(), elapsed, size, movementStrength(),
@@ -639,7 +704,7 @@ void CPluginRuntime::advanceWindow(STracked &entry, const PHLWINDOW &window,
     transformer->refreshPose(size);
     transformer->driveBox();
     entry.lastBox = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
-    entry.lastCaptureSize = window->getFullWindowBoundingBox().size();
+    entry.lastCapture = window->getFullWindowBoundingBox();
     const bool stillActive = transformer->active();
     if (stillActive) {
         entry.footprint = worldFootprint(window);
@@ -663,8 +728,9 @@ CLiquidGlassTransformer *CPluginRuntime::acquireTransformer(const PHLWINDOW &win
     if (auto *existing = list->get<CLiquidGlassTransformer>())
         return existing;
     // Each window draws from its own stream, so windows moved together (scrolling, workspace slides) still differ.
-    return list->emplace<CLiquidGlassTransformer>(window->m_self, effectiveMode(), effectiveMaterialParams(),
-                                                  m_nextSeed++, m_openSolid, m_shade);
+    return list->emplace<CLiquidGlassTransformer>(
+        window->m_self, effectiveMode(), effectiveMaterialParams(), m_nextSeed++, m_openSolid, m_shade,
+        movementCloth() ? std::optional{clothMovementParams()} : std::nullopt);
 }
 
 CBox CPluginRuntime::worldFootprint(const PHLWINDOW &window) const {

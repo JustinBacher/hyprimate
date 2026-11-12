@@ -283,6 +283,211 @@ void cancelAndUnload() {
     CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds(1));
     ClothPhysics::pauseWorkersForTesting(false);
 }
+
+void movementStep(ClothFlutter &m, const Box &box, double dt, double &time) {
+    m.updateMovement(box, dt);
+    m.advance(dt);
+    time += dt;
+    if (m.moving()) {
+        CHECK(m.waitForSnapshots(2 + int(std::floor(time * 120 + 1e-7))));
+        m.advance(0);
+    }
+}
+
+void movement() {
+    ClothMovementParams params;
+    params.flutter = 0;
+    params.variation = 0;
+    ClothFlutter m;
+    m.beginMovement(params, 1, WINDOW, {.5, .5});
+    CHECK(m.moving() && m.waitForSnapshots(2));
+    Box        box = WINDOW;
+    double     time = 0;
+    const auto center = std::size_t(PAPER_CELLS / 2) * GRID + PAPER_CELLS / 2;
+    for (int i = 0; i < 24; ++i) {
+        box.x += 4;
+        movementStep(m, box, 1.0 / 120, time);
+    }
+    auto moved = pose(m);
+    CHECK(std::abs(moved.p[center].x) < 1e-5 && std::abs(moved.p[center].y + .5) < 1e-5);
+    CHECK(moved.p[0].x < -.505);
+    CHECK(std::any_of(moved.p.begin(), moved.p.end(), [](const Vec3 &v) { return v.z > .001; }));
+    CHECK(moved.v[center].x > .1);
+    for (int i = 0; i < 12; ++i) {
+        box.x -= 4;
+        movementStep(m, box, 1.0 / 120, time);
+    }
+    moved = pose(m);
+    CHECK(std::abs(moved.p[center].x) < 1e-5);
+    // A retained copy freezes the displayed pose; closing consumes it without sharing mutable playback state.
+    ClothFlutter closing = m;
+    const double alpha = m.opacity();
+    closing.begin(Transition::Close, ::params(), 4, box, {}, ClothCloseGeometry{Edge::Right, SCREEN});
+    CHECK(closing.waitForSnapshots(2));
+    CHECK(delta(pose(closing).p, moved.p) < 1e-6);
+    CHECK(delta(pose(closing).v, moved.v) < 1e-5);
+    CHECK(std::abs(closing.opacity() - alpha) < 1e-8);
+    box.w *= .9;
+    box.h *= 1.1;
+    movementStep(m, box, 1.0 / 120, time);
+    for (int i = 0; i < 55 && m.moving(); ++i)
+        movementStep(m, box, 1.0 / 120, time);
+    advance(m, .25);
+    CHECK(!m.active() && m.opacity() == 1);
+    PaperFacets facets;
+    m.facets({box.w, box.h}, facets);
+    for (const auto &f : facets)
+        CHECK(f.position[0].x == f.uv[0].x - .5 && f.position[0].y == f.uv[0].y - .5);
+}
+
+void movementHandoff() {
+    auto m = open();
+    advance(m, .3);
+    const auto   before = pose(m);
+    const double alpha = m.opacity();
+    m.beginMovement({}, 2, WINDOW, {1, 0});
+    CHECK(delta(pose(m).p, before.p) < 1e-6);
+    CHECK(delta(pose(m).v, before.v) < 1e-6);
+    CHECK(std::abs(m.opacity() - alpha) < 1e-8);
+    CHECK(m.waitForSnapshots(2));
+    Box box = WINDOW;
+    box.x += 10;
+    double time = 0;
+    movementStep(m, box, 1.0 / 120, time);
+    CHECK(m.moving());
+    // Bounded starvation flattens, and a new move during that flattening continues from its visible pose.
+    ClothPhysics::pauseWorkersForTesting(true, 2);
+    advance(m, .12);
+    const auto fallback = pose(m);
+    box.y += 20;
+    m.updateMovement(box, .01);
+    CHECK(m.moving());
+    CHECK(delta(pose(m).p, fallback.p) < 1e-6);
+    ClothPhysics::pauseWorkersForTesting(false);
+    m.reset();
+}
+
+Pose movementTrajectory(double cadence, std::uint64_t seed, bool irregular = false) {
+    ClothMovementParams params;
+    params.variation = 0;
+    ClothFlutter m;
+    m.beginMovement(params, seed, WINDOW, {1, 0});
+    CHECK(m.waitForSnapshots(2));
+    double time = 0;
+    int    frame = 0;
+    while (time < .2 - 1e-9) {
+        const double dt = std::min(cadence * (irregular ? (frame++ % 2 ? 1.6 : .4) : 1), .2 - time);
+        Box          box = WINDOW;
+        box.x += 300 * (time + dt);
+        movementStep(m, box, dt, time);
+    }
+    return pose(m);
+}
+
+void movementCadenceAndInvalid() {
+    const auto reference = movementTrajectory(1.0 / 120, 7);
+    for (double hz : {60., 144., 240.}) {
+        const auto sampled = movementTrajectory(1 / hz, 100);
+        CHECK(delta(reference.p, sampled.p) < .015);
+    }
+    const auto same = movementTrajectory(1.0 / 120, 900);
+    CHECK(delta(reference.p, same.p) == 0);
+    CHECK(delta(reference.p, movementTrajectory(1.0 / 120, 100, true).p) < .015);
+    ClothFlutter m;
+    auto         params = ClothMovementParams{};
+    params.strength = 0;
+    m.beginMovement(params, 1, WINDOW, {.5, .5});
+    CHECK(!m.active());
+    params.strength = std::numeric_limits<double>::quiet_NaN();
+    m.beginMovement(params, 1, WINDOW, {.5, .5});
+    CHECK(!m.active());
+    m.beginMovement({}, 1, WINDOW, {1, 0});
+    m.updateMovement(Box{0, 0, -1, 200}, .01);
+    CHECK(!m.active());
+    ClothPhysics::pauseWorkersForTesting(true, 2);
+    m.beginMovement({}, 1, WINDOW, {.5, .5});
+    CHECK(m.waitForSnapshots(2));
+    advance(m, .4);
+    CHECK(!m.active());
+    ClothPhysics::pauseWorkersForTesting(false);
+    // Exhaust the bounded input queue while the worker is paused, without blocking the producer.
+    ClothPhysics::pauseWorkersForTesting(true, 2);
+    m.beginMovement({}, 1, WINDOW, {1, 0});
+    CHECK(m.waitForSnapshots(2));
+    for (int i = 0; i < 70; ++i)
+        m.advance(1e-6);
+    advance(m, .25);
+    CHECK(!m.active());
+    ClothPhysics::pauseWorkersForTesting(false);
+    const auto start = std::chrono::steady_clock::now();
+    for (int i = 0; i < 20; ++i) {
+        m.beginMovement({}, i, WINDOW, {.5, .5});
+        m.reset();
+    }
+    CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds(1));
+}
+
+void movementBoundsAndRestart() {
+    ClothFlutter m;
+    m.beginMovement({}, 1, WINDOW, {1, 0});
+    CHECK(m.waitForSnapshots(2));
+    double time = 0;
+    Box    box = WINDOW;
+    box.x += 300;
+    movementStep(m, box, 1.0 / 120, time);
+    movementStep(m, box, 1.0 / 120, time);
+    const auto moved = pose(m);
+    const auto anchor = std::size_t(PAPER_CELLS);
+    CHECK(std::abs(moved.p[anchor].x - .5) < 1e-5 && std::abs(moved.p[anchor].y) < 1e-5);
+    for (std::size_t k = 0; k < moved.p.size(); ++k) {
+        const Vec3   r{double(k % GRID) / PAPER_CELLS - .5, -double(k / GRID) / PAPER_CELLS, 0};
+        const auto   p = moved.p[k];
+        const double d = std::sqrt(std::pow((p.x - r.x) * box.w, 2) + std::pow((p.y - r.y) * box.h, 2) +
+                                   std::pow(p.z * std::sqrt(box.w * box.h), 2));
+        CHECK(d <= .2 * std::min(box.w, box.h) + 1e-4);
+    }
+    for (int i = 0; i < 48; ++i)
+        movementStep(m, box, 1.0 / 120, time);
+    m.advance(.12); // begin the bounded final flattening transition
+    const auto settling = pose(m);
+    box.y += 10;
+    m.updateMovement(box, .01);
+    CHECK(m.moving());
+    CHECK(delta(pose(m).p, settling.p) < 1e-6);
+    CHECK(delta(pose(m).v, settling.v) < 1e-6);
+}
+
+void movementGrabBeforePublication() {
+    ClothFlutter m;
+    m.beginMovement({}, 1, WINDOW, {1, 0});
+    CHECK(m.waitForSnapshots(2));
+    ClothPhysics::pauseWorkersForTesting(true, 2);
+    Box box = WINDOW;
+    box.x += 20;
+    m.updateMovement(box, 1.0 / 60);
+    m.advance(1.0 / 60);
+    const auto onset = pose(m);
+    CHECK(std::abs(onset.p[PAPER_CELLS].x - .5) < 1e-7);
+    CHECK(std::abs(onset.v[PAPER_CELLS].x - 1.2) < 1e-6);
+    ClothPhysics::pauseWorkersForTesting(false);
+    m.reset();
+
+    m.beginMovement({}, 1, WINDOW, {1, 0});
+    CHECK(m.waitForSnapshots(2));
+    box = WINDOW;
+    double time = 0;
+    for (int i = 0; i < 4; ++i) {
+        box.x += 10;
+        movementStep(m, box, 1.0 / 120, time);
+    }
+    ClothPhysics::pauseWorkersForTesting(true, 6);
+    m.updateMovement(box, 1.0 / 60);
+    m.advance(1.0 / 60);
+    const auto stopped = pose(m);
+    CHECK(std::abs(stopped.p[PAPER_CELLS].x - .5) < 1e-6);
+    CHECK(std::abs(stopped.v[PAPER_CELLS].x) < 1e-5);
+    ClothPhysics::pauseWorkersForTesting(false);
+}
 } // namespace
 int main() {
     needsPhysics();
@@ -298,6 +503,11 @@ int main() {
         invalid();
         starvation();
         cancelAndUnload();
+        movement();
+        movementHandoff();
+        movementCadenceAndInvalid();
+        movementBoundsAndRestart();
+        movementGrabBeforePublication();
     }
     // Shutdown must join a currently paused worker before unregistering Jolt, even with a model reference retained.
     ClothFlutter survivor;

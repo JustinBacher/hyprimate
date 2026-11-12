@@ -82,14 +82,33 @@ bool sanitize(ClothParams &p) noexcept {
 } // namespace
 
 struct ClothFlutter::Run {
-    Transition kind = Transition::Open;
-    Edge       edge = Edge::Bottom;
-    Box        window{}, screen{};
-    double     length = OPEN_LENGTH;
-    double     maxInitialSpeed = 0;
-    Vec3       travel{};
-    int        frames = 0;
-    SheetGrid  start{}, velocity{};
+    struct Target {
+        double time = 0;
+        Box    box{};
+    };
+    struct Snapshot {
+        double                                     time = 0;
+        Vec3                                       rigidVelocity{};
+        std::array<float, PAPER_GRID_VERTICES * 6> values{};
+    };
+    static constexpr unsigned INPUT_CAPACITY = 64, OUTPUT_CAPACITY = 32;
+    bool                      live = false;
+    ClothMovementParams       movement{};
+    Vec2                      grab{};
+    Vec3 publishVelocity{}; // rigid motion omitted by the strength-scaled translating simulation frame
+    Vec3 snapshotRigidVelocity{};
+    std::array<Target, INPUT_CAPACITY>    targets{};
+    std::array<Snapshot, OUTPUT_CAPACITY> snapshots{};
+    std::atomic<unsigned>                 inputHead{0}, inputTail{0}, outputHead{0}, outputTail{0};
+    std::atomic<bool>                     overflow{false};
+    Transition                            kind = Transition::Open;
+    Edge                                  edge = Edge::Bottom;
+    Box                                   window{}, screen{};
+    double                                length = OPEN_LENGTH;
+    double                                maxInitialSpeed = 0;
+    Vec3                                  travel{};
+    int                                   frames = 0;
+    SheetGrid                             start{}, velocity{};
     // Every six-float position/velocity slot is written once, then published by recorded's release store.
     std::vector<float> samples;
     std::atomic<int>   recorded{0}, outsideFrame{0};
@@ -132,10 +151,39 @@ struct ClothFlutter::Run {
     }
 };
 
+struct ClothFlutter::MovementPlayback {
+    Run::Snapshot a{}, b{};
+    Box           target{}, previous{};
+    Vec3          rigidVelocity{};
+    double        time = 0, lastMotion = 0;
+    bool          producer = true, settling = false;
+};
+
 struct ClothFlutter::Fallback {
     SheetGrid positions{}, velocities{}; // real-time velocity
     double    alpha = 1;
 };
+
+ClothFlutter::ClothFlutter() = default;
+ClothFlutter::~ClothFlutter() = default;
+ClothFlutter::ClothFlutter(ClothFlutter &&) noexcept = default;
+ClothFlutter &ClothFlutter::operator=(ClothFlutter &&) noexcept = default;
+ClothFlutter::ClothFlutter(const ClothFlutter &other)
+    : m_phase(other.m_phase), m_params(other.m_params), m_t(other.m_t), m_rate(other.m_rate),
+      m_startupWait(other.m_startupWait), m_fallbackTime(other.m_fallbackTime),
+      m_initialOpacity(other.m_initialOpacity), m_run(other.m_run), m_fallback(other.m_fallback) {
+    if (other.m_movement) {
+        m_movement = std::make_unique<MovementPlayback>(*other.m_movement);
+        m_movement->producer = false; // retained closes copy the displayed pose, never the live input stream
+    }
+}
+ClothFlutter &ClothFlutter::operator=(const ClothFlutter &other) {
+    if (this != &other) {
+        ClothFlutter copy(other);
+        *this = std::move(copy);
+    }
+    return *this;
+}
 
 namespace {
 using Run = ClothFlutter::Run;
@@ -242,6 +290,182 @@ struct SimInput {
     double           flutter = 0;
     double           phaseA = 0, phaseB = 0, freqA = 0, freqB = 0;
 };
+
+bool publishMovement(Run &run, double time, const JPH::Array<JPH::SoftBodyVertex> &vertices) {
+    const unsigned head = run.outputHead.load(std::memory_order_relaxed);
+    if (head - run.outputTail.load(std::memory_order_acquire) == Run::OUTPUT_CAPACITY) {
+        run.overflow.store(true, std::memory_order_release);
+        return false;
+    }
+    auto &snapshot = run.snapshots[head % Run::OUTPUT_CAPACITY];
+    snapshot.time = time;
+    snapshot.rigidVelocity = run.snapshotRigidVelocity;
+    float *out = snapshot.values.data();
+    for (const auto &vertex : vertices) {
+        const auto p = vertex.mPosition, v = vertex.mVelocity;
+        if (!std::isfinite(p.GetX()) || !std::isfinite(p.GetY()) || !std::isfinite(p.GetZ()) ||
+            !std::isfinite(v.GetX()) || !std::isfinite(v.GetY()) || !std::isfinite(v.GetZ()))
+            return false;
+        *out++ = p.GetX();
+        *out++ = p.GetY();
+        *out++ = p.GetZ();
+        *out++ = float(v.GetX() + run.publishVelocity.x);
+        *out++ = float(v.GetY() + run.publishVelocity.y);
+        *out++ = float(v.GetZ() + run.publishVelocity.z);
+    }
+    run.outputHead.store(head + 1, std::memory_order_release);
+    run.recorded.fetch_add(1, std::memory_order_release);
+    return true;
+}
+
+void simulateMovement(Run &run, double phase) {
+    using namespace JPH;
+    enum : ObjectLayer { CLOTH = 0 };
+    ObjectLayerPairFilterTable    pairs(1);
+    BroadPhaseLayerInterfaceTable broadPhase(1, 1);
+    broadPhase.MapObjectToBroadPhaseLayer(CLOTH, BroadPhaseLayer(0));
+    ObjectVsBroadPhaseLayerFilterTable objectVsBroadPhase(broadPhase, 1, pairs, 1);
+    TempAllocatorImpl                  temp(8 << 20);
+    JobSystemSingleThreaded            jobs(cMaxPhysicsJobs);
+    PhysicsSystem                      system;
+    system.Init(1, 0, 32, 32, broadPhase, objectVsBroadPhase, pairs);
+    system.SetGravity(JPH::Vec3::sZero());
+    const auto stopped = [&] { return run.stop.stop_requested(); };
+    if (stopped())
+        return;
+    const SheetGrid             rest = restGrid();
+    const int                   grabI = std::clamp(int(std::lround(run.grab.x * PAPER_CELLS)), 0, PAPER_CELLS);
+    const int                   grabJ = std::clamp(int(std::lround(run.grab.y * PAPER_CELLS)), 0, PAPER_CELLS);
+    const auto                  grabIndex = index(grabI, grabJ);
+    Ref<SoftBodySharedSettings> settings = new SoftBodySharedSettings;
+    for (std::size_t k = 0; k < rest.size(); ++k) {
+        const auto p = rest[k];
+        settings->mVertices.emplace_back(Float3(float(p.x), float(p.y), 0), Float3(0, 0, 0),
+                                         k == grabIndex ? 0.0F : 4.0F);
+    }
+    for (int j = 0; j < PAPER_CELLS; ++j)
+        for (int i = 0; i < PAPER_CELLS; ++i) {
+            const auto a = uint32(index(i, j)), b = uint32(index(i + 1, j)), c = uint32(index(i, j + 1)),
+                       d = uint32(index(i + 1, j + 1));
+            settings->AddFace(SoftBodySharedSettings::Face(a, c, b));
+            settings->AddFace(SoftBodySharedSettings::Face(b, c, d));
+        }
+    const SoftBodySharedSettings::VertexAttributes attributes(1e-4F, 1e-4F, 4e-2F,
+                                                              SoftBodySharedSettings::ELRAType::GeodesicDistance);
+    settings->CreateConstraints(&attributes, 1, SoftBodySharedSettings::EBendType::Dihedral);
+    settings->Optimize();
+    if (stopped())
+        return;
+    SoftBodyCreationSettings creation(settings, RVec3::sZero(), Quat::sIdentity(), CLOTH);
+    creation.mUpdatePosition = false;
+    creation.mAllowSleeping = false;
+    creation.mNumIterations = 8;
+    creation.mLinearDamping = 4;
+    creation.mMaxLinearVelocity = 20;
+    auto        &bodies = system.GetBodyInterfaceNoLock();
+    const BodyID id = bodies.CreateAndAddSoftBody(creation, EActivation::Activate);
+    if (id.IsInvalid())
+        return;
+    auto *motion = static_cast<SoftBodyMotionProperties *>(
+        system.GetBodyLockInterfaceNoLock().TryGetBody(id)->GetMotionProperties());
+    auto &vertices = motion->GetVertices();
+    for (std::size_t k = 0; k < rest.size(); ++k) {
+        const auto p = run.start[k], v = run.velocity[k];
+        vertices[k].mPosition = JPH::Vec3(float(p.x), float(p.y), float(p.z));
+        vertices[k].mVelocity = JPH::Vec3(float(v.x), float(v.y), float(v.z));
+    }
+    bool        good = publishMovement(run, -DT, vertices) && publishMovement(run, 0, vertices);
+    Run::Target previous{0, run.window};
+    Box         box = run.window;
+    double      time = 0, lastMotion = 0;
+    while (good && !stopped()) {
+        if (s_pause.load(std::memory_order_acquire) &&
+            run.recorded.load(std::memory_order_relaxed) >= s_pauseAfter.load(std::memory_order_relaxed)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            continue;
+        }
+        const unsigned tail = run.inputTail.load(std::memory_order_relaxed);
+        if (tail == run.inputHead.load(std::memory_order_acquire)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            continue;
+        }
+        const Run::Target target = run.targets[tail % Run::INPUT_CAPACITY];
+        run.inputTail.store(tail + 1, std::memory_order_release);
+        while (time + DT <= target.time + 1e-10 && good && !stopped()) {
+            const double nextTime = time + DT;
+            const double u = std::clamp((nextTime - previous.time) / (target.time - previous.time), 0.0, 1.0);
+            const Box    next{previous.box.x + u * (target.box.x - previous.box.x),
+                              previous.box.y + u * (target.box.y - previous.box.y),
+                              previous.box.w + u * (target.box.w - previous.box.w),
+                              previous.box.h + u * (target.box.h - previous.box.h)};
+            const double dx = next.x - box.x, dy = next.y - box.y;
+            run.snapshotRigidVelocity = {dx / DT / next.w, -dy / DT / next.h, 0};
+            const double gain = std::min(run.movement.strength, 1.5);
+            run.publishVelocity = {(1 - gain) * dx / DT / next.w, -(1 - gain) * dy / DT / next.h, 0};
+            const double speed = std::hypot(dx, dy) / DT / std::min(next.w, next.h);
+            if (speed > 1e-5 || std::abs(next.w - box.w) + std::abs(next.h - box.h) > 1e-5)
+                lastMotion = nextTime;
+            const double quiet = nextTime - lastMotion;
+            const double settle = smooth(0.05, 0.5, quiet);
+            const double inherited = std::exp(-6 * nextTime);
+            const double shortSide = std::min(next.w, next.h), L = std::sqrt(next.w * next.h);
+            motion->SetLinearDamping(float(4 + 8 * settle));
+            for (int j = 0; j < GRID; ++j)
+                for (int i = 0; i < GRID; ++i) {
+                    const auto k = index(i, j);
+                    auto      &vertex = vertices[k];
+                    auto       p = vertex.mPosition;
+                    p = JPH::Vec3(
+                        float((box.x + box.w / 2 + p.GetX() * box.w - next.x - next.w / 2 + (1 - gain) * dx) / next.w),
+                        float((gain * dy + p.GetY() * box.h) / next.h), float(p.GetZ() * std::sqrt(box.w * box.h) / L));
+                    auto v = vertex.mVelocity;
+                    v = JPH::Vec3(float(v.GetX() * box.w / next.w), float(v.GetY() * box.h / next.h),
+                                  float(v.GetZ() * std::sqrt(box.w * box.h) / L));
+                    const auto      r = rest[k];
+                    const Vec3      oldOffset = sub(run.start[k], r);
+                    const JPH::Vec3 desired(float(r.x + oldOffset.x * inherited), float(r.y + oldOffset.y * inherited),
+                                            float(oldOffset.z * inherited));
+                    if (k == grabIndex) {
+                        v = (desired - p) / float(DT);
+                    } else {
+                        const double distance = std::hypot(double(i - grabI), double(j - grabJ));
+                        const double patch = std::exp(-distance * distance / 12);
+                        v += (desired - p) * float((45 + 120 * settle + 120 * patch) * DT);
+                        const double wave = std::sin(phase + i * 0.11 + j * 0.17 + nextTime * 11);
+                        const double drive = std::min(speed, 3.0) * run.movement.strength;
+                        v += JPH::Vec3(0, 0, float((1 - patch) * drive * (2 + run.movement.flutter * wave) * DT));
+                    }
+                    vertex.mPosition = p;
+                    vertex.mVelocity = v;
+                }
+            if (system.Update(float(DT), 1, &temp, &jobs) != EPhysicsUpdateError::None) {
+                good = false;
+                break;
+            }
+            for (std::size_t k = 0; k < rest.size(); ++k) {
+                auto           &vertex = vertices[k];
+                const auto      r = rest[k];
+                const Vec3      inheritedOffset = mul(sub(run.start[k], r), inherited);
+                const JPH::Vec3 centre(float(r.x + inheritedOffset.x), float(r.y + inheritedOffset.y),
+                                       float(inheritedOffset.z));
+                auto            offset = vertex.mPosition - centre;
+                const double    limit = 0.2 * shortSide;
+                const double pixels = std::sqrt(std::pow(offset.GetX() * next.w, 2) +
+                                                std::pow(offset.GetY() * next.h, 2) + std::pow(offset.GetZ() * L, 2));
+                if (pixels > limit) {
+                    vertex.mPosition = centre + offset * float(limit / pixels);
+                    vertex.mVelocity *= 0.5F;
+                }
+            }
+            box = next;
+            time = nextTime;
+            good = publishMovement(run, time, vertices);
+        }
+        previous = target;
+    }
+    bodies.RemoveBody(id);
+    bodies.DestroyBody(id);
+}
 
 void simulate(Run &run, const SimInput &in) {
     using namespace JPH;
@@ -397,6 +621,89 @@ void ClothPhysics::pauseWorkersForTesting(bool pause, int afterSnapshots) noexce
     s_pause.store(pause, std::memory_order_release);
 }
 
+void ClothFlutter::beginMovement(const ClothMovementParams &params, std::uint64_t seed, const Box &capture,
+                                 Vec2 grabUV) {
+    if (!validBox(capture) || !s_live.load(std::memory_order_acquire) || !std::isfinite(params.strength) ||
+        params.strength <= 0 || !std::isfinite(params.flutter) || !std::isfinite(params.shading) ||
+        !std::isfinite(params.variation) || !std::isfinite(grabUV.x) || !std::isfinite(grabUV.y)) {
+        reset();
+        return;
+    }
+    auto run = std::make_shared<Run>();
+    run->live = true;
+    run->window = capture;
+    run->movement = {std::clamp(params.strength, 0.0, 1.5), std::clamp(params.flutter, 0.0, 1.0),
+                     std::clamp(params.shading, 0.0, 1.0), std::clamp(params.variation, 0.0, 1.0)};
+    run->grab = {std::clamp(grabUV.x, 0.0, 1.0), std::clamp(grabUV.y, 0.0, 1.0)};
+    const double alpha = opacity();
+    sampleVertices(run->start, run->velocity);
+    auto playback = std::make_unique<MovementPlayback>();
+    playback->target = playback->previous = capture;
+    playback->a.time = -DT;
+    playback->b.time = 0;
+    for (std::size_t k = 0; k < run->start.size(); ++k) {
+        const auto                 p = run->start[k], v = run->velocity[k];
+        const std::array<float, 6> value{float(p.x), float(p.y), float(p.z), float(v.x), float(v.y), float(v.z)};
+        std::copy(value.begin(), value.end(), playback->a.values.begin() + k * 6);
+        std::copy(value.begin(), value.end(), playback->b.values.begin() + k * 6);
+    }
+    std::uint64_t fixed = BASE_SEED, random = seed;
+    const double  phase = 2 * std::numbers::pi *
+                          (double(splitmix64(fixed) >> 11) * 0x1.0p-53 * (1 - run->movement.variation) +
+                           double(splitmix64(random) >> 11) * 0x1.0p-53 * run->movement.variation);
+    try {
+        run->worker = std::thread([run, phase] {
+            try {
+                simulateMovement(*run, phase);
+            } catch (...) {
+            }
+            run->finished.store(true, std::memory_order_release);
+        });
+        s_registry->add(run);
+        auto lease = std::make_shared<Lease>();
+        lease->run = run;
+        m_run = std::shared_ptr<Run>(lease, run.get());
+    } catch (...) {
+        run->stop.request_stop();
+        if (run->worker.joinable())
+            run->worker.join();
+        reset();
+        return;
+    }
+    m_movement = std::move(playback);
+    m_params = {1, run->movement.flutter, run->movement.shading, run->movement.variation};
+    m_initialOpacity = alpha;
+    m_t = 0;
+    m_rate = 1;
+    m_startupWait = m_fallbackTime = 0;
+    m_fallback.reset();
+    m_phase = Phase::Movement;
+}
+
+void ClothFlutter::updateMovement(const Box &capture, double elapsed) noexcept {
+    if (!moving() || !m_movement || !m_movement->producer)
+        return;
+    if (!validBox(capture) || !std::isfinite(elapsed) || elapsed < 0 || elapsed > 0.25) {
+        reset();
+        return;
+    }
+    const Box old = m_movement->target;
+    if (capture.x != old.x || capture.y != old.y || capture.w != old.w || capture.h != old.h) {
+        if (m_fallback && m_movement->settling) {
+            // A fresh grab during the exact-flat transition starts from its displayed pose.
+            const auto params = m_run->movement;
+            const auto grab = m_run->grab;
+            beginMovement(params, BASE_SEED, old, grab);
+        }
+        if (!m_movement)
+            return;
+        m_movement->lastMotion = m_t;
+        m_movement->target = capture;
+    }
+}
+
+bool ClothFlutter::moving() const noexcept { return m_phase == Phase::Movement; }
+
 void ClothFlutter::begin(Transition kind, const ClothParams &params, std::uint64_t seed, const Box &window,
                          std::span<const Box> obstacles, std::optional<ClothCloseGeometry> geometry) {
     ClothParams p = params;
@@ -414,7 +721,7 @@ void ClothFlutter::begin(Transition kind, const ClothParams &params, std::uint64
     run->screen = geometry ? geometry->screen : Box{window.x, window.y, window.w, window.h};
     run->edge = geometry ? geometry->edge : Edge::Bottom;
     const double oldOpacity = opacity();
-    if (kind == Transition::Close && m_phase == Phase::Opening && m_run)
+    if (kind == Transition::Close && (m_phase == Phase::Opening || m_phase == Phase::Movement) && m_run)
         sampleVertices(run->start, run->velocity);
     else
         run->start = restGrid();
@@ -516,6 +823,7 @@ void ClothFlutter::begin(Transition kind, const ClothParams &params, std::uint64
         return;
     }
     m_params = p;
+    m_movement.reset();
     m_rate = rate;
     m_t = 0;
     m_startupWait = 0;
@@ -529,12 +837,15 @@ void ClothFlutter::startFallback() noexcept {
     try {
         auto fallback = std::make_shared<Fallback>();
         sampleVertices(fallback->positions, fallback->velocities);
+        if (m_phase == Phase::Movement && m_movement)
+            for (auto &v : fallback->velocities)
+                v = sub(v, m_movement->rigidVelocity);
         fallback->alpha = opacity();
         m_fallback = std::move(fallback);
         m_fallbackTime = 0;
         m_run->stop.request_stop();
     } catch (...) {
-        if (m_phase == Phase::Opening)
+        if (m_phase != Phase::Closing)
             reset();
         else
             m_phase = Phase::Closed;
@@ -544,7 +855,7 @@ bool ClothFlutter::advance(double dt) noexcept {
     if (!active())
         return false;
     if (!std::isfinite(dt) || dt < 0 || dt > 0.25) {
-        if (m_phase == Phase::Opening)
+        if (m_phase != Phase::Closing)
             reset();
         else {
             m_phase = Phase::Closed;
@@ -552,16 +863,60 @@ bool ClothFlutter::advance(double dt) noexcept {
         }
         return false;
     }
+    if (moving() && m_movement && dt > 0) {
+        const Box old = m_movement->previous, now = m_movement->target;
+        m_movement->rigidVelocity = {(now.x - old.x) / dt / now.w, -(now.y - old.y) / dt / now.h, 0};
+        m_movement->previous = now;
+    }
     if (m_fallback) {
         m_fallbackTime += dt;
         if (m_fallbackTime >= FALLBACK_LENGTH) {
-            if (m_phase == Phase::Opening)
+            if (m_phase != Phase::Closing)
                 reset();
             else {
                 m_phase = Phase::Closed;
                 m_run.reset();
                 m_fallback.reset();
             }
+        }
+        return active();
+    }
+    if (moving() && m_movement) {
+        auto &playback = *m_movement;
+        if (!playback.producer) {
+            startFallback();
+            return active();
+        }
+        if (dt > 0) {
+            m_t += dt;
+            const unsigned head = m_run->inputHead.load(std::memory_order_relaxed);
+            if (head - m_run->inputTail.load(std::memory_order_acquire) == Run::INPUT_CAPACITY)
+                m_run->overflow.store(true, std::memory_order_release);
+            else {
+                m_run->targets[head % Run::INPUT_CAPACITY] = {m_t, playback.target};
+                m_run->inputHead.store(head + 1, std::memory_order_release);
+            }
+        }
+        unsigned       tail = m_run->outputTail.load(std::memory_order_relaxed);
+        const unsigned head = m_run->outputHead.load(std::memory_order_acquire);
+        const bool     progressed = tail != head;
+        for (; tail != head; ++tail) {
+            playback.a = playback.b;
+            playback.b = m_run->snapshots[tail % Run::OUTPUT_CAPACITY];
+        }
+        m_run->outputTail.store(tail, std::memory_order_release);
+        const double wanted = std::max(0.0, m_t - DT);
+        playback.time = std::min(wanted, playback.b.time + DT);
+        if (m_run->recorded.load(std::memory_order_acquire) < 2) {
+            m_startupWait += dt;
+            if (m_startupWait >= STARTUP_TIMEOUT || m_run->finished.load(std::memory_order_acquire))
+                startFallback();
+        } else {
+            m_startupWait = progressed || wanted <= playback.b.time + DT + 1e-8 ? 0 : m_startupWait + dt;
+            playback.settling = m_t - playback.lastMotion >= 0.5;
+            if (m_run->overflow.load(std::memory_order_acquire) || m_startupWait >= 0.05 ||
+                m_run->finished.load(std::memory_order_acquire) || playback.settling)
+                startFallback();
         }
         return active();
     }
@@ -591,8 +946,11 @@ void ClothFlutter::reset() noexcept {
     m_t = 0;
     m_run.reset();
     m_fallback.reset();
+    m_movement.reset();
 }
-bool   ClothFlutter::active() const noexcept { return m_phase == Phase::Opening || m_phase == Phase::Closing; }
+bool ClothFlutter::active() const noexcept {
+    return m_phase == Phase::Opening || m_phase == Phase::Movement || m_phase == Phase::Closing;
+}
 bool   ClothFlutter::closed() const noexcept { return m_phase == Phase::Closed; }
 bool   ClothFlutter::shaded() const noexcept { return m_params.shading > 0; }
 double ClothFlutter::opacity() const noexcept {
@@ -601,11 +959,13 @@ double ClothFlutter::opacity() const noexcept {
     if (m_phase == Phase::Closed)
         return 0;
     if (m_fallback)
-        return m_phase == Phase::Opening
+        return m_phase != Phase::Closing
                    ? m_fallback->alpha + (1 - m_fallback->alpha) * smooth(0, FALLBACK_LENGTH, m_fallbackTime)
                    : m_fallback->alpha * (1 - smooth(0, FALLBACK_LENGTH, m_fallbackTime));
     if (m_phase == Phase::Opening)
         return smooth(0, 0.08, m_t / m_run->length);
+    if (m_phase == Phase::Movement)
+        return m_initialOpacity + (1 - m_initialOpacity) * smooth(0, 0.08, m_t);
     const double outsideTime = m_run->outsideFrame.load(std::memory_order_acquire) * DT;
     return m_initialOpacity * (1 - smooth(outsideTime, std::max(outsideTime + DT, m_run->length), m_t));
 }
@@ -620,15 +980,46 @@ void ClothFlutter::sampleVertices(SheetGrid &p, SheetGrid &v) const noexcept {
         const SheetGrid rest = restGrid();
         for (std::size_t k = 0; k < p.size(); ++k) {
             const Vec3 a = m_fallback->positions[k], speed = m_fallback->velocities[k];
-            if (m_phase == Phase::Opening) {
+            if (m_phase != Phase::Closing) {
                 p[k] = add(add(mul(a, 2 * t3 - 3 * t2 + 1), mul(speed, (t3 - 2 * t2 + t) * FALLBACK_LENGTH)),
                            mul(rest[k], -2 * t3 + 3 * t2));
                 v[k] = add(add(mul(a, (6 * t2 - 6 * t) / FALLBACK_LENGTH), mul(speed, 3 * t2 - 4 * t + 1)),
                            mul(rest[k], (-6 * t2 + 6 * t) / FALLBACK_LENGTH));
+                if (m_phase == Phase::Movement && m_movement)
+                    v[k] = add(v[k], m_movement->rigidVelocity);
             } else {
                 p[k] = add(a, mul(speed, FALLBACK_LENGTH * (t - 0.5 * t2)));
                 v[k] = mul(speed, 1 - t);
             }
+        }
+        return;
+    }
+    if (m_phase == Phase::Movement && m_movement) {
+        const auto  &a = m_movement->a, &b = m_movement->b;
+        const double interval = std::max(DT, b.time - a.time);
+        const double at = std::clamp((m_movement->time - a.time) / interval, 0.0, 1.0);
+        const double extra = std::clamp(m_movement->time - b.time, 0.0, DT);
+        const Vec3   snapshotRigid = lerp(a.rigidVelocity, b.rigidVelocity, at);
+        for (std::size_t k = 0; k < p.size(); ++k) {
+            const float *x = a.values.data() + k * 6, *y = b.values.data() + k * 6;
+            const Vec3   p0{x[0], x[1], x[2]}, p1{y[0], y[1], y[2]};
+            const Vec3   v0{x[3], x[4], x[5]}, v1{y[3], y[4], y[5]};
+            const Vec3   deformationVelocity = sub(lerp(v0, v1, at), snapshotRigid);
+            v[k] = add(deformationVelocity, m_movement->rigidVelocity);
+            p[k] = lerp(p0, p1, at);
+            // Remove the rigid velocity belonging to these snapshots before extrapolating. The latest
+            // capture can already have started or stopped while the worker still publishes an older frame.
+            p[k] = add(p[k], mul(deformationVelocity, extra));
+            const Vec3   rest{double(k % GRID) / PAPER_CELLS - .5, -double(k / GRID) / PAPER_CELLS, 0};
+            const Vec3   centre = add(rest, mul(sub(m_run->start[k], rest), std::exp(-6 * m_movement->time)));
+            const auto   offset = sub(p[k], centre);
+            const auto   box = m_movement->target;
+            const double L = std::sqrt(box.w * box.h);
+            const double pixels =
+                std::sqrt(std::pow(offset.x * box.w, 2) + std::pow(offset.y * box.h, 2) + std::pow(offset.z * L, 2));
+            const double limit = .2 * std::min(box.w, box.h);
+            if (pixels > limit)
+                p[k] = add(centre, mul(offset, limit / pixels));
         }
         return;
     }
@@ -654,7 +1045,7 @@ bool ClothFlutter::waitForRecording(double timeout) const noexcept {
     return m_run->recorded.load(std::memory_order_acquire) == m_run->frames;
 }
 bool ClothFlutter::waitForSnapshots(int count, double timeout) const noexcept {
-    if (!m_run || count < 0 || count > m_run->frames || !std::isfinite(timeout) || timeout < 0)
+    if (!m_run || count < 0 || (!m_run->live && count > m_run->frames) || !std::isfinite(timeout) || timeout < 0)
         return false;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration<double>(timeout);
     while (m_run->recorded.load(std::memory_order_acquire) < count &&

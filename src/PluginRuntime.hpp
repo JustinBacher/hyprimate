@@ -36,9 +36,9 @@ class CPluginRuntime {
     struct STracked {
         PHLWINDOWREF                      window;
         PHLMONITORREF                     monitor;
-        CBox                              lastBox;         // last sampled current geometry (world space)
-        Vector2D                          lastCaptureSize; // decorated, untransformed capture domain
-        CBox                              footprint;       // world-space damage footprint of the last deformation
+        CBox                              lastBox;     // last sampled current geometry (world space)
+        CBox                              lastCapture; // decorated, untransformed capture domain
+        CBox                              footprint;   // world-space damage footprint of the last deformation
         bool                              hasFootprint = false;
         bool                              baselined = false;
         bool                              wasAnimatingIn = false;
@@ -50,6 +50,7 @@ class CPluginRuntime {
 
     bool                         pluginEnabled() const;
     bool                         movementEnabled() const;
+    bool                         movementCloth() const;
     bool                         openEnabled() const;
     bool                         closeEnabled() const;
     bool                         openPaper() const;
@@ -63,11 +64,13 @@ class CPluginRuntime {
     liquid_glass::MaterialParams transitionParams(double elasticity, double momentum) const;
     liquid_glass::PaperParams paperParams(double duration, double crumpliness, double shading, double variation) const;
     liquid_glass::ClothParams clothParams(double duration, double flutter, double shading, double variation) const;
-    bool                      materialUsable() const;
-    bool                      materialChanged(const liquid_glass::LiquidMesh &mesh) const;
-    bool                      wobbleEnabled() const;
-    void                      notify(const std::string &text) const;
-    void                      onReload();
+    liquid_glass::ClothMovementParams clothMovementParams() const;
+    bool                              materialUsable() const;
+    bool                              materialChanged(const CLiquidGlassTransformer &transformer) const;
+    liquid_glass::Vec2                movementGrab(const PHLWINDOW &window, const CBox &capture, Vector2D delta) const;
+    bool                              wobbleEnabled() const;
+    void                              notify(const std::string &text) const;
+    void                              onReload();
 
     // Tracking.
     STracked *find(const PHLWINDOW &window);
@@ -113,6 +116,10 @@ class CPluginRuntime {
     SP<Config::Values::CStringValue> m_mode;
     SP<Config::Values::CFloatValue>  m_movementLiquidStrength;
     SP<Config::Values::CFloatValue>  m_movementWiggleStrength;
+    SP<Config::Values::CFloatValue>  m_movementClothStrength;
+    SP<Config::Values::CFloatValue>  m_movementClothFlutter;
+    SP<Config::Values::CFloatValue>  m_movementClothShading;
+    SP<Config::Values::CFloatValue>  m_movementClothVariation;
     SP<Config::Values::CFloatValue>  m_viscosity;
     SP<Config::Values::CFloatValue>  m_elasticity;
     SP<Config::Values::CFloatValue>  m_momentum;

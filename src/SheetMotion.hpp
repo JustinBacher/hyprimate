@@ -11,9 +11,14 @@ class SheetMotion {
     void   beginPaper(Transition kind, const PaperParams &params, std::uint64_t seed);
     void   beginCloth(Transition kind, const ClothParams &params, std::uint64_t seed, const Box &window,
                       std::span<const Box> obstacles, std::optional<ClothCloseGeometry> close = std::nullopt);
+    void   beginMovement(const ClothMovementParams &params, std::uint64_t seed, const Box &window, Vec2 grabUV);
+    void   updateMovement(const Box &window, double elapsedSeconds) noexcept;
     bool   advance(double elapsedSeconds) noexcept;
     void   reset() noexcept;
     bool   active() const noexcept;
+    bool   opening() const noexcept;
+    bool   clothOpening() const noexcept;
+    bool   moving() const noexcept;
     bool   closed() const noexcept;
     double opacity() const noexcept;
     bool   shaded() const noexcept;
@@ -22,6 +27,7 @@ class SheetMotion {
   private:
     enum class Driver { None, Paper, Cloth };
     Driver       m_driver = Driver::None;
+    bool         m_opening = false;
     PaperCrumple m_paper;
     ClothFlutter m_cloth;
 };
