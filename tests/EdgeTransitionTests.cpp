@@ -17,7 +17,7 @@ using liquid_glass::Vec2;
 
 int g_failures = 0;
 
-void report(bool ok, const char* expression, const char* file, int line) {
+void report(bool ok, const char *expression, const char *file, int line) {
     if (ok)
         return;
     ++g_failures;
@@ -30,34 +30,36 @@ constexpr double kStrength = 0.65;
 
 // Task 2: edge selection.
 constexpr liquid_glass::Box kScreen{0.0, 0.0, 1920.0, 1080.0};
-liquid_glass::Box withShadow(liquid_glass::Box b) { return {b.x - 12.0, b.y - 12.0, b.w + 24.0, b.h + 24.0}; }
+liquid_glass::Box           withShadow(liquid_glass::Box b) { return {b.x - 12.0, b.y - 12.0, b.w + 24.0, b.h + 24.0}; }
 std::optional<liquid_glass::Edge> pick(liquid_glass::Box body, liquid_glass::Edge fallback, bool first,
-                                       std::span<const liquid_glass::Box> neighbours = {}, liquid_glass::Box screen = kScreen) {
+                                       std::span<const liquid_glass::Box> neighbours = {},
+                                       liquid_glass::Box                  screen = kScreen) {
     const auto f = liquid_glass::resolveEdgeFrame(body, withShadow(body), screen, neighbours, fallback, first);
     return f ? std::optional{f->edge} : std::nullopt;
 }
 
 void testEdgeFollowsDwindleSplits() {
     using liquid_glass::Edge;
-    CHECK(pick({24, 24, 1872, 1032}, Edge::Bottom, true) == Edge::Bottom);   // first window: configured side
+    CHECK(pick({24, 24, 1872, 1032}, Edge::Bottom, true) == Edge::Bottom); // first window: configured side
     CHECK(pick({24, 24, 1872, 1032}, Edge::Left, true) == Edge::Left);
-    CHECK(pick({972, 24, 924, 1032}, Edge::Bottom, false) == Edge::Right);   // right half
-    CHECK(pick({972, 548, 924, 508}, Edge::Bottom, false) == Edge::Bottom);  // bottom-right quarter
-    CHECK(pick({1438, 548, 458, 508}, Edge::Bottom, false) == Edge::Right);  // right eighth
+    CHECK(pick({972, 24, 924, 1032}, Edge::Bottom, false) == Edge::Right);  // right half
+    CHECK(pick({972, 548, 924, 508}, Edge::Bottom, false) == Edge::Bottom); // bottom-right quarter
+    CHECK(pick({1438, 548, 458, 508}, Edge::Bottom, false) == Edge::Right); // right eighth
 }
 
 void testEdgeTiesAndValidity() {
     using liquid_glass::Edge;
-    CHECK(pick({760, 340, 400, 400}, Edge::Top, false) == Edge::Top);        // top/bottom tie -> fallback
-    CHECK(pick({760, 340, 400, 400}, Edge::Right, false) == Edge::Bottom);   // fallback not tied -> order
-    CHECK(pick({500, 900, 400, 300}, Edge::Bottom, true) == Edge::Left);     // fallback invalid (crosses bottom)
-    CHECK(!pick({-10, -10, 1940, 1100}, Edge::Bottom, false));               // crosses every edge
-    CHECK(!pick({0, 0, 0, 100}, Edge::Bottom, false));                       // unusable
+    CHECK(pick({760, 340, 400, 400}, Edge::Top, false) == Edge::Top);      // top/bottom tie -> fallback
+    CHECK(pick({760, 340, 400, 400}, Edge::Right, false) == Edge::Bottom); // fallback not tied -> order
+    CHECK(pick({500, 900, 400, 300}, Edge::Bottom, true) == Edge::Left);   // fallback invalid (crosses bottom)
+    CHECK(!pick({-10, -10, 1940, 1100}, Edge::Bottom, false));             // crosses every edge
+    CHECK(!pick({0, 0, 0, 100}, Edge::Bottom, false));                     // unusable
 }
 
 void testFrameGeometry() {
     const liquid_glass::Box body{972, 548, 924, 508};
-    const auto f = liquid_glass::resolveEdgeFrame(body, withShadow(body), kScreen, {}, liquid_glass::Edge::Bottom, false);
+    const auto              f =
+        liquid_glass::resolveEdgeFrame(body, withShadow(body), kScreen, {}, liquid_glass::Edge::Bottom, false);
     CHECK(f && f->edge == liquid_glass::Edge::Bottom);
     // Capture centre (1434, 802): 278 px above the bottom edge; capture half height 266.
     CHECK(std::abs(f->edgeDistance - 278.0) < 1e-9 && std::abs(f->captureFar - 544.0) < 1e-9);
@@ -65,7 +67,8 @@ void testFrameGeometry() {
     CHECK(std::abs(f->bodyT0 + 462.0) < 1e-9 && std::abs(f->bodyT1 - 462.0) < 1e-9);
     // The frame maps round-trip, and n grows into the screen.
     const liquid_glass::Vec2 p = liquid_glass::edgePoint(*f, 40.0, 100.0);
-    CHECK(std::abs(liquid_glass::edgeNormal(*f, p) - 100.0) < 1e-9 && std::abs(liquid_glass::edgeTangent(*f, p) - 40.0) < 1e-9);
+    CHECK(std::abs(liquid_glass::edgeNormal(*f, p) - 100.0) < 1e-9 &&
+          std::abs(liquid_glass::edgeTangent(*f, p) - 40.0) < 1e-9);
     CHECK(std::abs(p.y - 178.0) < 1e-9); // 278 - 100, y down from the capture centre
 }
 
@@ -77,8 +80,9 @@ void testOriginEdgeWhenValidElseNearest() {
     CHECK(pick({500, 900, 400, 300}, Edge::Bottom, true) == Edge::Left); // origin Bottom invalid -> nearest (Left)
     CHECK(pick({972, 548, 924, 508}, Edge::Right, true) == Edge::Right); // origin Right valid though Bottom is nearer
     CHECK(pick({1438, 24, 458, 300}, Edge::Right, true) == Edge::Right); // origin Right valid (24 px gap)
-    CHECK(pick({1000, 24, 300, 300}, Edge::Right, true) == Edge::Right); // origin Right valid: preferred over nearer Top
-    CHECK(pick({1000, 24, 300, 300}, Edge::Left, true) == Edge::Left);   // origin Left valid, preferred
+    CHECK(pick({1000, 24, 300, 300}, Edge::Right, true) ==
+          Edge::Right);                                                // origin Right valid: preferred over nearer Top
+    CHECK(pick({1000, 24, 300, 300}, Edge::Left, true) == Edge::Left); // origin Left valid, preferred
     CHECK(pick({-10, -10, 1940, 1100}, Edge::Right, true) == std::nullopt); // origin invalid and no valid edge
 }
 
@@ -88,28 +92,35 @@ constexpr liquid_glass::Box kWideScreen{0.0, 0.0, 1600.0, 900.0};
 void testDwindleContactKeepsDwindleEdges() {
     using liquid_glass::Edge;
     const std::array<liquid_glass::Box, 1> leftHalf{{{24, 24, 924, 1032}}};
-    CHECK(pick({972, 24, 924, 1032}, Edge::Bottom, false, leftHalf) == Edge::Right);       // right half beside left half
+    CHECK(pick({972, 24, 924, 1032}, Edge::Bottom, false, leftHalf) == Edge::Right); // right half beside left half
     const std::array<liquid_glass::Box, 1> topRight{{{972, 24, 924, 508}}};
-    CHECK(pick({972, 548, 924, 508}, Edge::Bottom, false, topRight) == Edge::Bottom);      // bottom-right quarter below top-right
+    CHECK(pick({972, 548, 924, 508}, Edge::Bottom, false, topRight) ==
+          Edge::Bottom); // bottom-right quarter below top-right
     const std::array<liquid_glass::Box, 1> bottomRight{{{972, 548, 924, 508}}};
-    CHECK(pick({972, 24, 924, 508}, Edge::Bottom, false, bottomRight) == Edge::Top);       // top-right quarter above bottom-right
+    CHECK(pick({972, 24, 924, 508}, Edge::Bottom, false, bottomRight) ==
+          Edge::Top); // top-right quarter above bottom-right
     const std::array<liquid_glass::Box, 1> sibling{{{972, 548, 458, 508}}};
-    CHECK(pick({1438, 548, 458, 508}, Edge::Bottom, false, sibling) == Edge::Right);       // right eighth beside its sibling
+    CHECK(pick({1438, 548, 458, 508}, Edge::Bottom, false, sibling) == Edge::Right); // right eighth beside its sibling
 }
 
 void testScrollingColumnsEmergeAwayFromNeighbours() {
     using liquid_glass::Edge;
     // 1600x900 monitor, full-height columns: gaps_out top 15, bottom 30, sides 30; gaps_in 12.
     const std::array<liquid_glass::Box, 1> left{{{30, 15, 700, 855}}};
-    CHECK(pick({742, 15, 800, 855}, Edge::Bottom, false, left, kWideScreen) == Edge::Right);    // new column right of the left column
+    CHECK(pick({742, 15, 800, 855}, Edge::Bottom, false, left, kWideScreen) ==
+          Edge::Right); // new column right of the left column
     const std::array<liquid_glass::Box, 1> right{{{870, 15, 700, 855}}};
-    CHECK(pick({58, 15, 800, 855}, Edge::Bottom, false, right, kWideScreen) == Edge::Left);     // new column left of the right column
+    CHECK(pick({58, 15, 800, 855}, Edge::Bottom, false, right, kWideScreen) ==
+          Edge::Left); // new column left of the right column
     const std::array<liquid_glass::Box, 2> around{{{30, 15, 400, 855}, {1060, 15, 510, 855}}};
-    CHECK(pick({442, 15, 600, 855}, Edge::Bottom, false, around, kWideScreen) == Edge::Left);   // between two columns, nearer Left
+    CHECK(pick({442, 15, 600, 855}, Edge::Bottom, false, around, kWideScreen) ==
+          Edge::Left); // between two columns, nearer Left
     const std::array<liquid_glass::Box, 2> around2{{{30, 15, 600, 855}, {1000, 15, 570, 855}}};
-    CHECK(pick({640, 15, 360, 855}, Edge::Bottom, false, around2, kWideScreen) == Edge::Right); // between two columns, nearer Right
-    CHECK(pick({742, 15, 800, 855}, Edge::Bottom, false, {}, kWideScreen) == Edge::Top);        // no neighbours: nearest edge
-    CHECK(pick({742, 15, 800, 855}, Edge::Top, true, left, kWideScreen) == Edge::Top);          // first window: side beats contact
+    CHECK(pick({640, 15, 360, 855}, Edge::Bottom, false, around2, kWideScreen) ==
+          Edge::Right); // between two columns, nearer Right
+    CHECK(pick({742, 15, 800, 855}, Edge::Bottom, false, {}, kWideScreen) == Edge::Top); // no neighbours: nearest edge
+    CHECK(pick({742, 15, 800, 855}, Edge::Top, true, left, kWideScreen) ==
+          Edge::Top); // first window: side beats contact
 }
 
 void testInvalidContactCandidateFallsBackToNearest() {
@@ -122,12 +133,12 @@ void testInvalidContactCandidateFallsBackToNearest() {
 
 void testOnlyTouchingNeighboursCount() {
     using liquid_glass::Edge;
-    const liquid_glass::Box                   body{972, 548, 924, 508};
-    const std::array<liquid_glass::Box, 1> gap64{{{600, 548, 308, 508}}};        // facing gap 64 px: counts
+    const liquid_glass::Box                body{972, 548, 924, 508};
+    const std::array<liquid_glass::Box, 1> gap64{{{600, 548, 308, 508}}}; // facing gap 64 px: counts
     CHECK(pick(body, Edge::Bottom, false, gap64) == Edge::Right);
-    const std::array<liquid_glass::Box, 1> gap100{{{600, 548, 272, 508}}};       // facing gap 100 px: ignored
+    const std::array<liquid_glass::Box, 1> gap100{{{600, 548, 272, 508}}}; // facing gap 100 px: ignored
     CHECK(pick(body, Edge::Bottom, false, gap100) == Edge::Bottom);
-    const std::array<liquid_glass::Box, 1> aside{{{600, 24, 360, 400}}};         // 12 px gap, no vertical overlap: ignored
+    const std::array<liquid_glass::Box, 1> aside{{{600, 24, 360, 400}}}; // 12 px gap, no vertical overlap: ignored
     CHECK(pick(body, Edge::Bottom, false, aside) == Edge::Bottom);
     const std::array<liquid_glass::Box, 1> overlapping{{{1200, 300, 600, 600}}}; // floating-like overlap: ignored
     CHECK(pick(body, Edge::Bottom, false, overlapping) == Edge::Bottom);
@@ -139,7 +150,8 @@ using liquid_glass::EdgeTransition;
 using liquid_glass::LiquidMesh;
 constexpr double kStep = 1.0 / 240.0;
 
-EdgeFrame frameFor(liquid_glass::Box body, liquid_glass::Edge fallback = liquid_glass::Edge::Bottom, bool first = false) {
+EdgeFrame frameFor(liquid_glass::Box body, liquid_glass::Edge fallback = liquid_glass::Edge::Bottom,
+                   bool first = false) {
     return *liquid_glass::resolveEdgeFrame(body, withShadow(body), kScreen, {}, fallback, first);
 }
 const EdgeFrame kQuarter = frameFor({972, 548, 924, 508}); // Bottom edge
@@ -147,21 +159,21 @@ const EdgeFrame kQuarter = frameFor({972, 548, 924, 508}); // Bottom edge
 constexpr Vec2 kCapture{948.0, 532.0};
 
 // Displayed centre displacement (logical px) from the rest capture centre.
-Vec2 centreOf(const EdgeTransition& tr) { return tr.map({0.0, 0.0}, kCapture); }
+Vec2 centreOf(const EdgeTransition &tr) { return tr.map({0.0, 0.0}, kCapture); }
 
 // Centre displacement into the screen along the edge normal (0 at rest, negative toward and behind the edge).
-double centreInward(const EdgeTransition& tr) {
+double centreInward(const EdgeTransition &tr) {
     const Vec2 c = centreOf(tr), in = liquid_glass::inwardNormal(tr.frame().edge);
     return c.x * in.x + c.y * in.y;
 }
 
 // Displayed n (into the screen) of the body near side at the body's tangential centre.
-double nearSide(const EdgeTransition& tr) {
-    const EdgeFrame& f = tr.frame();
-    const Vec2 p = liquid_glass::edgePoint(f, 0.5 * (f.bodyT0 + f.bodyT1), f.bodyNear);
+double nearSide(const EdgeTransition &tr) {
+    const EdgeFrame &f = tr.frame();
+    const Vec2       p = liquid_glass::edgePoint(f, 0.5 * (f.bodyT0 + f.bodyT1), f.bodyNear);
     return liquid_glass::edgeNormal(f, tr.map(p, kCapture));
 }
-double centreT(const EdgeFrame& f) { return 0.5 * (f.bodyT0 + f.bodyT1); }
+double centreT(const EdgeFrame &f) { return 0.5 * (f.bodyT0 + f.bodyT1); }
 
 void testOpenStartsHiddenAndSettlesExactly() {
     EdgeTransition tr;
@@ -172,15 +184,18 @@ void testOpenStartsHiddenAndSettlesExactly() {
         for (double sy : {-1.0, 1.0})
             CHECK(liquid_glass::edgeNormal(kQuarter, tr.map({sx * 474.0, sy * 266.0}, kCapture)) <= 1e-6);
     const Vec2 first = tr.takeTravel();
-    CHECK(first.x == 0.0 && first.y == 0.0);                                  // begin is not travel
+    CHECK(first.x == 0.0 && first.y == 0.0); // begin is not travel
     double maxInward = -1e9;
-    for (int i = 0; i < 960 && tr.active(); ++i) { tr.advance(kStep); maxInward = std::max(maxInward, centreInward(tr)); }
+    for (int i = 0; i < 960 && tr.active(); ++i) {
+        tr.advance(kStep);
+        maxInward = std::max(maxInward, centreInward(tr));
+    }
     CHECK(!tr.active());
     // Exact identity once settled.
     const Vec2 c = centreOf(tr);
     CHECK(c.x == 0.0 && c.y == 0.0);
     CHECK(tr.map({123.0, -45.0}, kCapture).x == 123.0 && tr.map({123.0, -45.0}, kCapture).y == -45.0);
-    CHECK(maxInward > 5.0);                                                    // visible pop overshoot
+    CHECK(maxInward > 5.0); // visible pop overshoot
 }
 
 // The frame's capture is taken when the open begins, before the shadow reports its extents; the live capture is
@@ -189,15 +204,15 @@ void testOpenFillsLiveCaptureAlongNormal() {
     EdgeTransition tr;
     tr.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
     constexpr Vec2 kLive{kCapture.x, kCapture.y + 24.0}; // Bottom edge: the normal is vertical
-    double         worst   = 0.0;
+    double         worst = 0.0;
     int            checked = 0;
     for (int i = 0; i < 960 && tr.active(); ++i) {
         tr.advance(kStep);
         if (i < 240 || !tr.active())
             continue; // from 1 s of 240 Hz steps the spring is within a fraction of a pixel
-        const double far  = liquid_glass::edgeNormal(kQuarter, tr.map({0.0, -0.5 * kLive.y}, kLive));
+        const double far = liquid_glass::edgeNormal(kQuarter, tr.map({0.0, -0.5 * kLive.y}, kLive));
         const double near = liquid_glass::edgeNormal(kQuarter, tr.map({0.0, 0.5 * kLive.y}, kLive));
-        worst             = std::max(worst, std::abs((far - near) - kLive.y));
+        worst = std::max(worst, std::abs((far - near) - kLive.y));
         ++checked;
     }
     CHECK(checked > 0);
@@ -221,7 +236,7 @@ void testBeadMapDoesNotFold() {
             }
         for (int j = 0; j + 1 < kSide; ++j)
             for (int i = 0; i + 1 < kSide; ++i) {
-                const Vec2 a = mapped[j * kSide + i], b = mapped[j * kSide + i + 1], c = mapped[(j + 1) * kSide + i];
+                const Vec2   a = mapped[j * kSide + i], b = mapped[j * kSide + i + 1], c = mapped[(j + 1) * kSide + i];
                 const double area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
                 CHECK(area > 0.0);
             }
@@ -230,15 +245,15 @@ void testBeadMapDoesNotFold() {
 
 void testOpenEdgesPointTheRightWay() {
     using liquid_glass::Edge;
-    const std::array<std::pair<Edge, Vec2>, 4> cases{{{Edge::Bottom, {0, 1}}, {Edge::Top, {0, -1}}, {Edge::Left, {-1, 0}}, {Edge::Right, {1, 0}}}};
-    for (const auto& [edge, sign] : cases) {
+    const std::array<std::pair<Edge, Vec2>, 4> cases{
+        {{Edge::Bottom, {0, 1}}, {Edge::Top, {0, -1}}, {Edge::Left, {-1, 0}}, {Edge::Right, {1, 0}}}};
+    for (const auto &[edge, sign] : cases) {
         EdgeTransition tr;
         tr.begin(Transition::Open, frameFor({24, 24, 1872, 1032}, edge, true), MaterialParams{}, kStrength);
         const Vec2 o = centreOf(tr);
         CHECK(o.x * sign.x + o.y * sign.y > 200.0); // starts hidden beyond that edge
     }
 }
-
 
 // Meniscus during open: the neck attaches, snaps once, and recoils.
 void testOpenNeckAttachesSnapsOnceAndRecoils() {
@@ -251,14 +266,21 @@ void testOpenNeckAttachesSnapsOnceAndRecoils() {
         tr.advance(kStep);
         const double peak = tr.meniscusPeak(), n = nearSide(tr);
         CHECK(peak >= 0.0);
-        // Tolerance 8 px: the recoil spring legitimately moves ~5 px per substep. Snaps to or from zero (>= Fs+Lp ~ 44 px) still fail.
-        CHECK(std::abs(peak - prevPeak) <= std::abs(n - prevNear) + 8.0);       // continuous
-        if (n >= 0.0 && peak > n + 1.0) tucked = true;                            // tip under the window
-        if (tucked && peak < n - 1.0 && snaps == 0) ++snaps;                      // gap opened: snapped
-        else if (snaps == 1 && peak > n + 1.0) ++snaps;                           // must never re-attach
-        if (snaps == 1 && peak == 0.0) sawZeroAfterSnap = true;
-        if (sawZeroAfterSnap && peak > 0.5) secondLobe = true;                    // the bar's small rebound bump
-        prevPeak = peak; prevNear = n;
+        // Tolerance 8 px: the recoil spring legitimately moves ~5 px per substep. Snaps to or from zero (>= Fs+Lp ~ 44
+        // px) still fail.
+        CHECK(std::abs(peak - prevPeak) <= std::abs(n - prevNear) + 8.0); // continuous
+        if (n >= 0.0 && peak > n + 1.0)
+            tucked = true; // tip under the window
+        if (tucked && peak < n - 1.0 && snaps == 0)
+            ++snaps; // gap opened: snapped
+        else if (snaps == 1 && peak > n + 1.0)
+            ++snaps; // must never re-attach
+        if (snaps == 1 && peak == 0.0)
+            sawZeroAfterSnap = true;
+        if (sawZeroAfterSnap && peak > 0.5)
+            secondLobe = true; // the bar's small rebound bump
+        prevPeak = peak;
+        prevNear = n;
     }
     CHECK(tucked);
     CHECK(snaps == 1);
@@ -276,7 +298,7 @@ void testMeniscusShapeBounds() {
         CHECK(tr.meniscus(lo - 1.0) == 0.0 && tr.meniscus(hi + 1.0) == 0.0);
         for (int s = 0; s <= 64; ++s)
             CHECK(tr.meniscus(lo + (hi - lo) * s / 64.0) <= tr.meniscusPeak() + 1e-9);
-        CHECK(tr.meniscus(centreT(kQuarter)) == tr.meniscusPeak());               // peak at the window centre column
+        CHECK(tr.meniscus(centreT(kQuarter)) == tr.meniscusPeak()); // peak at the window centre column
     }
 }
 
@@ -285,9 +307,11 @@ void testOpenAgreesAcrossRefreshRates() {
     EdgeTransition a, b;
     a.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
     b.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
-    for (int k = 1; k <= 24; ++k) {                       // compare every 1/48 s for 0.5 s
-        for (int i = 0; i < 5; ++i) a.advance(1.0 / 240.0); // 240 Hz-equivalent chunks (60 Hz = 4 of these)
-        for (int i = 0; i < 3; ++i) b.advance(1.0 / 144.0);
+    for (int k = 1; k <= 24; ++k) { // compare every 1/48 s for 0.5 s
+        for (int i = 0; i < 5; ++i)
+            a.advance(1.0 / 240.0); // 240 Hz-equivalent chunks (60 Hz = 4 of these)
+        for (int i = 0; i < 3; ++i)
+            b.advance(1.0 / 144.0);
         CHECK(std::abs(centreOf(a).y - centreOf(b).y) < 0.5);
         CHECK(std::abs(a.meniscusPeak() - b.meniscusPeak()) < 0.5);
     }
@@ -297,9 +321,9 @@ void testOpenAgreesAcrossRefreshRates() {
 void testOpenTravelSumsToCentreDisplacement() {
     EdgeTransition tr;
     tr.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
-    const Vec2 inward = liquid_glass::inwardNormal(kQuarter.edge);
+    const Vec2   inward = liquid_glass::inwardNormal(kQuarter.edge);
     const double start = centreInward(tr);
-    double sum = 0.0;
+    double       sum = 0.0;
     for (int i = 0; i < 960 && tr.active(); ++i) {
         tr.advance(kStep);
         const Vec2 t = tr.takeTravel();
@@ -319,8 +343,10 @@ void testCloseFromRestDrainsIntoTheEdge() {
     double prev = centreInward(tr);
     for (int i = 0; i < 480 && tr.active(); ++i) {
         tr.advance(kStep);
-        if (!tr.active()) break;
-        CHECK(centreInward(tr) <= prev + 1e-9); prev = centreInward(tr); // always toward the edge
+        if (!tr.active())
+            break;
+        CHECK(centreInward(tr) <= prev + 1e-9);
+        prev = centreInward(tr); // always toward the edge
     }
     CHECK(tr.closed());
     CHECK(tr.meniscusPeak() == 0.0);
@@ -332,11 +358,11 @@ void testCloseKeepsMovingThroughTheShrink() {
         EdgeTransition tr;
         tr.begin(Transition::Close, kQuarter, MaterialParams{.momentum = momentum}, kStrength, false);
         double previousTravel = 0.0;
-        bool continuous = true;
+        bool   continuous = true;
         for (int i = 0; i < 100; ++i) {
             tr.advance(kStep);
-            const Vec2 travel = tr.takeTravel();
-            const Vec2 inward = liquid_glass::inwardNormal(kQuarter.edge);
+            const Vec2   travel = tr.takeTravel();
+            const Vec2   inward = liquid_glass::inwardNormal(kQuarter.edge);
             const double outward = -(travel.x * inward.x + travel.y * inward.y);
             if (i >= 24)
                 continuous = continuous && outward > 0.0 && outward >= 0.95 * previousTravel;
@@ -349,23 +375,23 @@ void testCloseKeepsMovingThroughTheShrink() {
 void testCloseContinuesAnInterruptedOpen() {
     EdgeTransition tr;
     tr.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
-    for (int i = 0; i < 30; ++i) tr.advance(kStep);
-    const Vec2 before = centreOf(tr);
+    for (int i = 0; i < 30; ++i)
+        tr.advance(kStep);
+    const Vec2   before = centreOf(tr);
     const double peakBefore = tr.meniscusPeak();
-    const auto other = frameFor({24, 24, 900, 500}, liquid_glass::Edge::Left, true); // different edge: ignored
+    const auto   other = frameFor({24, 24, 900, 500}, liquid_glass::Edge::Left, true); // different edge: ignored
     tr.begin(Transition::Close, other, MaterialParams{}, kStrength);
     CHECK(tr.frame().edge == liquid_glass::Edge::Bottom);
     CHECK(std::abs(centreOf(tr).x - before.x) < 1e-9 && std::abs(centreOf(tr).y - before.y) < 1e-9);
     CHECK(std::abs(tr.meniscusPeak() - peakBefore) < 1e-9); // Open->Close begin is continuous
-    for (int i = 0; i < 480 && tr.active(); ++i) tr.advance(kStep);
+    for (int i = 0; i < 480 && tr.active(); ++i)
+        tr.advance(kStep);
     CHECK(tr.closed());
 }
 
-
-
 // A close from rest shows no liquid until the drain (0.46 s at default elasticity = substep 111).
 void testCloseFromRestHasNoLiquidBeforeDrain() {
-    constexpr int kDrainStep = 111;
+    constexpr int  kDrainStep = 111;
     EdgeTransition tr;
     tr.begin(Transition::Close, kQuarter, MaterialParams{}, kStrength);
     for (int i = 1; i < kDrainStep && tr.active(); ++i) {
@@ -400,12 +426,12 @@ void testBeadBoxMatchesMap() {
             break;
         const Vec2 c = tr.beadCentre();
         const Vec2 h = tr.beadHalf(kCapture);
-        const Vec2 top    = tr.map({0.0, -0.5 * kCapture.y}, kCapture);
+        const Vec2 top = tr.map({0.0, -0.5 * kCapture.y}, kCapture);
         const Vec2 bottom = tr.map({0.0, 0.5 * kCapture.y}, kCapture);
-        const Vec2 left   = tr.map({-0.5 * kCapture.x, 0.0}, kCapture);
-        const Vec2 right  = tr.map({0.5 * kCapture.x, 0.0}, kCapture);
-        worst = std::max({worst, std::abs(top.y - (c.y - h.y)), std::abs(bottom.y - (c.y + h.y)), std::abs(left.x - (c.x - h.x)),
-                          std::abs(right.x - (c.x + h.x))});
+        const Vec2 left = tr.map({-0.5 * kCapture.x, 0.0}, kCapture);
+        const Vec2 right = tr.map({0.5 * kCapture.x, 0.0}, kCapture);
+        worst = std::max({worst, std::abs(top.y - (c.y - h.y)), std::abs(bottom.y - (c.y + h.y)),
+                          std::abs(left.x - (c.x - h.x)), std::abs(right.x - (c.x + h.x))});
     }
     CHECK(worst < 1e-6);
     const Vec2 c = tr.beadCentre();
@@ -417,7 +443,7 @@ void testBeadBoxMatchesMap() {
 // Movement-field guard: idle and settled meshes give 1; a moving mesh gives a power-of-two gain in [0, 1].
 void testDisplacementGainGuard() {
     EdgeTransition idle;
-    LiquidMesh   fresh;
+    LiquidMesh     fresh;
     CHECK(fresh.settled());
     CHECK(idle.displacementGain(fresh, kCapture, {1.0, 1.0}) == 1.0);
 
@@ -427,46 +453,51 @@ void testDisplacementGainGuard() {
 
     LiquidMesh moving;
     moving.recordTranslation({40.0, 0.0}, kCapture, kStrength);
-    for (int i = 0; i < 24; ++i) moving.advance(kStep, kCapture);
+    for (int i = 0; i < 24; ++i)
+        moving.advance(kStep, kCapture);
     const double g = tr.displacementGain(moving, kCapture, {1.0, 1.0});
     CHECK(g >= 0.0 && g <= 1.0);
-    if (g > 0.0) CHECK(std::abs(std::log2(g) - std::round(std::log2(g))) < 1e-9); // halvings of 1
+    if (g > 0.0)
+        CHECK(std::abs(std::log2(g) - std::round(std::log2(g))) < 1e-9); // halvings of 1
 }
 
 // Smallest triangle-area ratio (moved / gain-0) over the renderer's 32x32 grid, composed exactly as the renderer does:
 // map(((u-0.5)*S + g*d) * c, S*c) against map((u-0.5)*S * c, S*c). Independent of the guard implementation.
-double minRendererRatio(const EdgeTransition& tr, const LiquidMesh& mesh, double g, Vec2 size, Vec2 c) {
-    constexpr int kSide = 33;
-    const Vec2 scaled{size.x * c.x, size.y * c.y};
+double minRendererRatio(const EdgeTransition &tr, const LiquidMesh &mesh, double g, Vec2 size, Vec2 c) {
+    constexpr int                   kSide = 33;
+    const Vec2                      scaled{size.x * c.x, size.y * c.y};
     std::array<Vec2, kSide * kSide> base{}, moved{};
     for (int j = 0; j < kSide; ++j)
         for (int i = 0; i < kSide; ++i) {
             const double u = static_cast<double>(i) / (kSide - 1), v = static_cast<double>(j) / (kSide - 1);
             const auto   d = mesh.sampleDisplacement(u, v);
             const double bx = (u - 0.5) * size.x, by = (v - 0.5) * size.y;
-            base[j * kSide + i]  = tr.map({bx * c.x, by * c.y}, scaled);
+            base[j * kSide + i] = tr.map({bx * c.x, by * c.y}, scaled);
             moved[j * kSide + i] = tr.map({(bx + g * d.x) * c.x, (by + g * d.y) * c.y}, scaled);
         }
     const auto area = [](Vec2 a, Vec2 b, Vec2 q) { return (b.x - a.x) * (q.y - a.y) - (b.y - a.y) * (q.x - a.x); };
-    double worst = 1.0;
+    double     worst = 1.0;
     for (int j = 0; j + 1 < kSide; ++j)
         for (int i = 0; i + 1 < kSide; ++i) {
             const int p00 = j * kSide + i, p10 = p00 + 1, p01 = p00 + kSide, p11 = p01 + 1;
-            for (const auto& [a, b, q] : {std::array{p00, p10, p01}, std::array{p10, p11, p01}}) {
+            for (const auto &[a, b, q] : {std::array{p00, p10, p01}, std::array{p10, p11, p01}}) {
                 const double ref = area(base[a], base[b], base[q]);
-                if (std::abs(ref) < 1e-9) continue; // degenerate at rest: nothing to fold
+                if (std::abs(ref) < 1e-9)
+                    continue; // degenerate at rest: nothing to fold
                 worst = std::min(worst, area(moved[a], moved[b], moved[q]) / ref);
             }
         }
     return worst;
 }
 
-// Regression for the renderer-order fold: the gain must keep every triangle >= 20% of its gain-0 area at any open scale.
+// Regression for the renderer-order fold: the gain must keep every triangle >= 20% of its gain-0 area at any open
+// scale.
 void testDisplacementGainKeepsTrianglesWhenCompensated() {
-    LiquidMesh   mesh;
+    LiquidMesh     mesh;
     EdgeTransition tr;
     tr.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
-    for (int i = 0; i < 60 && tr.active(); ++i) tr.advance(kStep); // mid-grow
+    for (int i = 0; i < 60 && tr.active(); ++i)
+        tr.advance(kStep); // mid-grow
     for (int i = 0; i < 12; ++i) {
         mesh.recordTranslation({-60.0, 0.0}, kCapture, kStrength);
         mesh.advance(kStep, kCapture);
@@ -478,7 +509,6 @@ void testDisplacementGainKeepsTrianglesWhenCompensated() {
         CHECK(minRendererRatio(tr, mesh, g, kCapture, comp) >= 0.2 - 1e-9);
     }
 }
-
 
 // Closing from rest returns the dive's final travel when it reaches Closed; nothing is returned afterwards.
 void testCloseReturnsFinalTravel() {
@@ -517,8 +547,8 @@ void testCloseAfterOpenBeginHasNoLiquid() {
 constexpr double kBeadRadius = 0.14 * 508.0; // kQuarter bead radius (px)
 
 // Local maxima of the meniscus above 5% of `peak`, sampled every 0.02 r across +-2 r of the window centre `c`.
-std::vector<double> lobeCentres(const EdgeTransition& tr, double c, double peak) {
-    constexpr int kHalf = 100;
+std::vector<double> lobeCentres(const EdgeTransition &tr, double c, double peak) {
+    constexpr int       kHalf = 100;
     std::vector<double> v(2 * kHalf + 1);
     for (int k = -kHalf; k <= kHalf; ++k)
         v[k + kHalf] = tr.meniscus(c + k * 0.02 * kBeadRadius);
@@ -535,9 +565,9 @@ void testCloseSplashAfterDrain() {
     EdgeTransition tr;
     tr.begin(Transition::Close, kQuarter, MaterialParams{}, kStrength);
     const double c = centreT(kQuarter);
-    double splashPeak = 0.0, prevPeak = 0.0, prevNear = nearSide(tr);
-    int firstSplash = -1, lastSplash = -1;
-    bool oneCentredLobe = false;
+    double       splashPeak = 0.0, prevPeak = 0.0, prevNear = nearSide(tr);
+    int          firstSplash = -1, lastSplash = -1;
+    bool         oneCentredLobe = false;
     for (int i = 1; i <= 600 && tr.active(); ++i) {
         tr.advance(kStep);
         const double peak = tr.meniscusPeak(), n = nearSide(tr);
@@ -545,7 +575,8 @@ void testCloseSplashAfterDrain() {
         prevPeak = peak;
         prevNear = n;
         if (peak > 0.0) {
-            if (firstSplash < 0) firstSplash = i;
+            if (firstSplash < 0)
+                firstSplash = i;
             lastSplash = i;
         }
         if (peak > splashPeak) {
@@ -608,8 +639,10 @@ void testCloseSplashAgreesAcrossRefreshRates() {
     a.begin(Transition::Close, kQuarter, MaterialParams{}, kStrength);
     b.begin(Transition::Close, kQuarter, MaterialParams{}, kStrength);
     for (int k = 1; k <= 12; ++k) {
-        for (int i = 0; i < 5; ++i) a.advance(1.0 / 60.0);
-        for (int i = 0; i < 12; ++i) b.advance(1.0 / 144.0);
+        for (int i = 0; i < 5; ++i)
+            a.advance(1.0 / 60.0);
+        for (int i = 0; i < 12; ++i)
+            b.advance(1.0 / 144.0);
         CHECK(std::abs(a.meniscusPeak() - b.meniscusPeak()) < 0.5);
     }
 }
@@ -617,16 +650,22 @@ void testCloseSplashAgreesAcrossRefreshRates() {
 // Invalid input.
 void testInvalidInputs() {
     constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
-    EdgeTransition tr;
-    tr.begin(Transition::Open, EdgeFrame{}, MaterialParams{}, kStrength);           CHECK(!tr.active());
-    tr.begin(Transition::Open, kQuarter, MaterialParams{.elasticity = kNaN}, kStrength); CHECK(!tr.active());
-    tr.begin(Transition::Open, kQuarter, MaterialParams{}, 0.0);                    CHECK(!tr.active());
+    EdgeTransition   tr;
+    tr.begin(Transition::Open, EdgeFrame{}, MaterialParams{}, kStrength);
+    CHECK(!tr.active());
+    tr.begin(Transition::Open, kQuarter, MaterialParams{.elasticity = kNaN}, kStrength);
+    CHECK(!tr.active());
+    tr.begin(Transition::Open, kQuarter, MaterialParams{}, 0.0);
+    CHECK(!tr.active());
     tr.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
-    tr.advance(kNaN);                                                                CHECK(!tr.active() && !tr.closed());
+    tr.advance(kNaN);
+    CHECK(!tr.active() && !tr.closed());
     CHECK(tr.map({0.0, 0.0}, kCapture).x == 0.0 && tr.map({0.0, 0.0}, kCapture).y == 0.0);
     tr.begin(Transition::Close, kQuarter, MaterialParams{}, kStrength);
-    tr.advance(0.3);                                                                 CHECK(tr.closed());
-    tr.begin(Transition::Close, EdgeFrame{}, MaterialParams{}, kStrength);          CHECK(!tr.active() && !tr.closed());
+    tr.advance(0.3);
+    CHECK(tr.closed());
+    tr.begin(Transition::Close, EdgeFrame{}, MaterialParams{}, kStrength);
+    CHECK(!tr.active() && !tr.closed());
 }
 
 } // namespace

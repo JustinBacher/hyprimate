@@ -7,15 +7,14 @@
 #include <string>
 
 namespace {
-    constexpr char MISMATCH_MESSAGE[] = "[liquid-glass] Hyprland/header version mismatch; rebuild against the running compositor";
+constexpr char MISMATCH_MESSAGE[] =
+    "[liquid-glass] Hyprland/header version mismatch; rebuild against the running compositor";
 
-    // Owned only while the plugin is loaded. Constructed after every compatibility check passes.
-    std::unique_ptr<CPluginRuntime> g_runtime;
-}
+// Owned only while the plugin is loaded. Constructed after every compatibility check passes.
+std::unique_ptr<CPluginRuntime> g_runtime;
+} // namespace
 
-APICALL EXPORT std::string PLUGIN_API_VERSION() {
-    return HYPRLAND_API_VERSION;
-}
+APICALL EXPORT std::string PLUGIN_API_VERSION() { return HYPRLAND_API_VERSION; }
 
 APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     if (std::string(__hyprland_api_get_hash()) != std::string(__hyprland_api_get_client_hash())) {
@@ -24,10 +23,10 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     }
 
     PLUGIN_DESCRIPTION_INFO description{
-        .name        = "liquid-glass",
+        .name = "liquid-glass",
         .description = "Viscous window deformation during movement, opening, and closing",
-        .author      = "",
-        .version     = "0.1.0",
+        .author = "",
+        .version = "0.1.0",
     };
     // Publish only after construction succeeds. The host unregisters config values
     // on failed initialization; member RAII releases all partially added listeners.

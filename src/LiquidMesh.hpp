@@ -12,7 +12,7 @@ struct Vec2 {
 };
 
 // splitmix64 step: equal seeds give equal streams; neighbouring seeds give unrelated ones.
-inline std::uint64_t splitmix64(std::uint64_t& state) noexcept {
+inline std::uint64_t splitmix64(std::uint64_t &state) noexcept {
     std::uint64_t z = (state += 0x9E3779B97F4A7C15ULL);
     z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
     z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
@@ -23,37 +23,38 @@ enum class MotionMode { Liquid, Wiggle };
 
 // Liquid material tuning. Finite values are clamped to [0, 1]; nonfinite Liquid values reset before integration.
 struct MaterialParams {
-    double viscosity     = 0.75; // [0,1] Liquid flow resistance (existing semantics)
-    double elasticity    = 0.5;  // [0,1] restoring stiffness / recovery speed; higher = snappier, firmer return
-    double momentum      = 0.5;  // [0,1] inertia carried past a stop (overshoot amount); 0 = none
+    double viscosity = 0.75; // [0,1] Liquid flow resistance (existing semantics)
+    double elasticity = 0.5; // [0,1] restoring stiffness / recovery speed; higher = snappier, firmer return
+    double momentum = 0.5;   // [0,1] inertia carried past a stop (overshoot amount); 0 = none
     // [0,1] Liquid-only per-motion randomness: each movement from rest draws its own timing, damping, lag, bow
     // shape, skew, sideways lean and response latency from the mesh's seed. 0 = every mesh responds identically.
-    double variation     = 0.0;
-    bool operator==(const MaterialParams&) const = default;
+    double variation = 0.0;
+    bool   operator==(const MaterialParams &) const = default;
 };
 
 // Logical-pixel material state; no compositor or graphics dependency.
 class LiquidMesh {
   public:
     // Meshes with the same mode, params and seed respond identically; give each window its own seed.
-    explicit LiquidMesh(MotionMode mode = MotionMode::Liquid, MaterialParams params = {}, std::uint64_t seed = 0) noexcept;
-    MotionMode                  mode() const noexcept { return m_mode; }
-    const MaterialParams&       params() const noexcept { return m_params; }
-    double                      viscosity() const noexcept { return m_params.viscosity; }
-    void reset() noexcept;
-    void recordTranslation(Vec2 delta, Vec2 size, double strength) noexcept;
-    bool advance(double elapsedSeconds, Vec2 size) noexcept;
-    bool settled() const noexcept;
+    explicit LiquidMesh(MotionMode mode = MotionMode::Liquid, MaterialParams params = {},
+                        std::uint64_t seed = 0) noexcept;
+    MotionMode            mode() const noexcept { return m_mode; }
+    const MaterialParams &params() const noexcept { return m_params; }
+    double                viscosity() const noexcept { return m_params.viscosity; }
+    void                  reset() noexcept;
+    void                  recordTranslation(Vec2 delta, Vec2 size, double strength) noexcept;
+    bool                  advance(double elapsedSeconds, Vec2 size) noexcept;
+    bool                  settled() const noexcept;
     // C1-smooth interpolation of the 9x9 lattice field; u and v are clamped to [0, 1].
-    Vec2 sampleDisplacement(double u, double v) const noexcept;
-    const std::array<Vec2, 81>& displacements() const noexcept { return m_displacements; }
+    Vec2                        sampleDisplacement(double u, double v) const noexcept;
+    const std::array<Vec2, 81> &displacements() const noexcept { return m_displacements; }
 
   private:
     bool constrain(Vec2 size) noexcept;
     bool validTriangles(Vec2 size) const noexcept;
     void integrateLiquidSubstep(Vec2 size) noexcept;
     // Draws a new Liquid character (gains and shape) scaled by params.variation; neutral when variation is 0.
-    void rollCharacter() noexcept;
+    void   rollCharacter() noexcept;
     double drawUnit() noexcept; // uniform in [-1, 1] from m_rng
 
     MotionMode     m_mode;
@@ -62,18 +63,18 @@ class LiquidMesh {
     double m_shearDamping;
     // Liquid body and head spring gains, derived from elasticity, momentum and the current character.
     double m_bodyStiffness = 0;
-    double m_bodyDamping   = 0;
+    double m_bodyDamping = 0;
     double m_headStiffness = 0;
-    double m_headDamping   = 0;
+    double m_headDamping = 0;
     // Liquid character, redrawn by rollCharacter at each motion onset; all neutral when variation is 0.
-    double        m_lagGain         = 1;    // trailing lag multiplier
-    double        m_bowDepth        = 0;    // trailing-edge bow depth (corner lag share removed)
-    double        m_taperRatio      = 0;    // cross-axis tail taper per unit lag
-    double        m_skew            = 0;    // cross-axis offset of the bow's deepest point, in s units
-    double        m_lean            = 0;    // sideways tail shear per unit lag
-    double        m_kickGain        = 1;    // stop-kick multiplier
-    double        m_velocitySeconds = 0;    // window-velocity filter time constant (response latency)
-    std::uint64_t m_rng             = 0;    // splitmix64 state
+    double        m_lagGain = 1;         // trailing lag multiplier
+    double        m_bowDepth = 0;        // trailing-edge bow depth (corner lag share removed)
+    double        m_taperRatio = 0;      // cross-axis tail taper per unit lag
+    double        m_skew = 0;            // cross-axis offset of the bow's deepest point, in s units
+    double        m_lean = 0;            // sideways tail shear per unit lag
+    double        m_kickGain = 1;        // stop-kick multiplier
+    double        m_velocitySeconds = 0; // window-velocity filter time constant (response latency)
+    std::uint64_t m_rng = 0;             // splitmix64 state
 
     std::array<Vec2, 81> m_displacements{};
     std::array<Vec2, 81> m_velocities{};
@@ -94,7 +95,7 @@ class LiquidMesh {
     double m_strength = 0;
 
     double   m_accumulator = 0;
-    unsigned m_quietSteps  = 0;
+    unsigned m_quietSteps = 0;
 };
 
 } // namespace liquid_glass

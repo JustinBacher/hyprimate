@@ -15,7 +15,7 @@ using liquid_glass::Vec2;
 
 int g_failures = 0;
 
-void report(bool ok, const char* expression, const char* file, int line) {
+void report(bool ok, const char *expression, const char *file, int line) {
     if (ok)
         return;
     ++g_failures;
@@ -29,28 +29,28 @@ constexpr Vec2 SIZE{1000.0, 700.0};
 PaperParams openParams() { return {.duration = 0.6, .crumpliness = 0.6, .shading = 0.7, .variation = 0.5}; }
 PaperParams closeParams() { return {.duration = 0.5, .crumpliness = 0.6, .shading = 0.7, .variation = 0.5}; }
 
-void advanceFor(PaperCrumple& model, double seconds) {
+void advanceFor(PaperCrumple &model, double seconds) {
     const double step = 0.01;
     for (double t = 0.0; t + 1e-12 < seconds; t += step)
         model.advance(std::min(step, seconds - t));
 }
 
-PaperFacets facetsOf(const PaperCrumple& model, Vec2 size = SIZE) {
+PaperFacets facetsOf(const PaperCrumple &model, Vec2 size = SIZE) {
     PaperFacets out{};
     model.facets(size, out);
     return out;
 }
 
 // Largest displayed distance from the centre, in logical px.
-double maxRadiusPx(const PaperFacets& facets, Vec2 size = SIZE) {
+double maxRadiusPx(const PaperFacets &facets, Vec2 size = SIZE) {
     double best = 0.0;
-    for (const auto& facet : facets)
-        for (const Vec2& p : facet.position)
+    for (const auto &facet : facets)
+        for (const Vec2 &p : facet.position)
             best = std::max(best, std::hypot(p.x * size.x, p.y * size.y));
     return best;
 }
 
-double maxPositionDelta(const PaperFacets& a, const PaperFacets& b) {
+double maxPositionDelta(const PaperFacets &a, const PaperFacets &b) {
     double best = 0.0;
     for (std::size_t t = 0; t < a.size(); ++t)
         for (std::size_t c = 0; c < 3; ++c) {
@@ -60,8 +60,8 @@ double maxPositionDelta(const PaperFacets& a, const PaperFacets& b) {
     return best;
 }
 
-bool isIdentity(const PaperFacets& facets, double tolerance) {
-    for (const auto& facet : facets)
+bool isIdentity(const PaperFacets &facets, double tolerance) {
+    for (const auto &facet : facets)
         for (std::size_t c = 0; c < 3; ++c) {
             if (std::abs(facet.position[c].x - (facet.uv[c].x - 0.5)) > tolerance ||
                 std::abs(facet.position[c].y - (facet.uv[c].y - 0.5)) > tolerance || facet.shade[c] != 0.0)
@@ -88,7 +88,7 @@ void testOpenStartsAsHiddenBall() {
     CHECK(model.active());
     CHECK(model.opacity() == 0.0);
     const double radius = maxRadiusPx(facetsOf(model));
-    const double limit  = 0.25 * std::sqrt(SIZE.x * SIZE.y);
+    const double limit = 0.25 * std::sqrt(SIZE.x * SIZE.y);
     std::fprintf(stdout, "[measure] check 2: open start max radius %.3f px, limit %.3f px\n", radius, limit);
     CHECK(radius <= limit);
 }
@@ -125,7 +125,7 @@ void testContinuityWhenClosingDuringOpen() {
 
     open.begin(Transition::Close, closeParams(), 99);
     const PaperFacets after = facetsOf(open);
-    const double delta      = maxPositionDelta(before, after);
+    const double      delta = maxPositionDelta(before, after);
     std::fprintf(stdout, "[measure] check 4: open->close continuity max delta %.3e\n", delta);
     CHECK(delta <= 1e-9);
 }
@@ -140,7 +140,7 @@ void testDeterminismAndVariation() {
     CHECK(maxPositionDelta(facetsOf(a), facetsOf(b)) == 0.0);
 
     PaperParams flat = closeParams();
-    flat.variation   = 0.0;
+    flat.variation = 0.0;
     PaperCrumple s1, s2;
     s1.begin(Transition::Close, flat, 1);
     s2.begin(Transition::Close, flat, 2);
@@ -150,11 +150,11 @@ void testDeterminismAndVariation() {
 
     // With variation, windows differ: some seed among a handful must pick another take or mirroring.
     PaperParams varied = closeParams();
-    varied.variation   = 1.0;
+    varied.variation = 1.0;
     PaperCrumple v1;
     v1.begin(Transition::Close, varied, 1);
     advanceFor(v1, 0.2);
-    const PaperFacets first  = facetsOf(v1);
+    const PaperFacets first = facetsOf(v1);
     double            spread = 0.0;
     for (std::uint64_t seed = 2; seed <= 8; ++seed) {
         PaperCrumple other;
@@ -169,13 +169,13 @@ void testDeterminismAndVariation() {
 // 6. Shading.
 void testShading() {
     PaperParams unlit = closeParams();
-    unlit.shading     = 0.0;
+    unlit.shading = 0.0;
     PaperCrumple dark;
     dark.begin(Transition::Close, unlit, 5);
     advanceFor(dark, 0.25); // s ~ 0.5
     CHECK(!dark.shaded());
     bool allZero = true;
-    for (const auto& facet : facetsOf(dark))
+    for (const auto &facet : facetsOf(dark))
         for (const double s : facet.shade)
             allZero = allZero && s == 0.0;
     CHECK(allZero);
@@ -184,25 +184,25 @@ void testShading() {
     lit.begin(Transition::Close, closeParams(), 5); // shading 0.7
     advanceFor(lit, 0.25);
     bool anyNonZero = false, inRange = true;
-    for (const auto& facet : facetsOf(lit))
+    for (const auto &facet : facetsOf(lit))
         for (const double s : facet.shade) {
             anyNonZero = anyNonZero || s != 0.0;
-            inRange    = inRange && s >= -1.0 && s <= 1.0;
+            inRange = inRange && s >= -1.0 && s <= 1.0;
         }
     CHECK(anyNonZero);
     CHECK(inRange);
 
     PaperParams full = closeParams();
-    full.shading     = 1.0;
+    full.shading = 1.0;
     PaperCrumple fullLit;
     fullLit.begin(Transition::Close, full, 5);
     advanceFor(fullLit, 0.25);
     bool fullInRange = true;
-    bool fullAny     = false;
-    for (const auto& facet : facetsOf(fullLit))
+    bool fullAny = false;
+    for (const auto &facet : facetsOf(fullLit))
         for (const double s : facet.shade) {
             fullInRange = fullInRange && s >= -1.0 && s <= 1.0;
-            fullAny     = fullAny || s != 0.0;
+            fullAny = fullAny || s != 0.0;
         }
     CHECK(fullAny);
     CHECK(fullInRange);
@@ -211,10 +211,10 @@ void testShading() {
 // 7. Crumpliness: higher crumpliness gives a smaller ball.
 void testCrumplinessShrinksBall() {
     PaperParams loose;
-    loose.duration     = 1.0;
-    loose.crumpliness  = 0.0;
-    PaperParams tight  = loose;
-    tight.crumpliness  = 1.0;
+    loose.duration = 1.0;
+    loose.crumpliness = 0.0;
+    PaperParams tight = loose;
+    tight.crumpliness = 1.0;
 
     PaperCrumple a, b;
     a.begin(Transition::Close, loose, 11);
@@ -231,21 +231,21 @@ void testCrumplinessShrinksBall() {
 // 8. Invalid params leave the model inactive.
 void testInvalidParams() {
     PaperParams nanShading = openParams();
-    nanShading.shading     = std::numeric_limits<double>::quiet_NaN();
+    nanShading.shading = std::numeric_limits<double>::quiet_NaN();
     PaperCrumple a;
     a.begin(Transition::Open, nanShading, 1);
     CHECK(!a.active());
     CHECK(!a.closed());
 
     PaperParams zeroDuration = closeParams();
-    zeroDuration.duration    = 0.0;
+    zeroDuration.duration = 0.0;
     PaperCrumple b;
     b.begin(Transition::Close, zeroDuration, 1);
     CHECK(!b.active());
     CHECK(!b.closed());
 
     PaperParams nanDuration = closeParams();
-    nanDuration.duration    = std::numeric_limits<double>::quiet_NaN();
+    nanDuration.duration = std::numeric_limits<double>::quiet_NaN();
     PaperCrumple c;
     c.begin(Transition::Close, nanDuration, 1);
     CHECK(!c.active());
@@ -257,13 +257,13 @@ void testCloseStartsAtRestForAnyAspect() {
     for (const Vec2 size : {Vec2{1000.0, 700.0}, Vec2{600.0, 1000.0}, Vec2{3000.0, 800.0}, Vec2{900.0, 900.0}}) {
         for (std::uint64_t seed : {1ULL, 2ULL, 3ULL, 4ULL}) {
             PaperParams params = closeParams();
-            params.variation   = 1.0; // exercise mirroring and every take
+            params.variation = 1.0; // exercise mirroring and every take
             PaperCrumple model;
             model.begin(Transition::Close, params, seed);
             model.advance(1e-4);
             const PaperFacets facets = facetsOf(model, size);
-            double            worst  = 0.0;
-            for (const auto& facet : facets)
+            double            worst = 0.0;
+            for (const auto &facet : facets)
                 for (std::size_t c = 0; c < 3; ++c)
                     worst = std::max({worst, std::abs(facet.position[c].x - (facet.uv[c].x - 0.5)) * size.x,
                                       std::abs(facet.position[c].y - (facet.uv[c].y - 0.5)) * size.y});

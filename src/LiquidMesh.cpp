@@ -19,9 +19,9 @@ constexpr unsigned kCells = 8; // cells per lattice side
 constexpr double kSubstepSeconds = 1.0 / 240.0;
 // Tolerates floating-point drift so frame cadences that land exactly on a substep boundary
 // (for example 144 Hz frames summed to 0.5 s) take that substep rather than deferring it.
-constexpr double kAccumulatorTolerance = kSubstepSeconds * 1e-9;
-constexpr double kMaxFrameSeconds = 0.05;
-constexpr double kGapResetSeconds = 0.25;
+constexpr double   kAccumulatorTolerance = kSubstepSeconds * 1e-9;
+constexpr double   kMaxFrameSeconds = 0.05;
+constexpr double   kGapResetSeconds = 0.25;
 constexpr unsigned kMaxSubstepsPerAdvance = 12;
 
 // Wiggle mode (unchanged).
@@ -71,27 +71,27 @@ constexpr double kLiquidMaxSpeedScale = 10.0;
 constexpr double kLiquidGripStartQ = 0.25;
 
 // Per-motion variation spreads at variation 1; each factor takes an independent uniform draw r in [-1, 1].
-constexpr double kVaryOmegaOctaves = 0.4;  // body frequency x 2^(0.4 r): -24% to +32%
-constexpr double kVaryDamping = 0.35;      // underdamped ratio x (1 + 0.35 r), never above critical
-constexpr double kVaryLag = 0.3;           // lag x (1 + 0.3 r)
-constexpr double kVaryBowDepth = 0.3;      // bow depth 0.5 + 0.3 r
-constexpr double kVaryTaper = 0.6;         // taper x (1 + 0.6 r)
-constexpr double kVarySkew = 0.5;          // bow centre offset across the motion, in s units
-constexpr double kVaryLean = 0.25;         // sideways tail shear as a share of the lag
-constexpr double kVaryKick = 0.4;          // stop kick x (1 + 0.4 r)
+constexpr double kVaryOmegaOctaves = 0.4;     // body frequency x 2^(0.4 r): -24% to +32%
+constexpr double kVaryDamping = 0.35;         // underdamped ratio x (1 + 0.35 r), never above critical
+constexpr double kVaryLag = 0.3;              // lag x (1 + 0.3 r)
+constexpr double kVaryBowDepth = 0.3;         // bow depth 0.5 + 0.3 r
+constexpr double kVaryTaper = 0.6;            // taper x (1 + 0.6 r)
+constexpr double kVarySkew = 0.5;             // bow centre offset across the motion, in s units
+constexpr double kVaryLean = 0.25;            // sideways tail shear as a share of the lag
+constexpr double kVaryKick = 0.4;             // stop kick x (1 + 0.4 r)
 constexpr double kVaryVelocitySeconds = 0.35; // velocity filter x (1 + 0.35 r): response latency 39-81 ms
 constexpr double kMinDampingRatio = 0.1;
 
 constexpr double kMaxDisplacementLimit = 120.0;
 constexpr double kMaxDisplacementFraction = 0.2;
 // Wiggle keeps its original hard bound: min(96 px, 12% of the shorter side).
-constexpr double kWiggleMaxDisplacementLimit = 96.0;
-constexpr double kWiggleMaxDisplacementFraction = 0.12;
-constexpr double kMinAreaRatio = 0.2;
+constexpr double   kWiggleMaxDisplacementLimit = 96.0;
+constexpr double   kWiggleMaxDisplacementFraction = 0.12;
+constexpr double   kMinAreaRatio = 0.2;
 constexpr unsigned kMaxHalvings = 8;
 
-constexpr double kQuietDisplacement = 0.15;
-constexpr double kQuietVelocity = 2.0;
+constexpr double   kQuietDisplacement = 0.15;
+constexpr double   kQuietVelocity = 2.0;
 constexpr unsigned kQuietSubsteps = 3;
 
 struct GridPoint {
@@ -99,23 +99,15 @@ struct GridPoint {
     unsigned y;
 };
 
-constexpr std::size_t gridIndex(unsigned x, unsigned y) noexcept {
-    return static_cast<std::size_t>(y) * kSide + x;
-}
+constexpr std::size_t gridIndex(unsigned x, unsigned y) noexcept { return static_cast<std::size_t>(y) * kSide + x; }
 
-bool isFinite(Vec2 v) noexcept {
-    return std::isfinite(v.x) && std::isfinite(v.y);
-}
+bool isFinite(Vec2 v) noexcept { return std::isfinite(v.x) && std::isfinite(v.y); }
 
-bool isValidSize(Vec2 size) noexcept {
-    return isFinite(size) && size.x > 0.0 && size.y > 0.0;
-}
+bool isValidSize(Vec2 size) noexcept { return isFinite(size) && size.x > 0.0 && size.y > 0.0; }
 
 // Finite parameters are clamped to [0, 1]. Nonfinite input is kept so Liquid can reject it before
 // integration, rather than being replaced by a fabricated default.
-double normalizeParam(double value) noexcept {
-    return std::isfinite(value) ? std::clamp(value, 0.0, 1.0) : value;
-}
+double normalizeParam(double value) noexcept { return std::isfinite(value) ? std::clamp(value, 0.0, 1.0) : value; }
 
 MaterialParams normalizeParams(MaterialParams p) noexcept {
     p.viscosity = normalizeParam(p.viscosity);
@@ -125,7 +117,7 @@ MaterialParams normalizeParams(MaterialParams p) noexcept {
     return p;
 }
 
-bool hasFiniteParams(const MaterialParams& p) noexcept {
+bool hasFiniteParams(const MaterialParams &p) noexcept {
     return std::isfinite(p.viscosity) && std::isfinite(p.elasticity) && std::isfinite(p.momentum) &&
            std::isfinite(p.variation);
 }
@@ -146,7 +138,7 @@ double displacementLimit(Vec2 size) noexcept {
 // Above the knee the magnitude follows a tanh that is C1 at the knee and approaches limit.
 // The outward component of velocity is scaled by sech^2 of the tanh, the derivative of the map
 // above the knee, so saturation does not inject energy. Below the knee nothing changes.
-void softSaturate(Vec2& d, Vec2& v, double magnitude, double limit) noexcept {
+void softSaturate(Vec2 &d, Vec2 &v, double magnitude, double limit) noexcept {
     const double knee = 0.75 * limit;
     if (magnitude <= knee)
         return;
@@ -162,21 +154,17 @@ void softSaturate(Vec2& d, Vec2& v, double magnitude, double limit) noexcept {
     d = {nx * mapped, ny * mapped};
 }
 
-bool isZero(const Field& field) noexcept {
-    for (const Vec2& p : field) {
+bool isZero(const Field &field) noexcept {
+    for (const Vec2 &p : field) {
         if (p.x != 0.0 || p.y != 0.0)
             return false;
     }
     return true;
 }
 
-bool isZero(Vec2 v) noexcept {
-    return v.x == 0.0 && v.y == 0.0;
-}
+bool isZero(Vec2 v) noexcept { return v.x == 0.0 && v.y == 0.0; }
 
-Vec2 restPosition(GridPoint p, Vec2 size) noexcept {
-    return {size.x * p.x / kCells, size.y * p.y / kCells};
-}
+Vec2 restPosition(GridPoint p, Vec2 size) noexcept { return {size.x * p.x / kCells, size.y * p.y / kCells}; }
 
 double signedArea(Vec2 a, Vec2 b, Vec2 c) noexcept {
     return 0.5 * ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
@@ -189,12 +177,12 @@ std::array<GridPoint, 3> triangleCorners(unsigned cx, unsigned cy, unsigned whic
     return {GridPoint{cx + 1, cy}, GridPoint{cx, cy + 1}, GridPoint{cx + 1, cy + 1}};
 }
 
-bool isQuiet(const Field& displacements, const Field& velocities) noexcept {
+bool isQuiet(const Field &displacements, const Field &velocities) noexcept {
     constexpr double maxDisplacement2 = kQuietDisplacement * kQuietDisplacement;
     constexpr double maxVelocity2 = kQuietVelocity * kQuietVelocity;
     for (std::size_t i = 0; i < displacements.size(); ++i) {
-        const Vec2& d = displacements[i];
-        const Vec2& v = velocities[i];
+        const Vec2 &d = displacements[i];
+        const Vec2 &v = velocities[i];
         if (d.x * d.x + d.y * d.y >= maxDisplacement2 || v.x * v.x + v.y * v.y >= maxVelocity2)
             return false;
     }
@@ -203,13 +191,13 @@ bool isQuiet(const Field& displacements, const Field& velocities) noexcept {
 
 // Compute every acceleration from the same old field before updating any node.
 // A single scratch array avoids copying/swapping complete state arrays each substep.
-void integrateWiggleSubstep(Field& d, Field& v, Field& accelerations) noexcept {
+void integrateWiggleSubstep(Field &d, Field &v, Field &accelerations) noexcept {
     for (unsigned y = 0; y < kSide; ++y) {
         for (unsigned x = 0; x < kSide; ++x) {
-            double sumDx = 0.0;
-            double sumDy = 0.0;
-            double sumVx = 0.0;
-            double sumVy = 0.0;
+            double   sumDx = 0.0;
+            double   sumDy = 0.0;
+            double   sumVx = 0.0;
+            double   sumVy = 0.0;
             unsigned count = 0;
             for (int oy = -1; oy <= 1; ++oy) {
                 for (int ox = -1; ox <= 1; ++ox) {
@@ -235,12 +223,10 @@ void integrateWiggleSubstep(Field& d, Field& v, Field& accelerations) noexcept {
             const double meanVy = sumVy * inverse;
 
             const std::size_t i = gridIndex(x, y);
-            const double accelX = -kAnchorStiffness * d[i].x - kAnchorDamping * v[i].x +
-                                  kNeighborStiffness * (meanDx - d[i].x) +
-                                  kNeighborDamping * (meanVx - v[i].x);
-            const double accelY = -kAnchorStiffness * d[i].y - kAnchorDamping * v[i].y +
-                                  kNeighborStiffness * (meanDy - d[i].y) +
-                                  kNeighborDamping * (meanVy - v[i].y);
+            const double      accelX = -kAnchorStiffness * d[i].x - kAnchorDamping * v[i].x +
+                                       kNeighborStiffness * (meanDx - d[i].x) + kNeighborDamping * (meanVx - v[i].x);
+            const double      accelY = -kAnchorStiffness * d[i].y - kAnchorDamping * v[i].y +
+                                       kNeighborStiffness * (meanDy - d[i].y) + kNeighborDamping * (meanVy - v[i].y);
 
             accelerations[i] = {accelX, accelY};
         }
@@ -262,8 +248,7 @@ double headGrip(double q) noexcept {
 
 // Derivative along one lattice line: central inside, one-sided at the two free edges.
 // `sample(k)` returns the scalar at position k along the line; `h` is the lattice spacing.
-template <typename Sample>
-double lineSlope(Sample sample, unsigned k, double h) noexcept {
+template <typename Sample> double lineSlope(Sample sample, unsigned k, double h) noexcept {
     if (k == 0)
         return (sample(1) - sample(0)) / h;
     if (k == kSide - 1)
@@ -273,15 +258,14 @@ double lineSlope(Sample sample, unsigned k, double h) noexcept {
 
 // Second difference along one lattice line with mirror ghosts at the free edges.
 // The ghost takes the interior neighbour's value, so the edge node feels no outward pull.
-template <typename Sample>
-double lineLaplacian(Sample sample, unsigned k) noexcept {
+template <typename Sample> double lineLaplacian(Sample sample, unsigned k) noexcept {
     const double left = (k == 0) ? sample(1) : sample(k - 1);
     const double right = (k == kSide - 1) ? sample(kSide - 2) : sample(k + 1);
     return left + right - 2.0 * sample(k);
 }
 
 // Anisotropic index-space Laplacian of one Vec2 component. wx and wy scale each axis.
-double shearLaplacian(const Field& f, double Vec2::*comp, unsigned x, unsigned y, double wx, double wy) noexcept {
+double shearLaplacian(const Field &f, double Vec2::*comp, unsigned x, unsigned y, double wx, double wy) noexcept {
     const double lx = lineLaplacian([&](unsigned k) { return f[gridIndex(k, y)].*comp; }, x);
     const double ly = lineLaplacian([&](unsigned k) { return f[gridIndex(x, k)].*comp; }, y);
     return wx * lx + wy * ly;
@@ -310,11 +294,11 @@ void LiquidMesh::rollCharacter() noexcept {
     const double amount = std::isfinite(m_params.variation) ? m_params.variation : 0.0;
     // Always draw every factor, so the stream position never depends on the variation amount.
     std::array<double, 9> r{};
-    for (double& value : r)
+    for (double &value : r)
         value = amount * drawUnit();
 
     const double omega = kLiquidBaseOmega * std::exp2(m_params.elasticity - 0.5 + kVaryOmegaOctaves * r[0]);
-    double zeta = dampingRatio(m_params.momentum);
+    double       zeta = dampingRatio(m_params.momentum);
     if (zeta < 1.0)
         zeta = std::clamp(zeta * (1.0 + kVaryDamping * r[1]), kMinDampingRatio, 1.0);
     m_bodyStiffness = omega * omega;
@@ -373,7 +357,7 @@ void LiquidMesh::recordTranslation(Vec2 delta, Vec2 size, double strength) noexc
                 const double u = static_cast<double>(x) / kCells;
                 const double v = static_cast<double>(y) / kCells;
                 // q is -1 at the trailing edge and +1 at the leading edge.
-                const double q = ((u - 0.5) * ex + (v - 0.5) * ey) / normalizer;
+                const double      q = ((u - 0.5) * ex + (v - 0.5) * ey) / normalizer;
                 const std::size_t i = gridIndex(x, y);
                 if (m_mode == MotionMode::Wiggle) {
                     const double bowFactor =
@@ -409,11 +393,11 @@ void LiquidMesh::recordTranslation(Vec2 delta, Vec2 size, double strength) noexc
 // When motion stops the lag field returns to zero, so the trailing mass surges forward and rings down.
 // Divergence and every acceleration read only old state, so the update is simultaneous.
 void LiquidMesh::integrateLiquidSubstep(Vec2 size) noexcept {
-    Field& d = m_displacements;
-    Field& v = m_velocities;
-    Field& a = m_accelerations;
-    const Field& e = d;
-    Scalars& div = m_divergence;
+    Field       &d = m_displacements;
+    Field       &v = m_velocities;
+    Field       &a = m_accelerations;
+    const Field &e = d;
+    Scalars     &div = m_divergence;
 
     const Vec2 spacing{size.x / kCells, size.y / kCells};
     // Scale each axis's shear so the tighter axis keeps the index-space stiffness and
@@ -434,9 +418,8 @@ void LiquidMesh::integrateLiquidSubstep(Vec2 size) noexcept {
 
     // Lag magnitude in px: quadratic in speed for slow drags, about linear for fast ones.
     const double speed = std::hypot(m_windowVelocity.x, m_windowVelocity.y);
-    const double lag = speed > 0.0
-                           ? kLiquidLagSeconds * m_lagGain * m_strength * speed * speed / (speed + kLiquidLagSpeed)
-                           : 0.0;
+    const double lag =
+        speed > 0.0 ? kLiquidLagSeconds * m_lagGain * m_strength * speed * speed / (speed + kLiquidLagSpeed) : 0.0;
     // With no motion the lag is zero, so the direction is unused and any unit vector serves.
     const double dirX = speed > 0.0 ? m_windowVelocity.x / speed : 1.0;
     const double dirY = speed > 0.0 ? m_windowVelocity.y / speed : 0.0;
@@ -481,7 +464,7 @@ void LiquidMesh::integrateLiquidSubstep(Vec2 size) noexcept {
             const double offset = (s - m_skew) * skewScale;
             const double bow = t2 * (1.0 - m_bowDepth * offset * offset);
             const double taper = lag * t2 * (m_taperRatio * s + m_lean);
-            const Vec2 lagField{-(lag * bow * dirX + taper * perpX), -(lag * bow * dirY + taper * perpY)};
+            const Vec2   lagField{-(lag * bow * dirX + taper * perpX), -(lag * bow * dirY + taper * perpY)};
 
             const double gradX = lineSlope([&](unsigned k) { return div[gridIndex(k, y)]; }, x, spacing.x);
             const double gradY = lineSlope([&](unsigned k) { return div[gridIndex(x, k)]; }, y, spacing.y);
@@ -543,7 +526,7 @@ bool LiquidMesh::advance(double elapsedSeconds, Vec2 size) noexcept {
             return false;
         }
         // Raw deceleration along the previous slow motion; zero on acceleration or steady drag.
-        Vec2 rawDecel{};
+        Vec2         rawDecel{};
         const double previousSlowSpeed = std::hypot(m_slowVelocity.x, m_slowVelocity.y);
         if (previousSlowSpeed > 0.0) {
             const double dirX = m_slowVelocity.x / previousSlowSpeed;
@@ -621,9 +604,9 @@ Vec2 LiquidMesh::sampleDisplacement(double u, double v) const noexcept {
 
     const double x = std::clamp(u, 0.0, 1.0) * kCells;
     const double y = std::clamp(v, 0.0, 1.0) * kCells;
-    const int cells = static_cast<int>(kCells);
-    const int ix = std::min(static_cast<int>(std::floor(x)), cells - 1);
-    const int iy = std::min(static_cast<int>(std::floor(y)), cells - 1);
+    const int    cells = static_cast<int>(kCells);
+    const int    ix = std::min(static_cast<int>(std::floor(x)), cells - 1);
+    const int    iy = std::min(static_cast<int>(std::floor(y)), cells - 1);
     const double tx = x - ix;
     const double ty = y - iy;
 
@@ -637,7 +620,7 @@ Vec2 LiquidMesh::sampleDisplacement(double u, double v) const noexcept {
     // Interpolate along x for the four rows around the sample, then along y.
     std::array<Vec2, 4> column{};
     for (int k = 0; k < 4; ++k) {
-        const int j = iy - 1 + k;
+        const int  j = iy - 1 + k;
         const Vec2 p0 = node(ix - 1, j);
         const Vec2 p1 = node(ix, j);
         const Vec2 p2 = node(ix + 1, j);
@@ -656,12 +639,13 @@ bool LiquidMesh::constrain(Vec2 size) noexcept {
         }
     }
 
-    const double limit = m_mode == MotionMode::Liquid
-        ? displacementLimit(size)
-        : std::min(kWiggleMaxDisplacementLimit, kWiggleMaxDisplacementFraction * std::min(size.x, size.y));
+    const double limit =
+        m_mode == MotionMode::Liquid
+            ? displacementLimit(size)
+            : std::min(kWiggleMaxDisplacementLimit, kWiggleMaxDisplacementFraction * std::min(size.x, size.y));
     for (std::size_t i = 0; i < m_displacements.size(); ++i) {
-        Vec2& d = m_displacements[i];
-        Vec2& v = m_velocities[i];
+        Vec2        &d = m_displacements[i];
+        Vec2        &v = m_velocities[i];
         const double magnitude = std::hypot(d.x, d.y);
 
         if (m_mode == MotionMode::Liquid) {
@@ -705,7 +689,7 @@ bool LiquidMesh::validTriangles(Vec2 size) const noexcept {
     for (unsigned cy = 0; cy < kCells; ++cy) {
         for (unsigned cx = 0; cx < kCells; ++cx) {
             for (unsigned which = 0; which < 2; ++which) {
-                const auto corners = triangleCorners(cx, cy, which);
+                const auto          corners = triangleCorners(cx, cy, which);
                 std::array<Vec2, 3> rest{};
                 std::array<Vec2, 3> deformed{};
                 for (std::size_t k = 0; k < 3; ++k) {

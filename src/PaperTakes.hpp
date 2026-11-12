@@ -11,6 +11,6 @@ int    paperTakeCount() noexcept;
 int    paperTakeFrames() noexcept;
 double paperTakeAspect(int take) noexcept;
 // Position of `vertex` (index j * (PAPER_CELLS + 1) + i) at `frame` of `take`; arguments must be in range.
-void   paperTakeVertex(int take, int frame, std::size_t vertex, double out[3]) noexcept;
+void paperTakeVertex(int take, int frame, std::size_t vertex, double out[3]) noexcept;
 
 } // namespace liquid_glass

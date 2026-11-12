@@ -162,3 +162,14 @@ Hyprland 0.57 normalizes hyphens to underscores in Lua config names: use `liquid
 The first window on a workspace opens from `first_window_side`. Later tiled windows normally open from the screen edge on the side where they appear; floating windows and windows without a clear neighboring window use the nearest valid edge. Set `edge_bounds` to `"work_area"` to use edges inside reserved areas instead of the screen edges.
 
 For closing windows, `side = "auto"` chooses the side of appearance, `"nearest"` uses the nearest valid edge, and `"origin"` uses the opening edge when available.
+
+## Development
+
+Format the C++ sources with `clang-format`:
+
+```sh
+cmake -S . -B build
+cmake --build build --target format
+```
+
+Check formatting without changing files with `cmake --build build --target format-check`.

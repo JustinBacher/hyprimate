@@ -8,14 +8,14 @@
 class CSolidFill {
   public:
     // Refreshed from config before every frame; cheap when unchanged.
-    void                    setColor(const CHyprColor& color) noexcept { m_color = color; }
-    const CHyprColor&       color() const noexcept { return m_color; }
+    void              setColor(const CHyprColor &color) noexcept { m_color = color; }
+    const CHyprColor &color() const noexcept { return m_color; }
 
     // nullptr when alpha is 0: no liquid to draw.
-    SP<Render::ITexture>    texture();
+    SP<Render::ITexture> texture();
 
   private:
-    CHyprColor              m_color{0.F, 0.F, 0.F, 1.F};
-    CHyprColor              m_built{0.F, 0.F, 0.F, 0.F}; // colour of m_texture
-    SP<Render::ITexture>    m_texture;
+    CHyprColor           m_color{0.F, 0.F, 0.F, 1.F};
+    CHyprColor           m_built{0.F, 0.F, 0.F, 0.F}; // colour of m_texture
+    SP<Render::ITexture> m_texture;
 };

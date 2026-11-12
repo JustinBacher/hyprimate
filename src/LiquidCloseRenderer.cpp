@@ -22,30 +22,33 @@ using liquid_glass::Transition;
 using liquid_glass::Vec2;
 
 // Symbols are selected by these exact demangled signatures, verified against the installed headers.
-constexpr const char* CREATE_SIGNATURE =
+constexpr const char *CREATE_SIGNATURE =
     "Desktop::CWindowFadeout::create(Hyprutils::Memory::CSharedPointer<Desktop::View::CWindow>, "
-    "Hyprutils::Memory::CSharedPointer<Render::IFramebuffer>, float, Hyprutils::Memory::CSharedPointer<Render::IFramebuffer>)";
-constexpr const char* RENDER_SIGNATURE =
-    "Render::IHyprRenderer::renderFadeouts(Render::CRenderContext&, Hyprutils::Memory::CSharedPointer<Monitor::CMonitor>, "
+    "Hyprutils::Memory::CSharedPointer<Render::IFramebuffer>, float, "
+    "Hyprutils::Memory::CSharedPointer<Render::IFramebuffer>)";
+constexpr const char *RENDER_SIGNATURE =
+    "Render::IHyprRenderer::renderFadeouts(Render::CRenderContext&, "
+    "Hyprutils::Memory::CSharedPointer<Monitor::CMonitor>, "
     "Desktop::eFadeoutPlane, Hyprutils::Memory::CSharedPointer<Workspace::CHLWorkspace>, Render::eSceneMode)";
 
 // findFunctionsByName substring-matches MANGLED symbol names; the exact demangled signature then selects one.
-constexpr const char* CREATE_NAME               = "CWindowFadeout6create";
-constexpr const char* RENDER_NAME               = "renderFadeouts";
-constexpr double      MAX_GAP_SECONDS           = 0.25;
-constexpr double      PENDING_TIMEOUT_SECONDS   = 1.0;
+constexpr const char *CREATE_NAME = "CWindowFadeout6create";
+constexpr const char *RENDER_NAME = "renderFadeouts";
+constexpr double      MAX_GAP_SECONDS = 0.25;
+constexpr double      PENDING_TIMEOUT_SECONDS = 1.0;
 // Logical padding around the deformed extents so the sampled mesh never clips at the snapshot edge.
-constexpr double      EXTENTS_PADDING           = 16.0;
-constexpr size_t      BATCH_CAPACITY            = 16;
+constexpr double EXTENTS_PADDING = 16.0;
+constexpr size_t BATCH_CAPACITY = 16;
 
 using CreateFn = SP<Desktop::CWindowFadeout> (*)(PHLWINDOW, SP<Render::IFramebuffer>, float, SP<Render::IFramebuffer>);
-using RenderFn = void (*)(Render::IHyprRenderer*, Render::CRenderContext&, PHLMONITOR, Desktop::eFadeoutPlane, PHLWORKSPACE, Render::eSceneMode);
+using RenderFn = void (*)(Render::IHyprRenderer *, Render::CRenderContext &, PHLMONITOR, Desktop::eFadeoutPlane,
+                          PHLWORKSPACE, Render::eSceneMode);
 
 // Returns the address of the single symbol whose demangled signature matches exactly, or nullptr otherwise.
-void* exactSymbol(const std::vector<SFunctionMatch>& matches, const char* signature) {
-    void* found = nullptr;
+void *exactSymbol(const std::vector<SFunctionMatch> &matches, const char *signature) {
+    void *found = nullptr;
     int   count = 0;
-    for (const auto& match : matches) {
+    for (const auto &match : matches) {
         if (match.demangled == signature) {
             found = match.address;
             ++count;
@@ -55,15 +58,16 @@ void* exactSymbol(const std::vector<SFunctionMatch>& matches, const char* signat
 }
 
 // Maps snapshot-space texels into the output: F(p) = B.pos + p * B.size / T.
-CBox projectToOutput(const CBox& extentsDevice, const CBox& renderBox, const Vector2D& snapshotSize) {
+CBox projectToOutput(const CBox &extentsDevice, const CBox &renderBox, const Vector2D &snapshotSize) {
     const double kx = renderBox.w / snapshotSize.x;
     const double ky = renderBox.h / snapshotSize.y;
-    return CBox{renderBox.x + extentsDevice.x * kx, renderBox.y + extentsDevice.y * ky, extentsDevice.w * kx, extentsDevice.h * ky};
+    return CBox{renderBox.x + extentsDevice.x * kx, renderBox.y + extentsDevice.y * ky, extentsDevice.w * kx,
+                extentsDevice.h * ky};
 }
 
 // Owned placement: the snapshot at unit scale (device px), with the window's centre riding the native fadeout's
 // centre. Dividing out the native box's current scale cancels popout scale whatever it already is at this moment.
-CBox ownedRenderBox(const CBox& sourceDevice, const CBox& nativeBox, const Vector2D& snapshotSize) {
+CBox ownedRenderBox(const CBox &sourceDevice, const CBox &nativeBox, const Vector2D &snapshotSize) {
     const double kx = nativeBox.w / snapshotSize.x;
     const double ky = nativeBox.h / snapshotSize.y;
     const double mx = sourceDevice.x + sourceDevice.w * 0.5;
@@ -75,30 +79,27 @@ CBox ownedRenderBox(const CBox& sourceDevice, const CBox& nativeBox, const Vecto
 
 // A bound record matches only its captured workspace (an expired one matches nothing); an unbound record matches
 // any workspace, as the native fadeout does.
-bool recordOnWorkspace(const CLiquidCloseRenderer::SClosing& record, const PHLWORKSPACE& workspace) {
+bool recordOnWorkspace(const CLiquidCloseRenderer::SClosing &record, const PHLWORKSPACE &workspace) {
     if (!record.workspaceBound)
         return true;
     const auto captured = record.workspace.lock();
     return captured && captured == workspace;
 }
 
-bool sameMonitor(const PHLMONITORREF& ref, const PHLMONITOR& monitor) {
-    return ref.lock().get() == monitor.get();
-}
+bool sameMonitor(const PHLMONITORREF &ref, const PHLMONITOR &monitor) { return ref.lock().get() == monitor.get(); }
 
-CLiquidCloseRenderer* activeRenderer() {
-    return CLiquidCloseRenderer::s_active;
-}
+CLiquidCloseRenderer *activeRenderer() { return CLiquidCloseRenderer::s_active; }
 
-SP<Desktop::CWindowFadeout> hookCreate(PHLWINDOW window, SP<Render::IFramebuffer> snapshot, float sourceAlpha, SP<Render::IFramebuffer> workspaceSnapshot) {
-    auto* original = reinterpret_cast<CreateFn>(activeRenderer() ? activeRenderer()->createOriginal() : nullptr);
+SP<Desktop::CWindowFadeout> hookCreate(PHLWINDOW window, SP<Render::IFramebuffer> snapshot, float sourceAlpha,
+                                       SP<Render::IFramebuffer> workspaceSnapshot) {
+    auto *original = reinterpret_cast<CreateFn>(activeRenderer() ? activeRenderer()->createOriginal() : nullptr);
     if (!original)
         return nullptr;
 
     // Never move from hooked by-value parameters: disassembly of the pinned host shows callers keep the
     // argument's control-block pointer in a register and release it after the call, ignoring a moved-from slot.
     auto created = original(window, snapshot, sourceAlpha, workspaceSnapshot);
-    if (auto* self = activeRenderer()) {
+    if (auto *self = activeRenderer()) {
         try {
             self->onFadeoutCreated(window, created);
         } catch (...) {
@@ -108,9 +109,9 @@ SP<Desktop::CWindowFadeout> hookCreate(PHLWINDOW window, SP<Render::IFramebuffer
     return created;
 }
 
-void hookRender(Render::IHyprRenderer* self, Render::CRenderContext& ctx, PHLMONITOR monitor, Desktop::eFadeoutPlane plane, PHLWORKSPACE workspace,
-                Render::eSceneMode mode) {
-    auto* active = activeRenderer();
+void hookRender(Render::IHyprRenderer *self, Render::CRenderContext &ctx, PHLMONITOR monitor,
+                Desktop::eFadeoutPlane plane, PHLWORKSPACE workspace, Render::eSceneMode mode) {
+    auto *active = activeRenderer();
     if (active && mode == Render::eSceneMode::MONITOR && active->hasRecordFor(monitor, plane, workspace)) {
         bool submitted = false;
         try {
@@ -124,41 +125,41 @@ void hookRender(Render::IHyprRenderer* self, Render::CRenderContext& ctx, PHLMON
         // Not handled (batch larger than the preallocated scratch): nothing was submitted, draw natively.
     }
 
-    auto* original = reinterpret_cast<RenderFn>(active ? active->renderOriginal() : nullptr);
+    auto *original = reinterpret_cast<RenderFn>(active ? active->renderOriginal() : nullptr);
     if (original)
         original(self, ctx, monitor, plane, workspace, mode);
 }
 
 // A closing record is finished once the close that drives it has run its course: paper or liquid, whichever it uses.
-bool finished(const CLiquidCloseRenderer::SClosing& record) {
+bool finished(const CLiquidCloseRenderer::SClosing &record) {
     return record.paper ? record.paperState.closed() : record.transition.closed();
 }
 
 } // namespace
 
-CLiquidCloseRenderer* CLiquidCloseRenderer::s_active = nullptr;
+CLiquidCloseRenderer *CLiquidCloseRenderer::s_active = nullptr;
 
-CLiquidCloseRenderer::CLiquidCloseRenderer(HANDLE handle, SP<CSolidFill> solid, SP<CPaperShade> shade) :
-    m_handle(handle), m_solid(std::move(solid)), m_shade(std::move(shade)) {}
+CLiquidCloseRenderer::CLiquidCloseRenderer(HANDLE handle, SP<CSolidFill> solid, SP<CPaperShade> shade)
+    : m_handle(handle), m_solid(std::move(solid)), m_shade(std::move(shade)) {}
 
-CLiquidCloseRenderer::~CLiquidCloseRenderer() {
-    shutdown();
-}
+CLiquidCloseRenderer::~CLiquidCloseRenderer() { shutdown(); }
 
-bool CLiquidCloseRenderer::install(std::string& error) {
+bool CLiquidCloseRenderer::install(std::string &error) {
     shutdown();
 
-    void* createAddress = exactSymbol(HyprlandAPI::findFunctionsByName(m_handle, CREATE_NAME), CREATE_SIGNATURE);
-    void* renderAddress = exactSymbol(HyprlandAPI::findFunctionsByName(m_handle, RENDER_NAME), RENDER_SIGNATURE);
+    void *createAddress = exactSymbol(HyprlandAPI::findFunctionsByName(m_handle, CREATE_NAME), CREATE_SIGNATURE);
+    void *renderAddress = exactSymbol(HyprlandAPI::findFunctionsByName(m_handle, RENDER_NAME), RENDER_SIGNATURE);
     if (!createAddress || !renderAddress) {
         error = "close symbols not found by exact signature";
         return false;
     }
 
     m_batch.reserve(BATCH_CAPACITY);
-    s_active     = this;
-    m_createHook = HyprlandAPI::createFunctionHook(m_handle, createAddress, reinterpret_cast<const void*>(&hookCreate));
-    m_renderHook = HyprlandAPI::createFunctionHook(m_handle, renderAddress, reinterpret_cast<const void*>(&hookRender));
+    s_active = this;
+    m_createHook =
+        HyprlandAPI::createFunctionHook(m_handle, createAddress, reinterpret_cast<const void *>(&hookCreate));
+    m_renderHook =
+        HyprlandAPI::createFunctionHook(m_handle, renderAddress, reinterpret_cast<const void *>(&hookRender));
     if (!m_createHook || !m_renderHook || !m_createHook->hook()) {
         shutdown();
         error = "failed to hook CWindowFadeout::create";
@@ -191,11 +192,13 @@ void CLiquidCloseRenderer::clear() {
     // a frame) before the records go, so that frame is cleared. Native fadeouts continue on their own.
     if (g_pHyprRenderer) {
         std::vector<PHLMONITORREF> damaged;
-        for (const auto& record : m_records) {
+        for (const auto &record : m_records) {
             const auto monitor = record->monitor.lock();
             if (!record->owned || !monitor)
                 continue;
-            if (std::ranges::find_if(damaged, [&monitor](const PHLMONITORREF& ref) { return ref.lock().get() == monitor.get(); }) != damaged.end())
+            if (std::ranges::find_if(damaged, [&monitor](const PHLMONITORREF &ref) {
+                    return ref.lock().get() == monitor.get();
+                }) != damaged.end())
                 continue;
             damaged.push_back(PHLMONITORREF{monitor});
             g_pHyprRenderer->damageMonitor(monitor);
@@ -205,8 +208,9 @@ void CLiquidCloseRenderer::clear() {
     m_records.clear();
 }
 
-void CLiquidCloseRenderer::stage(const PHLWINDOW& window, const SLiquidPose& pose, double strength, std::optional<liquid_glass::EdgeFrame> closeFrame,
-                                 double drive, bool closeSplash, const liquid_glass::MaterialParams& transition) {
+void CLiquidCloseRenderer::stage(const PHLWINDOW &window, const SLiquidPose &pose, double strength,
+                                 std::optional<liquid_glass::EdgeFrame> closeFrame, double drive, bool closeSplash,
+                                 const liquid_glass::MaterialParams &transition) {
     if (!std::isfinite(strength) || strength <= 0.0)
         return;
 
@@ -214,31 +218,31 @@ void CLiquidCloseRenderer::stage(const PHLWINDOW& window, const SLiquidPose& pos
     if (!pending)
         return;
 
-    pending->mesh         = pose.mesh;
-    pending->transition   = pose.transition;
+    pending->mesh = pose.mesh;
+    pending->transition = pose.transition;
     pending->compensation = pose.compensation;
-    pending->strength     = strength;
-    pending->drive        = drive;
-    pending->closeFrame   = closeFrame;
-    pending->closeSplash  = closeSplash;
-    pending->closeParams  = transition;
+    pending->strength = strength;
+    pending->drive = drive;
+    pending->closeFrame = closeFrame;
+    pending->closeSplash = closeSplash;
+    pending->closeParams = transition;
     push(std::move(*pending));
 }
 
-void CLiquidCloseRenderer::stagePaper(const PHLWINDOW& window, const liquid_glass::PaperCrumple& from, const liquid_glass::PaperParams& params,
-                                      std::uint64_t seed) {
+void CLiquidCloseRenderer::stagePaper(const PHLWINDOW &window, const liquid_glass::PaperCrumple &from,
+                                      const liquid_glass::PaperParams &params, std::uint64_t seed) {
     auto pending = pendingFor(window);
     if (!pending)
         return;
 
-    pending->paper       = true;
-    pending->paperState  = from;
+    pending->paper = true;
+    pending->paperState = from;
     pending->paperParams = params;
-    pending->paperSeed   = seed;
+    pending->paperSeed = seed;
     push(std::move(*pending));
 }
 
-std::optional<CLiquidCloseRenderer::SPending> CLiquidCloseRenderer::pendingFor(const PHLWINDOW& window) const {
+std::optional<CLiquidCloseRenderer::SPending> CLiquidCloseRenderer::pendingFor(const PHLWINDOW &window) const {
     if (!window)
         return std::nullopt;
 
@@ -255,27 +259,32 @@ std::optional<CLiquidCloseRenderer::SPending> CLiquidCloseRenderer::pendingFor(c
         return std::nullopt;
 
     // Window position inside the snapshot: the snapshot's presentation offsets, then monitor-local device px.
-    const auto presentation = Render::resolveWindowSnapshotPresentation(window->presentation().renderPresentation(Render::eSceneMode::MONITOR));
-    const CBox source = capture.copy().translate(presentation.workspaceOffset + presentation.floatingOffset).translate(-monitor->m_position).scale(scale);
+    const auto presentation = Render::resolveWindowSnapshotPresentation(
+        window->presentation().renderPresentation(Render::eSceneMode::MONITOR));
+    const CBox source = capture.copy()
+                            .translate(presentation.workspaceOffset + presentation.floatingOffset)
+                            .translate(-monitor->m_position)
+                            .scale(scale);
     if (source.empty())
         return std::nullopt;
 
     SPending pending;
-    pending.window         = PHLWINDOWREF{window};
-    pending.sourceDevice   = source;
-    pending.scale          = scale;
+    pending.window = PHLWINDOWREF{window};
+    pending.sourceDevice = source;
+    pending.scale = scale;
     pending.captureLogical = Vec2{capture.w, capture.h};
-    pending.staged         = clock::now();
+    pending.staged = clock::now();
     return pending;
 }
 
 void CLiquidCloseRenderer::push(SPending pending) {
-    std::erase_if(m_pending, [&pending](const SPending& p) { return p.window.get() == pending.window.get(); });
+    std::erase_if(m_pending, [&pending](const SPending &p) { return p.window.get() == pending.window.get(); });
     m_pending.push_back(std::move(pending));
 }
 
-void CLiquidCloseRenderer::onFadeoutCreated(const PHLWINDOW& window, const SP<Desktop::CWindowFadeout>& created) {
-    const auto it = std::ranges::find_if(m_pending, [&window](const SPending& p) { return p.window.get() == window.get(); });
+void CLiquidCloseRenderer::onFadeoutCreated(const PHLWINDOW &window, const SP<Desktop::CWindowFadeout> &created) {
+    const auto it =
+        std::ranges::find_if(m_pending, [&window](const SPending &p) { return p.window.get() == window.get(); });
     if (it == m_pending.end())
         return;
 
@@ -287,7 +296,7 @@ void CLiquidCloseRenderer::onFadeoutCreated(const PHLWINDOW& window, const SP<De
     if (std::chrono::duration<double>(clock::now() - pending.staged).count() > PENDING_TIMEOUT_SECONDS)
         return;
 
-    const auto monitor  = created->monitor().lock();
+    const auto monitor = created->monitor().lock();
     const auto snapshot = created->framebuffer(Render::eSceneMode::MONITOR);
     if (!monitor || !snapshot || !snapshot->getTexture() || monitor->m_scale != pending.scale)
         return;
@@ -300,41 +309,42 @@ void CLiquidCloseRenderer::onFadeoutCreated(const PHLWINDOW& window, const SP<De
     if (pending.paper && created->effects().textureBlur.enabled)
         return;
 
-    auto record = std::make_unique<SClosing>();
+    auto                        record = std::make_unique<SClosing>();
     const SP<Desktop::IFadeout> base = created;
-    record->fadeout        = WP<Desktop::IFadeout>{base};
-    record->snapshot       = snapshot;
-    record->monitor        = PHLMONITORREF{monitor};
-    record->workspace      = created->workspace();
+    record->fadeout = WP<Desktop::IFadeout>{base};
+    record->snapshot = snapshot;
+    record->monitor = PHLMONITORREF{monitor};
+    record->workspace = created->workspace();
     record->workspaceBound = bool(record->workspace.lock());
-    record->plane          = Render::sceneFadeoutPlane(Render::eSceneMode::MONITOR, created->plane(), created->source().pinned);
-    record->zIndex         = created->zIndex();
-    record->noScreenShare  = created->source().noScreenShare;
-    record->mesh           = pending.mesh;
-    record->compensation   = pending.compensation;
-    record->sourceAlpha    = created->alpha();
-    record->sourceDevice   = pending.sourceDevice;
-    record->scale          = pending.scale;
+    record->plane = Render::sceneFadeoutPlane(Render::eSceneMode::MONITOR, created->plane(), created->source().pinned);
+    record->zIndex = created->zIndex();
+    record->noScreenShare = created->source().noScreenShare;
+    record->mesh = pending.mesh;
+    record->compensation = pending.compensation;
+    record->sourceAlpha = created->alpha();
+    record->sourceDevice = pending.sourceDevice;
+    record->scale = pending.scale;
     record->captureLogical = pending.captureLogical;
-    record->snapshotSize   = snapshot->getTexture()->m_size;
-    record->lastAdvance    = clock::now();
+    record->snapshotSize = snapshot->getTexture()->m_size;
+    record->lastAdvance = clock::now();
 
     // Owned for any movement mode without texture blur: the edge transition begins Close from the copied pose, so an
     // in-progress opening is kept as the start of the close. The close's own params drive it, not the movement mesh's.
     const bool textureBlur = created->effects().textureBlur.enabled;
     if (pending.paper) {
-        record->paper      = true;
+        record->paper = true;
         record->paperState = pending.paperState;
         record->paperState.begin(Transition::Close, pending.paperParams, pending.paperSeed);
     } else if (!textureBlur) {
         record->transition = pending.transition;
         // Continuing an opening keeps its edge; otherwise the staged frame (invalid when none, which leaves it idle).
-        record->transition.begin(Transition::Close, pending.closeFrame.value_or(record->transition.frame()), pending.closeParams, pending.strength,
-                                 pending.closeSplash);
+        record->transition.begin(Transition::Close, pending.closeFrame.value_or(record->transition.frame()),
+                                 pending.closeParams, pending.strength, pending.closeSplash);
     }
     record->strength = pending.strength;
-    record->drive    = pending.drive;
-    record->owned    = (record->paper ? record->paperState.active() : record->transition.active()) && record->sourceAlpha > 0.F;
+    record->drive = pending.drive;
+    record->owned =
+        (record->paper ? record->paperState.active() : record->transition.active()) && record->sourceAlpha > 0.F;
     // A paper close that did not start is not substituted: the native fadeout runs unmodified.
     if (record->paper && !record->owned)
         return;
@@ -345,7 +355,7 @@ void CLiquidCloseRenderer::onFadeoutCreated(const PHLWINDOW& window, const SP<De
     m_records.push_back(std::move(record));
 }
 
-void CLiquidCloseRenderer::fillVertices(SClosing& record) const {
+void CLiquidCloseRenderer::fillVertices(SClosing &record) const {
     if (record.paper) {
         record.paperState.facets(record.captureLogical, record.paperFacets);
         const CBox logical = record.sourceDevice.copy().scale(1.0 / record.scale);
@@ -353,15 +363,16 @@ void CLiquidCloseRenderer::fillVertices(SClosing& record) const {
         extents.expand(EXTENTS_PADDING);
         record.extentsDevice = extents.copy().scale(record.scale);
         fillPaperMeshes(record.paperFacets, record.sourceDevice, record.scale, record.extentsDevice, Vec2{0.0, 0.0},
-                        Vec2{record.snapshotSize.x, record.snapshotSize.y}, record.paperVertices, record.paperShadeVertices);
+                        Vec2{record.snapshotSize.x, record.snapshotSize.y}, record.paperVertices,
+                        record.paperShadeVertices);
         record.hasLiquid = false;
         return;
     }
     SLiquidPose pose{record.mesh, record.transition, record.compensation};
     const CBox  logical = record.sourceDevice.copy().scale(1.0 / record.scale);
-    const Vec2  c       = record.compensation;
+    const Vec2  c = record.compensation;
     pose.displacementGain = record.transition.displacementGain(record.mesh, {logical.w, logical.h}, c);
-    CBox              extents = liquidRenderExtents(pose, logical);
+    CBox extents = liquidRenderExtents(pose, logical);
     extents.expand(EXTENTS_PADDING);
     record.extentsDevice = extents.copy().scale(record.scale);
 
@@ -369,22 +380,24 @@ void CLiquidCloseRenderer::fillVertices(SClosing& record) const {
                          Vec2{record.snapshotSize.x, record.snapshotSize.y}, record.vertices);
 
     const auto liquid = liquidMeniscusExtents(pose, logical);
-    record.hasLiquid  = liquid.has_value();
+    record.hasLiquid = liquid.has_value();
     if (liquid) {
         record.liquidDevice = liquid->copy().scale(record.scale);
         fillLiquidMeniscusMesh(pose, record.sourceDevice, record.scale, record.liquidDevice, record.liquidVertices);
     }
 }
 
-bool CLiquidCloseRenderer::tick(clock::time_point now, std::vector<PHLMONITORREF>& activeMonitors) {
+bool CLiquidCloseRenderer::tick(clock::time_point now, std::vector<PHLMONITORREF> &activeMonitors) {
     activeMonitors.clear();
 
-    std::erase_if(m_pending, [now](const SPending& p) { return std::chrono::duration<double>(now - p.staged).count() > PENDING_TIMEOUT_SECONDS; });
+    std::erase_if(m_pending, [now](const SPending &p) {
+        return std::chrono::duration<double>(now - p.staged).count() > PENDING_TIMEOUT_SECONDS;
+    });
 
-    std::erase_if(m_records, [&](const std::unique_ptr<SClosing>& record) {
-        const auto fadeout     = record->fadeout.lock();
+    std::erase_if(m_records, [&](const std::unique_ptr<SClosing> &record) {
+        const auto fadeout = record->fadeout.lock();
         const bool nativeAlive = fadeout && !fadeout->done();
-        const auto monitor     = record->monitor.lock();
+        const auto monitor = record->monitor.lock();
 
         // An owned record that is erased still has a last drawn frame on screen: damage its monitor so it clears.
         const auto prune = [&]() {
@@ -404,13 +417,15 @@ bool CLiquidCloseRenderer::tick(clock::time_point now, std::vector<PHLMONITORREF
             if (nativeAlive)
                 record->renderBox = ownedRenderBox(record->sourceDevice, fadeout->renderBox(), record->snapshotSize);
 
-            const double elapsed = std::clamp(std::chrono::duration<double>(now - record->lastAdvance).count(), 0.0, MAX_GAP_SECONDS);
+            const double elapsed =
+                std::clamp(std::chrono::duration<double>(now - record->lastAdvance).count(), 0.0, MAX_GAP_SECONDS);
             if (record->paper) {
                 // The paper mesh is refilled when drawn, not on every tick (several per frame).
                 record->paperState.advance(elapsed);
                 record->paperStale = true;
             } else {
-                advanceLiquidPose(record->mesh, record->transition, elapsed, record->captureLogical, record->strength, record->drive);
+                advanceLiquidPose(record->mesh, record->transition, elapsed, record->captureLogical, record->strength,
+                                  record->drive);
                 fillVertices(*record);
             }
             record->lastAdvance = now;
@@ -426,7 +441,8 @@ bool CLiquidCloseRenderer::tick(clock::time_point now, std::vector<PHLMONITORREF
         if (record->mesh.settled())
             return false;
 
-        const double elapsed = std::clamp(std::chrono::duration<double>(now - record->lastAdvance).count(), 0.0, MAX_GAP_SECONDS);
+        const double elapsed =
+            std::clamp(std::chrono::duration<double>(now - record->lastAdvance).count(), 0.0, MAX_GAP_SECONDS);
         record->mesh.advance(elapsed, record->captureLogical);
         record->lastAdvance = now;
         fillVertices(*record);
@@ -437,16 +453,17 @@ bool CLiquidCloseRenderer::tick(clock::time_point now, std::vector<PHLMONITORREF
     return !activeMonitors.empty();
 }
 
-CLiquidCloseRenderer::SClosing* CLiquidCloseRenderer::recordFor(const SP<Desktop::IFadeout>& fadeout) const {
-    for (const auto& record : m_records) {
+CLiquidCloseRenderer::SClosing *CLiquidCloseRenderer::recordFor(const SP<Desktop::IFadeout> &fadeout) const {
+    for (const auto &record : m_records) {
         if (record->fadeout.lock().get() == fadeout.get())
             return record.get();
     }
     return nullptr;
 }
 
-bool CLiquidCloseRenderer::hasRecordFor(const PHLMONITOR& monitor, Desktop::eFadeoutPlane plane, const PHLWORKSPACE& workspace) const {
-    for (const auto& record : m_records) {
+bool CLiquidCloseRenderer::hasRecordFor(const PHLMONITOR &monitor, Desktop::eFadeoutPlane plane,
+                                        const PHLWORKSPACE &workspace) const {
+    for (const auto &record : m_records) {
         if (!sameMonitor(record->monitor, monitor) || record->plane != plane)
             continue;
         if (!recordOnWorkspace(*record, workspace))
@@ -456,18 +473,19 @@ bool CLiquidCloseRenderer::hasRecordFor(const PHLMONITOR& monitor, Desktop::eFad
     return false;
 }
 
-bool CLiquidCloseRenderer::renderBatch(Render::CRenderContext& ctx, const PHLMONITOR& monitor, Desktop::eFadeoutPlane plane, const PHLWORKSPACE& workspace) {
+bool CLiquidCloseRenderer::renderBatch(Render::CRenderContext &ctx, const PHLMONITOR &monitor,
+                                       Desktop::eFadeoutPlane plane, const PHLWORKSPACE &workspace) {
     if (!monitor)
         return true;
 
     // Mirrors IHyprRenderer::renderFadeouts (MONITOR mode). m_batch keeps the capacity reserved at install and is
     // never grown here: a larger batch returns false so the caller delegates it to the native renderer.
-    auto& batch = m_batch;
+    auto &batch = m_batch;
     batch.clear();
 
     // Native pass: live fadeouts in the native selection. An owned close whose native fadeout has finished is left
     // to the orphan pass below, so each owned close is drawn exactly once.
-    for (const auto& fadeout : Desktop::fadingOutState()->fadeouts()) {
+    for (const auto &fadeout : Desktop::fadingOutState()->fadeouts()) {
         if (!fadeout || fadeout->monitor().lock() != monitor)
             continue;
 
@@ -480,7 +498,7 @@ bool CLiquidCloseRenderer::renderBatch(Render::CRenderContext& ctx, const PHLMON
         if (fadeoutWorkspace && fadeoutWorkspace != workspace)
             continue;
 
-        SClosing* record = recordFor(fadeout);
+        SClosing *record = recordFor(fadeout);
         if (record && !recordOnWorkspace(*record, workspace))
             record = nullptr;
         if (record && record->owned && fadeout->done())
@@ -494,10 +512,11 @@ bool CLiquidCloseRenderer::renderBatch(Render::CRenderContext& ctx, const PHLMON
     }
 
     // Orphan pass: owned closes whose native fadeout finished or vanished keep drawing from their transition.
-    for (const auto& record : m_records) {
+    for (const auto &record : m_records) {
         if (!record->owned || finished(*record) || !sameMonitor(record->monitor, monitor))
             continue;
-        if (record->plane != plane || !recordOnWorkspace(*record, workspace) || !ctx.shouldRenderContent(record->noScreenShare))
+        if (record->plane != plane || !recordOnWorkspace(*record, workspace) ||
+            !ctx.shouldRenderContent(record->noScreenShare))
             continue;
         const auto fadeout = record->fadeout.lock();
         if (fadeout && !fadeout->done())
@@ -512,30 +531,30 @@ bool CLiquidCloseRenderer::renderBatch(Render::CRenderContext& ctx, const PHLMON
 
     std::ranges::sort(batch, {}, &SBatchItem::zIndex);
 
-    const auto drawBackdrop = [&](const auto& effects) {
+    const auto drawBackdrop = [&](const auto &effects) {
         if (effects.dimAroundAlpha > 0.F) {
             CRectPassElement::SRectData data;
-            data.box   = {0, 0, monitor->m_transformedSize.x, monitor->m_transformedSize.y};
+            data.box = {0, 0, monitor->m_transformedSize.x, monitor->m_transformedSize.y};
             data.color = CHyprColor(0, 0, 0, effects.dimAroundAlpha);
             Render::IHyprRenderer::addPassElement(ctx, makeUnique<CRectPassElement>(data));
         }
 
         if (effects.preBlur) {
             CRectPassElement::SRectData data;
-            data.box           = effects.preBlur->box;
-            data.color         = CHyprColor(0, 0, 0, 0);
-            data.blur          = true;
-            data.blurA         = effects.preBlur->alpha;
-            data.round         = effects.preBlur->round;
+            data.box = effects.preBlur->box;
+            data.color = CHyprColor(0, 0, 0, 0);
+            data.blur = true;
+            data.blurA = effects.preBlur->alpha;
+            data.round = effects.preBlur->round;
             data.roundingPower = effects.preBlur->roundingPower;
-            data.xray          = effects.preBlur->xray;
+            data.xray = effects.preBlur->xray;
             Render::IHyprRenderer::addPassElement(ctx, makeUnique<CRectPassElement>(data));
         }
     };
 
     CRegion fakeDamage{0, 0, monitor->m_transformedSize.x, monitor->m_transformedSize.y};
-    for (const auto& item : batch) {
-        SClosing* record = item.record;
+    for (const auto &item : batch) {
+        SClosing *record = item.record;
 
         if (record && record->owned) {
             // A closed owned close draws nothing and suppresses its native fade, dim and blur included.
@@ -561,43 +580,45 @@ bool CLiquidCloseRenderer::renderBatch(Render::CRenderContext& ctx, const PHLMON
                     record->paperStale = false;
                 }
                 CPaperClosePassElement::SData paper;
-                paper.tex           = tex;
-                paper.shade         = record->paperState.shaded() && m_shade ? m_shade->texture() : nullptr;
-                paper.box           = projectToOutput(record->extentsDevice, record->renderBox, record->snapshotSize);
-                paper.vertices      = &record->paperVertices;
+                paper.tex = tex;
+                paper.shade = record->paperState.shaded() && m_shade ? m_shade->texture() : nullptr;
+                paper.box = projectToOutput(record->extentsDevice, record->renderBox, record->snapshotSize);
+                paper.vertices = &record->paperVertices;
                 paper.shadeVertices = &record->paperShadeVertices;
-                paper.alpha         = paperAlpha;
-                paper.scale         = record->scale;
-                paper.damage        = CRegion{CBox{0.0, 0.0, monitor->m_transformedSize.x, monitor->m_transformedSize.y}.intersection(paper.box)};
+                paper.alpha = paperAlpha;
+                paper.scale = record->scale;
+                paper.damage = CRegion{
+                    CBox{0.0, 0.0, monitor->m_transformedSize.x, monitor->m_transformedSize.y}.intersection(paper.box)};
                 Render::IHyprRenderer::addPassElement(ctx, makeUnique<CPaperClosePassElement>(std::move(paper)));
                 continue;
             }
 
             CLiquidClosePassElement::SData data;
-            data.tex       = tex;
-            data.box       = projectToOutput(record->extentsDevice, record->renderBox, record->snapshotSize);
-            data.vertices  = &record->vertices;
-            data.alpha     = alpha;
-            data.scale     = record->scale;
+            data.tex = tex;
+            data.box = projectToOutput(record->extentsDevice, record->renderBox, record->snapshotSize);
+            data.vertices = &record->vertices;
+            data.alpha = alpha;
+            data.scale = record->scale;
             // Owned closes get a fresh pass element each frame; damage is the monitor clipped to the screen side of
             // the edge, the same visible half-plane the window transformer uses, not the shared full-monitor copy.
-            CBox clip{0.0, 0.0, monitor->m_transformedSize.x, monitor->m_transformedSize.y};
-            const CBox restLogical = CBox{record->renderBox.x + record->sourceDevice.x, record->renderBox.y + record->sourceDevice.y,
-                                          record->sourceDevice.w, record->sourceDevice.h}
-                                         .scale(1.0 / record->scale);
+            CBox       clip{0.0, 0.0, monitor->m_transformedSize.x, monitor->m_transformedSize.y};
+            const CBox restLogical =
+                CBox{record->renderBox.x + record->sourceDevice.x, record->renderBox.y + record->sourceDevice.y,
+                     record->sourceDevice.w, record->sourceDevice.h}
+                    .scale(1.0 / record->scale);
             const SLiquidPose visiblePose{record->mesh, record->transition, record->compensation};
             if (const auto visible = liquidVisibleBox(visiblePose, restLogical))
                 clip = clip.intersection(visible->copy().scale(record->scale));
             data.damage = CRegion{clip};
-            data.solid     = m_solid ? m_solid->texture() : nullptr;
-            data.liquid    = record->hasLiquid && data.solid ? &record->liquidVertices : nullptr;
+            data.solid = m_solid ? m_solid->texture() : nullptr;
+            data.liquid = record->hasLiquid && data.solid ? &record->liquidVertices : nullptr;
             data.liquidBox = projectToOutput(record->liquidDevice, record->renderBox, record->snapshotSize);
             Render::IHyprRenderer::addPassElement(ctx, makeUnique<CLiquidClosePassElement>(std::move(data)));
             continue;
         }
 
         // Non-owned: a native fadeout (the orphan pass only yields owned records, so item.fadeout is non-null here).
-        const auto& fadeout = item.fadeout;
+        const auto &fadeout = item.fadeout;
         if (!fadeout)
             continue;
         const auto FB = fadeout->framebuffer(Render::eSceneMode::MONITOR);
@@ -609,29 +630,29 @@ bool CLiquidCloseRenderer::renderBatch(Render::CRenderContext& ctx, const PHLMON
 
         const auto tex = FB->getTexture();
         // Texture blur rides on a stock element; the mesh path only replaces the plain texture draw.
-        if (record && sameMonitor(record->monitor, monitor) && !effects.textureBlur.enabled && tex->m_size.x == record->snapshotSize.x
-            && tex->m_size.y == record->snapshotSize.y) {
+        if (record && sameMonitor(record->monitor, monitor) && !effects.textureBlur.enabled &&
+            tex->m_size.x == record->snapshotSize.x && tex->m_size.y == record->snapshotSize.y) {
             CLiquidClosePassElement::SData data;
-            data.tex      = tex;
-            data.box      = projectToOutput(record->extentsDevice, fadeout->renderBox(), record->snapshotSize);
+            data.tex = tex;
+            data.box = projectToOutput(record->extentsDevice, fadeout->renderBox(), record->snapshotSize);
             data.vertices = &record->vertices;
-            data.alpha    = fadeout->alpha();
-            data.scale    = record->scale;
-            data.damage   = fakeDamage;
+            data.alpha = fadeout->alpha();
+            data.scale = record->scale;
+            data.damage = fakeDamage;
             Render::IHyprRenderer::addPassElement(ctx, makeUnique<CLiquidClosePassElement>(std::move(data)));
             continue;
         }
 
         CTexPassElement::SRenderData data;
-        data.tex                   = tex;
-        data.box                   = fadeout->renderBox();
-        data.a                     = fadeout->alpha();
-        data.damage                = fakeDamage;
-        data.blur                  = effects.textureBlur.enabled;
-        data.blurA                 = effects.textureBlur.alpha;
-        data.forceBlurBlend        = effects.textureBlur.forceBlend;
-        data.blurShapeInvalid      = true;
-        data.ignoreAlpha           = effects.textureBlur.ignoreAlpha;
+        data.tex = tex;
+        data.box = fadeout->renderBox();
+        data.a = fadeout->alpha();
+        data.damage = fakeDamage;
+        data.blur = effects.textureBlur.enabled;
+        data.blurA = effects.textureBlur.alpha;
+        data.forceBlurBlend = effects.textureBlur.forceBlend;
+        data.blurShapeInvalid = true;
+        data.ignoreAlpha = effects.textureBlur.ignoreAlpha;
         data.blockBlurOptimization = effects.textureBlur.blockBlurOptimization;
 
         Render::IHyprRenderer::addPassElement(ctx, makeUnique<CTexPassElement>(std::move(data)));
@@ -642,13 +663,13 @@ bool CLiquidCloseRenderer::renderBatch(Render::CRenderContext& ctx, const PHLMON
 
 CLiquidClosePassElement::CLiquidClosePassElement(SData data) : m_data(std::move(data)) {}
 
-std::vector<UP<IPassElement>> CLiquidClosePassElement::draw(Render::CRenderContext& ctx) {
+std::vector<UP<IPassElement>> CLiquidClosePassElement::draw(Render::CRenderContext &ctx) {
     if (!m_data.tex || !m_data.vertices || m_data.vertices->empty())
         return {};
 
     Render::GL::CHyprOpenGLImpl::STextureRenderData textureData{};
-    textureData.damage        = &m_data.damage;
-    textureData.a             = m_data.alpha;
+    textureData.damage = &m_data.damage;
+    textureData.a = m_data.alpha;
     textureData.allowCustomUV = true;
     // Edge liquid first, so the window mesh draws over the meniscus where they meet.
     if (m_data.liquid && m_data.solid)
@@ -657,23 +678,15 @@ std::vector<UP<IPassElement>> CLiquidClosePassElement::draw(Render::CRenderConte
     return {};
 }
 
-bool CLiquidClosePassElement::needsLiveBlur(Render::CRenderContext&) {
-    return false;
-}
+bool CLiquidClosePassElement::needsLiveBlur(Render::CRenderContext &) { return false; }
 
-bool CLiquidClosePassElement::needsPrecomputeBlur(Render::CRenderContext&) {
-    return false;
-}
+bool CLiquidClosePassElement::needsPrecomputeBlur(Render::CRenderContext &) { return false; }
 
-const char* CLiquidClosePassElement::passName() {
-    return "liquid-glass-close";
-}
+const char *CLiquidClosePassElement::passName() { return "liquid-glass-close"; }
 
-ePassElementType CLiquidClosePassElement::type() {
-    return EK_CUSTOM;
-}
+ePassElementType CLiquidClosePassElement::type() { return EK_CUSTOM; }
 
-std::optional<CBox> CLiquidClosePassElement::boundingBox(Render::CRenderContext&) {
+std::optional<CBox> CLiquidClosePassElement::boundingBox(Render::CRenderContext &) {
     // Same convention as CTexPassElement: monitor-local logical coordinates. The edge liquid widens the box.
     CBox box = m_data.box;
     if (m_data.liquid && m_data.solid) {
@@ -681,36 +694,34 @@ std::optional<CBox> CLiquidClosePassElement::boundingBox(Render::CRenderContext&
         const double y0 = std::min(box.y, m_data.liquidBox.y);
         const double x1 = std::max(box.x + box.w, m_data.liquidBox.x + m_data.liquidBox.w);
         const double y1 = std::max(box.y + box.h, m_data.liquidBox.y + m_data.liquidBox.h);
-        box             = CBox{x0, y0, x1 - x0, y1 - y0};
+        box = CBox{x0, y0, x1 - x0, y1 - y0};
     }
     return box.copy().scale(1.0 / m_data.scale).round();
 }
 
-CRegion CLiquidClosePassElement::opaqueRegion(Render::CRenderContext&) {
-    return {};
-}
+CRegion CLiquidClosePassElement::opaqueRegion(Render::CRenderContext &) { return {}; }
 
 CPaperClosePassElement::CPaperClosePassElement(SData data) : m_data(std::move(data)) {}
 
-std::vector<UP<IPassElement>> CPaperClosePassElement::draw(Render::CRenderContext& ctx) {
+std::vector<UP<IPassElement>> CPaperClosePassElement::draw(Render::CRenderContext &ctx) {
     if (!m_data.tex || !m_data.vertices || m_data.vertices->empty())
         return {};
 
     Render::GL::CHyprOpenGLImpl::STextureRenderData textureData{};
-    textureData.damage        = &m_data.damage;
-    textureData.a             = m_data.alpha;
+    textureData.damage = &m_data.damage;
+    textureData.a = m_data.alpha;
     textureData.allowCustomUV = true;
 
     // Shade the sheet in its own layer so the tint covers only its pixels; without a layer it draws unlit.
-    const Vector2D canvas{std::ceil(m_data.box.w), std::ceil(m_data.box.h)};
+    const Vector2D   canvas{std::ceil(m_data.box.w), std::ceil(m_data.box.h)};
     const SPaperDraw paper{
-        .window         = m_data.tex,
-        .shade          = m_data.shade,
-        .canvas         = canvas,
-        .meshBox        = CBox{0.0, 0.0, m_data.box.w, m_data.box.h},
+        .window = m_data.tex,
+        .shade = m_data.shade,
+        .canvas = canvas,
+        .meshBox = CBox{0.0, 0.0, m_data.box.w, m_data.box.h},
         .windowVertices = m_data.vertices,
-        .shadeVertices  = m_data.shadeVertices,
-        .alpha          = 1.F,
+        .shadeVertices = m_data.shadeVertices,
+        .alpha = 1.F,
     };
     const auto layer = renderPaper(ctx, paper);
     if (!layer) {
@@ -718,31 +729,21 @@ std::vector<UP<IPassElement>> CPaperClosePassElement::draw(Render::CRenderContex
         return {};
     }
 
-    Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, layer->getTexture(), CBox{m_data.box.x, m_data.box.y, canvas.x, canvas.y}, paperCanvasQuad(),
-                                                 textureData);
+    Render::GL::g_pHyprOpenGL->renderTextureMesh(
+        ctx, layer->getTexture(), CBox{m_data.box.x, m_data.box.y, canvas.x, canvas.y}, paperCanvasQuad(), textureData);
     return {};
 }
 
-bool CPaperClosePassElement::needsLiveBlur(Render::CRenderContext&) {
-    return false;
-}
+bool CPaperClosePassElement::needsLiveBlur(Render::CRenderContext &) { return false; }
 
-bool CPaperClosePassElement::needsPrecomputeBlur(Render::CRenderContext&) {
-    return false;
-}
+bool CPaperClosePassElement::needsPrecomputeBlur(Render::CRenderContext &) { return false; }
 
-const char* CPaperClosePassElement::passName() {
-    return "liquid-glass-paper-close";
-}
+const char *CPaperClosePassElement::passName() { return "liquid-glass-paper-close"; }
 
-ePassElementType CPaperClosePassElement::type() {
-    return EK_CUSTOM;
-}
+ePassElementType CPaperClosePassElement::type() { return EK_CUSTOM; }
 
-std::optional<CBox> CPaperClosePassElement::boundingBox(Render::CRenderContext&) {
+std::optional<CBox> CPaperClosePassElement::boundingBox(Render::CRenderContext &) {
     return m_data.box.copy().scale(1.0 / m_data.scale).round();
 }
 
-CRegion CPaperClosePassElement::opaqueRegion(Render::CRenderContext&) {
-    return {};
-}
+CRegion CPaperClosePassElement::opaqueRegion(Render::CRenderContext &) { return {}; }

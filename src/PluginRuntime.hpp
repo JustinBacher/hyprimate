@@ -27,128 +27,130 @@ class CPluginRuntime {
     explicit CPluginRuntime(HANDLE handle);
     ~CPluginRuntime();
 
-    CPluginRuntime(const CPluginRuntime&)            = delete;
-    CPluginRuntime& operator=(const CPluginRuntime&) = delete;
+    CPluginRuntime(const CPluginRuntime &) = delete;
+    CPluginRuntime &operator=(const CPluginRuntime &) = delete;
 
   private:
     using clock = std::chrono::steady_clock;
 
     struct STracked {
-        PHLWINDOWREF  window;
-        PHLMONITORREF monitor;
-        CBox          lastBox;              // last sampled current geometry (world space)
-        Vector2D      lastCaptureSize;      // decorated, untransformed capture domain
-        CBox          footprint;            // world-space damage footprint of the last deformation
-        bool          hasFootprint   = false;
-        bool          baselined      = false;
-        bool          wasAnimatingIn = false;
-        bool          wasEligible    = false;
-        clock::time_point lastSample = clock::now();
-        clock::time_point lastAdvance = clock::now();
+        PHLWINDOWREF                      window;
+        PHLMONITORREF                     monitor;
+        CBox                              lastBox;         // last sampled current geometry (world space)
+        Vector2D                          lastCaptureSize; // decorated, untransformed capture domain
+        CBox                              footprint;       // world-space damage footprint of the last deformation
+        bool                              hasFootprint = false;
+        bool                              baselined = false;
+        bool                              wasAnimatingIn = false;
+        bool                              wasEligible = false;
+        clock::time_point                 lastSample = clock::now();
+        clock::time_point                 lastAdvance = clock::now();
         std::optional<liquid_glass::Edge> openEdge; // edge the opening began from; close_side=origin drains here
     };
 
-    bool                          pluginEnabled() const;
-    bool                          movementEnabled() const;
-    bool                          openEnabled() const;
-    bool                          closeEnabled() const;
-    bool                          openPaper() const;
-    bool                          closePaper() const;
-    double                        movementStrength() const;
-    double                        effectiveViscosity() const;
-    liquid_glass::MotionMode      effectiveMode() const;
-    liquid_glass::MaterialParams  effectiveMaterialParams() const;
-    liquid_glass::MaterialParams  transitionParams(double elasticity, double momentum) const;
-    liquid_glass::PaperParams     paperParams(double duration, double crumpliness, double shading, double variation) const;
-    bool                          materialUsable() const;
-    bool                          materialChanged(const liquid_glass::LiquidMesh& mesh) const;
-    bool                          wobbleEnabled() const;
-    void                          notify(const std::string& text) const;
-    void                          onReload();
+    bool                         pluginEnabled() const;
+    bool                         movementEnabled() const;
+    bool                         openEnabled() const;
+    bool                         closeEnabled() const;
+    bool                         openPaper() const;
+    bool                         closePaper() const;
+    double                       movementStrength() const;
+    double                       effectiveViscosity() const;
+    liquid_glass::MotionMode     effectiveMode() const;
+    liquid_glass::MaterialParams effectiveMaterialParams() const;
+    liquid_glass::MaterialParams transitionParams(double elasticity, double momentum) const;
+    liquid_glass::PaperParams paperParams(double duration, double crumpliness, double shading, double variation) const;
+    bool                      materialUsable() const;
+    bool                      materialChanged(const liquid_glass::LiquidMesh &mesh) const;
+    bool                      wobbleEnabled() const;
+    void                      notify(const std::string &text) const;
+    void                      onReload();
 
     // Tracking.
-    STracked* find(const PHLWINDOW& window);
-    void      track(const PHLWINDOW& window);
-    void      forget(const PHLWINDOW& window);
-    void      baseline(STracked& entry, const PHLWINDOW& window) const;
+    STracked *find(const PHLWINDOW &window);
+    void      track(const PHLWINDOW &window);
+    void      forget(const PHLWINDOW &window);
+    void      baseline(STracked &entry, const PHLWINDOW &window) const;
     void      baselineAll();
-    bool      eligible(const PHLWINDOW& window) const;
+    bool      eligible(const PHLWINDOW &window) const;
 
     // Edge pop-out placement and configuration.
     liquid_glass::Edge                     firstWindowEdge() const;
-    bool                                   workspaceHasOtherWindows(const PHLWINDOW& window) const;
-    void                                   gatherNeighbours(const PHLWINDOW& window) const;
-    CBox                                   edgeBoundsBox(const PHLMONITOR& monitor, bool opening) const;
-    std::optional<liquid_glass::EdgeFrame> edgeFrameFor(const PHLWINDOW& window, bool opening, std::optional<liquid_glass::Edge> origin = std::nullopt) const;
+    bool                                   workspaceHasOtherWindows(const PHLWINDOW &window) const;
+    void                                   gatherNeighbours(const PHLWINDOW &window) const;
+    CBox                                   edgeBoundsBox(const PHLMONITOR &monitor, bool opening) const;
+    std::optional<liquid_glass::EdgeFrame> edgeFrameFor(const PHLWINDOW &window, bool opening,
+                                                        std::optional<liquid_glass::Edge> origin = std::nullopt) const;
     double                                 effectiveEmergeDrag() const;
 
     // Sampling and simulation.
     void onRenderPre();
     void onTick();
-    void sampleWindow(STracked& entry, const PHLWINDOW& window);
-    void advanceWindow(STracked& entry, const PHLWINDOW& window, clock::time_point now);
-    void beginOpening(STracked& entry, const PHLWINDOW& window);
+    void sampleWindow(STracked &entry, const PHLWINDOW &window);
+    void advanceWindow(STracked &entry, const PHLWINDOW &window, clock::time_point now);
+    void beginOpening(STracked &entry, const PHLWINDOW &window);
 
     // Mutations. Each one damages the previous and restored footprints.
-    CLiquidGlassTransformer* transformerOf(const PHLWINDOW& window) const;
-    CLiquidGlassTransformer* acquireTransformer(const PHLWINDOW& window);
-    CBox                     worldFootprint(const PHLWINDOW& window) const;
-    void                     scheduleAnimation(const PHLWINDOW& window) const;
-    void                     detachWindow(STracked& entry, const PHLWINDOW& window);
+    CLiquidGlassTransformer *transformerOf(const PHLWINDOW &window) const;
+    CLiquidGlassTransformer *acquireTransformer(const PHLWINDOW &window);
+    CBox                     worldFootprint(const PHLWINDOW &window) const;
+    void                     scheduleAnimation(const PHLWINDOW &window) const;
+    void                     detachWindow(STracked &entry, const PHLWINDOW &window);
     void                     detachAll();
 
-    HANDLE                            m_handle = nullptr;
+    HANDLE m_handle = nullptr;
     // window
-    SP<Config::Values::CBoolValue>    m_enabled;
+    SP<Config::Values::CBoolValue> m_enabled;
     // movement
-    SP<Config::Values::CBoolValue>    m_movementEnabled;
-    SP<Config::Values::CStringValue>  m_mode;
-    SP<Config::Values::CFloatValue>   m_movementLiquidStrength;
-    SP<Config::Values::CFloatValue>   m_movementWiggleStrength;
-    SP<Config::Values::CFloatValue>   m_viscosity;
-    SP<Config::Values::CFloatValue>   m_elasticity;
-    SP<Config::Values::CFloatValue>   m_momentum;
-    SP<Config::Values::CFloatValue>   m_variation;
+    SP<Config::Values::CBoolValue>   m_movementEnabled;
+    SP<Config::Values::CStringValue> m_mode;
+    SP<Config::Values::CFloatValue>  m_movementLiquidStrength;
+    SP<Config::Values::CFloatValue>  m_movementWiggleStrength;
+    SP<Config::Values::CFloatValue>  m_viscosity;
+    SP<Config::Values::CFloatValue>  m_elasticity;
+    SP<Config::Values::CFloatValue>  m_momentum;
+    SP<Config::Values::CFloatValue>  m_variation;
     // open
-    SP<Config::Values::CBoolValue>    m_openEnabled;
-    SP<Config::Values::CStringValue>  m_openStyle;
-    SP<Config::Values::CFloatValue>   m_openLiquidStrength;
-    SP<Config::Values::CColorValue>   m_openLiquidColor;
-    SP<Config::Values::CStringValue>  m_firstWindowSide;
-    SP<Config::Values::CStringValue>  m_edgeBounds;
-    SP<Config::Values::CFloatValue>   m_emergeDrag;
-    SP<Config::Values::CFloatValue>   m_openElasticity;
-    SP<Config::Values::CFloatValue>   m_openMomentum;
-    SP<Config::Values::CFloatValue>   m_openPaperDuration;
-    SP<Config::Values::CFloatValue>   m_openPaperCrumpliness;
-    SP<Config::Values::CFloatValue>   m_openPaperShading;
-    SP<Config::Values::CFloatValue>   m_openPaperVariation;
+    SP<Config::Values::CBoolValue>   m_openEnabled;
+    SP<Config::Values::CStringValue> m_openStyle;
+    SP<Config::Values::CFloatValue>  m_openLiquidStrength;
+    SP<Config::Values::CColorValue>  m_openLiquidColor;
+    SP<Config::Values::CStringValue> m_firstWindowSide;
+    SP<Config::Values::CStringValue> m_edgeBounds;
+    SP<Config::Values::CFloatValue>  m_emergeDrag;
+    SP<Config::Values::CFloatValue>  m_openElasticity;
+    SP<Config::Values::CFloatValue>  m_openMomentum;
+    SP<Config::Values::CFloatValue>  m_openPaperDuration;
+    SP<Config::Values::CFloatValue>  m_openPaperCrumpliness;
+    SP<Config::Values::CFloatValue>  m_openPaperShading;
+    SP<Config::Values::CFloatValue>  m_openPaperVariation;
     // close
-    SP<Config::Values::CBoolValue>    m_closeEnabled;
-    SP<Config::Values::CStringValue>  m_closeStyle;
-    SP<Config::Values::CFloatValue>   m_closeLiquidStrength;
-    SP<Config::Values::CColorValue>   m_closeLiquidColor;
-    SP<Config::Values::CStringValue>  m_closeSide;
-    SP<Config::Values::CStringValue>  m_closeEdgeBounds;
-    SP<Config::Values::CBoolValue>    m_closeSplash;
-    SP<Config::Values::CFloatValue>   m_closeElasticity;
-    SP<Config::Values::CFloatValue>   m_closeMomentum;
-    SP<Config::Values::CFloatValue>   m_closePaperDuration;
-    SP<Config::Values::CFloatValue>   m_closePaperCrumpliness;
-    SP<Config::Values::CFloatValue>   m_closePaperShading;
-    SP<Config::Values::CFloatValue>   m_closePaperVariation;
-    CConfigValue<Config::INTEGER>     m_wobble{"decoration:wobble:enabled"};
+    SP<Config::Values::CBoolValue>   m_closeEnabled;
+    SP<Config::Values::CStringValue> m_closeStyle;
+    SP<Config::Values::CFloatValue>  m_closeLiquidStrength;
+    SP<Config::Values::CColorValue>  m_closeLiquidColor;
+    SP<Config::Values::CStringValue> m_closeSide;
+    SP<Config::Values::CStringValue> m_closeEdgeBounds;
+    SP<Config::Values::CBoolValue>   m_closeSplash;
+    SP<Config::Values::CFloatValue>  m_closeElasticity;
+    SP<Config::Values::CFloatValue>  m_closeMomentum;
+    SP<Config::Values::CFloatValue>  m_closePaperDuration;
+    SP<Config::Values::CFloatValue>  m_closePaperCrumpliness;
+    SP<Config::Values::CFloatValue>  m_closePaperShading;
+    SP<Config::Values::CFloatValue>  m_closePaperVariation;
+    CConfigValue<Config::INTEGER>    m_wobble{"decoration:wobble:enabled"};
 
-    std::vector<STracked>                   m_tracked;
-    bool                                    m_inert = false;
-    SP<CSolidFill>                          m_openSolid = makeShared<CSolidFill>();
-    SP<CSolidFill>                          m_closeSolid = makeShared<CSolidFill>();
-    SP<CPaperShade>                         m_shade = makeShared<CPaperShade>();
-    std::unique_ptr<CLiquidCloseRenderer>   m_close;
-    std::vector<PHLMONITORREF>              m_closeMonitors;
-    mutable std::vector<liquid_glass::Box> m_neighbours; // tiled neighbours for the contact rule; rebuilt per edge choice
+    std::vector<STracked>                 m_tracked;
+    bool                                  m_inert = false;
+    SP<CSolidFill>                        m_openSolid = makeShared<CSolidFill>();
+    SP<CSolidFill>                        m_closeSolid = makeShared<CSolidFill>();
+    SP<CPaperShade>                       m_shade = makeShared<CPaperShade>();
+    std::unique_ptr<CLiquidCloseRenderer> m_close;
+    std::vector<PHLMONITORREF>            m_closeMonitors;
+    mutable std::vector<liquid_glass::Box>
+        m_neighbours; // tiled neighbours for the contact rule; rebuilt per edge choice
     // Next per-window movement seed; random per load (set in the constructor), so loads do not replay characters.
-    std::uint64_t                          m_nextSeed = 0;
+    std::uint64_t m_nextSeed = 0;
 
     CHyprSignalListener m_listenOpenLate;
     CHyprSignalListener m_listenClose;
