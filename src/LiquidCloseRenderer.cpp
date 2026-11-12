@@ -132,7 +132,7 @@ void hookRender(Render::IHyprRenderer *self, Render::CRenderContext &ctx, PHLMON
 
 // A closing record is finished once the close that drives it has run its course: paper or liquid, whichever it uses.
 bool finished(const CLiquidCloseRenderer::SClosing &record) {
-    return record.paper ? record.paperState.closed() : record.transition.closed();
+    return record.isSheet ? record.sheet.closed() : record.transition.closed();
 }
 
 } // namespace
@@ -229,16 +229,22 @@ void CLiquidCloseRenderer::stage(const PHLWINDOW &window, const SLiquidPose &pos
     push(std::move(*pending));
 }
 
-void CLiquidCloseRenderer::stagePaper(const PHLWINDOW &window, const liquid_glass::PaperCrumple &from,
-                                      const liquid_glass::PaperParams &params, std::uint64_t seed) {
+void CLiquidCloseRenderer::stageSheet(const PHLWINDOW &window, const liquid_glass::SheetMotion &from,
+                                      const liquid_glass::PaperParams &paper, const liquid_glass::ClothParams &cloth,
+                                      bool useCloth, std::uint64_t seed, const liquid_glass::Box &capture,
+                                      std::span<const liquid_glass::Box> obstacles) {
     auto pending = pendingFor(window);
     if (!pending)
         return;
 
-    pending->paper = true;
-    pending->paperState = from;
-    pending->paperParams = params;
-    pending->paperSeed = seed;
+    pending->isSheet = true;
+    pending->sheet = from;
+    pending->paperParams = paper;
+    pending->clothParams = cloth;
+    pending->useCloth = useCloth;
+    pending->sheetSeed = seed;
+    pending->sheetCapture = capture;
+    pending->sheetObstacles.assign(obstacles.begin(), obstacles.end());
     push(std::move(*pending));
 }
 
@@ -305,8 +311,8 @@ void CLiquidCloseRenderer::onFadeoutCreated(const PHLWINDOW &window, const SP<De
     if (m_records.size() >= BATCH_CAPACITY)
         return;
 
-    // A paper close under texture blur is not substituted: the native fadeout runs unmodified.
-    if (pending.paper && created->effects().textureBlur.enabled)
+    // Sheet closes under texture blur fall back to the native fadeout.
+    if (pending.isSheet && created->effects().textureBlur.enabled)
         return;
 
     auto                        record = std::make_unique<SClosing>();
@@ -331,10 +337,14 @@ void CLiquidCloseRenderer::onFadeoutCreated(const PHLWINDOW &window, const SP<De
     // Owned for any movement mode without texture blur: the edge transition begins Close from the copied pose, so an
     // in-progress opening is kept as the start of the close. The close's own params drive it, not the movement mesh's.
     const bool textureBlur = created->effects().textureBlur.enabled;
-    if (pending.paper) {
-        record->paper = true;
-        record->paperState = pending.paperState;
-        record->paperState.begin(Transition::Close, pending.paperParams, pending.paperSeed);
+    if (pending.isSheet) {
+        record->isSheet = true;
+        record->sheet = std::move(pending.sheet);
+        if (pending.useCloth)
+            record->sheet.beginCloth(Transition::Close, pending.clothParams, pending.sheetSeed, pending.sheetCapture,
+                                     pending.sheetObstacles);
+        else
+            record->sheet.beginPaper(Transition::Close, pending.paperParams, pending.sheetSeed);
     } else if (!textureBlur) {
         record->transition = pending.transition;
         // Continuing an opening keeps its edge; otherwise the staged frame (invalid when none, which leaves it idle).
@@ -344,9 +354,9 @@ void CLiquidCloseRenderer::onFadeoutCreated(const PHLWINDOW &window, const SP<De
     record->strength = pending.strength;
     record->drive = pending.drive;
     record->owned =
-        (record->paper ? record->paperState.active() : record->transition.active()) && record->sourceAlpha > 0.F;
-    // A paper close that did not start is not substituted: the native fadeout runs unmodified.
-    if (record->paper && !record->owned)
+        (record->isSheet ? record->sheet.active() : record->transition.active()) && record->sourceAlpha > 0.F;
+    // A sheet close that did not start falls back to the native fadeout.
+    if (record->isSheet && !record->owned)
         return;
     if (record->owned)
         record->renderBox = ownedRenderBox(record->sourceDevice, created->renderBox(), record->snapshotSize);
@@ -356,8 +366,8 @@ void CLiquidCloseRenderer::onFadeoutCreated(const PHLWINDOW &window, const SP<De
 }
 
 void CLiquidCloseRenderer::fillVertices(SClosing &record) const {
-    if (record.paper) {
-        record.paperState.facets(record.captureLogical, record.paperFacets);
+    if (record.isSheet) {
+        record.sheet.facets(record.captureLogical, record.paperFacets);
         const CBox logical = record.sourceDevice.copy().scale(1.0 / record.scale);
         CBox       extents = paperExtents(record.paperFacets, logical);
         extents.expand(EXTENTS_PADDING);
@@ -419,9 +429,9 @@ bool CLiquidCloseRenderer::tick(clock::time_point now, std::vector<PHLMONITORREF
 
             const double elapsed =
                 std::clamp(std::chrono::duration<double>(now - record->lastAdvance).count(), 0.0, MAX_GAP_SECONDS);
-            if (record->paper) {
-                // The paper mesh is refilled when drawn, not on every tick (several per frame).
-                record->paperState.advance(elapsed);
+            if (record->isSheet) {
+                // The sheet mesh is refilled when drawn, not on every tick (several per frame).
+                record->sheet.advance(elapsed);
                 record->paperStale = true;
             } else {
                 advanceLiquidPose(record->mesh, record->transition, elapsed, record->captureLogical, record->strength,
@@ -571,8 +581,8 @@ bool CLiquidCloseRenderer::renderBatch(Render::CRenderContext &ctx, const PHLMON
             if (item.fadeout)
                 drawBackdrop(item.fadeout->effects());
 
-            if (record->paper) {
-                const float paperAlpha = alpha * float(record->paperState.opacity());
+            if (record->isSheet) {
+                const float paperAlpha = alpha * float(record->sheet.opacity());
                 if (paperAlpha <= 0.F)
                     continue;
                 if (record->paperStale) {
@@ -581,7 +591,7 @@ bool CLiquidCloseRenderer::renderBatch(Render::CRenderContext &ctx, const PHLMON
                 }
                 CPaperClosePassElement::SData paper;
                 paper.tex = tex;
-                paper.shade = record->paperState.shaded() && m_shade ? m_shade->texture() : nullptr;
+                paper.shade = record->sheet.shaded() && m_shade ? m_shade->texture() : nullptr;
                 paper.box = projectToOutput(record->extentsDevice, record->renderBox, record->snapshotSize);
                 paper.vertices = &record->paperVertices;
                 paper.shadeVertices = &record->paperShadeVertices;

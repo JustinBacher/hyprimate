@@ -3,7 +3,7 @@
 #include "EdgeTransition.hpp"
 #include "LiquidGlassTransformer.hpp"
 #include "LiquidMesh.hpp"
-#include "PaperCrumple.hpp"
+#include "SheetMotion.hpp"
 #include "PaperRenderer.hpp"
 #include "SolidFill.hpp"
 
@@ -58,9 +58,9 @@ class CLiquidCloseRenderer {
         bool                           hasLiquid = false; // edge liquid present this frame
         CBox                           liquidDevice;      // edge liquid box inside the snapshot, device px
         std::vector<SMeshRenderVertex> liquidVertices;    // normalized to liquidDevice; sized once
-        // Paper close: the crumple drives shape, shading and placement; the liquid fields above stay unused.
-        bool                           paper = false;
-        liquid_glass::PaperCrumple     paperState;
+        // Sheet motion drives shape, shading and placement; the liquid fields above stay unused.
+        bool                           isSheet = false;
+        liquid_glass::SheetMotion      sheet;
         liquid_glass::PaperFacets      paperFacets{};
         std::vector<SMeshRenderVertex> paperVertices;      // normalized to extentsDevice; sized once
         std::vector<SMeshRenderVertex> paperShadeVertices; // same placement; uv addresses the shade ramp
@@ -87,10 +87,10 @@ class CLiquidCloseRenderer {
                std::optional<liquid_glass::EdgeFrame> closeFrame, double drive, bool closeSplash,
                const liquid_glass::MaterialParams &transition);
 
-    // Captures a paper close from the window's current crumple `from` (idle when the window opened in liquid style, so
-    // the close starts flat). Call from the window.close listener, before the window is detached.
-    void stagePaper(const PHLWINDOW &window, const liquid_glass::PaperCrumple &from,
-                    const liquid_glass::PaperParams &params, std::uint64_t seed);
+    // Stage the sheet and parameters before detaching; begin when the fadeout is created.
+    void stageSheet(const PHLWINDOW &window, const liquid_glass::SheetMotion &from,
+                    const liquid_glass::PaperParams &paper, const liquid_glass::ClothParams &cloth, bool useCloth,
+                    std::uint64_t seed, const liquid_glass::Box &capture, std::span<const liquid_glass::Box> obstacles);
 
     // Advances closing records. Returns true while any record still animates; `activeMonitors` is refilled with the
     // monitors to damage, including the frame in which an owned close finishes or a record is pruned.
@@ -126,10 +126,14 @@ class CLiquidCloseRenderer {
         std::optional<liquid_glass::EdgeFrame> closeFrame;
         bool                                   closeSplash = true;
         liquid_glass::MaterialParams           closeParams{};
-        bool                                   paper = false;
-        liquid_glass::PaperCrumple             paperState;
+        bool                                   isSheet = false;
+        liquid_glass::SheetMotion              sheet;
         liquid_glass::PaperParams              paperParams{};
-        std::uint64_t                          paperSeed = 0;
+        liquid_glass::ClothParams              clothParams{};
+        bool                                   useCloth = false;
+        std::uint64_t                          sheetSeed = 0;
+        liquid_glass::Box                      sheetCapture{};
+        std::vector<liquid_glass::Box>         sheetObstacles;
         clock::time_point                      staged{};
     };
 

@@ -42,6 +42,8 @@ Liquid closing shrinks and travels toward the screen edge in one continuous moti
 
 Paper (`window.open.style` or `window.close.style` set to `"paper"`) has no screen edge, bead or splash, and does not drive the window box. Its crumples are real cloth simulations of a stiff sheet squeezed from all sides into a solid ball, baked offline with Blender and shipped inside the plugin (`assets/paper_takes.bin`); `tools/paper_bake/bake_all.sh` rebakes them. The window crumples in place, facing you: it creases all over while its outline pulls in, then collapses into the ball, without spinning. Each of open and close has its own `duration`, `crumpliness`, `shading` and `variation` under `options.paper`. Closing a window that is still uncrumpling recrumples it from its current shape. Settings used by only one style live under that style's `options` table, so the liquid `strength` and `color` are set per section.
 
+Cloth (`window.open.style` or `window.close.style` set to `"cloth"`) hangs from the top edge: opening unrolls the window downward and lets it settle, while closing winds it up from the bottom as the slack flutters. Each direction has its own `duration`, `flutter`, `shading` and `variation` under `options.cloth`. Closing during a cloth opening continues from its current shape.
+
 <!-- BEGIN GENERATED CONFIGURATION -->
 After the first load has registered the settings, add this Lua configuration:
 
@@ -87,6 +89,12 @@ hl.config({
                             shading = 0.7,
                             variation = 0.5,
                         },
+                        cloth = {
+                            duration = 1.0,
+                            flutter = 0.5,
+                            shading = 0.7,
+                            variation = 0.5,
+                        },
                     },
                 },
                 close = {
@@ -105,6 +113,12 @@ hl.config({
                         paper = {
                             duration = 0.5,
                             crumpliness = 0.6,
+                            shading = 0.7,
+                            variation = 0.5,
+                        },
+                        cloth = {
+                            duration = 0.9,
+                            flutter = 0.5,
                             shading = 0.7,
                             variation = 0.5,
                         },
@@ -130,7 +144,7 @@ Hyprland 0.57 normalizes hyphens to underscores in Lua config names: use `liquid
 | `plugin:liquid-glass:window:movement:options:liquid:variation` | float / `0.5` | Liquid-only per-window and per-movement randomness; zero moves windows identically. Finite values clamped to 0–1. |
 | `plugin:liquid-glass:window:movement:options:wiggle:strength` | float / `0.65` | Wiggle-only movement deformation intensity; zero moves windows undeformed. Finite values clamped to 0–1.5. |
 | `plugin:liquid-glass:window:open:enabled` | boolean / `true` | Animate windows as they open (see style); false opens without it. Movement is unaffected. |
-| `plugin:liquid-glass:window:open:style` | string / `"liquid"` | Open material; invalid names are rejected. Allowed: `liquid`, `paper`. |
+| `plugin:liquid-glass:window:open:style` | string / `"liquid"` | Open material; invalid names are rejected. Allowed: `liquid`, `paper`, `cloth`. |
 | `plugin:liquid-glass:window:open:options:liquid:strength` | float / `0.65` | Liquid-only pop-out size and deformation intensity; zero opens without the pop-out. Finite values clamped to 0–1.5. |
 | `plugin:liquid-glass:window:open:options:liquid:color` | color / `0xff000000` | Liquid-only edge liquid colour (ARGB); alpha zero draws no liquid. |
 | `plugin:liquid-glass:window:open:options:liquid:first_window_side` | string / `"bottom"` | Edge the first window on a workspace pops out of; later windows use the side they appear on (see Edge choice). Allowed: `bottom`, `top`, `left`, `right`. |
@@ -142,8 +156,12 @@ Hyprland 0.57 normalizes hyphens to underscores in Lua config names: use `liquid
 | `plugin:liquid-glass:window:open:options:paper:crumpliness` | float / `0.6` | Paper-only crumple tightness; higher crumples into a smaller, more creased ball. Finite values clamped to 0–1. |
 | `plugin:liquid-glass:window:open:options:paper:shading` | float / `0.7` | Paper-only light and shadow on the creases; zero draws the folds unlit. Finite values clamped to 0–1. |
 | `plugin:liquid-glass:window:open:options:paper:variation` | float / `0.5` | Paper-only per-window randomness of which crumple plays and its mirroring; zero crumples every window identically. Finite values clamped to 0–1. |
+| `plugin:liquid-glass:window:open:options:cloth:duration` | float / `1.0` | Cloth-only seconds for the window to unroll and settle. Finite values clamped to 0.1–4. |
+| `plugin:liquid-glass:window:open:options:cloth:flutter` | float / `0.5` | Cloth-only gust strength; zero hangs still. Finite values clamped to 0–1. |
+| `plugin:liquid-glass:window:open:options:cloth:shading` | float / `0.7` | Cloth-only light and shadow on the folds; zero draws the folds unlit. Finite values clamped to 0–1. |
+| `plugin:liquid-glass:window:open:options:cloth:variation` | float / `0.5` | Cloth-only per-window variation; zero uses the same motion for every window. Finite values clamped to 0–1. |
 | `plugin:liquid-glass:window:close:enabled` | boolean / `true` | Animate windows as they close (see style); false closes natively. Movement is unaffected. |
-| `plugin:liquid-glass:window:close:style` | string / `"liquid"` | Close material; invalid names are rejected. Allowed: `liquid`, `paper`. |
+| `plugin:liquid-glass:window:close:style` | string / `"liquid"` | Close material; invalid names are rejected. Allowed: `liquid`, `paper`, `cloth`. |
 | `plugin:liquid-glass:window:close:options:liquid:strength` | float / `0.65` | Liquid-only drain deformation intensity; zero closes natively. Finite values clamped to 0–1.5. |
 | `plugin:liquid-glass:window:close:options:liquid:color` | color / `0xff000000` | Liquid-only edge liquid colour (ARGB); alpha zero draws no liquid. |
 | `plugin:liquid-glass:window:close:options:liquid:side` | string / `"auto"` | Drain by side of appearance (auto), nearest valid edge, or opening edge (origin, falling back to auto). Allowed: `auto`, `nearest`, `origin`. |
@@ -155,6 +173,10 @@ Hyprland 0.57 normalizes hyphens to underscores in Lua config names: use `liquid
 | `plugin:liquid-glass:window:close:options:paper:crumpliness` | float / `0.6` | Paper-only crumple tightness; higher crumples into a smaller, more creased ball. Finite values clamped to 0–1. |
 | `plugin:liquid-glass:window:close:options:paper:shading` | float / `0.7` | Paper-only light and shadow on the creases; zero draws the folds unlit. Finite values clamped to 0–1. |
 | `plugin:liquid-glass:window:close:options:paper:variation` | float / `0.5` | Paper-only per-window randomness of which crumple plays and its mirroring; zero crumples every window identically. Finite values clamped to 0–1. |
+| `plugin:liquid-glass:window:close:options:cloth:duration` | float / `0.9` | Cloth-only seconds to wind up the window and vanish. Finite values clamped to 0.1–4. |
+| `plugin:liquid-glass:window:close:options:cloth:flutter` | float / `0.5` | Cloth-only gust strength; zero hangs still. Finite values clamped to 0–1. |
+| `plugin:liquid-glass:window:close:options:cloth:shading` | float / `0.7` | Cloth-only light and shadow on the folds; zero draws the folds unlit. Finite values clamped to 0–1. |
+| `plugin:liquid-glass:window:close:options:cloth:variation` | float / `0.5` | Cloth-only per-window variation; zero uses the same motion for every window. Finite values clamped to 0–1. |
 <!-- END GENERATED CONFIGURATION -->
 
 ### Edge choice

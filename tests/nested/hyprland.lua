@@ -82,6 +82,12 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                             shading = 0.7,
 --                             variation = 0.5,
 --                         },
+--                         cloth = {
+--                             duration = 1.0,
+--                             flutter = 0.5,
+--                             shading = 0.7,
+--                             variation = 0.5,
+--                         },
 --                     },
 --                 },
 --                 close = {
@@ -100,6 +106,12 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                         paper = {
 --                             duration = 0.5,
 --                             crumpliness = 0.6,
+--                             shading = 0.7,
+--                             variation = 0.5,
+--                         },
+--                         cloth = {
+--                             duration = 0.9,
+--                             flutter = 0.5,
 --                             shading = 0.7,
 --                             variation = 0.5,
 --                         },

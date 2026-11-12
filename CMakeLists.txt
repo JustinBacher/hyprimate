@@ -17,6 +17,40 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(HYPRLAND REQUIRED IMPORTED_TARGET hyprland)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
+# Jolt Physics drives the cloth animations. Only the library is built, single precision, statically into the plugin;
+# its compute backends (GPU hair), debug renderer, profiler and floating-point exceptions stay off: an FP trap or a
+# debug hook inside the compositor would take the session down.
+include(FetchContent)
+set(JPH_USE_VK OFF CACHE BOOL "" FORCE)
+set(JPH_USE_DX12 OFF CACHE BOOL "" FORCE)
+set(JPH_USE_MTL OFF CACHE BOOL "" FORCE)
+set(JPH_USE_CPU_COMPUTE OFF CACHE BOOL "" FORCE)
+set(DEBUG_RENDERER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)
+set(PROFILER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)
+set(FLOATING_POINT_EXCEPTIONS_ENABLED OFF CACHE BOOL "" FORCE)
+set(ENABLE_OBJECT_STREAM OFF CACHE BOOL "" FORCE)
+set(ENABLE_ALL_WARNINGS OFF CACHE BOOL "" FORCE)
+set(ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
+set(JPH_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+# A compositor plugin must not raise SIGILL on CPUs without AVX2 (Jolt picks AVX-512 first when it is on).
+set(USE_AVX512 OFF CACHE BOOL "" FORCE)
+set(USE_AVX OFF CACHE BOOL "" FORCE)
+set(USE_AVX2 OFF CACHE BOOL "" FORCE)
+set(USE_LZCNT OFF CACHE BOOL "" FORCE)
+set(USE_TZCNT OFF CACHE BOOL "" FORCE)
+set(USE_F16C OFF CACHE BOOL "" FORCE)
+set(USE_FMADD OFF CACHE BOOL "" FORCE)
+set(USE_SSE4_1 ON CACHE BOOL "" FORCE)
+set(USE_SSE4_2 ON CACHE BOOL "" FORCE)
+FetchContent_Declare(JoltPhysics
+    URL https://github.com/jrouwe/JoltPhysics/archive/refs/tags/v5.6.0.tar.gz
+    URL_HASH SHA256=6e069ee0172478cc78182047aac87e5310ba14a67a53348ae14cc37801fd3f8e
+    SOURCE_SUBDIR Build
+    SYSTEM
+)
+FetchContent_MakeAvailable(JoltPhysics)
+
 set(CONFIG_SCHEMA ${CMAKE_CURRENT_SOURCE_DIR}/config/settings.json)
 set(CONFIG_GENERATOR ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_config.py)
 set(CONFIG_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
@@ -45,13 +79,19 @@ add_library(liquid-glass SHARED
     src/PaperCrumple.cpp
     src/PaperTakes.cpp
     src/PaperRenderer.cpp
+    src/SheetFacets.cpp
+    src/SheetMotion.cpp
+    src/ClothFlutter.cpp
 )
 # PaperTakes.cpp #embeds the baked crumples; rebuild it whenever they are re-packed.
 set_source_files_properties(src/PaperTakes.cpp PROPERTIES OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/paper_takes.bin)
+set_source_files_properties(src/ClothFlutter.cpp PROPERTIES COMPILE_OPTIONS "-fvisibility=hidden;-fvisibility-inlines-hidden")
 set_target_properties(liquid-glass PROPERTIES PREFIX "" INTERPROCEDURAL_OPTIMIZATION FALSE)
 add_dependencies(liquid-glass generate-config)
 target_include_directories(liquid-glass PRIVATE ${CONFIG_GENERATED_DIR})
-target_link_libraries(liquid-glass PRIVATE PkgConfig::HYPRLAND)
+target_link_libraries(liquid-glass PRIVATE PkgConfig::HYPRLAND Jolt)
+# Keep Jolt's symbols out of the plugin's dynamic symbol table, so they cannot bind to another copy in the process.
+target_link_options(liquid-glass PRIVATE -Wl,--exclude-libs,ALL)
 # GNU-unique inline statics otherwise make dlclose retain stale plugin code.
 target_compile_options(liquid-glass PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>:-fno-gnu-unique> -Wall -Wextra -Wpedantic)
 
@@ -91,8 +131,15 @@ if(BUILD_TESTING)
     target_compile_options(edge-transition-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME edge-transition-tests COMMAND edge-transition-tests)
 
-    add_executable(paper-crumple-tests tests/PaperCrumpleTests.cpp src/PaperCrumple.cpp src/PaperTakes.cpp)
+    add_executable(paper-crumple-tests tests/PaperCrumpleTests.cpp src/PaperCrumple.cpp src/PaperTakes.cpp
+                   src/SheetFacets.cpp)
     target_include_directories(paper-crumple-tests PRIVATE src)
     target_compile_options(paper-crumple-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME paper-crumple-tests COMMAND paper-crumple-tests)
+
+    add_executable(cloth-flutter-tests tests/ClothFlutterTests.cpp src/ClothFlutter.cpp src/SheetFacets.cpp)
+    target_include_directories(cloth-flutter-tests PRIVATE src)
+    target_link_libraries(cloth-flutter-tests PRIVATE Jolt)
+    target_compile_options(cloth-flutter-tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME cloth-flutter-tests COMMAND cloth-flutter-tests)
 endif()

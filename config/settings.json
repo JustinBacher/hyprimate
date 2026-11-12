@@ -9,7 +9,7 @@
   {"path":"window.movement.options.liquid.variation", "member":"m_variation", "type":"float", "default":0.5, "min":0, "max":1, "description":"Liquid-only per-window and per-movement randomness; zero moves windows identically."},
   {"path":"window.movement.options.wiggle.strength", "member":"m_movementWiggleStrength", "type":"float", "default":0.65, "min":0, "max":1.5, "description":"Wiggle-only movement deformation intensity; zero moves windows undeformed."},
   {"path":"window.open.enabled", "member":"m_openEnabled", "type":"boolean", "default":true, "description":"Animate windows as they open (see style); false opens without it. Movement is unaffected."},
-  {"path":"window.open.style", "member":"m_openStyle", "type":"string", "default":"liquid", "choices":["liquid","paper"], "description":"Open material; invalid names are rejected."},
+  {"path":"window.open.style", "member":"m_openStyle", "type":"string", "default":"liquid", "choices":["liquid","paper","cloth"], "description":"Open material; invalid names are rejected."},
   {"path":"window.open.options.liquid.strength", "member":"m_openLiquidStrength", "type":"float", "default":0.65, "min":0, "max":1.5, "description":"Liquid-only pop-out size and deformation intensity; zero opens without the pop-out."},
   {"path":"window.open.options.liquid.color", "member":"m_openLiquidColor", "type":"color", "default":"0xff000000", "description":"Liquid-only edge liquid colour (ARGB); alpha zero draws no liquid."},
   {"path":"window.open.options.liquid.first_window_side", "member":"m_firstWindowSide", "type":"string", "default":"bottom", "choices":["bottom","top","left","right"], "description":"Edge the first window on a workspace pops out of; later windows use the side they appear on (see Edge choice)."},
@@ -21,8 +21,12 @@
   {"path":"window.open.options.paper.crumpliness", "member":"m_openPaperCrumpliness", "type":"float", "default":0.6, "min":0, "max":1, "description":"Paper-only crumple tightness; higher crumples into a smaller, more creased ball."},
   {"path":"window.open.options.paper.shading", "member":"m_openPaperShading", "type":"float", "default":0.7, "min":0, "max":1, "description":"Paper-only light and shadow on the creases; zero draws the folds unlit."},
   {"path":"window.open.options.paper.variation", "member":"m_openPaperVariation", "type":"float", "default":0.5, "min":0, "max":1, "description":"Paper-only per-window randomness of which crumple plays and its mirroring; zero crumples every window identically."},
+  {"path":"window.open.options.cloth.duration", "member":"m_openClothDuration", "type":"float", "default":1.0, "min":0.1, "max":4, "description":"Cloth-only seconds for the window to unroll and settle."},
+  {"path":"window.open.options.cloth.flutter", "member":"m_openClothFlutter", "type":"float", "default":0.5, "min":0, "max":1, "description":"Cloth-only gust strength; zero hangs still."},
+  {"path":"window.open.options.cloth.shading", "member":"m_openClothShading", "type":"float", "default":0.7, "min":0, "max":1, "description":"Cloth-only light and shadow on the folds; zero draws the folds unlit."},
+  {"path":"window.open.options.cloth.variation", "member":"m_openClothVariation", "type":"float", "default":0.5, "min":0, "max":1, "description":"Cloth-only per-window variation; zero uses the same motion for every window."},
   {"path":"window.close.enabled", "member":"m_closeEnabled", "type":"boolean", "default":true, "description":"Animate windows as they close (see style); false closes natively. Movement is unaffected."},
-  {"path":"window.close.style", "member":"m_closeStyle", "type":"string", "default":"liquid", "choices":["liquid","paper"], "description":"Close material; invalid names are rejected."},
+  {"path":"window.close.style", "member":"m_closeStyle", "type":"string", "default":"liquid", "choices":["liquid","paper","cloth"], "description":"Close material; invalid names are rejected."},
   {"path":"window.close.options.liquid.strength", "member":"m_closeLiquidStrength", "type":"float", "default":0.65, "min":0, "max":1.5, "description":"Liquid-only drain deformation intensity; zero closes natively."},
   {"path":"window.close.options.liquid.color", "member":"m_closeLiquidColor", "type":"color", "default":"0xff000000", "description":"Liquid-only edge liquid colour (ARGB); alpha zero draws no liquid."},
   {"path":"window.close.options.liquid.side", "member":"m_closeSide", "type":"string", "default":"auto", "choices":["auto","nearest","origin"], "description":"Drain by side of appearance (auto), nearest valid edge, or opening edge (origin, falling back to auto)."},
@@ -33,5 +37,9 @@
   {"path":"window.close.options.paper.duration", "member":"m_closePaperDuration", "type":"float", "default":0.5, "min":0.1, "max":3, "description":"Paper-only seconds to crumple the window into a ball and vanish."},
   {"path":"window.close.options.paper.crumpliness", "member":"m_closePaperCrumpliness", "type":"float", "default":0.6, "min":0, "max":1, "description":"Paper-only crumple tightness; higher crumples into a smaller, more creased ball."},
   {"path":"window.close.options.paper.shading", "member":"m_closePaperShading", "type":"float", "default":0.7, "min":0, "max":1, "description":"Paper-only light and shadow on the creases; zero draws the folds unlit."},
-  {"path":"window.close.options.paper.variation", "member":"m_closePaperVariation", "type":"float", "default":0.5, "min":0, "max":1, "description":"Paper-only per-window randomness of which crumple plays and its mirroring; zero crumples every window identically."}
+  {"path":"window.close.options.paper.variation", "member":"m_closePaperVariation", "type":"float", "default":0.5, "min":0, "max":1, "description":"Paper-only per-window randomness of which crumple plays and its mirroring; zero crumples every window identically."},
+  {"path":"window.close.options.cloth.duration", "member":"m_closeClothDuration", "type":"float", "default":0.9, "min":0.1, "max":4, "description":"Cloth-only seconds to wind up the window and vanish."},
+  {"path":"window.close.options.cloth.flutter", "member":"m_closeClothFlutter", "type":"float", "default":0.5, "min":0, "max":1, "description":"Cloth-only gust strength; zero hangs still."},
+  {"path":"window.close.options.cloth.shading", "member":"m_closeClothShading", "type":"float", "default":0.7, "min":0, "max":1, "description":"Cloth-only light and shadow on the folds; zero draws the folds unlit."},
+  {"path":"window.close.options.cloth.variation", "member":"m_closeClothVariation", "type":"float", "default":0.5, "min":0, "max":1, "description":"Cloth-only per-window variation; zero uses the same motion for every window."}
 ]

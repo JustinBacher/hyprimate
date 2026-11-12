@@ -257,31 +257,40 @@ void CLiquidGlassTransformer::cancelOpening() {
     m_transition.reset();
     m_boxDriven = false;
     m_displacementGain = 1.0;
-    m_paper.reset();
+    m_sheet.reset();
 }
 
 void CLiquidGlassTransformer::beginPaperOpen(const liquid_glass::PaperParams &params, std::uint64_t seed,
                                              Vec2 captureSize) {
     cancelOpening();
-    m_paper.begin(liquid_glass::Transition::Open, params, seed);
-    m_paperCaptureSize = captureSize;
-    m_paperFacetsStale = true;
+    m_sheet.beginPaper(liquid_glass::Transition::Open, params, seed);
+    m_sheetCaptureSize = captureSize;
+    m_sheetFacetsStale = true;
 }
 
-void CLiquidGlassTransformer::advancePaper(double elapsed, Vec2 captureSize) {
-    if (!m_paper.active())
+void CLiquidGlassTransformer::beginClothOpen(const liquid_glass::ClothParams &params, std::uint64_t seed,
+                                             const liquid_glass::Box           &window,
+                                             std::span<const liquid_glass::Box> obstacles) {
+    cancelOpening();
+    m_sheet.beginCloth(liquid_glass::Transition::Open, params, seed, window, obstacles);
+    m_sheetCaptureSize = {window.w, window.h};
+    m_sheetFacetsStale = true;
+}
+
+void CLiquidGlassTransformer::advanceSheet(double elapsed, Vec2 captureSize) {
+    if (!m_sheet.active())
         return;
-    m_paper.advance(elapsed);
-    m_paperCaptureSize = captureSize;
-    m_paperFacetsStale = true;
+    m_sheet.advance(elapsed);
+    m_sheetCaptureSize = captureSize;
+    m_sheetFacetsStale = true;
 }
 
-const liquid_glass::PaperFacets &CLiquidGlassTransformer::paperFacets() const noexcept {
-    if (m_paperFacetsStale) {
-        m_paper.facets(m_paperCaptureSize, m_paperFacets);
-        m_paperFacetsStale = false;
+const liquid_glass::PaperFacets &CLiquidGlassTransformer::sheetFacets() const noexcept {
+    if (m_sheetFacetsStale) {
+        m_sheet.facets(m_sheetCaptureSize, m_sheetFacets);
+        m_sheetFacetsStale = false;
     }
-    return m_paperFacets;
+    return m_sheetFacets;
 }
 
 void CLiquidGlassTransformer::restoreBox() {
@@ -382,7 +391,7 @@ bool CLiquidGlassTransformer::active() const {
     const auto window = m_window.lock();
     if (m_detached || !window || !window->mapped() || Fullscreen::controller()->isFullscreen(window))
         return false;
-    if (m_mesh.settled() && !m_transition.active() && !m_paper.active())
+    if (m_mesh.settled() && !m_transition.active() && !m_sheet.active())
         return false;
     const auto box = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
     return std::isfinite(box.x) && std::isfinite(box.y) && std::isfinite(box.w) && std::isfinite(box.h) && !box.empty();
@@ -396,8 +405,8 @@ CBox CLiquidGlassTransformer::transformedExtents(const CBox &currentBox) const {
     if (!active())
         return currentBox;
 
-    if (m_paper.active()) {
-        CBox extents = paperExtents(paperFacets(), currentBox);
+    if (m_sheet.active()) {
+        CBox extents = paperExtents(sheetFacets(), currentBox);
         extents.expand(EXTENTS_PADDING);
         return extents;
     }
@@ -435,26 +444,25 @@ SWindowTransformBuffer CLiquidGlassTransformer::transform(CRenderContext &ctx, c
 
     if (OUTPUTCANVAS.empty() || SOURCEBOX.empty() || OUTPUTBOX.empty())
         return in;
-
     const auto   texSize = in.framebuffer->getTexture()->m_size;
     const double texW = texSize.x;
     const double texH = texSize.y;
     if (!(texW > 0.0 && texH > 0.0))
         return in;
 
-    if (m_paper.active()) {
+    if (m_sheet.active()) {
         // The paper branch draws its own work buffer, so it never allocates the liquid OUT buffer.
-        fillPaperMeshes(paperFacets(), SOURCEBOX, SCALE, OUTPUTBOX, Vec2{in.box.x, in.box.y}, Vec2{texW, texH},
+        fillPaperMeshes(sheetFacets(), SOURCEBOX, SCALE, OUTPUTBOX, Vec2{in.box.x, in.box.y}, Vec2{texW, texH},
                         m_paperVertices, m_paperShadeVertices);
         const auto layer =
             renderPaper(ctx, SPaperDraw{
                                  .window = in.framebuffer->getTexture(),
-                                 .shade = m_paper.shaded() && m_shade ? m_shade->texture() : SP<Render::ITexture>{},
+                                 .shade = m_sheet.shaded() && m_shade ? m_shade->texture() : SP<Render::ITexture>{},
                                  .canvas = OUTPUTCANVAS.size(),
                                  .meshBox = LOCALOUTPUTBOX,
                                  .windowVertices = &m_paperVertices,
                                  .shadeVertices = &m_paperShadeVertices,
-                                 .alpha = float(m_paper.opacity()),
+                                 .alpha = float(m_sheet.opacity()),
                              });
         if (!layer)
             return {

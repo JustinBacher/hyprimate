@@ -54,12 +54,15 @@ class CPluginRuntime {
     bool                         closeEnabled() const;
     bool                         openPaper() const;
     bool                         closePaper() const;
+    bool                         openCloth() const;
+    bool                         closeCloth() const;
     double                       movementStrength() const;
     double                       effectiveViscosity() const;
     liquid_glass::MotionMode     effectiveMode() const;
     liquid_glass::MaterialParams effectiveMaterialParams() const;
     liquid_glass::MaterialParams transitionParams(double elasticity, double momentum) const;
     liquid_glass::PaperParams paperParams(double duration, double crumpliness, double shading, double variation) const;
+    liquid_glass::ClothParams clothParams(double duration, double flutter, double shading, double variation) const;
     bool                      materialUsable() const;
     bool                      materialChanged(const liquid_glass::LiquidMesh &mesh) const;
     bool                      wobbleEnabled() const;
@@ -78,6 +81,7 @@ class CPluginRuntime {
     liquid_glass::Edge                     firstWindowEdge() const;
     bool                                   workspaceHasOtherWindows(const PHLWINDOW &window) const;
     void                                   gatherNeighbours(const PHLWINDOW &window) const;
+    void                                   gatherClothObstacles(const PHLWINDOW &window) const;
     CBox                                   edgeBoundsBox(const PHLMONITOR &monitor, bool opening) const;
     std::optional<liquid_glass::EdgeFrame> edgeFrameFor(const PHLWINDOW &window, bool opening,
                                                         std::optional<liquid_glass::Edge> origin = std::nullopt) const;
@@ -97,6 +101,9 @@ class CPluginRuntime {
     void                     scheduleAnimation(const PHLWINDOW &window) const;
     void                     detachWindow(STracked &entry, const PHLWINDOW &window);
     void                     detachAll();
+
+    // Must outlive close records and every transformer detached during destruction.
+    liquid_glass::ClothPhysics m_clothPhysics;
 
     HANDLE m_handle = nullptr;
     // window
@@ -124,6 +131,10 @@ class CPluginRuntime {
     SP<Config::Values::CFloatValue>  m_openPaperCrumpliness;
     SP<Config::Values::CFloatValue>  m_openPaperShading;
     SP<Config::Values::CFloatValue>  m_openPaperVariation;
+    SP<Config::Values::CFloatValue>  m_openClothDuration;
+    SP<Config::Values::CFloatValue>  m_openClothFlutter;
+    SP<Config::Values::CFloatValue>  m_openClothShading;
+    SP<Config::Values::CFloatValue>  m_openClothVariation;
     // close
     SP<Config::Values::CBoolValue>   m_closeEnabled;
     SP<Config::Values::CStringValue> m_closeStyle;
@@ -138,6 +149,10 @@ class CPluginRuntime {
     SP<Config::Values::CFloatValue>  m_closePaperCrumpliness;
     SP<Config::Values::CFloatValue>  m_closePaperShading;
     SP<Config::Values::CFloatValue>  m_closePaperVariation;
+    SP<Config::Values::CFloatValue>  m_closeClothDuration;
+    SP<Config::Values::CFloatValue>  m_closeClothFlutter;
+    SP<Config::Values::CFloatValue>  m_closeClothShading;
+    SP<Config::Values::CFloatValue>  m_closeClothVariation;
     CConfigValue<Config::INTEGER>    m_wobble{"decoration:wobble:enabled"};
 
     std::vector<STracked>                 m_tracked;

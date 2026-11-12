@@ -2,7 +2,7 @@
 
 #include "EdgeTransition.hpp"
 #include "LiquidMesh.hpp"
-#include "PaperCrumple.hpp"
+#include "SheetMotion.hpp"
 #include "PaperRenderer.hpp"
 #include "SolidFill.hpp"
 
@@ -102,14 +102,13 @@ class CLiquidGlassTransformer final : public Render::IWindowTransformer {
     void cancelOpening();
     // Recomputes the cached movement-field gain. Called once per physics advance, never from the render path.
     void refreshPose(liquid_glass::Vec2 captureSize);
-    // Starts the paper crumple at the window's box. `captureSize` is the decorated capture size; the transformer
-    // cancels any liquid pop-out first, so the box drive is never shared with the paper.
+    // Sheet animations stay at the capture box and do not drive the window's layout box.
     void beginPaperOpen(const liquid_glass::PaperParams &params, std::uint64_t seed, liquid_glass::Vec2 captureSize);
-    // Advances the paper model. Facets are recomputed lazily by the render path, once per drawn frame: physics ticks
-    // run several times per frame, and refreshing the facets on each tick multiplied their cost for nothing.
-    void                              advancePaper(double elapsed, liquid_glass::Vec2 captureSize);
-    liquid_glass::PaperCrumple       &paper() noexcept { return m_paper; }
-    const liquid_glass::PaperCrumple &paper() const noexcept { return m_paper; }
+    void beginClothOpen(const liquid_glass::ClothParams &params, std::uint64_t seed, const liquid_glass::Box &window,
+                        std::span<const liquid_glass::Box> obstacles);
+    void advanceSheet(double elapsed, liquid_glass::Vec2 captureSize);
+    liquid_glass::SheetMotion       &sheet() noexcept { return m_sheet; }
+    const liquid_glass::SheetMotion &sheet() const noexcept { return m_sheet; }
 
     // Set by the runtime right before this transformer is removed from its owner list.
     void markDetached() {
@@ -119,8 +118,8 @@ class CLiquidGlassTransformer final : public Render::IWindowTransformer {
     }
 
   private:
-    // The paper's facets for its current state, recomputed only after the model advanced.
-    const liquid_glass::PaperFacets &paperFacets() const noexcept;
+    // Facets are recomputed only after the sheet advances.
+    const liquid_glass::PaperFacets &sheetFacets() const noexcept;
     void                             restoreBox();
     PHLWINDOWREF                     m_window;
     liquid_glass::LiquidMesh         m_mesh;
@@ -140,12 +139,11 @@ class CLiquidGlassTransformer final : public Render::IWindowTransformer {
     // Fixed size, sized once in the constructor; the render path only writes into them.
     std::vector<SMeshRenderVertex> m_vertices;
     std::vector<SMeshRenderVertex> m_meniscusVertices;
-    // Paper crumple: the model, its facets, and the window and shade meshes. Each is sized once; the render path only
-    // writes.
-    liquid_glass::PaperCrumple        m_paper;
-    mutable liquid_glass::PaperFacets m_paperFacets{};
-    mutable bool                      m_paperFacetsStale = false;
-    liquid_glass::Vec2                m_paperCaptureSize{};
+    // The model and its cached facets share the paper renderer's preallocated meshes.
+    liquid_glass::SheetMotion         m_sheet;
+    mutable liquid_glass::PaperFacets m_sheetFacets{};
+    mutable bool                      m_sheetFacetsStale = false;
+    liquid_glass::Vec2                m_sheetCaptureSize{};
     std::vector<SMeshRenderVertex>    m_paperVertices;
     std::vector<SMeshRenderVertex>    m_paperShadeVertices;
 };

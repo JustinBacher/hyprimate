@@ -78,12 +78,18 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
             // Close drains rigidly: emerge_drag is an open-only option, so the close drives no travel.
             if (closeEnabled() && eligible(window)) {
                 auto *transformer = transformerOf(window);
-                if (closePaper()) {
-                    // Paper crumples in place from the window's current box; it needs no edge and no strength gate.
-                    m_close->stagePaper(window, transformer ? transformer->paper() : liquid_glass::PaperCrumple{},
+                if (closePaper() || closeCloth()) {
+                    const CBox capture = window->getFullWindowBoundingBox();
+                    m_neighbours.clear();
+                    if (closeCloth())
+                        gatherClothObstacles(window);
+                    m_close->stageSheet(window, transformer ? transformer->sheet() : liquid_glass::SheetMotion{},
                                         paperParams(m_closePaperDuration->value(), m_closePaperCrumpliness->value(),
                                                     m_closePaperShading->value(), m_closePaperVariation->value()),
-                                        m_nextSeed++);
+                                        clothParams(m_closeClothDuration->value(), m_closeClothFlutter->value(),
+                                                    m_closeClothShading->value(), m_closeClothVariation->value()),
+                                        closeCloth(), m_nextSeed++, {capture.x, capture.y, capture.w, capture.h},
+                                        m_neighbours);
                 } else {
                     const bool continuing = transformer && transformer->transition().active();
                     const auto closeFrame = continuing ? std::optional<liquid_glass::EdgeFrame>{}
@@ -173,6 +179,10 @@ bool CPluginRuntime::openPaper() const { return m_openStyle->value() == "paper";
 
 bool CPluginRuntime::closePaper() const { return m_closeStyle->value() == "paper"; }
 
+bool CPluginRuntime::openCloth() const { return m_openStyle->value() == "cloth"; }
+
+bool CPluginRuntime::closeCloth() const { return m_closeStyle->value() == "cloth"; }
+
 liquid_glass::MaterialParams CPluginRuntime::transitionParams(double elasticity, double momentum) const {
     // Edge transitions use only elasticity and momentum; the movement field's viscosity and variation do not apply.
     return liquid_glass::MaterialParams{
@@ -191,6 +201,14 @@ liquid_glass::PaperParams CPluginRuntime::paperParams(double duration, double cr
         .shading = clampUnit(shading),
         .variation = clampUnit(variation),
     };
+}
+
+liquid_glass::ClothParams CPluginRuntime::clothParams(double duration, double flutter, double shading,
+                                                      double variation) const {
+    return {.duration = duration,
+            .flutter = clampUnit(flutter),
+            .shading = clampUnit(shading),
+            .variation = clampUnit(variation)};
 }
 
 double CPluginRuntime::effectiveEmergeDrag() const {
@@ -226,6 +244,16 @@ void CPluginRuntime::gatherNeighbours(const PHLWINDOW &window) const {
         if (other && other.get() != window.get() && other->m_workspace == window->m_workspace && other->mapped() &&
             !other->isHidden() && !other->isFloating()) {
             const CBox b = other->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
+            m_neighbours.push_back({b.x, b.y, b.w, b.h});
+        }
+    }
+}
+
+void CPluginRuntime::gatherClothObstacles(const PHLWINDOW &window) const {
+    for (const auto &other : Desktop::windowState()->windows()) {
+        if (other && other.get() != window.get() && other->m_workspace == window->m_workspace && other->mapped() &&
+            !other->isHidden()) {
+            const CBox b = other->getFullWindowBoundingBox();
             m_neighbours.push_back({b.x, b.y, b.w, b.h});
         }
     }
@@ -379,7 +407,7 @@ void CPluginRuntime::onTick() {
     std::erase_if(m_tracked, [](const STracked &entry) { return entry.window.expired(); });
 
     // A live disable also drops retained closes, restoring native fades where still available.
-    if (!closeEnabled() || (!closePaper() && clampStrength(m_closeLiquidStrength->value()) <= 0.0)) {
+    if (!closeEnabled() || (!closePaper() && !closeCloth() && clampStrength(m_closeLiquidStrength->value()) <= 0.0)) {
         m_close->clear();
     } else if (m_close->tick(now, m_closeMonitors)) {
         Animation::mgr()->requestTick();
@@ -435,7 +463,7 @@ void CPluginRuntime::sampleWindow(STracked &entry, const PHLWINDOW &window) {
         return;
     }
     const auto *existing = transformerOf(window);
-    if (animating || wasAnimating || (existing && (existing->transition().active() || existing->paper().active()))) {
+    if (animating || wasAnimating || (existing && (existing->transition().active() || existing->sheet().active()))) {
         // Native open/close motion and the driven open box move the window; neither is a drag impulse.
         entry.lastBox = current;
         entry.lastCaptureSize = captureSize;
@@ -503,6 +531,14 @@ void CPluginRuntime::beginOpening(STracked &entry, const PHLWINDOW &window) {
             paperParams(m_openPaperDuration->value(), m_openPaperCrumpliness->value(), m_openPaperShading->value(),
                         m_openPaperVariation->value()),
             m_nextSeed++, {capture.w, capture.h});
+    } else if (openCloth()) {
+        const CBox capture = window->getFullWindowBoundingBox();
+        m_neighbours.clear();
+        gatherClothObstacles(window);
+        acquireTransformer(window)->beginClothOpen(
+            clothParams(m_openClothDuration->value(), m_openClothFlutter->value(), m_openClothShading->value(),
+                        m_openClothVariation->value()),
+            m_nextSeed++, {capture.x, capture.y, capture.w, capture.h}, m_neighbours);
     } else {
         const auto frame = edgeFrameFor(window, true);
         if (!frame)
@@ -577,7 +613,7 @@ void CPluginRuntime::advanceWindow(STracked &entry, const PHLWINDOW &window,
         transformer->mesh().reset();
     advanceLiquidPose(transformer->mesh(), transformer->transition(), elapsed, size, movementStrength(),
                       moving ? effectiveEmergeDrag() : 0.0);
-    transformer->advancePaper(elapsed, size);
+    transformer->advanceSheet(elapsed, size);
     transformer->refreshPose(size);
     transformer->driveBox();
     entry.lastBox = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
