@@ -93,9 +93,10 @@ class CLiquidCloseRenderer {
                     std::uint64_t seed, const liquid_glass::Box &capture, std::span<const liquid_glass::Box> obstacles,
                     std::optional<liquid_glass::ClothCloseGeometry> closeGeometry = std::nullopt);
 
-    // Advances closing records. Returns true while any record still animates; `activeMonitors` is refilled with the
-    // monitors to damage, including the frame in which an owned close finishes or a record is pruned.
-    bool tick(clock::time_point now, std::vector<PHLMONITORREF> &activeMonitors);
+    // Called before `rendering` draws a frame. Prunes every finished record and advances the records drawn on
+    // `rendering`. Returns true while anything needs damage; `activeMonitors` is refilled with the monitors to damage,
+    // including the frame in which an owned close finishes or a record is pruned.
+    bool tick(clock::time_point now, const PHLMONITOR &rendering, std::vector<PHLMONITORREF> &activeMonitors);
 
     // Drops pending handoffs and records (topology or config change).
     void clear();
@@ -165,8 +166,8 @@ class CLiquidCloseRenderer {
 };
 
 // Draws a deformed closing fadeout. Borrows vertices from its record; records are only removed from tick/clear,
-// which run outside the render pass, so the borrowed pointer is valid for the whole frame. The host destroys every
-// pass element when the frame ends, so no element of this type survives between frames.
+// which run before a frame's render pass begins, so the borrowed pointer is valid for the whole frame. The host
+// destroys every pass element when the frame ends, so no element of this type survives between frames.
 class CLiquidClosePassElement final : public IPassElement {
   public:
     struct SData {

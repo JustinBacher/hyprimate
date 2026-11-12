@@ -90,6 +90,30 @@ void pinnedDrop() {
             CHECK(f.shade[i] == 0);
         }
 }
+// The swinging free edge must be air-braked before it reaches the desktop plane; stopping dead there jolts the
+// displayed sheet within a single frame.
+void softLanding() {
+    const double L = std::sqrt(WINDOW.w * WINDOW.h);
+    for (double flutter : {0.0, 0.5}) {
+        auto p = params();
+        p.flutter = flutter;
+        auto                   m = open(p);
+        std::vector<SheetGrid> frames;
+        while (m.active()) {
+            m.advance(1.0 / 120);
+            frames.push_back(pose(m).p);
+        }
+        double worst = 0;
+        for (std::size_t f = 2; f < frames.size(); ++f)
+            for (std::size_t k = 0; k < frames[f].size(); ++k) {
+                const Vec3 a = frames[f - 2][k], b = frames[f - 1][k], c = frames[f][k];
+                worst = std::max(worst, std::hypot((c.x - 2 * b.x + a.x) * WINDOW.w, (c.y - 2 * b.y + a.y) * WINDOW.h,
+                                                   (c.z - 2 * b.z + a.z) * L));
+            }
+        // Per-frame velocity change in pixels at 120 Hz; the undamped swing peaked near 60 here.
+        CHECK(worst < 30);
+    }
+}
 void exits() {
     auto p = params();
     p.flutter = 0;
@@ -426,6 +450,45 @@ void movementCadenceAndInvalid() {
     }
     CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds(1));
 }
+// Each frame posts a target the worker has not answered yet. The displayed sheet must already be fully simulated, so
+// it cannot depend on whether the worker happened to answer before the frame was drawn.
+void movementIndependentOfWorkerTiming() {
+    ClothMovementParams params;
+    params.variation = 0;
+    constexpr int          FRAMES = 30;
+    constexpr double       FRAME = 1.0 / 60;
+    std::vector<SheetGrid> answered;
+    {
+        ClothFlutter m;
+        m.beginMovement(params, 3, WINDOW, {1, 0});
+        CHECK(m.waitForSnapshots(2));
+        Box box = WINDOW;
+        for (int k = 1; k <= FRAMES; ++k) {
+            box.x += 5;
+            m.updateMovement(box, FRAME);
+            m.advance(FRAME);
+            CHECK(m.waitForSnapshots(2 + 2 * k));
+            m.advance(0);
+            answered.push_back(pose(m).p);
+        }
+    }
+    ClothFlutter m;
+    m.beginMovement(params, 3, WINDOW, {1, 0});
+    CHECK(m.waitForSnapshots(2));
+    Box    box = WINDOW;
+    double worst = 0;
+    for (int k = 1; k <= FRAMES; ++k) {
+        // Let the worker answer every earlier target, then hold it before the one this frame posts.
+        ClothPhysics::pauseWorkersForTesting(true, 2 + 2 * (k - 1));
+        CHECK(m.waitForSnapshots(2 + 2 * (k - 1)));
+        box.x += 5;
+        m.updateMovement(box, FRAME);
+        m.advance(FRAME);
+        worst = std::max(worst, delta(answered[std::size_t(k - 1)], pose(m).p));
+    }
+    ClothPhysics::pauseWorkersForTesting(false);
+    CHECK(worst < 1e-9);
+}
 
 void movementBoundsAndRestart() {
     ClothFlutter m;
@@ -494,6 +557,7 @@ int main() {
     {
         ClothPhysics physics;
         pinnedDrop();
+        softLanding();
         exits();
         exitCorridor();
         handoff();
@@ -506,6 +570,7 @@ int main() {
         movement();
         movementHandoff();
         movementCadenceAndInvalid();
+        movementIndependentOfWorkerTiming();
         movementBoundsAndRestart();
         movementGrabBeforePublication();
     }

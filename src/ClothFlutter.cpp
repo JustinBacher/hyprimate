@@ -42,6 +42,15 @@ constexpr std::uint64_t BASE_SEED = 0xC1074F1A77E2ULL;
 std::atomic<bool>       s_live{false}, s_pause{false};
 std::atomic<int>        s_pauseAfter{0};
 
+// Live movement displays this far behind the latest target. The worker answers a target only after the compositor
+// posts it, so the snapshot pair around the displayed time must already exist one 60 Hz frame plus one step later.
+// Displaying any later alternates interpolation with extrapolation from whichever snapshots happen to be ready.
+constexpr double MOVEMENT_LATENCY = 4 * DT;
+// The opening sheet swings broadside towards the desktop. Air resists fabric across its face, not along it; without
+// this the free edge reaches the desktop plane at full pendulum speed and stops dead within one displayed frame.
+// Closes move their sheets in plane, so their gusts stay undamped.
+constexpr double OPEN_AIR_DRAG = 4.0; // per simulated second, on the velocity along the local normal
+
 void        silentTrace(const char *, ...) {}
 Vec3        add(Vec3 a, Vec3 b) noexcept { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
 Vec3        mul(Vec3 a, double b) noexcept { return {a.x * b, a.y * b, a.z * b}; }
@@ -91,7 +100,8 @@ struct ClothFlutter::Run {
         Vec3                                       rigidVelocity{};
         std::array<float, PAPER_GRID_VERTICES * 6> values{};
     };
-    static constexpr unsigned INPUT_CAPACITY = 64, OUTPUT_CAPACITY = 32;
+    // Live movement retains the snapshots inside its display latency, plus one maximum-gap burst of steps.
+    static constexpr unsigned INPUT_CAPACITY = 64, OUTPUT_CAPACITY = 40;
     bool                      live = false;
     ClothMovementParams       movement{};
     Vec2                      grab{};
@@ -561,6 +571,7 @@ void simulate(Run &run, const SimInput &in) {
         bodies.DestroyBody(id);
         return;
     }
+    const float openAirDrag = float(1 - std::exp(-OPEN_AIR_DRAG * DT));
     for (int step = 1; step < run.frames && waitPublication(); ++step) {
         const double time = (step - 1) * DT;
         if (run.kind == Transition::Open)
@@ -579,15 +590,19 @@ void simulate(Run &run, const SimInput &in) {
                     }
                     const JPH::Vec3 p(float(target.x), float(target.y), float(target.z));
                     v.mVelocity = (p - v.mPosition) / float(DT);
-                } else if (in.flutter > 0) {
-                    const auto   at = [&](int x, int y) { return vertices[index(x, y)].mPosition; };
-                    const auto   dx = at(std::min(i + 1, PAPER_CELLS), j) - at(std::max(i - 1, 0), j);
-                    const auto   dy = at(i, std::min(j + 1, PAPER_CELLS)) - at(i, std::max(j - 1, 0));
-                    const auto   n = dx.Cross(dy).NormalizedOr(JPH::Vec3::sAxisZ());
-                    const double wave =
-                        std::sin(in.freqA * time + 2 * std::numbers::pi * v.mPosition.GetX() + in.phaseA) *
-                        std::sin(in.freqB * time + 3 * std::numbers::pi * v.mPosition.GetY() + in.phaseB);
-                    v.mVelocity += n * float(3 * in.flutter * (0.55 + 0.45 * wave) * DT * n.GetZ());
+                } else if (run.kind == Transition::Open || in.flutter > 0) {
+                    const auto at = [&](int x, int y) { return vertices[index(x, y)].mPosition; };
+                    const auto dx = at(std::min(i + 1, PAPER_CELLS), j) - at(std::max(i - 1, 0), j);
+                    const auto dy = at(i, std::min(j + 1, PAPER_CELLS)) - at(i, std::max(j - 1, 0));
+                    const auto n = dx.Cross(dy).NormalizedOr(JPH::Vec3::sAxisZ());
+                    if (run.kind == Transition::Open)
+                        v.mVelocity -= n * (v.mVelocity.Dot(n) * openAirDrag);
+                    if (in.flutter > 0) {
+                        const double wave =
+                            std::sin(in.freqA * time + 2 * std::numbers::pi * v.mPosition.GetX() + in.phaseA) *
+                            std::sin(in.freqB * time + 3 * std::numbers::pi * v.mPosition.GetY() + in.phaseB);
+                        v.mVelocity += n * float(3 * in.flutter * (0.55 + 0.45 * wave) * DT * n.GetZ());
+                    }
                 }
             }
         if (system.Update(float(DT), 1, &temp, &jobs) != EPhysicsUpdateError::None)
@@ -897,22 +912,23 @@ bool ClothFlutter::advance(double dt) noexcept {
                 m_run->inputHead.store(head + 1, std::memory_order_release);
             }
         }
+        // Consume snapshots only until the pair brackets the displayed time; later ones stay queued for later frames.
+        const double   wanted = std::max(0.0, m_t - MOVEMENT_LATENCY);
         unsigned       tail = m_run->outputTail.load(std::memory_order_relaxed);
         const unsigned head = m_run->outputHead.load(std::memory_order_acquire);
-        const bool     progressed = tail != head;
-        for (; tail != head; ++tail) {
+        const bool     progressed = tail != head && playback.b.time < wanted;
+        for (; tail != head && playback.b.time < wanted; ++tail) {
             playback.a = playback.b;
             playback.b = m_run->snapshots[tail % Run::OUTPUT_CAPACITY];
         }
         m_run->outputTail.store(tail, std::memory_order_release);
-        const double wanted = std::max(0.0, m_t - DT);
-        playback.time = std::min(wanted, playback.b.time + DT);
+        playback.time = std::min(wanted, playback.b.time); // a starved worker holds the newest pose
         if (m_run->recorded.load(std::memory_order_acquire) < 2) {
             m_startupWait += dt;
             if (m_startupWait >= STARTUP_TIMEOUT || m_run->finished.load(std::memory_order_acquire))
                 startFallback();
         } else {
-            m_startupWait = progressed || wanted <= playback.b.time + DT + 1e-8 ? 0 : m_startupWait + dt;
+            m_startupWait = progressed || wanted <= playback.b.time + 1e-8 ? 0 : m_startupWait + dt;
             playback.settling = m_t - playback.lastMotion >= 0.5;
             if (m_run->overflow.load(std::memory_order_acquire) || m_startupWait >= 0.05 ||
                 m_run->finished.load(std::memory_order_acquire) || playback.settling)
@@ -998,18 +1014,15 @@ void ClothFlutter::sampleVertices(SheetGrid &p, SheetGrid &v) const noexcept {
         const auto  &a = m_movement->a, &b = m_movement->b;
         const double interval = std::max(DT, b.time - a.time);
         const double at = std::clamp((m_movement->time - a.time) / interval, 0.0, 1.0);
-        const double extra = std::clamp(m_movement->time - b.time, 0.0, DT);
         const Vec3   snapshotRigid = lerp(a.rigidVelocity, b.rigidVelocity, at);
         for (std::size_t k = 0; k < p.size(); ++k) {
             const float *x = a.values.data() + k * 6, *y = b.values.data() + k * 6;
             const Vec3   p0{x[0], x[1], x[2]}, p1{y[0], y[1], y[2]};
             const Vec3   v0{x[3], x[4], x[5]}, v1{y[3], y[4], y[5]};
-            const Vec3   deformationVelocity = sub(lerp(v0, v1, at), snapshotRigid);
-            v[k] = add(deformationVelocity, m_movement->rigidVelocity);
+            // Snapshot velocities carry the rigid motion of their own steps; the displayed sheet moves with the
+            // latest capture, which can already have started or stopped.
+            v[k] = add(sub(lerp(v0, v1, at), snapshotRigid), m_movement->rigidVelocity);
             p[k] = lerp(p0, p1, at);
-            // Remove the rigid velocity belonging to these snapshots before extrapolating. The latest
-            // capture can already have started or stopped while the worker still publishes an older frame.
-            p[k] = add(p[k], mul(deformationVelocity, extra));
             const Vec3   rest{double(k % GRID) / PAPER_CELLS - .5, -double(k / GRID) / PAPER_CELLS, 0};
             const Vec3   centre = add(rest, mul(sub(m_run->start[k], rest), std::exp(-6 * m_movement->time)));
             const auto   offset = sub(p[k], centre);

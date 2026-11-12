@@ -401,7 +401,8 @@ void CLiquidCloseRenderer::fillVertices(SClosing &record) const {
     }
 }
 
-bool CLiquidCloseRenderer::tick(clock::time_point now, std::vector<PHLMONITORREF> &activeMonitors) {
+bool CLiquidCloseRenderer::tick(clock::time_point now, const PHLMONITOR &rendering,
+                                std::vector<PHLMONITORREF> &activeMonitors) {
     activeMonitors.clear();
 
     std::erase_if(m_pending, [now](const SPending &p) {
@@ -431,10 +432,12 @@ bool CLiquidCloseRenderer::tick(clock::time_point now, std::vector<PHLMONITORREF
             if (nativeAlive)
                 record->renderBox = ownedRenderBox(record->sourceDevice, fadeout->renderBox(), record->snapshotSize);
 
+            if (monitor != rendering)
+                return false;
             const double elapsed =
                 std::clamp(std::chrono::duration<double>(now - record->lastAdvance).count(), 0.0, MAX_GAP_SECONDS);
             if (record->isSheet) {
-                // The sheet mesh is refilled when drawn, not on every tick (several per frame).
+                // The sheet mesh is refilled when drawn, after any shape change this frame.
                 record->sheet.advance(elapsed);
                 record->paperStale = true;
             } else {
@@ -452,7 +455,7 @@ bool CLiquidCloseRenderer::tick(clock::time_point now, std::vector<PHLMONITORREF
 
         // A non-owned close that has settled needs no more simulation or vertex refills; the native fadeout keeps
         // scheduling its own alpha frames and the settled mesh is still substituted.
-        if (record->mesh.settled())
+        if (record->mesh.settled() || monitor != rendering)
             return false;
 
         const double elapsed =

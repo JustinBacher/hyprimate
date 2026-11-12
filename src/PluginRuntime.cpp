@@ -2,7 +2,6 @@
 
 #include "LiquidMesh.hpp"
 
-#include <hyprland/src/animation/AnimationManager.hpp>
 #include <hyprland/src/desktop/state/WindowState.hpp>
 #include <hyprland/src/desktop/view/window/Window.hpp>
 #include <hyprland/src/desktop/view/window/WindowPresentation.hpp>
@@ -132,9 +131,9 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
         });
     });
 
-    m_listenTick = Event::bus()->m_events.tick.listen([this]() { onTick(); });
-
-    m_listenRenderPre = Event::bus()->m_events.render.pre.listen([this](PHLMONITOR) { onRenderPre(); });
+    // Everything advances once per rendered frame of its monitor, after native animations have ticked and before the
+    // frame collects damage. Animation ticks are not used: a self-requested tick re-fires every millisecond.
+    m_listenRenderPre = Event::bus()->m_events.render.pre.listen([this](PHLMONITOR monitor) { onRenderPre(monitor); });
 
     m_listenReload = Event::bus()->m_events.config.reloaded.listen([this]() { onReload(); });
 
@@ -147,7 +146,6 @@ CPluginRuntime::~CPluginRuntime() {
     m_listenOpenLate.reset();
     m_listenClose.reset();
     m_listenDestroy.reset();
-    m_listenTick.reset();
     m_listenRenderPre.reset();
     m_listenReload.reset();
     m_close->shutdown();
@@ -423,20 +421,13 @@ bool CPluginRuntime::eligible(const PHLWINDOW &window) const {
            isUsableBox(window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT));
 }
 
-void CPluginRuntime::onRenderPre() {
+void CPluginRuntime::onRenderPre(const PHLMONITOR &monitor) {
     // Colour is read live: runtime config edits (hl.config, hyprctl keyword) need not fire a reload. The texture is
     // rebuilt only when the value actually changes.
     m_openSolid->setColor(colorFromArgb(static_cast<std::uint32_t>(m_openLiquidColor->value())));
     m_closeSolid->setColor(colorFromArgb(static_cast<std::uint32_t>(m_closeLiquidColor->value())));
-    // Disabled/nonfinite strength must clear an existing field, not skip cleanup.
-    for (auto &entry : m_tracked) {
-        if (const auto window = entry.window.lock())
-            sampleWindow(entry, window);
-    }
-}
-
-void CPluginRuntime::onTick() {
-    // Sampling also handles disable/fullscreen/config eligibility transitions.
+    // Every monitor's frame samples all windows: sampling also handles disable/fullscreen/config eligibility
+    // transitions. Only windows on the monitor about to draw advance, so each animation steps once per its frame.
     const auto now = clock::now();
     for (auto &entry : m_tracked) {
         const auto window = entry.window.lock();
@@ -444,7 +435,8 @@ void CPluginRuntime::onTick() {
             continue;
 
         sampleWindow(entry, window);
-        advanceWindow(entry, window, now);
+        if (entry.monitor.lock() == monitor)
+            advanceWindow(entry, window, now);
     }
 
     std::erase_if(m_tracked, [](const STracked &entry) { return entry.window.expired(); });
@@ -452,12 +444,11 @@ void CPluginRuntime::onTick() {
     // A live disable also drops retained closes, restoring native fades where still available.
     if (!closeEnabled() || (!closePaper() && !closeCloth() && clampStrength(m_closeLiquidStrength->value()) <= 0.0)) {
         m_close->clear();
-    } else if (m_close->tick(now, m_closeMonitors)) {
-        Animation::mgr()->requestTick();
+    } else if (m_close->tick(now, monitor, m_closeMonitors)) {
         for (const auto &monitorRef : m_closeMonitors) {
-            if (const auto monitor = monitorRef.lock()) {
-                g_pHyprRenderer->damageMonitor(monitor);
-                monitor->scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_ANIMATION);
+            if (const auto damaged = monitorRef.lock()) {
+                g_pHyprRenderer->damageMonitor(damaged);
+                damaged->scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_ANIMATION);
             }
         }
     }
@@ -566,8 +557,8 @@ void CPluginRuntime::sampleWindow(STracked &entry, const PHLWINDOW &window) {
     }
     transformer->refreshPose({captureSize.x, captureSize.y});
     if (!wasActive) {
-        // The first live target spans the observed geometry interval, even when the next tick follows this
-        // render sample immediately. Otherwise its initial velocity would be compressed into almost zero time.
+        // The first live target spans the observed geometry interval, even though this frame's advance follows the
+        // sample immediately. Otherwise its initial velocity would be compressed into almost zero time.
         entry.lastAdvance = movementCloth() && moving
                                 ? now - std::chrono::duration_cast<clock::duration>(
                                             std::chrono::duration<double>(std::max(0.0, sampleElapsed)))
@@ -577,7 +568,6 @@ void CPluginRuntime::sampleWindow(STracked &entry, const PHLWINDOW &window) {
     if (transformer->active()) {
         entry.footprint = worldFootprint(window);
         entry.hasFootprint = true;
-        Animation::mgr()->requestTick();
     } else {
         window->effects().transformers()->removeInactive();
     }
@@ -642,7 +632,6 @@ void CPluginRuntime::beginOpening(STracked &entry, const PHLWINDOW &window) {
     entry.footprint = worldFootprint(window);
     entry.hasFootprint = true;
 
-    Animation::mgr()->requestTick();
     g_pHyprRenderer->damageWindow(window);
     scheduleAnimation(window);
 }
@@ -709,7 +698,6 @@ void CPluginRuntime::advanceWindow(STracked &entry, const PHLWINDOW &window,
     if (stillActive) {
         entry.footprint = worldFootprint(window);
         entry.hasFootprint = true;
-        Animation::mgr()->requestTick();
     } else {
         // Settled fields have already restored the undeformed mesh; pruning drops the transformer.
         window->effects().transformers()->removeInactive();

@@ -91,8 +91,7 @@ class CPluginRuntime {
     double                                 effectiveEmergeDrag() const;
 
     // Sampling and simulation.
-    void onRenderPre();
-    void onTick();
+    void onRenderPre(const PHLMONITOR &monitor);
     void sampleWindow(STracked &entry, const PHLWINDOW &window);
     void advanceWindow(STracked &entry, const PHLWINDOW &window, clock::time_point now);
     void beginOpening(STracked &entry, const PHLWINDOW &window);
@@ -177,7 +176,6 @@ class CPluginRuntime {
     CHyprSignalListener m_listenOpenLate;
     CHyprSignalListener m_listenClose;
     CHyprSignalListener m_listenDestroy;
-    CHyprSignalListener m_listenTick;
     CHyprSignalListener m_listenRenderPre;
     CHyprSignalListener m_listenReload;
 };

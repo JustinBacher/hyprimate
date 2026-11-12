@@ -55,7 +55,7 @@ class ClothFlutter {
     void begin(Transition kind, const ClothParams &params, std::uint64_t seed, const Box &window,
                std::span<const Box> obstacles, std::optional<ClothCloseGeometry> closeGeometry = std::nullopt);
     // The grab coordinate is in [0,1] across the decorated capture. Geometry updates only set a target;
-    // advance() sends one timestamped target per tick, including stationary ticks while the sheet settles.
+    // advance() sends one timestamped target per rendered frame, including stationary frames while the sheet settles.
     void   beginMovement(const ClothMovementParams &params, std::uint64_t seed, const Box &capture, Vec2 grabUV);
     void   updateMovement(const Box &capture, double elapsedSeconds) noexcept;
     bool   moving() const noexcept;
