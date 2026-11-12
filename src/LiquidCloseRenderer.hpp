@@ -3,7 +3,6 @@
 #include "EdgeTransition.hpp"
 #include "LiquidGlassTransformer.hpp"
 #include "LiquidMesh.hpp"
-#include "SheetMotion.hpp"
 #include "PaperRenderer.hpp"
 #include "SolidFill.hpp"
 
@@ -19,53 +18,43 @@
 #include <chrono>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
 // Deforms the native window-close fadeout through two narrow hooks, each selected by exact demangled signature:
 //   * Desktop::CWindowFadeout::create - associates the created fadeout with the staged closing window.
 //   * Render::IHyprRenderer::renderFadeouts (MONITOR mode only) - substitutes a mesh element for associated fadeouts.
-// A close that is not texture-blurred is owned, whatever the movement mode: its edge transition drives shape and
-// placement from a retained snapshot, so it keeps drawing after the native fadeout has finished. Every other fadeout,
-// scene mode, or missing association runs the original native code.
+// A close that is not texture-blurred is owned, whatever the style: its edge transition (liquid) or sheet (paper,
+// cloth) drives shape and placement from a retained snapshot, so it keeps drawing after the native fadeout has
+// finished. Every other fadeout, scene mode, or missing association runs the original native code.
 class CLiquidCloseRenderer {
   public:
     using clock = std::chrono::steady_clock;
 
     struct SClosing {
-        WP<Desktop::IFadeout>        fadeout;
-        SP<Render::IFramebuffer>     snapshot; // retained: an owned close may outlive the native fadeout
-        PHLMONITORREF                monitor;
-        PHLWORKSPACEREF              workspace;              // captured at creation
-        bool                         workspaceBound = false; // false: no workspace at creation, matches any (as native)
-        Desktop::eFadeoutPlane       plane = Desktop::FADEOUT_PLANE_WINDOW_TILED;
-        int                          zIndex = 0;
-        bool                         noScreenShare = false;
-        liquid_glass::LiquidMesh     mesh;
-        liquid_glass::EdgeTransition transition;
-        liquid_glass::Vec2           compensation{1.0, 1.0}; // fixed for the record's lifetime
-        bool                         owned = false;          // transition drives shape and placement
-        float                        sourceAlpha = 1.F;
-        double                       strength = 0.0;
-        double                       drive = 0.0;
-        CBox                         sourceDevice; // undeformed window box inside the snapshot, device px
-        double                       scale = 1.0;  // monitor scale at staging time
-        liquid_glass::Vec2           captureLogical{};
-        Vector2D                     snapshotSize{};      // snapshot texture size, device px
-        CBox                         renderBox;           // owned placement: unit scale, centre follows native
-        CBox                         extentsDevice;       // deformed extents of sourceDevice, device px
-        std::vector<SMeshRenderVertex> vertices;          // normalized to extentsDevice; sized once
-        bool                           hasLiquid = false; // edge liquid present this frame
-        CBox                           liquidDevice;      // edge liquid box inside the snapshot, device px
-        std::vector<SMeshRenderVertex> liquidVertices;    // normalized to liquidDevice; sized once
-        // Sheet motion drives shape, shading and placement; the liquid fields above stay unused.
-        bool                           isSheet = false;
-        liquid_glass::SheetMotion      sheet;
-        liquid_glass::PaperFacets      paperFacets{};
-        std::vector<SMeshRenderVertex> paperVertices;      // normalized to extentsDevice; sized once
-        std::vector<SMeshRenderVertex> paperShadeVertices; // same placement; uv addresses the shade ramp
-        bool                           paperStale = false; // paper advanced since the meshes were filled
-        clock::time_point              lastAdvance{};
+        WP<Desktop::IFadeout>    fadeout;
+        SP<Render::IFramebuffer> snapshot; // retained: an owned close may outlive the native fadeout
+        PHLMONITORREF            monitor;
+        PHLWORKSPACEREF          workspace;              // captured at creation
+        bool                     workspaceBound = false; // false: no workspace at creation, matches any (as native)
+        Desktop::eFadeoutPlane   plane = Desktop::FADEOUT_PLANE_WINDOW_TILED;
+        int                      zIndex = 0;
+        bool                     noScreenShare = false;
+        SStyleState              style;                  // liquid: mesh, transition, vertices; sheet: its motion
+        liquid_glass::Vec2       compensation{1.0, 1.0}; // liquid only; fixed for the record's lifetime
+        bool                     owned = false;          // the style's motion drives shape and placement
+        float                    sourceAlpha = 1.F;
+        double                   strength = 0.0;
+        CBox                     sourceDevice; // undeformed window box inside the snapshot, device px
+        double                   scale = 1.0;  // monitor scale at staging time
+        liquid_glass::Vec2       captureLogical{};
+        Vector2D                 snapshotSize{};    // snapshot texture size, device px
+        CBox                     renderBox;         // owned placement: unit scale, centre follows native
+        CBox                     extentsDevice;     // deformed extents of sourceDevice, device px
+        bool                     hasLiquid = false; // edge liquid present this frame (liquid only)
+        CBox                     liquidDevice;      // edge liquid box inside the snapshot, device px
+        clock::time_point        lastAdvance{};
     };
 
     explicit CLiquidCloseRenderer(HANDLE handle, SP<CSolidFill> solid, SP<CPaperShade> shade);
@@ -84,13 +73,14 @@ class CLiquidCloseRenderer {
     // `closeSplash` plays the splash bump at the dive point after the drain (EdgeTransition::begin). `transition`
     // carries the close's own elasticity/momentum; the movement mesh's params never drive the close edge transition.
     void stage(const PHLWINDOW &window, const SLiquidPose &pose, double strength,
-               std::optional<liquid_glass::EdgeFrame> closeFrame, double drive, bool closeSplash,
+               std::optional<liquid_glass::EdgeFrame> closeFrame, bool closeSplash,
                const liquid_glass::TransitionParams &transition);
 
-    // Stage the sheet and parameters before detaching; begin when the fadeout is created.
-    void stageSheet(const PHLWINDOW &window, const liquid_glass::SheetMotion &from,
-                    const liquid_glass::PaperParams &paper, const liquid_glass::ClothParams &cloth, bool useCloth,
-                    std::uint64_t seed, const liquid_glass::Box &capture, std::span<const liquid_glass::Box> obstacles,
+    // Stage the sheet state taken from the transformer, with its close parameters, before detaching; begin when the
+    // fadeout is created. A cloth close needs its shared exit geometry, otherwise the native close runs.
+    void stageSheet(const PHLWINDOW &window, SStyleState from, const liquid_glass::PaperParams &paper,
+                    const liquid_glass::ClothParams &cloth, std::uint64_t seed, const liquid_glass::Box &capture,
+                    std::span<const liquid_glass::Box>              obstacles,
                     std::optional<liquid_glass::ClothCloseGeometry> closeGeometry = std::nullopt);
 
     // Called before `rendering` draws a frame. Prunes every finished record and advances the records drawn on
@@ -117,22 +107,17 @@ class CLiquidCloseRenderer {
   private:
     struct SPending {
         PHLWINDOWREF                           window;
-        liquid_glass::LiquidMesh               mesh;
-        liquid_glass::EdgeTransition           transition;
+        SStyleState                            style;
         liquid_glass::Vec2                     compensation{1.0, 1.0};
         CBox                                   sourceDevice;
         double                                 scale = 1.0;
         liquid_glass::Vec2                     captureLogical{};
         double                                 strength = 0.0;
-        double                                 drive = 0.0;
         std::optional<liquid_glass::EdgeFrame> closeFrame;
         bool                                   closeSplash = true;
         liquid_glass::TransitionParams         closeParams{};
-        bool                                   isSheet = false;
-        liquid_glass::SheetMotion              sheet;
         liquid_glass::PaperParams              paperParams{};
         liquid_glass::ClothParams              clothParams{};
-        bool                                   useCloth = false;
         std::uint64_t                          sheetSeed = 0;
         liquid_glass::Box                      sheetCapture{};
         std::vector<liquid_glass::Box>         sheetObstacles;
@@ -149,7 +134,7 @@ class CLiquidCloseRenderer {
     };
 
     SClosing               *recordFor(const SP<Desktop::IFadeout> &fadeout) const;
-    void                    fillVertices(SClosing &record) const;
+    void                    fillVertices(SClosing &record);
     std::optional<SPending> pendingFor(const PHLWINDOW &window) const;
     void                    push(SPending pending);
 

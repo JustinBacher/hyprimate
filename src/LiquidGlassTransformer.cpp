@@ -12,6 +12,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <utility>
 
 using namespace Render;
 using liquid_glass::EdgeTransition;
@@ -235,114 +236,203 @@ void fillLiquidMeniscusMesh(const SLiquidPose &pose, const CBox &sourceDevice, d
     }
 }
 
-CLiquidGlassTransformer::CLiquidGlassTransformer(PHLWINDOWREF window, liquid_glass::MotionMode mode,
-                                                 liquid_glass::MaterialParams params, std::uint64_t seed,
-                                                 SP<CSolidFill> solid, SP<CPaperShade> shade,
-                                                 std::optional<liquid_glass::ClothMovementParams> clothMovement)
-    : m_window(std::move(window)), m_mesh(mode, params, seed), m_solid(std::move(solid)), m_shade(std::move(shade)),
-      m_vertices(LIQUID_RENDER_VERTEX_COUNT), m_meniscusVertices(LIQUID_MENISCUS_VERTEX_COUNT),
-      m_clothMovementParams(clothMovement), m_paperVertices(PAPER_VERTEX_COUNT),
-      m_paperShadeVertices(PAPER_VERTEX_COUNT) {}
+CLiquidGlassTransformer::CLiquidGlassTransformer(PHLWINDOWREF window, SStyleState state, SP<CSolidFill> solid,
+                                                 SP<CPaperShade> shade)
+    : m_window(std::move(window)), m_style(std::move(state)), m_solid(std::move(solid)), m_shade(std::move(shade)) {}
+
+bool CLiquidGlassTransformer::builtFor(liquid_glass::config::Style style, liquid_glass::MaterialParams liquid,
+                                       liquid_glass::ClothMovementParams cloth) const noexcept {
+    switch (style) {
+    case liquid_glass::config::Style::Paper:
+        return std::holds_alternative<SPaperStyle>(m_style);
+    case liquid_glass::config::Style::Cloth: {
+        const auto *state = std::get_if<SClothStyle>(&m_style);
+        return state && state->movement == cloth;
+    }
+    case liquid_glass::config::Style::Liquid: {
+        const auto *state = std::get_if<SLiquidStyle>(&m_style);
+        return state && state->mesh.params() == liquid;
+    }
+    }
+    return false;
+}
 
 void CLiquidGlassTransformer::beginOpen(const liquid_glass::EdgeFrame        &frame,
                                         const liquid_glass::TransitionParams &params, double strength,
                                         Vec2 captureSize) {
-    m_transition.begin(liquid_glass::Transition::Open, frame, params, strength);
-    m_boxDriven = m_transition.active();
-    m_warped = false;
-    if (const auto window = m_window.lock(); window && m_boxDriven)
-        m_goalBody = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
+    auto &state = liquid();
+    state.transition.begin(liquid_glass::Transition::Open, frame, params, strength);
+    state.boxDriven = state.transition.active();
+    state.warped = false;
+    if (const auto window = m_window.lock(); window && state.boxDriven)
+        state.goalBody = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
     refreshPose(captureSize);
 }
 
 void CLiquidGlassTransformer::cancelOpening() {
-    restoreBox();
-    m_transition.reset();
-    m_boxDriven = false;
-    m_displacementGain = 1.0;
-    if (m_sheet.opening())
-        m_sheet.reset();
+    if (std::holds_alternative<SLiquidStyle>(m_style)) {
+        restoreBox();
+        auto &state = liquid();
+        state.transition.reset();
+        state.boxDriven = false;
+        state.displacementGain = 1.0;
+        return;
+    }
+    if (auto *paper = std::get_if<SPaperStyle>(&m_style); paper && paper->crumple.active())
+        paper->crumple.reset();
+    else if (clothOpening())
+        std::get<SClothStyle>(m_style).cloth.reset();
 }
 
 void CLiquidGlassTransformer::cancelMovement() {
-    m_mesh.reset();
-    if (m_sheet.moving())
-        m_sheet.reset();
-    m_sheetFacetsStale = true;
+    if (std::holds_alternative<SLiquidStyle>(m_style)) {
+        liquid().mesh.reset();
+        return;
+    }
+    if (clothMoving()) {
+        std::get<SClothStyle>(m_style).cloth.reset();
+        refreshSheetFrame(m_style);
+    }
 }
 
 void CLiquidGlassTransformer::beginPaperOpen(const liquid_glass::PaperParams &params, std::uint64_t seed,
                                              Vec2 captureSize) {
-    cancelOpening();
-    m_sheet.reset();
-    m_sheet.beginPaper(liquid_glass::Transition::Open, params, seed);
-    m_sheetCaptureSize = captureSize;
-    m_sheetFacetsStale = true;
+    auto *paper = std::get_if<SPaperStyle>(&m_style);
+    if (!paper)
+        return;
+    paper->crumple.reset();
+    paper->crumple.begin(liquid_glass::Transition::Open, params, seed);
+    paper->sheet.captureSize = captureSize;
+    refreshSheetFrame(m_style);
 }
 
 void CLiquidGlassTransformer::beginClothOpen(const liquid_glass::ClothParams &params, std::uint64_t seed,
                                              const liquid_glass::Box           &window,
                                              std::span<const liquid_glass::Box> obstacles) {
-    cancelOpening();
-    m_sheet.reset();
-    m_sheet.beginCloth(liquid_glass::Transition::Open, params, seed, window, obstacles);
-    m_sheetCaptureSize = {window.w, window.h};
-    m_sheetFacetsStale = true;
+    auto *cloth = std::get_if<SClothStyle>(&m_style);
+    if (!cloth)
+        return;
+    cloth->cloth.reset();
+    cloth->cloth.begin(liquid_glass::Transition::Open, params, seed, window, obstacles, std::nullopt);
+    cloth->sheet.captureSize = {window.w, window.h};
+    refreshSheetFrame(m_style);
 }
 
 void CLiquidGlassTransformer::beginClothMovement(std::uint64_t seed, const liquid_glass::Box &window, Vec2 grabUV) {
-    if (!m_clothMovementParams)
+    auto *cloth = std::get_if<SClothStyle>(&m_style);
+    if (!cloth)
         return;
-    // Keep the sheet's displayed pose for an interrupted cloth opening. The movement model inherits it.
-    restoreBox();
-    m_transition.reset();
-    m_boxDriven = false;
-    m_displacementGain = 1.0;
-    m_mesh.reset();
-    m_sheet.beginMovement(*m_clothMovementParams, seed, window, grabUV);
-    m_sheetCaptureSize = {window.w, window.h};
-    m_sheetFacetsStale = true;
+    // An interrupted cloth opening keeps its displayed pose; the movement model inherits it.
+    cloth->cloth.beginMovement(cloth->movement, seed, window, grabUV);
+    cloth->sheet.captureSize = {window.w, window.h};
+    refreshSheetFrame(m_style);
 }
 
 void CLiquidGlassTransformer::updateClothMovement(const liquid_glass::Box &window, double elapsedSeconds) {
-    m_sheet.updateMovement(window, elapsedSeconds);
-    m_sheetCaptureSize = {window.w, window.h};
-    m_sheetFacetsStale = true;
+    auto *cloth = std::get_if<SClothStyle>(&m_style);
+    if (!cloth)
+        return;
+    cloth->cloth.updateMovement(window, elapsedSeconds);
+    cloth->sheet.captureSize = {window.w, window.h};
+    refreshSheetFrame(m_style);
+}
+
+bool CLiquidGlassTransformer::clothMoving() const noexcept {
+    const auto *cloth = std::get_if<SClothStyle>(&m_style);
+    return cloth && cloth->cloth.moving();
+}
+
+bool CLiquidGlassTransformer::clothOpening() const noexcept {
+    const auto *cloth = std::get_if<SClothStyle>(&m_style);
+    return cloth && cloth->cloth.active() && !cloth->cloth.moving();
 }
 
 void CLiquidGlassTransformer::advanceSheet(double elapsed, Vec2 captureSize) {
-    if (!m_sheet.active())
+    SSheetBuffers *sheet = sheetBuffersOf(m_style);
+    if (!sheet || !sheetActive())
         return;
-    m_sheet.advance(elapsed);
-    m_sheetCaptureSize = captureSize;
-    m_sheetFacetsStale = true;
+    sheet->captureSize = captureSize;
+    advanceSheetStyle(m_style, elapsed);
+    refreshSheetFrame(m_style);
 }
 
-const liquid_glass::PaperFacets &CLiquidGlassTransformer::sheetFacets() const noexcept {
-    if (m_sheetFacetsStale) {
-        m_sheet.facets(m_sheetCaptureSize, m_sheetFacets);
-        m_sheetFacetsStale = false;
-    }
-    return m_sheetFacets;
+SSheetBuffers *sheetBuffersOf(SStyleState &style) noexcept {
+    if (auto *paper = std::get_if<SPaperStyle>(&style))
+        return &paper->sheet;
+    if (auto *cloth = std::get_if<SClothStyle>(&style))
+        return &cloth->sheet;
+    return nullptr;
+}
+
+const SSheetBuffers *sheetBuffersOf(const SStyleState &style) noexcept {
+    if (const auto *paper = std::get_if<SPaperStyle>(&style))
+        return &paper->sheet;
+    if (const auto *cloth = std::get_if<SClothStyle>(&style))
+        return &cloth->sheet;
+    return nullptr;
+}
+
+void advanceSheetStyle(SStyleState &style, double elapsed) {
+    if (auto *paper = std::get_if<SPaperStyle>(&style))
+        paper->crumple.advance(elapsed);
+    else if (auto *cloth = std::get_if<SClothStyle>(&style))
+        cloth->cloth.advance(elapsed);
+}
+
+void refreshSheetFrame(SStyleState &style) {
+    if (auto *paper = std::get_if<SPaperStyle>(&style))
+        paper->crumple.frame(paper->sheet.captureSize, *paper->sheet.frame);
+    else if (auto *cloth = std::get_if<SClothStyle>(&style))
+        cloth->cloth.frame(cloth->sheet.captureSize, *cloth->sheet.frame);
+}
+
+SStyleState CLiquidGlassTransformer::takeStyle() noexcept { return std::exchange(m_style, SLiquidStyle{}); }
+
+bool CLiquidGlassTransformer::sheetActive() const noexcept {
+    if (const auto *paper = std::get_if<SPaperStyle>(&m_style))
+        return paper->crumple.active();
+    if (const auto *cloth = std::get_if<SClothStyle>(&m_style))
+        return cloth->cloth.active();
+    return false;
+}
+
+double CLiquidGlassTransformer::sheetOpacity() const noexcept {
+    if (const auto *paper = std::get_if<SPaperStyle>(&m_style))
+        return paper->crumple.opacity();
+    if (const auto *cloth = std::get_if<SClothStyle>(&m_style))
+        return cloth->cloth.opacity();
+    return 0.0;
+}
+
+bool CLiquidGlassTransformer::sheetShaded() const noexcept {
+    if (const auto *paper = std::get_if<SPaperStyle>(&m_style))
+        return paper->crumple.shaded();
+    if (const auto *cloth = std::get_if<SClothStyle>(&m_style))
+        return cloth->cloth.shaded();
+    return false;
 }
 
 void CLiquidGlassTransformer::restoreBox() {
-    if (!m_boxDriven || !m_warped)
+    auto &state = liquid();
+    if (!state.boxDriven || !state.warped)
         return;
-    m_warped = false;
+    state.warped = false;
     const auto window = m_window.lock();
-    if (!window || !(m_goalBody.w > 0.0 && m_goalBody.h > 0.0))
+    if (!window || !(state.goalBody.w > 0.0 && state.goalBody.h > 0.0))
         return;
-    window->positionAnimation()->setValueAndWarp(m_goalBody.pos());
-    window->sizeAnimation()->setValueAndWarp(m_goalBody.size());
+    window->positionAnimation()->setValueAndWarp(state.goalBody.pos());
+    window->sizeAnimation()->setValueAndWarp(state.goalBody.size());
 }
 
 void CLiquidGlassTransformer::driveBox() {
-    if (!m_boxDriven)
+    if (!std::holds_alternative<SLiquidStyle>(m_style))
         return;
-    if (!m_transition.active()) {
+    auto &state = liquid();
+    if (!state.boxDriven)
+        return;
+    if (!state.transition.active()) {
         restoreBox();
-        m_boxDriven = false;
+        state.boxDriven = false;
         return;
     }
     const auto window = m_window.lock();
@@ -353,9 +443,9 @@ void CLiquidGlassTransformer::driveBox() {
     auto &sizeVar = window->sizeAnimation();
     // The layout retargets the real box through the same variables. A goal other than the one this wrote is the
     // layout's.
-    if (m_warped && (positionVar->goal() != m_warpPosition || sizeVar->goal() != m_warpSize))
-        m_goalBody = CBox{positionVar->goal(), sizeVar->goal()};
-    if (!(m_goalBody.w > 0.0 && m_goalBody.h > 0.0))
+    if (state.warped && (positionVar->goal() != state.warpPosition || sizeVar->goal() != state.warpSize))
+        state.goalBody = CBox{positionVar->goal(), sizeVar->goal()};
+    if (!(state.goalBody.w > 0.0 && state.goalBody.h > 0.0))
         return;
 
     // Decorations (border, shadow) do not scale with the box, so the live margins hold at any size.
@@ -368,10 +458,10 @@ void CLiquidGlassTransformer::driveBox() {
     if (!(std::isfinite(left) && std::isfinite(top) && std::isfinite(right) && std::isfinite(bottom)))
         return;
 
-    const CBox       rest = {m_goalBody.x - left, m_goalBody.y - top, m_goalBody.w + left + right,
-                             m_goalBody.h + top + bottom};
-    const Vec2       half = m_transition.beadHalf({rest.w, rest.h});
-    const Vec2       centre = m_transition.beadCentre();
+    const CBox       rest = {state.goalBody.x - left, state.goalBody.y - top, state.goalBody.w + left + right,
+                             state.goalBody.h + top + bottom};
+    const Vec2       half = state.transition.beadHalf({rest.w, rest.h});
+    const Vec2       centre = state.transition.beadCentre();
     const double     cx = rest.x + 0.5 * rest.w + centre.x;
     const double     cy = rest.y + 0.5 * rest.h + centre.y;
     constexpr double MIN_SIDE = 2.0;
@@ -382,49 +472,59 @@ void CLiquidGlassTransformer::driveBox() {
 
     positionVar->setValueAndWarp(position);
     sizeVar->setValueAndWarp(size);
-    m_warpPosition = position;
-    m_warpSize = size;
-    m_warped = true;
+    state.warpPosition = position;
+    state.warpSize = size;
+    state.warped = true;
 }
 
 // Pop-out geometry for a retained closing snapshot: the window as drawn at its driven box, scaled and moved back to the
 // rest box. The scale is large for a small bead; the bound only guards against degenerate boxes.
 SLiquidPose CLiquidGlassTransformer::closePose() const {
-    const auto window = m_window.lock();
-    if (!window || !m_boxDriven)
-        return {m_mesh, m_transition, {1.0, 1.0}, {0.0, 0.0}, m_displacementGain, false};
+    const auto       &state = liquid();
+    const auto        window = m_window.lock();
+    const SLiquidPose unitPose{state.mesh, state.transition, {1.0, 1.0}, {0.0, 0.0}, state.displacementGain, false};
+    if (!window || !state.boxDriven)
+        return unitPose;
     const CBox current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
-    const CBox goal = m_goalBody;
+    const CBox goal = state.goalBody;
     if (!(current.w > 0.0 && current.h > 0.0 && goal.w > 0.0 && goal.h > 0.0))
-        return {m_mesh, m_transition, {1.0, 1.0}, {0.0, 0.0}, m_displacementGain, false};
+        return unitPose;
     constexpr double MAX_SCALE = 64.0;
-    return {m_mesh,
-            m_transition,
+    return {state.mesh,
+            state.transition,
             {std::clamp(goal.w / current.w, 1.0 / MAX_SCALE, MAX_SCALE),
              std::clamp(goal.h / current.h, 1.0 / MAX_SCALE, MAX_SCALE)},
             {(goal.x + 0.5 * goal.w) - (current.x + 0.5 * current.w),
              (goal.y + 0.5 * goal.h) - (current.y + 0.5 * current.h)},
-            m_displacementGain,
+            state.displacementGain,
             false};
 }
 
 SLiquidPose CLiquidGlassTransformer::renderPose() const {
-    if (!m_boxDriven)
-        return {m_mesh, m_transition, {1.0, 1.0}, {0.0, 0.0}, m_displacementGain, false};
+    const auto &state = liquid();
+    if (!state.boxDriven)
+        return {state.mesh, state.transition, {1.0, 1.0}, {0.0, 0.0}, state.displacementGain, false};
     // The window is drawn at the pop-out box, so the rest centre sits at minus the bead's centre from it.
-    const Vec2 bead = m_transition.beadCentre();
-    return {m_mesh, m_transition, {1.0, 1.0}, {-bead.x, -bead.y}, m_displacementGain, true};
+    const Vec2 bead = state.transition.beadCentre();
+    return {state.mesh, state.transition, {1.0, 1.0}, {-bead.x, -bead.y}, state.displacementGain, true};
 }
 
 void CLiquidGlassTransformer::refreshPose(Vec2 captureSize) {
-    m_displacementGain = m_transition.displacementGain(m_mesh, captureSize, {1.0, 1.0}, m_boxDriven);
+    auto &state = liquid();
+    state.displacementGain = state.transition.displacementGain(state.mesh, captureSize, {1.0, 1.0}, state.boxDriven);
+}
+
+bool CLiquidGlassTransformer::deforming() const noexcept {
+    if (const auto *state = std::get_if<SLiquidStyle>(&m_style))
+        return !(state->mesh.settled() && !state->transition.active());
+    return sheetActive();
 }
 
 bool CLiquidGlassTransformer::active() const {
     const auto window = m_window.lock();
     if (m_detached || !window || !window->mapped() || Fullscreen::controller()->isFullscreen(window))
         return false;
-    if (m_mesh.settled() && !m_transition.active() && !m_sheet.active())
+    if (!deforming())
         return false;
     const auto box = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
     return std::isfinite(box.x) && std::isfinite(box.y) && std::isfinite(box.w) && std::isfinite(box.h) && !box.empty();
@@ -438,8 +538,8 @@ CBox CLiquidGlassTransformer::transformedExtents(const CBox &currentBox) const {
     if (!active())
         return currentBox;
 
-    if (m_sheet.active()) {
-        CBox extents = paperExtents(sheetFacets(), currentBox);
+    if (const auto *sheet = sheetBuffersOf(m_style); sheet && sheetActive()) {
+        CBox extents = sheetExtents(*sheet->frame, currentBox);
         extents.expand(EXTENTS_PADDING);
         return extents;
     }
@@ -483,19 +583,19 @@ SWindowTransformBuffer CLiquidGlassTransformer::transform(CRenderContext &ctx, c
     if (!(texW > 0.0 && texH > 0.0))
         return in;
 
-    if (m_sheet.active()) {
-        // The paper branch draws its own work buffer, so it never allocates the liquid OUT buffer.
-        fillPaperMeshes(sheetFacets(), SOURCEBOX, SCALE, OUTPUTBOX, Vec2{in.box.x, in.box.y}, Vec2{texW, texH},
-                        m_paperVertices, m_paperShadeVertices);
+    if (SSheetBuffers *sheet = sheetBuffersOf(m_style); sheet && sheetActive()) {
+        // The sheet branch draws its own work buffer, so it never allocates the liquid OUT buffer.
+        fillSheetMeshes(*sheet->frame, SOURCEBOX, OUTPUTBOX, Vec2{in.box.x, in.box.y}, Vec2{texW, texH}, sheet->window,
+                        sheet->shade);
         const auto layer =
             renderPaper(ctx, SPaperDraw{
                                  .window = in.framebuffer->getTexture(),
-                                 .shade = m_sheet.shaded() && m_shade ? m_shade->texture() : SP<Render::ITexture>{},
+                                 .shade = sheetShaded() && m_shade ? m_shade->texture() : SP<Render::ITexture>{},
                                  .canvas = OUTPUTCANVAS.size(),
                                  .meshBox = LOCALOUTPUTBOX,
-                                 .windowVertices = &m_paperVertices,
-                                 .shadeVertices = &m_paperShadeVertices,
-                                 .alpha = float(m_sheet.opacity()),
+                                 .windowVertices = &sheet->window,
+                                 .shadeVertices = &sheet->shade,
+                                 .alpha = float(sheetOpacity()),
                              });
         if (!layer)
             return {
@@ -517,18 +617,19 @@ SWindowTransformBuffer CLiquidGlassTransformer::transform(CRenderContext &ctx, c
             .success = false,
         };
 
+    auto              &state = liquid();
     const SLiquidPose  pose = renderPose();
     const auto         visible = liquidVisibleBox(pose, context.currentBox);
     const auto         meniscus = liquidMeniscusExtents(pose, context.currentBox);
     const SP<ITexture> solid = meniscus && m_solid ? m_solid->texture() : SP<ITexture>{};
     const CBox         LIQUIDBOX = meniscus ? pixelBoxForLogical(*meniscus, SCALE) : CBox{};
 
-    fillLiquidRenderMesh(pose, SOURCEBOX, SCALE, OUTPUTBOX, Vec2{in.box.x, in.box.y}, Vec2{texW, texH}, m_vertices);
+    fillLiquidRenderMesh(pose, SOURCEBOX, SCALE, OUTPUTBOX, Vec2{in.box.x, in.box.y}, Vec2{texW, texH}, state.vertices);
     if (solid)
-        fillLiquidMeniscusMesh(pose, SOURCEBOX, SCALE, LIQUIDBOX, m_meniscusVertices);
+        fillLiquidMeniscusMesh(pose, SOURCEBOX, SCALE, LIQUIDBOX, state.meniscusVertices);
 
     GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
-    auto                         state = ctx.saveDrawState();
+    auto                         drawState = ctx.saveDrawState();
     auto                        &renderData = ctx.m_data;
     g_pHyprRenderer->bindFB(ctx, OUT);
     renderData.damage = CRegion{0.0, 0.0, OUTPUTCANVAS.w, OUTPUTCANVAS.h};
@@ -550,11 +651,23 @@ SWindowTransformBuffer CLiquidGlassTransformer::transform(CRenderContext &ctx, c
     textureData.allowCustomUV = true;
     if (solid)
         GL::g_pHyprOpenGL->renderTextureMesh(ctx, solid, LIQUIDBOX.copy().translate(-OUTPUTCANVAS.pos()),
-                                             m_meniscusVertices, textureData);
-    GL::g_pHyprOpenGL->renderTextureMesh(ctx, in.framebuffer->getTexture(), LOCALOUTPUTBOX, m_vertices, textureData);
+                                             state.meniscusVertices, textureData);
+    GL::g_pHyprOpenGL->renderTextureMesh(ctx, in.framebuffer->getTexture(), LOCALOUTPUTBOX, state.vertices,
+                                         textureData);
 
     return {
         .framebuffer = OUT,
         .box = OUTPUTCANVAS,
     };
+}
+
+void CLiquidGlassTransformer::markDetached() {
+    m_detached = true;
+    if (auto *state = std::get_if<SLiquidStyle>(&m_style))
+        state->mesh.reset();
+    cancelOpening();
+    if (auto *paper = std::get_if<SPaperStyle>(&m_style))
+        paper->crumple.reset();
+    else if (auto *cloth = std::get_if<SClothStyle>(&m_style))
+        cloth->cloth.reset();
 }

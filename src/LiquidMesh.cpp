@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <cmath>
 #include <cstddef>
-#include <numbers>
 
 namespace liquid_glass {
 namespace {
@@ -21,12 +20,6 @@ constexpr unsigned kCells = 8; // cells per lattice side
 constexpr double   kAccumulatorTolerance = kSubstepSeconds * 1e-9;
 constexpr double   kMaxFrameSeconds = 0.05;
 constexpr unsigned kMaxSubstepsPerAdvance = 12;
-
-// Wiggle mode (unchanged).
-constexpr double kAnchorStiffness = 144.0;
-constexpr double kAnchorDamping = 24.0;
-constexpr double kNeighborStiffness = 80.0;
-constexpr double kNeighborDamping = 12.0;
 
 // Liquid mode.
 // Body natural frequency (rad/s) at elasticity 0.5; elasticity scales it by 2^(elasticity - 0.5).
@@ -80,11 +73,8 @@ constexpr double kVaryKick = 0.4;             // stop kick x (1 + 0.4 r)
 constexpr double kVaryVelocitySeconds = 0.35; // velocity filter x (1 + 0.35 r): response latency 39-81 ms
 constexpr double kMinDampingRatio = 0.1;
 
-constexpr double kMaxDisplacementLimit = 120.0;
-constexpr double kMaxDisplacementFraction = 0.2;
-// Wiggle keeps its original hard bound: min(96 px, 12% of the shorter side).
-constexpr double   kWiggleMaxDisplacementLimit = 96.0;
-constexpr double   kWiggleMaxDisplacementFraction = 0.12;
+constexpr double   kMaxDisplacementLimit = 120.0;
+constexpr double   kMaxDisplacementFraction = 0.2;
 constexpr double   kMinAreaRatio = 0.2;
 constexpr unsigned kMaxHalvings = 8;
 
@@ -187,56 +177,6 @@ bool isQuiet(const Field &displacements, const Field &velocities) noexcept {
     return true;
 }
 
-// Compute every acceleration from the same old field before updating any node.
-// A single scratch array avoids copying/swapping complete state arrays each substep.
-void integrateWiggleSubstep(Field &d, Field &v, Field &accelerations) noexcept {
-    for (unsigned y = 0; y < kSide; ++y) {
-        for (unsigned x = 0; x < kSide; ++x) {
-            double   sumDx = 0.0;
-            double   sumDy = 0.0;
-            double   sumVx = 0.0;
-            double   sumVy = 0.0;
-            unsigned count = 0;
-            for (int oy = -1; oy <= 1; ++oy) {
-                for (int ox = -1; ox <= 1; ++ox) {
-                    if (ox == 0 && oy == 0)
-                        continue;
-                    const int nx = static_cast<int>(x) + ox;
-                    const int ny = static_cast<int>(y) + oy;
-                    if (nx < 0 || ny < 0 || nx >= static_cast<int>(kSide) || ny >= static_cast<int>(kSide))
-                        continue;
-                    const std::size_t j = gridIndex(static_cast<unsigned>(nx), static_cast<unsigned>(ny));
-                    sumDx += d[j].x;
-                    sumDy += d[j].y;
-                    sumVx += v[j].x;
-                    sumVy += v[j].y;
-                    ++count;
-                }
-            }
-
-            const double inverse = 1.0 / static_cast<double>(count);
-            const double meanDx = sumDx * inverse;
-            const double meanDy = sumDy * inverse;
-            const double meanVx = sumVx * inverse;
-            const double meanVy = sumVy * inverse;
-
-            const std::size_t i = gridIndex(x, y);
-            const double      accelX = -kAnchorStiffness * d[i].x - kAnchorDamping * v[i].x +
-                                       kNeighborStiffness * (meanDx - d[i].x) + kNeighborDamping * (meanVx - v[i].x);
-            const double      accelY = -kAnchorStiffness * d[i].y - kAnchorDamping * v[i].y +
-                                       kNeighborStiffness * (meanDy - d[i].y) + kNeighborDamping * (meanVy - v[i].y);
-
-            accelerations[i] = {accelX, accelY};
-        }
-    }
-    for (std::size_t i = 0; i < d.size(); ++i) {
-        v[i].x += accelerations[i].x * kSubstepSeconds;
-        v[i].y += accelerations[i].y * kSubstepSeconds;
-        d[i].x += v[i].x * kSubstepSeconds;
-        d[i].y += v[i].y * kSubstepSeconds;
-    }
-}
-
 // Head grip for a lattice coordinate q in [-1, 1] (q = 1 is the leading face): 0 on the body,
 // rising smoothly to 1 at the leading face. Smoothstep keeps forces continuous across the ramp.
 double headGrip(double q) noexcept { return smoothstep(kLiquidGripStartQ, 1.0, q); }
@@ -273,8 +213,8 @@ double catmullRom(double p0, double p1, double p2, double p3, double t) noexcept
 
 } // namespace
 
-LiquidMesh::LiquidMesh(MotionMode mode, MaterialParams params, std::uint64_t seed) noexcept
-    : m_mode(mode), m_params(normalizeParams(params)),
+LiquidMesh::LiquidMesh(MaterialParams params, std::uint64_t seed) noexcept
+    : m_params(normalizeParams(params)),
       m_shearDamping(kLiquidShearDampingMin + kLiquidShearDampingRange * m_params.viscosity), m_rng(seed) {
     rollCharacter();
 }
@@ -331,7 +271,7 @@ void LiquidMesh::reset() noexcept {
 void LiquidMesh::recordTranslation(Vec2 delta, Vec2 size, double strength) noexcept {
     // A nonfinite Liquid parameter has no defined response, so the field must not be excited.
     if (!isFinite(delta) || !isValidSize(size) || !std::isfinite(strength) || strength <= 0.0 ||
-        (m_mode == MotionMode::Liquid && !hasFiniteParams(m_params))) {
+        !hasFiniteParams(m_params)) {
         reset();
         return;
     }
@@ -343,37 +283,12 @@ void LiquidMesh::recordTranslation(Vec2 delta, Vec2 size, double strength) noexc
     }
 
     if (length > 0.0) {
-        const double ex = delta.x / length;
-        const double ey = delta.y / length;
-        // Unit direction has |ex|+|ey| >= 1, so this normalizer is always positive.
-        const double normalizer = 0.5 * (std::abs(ex) + std::abs(ey));
-        for (unsigned y = 0; y < kSide; ++y) {
-            for (unsigned x = 0; x < kSide; ++x) {
-                const double u = static_cast<double>(x) / kCells;
-                const double v = static_cast<double>(y) / kCells;
-                // q is -1 at the trailing edge and +1 at the leading edge.
-                const double      q = ((u - 0.5) * ex + (v - 0.5) * ey) / normalizer;
-                const std::size_t i = gridIndex(x, y);
-                if (m_mode == MotionMode::Wiggle) {
-                    const double bowFactor =
-                        0.65 + 0.35 * std::sin(std::numbers::pi * u) * std::sin(std::numbers::pi * v);
-                    const double edgeFactor = 0.25 + 0.75 * (1.0 - q) / 2.0;
-                    const double weight = edgeFactor * bowFactor;
-                    const double scale = strength * weight;
-
-                    m_displacements[i].x -= scale * delta.x;
-                    m_displacements[i].y -= scale * delta.y;
-                }
-            }
-        }
-        if (m_mode == MotionMode::Liquid) {
-            // Each movement from rest gets its own character, so meshes moved by the same delta still differ.
-            if (settled())
-                rollCharacter();
-            m_pendingDelta.x += delta.x;
-            m_pendingDelta.y += delta.y;
-            m_strength = strength;
-        }
+        // Each movement from rest gets its own character, so meshes moved by the same delta still differ.
+        if (settled())
+            rollCharacter();
+        m_pendingDelta.x += delta.x;
+        m_pendingDelta.y += delta.y;
+        m_strength = strength;
         m_quietSteps = 0;
     }
 
@@ -487,7 +402,7 @@ void LiquidMesh::integrateLiquidSubstep(Vec2 size) noexcept {
 
 bool LiquidMesh::advance(double elapsedSeconds, Vec2 size) noexcept {
     if (!isValidSize(size) || !std::isfinite(elapsedSeconds) || elapsedSeconds > kStallSeconds ||
-        (m_mode == MotionMode::Liquid && !hasFiniteParams(m_params))) {
+        !hasFiniteParams(m_params)) {
         reset();
         return false;
     }
@@ -495,7 +410,7 @@ bool LiquidMesh::advance(double elapsedSeconds, Vec2 size) noexcept {
     // Window velocity is the ratio of exponentially weighted translation to weighted time, so irregular or
     // zero-delta frames average into the true speed instead of reading as a stop. Its change between ticks
     // gives the inertia pseudo-force: only deceleration or reversal along the previous motion is carried forward.
-    if (m_mode == MotionMode::Liquid && elapsedSeconds > 0.0) {
+    if (elapsedSeconds > 0.0) {
         const double decay = std::exp(-elapsedSeconds / m_velocitySeconds);
         m_smoothDelta = {m_smoothDelta.x * decay + m_pendingDelta.x, m_smoothDelta.y * decay + m_pendingDelta.y};
         m_smoothTime = m_smoothTime * decay + elapsedSeconds;
@@ -563,10 +478,7 @@ bool LiquidMesh::advance(double elapsedSeconds, Vec2 size) noexcept {
         m_accumulator -= kSubstepSeconds;
         ++steps;
 
-        if (m_mode == MotionMode::Liquid)
-            integrateLiquidSubstep(size);
-        else
-            integrateWiggleSubstep(m_displacements, m_velocities, m_accelerations);
+        integrateLiquidSubstep(size);
 
         if (!constrain(size))
             return false;
@@ -588,9 +500,7 @@ bool LiquidMesh::advance(double elapsedSeconds, Vec2 size) noexcept {
 bool LiquidMesh::settled() const noexcept {
     if (!isZero(m_displacements) || !isZero(m_velocities))
         return false;
-    if (m_mode == MotionMode::Liquid)
-        return isZero(m_windowVelocity) && isZero(m_pendingDelta);
-    return true;
+    return isZero(m_windowVelocity) && isZero(m_pendingDelta);
 }
 
 Vec2 LiquidMesh::sampleDisplacement(double u, double v) const noexcept {
@@ -634,35 +544,13 @@ bool LiquidMesh::constrain(Vec2 size) noexcept {
         }
     }
 
-    const double limit =
-        m_mode == MotionMode::Liquid
-            ? displacementLimit(size)
-            : std::min(kWiggleMaxDisplacementLimit, kWiggleMaxDisplacementFraction * std::min(size.x, size.y));
+    const double limit = displacementLimit(size);
     for (std::size_t i = 0; i < m_displacements.size(); ++i) {
         Vec2        &d = m_displacements[i];
         Vec2        &v = m_velocities[i];
         const double magnitude = std::hypot(d.x, d.y);
-
-        if (m_mode == MotionMode::Liquid) {
-            if (magnitude > 0.0)
-                softSaturate(d, v, magnitude, limit);
-            continue;
-        }
-
-        if (magnitude <= limit)
-            continue;
-
-        // magnitude > limit > 0 here, so the division is safe.
-        const double nx = d.x / magnitude;
-        const double ny = d.y / magnitude;
-        d = {nx * limit, ny * limit};
-
-        // Remove only the outward component so a clamped node cannot keep pushing past the bound.
-        const double outward = v.x * nx + v.y * ny;
-        if (outward > 0.0) {
-            v.x -= outward * nx;
-            v.y -= outward * ny;
-        }
+        if (magnitude > 0.0)
+            softSaturate(d, v, magnitude, limit);
     }
 
     for (unsigned halvings = 0;; ++halvings) {

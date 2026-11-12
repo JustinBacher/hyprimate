@@ -75,13 +75,15 @@ void pinnedDrop() {
     }
     advance(m, 0.6);
     CHECK(!m.active() && !m.closed() && m.opacity() == 1);
-    PaperFacets facets;
-    m.facets({WINDOW.w, WINDOW.h}, facets);
-    for (const auto &f : facets)
-        for (std::size_t i = 0; i < 3; ++i) {
-            CHECK(f.position[i].x == f.uv[i].x - 0.5 && f.position[i].y == f.uv[i].y - 0.5);
-            CHECK(f.shade[i] == 0);
-        }
+    liquid_glass::SheetFrame frame;
+    m.frame({WINDOW.w, WINDOW.h}, frame);
+    for (std::size_t v = 0; v < liquid_glass::PAPER_GRID_VERTICES; ++v) {
+        const auto uv = liquid_glass::sheetUv(v);
+        CHECK(frame.position[v].x == uv.x - 0.5 && frame.position[v].y == uv.y - 0.5);
+    }
+    for (const auto &shade : frame.shade)
+        for (const float s : shade)
+            CHECK(s == 0.0F);
 }
 // The swinging free edge must be air-braked before it reaches the desktop plane; stopping dead there jolts the
 // displayed sheet within a single frame.
@@ -351,10 +353,12 @@ void movement() {
         movementStep(m, box, 1.0 / 120, time);
     advance(m, .25);
     CHECK(!m.active() && m.opacity() == 1);
-    PaperFacets facets;
-    m.facets({box.w, box.h}, facets);
-    for (const auto &f : facets)
-        CHECK(f.position[0].x == f.uv[0].x - .5 && f.position[0].y == f.uv[0].y - .5);
+    liquid_glass::SheetFrame frame;
+    m.frame({box.w, box.h}, frame);
+    for (std::size_t v = 0; v < liquid_glass::PAPER_GRID_VERTICES; ++v) {
+        const auto uv = liquid_glass::sheetUv(v);
+        CHECK(frame.position[v].x == uv.x - .5 && frame.position[v].y == uv.y - .5);
+    }
 }
 
 void movementHandoff() {

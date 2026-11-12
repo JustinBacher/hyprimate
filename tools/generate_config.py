@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Generate plugin registration, constants, the nested Lua example and the README from the configuration schema.
+"""Generate the plugin configuration header, the nested Lua example and the README section from config/settings.json.
 
-Each schema item has a dotted `path` (for example `window.movement.options.liquid.viscosity`). The registered
-key is `plugin:liquid-glass:` followed by the path with dots replaced by colons; Lua tables mirror the path.
-A `table` item is an empty Lua table in the layout: it registers no setting and has no member or default.
+The header holds the settings handles (SConfigValues), their registration, the typed configuration tree (SConfig)
+and readConfig(), which clamps every float to its schema range and maps every string choice to an enum class.
+Open and close share one STransitionConfig shape; direction-only settings occupy the shared fields of the
+direction that owns them and keep their zero value in the other direction.
 """
 import argparse
 import json
@@ -19,16 +20,18 @@ LUA_BEGIN = '-- BEGIN GENERATED PLUGIN CONFIG'
 LUA_END = '-- END GENERATED PLUGIN CONFIG'
 KEY_PREFIX = 'plugin:liquid-glass:'
 KINDS = {'boolean': 'CBoolValue', 'float': 'CFloatValue', 'string': 'CStringValue', 'color': 'CColorValue'}
+CTYPES = {'boolean': 'bool', 'float': 'double', 'color': 'std::uint32_t'}
 SEGMENT = re.compile(r'[a-z][a-z0-9_]*\Z')
 MEMBER = re.compile(r'm_[A-Za-z][A-Za-z0-9]*\Z')
 COLOR = re.compile(r'0x[0-9a-fA-F]{8}\Z')
+TRANSITIONS = ('open', 'close')
 
 
 def literal(value):
     if isinstance(value, bool):
-        return str(value).lower()
+        return 'true' if value else 'false'
     if isinstance(value, str):
-        return json.dumps(value, ensure_ascii=False)
+        return '"' + value.replace('\\', '\\\\').replace('"', '\\"') + '"'
     return str(value)
 
 
@@ -37,12 +40,17 @@ def float_literal(value):
     return (text if '.' in text or 'e' in text.lower() else text + '.0') + 'F'
 
 
+def pascal(text):
+    return ''.join(part[:1].upper() + part[1:] for part in text.split('_'))
+
+
+def camel(text):
+    name = pascal(text)
+    return name[:1].lower() + name[1:]
+
+
 def key(item):
     return KEY_PREFIX + item['path'].replace('.', ':')
-
-
-def registered(settings):
-    return [item for item in settings if item['type'] != 'table']
 
 
 def is_number(value):
@@ -62,10 +70,6 @@ def validate(settings):
         if not isinstance(item['description'], str) or not item['description'].strip():
             raise ValueError(f'{path}: description must be non-empty text')
         paths.add(path)
-        if kind == 'table':
-            if 'member' in item or 'default' in item:
-                raise ValueError(f'{path}: table entries register nothing and take no member or default')
-            continue
         member = item['member']
         if not MEMBER.match(member) or member in members:
             raise ValueError(f'{path}: invalid or duplicate member {member!r}')
@@ -93,7 +97,7 @@ def validate(settings):
 
 
 class _Node(dict):
-    """Interior table of the nested configuration tree; leaves are schema items."""
+    """Interior table of the nested Lua configuration tree; leaves are schema items."""
 
 
 def tree(settings):
@@ -115,8 +119,6 @@ def lua_fields(node, depth):
             lines.append(f'{pad}{name} = {{')
             lines.extend(lua_fields(child, depth + 1))
             lines.append(f'{pad}}},')
-        elif child['type'] == 'table':
-            lines.append(f'{pad}{name} = {{}},')
         else:
             value = child['default'] if child['type'] == 'color' else literal(child['default'])
             lines.append(f'{pad}{name} = {value},')
@@ -129,9 +131,96 @@ def lua_config(settings):
                       '        ["liquid_glass"] = {', *body, '        },', '    },', '})'])
 
 
-def registration(settings):
-    settings = registered(settings)
-    lines = ['// Generated from config/settings.json; do not edit.']
+def config_segments(item):
+    """Path under window, without the Lua-only 'options' level; these are the SConfig field names."""
+    return [part for part in item['path'].split('.')[1:] if part != 'options']
+
+
+def enum_name(item):
+    return pascal(item['path'].split('.')[-1])
+
+
+def enums(settings):
+    found = {}
+    for item in settings:
+        if item['type'] != 'string':
+            continue
+        name = enum_name(item)
+        if name in found and found[name]['choices'] != item['choices']:
+            raise ValueError(f'{item["path"]}: enum {name} is already declared with other choices')
+        found.setdefault(name, item)
+    return found
+
+
+def type_name(segments):
+    if not segments:
+        return 'SConfig'
+    if segments[0] in TRANSITIONS:
+        return 'STransitionConfig' if len(segments) == 1 else 'STransition' + ''.join(pascal(s) for s in segments[1:])
+    return 'S' + ''.join(pascal(s) for s in segments)
+
+
+def struct_types(settings):
+    """type name -> ordered {field: (kind, type)}; open and close merge into one STransitionConfig shape."""
+    types = {}
+    for item in settings:
+        segments = config_segments(item)
+        for depth in range(len(segments)):
+            fields = types.setdefault(type_name(segments[:depth]), {})
+            field = segments[depth]
+            if depth == len(segments) - 1:
+                fields[field] = ('leaf', enum_name(item) if item['type'] == 'string' else CTYPES[item['type']])
+            else:
+                fields[field] = ('node', type_name(segments[:depth + 1]))
+    return types
+
+
+def emit_struct(types, name, emitted, out):
+    if name in emitted:
+        return
+    emitted.add(name)
+    for kind, typ in types[name].values():
+        if kind == 'node':
+            emit_struct(types, typ, emitted, out)
+    out.append(f'struct {name} {{')
+    for field, (kind, typ) in types[name].items():
+        out.append(f'    {typ} {camel(field)}{{}};')
+    out.append('};')
+    out.append('')
+
+
+def config_header(settings):
+    out = ['// Generated from config/settings.json; do not edit.', '#pragma once', '',
+           '#include <algorithm>', '#include <cmath>', '#include <cstdint>', '#include <expected>',
+           '#include <stdexcept>', '#include <string>', '', 'namespace liquid_glass::config {', '']
+    enum_items = enums(settings)
+    for name, item in enum_items.items():
+        out.append(f'enum class {name} : std::uint8_t {{ {", ".join(pascal(c) for c in item["choices"])} }};')
+    out.append('')
+    out.append('namespace detail {')
+    out.append('// Non-finite values read as the schema minimum, which turns a strength or drain off.')
+    out.append('inline double clampFloat(float value, double low, double high) noexcept {')
+    out.append('    return std::isfinite(value) ? std::clamp(static_cast<double>(value), low, high) : low;')
+    out.append('}')
+    out.append('')
+    for name, item in enum_items.items():
+        out.append(f'inline {name} parse{name}(const std::string& text) noexcept {{')
+        for choice in item['choices']:
+            out.append(f'    if (text == {literal(choice)}) return {name}::{pascal(choice)};')
+        out.append(f'    return {name}::{pascal(item["default"])};')
+        out.append('}')
+        out.append('')
+    out.append('} // namespace detail')
+    out.append('')
+    types = struct_types(settings)
+    emitted = set()
+    emit_struct(types, 'SConfig', emitted, out)
+    out.append('struct SConfigValues {')
+    for item in settings:
+        out.append(f'    SP<Config::Values::{KINDS[item["type"]]}> {item["member"]};')
+    out.append('};')
+    out.append('')
+    out.append('inline void registerConfigValues(HANDLE handle, SConfigValues& values) {')
     for item in settings:
         member, kind = item['member'], item['type']
         name = key(item)
@@ -139,27 +228,51 @@ def registration(settings):
         default = item['default']
         cls = KINDS[kind]
         value = float_literal(default) if kind == 'float' else (default if kind == 'color' else literal(default))
-        lines.append(f'{member} = makeShared<Config::Values::{cls}>({literal(name)}, {desc}, {value}' + (',' if kind in ('float', 'string') else ');'))
         if kind == 'float':
-            lines.append(f'    Config::Values::SFloatValueOptions{{.min = {float_literal(item["min"])}, .max = {float_literal(item["max"])}}});')
+            options = f'.min = {float_literal(item["min"])}, .max = {float_literal(item["max"])}'
+            out.append(f'    values.{member} = makeShared<Config::Values::{cls}>({literal(name)}, {desc}, {value},')
+            out.append(f'        Config::Values::SFloatValueOptions{{{options}}});')
         elif kind == 'string':
             conditions = ' || '.join(f'value == {literal(choice)}' for choice in item['choices'])
             error = name + ' must be one of: ' + ', '.join(item['choices'])
-            lines.extend(['    Config::Values::SStringValueOptions{.validator = [](const Config::STRING& value) -> std::expected<void, std::string> {',
-                          f'        if ({conditions}) return {{}};',
-                          f'        return std::unexpected(std::string({literal(error)}));', '    }});'])
-    lines.append('if (' + '\n    || '.join('!HyprlandAPI::addConfigValueV2(m_handle, ' + x['member'] + ')' for x in settings) + ')')
-    lines.append('    throw std::runtime_error("[liquid-glass] failed to register configuration values");')
-    return '\n'.join(lines) + '\n'
+            out.append(f'    values.{member} = makeShared<Config::Values::{cls}>({literal(name)}, {desc}, {literal(default)},')
+            out.append('        Config::Values::SStringValueOptions{.validator = [](const Config::STRING& value) -> std::expected<void, std::string> {')
+            out.append(f'            if ({conditions}) return {{}};')
+            out.append(f'            return std::unexpected(std::string({literal(error)}));')
+            out.append('        }});')
+        else:
+            out.append(f'    values.{member} = makeShared<Config::Values::{cls}>({literal(name)}, {desc}, {value});')
+    out.append('    if (' + '\n     || '.join(f'!HyprlandAPI::addConfigValueV2(handle, values.{x["member"]})' for x in settings) + ')')
+    out.append('        throw std::runtime_error("[liquid-glass] failed to register configuration values");')
+    out.append('}')
+    out.append('')
+    out.append('inline SConfig readConfig(const SConfigValues& v) {')
+    out.append('    SConfig c;')
+    for item in settings:
+        target = 'c.' + '.'.join(camel(s) for s in config_segments(item))
+        source = f'v.{item["member"]}->value()'
+        if item['type'] == 'float':
+            value = f'detail::clampFloat({source}, {float_literal(item["min"])}, {float_literal(item["max"])})'
+        elif item['type'] == 'string':
+            value = f'detail::parse{enum_name(item)}({source})'
+        elif item['type'] == 'color':
+            value = f'static_cast<std::uint32_t>({source})'
+        else:
+            value = source
+        out.append(f'    {target} = {value};')
+    out.append('    return c;')
+    out.append('}')
+    out.append('')
+    out.append('} // namespace liquid_glass::config')
+    return '\n'.join(out) + '\n'
 
 
 def documentation(settings):
-    tables = [item for item in settings if item['type'] == 'table']
     lines = ['After the first load has registered the settings, add this Lua configuration:', '', '```lua',
              lua_config(settings), '```', '',
              'Hyprland 0.57 normalizes hyphens to underscores in Lua config names: use `liquid_glass` in `hl.config`, while the plugin name and `hyprctl` keys remain `liquid-glass` / `plugin:liquid-glass:*`. Each nested Lua table maps to colon-separated segments of the key, for example `window.movement.options.liquid.viscosity` is `plugin:liquid-glass:window:movement:options:liquid:viscosity`.', '',
              '| Setting | Type / default | Meaning |', '|---|---|---|']
-    for item in registered(settings):
+    for item in settings:
         kind = item['type']
         default = item['default'] if kind == 'color' else literal(item['default'])
         meaning = item['description']
@@ -168,9 +281,6 @@ def documentation(settings):
         if kind == 'string':
             meaning += ' Allowed: ' + ', '.join('`' + x + '`' for x in item['choices']) + '.'
         lines.append(f'| `{key(item)}` | {kind} / `{default}` | {meaning} |')
-    if tables:
-        lines.extend(['', 'Empty Lua tables in the layout (no settings registered):', ''])
-        lines.extend(f'- `{item["path"]}`: {item["description"]}' for item in tables)
     return '\n'.join(lines)
 
 
@@ -190,20 +300,16 @@ def main():
     parser.add_argument('--schema', type=Path, default=ROOT / 'config/settings.json')
     parser.add_argument('--readme', type=Path)
     parser.add_argument('--lua', type=Path, help='file containing a commented generated plugin block between markers')
-    parser.add_argument('--header', type=Path)
-    parser.add_argument('--constants', type=Path)
+    parser.add_argument('--header', type=Path, help='generated configuration header')
     parser.add_argument('--check', action='store_true')
     args = parser.parse_args()
-    if not (args.readme or args.lua or args.header or args.constants):
-        parser.error('specify --readme, --lua, --header, or --constants')
+    if not (args.readme or args.lua or args.header):
+        parser.error('specify --readme, --lua, or --header')
     settings = json.loads(args.schema.read_text())
     validate(settings)
     outputs = []
     if args.header:
-        outputs.append((args.header, registration(settings)))
-    if args.constants:
-        strength = next(item for item in settings if item['path'] == 'window.movement.options.liquid.strength')
-        outputs.append((args.constants, f'// Generated from config/settings.json; do not edit.\nconstexpr double MAX_STRENGTH = {float(strength["max"])};\n'))
+        outputs.append((args.header, config_header(settings)))
     if args.readme:
         text = args.readme.read_text()
         outputs.append((args.readme, replace_region(text, BEGIN, END, documentation(settings), 'README')))

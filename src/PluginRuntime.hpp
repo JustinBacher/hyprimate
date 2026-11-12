@@ -1,16 +1,13 @@
 #pragma once
 
 #include <hyprland/src/config/ConfigValue.hpp>
-#include <hyprland/src/config/values/types/BoolValue.hpp>
-#include <hyprland/src/config/values/types/FloatValue.hpp>
-#include <hyprland/src/config/values/types/ColorValue.hpp>
-#include <hyprland/src/config/values/types/StringValue.hpp>
 #include <hyprland/src/event/EventBus.hpp>
 #include <hyprland/src/helpers/signal/Signal.hpp>
 #include <hyprland/src/plugins/PluginAPI.hpp>
 #include "LiquidGlassTransformer.hpp"
 #include "LiquidCloseRenderer.hpp"
 #include "SolidFill.hpp"
+#include "config_generated.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -48,22 +45,12 @@ class CPluginRuntime {
         std::optional<liquid_glass::Edge> openEdge; // edge the opening began from; close_side=origin drains here
     };
 
-    bool                           pluginEnabled() const;
-    bool                           movementEnabled() const;
-    bool                           movementCloth() const;
-    bool                           openEnabled() const;
-    bool                           closeEnabled() const;
-    bool                           openPaper() const;
-    bool                           closePaper() const;
-    bool                           openCloth() const;
-    bool                           closeCloth() const;
-    double                         movementStrength() const;
-    double                         effectiveViscosity() const;
-    liquid_glass::MotionMode       effectiveMode() const;
-    liquid_glass::MaterialParams   effectiveMaterialParams() const;
-    liquid_glass::TransitionParams transitionParams(double elasticity, double momentum) const;
-    liquid_glass::PaperParams paperParams(double duration, double crumpliness, double shading, double variation) const;
-    liquid_glass::ClothParams clothParams(double duration, double flutter, double shading, double variation) const;
+    bool                              pluginEnabled() const;
+    bool                              movementEnabled() const;
+    bool                              openEnabled() const;
+    bool                              closeEnabled() const;
+    double                            movementStrength() const;
+    liquid_glass::MaterialParams      effectiveMaterialParams() const;
     liquid_glass::ClothMovementParams clothMovementParams() const;
     bool                              materialUsable() const;
     bool                              materialChanged(const CLiquidGlassTransformer &transformer) const;
@@ -88,7 +75,6 @@ class CPluginRuntime {
     CBox                                   edgeBoundsBox(const PHLMONITOR &monitor, bool opening) const;
     std::optional<liquid_glass::EdgeFrame> edgeFrameFor(const PHLWINDOW &window, bool opening,
                                                         std::optional<liquid_glass::Edge> origin = std::nullopt) const;
-    double                                 effectiveEmergeDrag() const;
 
     // Sampling and simulation.
     void onRenderPre(const PHLMONITOR &monitor);
@@ -107,59 +93,10 @@ class CPluginRuntime {
     // Must outlive close records and every transformer detached during destruction.
     liquid_glass::ClothPhysics m_clothPhysics;
 
-    HANDLE m_handle = nullptr;
-    // window
-    SP<Config::Values::CBoolValue> m_enabled;
-    // movement
-    SP<Config::Values::CBoolValue>   m_movementEnabled;
-    SP<Config::Values::CStringValue> m_mode;
-    SP<Config::Values::CFloatValue>  m_movementLiquidStrength;
-    SP<Config::Values::CFloatValue>  m_movementWiggleStrength;
-    SP<Config::Values::CFloatValue>  m_movementClothStrength;
-    SP<Config::Values::CFloatValue>  m_movementClothFlutter;
-    SP<Config::Values::CFloatValue>  m_movementClothShading;
-    SP<Config::Values::CFloatValue>  m_movementClothVariation;
-    SP<Config::Values::CFloatValue>  m_viscosity;
-    SP<Config::Values::CFloatValue>  m_elasticity;
-    SP<Config::Values::CFloatValue>  m_momentum;
-    SP<Config::Values::CFloatValue>  m_variation;
-    // open
-    SP<Config::Values::CBoolValue>   m_openEnabled;
-    SP<Config::Values::CStringValue> m_openStyle;
-    SP<Config::Values::CFloatValue>  m_openLiquidStrength;
-    SP<Config::Values::CColorValue>  m_openLiquidColor;
-    SP<Config::Values::CStringValue> m_firstWindowSide;
-    SP<Config::Values::CStringValue> m_edgeBounds;
-    SP<Config::Values::CFloatValue>  m_emergeDrag;
-    SP<Config::Values::CFloatValue>  m_openElasticity;
-    SP<Config::Values::CFloatValue>  m_openMomentum;
-    SP<Config::Values::CFloatValue>  m_openPaperDuration;
-    SP<Config::Values::CFloatValue>  m_openPaperCrumpliness;
-    SP<Config::Values::CFloatValue>  m_openPaperShading;
-    SP<Config::Values::CFloatValue>  m_openPaperVariation;
-    SP<Config::Values::CFloatValue>  m_openClothDuration;
-    SP<Config::Values::CFloatValue>  m_openClothFlutter;
-    SP<Config::Values::CFloatValue>  m_openClothShading;
-    SP<Config::Values::CFloatValue>  m_openClothVariation;
-    // close
-    SP<Config::Values::CBoolValue>   m_closeEnabled;
-    SP<Config::Values::CStringValue> m_closeStyle;
-    SP<Config::Values::CFloatValue>  m_closeLiquidStrength;
-    SP<Config::Values::CColorValue>  m_closeLiquidColor;
-    SP<Config::Values::CStringValue> m_closeSide;
-    SP<Config::Values::CStringValue> m_closeEdgeBounds;
-    SP<Config::Values::CBoolValue>   m_closeSplash;
-    SP<Config::Values::CFloatValue>  m_closeElasticity;
-    SP<Config::Values::CFloatValue>  m_closeMomentum;
-    SP<Config::Values::CFloatValue>  m_closePaperDuration;
-    SP<Config::Values::CFloatValue>  m_closePaperCrumpliness;
-    SP<Config::Values::CFloatValue>  m_closePaperShading;
-    SP<Config::Values::CFloatValue>  m_closePaperVariation;
-    SP<Config::Values::CFloatValue>  m_closeClothDuration;
-    SP<Config::Values::CFloatValue>  m_closeClothFlutter;
-    SP<Config::Values::CFloatValue>  m_closeClothShading;
-    SP<Config::Values::CFloatValue>  m_closeClothVariation;
-    CConfigValue<Config::INTEGER>    m_wobble{"decoration:wobble:enabled"};
+    HANDLE                              m_handle = nullptr;
+    liquid_glass::config::SConfigValues m_values;
+    liquid_glass::config::SConfig       m_config;
+    CConfigValue<Config::INTEGER>       m_wobble{"decoration:wobble:enabled"};
 
     std::vector<STracked>                 m_tracked;
     bool                                  m_inert = false;

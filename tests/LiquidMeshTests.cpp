@@ -16,14 +16,12 @@ namespace {
 
 using liquid_glass::LiquidMesh;
 using liquid_glass::MaterialParams;
-using liquid_glass::MotionMode;
 using liquid_glass::Vec2;
 
-constexpr Vec2                      kWindow{600.0, 400.0};
-constexpr double                    kStrength = 0.65;
-constexpr double                    kNaN = std::numeric_limits<double>::quiet_NaN();
-constexpr double                    kInfinity = std::numeric_limits<double>::infinity();
-constexpr std::array<MotionMode, 2> kModes{MotionMode::Liquid, MotionMode::Wiggle};
+constexpr Vec2   kWindow{600.0, 400.0};
+constexpr double kStrength = 0.65;
+constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
+constexpr double kInfinity = std::numeric_limits<double>::infinity();
 
 std::size_t node(unsigned x, unsigned y) { return static_cast<std::size_t>(y) * 9 + x; }
 
@@ -121,132 +119,11 @@ bool renderValid(const LiquidMesh &mesh, Vec2 size) {
     return true;
 }
 
-// Wiggle-only helpers (unchanged behavior). Liquid tests use the frame driver below instead.
-// 1. A +80 px horizontal translation produces a non-affine, asymmetric lag field.
-void testObservableNonaffineDrag() {
-    LiquidMesh mesh{liquid_glass::MotionMode::Wiggle};
-    mesh.recordTranslation(Vec2{80.0, 0.0}, kWindow, kStrength);
-    const auto &d = mesh.displacements();
-
-    const double leading = d[node(8, 4)].x;
-    const double middle = d[node(4, 4)].x;
-    const double trailing = d[node(0, 4)].x;
-
-    // Lag opposes the motion everywhere, with the leading edge lagging far less than the trailing edge.
-    CHECK(leading < 0.0 && middle < 0.0 && trailing < 0.0);
-    CHECK(std::abs(leading - trailing) > 10.0);
-    CHECK(std::abs(middle - trailing) > 0.5);
-
-    // A rigid or affine shift would put the middle exactly at the edges' average; the bow breaks that.
-    CHECK(std::abs(middle - 0.5 * (leading + trailing)) > 1.0);
-
-    // The lattice bends across the middle column as well, not just along the travel axis.
-    CHECK(std::abs(d[node(4, 0)].x - d[node(4, 4)].x) > 1.0);
-
-    // Pure x-translation excites no y displacement.
-    double maxY = 0.0;
-    for (const Vec2 &p : d)
-        maxY = std::max(maxY, std::abs(p.y));
-    CHECK(maxY == 0.0);
-}
-
-// 2. Released motion returns to rest within 1.0 s without repeated visible sign reversals.
-void testSettleAndSignReversals() {
-    LiquidMesh mesh{liquid_glass::MotionMode::Wiggle};
-    mesh.recordTranslation(Vec2{80.0, 0.0}, kWindow, kStrength);
-
-    std::array<int, 81> reversals{};
-    std::array<int, 81> lastSign{};
-    constexpr int       frames = 60; // 1.0 s at 60 Hz
-    for (int f = 0; f < frames; ++f) {
-        mesh.advance(1.0 / 60.0, kWindow);
-        const auto &d = mesh.displacements();
-        for (std::size_t i = 0; i < d.size(); ++i) {
-            if (std::abs(d[i].x) <= 0.5)
-                continue;
-            const int sign = d[i].x > 0.0 ? 1 : -1;
-            if (lastSign[i] != 0 && sign != lastSign[i])
-                ++reversals[i];
-            lastSign[i] = sign;
-        }
-    }
-
-    for (std::size_t i = 0; i < reversals.size(); ++i)
-        CHECK(reversals[i] <= 1);
-    CHECK(mesh.settled());
-    CHECK(maxMagnitude(mesh.displacements()) == 0.0);
-}
-
-// 3. Spatial coupling: the lag ratios of edge nodes to the center change over time. Independent
-// identical springs would keep the initial ratios exactly, because they share one decay factor.
-void testSpatialCouplingRelativeResponse() {
-    LiquidMesh mesh{liquid_glass::MotionMode::Wiggle};
-    mesh.recordTranslation(Vec2{80.0, 0.0}, kWindow, kStrength);
-
-    const auto ratios = [&mesh]() {
-        const auto  &d = mesh.displacements();
-        const double center = d[node(4, 4)].x;
-        return std::array<double, 2>{d[node(8, 4)].x / center, d[node(0, 4)].x / center};
-    };
-
-    const std::array<double, 2> before = ratios();
-    for (int f = 0; f < 6; ++f) // 0.1 s at 60 Hz
-        mesh.advance(1.0 / 60.0, kWindow);
-    const std::array<double, 2> after = ratios();
-
-    CHECK(std::isfinite(after[0]) && std::isfinite(after[1]));
-    // Leading-edge lag moves toward the center's response as neighbor coupling smooths shear.
-    CHECK(after[0] > before[0]);
-    double maxRelativeChange = 0.0;
-    for (std::size_t k = 0; k < before.size(); ++k)
-        maxRelativeChange = std::max(maxRelativeChange, std::abs(after[k] - before[k]) / std::abs(before[k]));
-    CHECK(maxRelativeChange > 0.02);
-}
-
-struct Snapshots {
-    std::array<Vec2, 81> half;
-    std::array<Vec2, 81> full;
-};
-
-// Wiggle schedule: +80 px at 0 s, -40 px at exactly 0.5 s, impulse semantics.
-Snapshots runWiggleSchedule(double hz) {
-    LiquidMesh mesh{MotionMode::Wiggle};
-    mesh.recordTranslation(Vec2{80.0, 0.0}, kWindow, kStrength);
-
-    const int framesToHalf = static_cast<int>(std::lround(hz * 0.5));
-    const int framesTotal = static_cast<int>(std::lround(hz * 1.0));
-    for (int f = 0; f < framesToHalf; ++f)
-        mesh.advance(1.0 / hz, kWindow);
-
-    Snapshots result{};
-    result.half = mesh.displacements();
-
-    mesh.recordTranslation(Vec2{-40.0, 0.0}, kWindow, kStrength);
-    for (int f = framesToHalf; f < framesTotal; ++f)
-        mesh.advance(1.0 / hz, kWindow);
-
-    result.full = mesh.displacements();
-    return result;
-}
-
-// Fixed-step agreement for the preserved wiggle.
-void testFixedStepBoundaries() {
-    const Snapshots s30 = runWiggleSchedule(30.0);
-    const Snapshots s60 = runWiggleSchedule(60.0);
-    const Snapshots s144 = runWiggleSchedule(144.0);
-    CHECK(magnitude(s30.half[node(4, 4)]) > 0.1);
-    CHECK(magnitude(s30.full[node(4, 4)]) > 0.1);
-    CHECK(maxDifference(s30.half, s60.half) <= 0.01);
-    CHECK(maxDifference(s30.half, s144.half) <= 0.01);
-    CHECK(maxDifference(s30.full, s60.full) <= 0.01);
-    CHECK(maxDifference(s30.full, s144.full) <= 0.01);
-}
-
-// Extreme, reversing, tiny, paused, zero-strength, empty and nonfinite inputs, in either mode.
-void checkDegenerateGeometry(MotionMode mode) {
+// Extreme, reversing, tiny, paused, zero-strength, empty and nonfinite inputs.
+void checkDegenerateGeometry() {
     // Extreme translation is bounded and keeps every triangle oriented.
     {
-        LiquidMesh mesh{mode};
+        LiquidMesh mesh{};
         mesh.recordTranslation(Vec2{5000.0, 0.0}, kWindow, kStrength);
         CHECK(latticeValid(mesh, kWindow));
         for (int f = 0; f < 30; ++f) {
@@ -257,7 +134,7 @@ void checkDegenerateGeometry(MotionMode mode) {
 
     // Rapid reversals, including a diagonal impulse.
     {
-        LiquidMesh                mesh{mode};
+        LiquidMesh                mesh{};
         const std::array<Vec2, 5> impulses{Vec2{80.0, 0.0}, Vec2{-80.0, 0.0}, Vec2{80.0, 0.0}, Vec2{-80.0, 0.0},
                                            Vec2{56.0, 56.0}};
         for (const Vec2 &impulse : impulses) {
@@ -272,7 +149,7 @@ void checkDegenerateGeometry(MotionMode mode) {
 
     // A 16x16 window: the bound is 0.2 * 16 = 3.2 px, so the +80 px impulse is clamped hard.
     {
-        LiquidMesh mesh{mode};
+        LiquidMesh mesh{};
         const Vec2 tiny{16.0, 16.0};
         mesh.recordTranslation(Vec2{80.0, 0.0}, tiny, kStrength);
         CHECK(maxMagnitude(mesh.displacements()) <= 0.2 * 16.0 + 1e-9);
@@ -285,7 +162,7 @@ void checkDegenerateGeometry(MotionMode mode) {
 
     // A 1000 ms pause exceeds the 250 ms gap limit and resets to the undeformed state.
     {
-        LiquidMesh mesh{mode};
+        LiquidMesh mesh{};
         mesh.recordTranslation(Vec2{80.0, 0.0}, kWindow, kStrength);
         CHECK(!mesh.advance(1.0, kWindow));
         CHECK(mesh.settled());
@@ -294,7 +171,7 @@ void checkDegenerateGeometry(MotionMode mode) {
 
     // Zero strength bypasses deformation entirely.
     {
-        LiquidMesh mesh{mode};
+        LiquidMesh mesh{};
         mesh.recordTranslation(Vec2{80.0, 0.0}, kWindow, 0.0);
         CHECK(mesh.settled());
         CHECK(!mesh.advance(1.0 / 60.0, kWindow));
@@ -303,7 +180,7 @@ void checkDegenerateGeometry(MotionMode mode) {
 
     // NaN strength is invalid input and resets.
     {
-        LiquidMesh mesh{mode};
+        LiquidMesh mesh{};
         mesh.recordTranslation(Vec2{80.0, 0.0}, kWindow, kStrength);
         mesh.recordTranslation(Vec2{80.0, 0.0}, kWindow, kNaN);
         CHECK(mesh.settled());
@@ -311,14 +188,14 @@ void checkDegenerateGeometry(MotionMode mode) {
 
     // Zero delta does not excite, even though the field is still constrained.
     {
-        LiquidMesh mesh{mode};
+        LiquidMesh mesh{};
         mesh.recordTranslation(Vec2{0.0, 0.0}, kWindow, kStrength);
         CHECK(mesh.settled());
     }
 
     // Empty geometry resets, whether it arrives with a translation or with advance().
     {
-        LiquidMesh mesh{mode};
+        LiquidMesh mesh{};
         mesh.recordTranslation(Vec2{80.0, 0.0}, Vec2{0.0, 400.0}, kStrength);
         CHECK(mesh.settled());
 
@@ -330,7 +207,7 @@ void checkDegenerateGeometry(MotionMode mode) {
 
     // Nonfinite translation, size, elapsed time, or excitation resets.
     {
-        LiquidMesh mesh{mode};
+        LiquidMesh mesh{};
         mesh.recordTranslation(Vec2{kNaN, 0.0}, kWindow, kStrength);
         CHECK(mesh.settled());
 
@@ -354,14 +231,14 @@ void checkDegenerateGeometry(MotionMode mode) {
 
     // Resizing without translation applies the new bound immediately, with or without time stepping.
     {
-        LiquidMesh mesh{mode};
+        LiquidMesh mesh{};
         mesh.recordTranslation(Vec2{80.0, 0.0}, kWindow, kStrength);
         mesh.recordTranslation(Vec2{0.0, 0.0}, Vec2{100.0, 100.0}, kStrength);
         CHECK(maxMagnitude(mesh.displacements()) <= 0.2 * 100.0 + 1e-9);
         CHECK(latticeValid(mesh, Vec2{100.0, 100.0}));
     }
     {
-        LiquidMesh mesh{mode};
+        LiquidMesh mesh{};
         mesh.recordTranslation(Vec2{80.0, 0.0}, kWindow, kStrength);
         mesh.advance(0.0, Vec2{100.0, 100.0});
         CHECK(maxMagnitude(mesh.displacements()) <= 0.2 * 100.0 + 1e-9);
@@ -369,10 +246,7 @@ void checkDegenerateGeometry(MotionMode mode) {
     }
 }
 
-void testExtremeAndDegenerateGeometry() {
-    for (const MotionMode mode : kModes)
-        checkDegenerateGeometry(mode);
-}
+void testExtremeAndDegenerateGeometry() { checkDegenerateGeometry(); }
 
 // ---------------------------------------------------------------------------
 // Liquid material targets.
@@ -400,7 +274,7 @@ struct StopTrace {
 
 // Drags at 2000 px/s for 0.25 s at 60 Hz, then stops and records the trailing response.
 StopTrace traceStop(const MaterialParams &params, double hz = 60.0, std::uint64_t seed = 0) {
-    LiquidMesh mesh{MotionMode::Liquid, params, seed};
+    LiquidMesh mesh{params, seed};
     for (int f = 0; f < static_cast<int>(std::lround(hz * 0.25)); ++f)
         driveFrame(mesh, Vec2{2000.0, 0.0}, hz, kWindow, kStrength);
 
@@ -440,7 +314,7 @@ struct LiquidSnapshots {
 };
 
 LiquidSnapshots runLiquidSchedule(double hz, const MaterialParams &params, std::uint64_t seed = 0) {
-    LiquidMesh mesh{MotionMode::Liquid, params, seed};
+    LiquidMesh mesh{params, seed};
     const int  framesDrag = static_cast<int>(std::lround(hz * 0.25));
     const int  framesTotal = static_cast<int>(std::lround(hz * 0.5));
     for (int f = 0; f < framesDrag; ++f)
@@ -456,7 +330,7 @@ LiquidSnapshots runLiquidSchedule(double hz, const MaterialParams &params, std::
 // Drag at 2000 px/s: the trailing side lags well behind, the leading face stays tight, and the
 // sheet narrows transversely.
 void testLiquidDragLag() {
-    LiquidMesh mesh{MotionMode::Liquid};
+    LiquidMesh mesh{};
     for (int f = 0; f < 15; ++f) {
         driveFrame(mesh, Vec2{2000.0, 0.0}, 60.0, kWindow, kStrength);
         CHECK(renderValid(mesh, kWindow));
@@ -474,7 +348,7 @@ void testLiquidDragLag() {
 
 // Slow drag at 100 px/s for 0.5 s deforms little.
 void testLiquidSlowDragIsSubtle() {
-    LiquidMesh mesh{MotionMode::Liquid};
+    LiquidMesh mesh{};
     for (int f = 0; f < 30; ++f)
         driveFrame(mesh, Vec2{100.0, 0.0}, 60.0, kWindow, kStrength);
     CHECK(maxMagnitude(mesh.displacements()) < 3.0);
@@ -488,7 +362,7 @@ void testLiquidStopOvershootAndSettle() {
     CHECK(t.overshoot <= 0.30 * t.peakLag);
     CHECK(t.laterNegative <= 0.5 * t.overshoot);
     CHECK(t.settleSeconds <= 1.5);
-    LiquidMesh mesh{MotionMode::Liquid};
+    LiquidMesh mesh{};
     for (int f = 0; f < 15; ++f)
         driveFrame(mesh, Vec2{2000.0, 0.0}, 60.0, kWindow, kStrength);
     for (int f = 0; f < 90; ++f)
@@ -501,7 +375,7 @@ void testLiquidStopOvershootAndSettle() {
 // node whose lag truly changes sign with the drive; the old trailing edge becomes the leading face.
 // The render mesh keeps every triangle oriented throughout.
 void testLiquidReversal() {
-    LiquidMesh mesh{MotionMode::Liquid};
+    LiquidMesh mesh{};
     for (int f = 0; f < 15; ++f)
         driveFrame(mesh, Vec2{2000.0, 0.0}, 60.0, kWindow, kStrength);
     CHECK(trailingX(mesh) < -10.0);
@@ -539,7 +413,7 @@ void testLiquidRefreshRateAgreement() {
 void testLiquidSizeScaling() {
     const auto peakOver = [](Vec2 size) {
         const double minSide = std::min(size.x, size.y);
-        LiquidMesh   mesh{MotionMode::Liquid};
+        LiquidMesh   mesh{};
         for (int f = 0; f < 12; ++f) {
             driveFrame(mesh, Vec2{5.0 * minSide, 0.0}, 60.0, size, kStrength);
             CHECK(renderValid(mesh, size));
@@ -555,7 +429,7 @@ void testLiquidSizeScaling() {
 // Degenerate and thin geometry stays stable and settles exactly.
 void testLiquidDegenerateGeometrySettles() {
     for (const Vec2 size : {Vec2{16.0, 16.0}, Vec2{1000.0, 40.0}}) {
-        LiquidMesh mesh{MotionMode::Liquid};
+        LiquidMesh mesh{};
         for (int f = 0; f < 15; ++f) {
             driveFrame(mesh, Vec2{2000.0, 0.0}, 60.0, size, kStrength);
             CHECK(latticeValid(mesh, size));
@@ -596,7 +470,7 @@ void testLiquidMomentumOvershoot() {
 
 // sampleDisplacement: exact at nodes, clamped outside [0, 1], and C1 across cell boundaries.
 void testSampleDisplacement() {
-    LiquidMesh mesh{MotionMode::Liquid};
+    LiquidMesh mesh{};
     for (int f = 0; f < 15; ++f)
         driveFrame(mesh, Vec2{2000.0, 0.0}, 60.0, kWindow, kStrength);
     const auto &d = mesh.displacements();
@@ -632,8 +506,8 @@ void testViscosityResistsInternalFlow() {
     thinParams.viscosity = 0.0;
     MaterialParams thickParams{};
     thickParams.viscosity = 1.0;
-    LiquidMesh thin{MotionMode::Liquid, thinParams};
-    LiquidMesh thick{MotionMode::Liquid, thickParams};
+    LiquidMesh thin{thinParams};
+    LiquidMesh thick{thickParams};
     // Viscosity must change internal flow, not masquerade as a strength control.
     CHECK(maxDifference(thin.displacements(), thick.displacements()) == 0.0);
     for (int frame = 0; frame < 15; ++frame) {
@@ -670,8 +544,8 @@ void testViscosityBoundariesAndCadence() {
     above.viscosity = 1.5;
     MaterialParams one{};
     one.viscosity = 1.0;
-    LiquidMesh low{MotionMode::Liquid, below}, thin{MotionMode::Liquid, zero};
-    LiquidMesh high{MotionMode::Liquid, above}, thick{MotionMode::Liquid, one};
+    LiquidMesh low{below}, thin{zero};
+    LiquidMesh high{above}, thick{one};
     CHECK(low.viscosity() == 0.0 && high.viscosity() == 1.0);
     for (auto *mesh : {&low, &thin, &high, &thick})
         mesh->recordTranslation(Vec2{80.0, 0.0}, kWindow, kStrength);
@@ -682,29 +556,10 @@ void testViscosityBoundariesAndCadence() {
         CHECK(maxDifference(high.displacements(), thick.displacements()) == 0.0);
     }
 
-    // Wiggle ignores material params: default and extreme values produce identical fields.
-    MaterialParams wiggleThin{};
-    wiggleThin.viscosity = 0.0;
-    MaterialParams wiggleThick{};
-    wiggleThick.viscosity = 1.0;
-    MaterialParams wiggleNan{};
-    wiggleNan.viscosity = kNaN;
-    LiquidMesh wiggleDefault{MotionMode::Wiggle}, wiggleThinMesh{MotionMode::Wiggle, wiggleThin};
-    LiquidMesh wiggleThickMesh{MotionMode::Wiggle, wiggleThick}, wiggleNaN{MotionMode::Wiggle, wiggleNan};
-    for (auto *mesh : {&wiggleDefault, &wiggleThinMesh, &wiggleThickMesh, &wiggleNaN})
-        mesh->recordTranslation(Vec2{80.0, 0.0}, kWindow, kStrength);
-    for (int step = 0; step < 120; ++step) {
-        for (auto *mesh : {&wiggleDefault, &wiggleThinMesh, &wiggleThickMesh, &wiggleNaN})
-            mesh->advance(1.0 / 240.0, kWindow);
-        CHECK(maxDifference(wiggleDefault.displacements(), wiggleThinMesh.displacements()) == 0.0);
-        CHECK(maxDifference(wiggleDefault.displacements(), wiggleThickMesh.displacements()) == 0.0);
-        CHECK(maxDifference(wiggleDefault.displacements(), wiggleNaN.displacements()) == 0.0);
-    }
-
     for (const double invalid : {kNaN, kInfinity}) {
         MaterialParams bad{};
         bad.viscosity = invalid;
-        LiquidMesh mesh{MotionMode::Liquid, bad};
+        LiquidMesh mesh{bad};
         mesh.recordTranslation(Vec2{80.0, 0.0}, kWindow, kStrength);
         CHECK(mesh.settled());
         CHECK(!mesh.advance(1.0 / 240.0, kWindow));
@@ -715,7 +570,7 @@ void testViscosityBoundariesAndCadence() {
 // Taper: the trailing corners pull cross-axis toward the tail at 15-20% of the centre lag, and the side edge
 // falls monotonically from the corner to the centre with no kink or reversal, so there is no tail-corner cusp.
 void testLiquidTrailingTaperCurvature() {
-    LiquidMesh mesh{MotionMode::Liquid};
+    LiquidMesh mesh{};
     for (int f = 0; f < 15; ++f)
         driveFrame(mesh, Vec2{2000.0, 0.0}, 60.0, kWindow, kStrength);
     const double centre = -trailingX(mesh);
@@ -737,7 +592,7 @@ void testLiquidTrailingTaperCurvature() {
 // and the mesh settles within 1.0 s.
 void testLiquidStopLandingBulgeAndSurge() {
     const double minSide = std::min(kWindow.x, kWindow.y);
-    LiquidMesh   mesh{MotionMode::Liquid};
+    LiquidMesh   mesh{};
     for (int f = 0; f < 15; ++f)
         driveFrame(mesh, Vec2{2000.0, 0.0}, 60.0, kWindow, kStrength);
     const double peakLag = -trailingX(mesh);
@@ -771,7 +626,7 @@ template <typename Visible> CadenceStats driveCadence(double advanceHz, Visible 
     const double     dt = 1.0 / advanceHz;
     const int        warmupFrames = static_cast<int>(std::lround(advanceHz * 1.0));
     const int        totalFrames = static_cast<int>(std::lround(advanceHz * 2.0));
-    LiquidMesh       mesh{MotionMode::Liquid};
+    LiquidMesh       mesh{};
     CadenceStats     stats{};
     double           previousReported = 0.0;
     double           previousLag = 0.0;
@@ -836,7 +691,7 @@ void testVariationSeedsDiffer() {
 void testVariationRerollsPerMotion() {
     MaterialParams params{};
     params.variation = 0.5;
-    LiquidMesh mesh{MotionMode::Liquid, params, 7};
+    LiquidMesh mesh{params, 7};
     const auto dragOnce = [&] {
         for (int f = 0; f < 15; ++f)
             driveFrame(mesh, Vec2{2000.0, 0.0}, 60.0, kWindow, kStrength);
@@ -858,7 +713,7 @@ void testVariationStaysValidAndSettles() {
         params.variation = 1.0;
         params.momentum = momentum;
         for (std::uint64_t seed = 0; seed < 48; ++seed) {
-            LiquidMesh mesh{MotionMode::Liquid, params, seed};
+            LiquidMesh mesh{params, seed};
             bool       valid = true;
             for (int f = 0; f < 15; ++f) {
                 driveFrame(mesh, Vec2{2400.0, 900.0}, 60.0, kWindow, kStrength);
@@ -887,10 +742,6 @@ void testVariationStaysValidAndSettles() {
 } // namespace
 
 int main() {
-    testObservableNonaffineDrag();
-    testSettleAndSignReversals();
-    testSpatialCouplingRelativeResponse();
-    testFixedStepBoundaries();
     testExtremeAndDegenerateGeometry();
     testLiquidDragLag();
     testLiquidTrailingTaperCurvature();

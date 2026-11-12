@@ -7,9 +7,7 @@ usage() {
     cat <<'EOF'
 Usage: tests/nested/run.sh [options]
 
-  --open STYLE        open style: liquid | paper | cloth (default: paper)
-  --close STYLE       close style: liquid | paper | cloth (default: paper)
-  --movement STYLE    movement style: liquid | wiggle (default: liquid)
+  --style STYLE       window style for movement, open and close: liquid | paper | cloth (default: liquid)
   --lua TABLE         extra settings merged into plugin.liquid_glass, e.g.
                       --lua 'window = { close = { options = { paper = { shading = 0 } } } }'
   --eval LUA          Lua run in the nested compositor once the plugin is loaded, before the first window,
@@ -25,12 +23,10 @@ ALT+Space toggles floating, ALT+F1 toggles the split, ALT+drag moves, ALT+right-
 EOF
 }
 
-open_style=paper close_style=paper movement_style=liquid extra_lua="" eval_lua="" before_window="" build=1 window=1
+style=liquid extra_lua="" eval_lua="" before_window="" build=1 window=1
 while (($#)); do
     case "$1" in
-        --open) open_style=$2; shift 2 ;;
-        --close) close_style=$2; shift 2 ;;
-        --movement) movement_style=$2; shift 2 ;;
+        --style) style=$2; shift 2 ;;
         --lua) extra_lua=$2; shift 2 ;;
         --eval) eval_lua=$2; shift 2 ;;
         --before-window) before_window=$2; shift 2 ;;
@@ -93,7 +89,7 @@ hc() { hyprctl -i "$instance" "$@"; }
 result=$(hc plugin load "$plugin")
 [[ $result == ok ]] || { echo "plugin load failed: $result" >&2; exit 1; }
 
-settings="window = { movement = { style = \"$movement_style\" }, open = { style = \"$open_style\" }, close = { style = \"$close_style\" } }"
+settings="window = { style = \"$style\" }"
 result=$(hc eval "hl.config({ plugin = { liquid_glass = { $settings } } })")
 [[ $result == ok ]] || { echo "settings rejected: $result" >&2; exit 1; }
 if [[ -n $extra_lua ]]; then
@@ -117,11 +113,11 @@ fi
 cat <<EOF
 
 Nested Hyprland is running (pid $pid), plugin loaded from $plugin.
-  open=$open_style  close=$close_style  movement=$movement_style
+  style=$style
 
 Change settings live from another terminal:
   hyprctl -i $instance eval 'hl.config({ plugin = { liquid_glass = { window = { open = { options = { paper = { duration = 1.5 } } } } } } })'
-  hyprctl -i $instance getoption plugin:liquid-glass:window:close:style
+  hyprctl -i $instance getoption plugin:liquid-glass:window:style
 Reload after rebuilding:
   hyprctl -i $instance plugin unload $plugin && hyprctl -i $instance plugin load $plugin
   (settings reset to defaults on reload)

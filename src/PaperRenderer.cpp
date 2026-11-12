@@ -53,28 +53,25 @@ SP<Render::ITexture> CPaperShade::texture() {
     return m_texture;
 }
 
-CBox paperExtents(const liquid_glass::PaperFacets &facets, const CBox &logicalBox) {
+CBox sheetExtents(const liquid_glass::SheetFrame &frame, const CBox &logicalBox) {
     double minX = std::numeric_limits<double>::infinity();
     double minY = std::numeric_limits<double>::infinity();
     double maxX = -std::numeric_limits<double>::infinity();
     double maxY = -std::numeric_limits<double>::infinity();
-    for (const auto &facet : facets) {
-        for (const auto &p : facet.position) {
-            const double x = logicalBox.x + logicalBox.w * (0.5 + p.x);
-            const double y = logicalBox.y + logicalBox.h * (0.5 + p.y);
-            minX = std::min(minX, x);
-            minY = std::min(minY, y);
-            maxX = std::max(maxX, x);
-            maxY = std::max(maxY, y);
-        }
+    for (const auto &p : frame.position) {
+        const double x = logicalBox.x + logicalBox.w * (0.5 + p.x);
+        const double y = logicalBox.y + logicalBox.h * (0.5 + p.y);
+        minX = std::min(minX, x);
+        minY = std::min(minY, y);
+        maxX = std::max(maxX, x);
+        maxY = std::max(maxY, y);
     }
     return CBox{minX, minY, std::max(1.0, maxX - minX), std::max(1.0, maxY - minY)};
 }
 
-void fillPaperMeshes([[maybe_unused]] const liquid_glass::PaperFacets &facets, const CBox &sourceDevice,
-                     [[maybe_unused]] double scale, const CBox &outputDevice, liquid_glass::Vec2 textureOrigin,
-                     liquid_glass::Vec2 textureSize, std::vector<SMeshRenderVertex> &window,
-                     std::vector<SMeshRenderVertex> &shade) {
+void fillSheetMeshes(const liquid_glass::SheetFrame &frame, const CBox &sourceDevice, const CBox &outputDevice,
+                     liquid_glass::Vec2 textureOrigin, liquid_glass::Vec2 textureSize,
+                     std::vector<SMeshRenderVertex> &window, std::vector<SMeshRenderVertex> &shade) {
     if (window.size() != PAPER_VERTEX_COUNT)
         window.resize(PAPER_VERTEX_COUNT);
     if (shade.size() != PAPER_VERTEX_COUNT)
@@ -83,12 +80,15 @@ void fillPaperMeshes([[maybe_unused]] const liquid_glass::PaperFacets &facets, c
     const double centreX = sourceDevice.x + 0.5 * sourceDevice.w;
     const double centreY = sourceDevice.y + 0.5 * sourceDevice.h;
     std::size_t  k = 0;
-    for (const auto &facet : facets) {
+    for (std::size_t slot = 0; slot < liquid_glass::PAPER_TRIANGLES; ++slot) {
+        const std::size_t tri = frame.order[slot];
+        const auto       &corners = liquid_glass::sheetTriangle(tri);
         for (std::size_t c = 0; c < 3; ++c) {
-            const auto &p = facet.position[c];
-            const auto &uv = facet.uv[c];
-            const auto  x = static_cast<float>((centreX + p.x * sourceDevice.w - outputDevice.x) / outputDevice.w);
-            const auto  y = static_cast<float>((centreY + p.y * sourceDevice.h - outputDevice.y) / outputDevice.h);
+            const std::size_t vertex = corners[c];
+            const auto       &p = frame.position[vertex];
+            const auto        uv = liquid_glass::sheetUv(vertex);
+            const auto x = static_cast<float>((centreX + p.x * sourceDevice.w - outputDevice.x) / outputDevice.w);
+            const auto y = static_cast<float>((centreY + p.y * sourceDevice.h - outputDevice.y) / outputDevice.h);
 
             window[k] = {
                 x,
@@ -96,7 +96,7 @@ void fillPaperMeshes([[maybe_unused]] const liquid_glass::PaperFacets &facets, c
                 static_cast<float>((sourceDevice.x + sourceDevice.w * uv.x - textureOrigin.x) / textureSize.x),
                 static_cast<float>((sourceDevice.y + sourceDevice.h * uv.y - textureOrigin.y) / textureSize.y),
             };
-            shade[k] = {x, y, shadeU(facet.shade[c]), 0.5F};
+            shade[k] = {x, y, shadeU(frame.shade[tri][c]), 0.5F};
             ++k;
         }
     }
@@ -113,6 +113,13 @@ const std::vector<SMeshRenderVertex> &paperCanvasQuad() {
 SP<Render::IFramebuffer> renderPaper(Render::CRenderContext &ctx, const SPaperDraw &d) {
     if (!d.window || !d.windowVertices || d.windowVertices->empty() || !(d.canvas.x > 0.0 && d.canvas.y > 0.0))
         return nullptr;
+
+    // Entry blend state, restored on exit. The wrapper does not expose the blend function, so GL is queried for it.
+    // Hyprland sets blend factors only through its wrapper, which never separates RGB from alpha.
+    const bool entryBlend = Render::GL::g_pHyprOpenGL->blendEnabled();
+    GLint      entrySrc = 0, entryDst = 0;
+    glGetIntegerv(GL_BLEND_SRC_RGB, &entrySrc);
+    glGetIntegerv(GL_BLEND_DST_RGB, &entryDst);
 
     Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
     auto                                 state = ctx.saveDrawState();
@@ -139,8 +146,8 @@ SP<Render::IFramebuffer> renderPaper(Render::CRenderContext &ctx, const SPaperDr
     td.damage = &data.damage;
     td.allowCustomUV = true;
 
-    // Shade layer: no blending, so the frontmost facet's shade wins each pixel and hidden facets never tint visible
-    // ones.
+    // Shade layer: no blending, so the frontmost triangle's shade wins each pixel and hidden triangles never tint
+    // visible ones.
     if (shadeLayer) {
         beginTarget(shadeLayer);
         const bool wasBlend = Render::GL::g_pHyprOpenGL->blendEnabled();
@@ -150,8 +157,8 @@ SP<Render::IFramebuffer> renderPaper(Render::CRenderContext &ctx, const SPaperDr
         Render::GL::g_pHyprOpenGL->blend(wasBlend);
     }
 
-    // Window layer: facets are sorted back to front and drawn without blending, so each pixel takes the frontmost
-    // facet only. Paper is opaque: with blending, a translucent window let the layers folded behind show through,
+    // Window layer: triangles are sorted back to front and drawn without blending, so each pixel takes the frontmost
+    // triangle only. Paper is opaque: with blending, a translucent window let the layers folded behind show through,
     // and the crumple read as tissue. The window's own translucency against what is behind it is kept.
     beginTarget(paperLayer);
     Render::GL::g_pHyprOpenGL->blend(false);
@@ -166,8 +173,11 @@ SP<Render::IFramebuffer> renderPaper(Render::CRenderContext &ctx, const SPaperDr
         td.a = 1.F;
         Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, shadeLayer->getTexture(),
                                                      CBox{0.0, 0.0, d.canvas.x, d.canvas.y}, paperCanvasQuad(), td);
-        Render::GL::g_pHyprOpenGL->blendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     }
+
+    // Restore the entry blend state through the wrapper so its cached factors stay in sync with GL.
+    Render::GL::g_pHyprOpenGL->blend(entryBlend);
+    Render::GL::g_pHyprOpenGL->blendFunc(static_cast<GLenum>(entrySrc), static_cast<GLenum>(entryDst));
 
     return paperLayer;
 }

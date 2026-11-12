@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Nested-Hyprland test: every kitty in the nested session looks like a torn sheet of cream notebook paper
 # taped to a dusk wallpaper, so the paper open/close animation has something paper-looking to unfold and crumple.
-# Takes the same options as run.sh (--open/--close/--lua/--no-build/...). Your own kitty config is not touched:
+# Takes the same options as run.sh (--style/--lua/--no-build/...). Your own kitty config is not touched:
 # kitty reads a generated one through KITTY_CONFIG_DIRECTORY, which only the nested session's processes inherit.
 #
 # The sheet (paper.png) is drawn per session by paper_desk/prepare.sh at the size the first window gets, because
@@ -79,4 +79,4 @@ hl.exec_cmd([[$wallpaper_cmd]])
 "
 
 export KITTY_CONFIG_DIRECTORY=$dir PAPER_DIR=$dir
-exec "$here/run.sh" --eval "$nested_lua" --before-window "$here/paper_desk/prepare.sh" "$@"
+exec "$here/run.sh" --style paper --eval "$nested_lua" --before-window "$here/paper_desk/prepare.sh" "$@"

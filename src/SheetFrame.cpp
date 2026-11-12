@@ -1,9 +1,8 @@
-#include "SheetFacets.hpp"
+#include "SheetFrame.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <utility>
 
 namespace liquid_glass {
 namespace {
@@ -74,69 +73,87 @@ const Topology &topology() noexcept {
     return cached;
 }
 
-} // namespace
-
-void flatSheetFacets(PaperFacets &out) noexcept {
+// Back-to-front by mean world z; the triangle index breaks ties. Sorting (meanZ, t) pairs gives one total order, so the
+// result is the same whatever the starting permutation.
+void sortBackToFront(const SheetGrid &world, std::array<std::uint16_t, PAPER_TRIANGLES> &order) noexcept {
     const Topology &mesh = topology();
-    for (std::size_t t = 0; t < PAPER_TRIANGLES; ++t) {
-        const auto &corners = mesh.triangles[t];
-        PaperFacet &facet = out[t];
-        for (std::size_t c = 0; c < 3; ++c) {
-            const Vec2 uv = mesh.uv[corners[c]];
-            facet.uv[c] = uv;
-            facet.position[c] = {uv.x - 0.5, uv.y - 0.5};
-        }
-        facet.shade = {0.0, 0.0, 0.0};
-    }
+    const auto      meanZ = [&](std::uint16_t t) {
+        const auto &c = mesh.triangles[t];
+        return (world[c[0]].z + world[c[1]].z + world[c[2]].z) / 3.0;
+    };
+    std::sort(order.begin(), order.end(), [&](std::uint16_t a, std::uint16_t b) {
+        const double za = meanZ(a), zb = meanZ(b);
+        return za < zb || (!(zb < za) && a < b);
+    });
 }
 
-void sheetFacets(const SheetGrid &world, Vec2 size, double shading, PaperFacets &out, SheetLighting lighting) noexcept {
+} // namespace
+
+SheetFrame::SheetFrame() noexcept {
+    for (std::size_t t = 0; t < PAPER_TRIANGLES; ++t)
+        order[t] = static_cast<std::uint16_t>(t);
+}
+
+const std::array<std::size_t, 3> &sheetTriangle(std::size_t t) noexcept { return topology().triangles[t]; }
+
+Vec2 sheetUv(std::size_t vertex) noexcept { return topology().uv[vertex]; }
+
+void flatSheet(SheetFrame &out) noexcept {
+    const Topology &mesh = topology();
+    for (std::size_t vertex = 0; vertex < PAPER_GRID_VERTICES; ++vertex) {
+        const Vec2 uv = mesh.uv[vertex];
+        out.position[vertex] = {uv.x - 0.5, uv.y - 0.5};
+    }
+    for (std::size_t t = 0; t < PAPER_TRIANGLES; ++t) {
+        out.order[t] = static_cast<std::uint16_t>(t);
+        out.shade[t] = {0.0f, 0.0f, 0.0f};
+    }
+    out.lit = false;
+}
+
+void projectSheet(const SheetGrid &world, Vec2 size, double shading, SheetLighting lighting, SheetFrame &out) noexcept {
     const Topology &mesh = topology();
     const double    W = std::isfinite(size.x) && size.x > 0.0 ? size.x : 1.0;
     const double    H = std::isfinite(size.y) && size.y > 0.0 ? size.y : 1.0;
     const double    f = 3.0 * std::sqrt(W * H);
 
-    std::array<Vec2, PAPER_GRID_VERTICES> screen{};
     for (std::size_t vi = 0; vi < PAPER_GRID_VERTICES; ++vi) {
         const Vec3  &X = world[vi];
         const double denom = std::max(0.25 * f, f - X.z);
-        screen[vi] = {X.x * f / denom / W, X.y * f / denom / H};
+        out.position[vi] = {X.x * f / denom / W, X.y * f / denom / H};
     }
 
-    // Back-to-front order by mean world z; the triangle index breaks ties. Scratch is fixed-size.
-    std::array<std::pair<double, std::uint16_t>, PAPER_TRIANGLES> order{};
-    for (std::size_t t = 0; t < PAPER_TRIANGLES; ++t) {
-        const auto  &corners = mesh.triangles[t];
-        const double meanZ = (world[corners[0]].z + world[corners[1]].z + world[corners[2]].z) / 3.0;
-        order[t] = {meanZ, static_cast<std::uint16_t>(t)};
+    sortBackToFront(world, out.order);
+
+    out.lit = shading > 0.0;
+    if (!out.lit) {
+        for (auto &shade : out.shade)
+            shade = {0.0f, 0.0f, 0.0f};
+        return;
     }
-    std::sort(order.begin(), order.end());
 
     // Lighting is two-sided and fixed. Paper keeps the crease-aware per-corner normals that preserve its sharp folds;
     // cloth uses a single area-weighted normal per grid vertex for smoother fabric lighting.
     const double lx = LIGHT_X, ly = LIGHT_Y, lz = LIGHT_Z;
     const double lLen = std::sqrt(lx * lx + ly * ly + lz * lz);
     const Vec3   Ld{lx / lLen, ly / lLen, lz / lLen};
-    const bool   lit = shading > 0.0;
 
     // Area-weighted (unnormalised) normals are used by both modes; unit face normals are only needed for paper creases.
     std::array<Vec3, PAPER_TRIANGLES>     faceNormal{};
     std::array<Vec3, PAPER_TRIANGLES>     faceUnit{};
     std::array<Vec3, PAPER_GRID_VERTICES> vertexNormal{};
-    if (lit) {
-        for (std::size_t tri = 0; tri < PAPER_TRIANGLES; ++tri) {
-            const auto  &c = mesh.triangles[tri];
-            const Vec3   n = cross(world[c[1]] - world[c[0]], world[c[2]] - world[c[0]]);
-            const double len = std::sqrt(dot(n, n));
-            faceNormal[tri] = n;
-            if (lighting == SheetLighting::PaperCreases)
-                faceUnit[tri] = len >= 1e-12 ? n * (1.0 / len) : Vec3{};
-            else
-                for (std::size_t vertex : c) {
-                    Vec3 &sum = vertexNormal[vertex];
-                    sum = {sum.x + n.x, sum.y + n.y, sum.z + n.z};
-                }
-        }
+    for (std::size_t tri = 0; tri < PAPER_TRIANGLES; ++tri) {
+        const auto  &c = mesh.triangles[tri];
+        const Vec3   n = cross(world[c[1]] - world[c[0]], world[c[2]] - world[c[0]]);
+        const double len = std::sqrt(dot(n, n));
+        faceNormal[tri] = n;
+        if (lighting == SheetLighting::PaperCreases)
+            faceUnit[tri] = len >= 1e-12 ? n * (1.0 / len) : Vec3{};
+        else
+            for (std::size_t vertex : c) {
+                Vec3 &sum = vertexNormal[vertex];
+                sum = {sum.x + n.x, sum.y + n.y, sum.z + n.z};
+            }
     }
     // Normal at `vertex` as seen by triangle `tri`.
     const auto cornerNormal = [&](std::size_t tri, std::size_t vertex) {
@@ -167,29 +184,23 @@ void sheetFacets(const SheetGrid &world, Vec2 size, double shading, PaperFacets 
 
     std::array<double, PAPER_GRID_VERTICES> vertexShadeFront{};
     std::array<double, PAPER_GRID_VERTICES> vertexShadeBack{};
-    if (lit && lighting == SheetLighting::ClothSmooth)
+    if (lighting == SheetLighting::ClothSmooth)
         for (std::size_t vertex = 0; vertex < PAPER_GRID_VERTICES; ++vertex) {
             vertexShadeFront[vertex] = shadeOf(vertexNormal[vertex], 1.0);
             vertexShadeBack[vertex] = shadeOf(vertexNormal[vertex], -1.0);
         }
 
-    for (std::size_t slot = 0; slot < PAPER_TRIANGLES; ++slot) {
-        const auto &corners = mesh.triangles[order[slot].second];
-        PaperFacet &facet = out[slot];
-        for (std::size_t n = 0; n < 3; ++n) {
-            facet.position[n] = screen[corners[n]];
-            facet.uv[n] = mesh.uv[corners[n]];
-        }
-        facet.shade = {0.0, 0.0, 0.0};
-        if (!lit)
-            continue;
+    for (std::size_t tri = 0; tri < PAPER_TRIANGLES; ++tri) {
+        const auto &corners = mesh.triangles[tri];
         // The side of the sheet this triangle shows decides which way its vertex normals point.
-        const double facing = faceNormal[order[slot].second].z < 0.0 ? -1.0 : 1.0;
+        const double facing = faceNormal[tri].z < 0.0 ? -1.0 : 1.0;
         for (std::size_t n = 0; n < 3; ++n) {
+            double s = 0.0;
             if (lighting == SheetLighting::ClothSmooth)
-                facet.shade[n] = facing > 0.0 ? vertexShadeFront[corners[n]] : vertexShadeBack[corners[n]];
+                s = facing > 0.0 ? vertexShadeFront[corners[n]] : vertexShadeBack[corners[n]];
             else
-                facet.shade[n] = shadeOf(cornerNormal(order[slot].second, corners[n]), facing);
+                s = shadeOf(cornerNormal(tri, corners[n]), facing);
+            out.shade[tri][n] = static_cast<float>(s);
         }
     }
 }

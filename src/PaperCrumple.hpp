@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EdgeTransition.hpp"
-#include "SheetFacets.hpp"
+#include "SheetFrame.hpp"
 
 #include <cstdint>
 
@@ -21,8 +21,8 @@ class PaperCrumple {
     bool   active() const noexcept;                 // Opening or Closing
     bool   closed() const noexcept;                 // Closed
     double opacity() const noexcept;
-    bool   shaded() const noexcept;                            // params.shading > 0
-    void   facets(Vec2 size, PaperFacets &out) const noexcept; // back-to-front
+    bool   shaded() const noexcept;                          // params.shading > 0
+    void   frame(Vec2 size, SheetFrame &out) const noexcept; // back-to-front order in out.order
 
   private:
     enum class Phase { Idle, Opening, Closing, Closed };
@@ -40,7 +40,7 @@ class PaperCrumple {
     bool        m_mirrorX = false;
     bool        m_mirrorY = false;
 
-    mutable int  m_take = -1;         // chosen take, -1 until the first facets() call
+    mutable int  m_take = -1;         // chosen take, -1 until the first frame() call
     mutable bool m_transpose = false; // portrait window: the landscape take is played with its axes swapped
 };
 

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EdgeTransition.hpp"
-#include "SheetFacets.hpp"
+#include "SheetFrame.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -65,7 +65,7 @@ class ClothFlutter {
     bool   closed() const noexcept;
     double opacity() const noexcept;
     bool   shaded() const noexcept;
-    void   facets(Vec2 size, PaperFacets &out) const noexcept;
+    void   frame(Vec2 size, SheetFrame &out) const noexcept;
 
     // Model diagnostics: wait off the compositor path for a complete recording; sample the displayed normalized
     // sheet (x right, y up from the top, z towards viewer) and its velocity per real second.

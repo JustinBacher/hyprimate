@@ -1061,18 +1061,18 @@ bool ClothFlutter::waitForSnapshots(int count, double timeout) const noexcept {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     return m_run->recorded.load(std::memory_order_acquire) >= count;
 }
-void ClothFlutter::facets(Vec2 size, PaperFacets &out) const noexcept {
+void ClothFlutter::frame(Vec2 size, SheetFrame &out) const noexcept {
     if (!active() || !m_run) {
-        flatSheetFacets(out);
+        flatSheet(out);
         return;
     }
-    SheetGrid world{}, velocity{};
+    SheetGrid world, velocity; // sampleVertices writes both
     sampleVertices(world, velocity);
     const double W = std::isfinite(size.x) && size.x > 0 ? size.x : 1,
                  H = std::isfinite(size.y) && size.y > 0 ? size.y : 1;
     const double L = std::sqrt(W * H);
     for (auto &p : world)
         p = {p.x * W, -p.y * H - H / 2, p.z * L};
-    sheetFacets(world, {W, H}, m_params.shading, out, SheetLighting::ClothSmooth);
+    projectSheet(world, {W, H}, m_params.shading, SheetLighting::ClothSmooth, out);
 }
 } // namespace liquid_glass

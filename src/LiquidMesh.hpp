@@ -8,8 +8,6 @@
 
 namespace liquid_glass {
 
-enum class MotionMode { Liquid, Wiggle };
-
 // Liquid material tuning. Finite values are clamped to [0, 1]; nonfinite Liquid values reset before integration.
 struct MaterialParams {
     double viscosity = 0.75; // [0,1] Liquid flow resistance (existing semantics)
@@ -24,10 +22,8 @@ struct MaterialParams {
 // Logical-pixel material state; no compositor or graphics dependency.
 class LiquidMesh {
   public:
-    // Meshes with the same mode, params and seed respond identically; give each window its own seed.
-    explicit LiquidMesh(MotionMode mode = MotionMode::Liquid, MaterialParams params = {},
-                        std::uint64_t seed = 0) noexcept;
-    MotionMode            mode() const noexcept { return m_mode; }
+    // Meshes with the same params and seed respond identically; give each window its own seed.
+    explicit LiquidMesh(MaterialParams params = {}, std::uint64_t seed = 0) noexcept;
     const MaterialParams &params() const noexcept { return m_params; }
     double                viscosity() const noexcept { return m_params.viscosity; }
     void                  reset() noexcept;
@@ -46,7 +42,6 @@ class LiquidMesh {
     void   rollCharacter() noexcept;
     double drawUnit() noexcept; // uniform in [-1, 1] from m_rng
 
-    MotionMode     m_mode;
     MaterialParams m_params;
     // Viscosity-derived velocity coefficient for internal shear flow.
     double m_shearDamping;

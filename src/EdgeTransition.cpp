@@ -154,21 +154,34 @@ double triangleArea(Vec2 a, Vec2 b, Vec2 c) { return 0.5 * ((b.x - a.x) * (c.y -
 } // namespace
 
 std::optional<EdgeFrame> resolveCloseEdgeFrame(const Box &body, const Box &capture, const Box &bounds,
-                                               std::span<const Box> neighbours, Edge fallback, std::string_view side,
+                                               std::span<const Box> neighbours, Edge fallback, CloseSide side,
                                                std::optional<Edge> origin) noexcept {
-    bool prefer = false;
-    if (side == "origin" && origin) {
-        fallback = *origin;
-        prefer = true;
-    } else if (side == "top" || side == "bottom" || side == "left" || side == "right") {
-        fallback = side == "top"      ? Edge::Top
-                   : side == "bottom" ? Edge::Bottom
-                   : side == "left"   ? Edge::Left
-                                      : Edge::Right;
-        prefer = true;
+    bool prefer = true;
+    switch (side) {
+    case CloseSide::Origin:
+        prefer = origin.has_value();
+        if (origin)
+            fallback = *origin;
+        break;
+    case CloseSide::Top:
+        fallback = Edge::Top;
+        break;
+    case CloseSide::Bottom:
+        fallback = Edge::Bottom;
+        break;
+    case CloseSide::Left:
+        fallback = Edge::Left;
+        break;
+    case CloseSide::Right:
+        fallback = Edge::Right;
+        break;
+    case CloseSide::Auto:
+    case CloseSide::Nearest:
+        prefer = false;
+        break;
     }
-    return resolveEdgeFrame(body, capture, bounds, side == "nearest" ? std::span<const Box>{} : neighbours, fallback,
-                            prefer);
+    return resolveEdgeFrame(body, capture, bounds, side == CloseSide::Nearest ? std::span<const Box>{} : neighbours,
+                            fallback, prefer);
 }
 
 Vec2 inwardNormal(Edge edge) noexcept {

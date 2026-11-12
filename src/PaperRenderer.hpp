@@ -10,12 +10,12 @@
 #include <cstddef>
 #include <vector>
 
-// Vertices per paper mesh: six per facet cell, three per facet triangle.
+// Vertices per paper mesh: three per triangle, PAPER_TRIANGLES triangles.
 inline constexpr std::size_t PAPER_VERTEX_COUNT = liquid_glass::PAPER_TRIANGLES * 3;
 
-// Shade ramp for facet lighting: a 256x1 premultiplied texture indexed by facet shade. Texel 128 is fully transparent
-// (neutral); lower texels are black shadow, higher texels are white highlight. texture() creates GL objects, so call it
-// only while rendering; the texture is built once and reused.
+// Shade ramp for sheet lighting: a 256x1 premultiplied texture indexed by triangle shade. Texel 128 is fully
+// transparent (neutral); lower texels are black shadow, higher texels are white highlight. texture() creates GL
+// objects, so call it only while rendering; the texture is built once and reused.
 class CPaperShade {
   public:
     SP<Render::ITexture> texture();
@@ -24,16 +24,16 @@ class CPaperShade {
     SP<Render::ITexture> m_texture;
 };
 
-// Logical box that bounds every displayed facet vertex. `logicalBox` is the rest window box in logical pixels; the
+// Logical box that bounds every displayed sheet vertex. `logicalBox` is the rest window box in logical pixels; the
 // result is in the same space. Width and height are at least 1.
-CBox paperExtents(const liquid_glass::PaperFacets &facets, const CBox &logicalBox);
+CBox sheetExtents(const liquid_glass::SheetFrame &frame, const CBox &logicalBox);
 
-// Fills the window mesh (facet uv into the source texture) and the shade mesh (same positions, uv into the shade ramp).
-// `sourceDevice` is the rest window box in device pixels and `outputDevice` is the output box in device pixels.
-// Facet positions are normalised to the rest size, so `scale` does not affect the mapping. Both vectors are resized to
+// Fills the window mesh (triangles in frame.order, uv into the source texture) and the shade mesh (same positions, uv
+// into the shade ramp). `sourceDevice` is the rest window box in device pixels and `outputDevice` is the output box in
+// device pixels. Positions are normalised to the rest size, so no scale is needed. Both vectors are resized to
 // PAPER_VERTEX_COUNT only when their size differs.
-void fillPaperMeshes(const liquid_glass::PaperFacets &facets, const CBox &sourceDevice, double scale,
-                     const CBox &outputDevice, liquid_glass::Vec2 textureOrigin, liquid_glass::Vec2 textureSize,
+void fillSheetMeshes(const liquid_glass::SheetFrame &frame, const CBox &sourceDevice, const CBox &outputDevice,
+                     liquid_glass::Vec2 textureOrigin, liquid_glass::Vec2 textureSize,
                      std::vector<SMeshRenderVertex> &window, std::vector<SMeshRenderVertex> &shade);
 
 // Six vertices covering a unit box with uv equal to position. Draws a full-canvas texture as a mesh.

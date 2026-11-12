@@ -55,14 +55,13 @@ set(CONFIG_SCHEMA ${CMAKE_CURRENT_SOURCE_DIR}/config/settings.json)
 set(CONFIG_GENERATOR ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_config.py)
 set(CONFIG_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
 add_custom_command(
-    OUTPUT ${CONFIG_GENERATED_DIR}/config_registration.inc ${CONFIG_GENERATED_DIR}/config_constants.inc
+    OUTPUT ${CONFIG_GENERATED_DIR}/config_generated.hpp
     COMMAND ${Python3_EXECUTABLE} ${CONFIG_GENERATOR} --schema ${CONFIG_SCHEMA}
-            --header ${CONFIG_GENERATED_DIR}/config_registration.inc
-            --constants ${CONFIG_GENERATED_DIR}/config_constants.inc
+            --header ${CONFIG_GENERATED_DIR}/config_generated.hpp
     DEPENDS ${CONFIG_SCHEMA} ${CONFIG_GENERATOR}
     VERBATIM
 )
-add_custom_target(generate-config DEPENDS ${CONFIG_GENERATED_DIR}/config_registration.inc ${CONFIG_GENERATED_DIR}/config_constants.inc)
+add_custom_target(generate-config DEPENDS ${CONFIG_GENERATED_DIR}/config_generated.hpp)
 add_custom_target(update-config-docs
     COMMAND ${Python3_EXECUTABLE} ${CONFIG_GENERATOR} --schema ${CONFIG_SCHEMA} --readme ${CMAKE_CURRENT_SOURCE_DIR}/README.md --lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/nested/hyprland.lua
     VERBATIM
@@ -74,8 +73,7 @@ add_library(liquid-glass-core STATIC
     src/EdgeTransition.cpp
     src/PaperCrumple.cpp
     src/PaperTakes.cpp
-    src/SheetFacets.cpp
-    src/SheetMotion.cpp
+    src/SheetFrame.cpp
     src/ClothFlutter.cpp
 )
 # PaperTakes.cpp #embeds the baked crumples; rebuild it whenever they are re-packed.

@@ -47,9 +47,9 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --         ["liquid_glass"] = {
 --             window = {
 --                 enabled = true,
+--                 style = "liquid",
 --                 movement = {
 --                     enabled = true,
---                     style = "liquid",
 --                     options = {
 --                         liquid = {
 --                             strength = 0.65,
@@ -57,9 +57,6 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                             elasticity = 0.5,
 --                             momentum = 0.5,
 --                             variation = 0.5,
---                         },
---                         wiggle = {
---                             strength = 0.65,
 --                         },
 --                         cloth = {
 --                             strength = 0.65,
@@ -71,7 +68,6 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                 },
 --                 open = {
 --                     enabled = true,
---                     style = "liquid",
 --                     options = {
 --                         liquid = {
 --                             strength = 0.65,
@@ -98,7 +94,6 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                 },
 --                 close = {
 --                     enabled = true,
---                     style = "liquid",
 --                     options = {
 --                         liquid = {
 --                             strength = 0.65,

@@ -160,9 +160,9 @@ void PaperCrumple::chooseTake(double aspect) const noexcept {
     }
 }
 
-void PaperCrumple::facets(Vec2 size, PaperFacets &out) const noexcept {
+void PaperCrumple::frame(Vec2 size, SheetFrame &out) const noexcept {
     if (m_phase == Phase::Idle) {
-        flatSheetFacets(out);
+        flatSheet(out);
         return;
     }
 
@@ -198,7 +198,7 @@ void PaperCrumple::facets(Vec2 size, PaperFacets &out) const noexcept {
     // end, as the ball drops away.
     const double shrink = 1.0 - 0.35 * smoothstep(0.86, 1.0, m_s);
 
-    SheetGrid world{};
+    SheetGrid world; // every vertex is written below
     for (int j = 0; j < GRID; ++j) {
         for (int i = 0; i < GRID; ++i) {
             // Window vertex (i, j) reads take vertex (si, sj): swapped for portrait windows, then mirrored.
@@ -224,7 +224,7 @@ void PaperCrumple::facets(Vec2 size, PaperFacets &out) const noexcept {
             world[gridIndex(i, j)] = {L * shrink * x, L * shrink * y, L * shrink * p[2]};
         }
     }
-    sheetFacets(world, {W, H}, m_params.shading, out);
+    projectSheet(world, {W, H}, m_params.shading, SheetLighting::PaperCreases, out);
 }
 
 } // namespace liquid_glass

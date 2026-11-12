@@ -18,8 +18,7 @@ SCHEMA_PATH = ROOT / 'config' / 'settings.json'
 README = ROOT / 'README.md'
 LUA = ROOT / 'tests' / 'nested' / 'hyprland.lua'
 SCHEMA = json.loads(SCHEMA_PATH.read_text())
-REGISTERED = [item for item in SCHEMA if item['type'] != 'table']
-TABLES = [item for item in SCHEMA if item['type'] == 'table']
+REGISTERED = SCHEMA
 LUA_BEGIN = '-- BEGIN GENERATED PLUGIN CONFIG'
 LUA_END = '-- END GENERATED PLUGIN CONFIG'
 
@@ -87,16 +86,16 @@ class ConfigGeneratorTests(unittest.TestCase):
         self.assertFalse(any(p.endswith(('close_side', 'close_splash')) for p in paths))
 
     def test_registration_keys_and_members(self):
-        header = GEN.registration(SCHEMA)
+        header = GEN.config_header(SCHEMA)
         for item in REGISTERED:
-            self.assertIn(f'{item["member"]} = makeShared<', header)
+            self.assertIn(f'values.{item["member"]} = makeShared<', header)
             self.assertIn(f'"{GEN.key(item)}"', header)
         self.assertEqual(len(re.findall(r'= makeShared<', header)), len(REGISTERED))
         self.assertIn('plugin:liquid-glass:window:close:options:liquid:splash', header)
         self.assertIn('m_closeSplash', header)
 
     def test_string_choices_and_float_ranges_are_enforced(self):
-        header = GEN.registration(SCHEMA)
+        header = GEN.config_header(SCHEMA)
         for item in REGISTERED:
             if item['type'] == 'string':
                 self.assertIn(GEN.key(item) + ' must be one of: ' + ', '.join(item['choices']), header)
@@ -117,7 +116,7 @@ class ConfigGeneratorTests(unittest.TestCase):
 
     def test_strength_zero_contract_is_documented_in_schema(self):
         strengths = [item for item in SCHEMA if item['path'].endswith('.strength')]
-        self.assertEqual(len(strengths), 5)
+        self.assertEqual(len(strengths), 4)
         for strength in strengths:
             self.assertEqual(strength['min'], 0)
             self.assertIn('zero', strength['description'].lower())
@@ -131,9 +130,9 @@ class ConfigGeneratorTests(unittest.TestCase):
         next(item for item in items if item['path'] == 'window.movement.options.liquid.strength')['default'] = 0.7
         schema = self.write_schema(items)
         readme, lua = self.copies()
-        header, constants = self.tmp / 'config_registration.inc', self.tmp / 'config_constants.inc'
+        header = self.tmp / 'config_generated.hpp'
         result = self.run_generator('--schema', str(schema), '--readme', str(readme), '--lua', str(lua),
-                                    '--header', str(header), '--constants', str(constants))
+                                    '--header', str(header))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('strength = 0.7,', lua.read_text())
         self.assertIn('0.7F', header.read_text())
@@ -152,15 +151,15 @@ class ConfigGeneratorTests(unittest.TestCase):
         self.assertIn('duplicate setting path', result.stderr)
         self.assertEqual((readme.read_text(), lua.read_text()), before)
 
-    def test_table_with_member_is_rejected(self):
+    def test_table_type_is_rejected(self):
         items = json.loads(SCHEMA_PATH.read_text())
         items.append({'path': 'window.example', 'type': 'table', 'description': 'x', 'member': 'm_example'})
-        with self.assertRaisesRegex(ValueError, 'table entries register nothing'):
+        with self.assertRaisesRegex(ValueError, 'unsupported type'):
             GEN.validate(items)
 
     def test_string_default_must_be_a_choice(self):
         items = json.loads(SCHEMA_PATH.read_text())
-        style = next(item for item in items if item['path'] == 'window.open.style')
+        style = next(item for item in items if item['path'] == 'window.style')
         style['default'] = 'wiggle'
         with self.assertRaisesRegex(ValueError, 'string default'):
             GEN.validate(items)

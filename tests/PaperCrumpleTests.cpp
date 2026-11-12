@@ -1,16 +1,21 @@
 #include "Check.hpp"
 #include "PaperCrumple.hpp"
+#include "PaperTakes.hpp"
+#include "SheetFrame.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <limits>
+#include <cstdint>
+#include <utility>
+#include <vector>
 
 namespace {
 
 using liquid_glass::PaperCrumple;
-using liquid_glass::PaperFacets;
 using liquid_glass::PaperParams;
+using liquid_glass::SheetFrame;
 using liquid_glass::Transition;
 using liquid_glass::Vec2;
 
@@ -25,38 +30,40 @@ void advanceFor(PaperCrumple &model, double seconds) {
         model.advance(std::min(step, seconds - t));
 }
 
-PaperFacets facetsOf(const PaperCrumple &model, Vec2 size = SIZE) {
-    PaperFacets out{};
-    model.facets(size, out);
+SheetFrame frameOf(const PaperCrumple &model, Vec2 size = SIZE) {
+    SheetFrame out{};
+    model.frame(size, out);
     return out;
 }
 
 // Largest displayed distance from the centre, in logical px.
-double maxRadiusPx(const PaperFacets &facets, Vec2 size = SIZE) {
+double maxRadiusPx(const SheetFrame &frame, Vec2 size = SIZE) {
     double best = 0.0;
-    for (const auto &facet : facets)
-        for (const Vec2 &p : facet.position)
-            best = std::max(best, std::hypot(p.x * size.x, p.y * size.y));
+    for (const Vec2 &p : frame.position)
+        best = std::max(best, std::hypot(p.x * size.x, p.y * size.y));
     return best;
 }
 
-double maxPositionDelta(const PaperFacets &a, const PaperFacets &b) {
+double maxPositionDelta(const SheetFrame &a, const SheetFrame &b) {
     double best = 0.0;
-    for (std::size_t t = 0; t < a.size(); ++t)
-        for (std::size_t c = 0; c < 3; ++c) {
-            best = std::max(best, std::abs(a[t].position[c].x - b[t].position[c].x));
-            best = std::max(best, std::abs(a[t].position[c].y - b[t].position[c].y));
-        }
+    for (std::size_t v = 0; v < liquid_glass::PAPER_GRID_VERTICES; ++v) {
+        best = std::max(best, std::abs(a.position[v].x - b.position[v].x));
+        best = std::max(best, std::abs(a.position[v].y - b.position[v].y));
+    }
     return best;
 }
 
-bool isIdentity(const PaperFacets &facets, double tolerance) {
-    for (const auto &facet : facets)
-        for (std::size_t c = 0; c < 3; ++c) {
-            if (std::abs(facet.position[c].x - (facet.uv[c].x - 0.5)) > tolerance ||
-                std::abs(facet.position[c].y - (facet.uv[c].y - 0.5)) > tolerance || facet.shade[c] != 0.0)
+bool isIdentity(const SheetFrame &frame, double tolerance) {
+    for (std::size_t v = 0; v < liquid_glass::PAPER_GRID_VERTICES; ++v) {
+        const Vec2 uv = liquid_glass::sheetUv(v);
+        if (std::abs(frame.position[v].x - (uv.x - 0.5)) > tolerance ||
+            std::abs(frame.position[v].y - (uv.y - 0.5)) > tolerance)
+            return false;
+    }
+    for (const auto &shade : frame.shade)
+        for (const float s : shade)
+            if (s != 0.0F)
                 return false;
-        }
     return true;
 }
 
@@ -68,7 +75,7 @@ void testOpenEndsAtIdentity() {
     CHECK(!model.active());
     CHECK(!model.closed());
     CHECK(model.opacity() == 1.0);
-    CHECK(isIdentity(facetsOf(model), 1e-12));
+    CHECK(isIdentity(frameOf(model), 1e-12));
 }
 
 // 2. Open starts as a hidden ball at the window's spot.
@@ -77,7 +84,7 @@ void testOpenStartsAsHiddenBall() {
     model.begin(Transition::Open, openParams(), 7);
     CHECK(model.active());
     CHECK(model.opacity() == 0.0);
-    const double radius = maxRadiusPx(facetsOf(model));
+    const double radius = maxRadiusPx(frameOf(model));
     const double limit = 0.25 * std::sqrt(SIZE.x * SIZE.y);
     std::fprintf(stdout, "[measure] check 2: open start max radius %.3f px, limit %.3f px\n", radius, limit);
     CHECK(radius <= limit);
@@ -111,11 +118,11 @@ void testContinuityWhenClosingDuringOpen() {
     PaperCrumple open;
     open.begin(Transition::Open, openParams(), 1);
     advanceFor(open, 0.4 * openParams().duration);
-    const PaperFacets before = facetsOf(open);
+    const SheetFrame before = frameOf(open);
 
     open.begin(Transition::Close, closeParams(), 99);
-    const PaperFacets after = facetsOf(open);
-    const double      delta = maxPositionDelta(before, after);
+    const SheetFrame after = frameOf(open);
+    const double     delta = maxPositionDelta(before, after);
     std::fprintf(stdout, "[measure] check 4: open->close continuity max delta %.3e\n", delta);
     CHECK(delta <= 1e-9);
 }
@@ -127,7 +134,7 @@ void testDeterminismAndVariation() {
     b.begin(Transition::Close, closeParams(), 42);
     advanceFor(a, 0.2);
     advanceFor(b, 0.2);
-    CHECK(maxPositionDelta(facetsOf(a), facetsOf(b)) == 0.0);
+    CHECK(maxPositionDelta(frameOf(a), frameOf(b)) == 0.0);
 
     PaperParams flat = closeParams();
     flat.variation = 0.0;
@@ -136,7 +143,7 @@ void testDeterminismAndVariation() {
     s2.begin(Transition::Close, flat, 2);
     advanceFor(s1, 0.2);
     advanceFor(s2, 0.2);
-    CHECK(maxPositionDelta(facetsOf(s1), facetsOf(s2)) == 0.0);
+    CHECK(maxPositionDelta(frameOf(s1), frameOf(s2)) == 0.0);
 
     // With variation, windows differ: some seed among a handful must pick another take or mirroring.
     PaperParams varied = closeParams();
@@ -144,13 +151,13 @@ void testDeterminismAndVariation() {
     PaperCrumple v1;
     v1.begin(Transition::Close, varied, 1);
     advanceFor(v1, 0.2);
-    const PaperFacets first = facetsOf(v1);
-    double            spread = 0.0;
+    const SheetFrame first = frameOf(v1);
+    double           spread = 0.0;
     for (std::uint64_t seed = 2; seed <= 8; ++seed) {
         PaperCrumple other;
         other.begin(Transition::Close, varied, seed);
         advanceFor(other, 0.2);
-        spread = std::max(spread, maxPositionDelta(first, facetsOf(other)));
+        spread = std::max(spread, maxPositionDelta(first, frameOf(other)));
     }
     std::fprintf(stdout, "[measure] check 5: variation 1 seed spread %.3e\n", spread);
     CHECK(spread > 1e-3);
@@ -164,20 +171,22 @@ void testShading() {
     dark.begin(Transition::Close, unlit, 5);
     advanceFor(dark, 0.25); // s ~ 0.5
     CHECK(!dark.shaded());
-    bool allZero = true;
-    for (const auto &facet : facetsOf(dark))
-        for (const double s : facet.shade)
-            allZero = allZero && s == 0.0;
+    bool             allZero = true;
+    const SheetFrame darkFrame = frameOf(dark);
+    for (const auto &tri : darkFrame.shade)
+        for (const float s : tri)
+            allZero = allZero && s == 0.0F;
     CHECK(allZero);
 
     PaperCrumple lit;
     lit.begin(Transition::Close, closeParams(), 5); // shading 0.7
     advanceFor(lit, 0.25);
-    bool anyNonZero = false, inRange = true;
-    for (const auto &facet : facetsOf(lit))
-        for (const double s : facet.shade) {
-            anyNonZero = anyNonZero || s != 0.0;
-            inRange = inRange && s >= -1.0 && s <= 1.0;
+    bool             anyNonZero = false, inRange = true;
+    const SheetFrame litFrame = frameOf(lit);
+    for (const auto &tri : litFrame.shade)
+        for (const float s : tri) {
+            anyNonZero = anyNonZero || s != 0.0F;
+            inRange = inRange && s >= -1.0F && s <= 1.0F;
         }
     CHECK(anyNonZero);
     CHECK(inRange);
@@ -187,12 +196,13 @@ void testShading() {
     PaperCrumple fullLit;
     fullLit.begin(Transition::Close, full, 5);
     advanceFor(fullLit, 0.25);
-    bool fullInRange = true;
-    bool fullAny = false;
-    for (const auto &facet : facetsOf(fullLit))
-        for (const double s : facet.shade) {
-            fullInRange = fullInRange && s >= -1.0 && s <= 1.0;
-            fullAny = fullAny || s != 0.0;
+    bool             fullInRange = true;
+    bool             fullAny = false;
+    const SheetFrame fullFrame = frameOf(fullLit);
+    for (const auto &tri : fullFrame.shade)
+        for (const float s : tri) {
+            fullInRange = fullInRange && s >= -1.0F && s <= 1.0F;
+            fullAny = fullAny || s != 0.0F;
         }
     CHECK(fullAny);
     CHECK(fullInRange);
@@ -211,8 +221,8 @@ void testCrumplinessShrinksBall() {
     b.begin(Transition::Close, tight, 11);
     advanceFor(a, 0.75); // s ~ 0.75
     advanceFor(b, 0.75);
-    const double looseRadius = maxRadiusPx(facetsOf(a));
-    const double tightRadius = maxRadiusPx(facetsOf(b));
+    const double looseRadius = maxRadiusPx(frameOf(a));
+    const double tightRadius = maxRadiusPx(frameOf(b));
     std::fprintf(stdout, "[measure] check 7: s=0.75 extents radius crumpliness 0 %.3f px, 1 %.3f px\n", looseRadius,
                  tightRadius);
     CHECK(tightRadius < looseRadius);
@@ -251,12 +261,13 @@ void testCloseStartsAtRestForAnyAspect() {
             PaperCrumple model;
             model.begin(Transition::Close, params, seed);
             model.advance(1e-4);
-            const PaperFacets facets = facetsOf(model, size);
-            double            worst = 0.0;
-            for (const auto &facet : facets)
-                for (std::size_t c = 0; c < 3; ++c)
-                    worst = std::max({worst, std::abs(facet.position[c].x - (facet.uv[c].x - 0.5)) * size.x,
-                                      std::abs(facet.position[c].y - (facet.uv[c].y - 0.5)) * size.y});
+            const SheetFrame frame = frameOf(model, size);
+            double           worst = 0.0;
+            for (std::size_t v = 0; v < liquid_glass::PAPER_GRID_VERTICES; ++v) {
+                const Vec2 uv = liquid_glass::sheetUv(v);
+                worst = std::max({worst, std::abs(frame.position[v].x - (uv.x - 0.5)) * size.x,
+                                  std::abs(frame.position[v].y - (uv.y - 0.5)) * size.y});
+            }
             CHECK(worst < 1.0); // under a pixel
         }
     }
@@ -271,7 +282,54 @@ void testStallDelaysInsteadOfSkipping() {
     stalled.advance(0.2);
     smooth.advance(1.0 / 30.0);
     CHECK(stalled.active());
-    CHECK(maxPositionDelta(facetsOf(stalled), facetsOf(smooth)) == 0.0);
+    CHECK(maxPositionDelta(frameOf(stalled), frameOf(smooth)) == 0.0);
+}
+
+// 11. Along a real take's playback, frame.order is back to front by (mean world z, triangle id), as a fresh sort
+// computes it from the same world data. One SheetFrame carries each order into the next frame, so every projection
+// seeds from the previous one: this checks the seeded sort never drifts from a fresh sort. Each take plays forward
+// (open) and back (close).
+void testOrderMatchesFreshSortAlongPlayback() {
+    using liquid_glass::PAPER_GRID_VERTICES;
+    using liquid_glass::PAPER_TRIANGLES;
+    const int  frames = liquid_glass::paperTakeFrames();
+    SheetFrame out{};
+    for (int take = 0; take < liquid_glass::paperTakeCount(); ++take) {
+        std::vector<int> path;
+        for (int f = 0; f < frames; ++f)
+            path.push_back(f);
+        for (int f = frames - 1; f >= 0; --f)
+            path.push_back(f);
+        for (const int f : path) {
+            liquid_glass::SheetGrid world{};
+            for (std::size_t v = 0; v < PAPER_GRID_VERTICES; ++v) {
+                double p[3];
+                liquid_glass::paperTakeVertex(take, f, v, p);
+                world[v] = {p[0], p[1], p[2]};
+            }
+            liquid_glass::projectSheet(world, SIZE, 0.7, liquid_glass::SheetLighting::PaperCreases, out);
+
+            // Independent recomputation: mean z per triangle with the same arithmetic, then a fresh sort of (z, t)
+            // pairs.
+            std::vector<std::pair<double, std::uint16_t>> keyed;
+            keyed.reserve(PAPER_TRIANGLES);
+            for (std::size_t t = 0; t < PAPER_TRIANGLES; ++t) {
+                const auto  &c = liquid_glass::sheetTriangle(t);
+                const double z = (world[c[0]].z + world[c[1]].z + world[c[2]].z) / 3.0;
+                keyed.emplace_back(z, static_cast<std::uint16_t>(t));
+            }
+            std::sort(keyed.begin(), keyed.end());
+
+            bool same = true;
+            for (std::size_t i = 0; i < PAPER_TRIANGLES; ++i)
+                same = same && out.order[i] == keyed[i].second;
+            CHECK(same);
+            if (!same) {
+                std::printf("order mismatch: take %d frame %d\n", take, f);
+                return;
+            }
+        }
+    }
 }
 
 } // namespace
@@ -287,5 +345,6 @@ int main() {
     testInvalidParams();
     testCloseStartsAtRestForAnyAspect();
     testStallDelaysInsteadOfSkipping();
+    testOrderMatchesFreshSortAlongPlayback();
     return g_failures == 0 ? 0 : 1;
 }

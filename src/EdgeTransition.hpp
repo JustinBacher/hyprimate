@@ -6,7 +6,6 @@
 #include <array>
 #include <optional>
 #include <span>
-#include <string_view>
 
 namespace liquid_glass {
 
@@ -37,10 +36,13 @@ struct EdgeFrame {
 std::optional<EdgeFrame> resolveEdgeFrame(const Box &body, const Box &capture, const Box &screen,
                                           std::span<const Box> neighbours, Edge fallback, bool preferFallback) noexcept;
 
-// Shared liquid/cloth close policy. nearest ignores neighbours; origin prefers the recorded opening edge;
-// top/bottom/left/right prefer that fixed edge. An unavailable or invalid preference uses the usual resolver.
+// Where a closing window exits.
+enum class CloseSide { Auto, Nearest, Origin, Top, Bottom, Left, Right };
+
+// Shared liquid/cloth close policy. Nearest ignores neighbours; Origin prefers the recorded opening edge;
+// Top/Bottom/Left/Right prefer that fixed edge. An unavailable or invalid preference uses the usual resolver.
 std::optional<EdgeFrame> resolveCloseEdgeFrame(const Box &body, const Box &capture, const Box &bounds,
-                                               std::span<const Box> neighbours, Edge fallback, std::string_view side,
+                                               std::span<const Box> neighbours, Edge fallback, CloseSide side,
                                                std::optional<Edge> origin = std::nullopt) noexcept;
 
 // Edge frame <-> point relative to the capture centre.

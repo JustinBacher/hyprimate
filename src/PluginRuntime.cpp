@@ -19,30 +19,16 @@
 #include <limits>
 #include <random>
 #include <stdexcept>
+#include <string_view>
 
 namespace {
 
 constexpr const char *WOBBLE_MESSAGE = "[liquid-glass] Disable decoration:wobble:enabled before enabling liquid-glass";
-#include "config_constants.inc"
-using liquid_glass::kStallSeconds;
-constexpr double MAX_JUMP_FACTOR = 1.5;
+constexpr double      MAX_JUMP_FACTOR = 1.5;
 
 bool isUsableBox(const CBox &box) {
     return std::isfinite(box.x) && std::isfinite(box.y) && std::isfinite(box.w) && std::isfinite(box.h) &&
            box.w > 0.0 && box.h > 0.0;
-}
-
-double clampStrength(double value) {
-    if (!std::isfinite(value))
-        return 0.0;
-    return std::clamp(value, 0.0, MAX_STRENGTH);
-}
-
-// Non-finite input stays NaN so material validation rejects it instead of silently clamping it.
-double clampUnit(double value) {
-    if (!std::isfinite(value))
-        return std::numeric_limits<double>::quiet_NaN();
-    return std::clamp(value, 0.0, 1.0);
 }
 
 // ARGB config value to a float colour; channel bytes are unpacked, not treated as one packed integer.
@@ -51,12 +37,51 @@ CHyprColor colorFromArgb(std::uint32_t argb) {
     return CHyprColor(channel(16), channel(8), channel(0), channel(24));
 }
 
+namespace cfg = liquid_glass::config;
+
+liquid_glass::PaperParams toPaper(const cfg::STransitionPaper &paper) {
+    return {.duration = paper.duration,
+            .crumpliness = paper.crumpliness,
+            .shading = paper.shading,
+            .variation = paper.variation};
+}
+
+liquid_glass::ClothParams toCloth(const cfg::STransitionCloth &cloth) {
+    return {
+        .duration = cloth.duration, .flutter = cloth.flutter, .shading = cloth.shading, .variation = cloth.variation};
+}
+
+liquid_glass::TransitionParams toTransition(double elasticity, double momentum) {
+    return {.elasticity = elasticity, .momentum = momentum};
+}
+
+liquid_glass::CloseSide closeSide(cfg::Side side) {
+    switch (side) {
+    case cfg::Side::Auto:
+        return liquid_glass::CloseSide::Auto;
+    case cfg::Side::Nearest:
+        return liquid_glass::CloseSide::Nearest;
+    case cfg::Side::Origin:
+        return liquid_glass::CloseSide::Origin;
+    case cfg::Side::Top:
+        return liquid_glass::CloseSide::Top;
+    case cfg::Side::Bottom:
+        return liquid_glass::CloseSide::Bottom;
+    case cfg::Side::Left:
+        return liquid_glass::CloseSide::Left;
+    case cfg::Side::Right:
+        return liquid_glass::CloseSide::Right;
+    }
+    return liquid_glass::CloseSide::Auto;
+}
+
 } // namespace
 
 CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     std::random_device entropy;
     m_nextSeed = (std::uint64_t{entropy()} << 32) | entropy();
-#include "config_registration.inc"
+    liquid_glass::config::registerConfigValues(m_handle, m_values);
+    m_config = liquid_glass::config::readConfig(m_values);
 
     if (pluginEnabled() && wobbleEnabled()) {
         notify(WOBBLE_MESSAGE);
@@ -79,10 +104,12 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
             // Close drains rigidly: emerge_drag is an open-only option, so the close drives no travel.
             if (closeEnabled() && eligible(window)) {
                 auto *transformer = transformerOf(window);
-                if (closePaper() || closeCloth()) {
+                // The window's own state continues into the close only when it was built for the configured style.
+                const bool matched = transformer && !materialChanged(*transformer);
+                if (m_config.style != cfg::Style::Liquid) {
                     const CBox                                      capture = window->getFullWindowBoundingBox();
                     std::optional<liquid_glass::ClothCloseGeometry> closeGeometry;
-                    if (closeCloth()) {
+                    if (m_config.style == cfg::Style::Cloth) {
                         // Resolve first: edgeFrameFor reuses m_neighbours, which is then filled with collision boxes.
                         const auto frame = edgeFrameFor(window, false, entry->openEdge);
                         const auto monitor = window->m_monitor.lock();
@@ -93,30 +120,28 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                         }
                     }
                     m_neighbours.clear();
-                    if (closeCloth())
+                    if (m_config.style == cfg::Style::Cloth)
                         gatherClothObstacles(window);
-                    m_close->stageSheet(window, transformer ? transformer->sheet() : liquid_glass::SheetMotion{},
-                                        paperParams(m_closePaperDuration->value(), m_closePaperCrumpliness->value(),
-                                                    m_closePaperShading->value(), m_closePaperVariation->value()),
-                                        clothParams(m_closeClothDuration->value(), m_closeClothFlutter->value(),
-                                                    m_closeClothShading->value(), m_closeClothVariation->value()),
-                                        closeCloth(), m_nextSeed++, {capture.x, capture.y, capture.w, capture.h},
-                                        m_neighbours, closeGeometry);
+                    m_close->stageSheet(
+                        window,
+                        matched ? transformer->takeStyle()
+                                : initialStyle(m_config.style, effectiveMaterialParams(), clothMovementParams(), 0),
+                        toPaper(m_config.close.paper), toCloth(m_config.close.cloth), m_nextSeed++,
+                        {capture.x, capture.y, capture.w, capture.h}, m_neighbours, closeGeometry);
                 } else {
-                    const bool continuing = transformer && transformer->transition().active();
-                    const auto closeFrame = continuing ? std::optional<liquid_glass::EdgeFrame>{}
-                                                       : edgeFrameFor(window, false, entry->openEdge);
-                    if (transformer && transformer->active())
-                        m_close->stage(window, transformer->closePose(), clampStrength(m_closeLiquidStrength->value()),
-                                       closeFrame, 0.0, m_closeSplash->value(),
-                                       transitionParams(m_closeElasticity->value(), m_closeMomentum->value()));
+                    const auto &close = m_config.close.liquid;
+                    const bool  continuing = matched && transformer->transition().active();
+                    const auto  closeFrame = continuing ? std::optional<liquid_glass::EdgeFrame>{}
+                                                        : edgeFrameFor(window, false, entry->openEdge);
+                    const auto  params = toTransition(close.elasticity, close.momentum);
+                    if (matched && transformer->active())
+                        m_close->stage(window, transformer->closePose(), close.strength, closeFrame, close.splash,
+                                       params);
                     else {
-                        const liquid_glass::LiquidMesh     mesh{effectiveMode(), effectiveMaterialParams()};
+                        const liquid_glass::LiquidMesh     mesh{effectiveMaterialParams()};
                         const liquid_glass::EdgeTransition transition;
-                        m_close->stage(window, SLiquidPose{mesh, transition},
-                                       clampStrength(m_closeLiquidStrength->value()), closeFrame, 0.0,
-                                       m_closeSplash->value(),
-                                       transitionParams(m_closeElasticity->value(), m_closeMomentum->value()));
+                        m_close->stage(window, SLiquidPose{mesh, transition}, close.strength, closeFrame, close.splash,
+                                       params);
                     }
                 }
             }
@@ -155,97 +180,53 @@ CPluginRuntime::~CPluginRuntime() {
     m_shade.reset();
 }
 
-bool CPluginRuntime::pluginEnabled() const { return m_enabled->value(); }
+bool CPluginRuntime::pluginEnabled() const { return m_config.enabled; }
 
 double CPluginRuntime::movementStrength() const {
-    if (movementCloth())
-        return clampStrength(m_movementClothStrength->value());
-    const auto value =
-        effectiveMode() == liquid_glass::MotionMode::Wiggle ? m_movementWiggleStrength : m_movementLiquidStrength;
-    return clampStrength(value->value());
-}
-
-double CPluginRuntime::effectiveViscosity() const { return clampUnit(m_viscosity->value()); }
-
-liquid_glass::MotionMode CPluginRuntime::effectiveMode() const {
-    return m_mode->value() == "wiggle" ? liquid_glass::MotionMode::Wiggle : liquid_glass::MotionMode::Liquid;
+    switch (m_config.style) {
+    case cfg::Style::Liquid:
+        return m_config.movement.liquid.strength;
+    case cfg::Style::Cloth:
+        return m_config.movement.cloth.strength;
+    case cfg::Style::Paper:
+        return 0.0; // paper windows move undeformed
+    }
+    return 0.0;
 }
 
 liquid_glass::MaterialParams CPluginRuntime::effectiveMaterialParams() const {
-    return liquid_glass::MaterialParams{
-        .viscosity = effectiveViscosity(),
-        .elasticity = clampUnit(m_elasticity->value()),
-        .momentum = clampUnit(m_momentum->value()),
-        .variation = clampUnit(m_variation->value()),
-    };
-}
-
-bool CPluginRuntime::movementEnabled() const {
-    return pluginEnabled() && m_movementEnabled->value() && materialUsable() && movementStrength() > 0.0;
-}
-
-bool CPluginRuntime::movementCloth() const { return m_mode->value() == "cloth"; }
-
-bool CPluginRuntime::openEnabled() const { return pluginEnabled() && !m_inert && m_openEnabled->value(); }
-
-bool CPluginRuntime::closeEnabled() const { return pluginEnabled() && !m_inert && m_closeEnabled->value(); }
-
-bool CPluginRuntime::openPaper() const { return m_openStyle->value() == "paper"; }
-
-bool CPluginRuntime::closePaper() const { return m_closeStyle->value() == "paper"; }
-
-bool CPluginRuntime::openCloth() const { return m_openStyle->value() == "cloth"; }
-
-bool CPluginRuntime::closeCloth() const { return m_closeStyle->value() == "cloth"; }
-
-liquid_glass::TransitionParams CPluginRuntime::transitionParams(double elasticity, double momentum) const {
-    // Edge transitions use only elasticity and momentum; the movement field's viscosity and variation do not apply.
-    return liquid_glass::TransitionParams{
-        .elasticity = clampUnit(elasticity),
-        .momentum = clampUnit(momentum),
-    };
-}
-
-liquid_glass::PaperParams CPluginRuntime::paperParams(double duration, double crumpliness, double shading,
-                                                      double variation) const {
-    return {
-        .duration = duration,
-        .crumpliness = clampUnit(crumpliness),
-        .shading = clampUnit(shading),
-        .variation = clampUnit(variation),
-    };
-}
-
-liquid_glass::ClothParams CPluginRuntime::clothParams(double duration, double flutter, double shading,
-                                                      double variation) const {
-    return {.duration = duration,
-            .flutter = clampUnit(flutter),
-            .shading = clampUnit(shading),
-            .variation = clampUnit(variation)};
+    const auto &liquid = m_config.movement.liquid;
+    return {.viscosity = liquid.viscosity,
+            .elasticity = liquid.elasticity,
+            .momentum = liquid.momentum,
+            .variation = liquid.variation};
 }
 
 liquid_glass::ClothMovementParams CPluginRuntime::clothMovementParams() const {
-    return {.strength = movementStrength(),
-            .flutter = clampUnit(m_movementClothFlutter->value()),
-            .shading = clampUnit(m_movementClothShading->value()),
-            .variation = clampUnit(m_movementClothVariation->value())};
+    const auto &cloth = m_config.movement.cloth;
+    return {
+        .strength = cloth.strength, .flutter = cloth.flutter, .shading = cloth.shading, .variation = cloth.variation};
 }
 
-double CPluginRuntime::effectiveEmergeDrag() const {
-    const double drag = m_emergeDrag->value();
-    if (!std::isfinite(drag))
-        return 0.0;
-    return std::clamp(drag, 0.0, 1.0);
+bool CPluginRuntime::movementEnabled() const {
+    return pluginEnabled() && m_config.movement.enabled && materialUsable() && movementStrength() > 0.0;
 }
+
+bool CPluginRuntime::openEnabled() const { return pluginEnabled() && !m_inert && m_config.open.enabled; }
+
+bool CPluginRuntime::closeEnabled() const { return pluginEnabled() && !m_inert && m_config.close.enabled; }
 
 liquid_glass::Edge CPluginRuntime::firstWindowEdge() const {
-    const auto &side = m_firstWindowSide->value();
-    if (side == "top")
+    switch (m_config.open.liquid.firstWindowSide) {
+    case cfg::FirstWindowSide::Top:
         return liquid_glass::Edge::Top;
-    if (side == "left")
+    case cfg::FirstWindowSide::Left:
         return liquid_glass::Edge::Left;
-    if (side == "right")
+    case cfg::FirstWindowSide::Right:
         return liquid_glass::Edge::Right;
+    case cfg::FirstWindowSide::Bottom:
+        return liquid_glass::Edge::Bottom;
+    }
     return liquid_glass::Edge::Bottom;
 }
 
@@ -280,8 +261,8 @@ void CPluginRuntime::gatherClothObstacles(const PHLWINDOW &window) const {
 }
 
 CBox CPluginRuntime::edgeBoundsBox(const PHLMONITOR &monitor, bool opening) const {
-    const auto &bounds = opening ? m_edgeBounds->value() : m_closeEdgeBounds->value();
-    if (bounds == "work_area")
+    const auto bounds = opening ? m_config.open.liquid.edgeBounds : m_config.close.liquid.edgeBounds;
+    if (bounds == cfg::EdgeBounds::WorkArea)
         return monitor->logicalBoxMinusReserved();
     return monitor->logicalBox();
 }
@@ -304,35 +285,24 @@ std::optional<liquid_glass::EdgeFrame> CPluginRuntime::edgeFrameFor(const PHLWIN
         gatherNeighbours(window);
     if (!opening)
         return liquid_glass::resolveCloseEdgeFrame(box(body), box(rest), box(edgeBoundsBox(monitor, false)),
-                                                   m_neighbours, firstWindowEdge(), m_closeSide->value(), origin);
+                                                   m_neighbours, firstWindowEdge(),
+                                                   closeSide(m_config.close.liquid.side), origin);
     return liquid_glass::resolveEdgeFrame(box(body), box(rest), box(edgeBoundsBox(monitor, opening)), m_neighbours,
                                           firstWindowEdge(), !workspaceHasOtherWindows(window));
 }
 
 bool CPluginRuntime::materialUsable() const {
-    if (movementCloth()) {
+    if (m_config.style == cfg::Style::Cloth) {
         const auto params = clothMovementParams();
         return std::isfinite(params.flutter) && std::isfinite(params.shading) && std::isfinite(params.variation);
     }
-    if (effectiveMode() == liquid_glass::MotionMode::Wiggle)
-        return true;
     const auto params = effectiveMaterialParams();
     return std::isfinite(params.viscosity) && std::isfinite(params.elasticity) && std::isfinite(params.momentum) &&
            std::isfinite(params.variation);
 }
 
 bool CPluginRuntime::materialChanged(const CLiquidGlassTransformer &transformer) const {
-    if (!movementEnabled())
-        return false;
-    const auto &cloth = transformer.clothMovementParams();
-    if (movementCloth())
-        return !cloth || *cloth != clothMovementParams();
-    if (cloth)
-        return true;
-    const auto &mesh = transformer.mesh();
-    if (mesh.mode() != effectiveMode())
-        return true;
-    return mesh.mode() == liquid_glass::MotionMode::Liquid && mesh.params() != effectiveMaterialParams();
+    return !transformer.builtFor(m_config.style, effectiveMaterialParams(), clothMovementParams());
 }
 
 liquid_glass::Vec2 CPluginRuntime::movementGrab(const PHLWINDOW &window, const CBox &capture, Vector2D delta) const {
@@ -357,6 +327,7 @@ void CPluginRuntime::notify(const std::string &text) const {
 }
 
 void CPluginRuntime::onReload() {
+    m_config = liquid_glass::config::readConfig(m_values);
     detachAll();
     m_close->clear();
 
@@ -420,10 +391,11 @@ bool CPluginRuntime::eligible(const PHLWINDOW &window) const {
 }
 
 void CPluginRuntime::onRenderPre(const PHLMONITOR &monitor) {
-    // Colour is read live: runtime config edits (hl.config, hyprctl keyword) need not fire a reload. The texture is
+    // Config is read live: runtime edits (hl.config, hyprctl keyword) need not fire a reload. The texture is
     // rebuilt only when the value actually changes.
-    m_openSolid->setColor(colorFromArgb(static_cast<std::uint32_t>(m_openLiquidColor->value())));
-    m_closeSolid->setColor(colorFromArgb(static_cast<std::uint32_t>(m_closeLiquidColor->value())));
+    m_config = liquid_glass::config::readConfig(m_values);
+    m_openSolid->setColor(colorFromArgb(m_config.open.liquid.color));
+    m_closeSolid->setColor(colorFromArgb(m_config.close.liquid.color));
     // Every monitor's frame samples all windows: sampling also handles disable/fullscreen/config eligibility
     // transitions. Only windows on the monitor about to draw advance, so each animation steps once per its frame.
     const auto now = clock::now();
@@ -440,7 +412,7 @@ void CPluginRuntime::onRenderPre(const PHLMONITOR &monitor) {
     std::erase_if(m_tracked, [](const STracked &entry) { return entry.window.expired(); });
 
     // A live disable also drops retained closes, restoring native fades where still available.
-    if (!closeEnabled() || (!closePaper() && !closeCloth() && clampStrength(m_closeLiquidStrength->value()) <= 0.0)) {
+    if (!closeEnabled() || (m_config.style == cfg::Style::Liquid && m_config.close.liquid.strength <= 0.0)) {
         m_close->clear();
     } else if (m_close->tick(now, monitor, m_closeMonitors)) {
         for (const auto &monitorRef : m_closeMonitors) {
@@ -467,7 +439,7 @@ void CPluginRuntime::sampleWindow(STracked &entry, const PHLWINDOW &window) {
 
     if (!canDeform || !entry.wasEligible || !entry.baselined || !isUsableBox(entry.lastBox) || !isUsableBox(current) ||
         !isUsableBox(entry.lastCapture) || !isUsableBox(capture) || entry.monitor != window->m_monitor ||
-        sampleElapsed > kStallSeconds) {
+        sampleElapsed > liquid_glass::kStallSeconds) {
         detachWindow(entry, window);
         baseline(entry, window);
         entry.wasEligible = canDeform && isUsableBox(capture);
@@ -496,10 +468,11 @@ void CPluginRuntime::sampleWindow(STracked &entry, const PHLWINDOW &window) {
         return;
     }
     auto      *transformer = transformerOf(window);
-    const bool clothHandoff =
-        movementCloth() && transformer && (transformer->sheet().clothOpening() || transformer->sheet().moving());
-    if (((animating || wasAnimating) && !clothHandoff) ||
-        (transformer && (transformer->transition().active() || (transformer->sheet().active() && !clothHandoff)))) {
+    const bool clothHandoff = m_config.style == cfg::Style::Cloth && transformer &&
+                              (transformer->clothOpening() || transformer->clothMoving());
+    const bool liquidBusy = transformer && transformer->liquidStyle() && transformer->transition().active();
+    const bool sheetBusy = transformer && transformer->sheetActive() && !clothHandoff;
+    if (((animating || wasAnimating) && !clothHandoff) || liquidBusy || sheetBusy) {
         // Native opening and a liquid box-driven transition are not movement impulses. Cloth's opening box
         // is already fixed at its goal, so subsequent geometry changes can take over its displayed sheet.
         entry.lastBox = current;
@@ -523,7 +496,7 @@ void CPluginRuntime::sampleWindow(STracked &entry, const PHLWINDOW &window) {
     }
 
     const bool enabled = movementEnabled();
-    const bool cancelledMovement = transformer && transformer->sheet().moving() && !enabled;
+    const bool cancelledMovement = transformer && transformer->clothMoving() && !enabled;
     if (!translated && !resized && !captureChanged && !cancelledMovement)
         return;
     const bool moving = translated && enabled;
@@ -538,26 +511,32 @@ void CPluginRuntime::sampleWindow(STracked &entry, const PHLWINDOW &window) {
     const bool wasActive = transformer->active();
     if (cancelledMovement)
         transformer->cancelMovement();
-    if (movementCloth()) {
-        if (moving && !transformer->sheet().moving())
+    switch (m_config.style) {
+    case cfg::Style::Cloth:
+        if (moving && !transformer->clothMoving())
             transformer->beginClothMovement(
                 m_nextSeed++, {previousCapture.x, previousCapture.y, previousCapture.w, previousCapture.h},
                 movementGrab(window, capture, delta));
-        if (enabled && transformer->sheet().moving())
+        if (enabled && transformer->clothMoving())
             transformer->updateClothMovement({capture.x, capture.y, capture.w, capture.h}, sampleElapsed);
-        transformer->mesh().reset();
-    } else if (moving) {
-        transformer->mesh().recordTranslation({delta.x, delta.y}, {captureSize.x, captureSize.y}, movementStrength());
-    } else if (enabled) {
-        transformer->mesh().advance(0.0, {captureSize.x, captureSize.y});
-    } else {
-        transformer->mesh().reset();
+        break;
+    case cfg::Style::Liquid:
+        if (moving)
+            transformer->mesh().recordTranslation({delta.x, delta.y}, {captureSize.x, captureSize.y},
+                                                  movementStrength());
+        else if (enabled)
+            transformer->mesh().advance(0.0, {captureSize.x, captureSize.y});
+        else
+            transformer->mesh().reset();
+        transformer->refreshPose({captureSize.x, captureSize.y});
+        break;
+    case cfg::Style::Paper:
+        break; // paper windows move undeformed
     }
-    transformer->refreshPose({captureSize.x, captureSize.y});
     if (!wasActive) {
         // The first live target spans the observed geometry interval, even though this frame's advance follows the
         // sample immediately. Otherwise its initial velocity would be compressed into almost zero time.
-        entry.lastAdvance = movementCloth() && moving
+        entry.lastAdvance = m_config.style == cfg::Style::Cloth && moving
                                 ? now - std::chrono::duration_cast<clock::duration>(
                                             std::chrono::duration<double>(std::max(0.0, sampleElapsed)))
                                 : now;
@@ -579,14 +558,14 @@ void CPluginRuntime::beginOpening(STracked &entry, const PHLWINDOW &window) {
     if (!openEnabled())
         return;
 
-    if (openPaper()) {
+    switch (m_config.style) {
+    case cfg::Style::Paper: {
         // Paper needs no edge and never drives the box: it starts as a ball at the window's own box.
         const CBox capture = window->getFullWindowBoundingBox();
-        acquireTransformer(window)->beginPaperOpen(
-            paperParams(m_openPaperDuration->value(), m_openPaperCrumpliness->value(), m_openPaperShading->value(),
-                        m_openPaperVariation->value()),
-            m_nextSeed++, {capture.w, capture.h});
-    } else if (openCloth()) {
+        acquireTransformer(window)->beginPaperOpen(toPaper(m_config.open.paper), m_nextSeed++, {capture.w, capture.h});
+        break;
+    }
+    case cfg::Style::Cloth: {
         // Cloth opens in place, but keeps the same logical origin as liquid for close side=origin.
         if (const auto frame = edgeFrameFor(window, true))
             entry.openEdge = frame->edge;
@@ -602,26 +581,30 @@ void CPluginRuntime::beginOpening(STracked &entry, const PHLWINDOW &window) {
         m_neighbours.clear();
         gatherClothObstacles(window);
         auto *transformer = acquireTransformer(window);
-        transformer->beginClothOpen(clothParams(m_openClothDuration->value(), m_openClothFlutter->value(),
-                                                m_openClothShading->value(), m_openClothVariation->value()),
-                                    m_nextSeed++, {rest.x, rest.y, rest.w, rest.h}, m_neighbours);
-        if (transformer->sheet().active()) {
+        transformer->beginClothOpen(toCloth(m_config.open.cloth), m_nextSeed++, {rest.x, rest.y, rest.w, rest.h},
+                                    m_neighbours);
+        if (transformer->sheetActive()) {
             g_pHyprRenderer->damageBox(capture);
             window->positionAnimation()->setValueAndWarp(goal.pos());
             window->sizeAnimation()->setValueAndWarp(goal.size());
             baseline(entry, window);
         }
-    } else {
+        break;
+    }
+    case cfg::Style::Liquid: {
         const auto frame = edgeFrameFor(window, true);
         if (!frame)
             return; // no usable edge: the native opening runs, movement deformation unaffected
         entry.openEdge = frame->edge;
-        if (clampStrength(m_openLiquidStrength->value()) <= 0.0)
+        const auto &open = m_config.open.liquid;
+        if (open.strength <= 0.0)
             return;
         auto      *transformer = acquireTransformer(window);
         const CBox capture = window->getFullWindowBoundingBox();
-        transformer->beginOpen(*frame, transitionParams(m_openElasticity->value(), m_openMomentum->value()),
-                               clampStrength(m_openLiquidStrength->value()), {capture.w, capture.h});
+        transformer->beginOpen(*frame, toTransition(open.elasticity, open.momentum), open.strength,
+                               {capture.w, capture.h});
+        break;
+    }
     }
     entry.lastAdvance = clock::now();
 
@@ -659,7 +642,7 @@ void CPluginRuntime::advanceWindow(STracked &entry, const PHLWINDOW &window,
         return;
     }
 
-    if (elapsed > kStallSeconds) {
+    if (elapsed > liquid_glass::kStallSeconds) {
         detachWindow(entry, window);
         baseline(entry, window);
         return;
@@ -680,16 +663,18 @@ void CPluginRuntime::advanceWindow(STracked &entry, const PHLWINDOW &window,
     entry.lastCapture = capture;
     const liquid_glass::Vec2 size{capture.w, capture.h};
     const bool               enabled = movementEnabled();
-    const bool               moving = enabled && !movementCloth();
-    if (!enabled && transformer->sheet().moving())
+    const bool               moving = enabled && m_config.style == cfg::Style::Liquid;
+    if (!enabled && transformer->clothMoving())
         transformer->cancelMovement();
-    if (!moving)
-        transformer->mesh().reset();
-    advanceLiquidPose(transformer->mesh(), transformer->transition(), elapsed, size, movementStrength(),
-                      moving ? effectiveEmergeDrag() : 0.0);
     transformer->advanceSheet(elapsed, size);
-    transformer->refreshPose(size);
-    transformer->driveBox();
+    if (transformer->liquidStyle()) {
+        if (!moving)
+            transformer->mesh().reset();
+        advanceLiquidPose(transformer->mesh(), transformer->transition(), elapsed, size, movementStrength(),
+                          moving ? m_config.open.liquid.emergeDrag : 0.0);
+        transformer->refreshPose(size);
+        transformer->driveBox();
+    }
     entry.lastBox = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
     entry.lastCapture = window->getFullWindowBoundingBox();
     const bool stillActive = transformer->active();
@@ -715,8 +700,8 @@ CLiquidGlassTransformer *CPluginRuntime::acquireTransformer(const PHLWINDOW &win
         return existing;
     // Each window draws from its own stream, so windows moved together (scrolling, workspace slides) still differ.
     return list->emplace<CLiquidGlassTransformer>(
-        window->m_self, effectiveMode(), effectiveMaterialParams(), m_nextSeed++, m_openSolid, m_shade,
-        movementCloth() ? std::optional{clothMovementParams()} : std::nullopt);
+        window->m_self, initialStyle(m_config.style, effectiveMaterialParams(), clothMovementParams(), m_nextSeed++),
+        m_openSolid, m_shade);
 }
 
 CBox CPluginRuntime::worldFootprint(const PHLWINDOW &window) const {
