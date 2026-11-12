@@ -1,4 +1,6 @@
+#include "Check.hpp"
 #include "EdgeTransition.hpp"
+#include "LiquidMesh.hpp"
 
 #include <algorithm>
 #include <array>
@@ -11,20 +13,9 @@
 
 namespace {
 
-using liquid_glass::MaterialParams;
 using liquid_glass::Transition;
+using liquid_glass::TransitionParams;
 using liquid_glass::Vec2;
-
-int g_failures = 0;
-
-void report(bool ok, const char *expression, const char *file, int line) {
-    if (ok)
-        return;
-    ++g_failures;
-    std::fprintf(stderr, "%s:%d: check failed: %s\n", file, line, expression);
-}
-
-#define CHECK(expr) report(static_cast<bool>(expr), #expr, __FILE__, __LINE__)
 
 constexpr double kStrength = 0.65;
 
@@ -232,7 +223,7 @@ double centreT(const EdgeFrame &f) { return 0.5 * (f.bodyT0 + f.bodyT1); }
 
 void testOpenStartsHiddenAndSettlesExactly() {
     EdgeTransition tr;
-    tr.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
+    tr.begin(Transition::Open, kQuarter, TransitionParams{}, kStrength);
     CHECK(tr.active());
     // Hidden start: every capture corner is on the far side of the edge (n <= 0).
     for (double sx : {-1.0, 1.0})
@@ -257,7 +248,7 @@ void testOpenStartsHiddenAndSettlesExactly() {
 // larger. Once the spring is nearly settled, the window must fill the live capture along the normal, not the frame's.
 void testOpenFillsLiveCaptureAlongNormal() {
     EdgeTransition tr;
-    tr.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
+    tr.begin(Transition::Open, kQuarter, TransitionParams{}, kStrength);
     constexpr Vec2 kLive{kCapture.x, kCapture.y + 24.0}; // Bottom edge: the normal is vertical
     double         worst = 0.0;
     int            checked = 0;
@@ -277,7 +268,7 @@ void testOpenFillsLiveCaptureAlongNormal() {
 // The map never folds the image: every cell of a 33x33 grid keeps its positive orientation during the open.
 void testBeadMapDoesNotFold() {
     EdgeTransition tr;
-    tr.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
+    tr.begin(Transition::Open, kQuarter, TransitionParams{}, kStrength);
     constexpr int kSide = 33;
     for (int frame = 0; frame < 240 && tr.active(); ++frame) {
         tr.advance(kStep);
@@ -304,7 +295,7 @@ void testOpenEdgesPointTheRightWay() {
         {{Edge::Bottom, {0, 1}}, {Edge::Top, {0, -1}}, {Edge::Left, {-1, 0}}, {Edge::Right, {1, 0}}}};
     for (const auto &[edge, sign] : cases) {
         EdgeTransition tr;
-        tr.begin(Transition::Open, frameFor({24, 24, 1872, 1032}, edge, true), MaterialParams{}, kStrength);
+        tr.begin(Transition::Open, frameFor({24, 24, 1872, 1032}, edge, true), TransitionParams{}, kStrength);
         const Vec2 o = centreOf(tr);
         CHECK(o.x * sign.x + o.y * sign.y > 200.0); // starts hidden beyond that edge
     }
@@ -313,7 +304,7 @@ void testOpenEdgesPointTheRightWay() {
 // Meniscus during open: the neck attaches, snaps once, and recoils.
 void testOpenNeckAttachesSnapsOnceAndRecoils() {
     EdgeTransition tr;
-    tr.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
+    tr.begin(Transition::Open, kQuarter, TransitionParams{}, kStrength);
     int    snaps = 0;
     bool   tucked = false, sawZeroAfterSnap = false, secondLobe = false;
     double prevPeak = tr.meniscusPeak(), prevNear = nearSide(tr);
@@ -345,7 +336,7 @@ void testOpenNeckAttachesSnapsOnceAndRecoils() {
 
 void testMeniscusShapeBounds() {
     EdgeTransition tr;
-    tr.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
+    tr.begin(Transition::Open, kQuarter, TransitionParams{}, kStrength);
     for (int i = 0; i < 240 && tr.active(); ++i) {
         tr.advance(kStep);
         const double lo = tr.meniscusLow(), hi = tr.meniscusHigh();
@@ -360,8 +351,8 @@ void testMeniscusShapeBounds() {
 // Refresh-rate agreement.
 void testOpenAgreesAcrossRefreshRates() {
     EdgeTransition a, b;
-    a.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
-    b.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
+    a.begin(Transition::Open, kQuarter, TransitionParams{}, kStrength);
+    b.begin(Transition::Open, kQuarter, TransitionParams{}, kStrength);
     for (int k = 1; k <= 24; ++k) { // compare every 1/48 s for 0.5 s
         for (int i = 0; i < 5; ++i)
             a.advance(1.0 / 240.0); // 240 Hz-equivalent chunks (60 Hz = 4 of these)
@@ -375,7 +366,7 @@ void testOpenAgreesAcrossRefreshRates() {
 // Movement-field feed: summed travel over the open equals the centre's total inward displacement.
 void testOpenTravelSumsToCentreDisplacement() {
     EdgeTransition tr;
-    tr.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
+    tr.begin(Transition::Open, kQuarter, TransitionParams{}, kStrength);
     const Vec2   inward = liquid_glass::inwardNormal(kQuarter.edge);
     const double start = centreInward(tr);
     double       sum = 0.0;
@@ -393,7 +384,7 @@ constexpr int kDrainSubstep = 111;
 
 void testCloseFromRestDrainsIntoTheEdge() {
     EdgeTransition tr;
-    tr.begin(Transition::Close, kQuarter, MaterialParams{}, kStrength);
+    tr.begin(Transition::Close, kQuarter, TransitionParams{}, kStrength);
     CHECK(tr.active() && std::abs(centreOf(tr).x) < 1e-9 && std::abs(centreOf(tr).y) < 1e-9);
     double prev = centreInward(tr);
     for (int i = 0; i < 480 && tr.active(); ++i) {
@@ -411,7 +402,7 @@ void testCloseFromRestDrainsIntoTheEdge() {
 void testCloseKeepsMovingThroughTheShrink() {
     for (double momentum : {0.0, 0.5, 1.0}) {
         EdgeTransition tr;
-        tr.begin(Transition::Close, kQuarter, MaterialParams{.momentum = momentum}, kStrength, false);
+        tr.begin(Transition::Close, kQuarter, TransitionParams{.momentum = momentum}, kStrength, false);
         double previousTravel = 0.0;
         bool   continuous = true;
         for (int i = 0; i < 100; ++i) {
@@ -429,13 +420,13 @@ void testCloseKeepsMovingThroughTheShrink() {
 
 void testCloseContinuesAnInterruptedOpen() {
     EdgeTransition tr;
-    tr.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
+    tr.begin(Transition::Open, kQuarter, TransitionParams{}, kStrength);
     for (int i = 0; i < 30; ++i)
         tr.advance(kStep);
     const Vec2   before = centreOf(tr);
     const double peakBefore = tr.meniscusPeak();
     const auto   other = frameFor({24, 24, 900, 500}, liquid_glass::Edge::Left, true); // different edge: ignored
-    tr.begin(Transition::Close, other, MaterialParams{}, kStrength);
+    tr.begin(Transition::Close, other, TransitionParams{}, kStrength);
     CHECK(tr.frame().edge == liquid_glass::Edge::Bottom);
     CHECK(std::abs(centreOf(tr).x - before.x) < 1e-9 && std::abs(centreOf(tr).y - before.y) < 1e-9);
     CHECK(std::abs(tr.meniscusPeak() - peakBefore) < 1e-9); // Open->Close begin is continuous
@@ -448,7 +439,7 @@ void testCloseContinuesAnInterruptedOpen() {
 void testCloseFromRestHasNoLiquidBeforeDrain() {
     constexpr int  kDrainStep = 111;
     EdgeTransition tr;
-    tr.begin(Transition::Close, kQuarter, MaterialParams{}, kStrength);
+    tr.begin(Transition::Close, kQuarter, TransitionParams{}, kStrength);
     for (int i = 1; i < kDrainStep && tr.active(); ++i) {
         tr.advance(kStep);
         CHECK(tr.meniscusPeak() == 0.0);
@@ -458,8 +449,8 @@ void testCloseFromRestHasNoLiquidBeforeDrain() {
 // Close momentum changes the dive even when no opening was interrupted.
 void testCloseMomentumChangesDive() {
     EdgeTransition low, high;
-    low.begin(Transition::Close, kQuarter, MaterialParams{.momentum = 0.0}, kStrength, false);
-    high.begin(Transition::Close, kQuarter, MaterialParams{.momentum = 1.0}, kStrength, false);
+    low.begin(Transition::Close, kQuarter, TransitionParams{.momentum = 0.0}, kStrength, false);
+    high.begin(Transition::Close, kQuarter, TransitionParams{.momentum = 1.0}, kStrength, false);
     for (int i = 0; i < 90; ++i) {
         low.advance(kStep);
         high.advance(kStep);
@@ -473,7 +464,7 @@ void testCloseMomentumChangesDive() {
 // every step, and be the rest box once the open has settled.
 void testBeadBoxMatchesMap() {
     EdgeTransition tr;
-    tr.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
+    tr.begin(Transition::Open, kQuarter, TransitionParams{}, kStrength);
     double worst = 0.0;
     for (int i = 0; i < 960 && tr.active(); ++i) {
         tr.advance(kStep);
@@ -503,7 +494,7 @@ void testDisplacementGainGuard() {
     CHECK(idle.displacementGain(fresh, kCapture, {1.0, 1.0}) == 1.0);
 
     EdgeTransition tr;
-    tr.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
+    tr.begin(Transition::Open, kQuarter, TransitionParams{}, kStrength);
     CHECK(tr.displacementGain(fresh, kCapture, {1.0, 1.0}) == 1.0); // settled mesh: no gain reduction
 
     LiquidMesh moving;
@@ -550,7 +541,7 @@ double minRendererRatio(const EdgeTransition &tr, const LiquidMesh &mesh, double
 void testDisplacementGainKeepsTrianglesWhenCompensated() {
     LiquidMesh     mesh;
     EdgeTransition tr;
-    tr.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
+    tr.begin(Transition::Open, kQuarter, TransitionParams{}, kStrength);
     for (int i = 0; i < 60 && tr.active(); ++i)
         tr.advance(kStep); // mid-grow
     for (int i = 0; i < 12; ++i) {
@@ -568,7 +559,7 @@ void testDisplacementGainKeepsTrianglesWhenCompensated() {
 // Closing from rest returns the dive's final travel when it reaches Closed; nothing is returned afterwards.
 void testCloseReturnsFinalTravel() {
     EdgeTransition tr;
-    tr.begin(Transition::Close, kQuarter, MaterialParams{}, kStrength, false);
+    tr.begin(Transition::Close, kQuarter, TransitionParams{}, kStrength, false);
     const Vec2 inward = liquid_glass::inwardNormal(kQuarter.edge);
     bool       sawClosed = false;
     double     closingTravel = 0.0;
@@ -590,8 +581,8 @@ void testCloseReturnsFinalTravel() {
 // Close begun on the same substep as an open: the open's neck is still hidden, so there is no liquid until the drain.
 void testCloseAfterOpenBeginHasNoLiquid() {
     EdgeTransition tr;
-    tr.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
-    tr.begin(Transition::Close, kQuarter, MaterialParams{}, kStrength);
+    tr.begin(Transition::Open, kQuarter, TransitionParams{}, kStrength);
+    tr.begin(Transition::Close, kQuarter, TransitionParams{}, kStrength);
     CHECK(tr.meniscusPeak() == 0.0);
     for (int i = 1; i < kDrainSubstep && tr.active(); ++i) {
         tr.advance(kStep);
@@ -618,7 +609,7 @@ std::vector<double> lobeCentres(const EdgeTransition &tr, double c, double peak)
 // returns to exactly zero and the transition is closed.
 void testCloseSplashAfterDrain() {
     EdgeTransition tr;
-    tr.begin(Transition::Close, kQuarter, MaterialParams{}, kStrength);
+    tr.begin(Transition::Close, kQuarter, TransitionParams{}, kStrength);
     const double c = centreT(kQuarter);
     double       splashPeak = 0.0, prevPeak = 0.0, prevNear = nearSide(tr);
     int          firstSplash = -1, lastSplash = -1;
@@ -651,7 +642,7 @@ void testCloseSplashAfterDrain() {
 // closeSplash = false: no liquid at any time, and the transition is closed by the drain.
 void testCloseSplashOffLeavesNoLiquid() {
     EdgeTransition tr;
-    tr.begin(Transition::Close, kQuarter, MaterialParams{}, kStrength, false);
+    tr.begin(Transition::Close, kQuarter, TransitionParams{}, kStrength, false);
     int closedAt = -1;
     for (int i = 1; i <= 480 && tr.active(); ++i) {
         tr.advance(kStep);
@@ -666,11 +657,11 @@ void testCloseSplashOffLeavesNoLiquid() {
 // tolerance, decays away, and only then does the splash rise.
 void testCloseInterruptingOpenNeckDecaysThenSplashes() {
     EdgeTransition tr;
-    tr.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
+    tr.begin(Transition::Open, kQuarter, TransitionParams{}, kStrength);
     for (int i = 0; i < 240 && tr.active() && tr.meniscusPeak() < 5.0; ++i)
         tr.advance(kStep);
     CHECK(tr.meniscusPeak() >= 5.0);
-    tr.begin(Transition::Close, kQuarter, MaterialParams{}, kStrength);
+    tr.begin(Transition::Close, kQuarter, TransitionParams{}, kStrength);
     double prevPeak = tr.meniscusPeak(), prevNear = nearSide(tr);
     bool   sawQuiet = false, splashAfterQuiet = false;
     for (int i = 0; i < 960 && tr.active(); ++i) {
@@ -691,8 +682,8 @@ void testCloseInterruptingOpenNeckDecaysThenSplashes() {
 // The splash agrees between 60 Hz and 144 Hz frame clocks within 0.5 px, sampled every 1/12 s.
 void testCloseSplashAgreesAcrossRefreshRates() {
     EdgeTransition a, b;
-    a.begin(Transition::Close, kQuarter, MaterialParams{}, kStrength);
-    b.begin(Transition::Close, kQuarter, MaterialParams{}, kStrength);
+    a.begin(Transition::Close, kQuarter, TransitionParams{}, kStrength);
+    b.begin(Transition::Close, kQuarter, TransitionParams{}, kStrength);
     for (int k = 1; k <= 12; ++k) {
         for (int i = 0; i < 5; ++i)
             a.advance(1.0 / 60.0);
@@ -706,20 +697,20 @@ void testCloseSplashAgreesAcrossRefreshRates() {
 void testInvalidInputs() {
     constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
     EdgeTransition   tr;
-    tr.begin(Transition::Open, EdgeFrame{}, MaterialParams{}, kStrength);
+    tr.begin(Transition::Open, EdgeFrame{}, TransitionParams{}, kStrength);
     CHECK(!tr.active());
-    tr.begin(Transition::Open, kQuarter, MaterialParams{.elasticity = kNaN}, kStrength);
+    tr.begin(Transition::Open, kQuarter, TransitionParams{.elasticity = kNaN}, kStrength);
     CHECK(!tr.active());
-    tr.begin(Transition::Open, kQuarter, MaterialParams{}, 0.0);
+    tr.begin(Transition::Open, kQuarter, TransitionParams{}, 0.0);
     CHECK(!tr.active());
-    tr.begin(Transition::Open, kQuarter, MaterialParams{}, kStrength);
+    tr.begin(Transition::Open, kQuarter, TransitionParams{}, kStrength);
     tr.advance(kNaN);
     CHECK(!tr.active() && !tr.closed());
     CHECK(tr.map({0.0, 0.0}, kCapture).x == 0.0 && tr.map({0.0, 0.0}, kCapture).y == 0.0);
-    tr.begin(Transition::Close, kQuarter, MaterialParams{}, kStrength);
+    tr.begin(Transition::Close, kQuarter, TransitionParams{}, kStrength);
     tr.advance(0.3);
     CHECK(tr.closed());
-    tr.begin(Transition::Close, EdgeFrame{}, MaterialParams{}, kStrength);
+    tr.begin(Transition::Close, EdgeFrame{}, TransitionParams{}, kStrength);
     CHECK(!tr.active() && !tr.closed());
 }
 

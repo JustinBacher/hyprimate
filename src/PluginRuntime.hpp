@@ -48,20 +48,20 @@ class CPluginRuntime {
         std::optional<liquid_glass::Edge> openEdge; // edge the opening began from; close_side=origin drains here
     };
 
-    bool                         pluginEnabled() const;
-    bool                         movementEnabled() const;
-    bool                         movementCloth() const;
-    bool                         openEnabled() const;
-    bool                         closeEnabled() const;
-    bool                         openPaper() const;
-    bool                         closePaper() const;
-    bool                         openCloth() const;
-    bool                         closeCloth() const;
-    double                       movementStrength() const;
-    double                       effectiveViscosity() const;
-    liquid_glass::MotionMode     effectiveMode() const;
-    liquid_glass::MaterialParams effectiveMaterialParams() const;
-    liquid_glass::MaterialParams transitionParams(double elasticity, double momentum) const;
+    bool                           pluginEnabled() const;
+    bool                           movementEnabled() const;
+    bool                           movementCloth() const;
+    bool                           openEnabled() const;
+    bool                           closeEnabled() const;
+    bool                           openPaper() const;
+    bool                           closePaper() const;
+    bool                           openCloth() const;
+    bool                           closeCloth() const;
+    double                         movementStrength() const;
+    double                         effectiveViscosity() const;
+    liquid_glass::MotionMode       effectiveMode() const;
+    liquid_glass::MaterialParams   effectiveMaterialParams() const;
+    liquid_glass::TransitionParams transitionParams(double elasticity, double momentum) const;
     liquid_glass::PaperParams paperParams(double duration, double crumpliness, double shading, double variation) const;
     liquid_glass::ClothParams clothParams(double duration, double flutter, double shading, double variation) const;
     liquid_glass::ClothMovementParams clothMovementParams() const;

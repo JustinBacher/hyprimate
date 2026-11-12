@@ -1,3 +1,4 @@
+#include "Check.hpp"
 #include "PaperCrumple.hpp"
 
 #include <algorithm>
@@ -12,17 +13,6 @@ using liquid_glass::PaperFacets;
 using liquid_glass::PaperParams;
 using liquid_glass::Transition;
 using liquid_glass::Vec2;
-
-int g_failures = 0;
-
-void report(bool ok, const char *expression, const char *file, int line) {
-    if (ok)
-        return;
-    ++g_failures;
-    std::fprintf(stderr, "%s:%d: check failed: %s\n", file, line, expression);
-}
-
-#define CHECK(expr) report(static_cast<bool>(expr), #expr, __FILE__, __LINE__)
 
 constexpr Vec2 SIZE{1000.0, 700.0};
 

@@ -1,3 +1,4 @@
+#include "Check.hpp"
 #include "ClothFlutter.hpp"
 
 #include <algorithm>
@@ -9,14 +10,6 @@
 
 namespace {
 using namespace liquid_glass;
-int failures = 0;
-#define CHECK(expr)                                                                                                    \
-    do {                                                                                                               \
-        if (!(expr)) {                                                                                                 \
-            ++failures;                                                                                                \
-            std::fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #expr);                                            \
-        }                                                                                                              \
-    } while (false)
 constexpr Box WINDOW{100, 50, 1000, 700};
 constexpr Box SCREEN{-300, -200, 1920, 1200};
 constexpr int GRID = PAPER_CELLS + 1;
@@ -582,8 +575,8 @@ int main() {
         survivor.begin(Transition::Open, params(), 1, WINDOW, {});
     }
     survivor.reset();
-    if (failures) {
-        std::fprintf(stderr, "%d cloth checks failed\n", failures);
+    if (g_failures) {
+        std::fprintf(stderr, "%d cloth checks failed\n", g_failures);
         return 1;
     }
     std::puts("cloth flutter tests passed");

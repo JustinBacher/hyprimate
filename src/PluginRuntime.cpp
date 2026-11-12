@@ -24,7 +24,7 @@ namespace {
 
 constexpr const char *WOBBLE_MESSAGE = "[liquid-glass] Disable decoration:wobble:enabled before enabling liquid-glass";
 #include "config_constants.inc"
-constexpr double MAX_GAP_SECONDS = 0.25;
+using liquid_glass::kStallSeconds;
 constexpr double MAX_JUMP_FACTOR = 1.5;
 
 bool isUsableBox(const CBox &box) {
@@ -198,13 +198,11 @@ bool CPluginRuntime::openCloth() const { return m_openStyle->value() == "cloth";
 
 bool CPluginRuntime::closeCloth() const { return m_closeStyle->value() == "cloth"; }
 
-liquid_glass::MaterialParams CPluginRuntime::transitionParams(double elasticity, double momentum) const {
+liquid_glass::TransitionParams CPluginRuntime::transitionParams(double elasticity, double momentum) const {
     // Edge transitions use only elasticity and momentum; the movement field's viscosity and variation do not apply.
-    return liquid_glass::MaterialParams{
-        .viscosity = 0.0,
+    return liquid_glass::TransitionParams{
         .elasticity = clampUnit(elasticity),
         .momentum = clampUnit(momentum),
-        .variation = 0.0,
     };
 }
 
@@ -469,7 +467,7 @@ void CPluginRuntime::sampleWindow(STracked &entry, const PHLWINDOW &window) {
 
     if (!canDeform || !entry.wasEligible || !entry.baselined || !isUsableBox(entry.lastBox) || !isUsableBox(current) ||
         !isUsableBox(entry.lastCapture) || !isUsableBox(capture) || entry.monitor != window->m_monitor ||
-        sampleElapsed > MAX_GAP_SECONDS) {
+        sampleElapsed > kStallSeconds) {
         detachWindow(entry, window);
         baseline(entry, window);
         entry.wasEligible = canDeform && isUsableBox(capture);
@@ -661,7 +659,7 @@ void CPluginRuntime::advanceWindow(STracked &entry, const PHLWINDOW &window,
         return;
     }
 
-    if (elapsed > MAX_GAP_SECONDS) {
+    if (elapsed > kStallSeconds) {
         detachWindow(entry, window);
         baseline(entry, window);
         return;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Core.hpp"
 #include "EdgeTransition.hpp"
 #include "LiquidMesh.hpp"
 #include "SheetMotion.hpp"
@@ -15,11 +16,9 @@
 #include <optional>
 #include <vector>
 
-// Render mesh resolution: LIQUID_RENDER_CELLS quads per side, sampled from the lattice by sampleDisplacement.
-inline constexpr int LIQUID_RENDER_CELLS = 32;
 // Two triangles (six vertices) per cell.
 inline constexpr std::size_t LIQUID_RENDER_VERTEX_COUNT =
-    static_cast<std::size_t>(LIQUID_RENDER_CELLS) * LIQUID_RENDER_CELLS * 6;
+    static_cast<std::size_t>(liquid_glass::LIQUID_RENDER_CELLS) * liquid_glass::LIQUID_RENDER_CELLS * 6;
 // Meniscus strip resolution along the edge; two triangles (six vertices) per column.
 inline constexpr int         LIQUID_MENISCUS_COLUMNS = 96;
 inline constexpr std::size_t LIQUID_MENISCUS_VERTEX_COUNT = static_cast<std::size_t>(LIQUID_MENISCUS_COLUMNS) * 6;
@@ -89,7 +88,7 @@ class CLiquidGlassTransformer final : public Render::IWindowTransformer {
     liquid_glass::EdgeTransition       &transition() noexcept { return m_transition; }
     const liquid_glass::EdgeTransition &transition() const noexcept { return m_transition; }
     // `captureSize` is the decorated capture size the physics advances with; it also refreshes the cached gain.
-    void beginOpen(const liquid_glass::EdgeFrame &frame, const liquid_glass::MaterialParams &params, double strength,
+    void beginOpen(const liquid_glass::EdgeFrame &frame, const liquid_glass::TransitionParams &params, double strength,
                    liquid_glass::Vec2 captureSize);
     // The pose the transformer draws with.
     SLiquidPose renderPose() const;

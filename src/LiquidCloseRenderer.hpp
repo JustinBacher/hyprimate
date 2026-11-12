@@ -85,7 +85,7 @@ class CLiquidCloseRenderer {
     // carries the close's own elasticity/momentum; the movement mesh's params never drive the close edge transition.
     void stage(const PHLWINDOW &window, const SLiquidPose &pose, double strength,
                std::optional<liquid_glass::EdgeFrame> closeFrame, double drive, bool closeSplash,
-               const liquid_glass::MaterialParams &transition);
+               const liquid_glass::TransitionParams &transition);
 
     // Stage the sheet and parameters before detaching; begin when the fadeout is created.
     void stageSheet(const PHLWINDOW &window, const liquid_glass::SheetMotion &from,
@@ -127,7 +127,7 @@ class CLiquidCloseRenderer {
         double                                 drive = 0.0;
         std::optional<liquid_glass::EdgeFrame> closeFrame;
         bool                                   closeSplash = true;
-        liquid_glass::MaterialParams           closeParams{};
+        liquid_glass::TransitionParams         closeParams{};
         bool                                   isSheet = false;
         liquid_glass::SheetMotion              sheet;
         liquid_glass::PaperParams              paperParams{};

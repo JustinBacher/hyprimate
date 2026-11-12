@@ -14,9 +14,7 @@ constexpr double kTieTolerance = 1.0;  // px
 constexpr double kContactSlack = 2.0;  // px a neighbour may overlap a body side and still touch it
 constexpr double kContactReach = 64.0; // px a facing gap may be and still count as contact
 
-constexpr double kSubstepSeconds = 1.0 / 240.0;
 constexpr double kAccumulatorTolerance = 1e-9;
-constexpr double kGapSeconds = 0.25;
 constexpr double kReferenceStrength = 0.65;
 // Bead.
 constexpr double kRadiusPerSide = 0.14, kRadiusMin = 20.0, kRadiusMax = 80.0;
@@ -56,12 +54,7 @@ constexpr double kQuietSpread = 1e-4,
 // Renderer guard: keep this much of each triangle's map-only area.
 constexpr double kMinAreaFraction = 0.2;
 constexpr int    kGainHalvings = 8;
-constexpr int    kGridSide = 33; // vertices per side (32 x 32 cells)
-
-bool usable(const Box &b) {
-    return std::isfinite(b.x) && std::isfinite(b.y) && std::isfinite(b.w) && std::isfinite(b.h) && b.w > 0.0 &&
-           b.h > 0.0;
-}
+constexpr int    kGridSide = LIQUID_RENDER_CELLS + 1; // vertices per side (32 x 32 cells)
 
 bool runsHorizontally(Edge e) { return e == Edge::Top || e == Edge::Bottom; }
 
@@ -107,11 +100,6 @@ double contactLength(const Box &body, Edge side, const Box &n) {
                                   : overlapLength(body.y, body.y + body.h, n.y, n.y + n.h);
 }
 
-double smooth(double edge0, double edge1, double x) {
-    const double t = std::clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
-    return t * t * (3.0 - 2.0 * t);
-}
-
 double lerp(double a, double b, double t) { return a + (b - a) * t; }
 
 double easeInOutCubic(double t) {
@@ -124,7 +112,7 @@ double splashImpulse(double x) {
     if (x <= 0.0 || x >= 1.0)
         return 0.0;
     const double a = x / kSplashPeakX;
-    return a * std::exp(1.0 - a) * (1.0 - smooth(0.7, 1.0, x));
+    return a * std::exp(1.0 - a) * (1.0 - smoothstep(0.7, 1.0, x));
 }
 
 // Semi-implicit Euler toward `target`. Stable for omega * dt < 2; the largest omega used (recoil, ~40 rad/s) gives
@@ -232,7 +220,7 @@ double edgeTangent(const EdgeFrame &f, Vec2 p) noexcept { return runsHorizontall
 std::optional<EdgeFrame> resolveEdgeFrame(const Box &body, const Box &capture, const Box &screen,
                                           std::span<const Box> neighbours, Edge fallback,
                                           bool preferFallback) noexcept {
-    if (!usable(body) || !usable(capture) || !usable(screen))
+    if (!isUsable(body) || !isUsable(capture) || !isUsable(screen))
         return std::nullopt;
 
     constexpr std::array<Edge, 4> kOrder{Edge::Bottom, Edge::Right, Edge::Left, Edge::Top};
@@ -297,7 +285,7 @@ std::optional<EdgeFrame> resolveEdgeFrame(const Box &body, const Box &capture, c
     // Contact: the body sides touching neighbours point the window at the opposite screen edges.
     std::array<double, 4> contact{};
     for (const Box &n : neighbours) {
-        if (!usable(n))
+        if (!isUsable(n))
             continue;
         for (Edge side : kOrder)
             contact[slot(side)] += contactLength(body, side, n);
@@ -349,14 +337,14 @@ std::optional<EdgeFrame> resolveEdgeFrame(const Box &body, const Box &capture, c
     return f;
 }
 
-void EdgeTransition::begin(Transition kind, const EdgeFrame &frame, const MaterialParams &params, double strength,
+void EdgeTransition::begin(Transition kind, const EdgeFrame &frame, const TransitionParams &params, double strength,
                            bool closeSplash) noexcept {
     const bool           continuing = kind == Transition::Close && m_phase == Phase::Opening;
     const EdgeTransition previous = *this;
     reset();
     const EdgeFrame &chosen = continuing ? previous.m_frame : frame;
     if (!validFrame(chosen) || !std::isfinite(params.elasticity) || !std::isfinite(params.momentum) ||
-        !std::isfinite(params.viscosity) || !std::isfinite(strength) || strength <= 0.0)
+        !std::isfinite(strength) || strength <= 0.0)
         return;
 
     m_frame = chosen;
@@ -545,7 +533,7 @@ double EdgeTransition::farSide() const noexcept { return m_nc + eNormal(); }
 bool EdgeTransition::advance(double elapsedSeconds) noexcept {
     if (!active())
         return false;
-    if (!std::isfinite(elapsedSeconds) || elapsedSeconds < 0.0 || elapsedSeconds > kGapSeconds) {
+    if (!std::isfinite(elapsedSeconds) || elapsedSeconds < 0.0 || elapsedSeconds > kStallSeconds) {
         abort();
         return false;
     }
@@ -630,11 +618,11 @@ EdgeTransition::Lobe EdgeTransition::liveLobe() const noexcept {
     if (n < 0.0) {
         // Crossing: fillets hug the bead where it passes through the edge. They ramp in as the bead's far side breaks
         // the surface.
-        return {m_tuck * smooth(0.0, 2.0 * m_tuck, farSide()), m_radius, m_crossSkirt};
+        return {m_tuck * smoothstep(0.0, 2.0 * m_tuck, farSide()), m_radius, m_crossSkirt};
     }
     if (n <= m_pinch) {
         // Attached: the tip stays tucked under the near side while the contact patch necks down.
-        const double q = smooth(0.0, m_pinch, n);
+        const double q = smoothstep(0.0, m_pinch, n);
         return {n + m_tuck, m_radius * (1.0 - q), lerp(m_crossSkirt, m_neckSkirt, q)};
     }
     return {};

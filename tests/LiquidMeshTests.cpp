@@ -2,6 +2,7 @@
 // Checks are explicit (not assert), so they stay active in NDEBUG/RelWithDebInfo builds.
 
 #include "../src/LiquidMesh.hpp"
+#include "Check.hpp"
 
 #include <algorithm>
 #include <array>
@@ -17,17 +18,6 @@ using liquid_glass::LiquidMesh;
 using liquid_glass::MaterialParams;
 using liquid_glass::MotionMode;
 using liquid_glass::Vec2;
-
-int g_failures = 0;
-
-void report(bool ok, const char *expression, const char *file, int line) {
-    if (ok)
-        return;
-    ++g_failures;
-    std::fprintf(stderr, "%s:%d: check failed: %s\n", file, line, expression);
-}
-
-#define CHECK(expr) report(static_cast<bool>(expr), #expr, __FILE__, __LINE__)
 
 constexpr Vec2                      kWindow{600.0, 400.0};
 constexpr double                    kStrength = 0.65;

@@ -18,6 +18,7 @@
 
 namespace {
 
+using liquid_glass::kStallSeconds;
 using liquid_glass::Transition;
 using liquid_glass::Vec2;
 
@@ -34,7 +35,6 @@ constexpr const char *RENDER_SIGNATURE =
 // findFunctionsByName substring-matches MANGLED symbol names; the exact demangled signature then selects one.
 constexpr const char *CREATE_NAME = "CWindowFadeout6create";
 constexpr const char *RENDER_NAME = "renderFadeouts";
-constexpr double      MAX_GAP_SECONDS = 0.25;
 constexpr double      PENDING_TIMEOUT_SECONDS = 1.0;
 // Logical padding around the deformed extents so the sampled mesh never clips at the snapshot edge.
 constexpr double EXTENTS_PADDING = 16.0;
@@ -210,7 +210,7 @@ void CLiquidCloseRenderer::clear() {
 
 void CLiquidCloseRenderer::stage(const PHLWINDOW &window, const SLiquidPose &pose, double strength,
                                  std::optional<liquid_glass::EdgeFrame> closeFrame, double drive, bool closeSplash,
-                                 const liquid_glass::MaterialParams &transition) {
+                                 const liquid_glass::TransitionParams &transition) {
     if (!std::isfinite(strength) || strength <= 0.0)
         return;
 
@@ -435,7 +435,7 @@ bool CLiquidCloseRenderer::tick(clock::time_point now, const PHLMONITOR &renderi
             if (monitor != rendering)
                 return false;
             const double elapsed =
-                std::clamp(std::chrono::duration<double>(now - record->lastAdvance).count(), 0.0, MAX_GAP_SECONDS);
+                std::clamp(std::chrono::duration<double>(now - record->lastAdvance).count(), 0.0, kStallSeconds);
             if (record->isSheet) {
                 // The sheet mesh is refilled when drawn, after any shape change this frame.
                 record->sheet.advance(elapsed);
@@ -459,7 +459,7 @@ bool CLiquidCloseRenderer::tick(clock::time_point now, const PHLMONITOR &renderi
             return false;
 
         const double elapsed =
-            std::clamp(std::chrono::duration<double>(now - record->lastAdvance).count(), 0.0, MAX_GAP_SECONDS);
+            std::clamp(std::chrono::duration<double>(now - record->lastAdvance).count(), 0.0, kStallSeconds);
         record->mesh.advance(elapsed, record->captureLogical);
         record->lastAdvance = now;
         fillVertices(*record);

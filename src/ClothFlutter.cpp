@@ -57,11 +57,7 @@ Vec3        mul(Vec3 a, double b) noexcept { return {a.x * b, a.y * b, a.z * b};
 Vec3        sub(Vec3 a, Vec3 b) noexcept { return add(a, mul(b, -1)); }
 Vec3        lerp(Vec3 a, Vec3 b, double t) noexcept { return add(mul(a, 1 - t), mul(b, t)); }
 std::size_t index(int i, int j) noexcept { return std::size_t(j) * GRID + i; }
-double      smooth(double a, double b, double x) noexcept {
-    const double t = std::clamp((x - a) / (b - a), 0.0, 1.0);
-    return t * t * (3 - 2 * t);
-}
-double smoothDerivative(double a, double b, double x) noexcept {
+double      smoothDerivative(double a, double b, double x) noexcept {
     const double t = std::clamp((x - a) / (b - a), 0.0, 1.0);
     return 6 * t * (1 - t) / (b - a);
 }
@@ -416,7 +412,7 @@ void simulateMovement(Run &run, double phase) {
             if (speed > 1e-5 || std::abs(next.w - box.w) + std::abs(next.h - box.h) > 1e-5)
                 lastMotion = nextTime;
             const double quiet = nextTime - lastMotion;
-            const double settle = smooth(0.05, 0.5, quiet);
+            const double settle = smoothstep(0.05, 0.5, quiet);
             const double inherited = std::exp(-6 * nextTime);
             const double shortSide = std::min(next.w, next.h), L = std::sqrt(next.w * next.h);
             motion->SetLinearDamping(float(4 + 8 * settle));
@@ -575,7 +571,7 @@ void simulate(Run &run, const SimInput &in) {
     for (int step = 1; step < run.frames && waitPublication(); ++step) {
         const double time = (step - 1) * DT;
         if (run.kind == Transition::Open)
-            motion->SetLinearDamping(float(1.5 + 8 * smooth(0.65, 0.95, time / run.length)));
+            motion->SetLinearDamping(float(1.5 + 8 * smoothstep(0.65, 0.95, time / run.length)));
         for (int j = 0; j < GRID; ++j)
             for (int i = 0; i < GRID; ++i) {
                 const auto k = index(i, j);
@@ -663,9 +659,8 @@ void ClothFlutter::beginMovement(const ClothMovementParams &params, std::uint64_
         std::copy(value.begin(), value.end(), playback->b.values.begin() + k * 6);
     }
     std::uint64_t fixed = BASE_SEED, random = seed;
-    const double  phase = 2 * std::numbers::pi *
-                          (double(splitmix64(fixed) >> 11) * 0x1.0p-53 * (1 - run->movement.variation) +
-                           double(splitmix64(random) >> 11) * 0x1.0p-53 * run->movement.variation);
+    const double phase = 2 * std::numbers::pi *
+                         (unitDraw(fixed) * (1 - run->movement.variation) + unitDraw(random) * run->movement.variation);
     try {
         run->worker = std::thread([run, phase] {
             try {
@@ -698,7 +693,7 @@ void ClothFlutter::beginMovement(const ClothMovementParams &params, std::uint64_
 void ClothFlutter::updateMovement(const Box &capture, double elapsed) noexcept {
     if (!moving() || !m_movement || !m_movement->producer)
         return;
-    if (!validBox(capture) || !std::isfinite(elapsed) || elapsed < 0 || elapsed > 0.25) {
+    if (!validBox(capture) || !std::isfinite(elapsed) || elapsed < 0 || elapsed > kStallSeconds) {
         reset();
         return;
     }
@@ -782,8 +777,8 @@ void ClothFlutter::begin(Transition kind, const ClothParams &params, std::uint64
     }
     std::uint64_t base = BASE_SEED, random = seed;
     const auto    draw = [&] {
-        const double b = double(splitmix64(base) >> 11) * 0x1.0p-53;
-        const double r = double(splitmix64(random) >> 11) * 0x1.0p-53;
+        const double b = unitDraw(base);
+        const double r = unitDraw(random);
         return b + p.variation * (r - b);
     };
     SimInput input;
@@ -976,14 +971,14 @@ double ClothFlutter::opacity() const noexcept {
         return 0;
     if (m_fallback)
         return m_phase != Phase::Closing
-                   ? m_fallback->alpha + (1 - m_fallback->alpha) * smooth(0, FALLBACK_LENGTH, m_fallbackTime)
-                   : m_fallback->alpha * (1 - smooth(0, FALLBACK_LENGTH, m_fallbackTime));
+                   ? m_fallback->alpha + (1 - m_fallback->alpha) * smoothstep(0, FALLBACK_LENGTH, m_fallbackTime)
+                   : m_fallback->alpha * (1 - smoothstep(0, FALLBACK_LENGTH, m_fallbackTime));
     if (m_phase == Phase::Opening)
-        return smooth(0, 0.08, m_t / m_run->length);
+        return smoothstep(0, 0.08, m_t / m_run->length);
     if (m_phase == Phase::Movement)
-        return m_initialOpacity + (1 - m_initialOpacity) * smooth(0, 0.08, m_t);
+        return m_initialOpacity + (1 - m_initialOpacity) * smoothstep(0, 0.08, m_t);
     const double outsideTime = m_run->outsideFrame.load(std::memory_order_acquire) * DT;
-    return m_initialOpacity * (1 - smooth(outsideTime, std::max(outsideTime + DT, m_run->length), m_t));
+    return m_initialOpacity * (1 - smoothstep(outsideTime, std::max(outsideTime + DT, m_run->length), m_t));
 }
 void ClothFlutter::sampleVertices(SheetGrid &p, SheetGrid &v) const noexcept {
     if (!active() || !m_run) {
@@ -1038,7 +1033,7 @@ void ClothFlutter::sampleVertices(SheetGrid &p, SheetGrid &v) const noexcept {
     }
     m_run->sample(m_t, p, v);
     if (m_phase == Phase::Opening) {
-        const double s = smooth(SETTLE_FROM, 1, m_t / m_run->length);
+        const double s = smoothstep(SETTLE_FROM, 1, m_t / m_run->length);
         const double d = smoothDerivative(SETTLE_FROM, 1, m_t / m_run->length) / m_run->length;
         const auto   rest = restGrid();
         for (std::size_t k = 0; k < p.size(); ++k) {

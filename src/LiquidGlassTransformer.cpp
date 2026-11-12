@@ -20,14 +20,14 @@ using liquid_glass::Vec2;
 
 namespace {
 constexpr double EXTENTS_PADDING = 4.0;
-constexpr int    SAMPLES = LIQUID_RENDER_CELLS + 1;
+constexpr int    SAMPLES = liquid_glass::LIQUID_RENDER_CELLS + 1;
 // Edge liquid extends this far behind the screen edge so it meets the window without a gap.
 constexpr double BEHIND_EDGE = 2.0;
 // Half-plane extent in logical px; far larger than any monitor.
 constexpr double HUGE_SPAN = 1.0e6;
 
 // Lattice coordinate of render sample i along one axis, in [0, 1].
-constexpr double sampleCoordinate(int i) noexcept { return static_cast<double>(i) / LIQUID_RENDER_CELLS; }
+constexpr double sampleCoordinate(int i) noexcept { return static_cast<double>(i) / liquid_glass::LIQUID_RENDER_CELLS; }
 
 // Window sample offset from the box centre, in logical px. A box-driven open leaves only the movement field: the
 // real window box already is the pop-out. Otherwise (a retained closing snapshot) the pop-out maps the rest box.
@@ -185,8 +185,8 @@ void fillLiquidRenderMesh(const SLiquidPose &pose, const CBox &sourceDevice, dou
 
     constexpr int ORDER[6][2] = {{0, 0}, {0, 1}, {1, 0}, {1, 0}, {0, 1}, {1, 1}};
     std::size_t   k = 0;
-    for (int cj = 0; cj < LIQUID_RENDER_CELLS; ++cj) {
-        for (int ci = 0; ci < LIQUID_RENDER_CELLS; ++ci) {
+    for (int cj = 0; cj < liquid_glass::LIQUID_RENDER_CELLS; ++cj) {
+        for (int ci = 0; ci < liquid_glass::LIQUID_RENDER_CELLS; ++ci) {
             for (const auto &corner : ORDER) {
                 SMeshRenderVertex &vertex = out[k++];
                 const Sample      &sample = samples[(cj + corner[1]) * SAMPLES + ci + corner[0]];
@@ -244,8 +244,9 @@ CLiquidGlassTransformer::CLiquidGlassTransformer(PHLWINDOWREF window, liquid_gla
       m_clothMovementParams(clothMovement), m_paperVertices(PAPER_VERTEX_COUNT),
       m_paperShadeVertices(PAPER_VERTEX_COUNT) {}
 
-void CLiquidGlassTransformer::beginOpen(const liquid_glass::EdgeFrame      &frame,
-                                        const liquid_glass::MaterialParams &params, double strength, Vec2 captureSize) {
+void CLiquidGlassTransformer::beginOpen(const liquid_glass::EdgeFrame        &frame,
+                                        const liquid_glass::TransitionParams &params, double strength,
+                                        Vec2 captureSize) {
     m_transition.begin(liquid_glass::Transition::Open, frame, params, strength);
     m_boxDriven = m_transition.active();
     m_warped = false;

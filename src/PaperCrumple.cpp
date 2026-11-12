@@ -11,7 +11,6 @@ namespace {
 
 constexpr double MIN_DURATION = 0.1;
 constexpr double MAX_DURATION = 3.0;
-constexpr double MAX_STEP = 0.25; // seconds; larger or invalid steps abort the animation
 // Longest step actually played. The compositor stalls for a frame or two when a window maps or unmaps (about 0.2 s
 // when a window closes, with or without this plugin); played in full, that skipped a third of a 0.5 s crumple in
 // one frame. Capped, a stall delays the crumple instead of jumping it.
@@ -23,14 +22,6 @@ constexpr int           GRID = PAPER_CELLS + 1;
 constexpr double LOOSEST_END = 0.7;
 
 double clampUnit(double v) noexcept { return std::clamp(v, 0.0, 1.0); }
-
-double smoothstep(double a, double b, double x) noexcept {
-    const double t = std::clamp((x - a) / (b - a), 0.0, 1.0);
-    return t * t * (3.0 - 2.0 * t);
-}
-
-// Uniform in [0, 1) from a splitmix64 stream.
-double unit(std::uint64_t &state) noexcept { return static_cast<double>(splitmix64(state) >> 11) * 0x1.0p-53; }
 
 // Validates and clamps params in place. False when any input is nonfinite or the duration is not positive.
 bool sanitize(PaperParams &p) noexcept {
@@ -79,7 +70,7 @@ void PaperCrumple::begin(Transition kind, const PaperParams &params, std::uint64
 }
 
 bool PaperCrumple::advance(double elapsedSeconds) noexcept {
-    if (!std::isfinite(elapsedSeconds) || elapsedSeconds < 0.0 || elapsedSeconds > MAX_STEP) {
+    if (!std::isfinite(elapsedSeconds) || elapsedSeconds < 0.0 || elapsedSeconds > kStallSeconds) {
         if (m_phase == Phase::Opening)
             reset();
         else if (m_phase == Phase::Closing) {
@@ -129,8 +120,8 @@ void PaperCrumple::rollShape(std::uint64_t seed) noexcept {
     std::uint64_t random = seed;
     const double  variation = m_params.variation;
     auto          draw = [&]() {
-        const double b = unit(base);
-        const double r = unit(random);
+        const double b = unitDraw(base);
+        const double r = unitDraw(random);
         return b + variation * (r - b);
     };
     m_takePick = std::min(draw(), 0x1.fffffffffffffp-1);

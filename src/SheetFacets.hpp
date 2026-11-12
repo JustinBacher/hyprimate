@@ -1,6 +1,6 @@
 #pragma once
 
-#include "LiquidMesh.hpp"
+#include "Core.hpp"
 
 #include <array>
 #include <cstddef>
@@ -20,10 +20,6 @@ struct PaperFacet {
     std::array<double, 3> shade{}; // per corner, [-1,1]; <0 darker, >0 lighter, 0 unlit
 };
 using PaperFacets = std::array<PaperFacet, PAPER_TRIANGLES>;
-
-struct Vec3 {
-    double x = 0, y = 0, z = 0;
-};
 
 // Sheet vertex positions, index j * (PAPER_CELLS + 1) + i for column i and row j (row 0 is the window's top edge).
 // Logical pixels relative to the rest capture centre: x right, y down, z towards the viewer.

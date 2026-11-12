@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Core.hpp"
 #include "LiquidMesh.hpp"
 
 #include <array>
@@ -9,12 +10,10 @@
 
 namespace liquid_glass {
 
-enum class Transition { Open, Close };
-enum class Edge { Left, Right, Top, Bottom };
-
-// Logical pixels, y down.
-struct Box {
-    double x = 0.0, y = 0.0, w = 0.0, h = 0.0;
+// Edge-transition tuning. Finite values are clamped to [0, 1].
+struct TransitionParams {
+    double elasticity = 0.5; // [0,1] spring stiffness; higher = snappier
+    double momentum = 0.5;   // [0,1] inertia / overshoot; 0 = none
 };
 
 // Rest geometry in the edge frame. n = distance from the screen edge into the screen; t = tangential coordinate.
@@ -61,9 +60,9 @@ class EdgeTransition {
     // from the current bead on the Open's edge and ignores `frame`; visible open liquid snaps into a recoil. For a
     // Close: `closeSplash` plays a single splash bump at the dive point once the bead is
     // behind the edge; false ends the close at the drain. Ignored for an Open.
-    void begin(Transition kind, const EdgeFrame &frame, const MaterialParams &params, double strength,
+    void begin(Transition kind, const EdgeFrame &frame, const TransitionParams &params, double strength,
                bool closeSplash = true) noexcept;
-    // Nonfinite, negative or > 0.25 s steps abort: Open returns to idle, Close to closed.
+    // Nonfinite, negative or > kStallSeconds steps abort: Open returns to idle, Close to closed.
     bool             advance(double elapsedSeconds) noexcept;
     void             reset() noexcept;
     bool             active() const noexcept;

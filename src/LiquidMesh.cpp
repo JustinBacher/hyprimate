@@ -16,12 +16,10 @@ using Scalars = std::array<double, 81>;
 constexpr unsigned kSide = 9;  // nodes per lattice side
 constexpr unsigned kCells = 8; // cells per lattice side
 
-constexpr double kSubstepSeconds = 1.0 / 240.0;
 // Tolerates floating-point drift so frame cadences that land exactly on a substep boundary
 // (for example 144 Hz frames summed to 0.5 s) take that substep rather than deferring it.
 constexpr double   kAccumulatorTolerance = kSubstepSeconds * 1e-9;
 constexpr double   kMaxFrameSeconds = 0.05;
-constexpr double   kGapResetSeconds = 0.25;
 constexpr unsigned kMaxSubstepsPerAdvance = 12;
 
 // Wiggle mode (unchanged).
@@ -241,10 +239,7 @@ void integrateWiggleSubstep(Field &d, Field &v, Field &accelerations) noexcept {
 
 // Head grip for a lattice coordinate q in [-1, 1] (q = 1 is the leading face): 0 on the body,
 // rising smoothly to 1 at the leading face. Smoothstep keeps forces continuous across the ramp.
-double headGrip(double q) noexcept {
-    const double t = std::clamp((q - kLiquidGripStartQ) / (1.0 - kLiquidGripStartQ), 0.0, 1.0);
-    return t * t * (3.0 - 2.0 * t);
-}
+double headGrip(double q) noexcept { return smoothstep(kLiquidGripStartQ, 1.0, q); }
 
 // Derivative along one lattice line: central inside, one-sided at the two free edges.
 // `sample(k)` returns the scalar at position k along the line; `h` is the lattice spacing.
@@ -285,8 +280,8 @@ LiquidMesh::LiquidMesh(MotionMode mode, MaterialParams params, std::uint64_t see
 }
 
 double LiquidMesh::drawUnit() noexcept {
-    // Top 53 bits give a uniform double in [0, 1); map it to [-1, 1).
-    return static_cast<double>(splitmix64(m_rng) >> 11) * 0x1.0p-52 - 1.0;
+    // Uniform in [-1, 1) from the top 53 bits of m_rng.
+    return 2.0 * unitDraw(m_rng) - 1.0;
 }
 
 void LiquidMesh::rollCharacter() noexcept {
@@ -491,7 +486,7 @@ void LiquidMesh::integrateLiquidSubstep(Vec2 size) noexcept {
 }
 
 bool LiquidMesh::advance(double elapsedSeconds, Vec2 size) noexcept {
-    if (!isValidSize(size) || !std::isfinite(elapsedSeconds) || elapsedSeconds > kGapResetSeconds ||
+    if (!isValidSize(size) || !std::isfinite(elapsedSeconds) || elapsedSeconds > kStallSeconds ||
         (m_mode == MotionMode::Liquid && !hasFiniteParams(m_params))) {
         reset();
         return false;

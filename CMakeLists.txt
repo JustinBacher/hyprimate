@@ -68,17 +68,12 @@ add_custom_target(update-config-docs
     VERBATIM
 )
 
-add_library(liquid-glass SHARED
-    src/main.cpp
-    src/PluginRuntime.cpp
+# Hyprland-independent core: liquid mesh, edge transition, paper and cloth models. The plugin and the tests link it.
+add_library(liquid-glass-core STATIC
     src/LiquidMesh.cpp
     src/EdgeTransition.cpp
-    src/SolidFill.cpp
-    src/LiquidGlassTransformer.cpp
-    src/LiquidCloseRenderer.cpp
     src/PaperCrumple.cpp
     src/PaperTakes.cpp
-    src/PaperRenderer.cpp
     src/SheetFacets.cpp
     src/SheetMotion.cpp
     src/ClothFlutter.cpp
@@ -86,10 +81,22 @@ add_library(liquid-glass SHARED
 # PaperTakes.cpp #embeds the baked crumples; rebuild it whenever they are re-packed.
 set_source_files_properties(src/PaperTakes.cpp PROPERTIES OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/paper_takes.bin)
 set_source_files_properties(src/ClothFlutter.cpp PROPERTIES COMPILE_OPTIONS "-fvisibility=hidden;-fvisibility-inlines-hidden")
+target_include_directories(liquid-glass-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(liquid-glass-core PRIVATE Jolt)
+target_compile_options(liquid-glass-core PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>:-fno-gnu-unique> -Wall -Wextra -Wpedantic)
+
+add_library(liquid-glass SHARED
+    src/main.cpp
+    src/PluginRuntime.cpp
+    src/SolidFill.cpp
+    src/LiquidGlassTransformer.cpp
+    src/LiquidCloseRenderer.cpp
+    src/PaperRenderer.cpp
+)
 set_target_properties(liquid-glass PROPERTIES PREFIX "" INTERPROCEDURAL_OPTIMIZATION FALSE)
 add_dependencies(liquid-glass generate-config)
 target_include_directories(liquid-glass PRIVATE ${CONFIG_GENERATED_DIR})
-target_link_libraries(liquid-glass PRIVATE PkgConfig::HYPRLAND Jolt)
+target_link_libraries(liquid-glass PRIVATE PkgConfig::HYPRLAND Jolt liquid-glass-core)
 # Keep Jolt's symbols out of the plugin's dynamic symbol table, so they cannot bind to another copy in the process.
 target_link_options(liquid-glass PRIVATE -Wl,--exclude-libs,ALL)
 # GNU-unique inline statics otherwise make dlclose retain stale plugin code.
@@ -121,25 +128,23 @@ include(CTest)
 if(BUILD_TESTING)
     add_test(NAME config-docs-check COMMAND ${Python3_EXECUTABLE} ${CONFIG_GENERATOR} --schema ${CONFIG_SCHEMA} --readme ${CMAKE_CURRENT_SOURCE_DIR}/README.md --lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/nested/hyprland.lua --check)
     add_test(NAME config-generator-tests COMMAND ${Python3_EXECUTABLE} -m unittest discover -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p test_config_generator.py)
-    add_executable(liquid-mesh-tests tests/LiquidMeshTests.cpp src/LiquidMesh.cpp)
-    target_include_directories(liquid-mesh-tests PRIVATE src)
+    add_executable(liquid-mesh-tests tests/LiquidMeshTests.cpp)
+    target_link_libraries(liquid-mesh-tests PRIVATE liquid-glass-core)
     target_compile_options(liquid-mesh-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME liquid-mesh-tests COMMAND liquid-mesh-tests)
 
-    add_executable(edge-transition-tests tests/EdgeTransitionTests.cpp src/EdgeTransition.cpp src/LiquidMesh.cpp)
-    target_include_directories(edge-transition-tests PRIVATE src)
+    add_executable(edge-transition-tests tests/EdgeTransitionTests.cpp)
+    target_link_libraries(edge-transition-tests PRIVATE liquid-glass-core)
     target_compile_options(edge-transition-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME edge-transition-tests COMMAND edge-transition-tests)
 
-    add_executable(paper-crumple-tests tests/PaperCrumpleTests.cpp src/PaperCrumple.cpp src/PaperTakes.cpp
-                   src/SheetFacets.cpp)
-    target_include_directories(paper-crumple-tests PRIVATE src)
+    add_executable(paper-crumple-tests tests/PaperCrumpleTests.cpp)
+    target_link_libraries(paper-crumple-tests PRIVATE liquid-glass-core)
     target_compile_options(paper-crumple-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME paper-crumple-tests COMMAND paper-crumple-tests)
 
-    add_executable(cloth-flutter-tests tests/ClothFlutterTests.cpp src/ClothFlutter.cpp src/SheetFacets.cpp)
-    target_include_directories(cloth-flutter-tests PRIVATE src)
-    target_link_libraries(cloth-flutter-tests PRIVATE Jolt)
+    add_executable(cloth-flutter-tests tests/ClothFlutterTests.cpp)
+    target_link_libraries(cloth-flutter-tests PRIVATE liquid-glass-core Jolt)
     target_compile_options(cloth-flutter-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME cloth-flutter-tests COMMAND cloth-flutter-tests)
 endif()
