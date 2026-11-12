@@ -1,0 +1,17 @@
+# Generated build trees
+/build/
+**/build/
+/cmake-build-*/
+
+# Local project-manager artifacts and worktrees
+/.project-manager/
+
+# Captured demo and test videos
+*.mp4
+*.mkv
+*.webm
+*.mov
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
