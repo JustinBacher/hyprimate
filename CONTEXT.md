@@ -19,3 +19,5 @@ _Avoid_: mode, material (as separate per-direction choices).
 **Stall**: a gap between compositor frames longer than an animation can play through faithfully. Each animation decides its own response to a stall (abort, clamp, or restart), but what counts as a stall is defined once.
 
 **Substep**: the fixed simulation time step shared by all liquid physics, so movement and transitions advance in lockstep.
+
+Cloth fold lighting has independent shading and shine controls; shine defaults to zero. Paper lighting is unchanged.

@@ -139,6 +139,11 @@ bool CLiquidGlassTransformer::clothMoving() const noexcept {
     return cloth && cloth->cloth.moving();
 }
 
+bool CLiquidGlassTransformer::clothRegrabs(liquid_glass::Vec2 grabUV) const noexcept {
+    const auto *cloth = std::get_if<SClothStyle>(&m_style);
+    return cloth && cloth->cloth.regrabs(grabUV);
+}
+
 bool CLiquidGlassTransformer::clothOpening() const noexcept {
     const auto *cloth = std::get_if<SClothStyle>(&m_style);
     return cloth && cloth->cloth.active() && !cloth->cloth.moving();

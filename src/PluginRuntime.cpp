@@ -52,8 +52,11 @@ liquid_glass::PaperParams toPaper(const cfg::STransitionPaper &paper) {
 }
 
 liquid_glass::ClothParams toCloth(const cfg::STransitionCloth &cloth) {
-    return {
-        .duration = cloth.duration, .flutter = cloth.flutter, .shading = cloth.shading, .variation = cloth.variation};
+    return {.duration = cloth.duration,
+            .flutter = cloth.flutter,
+            .shading = cloth.shading,
+            .variation = cloth.variation,
+            .shine = cloth.shine};
 }
 
 liquid_glass::TransitionParams toTransition(double elasticity, double momentum) {
@@ -226,8 +229,11 @@ liquid_glass::MaterialParams CPluginRuntime::effectiveMaterialParams() const {
 
 liquid_glass::ClothMovementParams CPluginRuntime::clothMovementParams() const {
     const auto &cloth = m_config.movement.cloth;
-    return {
-        .strength = cloth.strength, .flutter = cloth.flutter, .shading = cloth.shading, .variation = cloth.variation};
+    return {.strength = cloth.strength,
+            .flutter = cloth.flutter,
+            .shading = cloth.shading,
+            .variation = cloth.variation,
+            .shine = cloth.shine};
 }
 
 bool CPluginRuntime::movementEnabled() const {
@@ -338,8 +344,16 @@ liquid_glass::Vec2 CPluginRuntime::movementGrab(const PHLWINDOW &window, const C
                         std::clamp((cursor.y - capture.y) / capture.h, 0.0, 1.0)};
         }
     }
-    // An axis without travel chooses the top/left side. The selected corner stays fixed for this run.
-    return {delta.x > 0 ? 1.0 : 0.0, delta.y > 0 ? 1.0 : 0.0};
+    // Anything else is pulled by its leading side: the corner when it travels diagonally, otherwise some point along
+    // the leading edge, drawn afresh for each movement.
+    std::uint64_t seed = m_nextSeed;
+    const double  along = 0.15 + 0.7 * liquid_glass::unitDraw(seed);
+    const double  x = delta.x > 0 ? 1.0 : 0.0, y = delta.y > 0 ? 1.0 : 0.0;
+    if (std::abs(delta.x) >= 2 * std::abs(delta.y))
+        return {x, along};
+    if (std::abs(delta.y) >= 2 * std::abs(delta.x))
+        return {along, y};
+    return {x, y};
 }
 
 bool CPluginRuntime::wobbleEnabled() const { return *m_wobble != 0; }
@@ -515,9 +529,12 @@ void CPluginRuntime::recordMovement(STracked &entry, const PHLWINDOW &window,
         transformer->cancelMovement();
     switch (m_config.style) {
     case cfg::Style::Cloth:
-        if (moving && !transformer->clothMoving())
-            transformer->beginClothMovement(m_nextSeed++, decision.previousCapture,
-                                            movementGrab(window, capture, delta));
+        if (moving) {
+            // A pull after a pause may take the sheet somewhere else: it is pinched afresh there.
+            const auto grab = movementGrab(window, capture, delta);
+            if (!transformer->clothMoving() || transformer->clothRegrabs(grab))
+                transformer->beginClothMovement(m_nextSeed++, decision.previousCapture, grab);
+        }
         if (enabled && transformer->clothMoving())
             transformer->updateClothMovement(toBox(capture), elapsed);
         break;

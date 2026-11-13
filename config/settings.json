@@ -10,6 +10,7 @@
   {"path":"window.movement.options.cloth.strength", "member":"m_movementClothStrength", "type":"float", "default":0.65, "min":0, "max":1.5, "description":"Cloth-only movement deformation intensity; zero moves windows undeformed."},
   {"path":"window.movement.options.cloth.flutter", "member":"m_movementClothFlutter", "type":"float", "default":0.5, "min":0, "max":1, "description":"Cloth-only gust strength during movement; zero removes flutter while the sheet still trails and settles."},
   {"path":"window.movement.options.cloth.shading", "member":"m_movementClothShading", "type":"float", "default":0.7, "min":0, "max":1, "description":"Cloth-only light and shadow on movement folds; zero draws the folds unlit."},
+  {"path":"window.movement.options.cloth.shine", "member":"m_movementClothShine", "type":"float", "default":0, "min":0, "max":1, "description":"Cloth-only highlight strength on the folds; zero removes highlights."},
   {"path":"window.movement.options.cloth.variation", "member":"m_movementClothVariation", "type":"float", "default":0.5, "min":0, "max":1, "description":"Cloth-only per-window movement variation; zero uses the same motion for every window."},
   {"path":"window.open.enabled", "member":"m_openEnabled", "type":"boolean", "default":true, "description":"Animate windows as they open (see style); false opens without it. Movement is unaffected."},
   {"path":"window.open.options.liquid.strength", "member":"m_openLiquidStrength", "type":"float", "default":0.65, "min":0, "max":1.5, "description":"Liquid-only pop-out size and deformation intensity; zero opens without the pop-out."},
@@ -26,6 +27,7 @@
   {"path":"window.open.options.cloth.duration", "member":"m_openClothDuration", "type":"float", "default":1.0, "min":0.1, "max":4, "description":"Cloth-only seconds for the raised window to drop from its pinned top edge and settle."},
   {"path":"window.open.options.cloth.flutter", "member":"m_openClothFlutter", "type":"float", "default":0.5, "min":0, "max":1, "description":"Cloth-only gust strength; zero removes flutter while gravity still moves the sheet."},
   {"path":"window.open.options.cloth.shading", "member":"m_openClothShading", "type":"float", "default":0.7, "min":0, "max":1, "description":"Cloth-only light and shadow on the folds; zero draws the folds unlit."},
+  {"path":"window.open.options.cloth.shine", "member":"m_openClothShine", "type":"float", "default":0, "min":0, "max":1, "description":"Cloth-only highlight strength on the folds; zero removes highlights."},
   {"path":"window.open.options.cloth.variation", "member":"m_openClothVariation", "type":"float", "default":0.5, "min":0, "max":1, "description":"Cloth-only per-window variation; zero uses the same motion for every window."},
   {"path":"window.close.enabled", "member":"m_closeEnabled", "type":"boolean", "default":true, "description":"Animate windows as they close (see style); false closes natively. Movement is unaffected."},
   {"path":"window.close.options.liquid.strength", "member":"m_closeLiquidStrength", "type":"float", "default":0.65, "min":0, "max":1.5, "description":"Liquid-only drain deformation intensity; zero closes natively."},
@@ -42,5 +44,6 @@
   {"path":"window.close.options.cloth.duration", "member":"m_closeClothDuration", "type":"float", "default":0.9, "min":0.1, "max":4, "description":"Cloth-only seconds to fall downward or be pulled by the leading edge beyond the screen."},
   {"path":"window.close.options.cloth.flutter", "member":"m_closeClothFlutter", "type":"float", "default":0.5, "min":0, "max":1, "description":"Cloth-only gust strength; zero removes flutter while gravity still moves the sheet."},
   {"path":"window.close.options.cloth.shading", "member":"m_closeClothShading", "type":"float", "default":0.7, "min":0, "max":1, "description":"Cloth-only light and shadow on the folds; zero draws the folds unlit."},
+  {"path":"window.close.options.cloth.shine", "member":"m_closeClothShine", "type":"float", "default":0, "min":0, "max":1, "description":"Cloth-only highlight strength on the folds; zero removes highlights."},
   {"path":"window.close.options.cloth.variation", "member":"m_closeClothVariation", "type":"float", "default":0.5, "min":0, "max":1, "description":"Cloth-only per-window variation; zero uses the same motion for every window."}
 ]

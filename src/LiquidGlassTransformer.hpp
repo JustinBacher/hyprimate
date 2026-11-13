@@ -154,6 +154,7 @@ class CLiquidGlassTransformer final : public Render::IWindowTransformer {
     bool sheetActive() const noexcept;
     // Cloth is following a window move, or opening (not moving).
     bool clothMoving() const noexcept;
+    bool clothRegrabs(liquid_glass::Vec2 grabUV) const noexcept;
     bool clothOpening() const noexcept;
 
     // Moves the whole state out for a close record. The transformer keeps a fresh liquid state; it is detached next.

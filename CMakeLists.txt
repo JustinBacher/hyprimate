@@ -76,6 +76,7 @@ add_library(liquid-glass-core STATIC
     src/PaperTakes.cpp
     src/SheetFrame.cpp
     src/ClothFlutter.cpp
+    src/ClothSolver.cpp
     src/WindowTracker.cpp
 )
 # PaperTakes.cpp #embeds the baked crumples; rebuild it whenever they are re-packed.
@@ -143,6 +144,10 @@ if(BUILD_TESTING)
     target_link_libraries(paper-crumple-tests PRIVATE liquid-glass-core)
     target_compile_options(paper-crumple-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME paper-crumple-tests COMMAND paper-crumple-tests)
+
+    add_executable(cloth-solver-tests tests/ClothSolverTests.cpp)
+    target_link_libraries(cloth-solver-tests PRIVATE liquid-glass-core)
+    add_test(NAME cloth-solver-tests COMMAND cloth-solver-tests)
 
     add_executable(cloth-flutter-tests tests/ClothFlutterTests.cpp)
     target_link_libraries(cloth-flutter-tests PRIVATE liquid-glass-core Jolt)

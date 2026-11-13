@@ -45,6 +45,7 @@ void flatSheet(SheetFrame &out) noexcept;
 // Projects `world` onto the screen with a fixed perspective (eye 3 * sqrt(W * H) in front of the sheet), orders the
 // triangles back to front and lights them. `size` is the rest capture size in logical pixels; `shading` in [0, 1]
 // scales the lighting and 0 draws unlit.
-void projectSheet(const SheetGrid &world, Vec2 size, double shading, SheetLighting lighting, SheetFrame &out) noexcept;
+void projectSheet(const SheetGrid &world, Vec2 size, double shading, SheetLighting lighting, SheetFrame &out,
+                  double shine = 1.0) noexcept;
 
 } // namespace liquid_glass

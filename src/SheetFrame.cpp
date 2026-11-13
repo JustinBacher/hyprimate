@@ -111,7 +111,8 @@ void flatSheet(SheetFrame &out) noexcept {
     out.lit = false;
 }
 
-void projectSheet(const SheetGrid &world, Vec2 size, double shading, SheetLighting lighting, SheetFrame &out) noexcept {
+void projectSheet(const SheetGrid &world, Vec2 size, double shading, SheetLighting lighting, SheetFrame &out,
+                  double shine) noexcept {
     const Topology &mesh = topology();
     const double    W = std::isfinite(size.x) && size.x > 0.0 ? size.x : 1.0;
     const double    H = std::isfinite(size.y) && size.y > 0.0 ? size.y : 1.0;
@@ -179,7 +180,8 @@ void projectSheet(const SheetGrid &world, Vec2 size, double shading, SheetLighti
         n = n * (facing / len);
         const double diff = dot(n, Ld) - Ld.z;
         const double s = diff >= 0.0 ? diff / (1.0 - Ld.z) : diff / (1.0 + Ld.z);
-        return std::clamp(s * 1.8 * shading, -1.0, 1.0);
+        const double shade = std::clamp(s * 1.8 * shading, -1.0, 1.0);
+        return lighting == SheetLighting::ClothSmooth && shade > 0 ? shade * std::clamp(shine, 0.0, 1.0) : shade;
     };
 
     std::array<double, PAPER_GRID_VERTICES> vertexShadeFront{};

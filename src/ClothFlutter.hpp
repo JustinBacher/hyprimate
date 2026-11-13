@@ -11,12 +11,12 @@
 namespace liquid_glass {
 
 struct ClothParams {
-    double duration = 1.0, flutter = 0.5, shading = 0.7, variation = 0.5;
+    double duration = 1.0, flutter = 0.5, shading = 0.7, variation = 0.5, shine = 0.0;
     bool   operator==(const ClothParams &) const = default;
 };
 
 struct ClothMovementParams {
-    double strength = 0.65, flutter = 0.5, shading = 0.7, variation = 0.5;
+    double strength = 0.65, flutter = 0.5, shading = 0.7, variation = 0.5, shine = 0.0;
     bool   operator==(const ClothMovementParams &) const = default;
 };
 
@@ -40,6 +40,7 @@ class ClothPhysics {
 
 // A fully simulated 57x57 sheet. Opening drops an outward-raised sheet from its fixed top edge. Closing releases
 // all particles to fall downward, or pulls the complete leading edge upward/sideways while the rest trails behind.
+// Movement holds the sheet by a small pinch at the grab point and tows it through still air (see ClothSolver).
 // Copies retain the same immutable recording; each copy has its own playback clock.
 class ClothFlutter {
   public:
@@ -59,6 +60,9 @@ class ClothFlutter {
     void   beginMovement(const ClothMovementParams &params, std::uint64_t seed, const Box &capture, Vec2 grabUV);
     void   updateMovement(const Box &capture, double elapsedSeconds) noexcept;
     bool   moving() const noexcept;
+    // True once a moving sheet has paused and the next pull would take it from a different point: time to begin a
+    // new movement there, which inherits the displayed pose.
+    bool   regrabs(Vec2 grabUV) const noexcept;
     bool   advance(double elapsedSeconds) noexcept;
     void   reset() noexcept;
     bool   active() const noexcept;

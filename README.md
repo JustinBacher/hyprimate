@@ -42,7 +42,9 @@ Liquid closing shrinks and travels toward the screen edge in one continuous moti
 
 Paper (`window.style` set to `"paper"`) has no screen edge, bead or splash, and does not drive the window box; windows move undeformed. Its crumples are real cloth simulations of a stiff sheet squeezed from all sides into a solid ball, baked offline with Blender and shipped inside the plugin (`assets/paper_takes.bin`); `tools/paper_bake/bake_all.sh` rebakes them. The window crumples in place, facing you: it creases all over while its outline pulls in, then collapses into the ball, without spinning. Each of open and close has its own `duration`, `crumpliness`, `shading` and `variation` under `options.paper`. Closing a window that is still uncrumpling recrumples it from its current shape. Settings used by only one style live under that style's `options` table, so the liquid `strength` and `color` are set per section.
 
-Cloth (`window.style` set to `"cloth"`) moves as a sheet. A floating mouse drag pulls from the cursor location; tiled rearrangements and other moves pull from the corner facing the direction of travel. The sheet trails in folds while moving, then settles back to the exact flat window. Movement has its own `strength`, `flutter`, `shading` and `variation` under `window.movement.options.cloth`. Opening still drops a raised sheet from its pinned top edge under gravity, braked by air so it lands softly; closing downward releases the whole sheet to fall, while upward or sideways closing pulls the leading edge. Jolt Physics simulates all 57×57 vertices at 120 Hz. Open and close keep their own cloth controls, and handoffs between cloth opening, movement and cloth closing carry the current shape and motion.
+Cloth (`window.style` set to `"cloth"`) moves as a sheet. A floating mouse drag pulls from the cursor location; tiled rearrangements and other moves pull from the leading side: a point along the leading edge, or the leading corner for diagonal travel. A pull after a pause pinches the sheet afresh. The window is held only by a small pinch at that point: slow moves keep it taut, and the faster it travels the more it lets go, until it streams behind the pinch as loose cloth, folding over itself, hanging under gravity and fluttering in the air it is towed through. Once it stops it hangs for a moment, then is smoothed back to the exact flat window over about a second, without bouncing. Movement has its own `strength`, `flutter`, `shading`, `variation` and `shine` under `window.movement.options.cloth`. Opening still drops a raised sheet from its pinned top edge under gravity, braked by air so it lands softly; closing downward releases the whole sheet to fall, while upward or sideways closing pulls the leading edge. All 57×57 vertices are simulated at 120 Hz: Jolt Physics for open and close, and a dedicated solver for movement. Cloth shine defaults to zero, leaving shadows without highlights. Open and close keep their own cloth controls, and handoffs between cloth opening, movement and cloth closing carry the current shape and motion.
+
+Active window animations continue to render until they settle, including after scrolling-layout focus changes; no mouse movement is needed to complete them.
 
 <!-- BEGIN GENERATED CONFIGURATION -->
 After the first load has registered the settings, add this Lua configuration:
@@ -69,6 +71,7 @@ hl.config({
                             strength = 0.65,
                             flutter = 0.5,
                             shading = 0.7,
+                            shine = 0,
                             variation = 0.5,
                         },
                     },
@@ -95,6 +98,7 @@ hl.config({
                             duration = 1.0,
                             flutter = 0.5,
                             shading = 0.7,
+                            shine = 0,
                             variation = 0.5,
                         },
                     },
@@ -121,6 +125,7 @@ hl.config({
                             duration = 0.9,
                             flutter = 0.5,
                             shading = 0.7,
+                            shine = 0,
                             variation = 0.5,
                         },
                     },
@@ -146,6 +151,7 @@ Hyprland 0.57 normalizes hyphens to underscores in Lua config names: use `liquid
 | `plugin:liquid-glass:window:movement:options:cloth:strength` | float / `0.65` | Cloth-only movement deformation intensity; zero moves windows undeformed. Finite values clamped to 0–1.5. |
 | `plugin:liquid-glass:window:movement:options:cloth:flutter` | float / `0.5` | Cloth-only gust strength during movement; zero removes flutter while the sheet still trails and settles. Finite values clamped to 0–1. |
 | `plugin:liquid-glass:window:movement:options:cloth:shading` | float / `0.7` | Cloth-only light and shadow on movement folds; zero draws the folds unlit. Finite values clamped to 0–1. |
+| `plugin:liquid-glass:window:movement:options:cloth:shine` | float / `0` | Cloth-only highlight strength on the folds; zero removes highlights. Finite values clamped to 0–1. |
 | `plugin:liquid-glass:window:movement:options:cloth:variation` | float / `0.5` | Cloth-only per-window movement variation; zero uses the same motion for every window. Finite values clamped to 0–1. |
 | `plugin:liquid-glass:window:open:enabled` | boolean / `true` | Animate windows as they open (see style); false opens without it. Movement is unaffected. |
 | `plugin:liquid-glass:window:open:options:liquid:strength` | float / `0.65` | Liquid-only pop-out size and deformation intensity; zero opens without the pop-out. Finite values clamped to 0–1.5. |
@@ -162,6 +168,7 @@ Hyprland 0.57 normalizes hyphens to underscores in Lua config names: use `liquid
 | `plugin:liquid-glass:window:open:options:cloth:duration` | float / `1.0` | Cloth-only seconds for the raised window to drop from its pinned top edge and settle. Finite values clamped to 0.1–4. |
 | `plugin:liquid-glass:window:open:options:cloth:flutter` | float / `0.5` | Cloth-only gust strength; zero removes flutter while gravity still moves the sheet. Finite values clamped to 0–1. |
 | `plugin:liquid-glass:window:open:options:cloth:shading` | float / `0.7` | Cloth-only light and shadow on the folds; zero draws the folds unlit. Finite values clamped to 0–1. |
+| `plugin:liquid-glass:window:open:options:cloth:shine` | float / `0` | Cloth-only highlight strength on the folds; zero removes highlights. Finite values clamped to 0–1. |
 | `plugin:liquid-glass:window:open:options:cloth:variation` | float / `0.5` | Cloth-only per-window variation; zero uses the same motion for every window. Finite values clamped to 0–1. |
 | `plugin:liquid-glass:window:close:enabled` | boolean / `true` | Animate windows as they close (see style); false closes natively. Movement is unaffected. |
 | `plugin:liquid-glass:window:close:options:liquid:strength` | float / `0.65` | Liquid-only drain deformation intensity; zero closes natively. Finite values clamped to 0–1.5. |
@@ -178,6 +185,7 @@ Hyprland 0.57 normalizes hyphens to underscores in Lua config names: use `liquid
 | `plugin:liquid-glass:window:close:options:cloth:duration` | float / `0.9` | Cloth-only seconds to fall downward or be pulled by the leading edge beyond the screen. Finite values clamped to 0.1–4. |
 | `plugin:liquid-glass:window:close:options:cloth:flutter` | float / `0.5` | Cloth-only gust strength; zero removes flutter while gravity still moves the sheet. Finite values clamped to 0–1. |
 | `plugin:liquid-glass:window:close:options:cloth:shading` | float / `0.7` | Cloth-only light and shadow on the folds; zero draws the folds unlit. Finite values clamped to 0–1. |
+| `plugin:liquid-glass:window:close:options:cloth:shine` | float / `0` | Cloth-only highlight strength on the folds; zero removes highlights. Finite values clamped to 0–1. |
 | `plugin:liquid-glass:window:close:options:cloth:variation` | float / `0.5` | Cloth-only per-window variation; zero uses the same motion for every window. Finite values clamped to 0–1. |
 <!-- END GENERATED CONFIGURATION -->
 
