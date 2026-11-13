@@ -12,6 +12,7 @@
 #include <hyprland/src/managers/input/InputManager.hpp>
 #include <hyprland/src/output/Monitor.hpp>
 #include <hyprland/src/render/Renderer.hpp>
+#include <hyprland/src/state/MonitorState.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -409,11 +410,14 @@ void CPluginRuntime::onRenderPre(const PHLMONITOR &monitor) {
     // A live disable also drops retained closes, restoring native fades where still available.
     if (!closeEnabled() || (m_config.style == cfg::Style::Liquid && m_config.close.liquid.strength <= 0.0)) {
         m_close->clear();
-    } else if (m_close->tick(now, monitor, m_closeMonitors)) {
-        for (const auto &monitorRef : m_closeMonitors) {
-            if (const auto damaged = monitorRef.lock()) {
-                g_pHyprRenderer->damageMonitor(damaged);
-                damaged->scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_ANIMATION);
+    } else {
+        std::vector<CBox> damage;
+        m_close->tick(now, monitor, damage);
+        for (const auto &box : damage) {
+            g_pHyprRenderer->damageBox(box);
+            for (const auto &candidate : State::monitorState()->monitors()) {
+                if (candidate->logicalBox().overlaps(box))
+                    candidate->scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_ANIMATION);
             }
         }
     }

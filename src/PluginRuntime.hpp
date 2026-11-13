@@ -102,7 +102,6 @@ class CPluginRuntime {
     SP<CSolidFill>                        m_closeSolid = makeShared<CSolidFill>();
     SP<CPaperShade>                       m_shade = makeShared<CPaperShade>();
     std::unique_ptr<CLiquidCloseRenderer> m_close;
-    std::vector<PHLMONITORREF>            m_closeMonitors;
     mutable std::vector<liquid_glass::Box>
         m_neighbours; // tiled neighbours for the contact rule; rebuilt per edge choice
     // Next per-window movement seed; random per load (set in the constructor), so loads do not replay characters.

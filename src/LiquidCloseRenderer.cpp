@@ -1,7 +1,6 @@
 #include "LiquidCloseRenderer.hpp"
+#include "NativeFadeoutPass.hpp"
 
-#include <hyprland/src/render/pass/RectPassElement.hpp>
-#include <hyprland/src/render/pass/TexPassElement.hpp>
 #include <hyprland/src/render/scene/SceneSelection.hpp>
 #include <hyprland/src/render/WindowRenderPresentation.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
@@ -67,6 +66,44 @@ CBox projectToOutput(const CBox &extentsDevice, const CBox &renderBox, const Vec
 CBox ownedRenderBox(const CBox &sourceDevice, const CBox &nativeBox, const Vector2D &snapshotSize) {
     return toCBox(
         liquid_glass::ownedRenderBox(toBox(sourceDevice), toBox(nativeBox), Vec2{snapshotSize.x, snapshotSize.y}));
+}
+
+// Exact box equality: a box that did not move is not damaged again.
+bool sameBox(const CBox &a, const CBox &b) { return a.x == b.x && a.y == b.y && a.w == b.w && a.h == b.h; }
+
+// Adds `box` to `damage` unless it is empty or already listed.
+void appendDamage(std::vector<CBox> &damage, const CBox &box) {
+    if (box.empty() || std::ranges::any_of(damage, [&box](const CBox &other) { return sameBox(other, box); }))
+        return;
+    damage.push_back(box);
+}
+
+// An owned record's footprint in global logical px: its extents, plus the edge liquid when present, converted from
+// the monitor's device px. Outward rounding keeps every drawn pixel inside the damaged box.
+CBox drawnBoxOf(const CLiquidCloseRenderer::SClosing &record, const PHLMONITOR &monitor) {
+    CBox device = projectToOutput(record.extentsDevice, record.renderBox, record.snapshotSize);
+    if (record.hasLiquid) {
+        const CBox   liquid = projectToOutput(record.liquidDevice, record.renderBox, record.snapshotSize);
+        const double x0 = std::min(device.x, liquid.x);
+        const double y0 = std::min(device.y, liquid.y);
+        const double x1 = std::max(device.x + device.w, liquid.x + liquid.w);
+        const double y1 = std::max(device.y + device.h, liquid.y + liquid.h);
+        device = CBox{x0, y0, x1 - x0, y1 - y0};
+    }
+
+    const double scale = record.scale;
+    const double x0 = std::floor(device.x / scale + monitor->m_position.x);
+    const double y0 = std::floor(device.y / scale + monitor->m_position.y);
+    const double x1 = std::ceil((device.x + device.w) / scale + monitor->m_position.x);
+    const double y1 = std::ceil((device.y + device.h) / scale + monitor->m_position.y);
+    return CBox{x0, y0, x1 - x0, y1 - y0};
+}
+
+// An owned record stops drawing: its last drawn box is damaged once so those pixels clear.
+void releaseDrawn(CLiquidCloseRenderer::SClosing &record, std::vector<CBox> &damage) {
+    if (record.owned)
+        appendDamage(damage, record.drawnBox);
+    record.drawnBox = CBox{};
 }
 
 // A bound record matches only its captured workspace (an expired one matches nothing); an unbound record matches
@@ -208,20 +245,13 @@ void CLiquidCloseRenderer::shutdown() {
 }
 
 void CLiquidCloseRenderer::clear() {
-    // Owned closes may still have a last frame on screen. Damage each such monitor once (damageMonitor also schedules
-    // a frame) before the records go, so that frame is cleared. Native fadeouts continue on their own.
+    // Owned closes may still have a last frame on screen. Damage their last drawn boxes so those pixels clear before
+    // the records go. Called from teardown where no tick damage loop runs, so this damages directly. Native fadeouts
+    // continue on their own.
     if (g_pHyprRenderer) {
-        std::vector<PHLMONITORREF> damaged;
         for (const auto &record : m_records) {
-            const auto monitor = record->monitor.lock();
-            if (!record->owned || !monitor)
-                continue;
-            if (std::ranges::find_if(damaged, [&monitor](const PHLMONITORREF &ref) {
-                    return ref.lock().get() == monitor.get();
-                }) != damaged.end())
-                continue;
-            damaged.push_back(PHLMONITORREF{monitor});
-            g_pHyprRenderer->damageMonitor(monitor);
+            if (record->owned && !record->drawnBox.empty())
+                g_pHyprRenderer->damageBox(record->drawnBox);
         }
     }
     m_pending.clear();
@@ -398,33 +428,31 @@ void CLiquidCloseRenderer::fillVertices(SClosing &record) {
     }
 
     auto                    &liquid = std::get<SLiquidStyle>(record.style);
-    const CBox               logical = record.sourceDevice.copy().scale(1.0 / record.scale);
     liquid_glass::LiquidPose pose{liquid.mesh, liquid.transition, record.compensation};
-    // The gain search fills the grid with the offsets at the gain it returns, so the extents and both meshes read the
-    // grid without sampling it again.
+    const CBox               logical = CBox{record.sourceDevice}.scale(1.0 / record.scale);
+    const liquid_glass::Box  logicalBox = toBox(logical);
+    // The gain search fills the grid at the gain it returns, so the extents and both meshes read it without resampling.
     pose.displacementGain = liquid_glass::fitLiquidPoseGain(pose, {logical.w, logical.h}, &liquid.grid);
-    const liquid_glass::Box logicalBox = toBox(logical);
-    liquid_glass::Box       extents = liquid_glass::liquidRenderExtents(pose, logicalBox, liquid.grid);
+    liquid_glass::Box extents = liquid_glass::liquidRenderExtents(pose, logicalBox, liquid.grid);
     liquid_glass::expandBox(extents, EXTENTS_PADDING);
     record.extentsDevice = toCBox(extents).scale(record.scale);
+
+    const auto meniscus = liquid_glass::liquidMeniscusExtents(pose, logicalBox);
+    record.hasLiquid = meniscus.has_value();
+    if (meniscus)
+        record.liquidDevice = toCBox(*meniscus).scale(record.scale);
 
     liquid_glass::fillLiquidRenderMesh(pose, toBox(record.sourceDevice), record.scale, toBox(record.extentsDevice),
                                        Vec2{0.0, 0.0}, Vec2{record.snapshotSize.x, record.snapshotSize.y}, liquid.grid,
                                        liquid.vertices);
-
-    const auto meniscus = liquid_glass::liquidMeniscusExtents(pose, logicalBox);
-    record.hasLiquid = meniscus.has_value();
-    if (meniscus) {
-        record.liquidDevice = toCBox(*meniscus).scale(record.scale);
+    if (meniscus)
         liquid_glass::fillLiquidMeniscusMesh(pose, toBox(record.sourceDevice), record.scale, toBox(record.liquidDevice),
                                              liquid.meniscusVertices);
-    }
     record.verticesStale = false;
 }
 
-bool CLiquidCloseRenderer::tick(clock::time_point now, const PHLMONITOR &rendering,
-                                std::vector<PHLMONITORREF> &activeMonitors) {
-    activeMonitors.clear();
+void CLiquidCloseRenderer::tick(clock::time_point now, const PHLMONITOR &rendering, std::vector<CBox> &damage) {
+    damage.clear();
 
     std::erase_if(m_pending, [now](const SPending &p) {
         return std::chrono::duration<double>(now - p.staged).count() > PENDING_TIMEOUT_SECONDS;
@@ -435,44 +463,50 @@ bool CLiquidCloseRenderer::tick(clock::time_point now, const PHLMONITOR &renderi
         const bool nativeAlive = fadeout && !fadeout->done();
         const auto monitor = record->monitor.lock();
 
-        // An owned record that is erased still has a last drawn frame on screen: damage its monitor so it clears.
-        const auto prune = [&]() {
-            if (record->owned && monitor)
-                activeMonitors.push_back(PHLMONITORREF{monitor});
+        if (!monitor || monitor->m_scale != record->scale) {
+            releaseDrawn(*record, damage);
             return true;
-        };
-
-        if (!monitor || monitor->m_scale != record->scale)
-            return prune();
+        }
 
         if (record->owned) {
             // A suppressed close keeps its record (so the native fade stays suppressed) until the native fadeout ends.
-            if (finished(record->style))
-                return nativeAlive ? false : prune();
+            if (finished(record->style)) {
+                releaseDrawn(*record, damage);
+                return !nativeAlive;
+            }
 
             if (nativeAlive)
                 record->renderBox = ownedRenderBox(record->sourceDevice, fadeout->renderBox(), record->snapshotSize);
 
-            if (monitor != rendering)
-                return false;
-            const double elapsed =
-                std::clamp(std::chrono::duration<double>(now - record->lastAdvance).count(), 0.0, kStallSeconds);
-            if (isLiquid(record->style)) {
-                auto &liquid = std::get<SLiquidStyle>(record->style);
-                liquid_glass::advanceLiquidPose(liquid.mesh, liquid.transition, liquid.grid, elapsed,
-                                                record->captureLogical, record->strength, 0.0);
-            } else {
-                advanceSheetStyle(record->style, elapsed);
+            bool advanced = false;
+            if (monitor == rendering) {
+                const double elapsed =
+                    std::clamp(std::chrono::duration<double>(now - record->lastAdvance).count(), 0.0, kStallSeconds);
+                if (isLiquid(record->style)) {
+                    auto &liquid = std::get<SLiquidStyle>(record->style);
+                    liquid_glass::advanceLiquidPose(liquid.mesh, liquid.transition, liquid.grid, elapsed,
+                                                    record->captureLogical, record->strength, 0.0);
+                    fillVertices(*record); // the one gain search per advance; extents, edge liquid, and meshes follow
+                } else {
+                    advanceSheetStyle(record->style, elapsed);
+                    fillVertices(*record);
+                }
+                record->lastAdvance = now;
+                advanced = true;
             }
-            if (isLiquid(record->style))
-                record->verticesStale = true; // refilled when drawn
-            else
-                fillVertices(*record);
-            record->lastAdvance = now;
-            activeMonitors.push_back(PHLMONITORREF{monitor});
+
+            // An advancing record damages its box every frame, which also schedules its next frame. A record that did
+            // not advance only damages when the native fadeout moved its box.
+            const CBox current = drawnBoxOf(*record, monitor);
+            if (advanced || !sameBox(current, record->drawnBox)) {
+                appendDamage(damage, record->drawnBox);
+                appendDamage(damage, current);
+            }
+            record->drawnBox = current;
             return false;
         }
 
+        // Unowned closes contribute no damage: the native fadeout damages its own box.
         if (!nativeAlive)
             return true;
 
@@ -487,11 +521,8 @@ bool CLiquidCloseRenderer::tick(clock::time_point now, const PHLMONITOR &renderi
         liquid.mesh.advance(elapsed, record->captureLogical);
         record->lastAdvance = now;
         record->verticesStale = true; // refilled when drawn
-        activeMonitors.push_back(PHLMONITORREF{monitor});
         return false;
     });
-
-    return !activeMonitors.empty();
 }
 
 CLiquidCloseRenderer::SClosing *CLiquidCloseRenderer::recordFor(const SP<Desktop::IFadeout> &fadeout) const {
@@ -572,28 +603,7 @@ bool CLiquidCloseRenderer::renderBatch(Render::CRenderContext &ctx, const PHLMON
 
     std::ranges::sort(batch, {}, &SBatchItem::zIndex);
 
-    const auto drawBackdrop = [&](const auto &effects) {
-        if (effects.dimAroundAlpha > 0.F) {
-            CRectPassElement::SRectData data;
-            data.box = {0, 0, monitor->m_transformedSize.x, monitor->m_transformedSize.y};
-            data.color = CHyprColor(0, 0, 0, effects.dimAroundAlpha);
-            Render::IHyprRenderer::addPassElement(ctx, makeUnique<CRectPassElement>(data));
-        }
-
-        if (effects.preBlur) {
-            CRectPassElement::SRectData data;
-            data.box = effects.preBlur->box;
-            data.color = CHyprColor(0, 0, 0, 0);
-            data.blur = true;
-            data.blurA = effects.preBlur->alpha;
-            data.round = effects.preBlur->round;
-            data.roundingPower = effects.preBlur->roundingPower;
-            data.xray = effects.preBlur->xray;
-            Render::IHyprRenderer::addPassElement(ctx, makeUnique<CRectPassElement>(data));
-        }
-    };
-
-    CRegion fakeDamage{0, 0, monitor->m_transformedSize.x, monitor->m_transformedSize.y};
+    CNativeFadeoutPass native{ctx, monitor};
     for (const auto &item : batch) {
         SClosing *record = item.record;
 
@@ -610,7 +620,7 @@ bool CLiquidCloseRenderer::renderBatch(Render::CRenderContext &ctx, const PHLMON
 
             // Native backdrop effects apply only while the native fadeout is still live.
             if (item.fadeout)
-                drawBackdrop(item.fadeout->effects());
+                native.drawBackdrop(item.fadeout->effects());
 
             if (!isLiquid(record->style)) {
                 const float paperAlpha = alpha * float(opacityOf(record->style));
@@ -667,7 +677,7 @@ bool CLiquidCloseRenderer::renderBatch(Render::CRenderContext &ctx, const PHLMON
             continue;
 
         const auto effects = fadeout->effects();
-        drawBackdrop(effects);
+        native.drawBackdrop(effects);
 
         const auto tex = FB->getTexture();
         // Texture blur rides on a stock element; the mesh path only replaces the plain texture draw.
@@ -681,24 +691,12 @@ bool CLiquidCloseRenderer::renderBatch(Render::CRenderContext &ctx, const PHLMON
             data.vertices = &std::get<SLiquidStyle>(record->style).vertices;
             data.alpha = fadeout->alpha();
             data.scale = record->scale;
-            data.damage = fakeDamage;
+            data.damage = native.damage();
             Render::IHyprRenderer::addPassElement(ctx, makeUnique<CLiquidClosePassElement>(std::move(data)));
             continue;
         }
 
-        CTexPassElement::SRenderData data;
-        data.tex = tex;
-        data.box = fadeout->renderBox();
-        data.a = fadeout->alpha();
-        data.damage = fakeDamage;
-        data.blur = effects.textureBlur.enabled;
-        data.blurA = effects.textureBlur.alpha;
-        data.forceBlurBlend = effects.textureBlur.forceBlend;
-        data.blurShapeInvalid = true;
-        data.ignoreAlpha = effects.textureBlur.ignoreAlpha;
-        data.blockBlurOptimization = effects.textureBlur.blockBlurOptimization;
-
-        Render::IHyprRenderer::addPassElement(ctx, makeUnique<CTexPassElement>(std::move(data)));
+        native.drawTexture(*fadeout, tex, effects);
     }
     batch.clear();
     return true;

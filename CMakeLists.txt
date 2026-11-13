@@ -91,6 +91,7 @@ add_library(liquid-glass SHARED
     src/SolidFill.cpp
     src/LiquidGlassTransformer.cpp
     src/LiquidCloseRenderer.cpp
+    src/NativeFadeoutPass.cpp
     src/PaperRenderer.cpp
 )
 set_target_properties(liquid-glass PROPERTIES PREFIX "" INTERPROCEDURAL_OPTIMIZATION FALSE)

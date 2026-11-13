@@ -53,8 +53,9 @@ class CLiquidCloseRenderer {
         CBox                     renderBox;             // owned placement: unit scale, centre follows native
         CBox                     extentsDevice;         // deformed extents of sourceDevice, device px
         bool                     hasLiquid = false;     // edge liquid present this frame (liquid only)
-        bool                     verticesStale = false; // liquid vertices lag the mesh; refilled when drawn
+        bool                     verticesStale = false; // unowned liquid: vertices lag the mesh; refilled when drawn
         CBox                     liquidDevice;          // edge liquid box inside the snapshot, device px
+        CBox                     drawnBox;              // owned: global logical box last drawn; empty when none
         clock::time_point        lastAdvance{};
     };
 
@@ -85,9 +86,10 @@ class CLiquidCloseRenderer {
                     std::optional<liquid_glass::ClothCloseGeometry> closeGeometry = std::nullopt);
 
     // Called before `rendering` draws a frame. Prunes every finished record and advances the records drawn on
-    // `rendering`. Returns true while anything needs damage; `activeMonitors` is refilled with the monitors to damage,
-    // including the frame in which an owned close finishes or a record is pruned.
-    bool tick(clock::time_point now, const PHLMONITOR &rendering, std::vector<PHLMONITORREF> &activeMonitors);
+    // `rendering`. `damage` is refilled with the global logical boxes (what Hyprland's damageBox takes) the owned
+    // records occupied before and after this frame, deduplicated; unowned native-fadeout records contribute none.
+    // A record that stops drawing (finished or pruned) contributes its last drawn box.
+    void tick(clock::time_point now, const PHLMONITOR &rendering, std::vector<CBox> &damage);
 
     // Drops pending handoffs and records (topology or config change).
     void clear();
@@ -134,7 +136,9 @@ class CLiquidCloseRenderer {
         int                   zIndex = 0;
     };
 
-    SClosing               *recordFor(const SP<Desktop::IFadeout> &fadeout) const;
+    SClosing *recordFor(const SP<Desktop::IFadeout> &fadeout) const;
+    // Refills the record's extents, edge liquid box, and meshes from its current state; clears verticesStale. Runs the
+    // gain search, so callers invoke it once per advance.
     void                    fillVertices(SClosing &record);
     std::optional<SPending> pendingFor(const PHLWINDOW &window) const;
     void                    push(SPending pending);
