@@ -164,6 +164,22 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     // Everything advances once per rendered frame of its monitor, after native animations have ticked and before the
     // frame collects damage. Animation ticks are not used: a self-requested tick re-fires every millisecond.
     m_listenRenderPre = Event::bus()->m_events.render.pre.listen([this](PHLMONITOR monitor) { onRenderPre(monitor); });
+    // Requests made in render.pre can be consumed by the current commit. Request the next frame while rendering is
+    // active so Hyprland retains it; stop as soon as the last transformer on this monitor settles.
+    m_listenRenderPost = Event::bus()->m_events.render.stage.listen([this](const Event::SRenderStageEvent &event) {
+        if (event.stage != RENDER_POST)
+            return;
+        for (const auto &entry : m_tracked) {
+            const auto window = entry.window.lock();
+            if (!window || window->m_monitor.lock() != event.monitor)
+                continue;
+            const auto *transformer = transformerOf(window);
+            if (transformer && transformer->active()) {
+                event.monitor->scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_ANIMATION);
+                break;
+            }
+        }
+    });
 
     m_listenReload = Event::bus()->m_events.config.reloaded.listen([this]() { onReload(); });
 
@@ -177,6 +193,7 @@ CPluginRuntime::~CPluginRuntime() {
     m_listenClose.reset();
     m_listenDestroy.reset();
     m_listenRenderPre.reset();
+    m_listenRenderPost.reset();
     m_listenReload.reset();
     m_close->shutdown();
     detachAll();

@@ -111,5 +111,6 @@ class CPluginRuntime {
     CHyprSignalListener m_listenClose;
     CHyprSignalListener m_listenDestroy;
     CHyprSignalListener m_listenRenderPre;
+    CHyprSignalListener m_listenRenderPost;
     CHyprSignalListener m_listenReload;
 };
