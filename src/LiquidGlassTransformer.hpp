@@ -118,11 +118,13 @@ class CLiquidGlassTransformer final : public Render::IWindowTransformer {
     bool builtFor(liquid_glass::config::Style style, liquid_glass::MaterialParams liquid,
                   liquid_glass::ClothMovementParams cloth) const noexcept;
 
-    // Liquid style. The runtime only calls these while the configured style is Liquid.
-    liquid_glass::LiquidMesh           &mesh() noexcept { return liquid().mesh; }
-    const liquid_glass::LiquidMesh     &mesh() const noexcept { return liquid().mesh; }
-    liquid_glass::EdgeTransition       &transition() noexcept { return liquid().transition; }
-    const liquid_glass::EdgeTransition &transition() const noexcept { return liquid().transition; }
+    // Liquid style. The runtime only calls these while the configured style is Liquid, except transitionActive.
+    // True while a liquid edge pop-out is still running.
+    bool transitionActive() const noexcept;
+    // Records this frame's observed movement into the liquid field, then refreshes the cached gain. A real translation
+    // with movement enabled excites the field, enabled without one relaxes it, and disabled resets it.
+    void recordLiquidMove(liquid_glass::Vec2 delta, liquid_glass::Vec2 size, double strength, bool moving,
+                          bool enabled);
     // `captureSize` is the decorated capture size the physics advances with; it also refreshes the cached gain.
     void beginOpen(const liquid_glass::EdgeFrame &frame, const liquid_glass::TransitionParams &params, double strength,
                    liquid_glass::Vec2 captureSize);
@@ -130,17 +132,13 @@ class CLiquidGlassTransformer final : public Render::IWindowTransformer {
     liquid_glass::LiquidPose renderPose() const;
     // The same pop-out for a closing snapshot taken now: the window as drawn at its driven box, mapped to the rest box.
     liquid_glass::LiquidPose closePose() const;
-    // Follows the pop-out with the window's real box, so decorations that draw at that box (borders, HyprGlass) grow
-    // out of the bead with the window. Called once per physics advance after the transition has stepped; restores the
-    // layout box when the pop-out ends.
-    void driveBox();
     // Ends the pop-out and returns the real box to the layout's.
     void cancelOpening();
     void cancelMovement();
-    // Recomputes the cached movement-field gain. Called once per physics advance, never from the render path.
-    void refreshPose(liquid_glass::Vec2 captureSize);
-    // Advances the edge pop-out and the movement field one physics step; invalidates the cached pose grid.
-    void advanceLiquid(double elapsed, liquid_glass::Vec2 size, double strength, double drive);
+    // Steps one physics frame: the paper or cloth sheet, or the liquid pop-out and movement field, then the driven
+    // layout box. `moving` is a real translation with liquid style and movement enabled; `emergeDrag` damps the field
+    // only while moving.
+    void step(double elapsed, liquid_glass::Vec2 size, double strength, bool moving, double emergeDrag);
 
     // Paper style. Sheet animations stay at the capture box and do not drive the window's layout box.
     void beginPaperOpen(const liquid_glass::PaperParams &params, std::uint64_t seed, liquid_glass::Vec2 captureSize);
@@ -158,9 +156,6 @@ class CLiquidGlassTransformer final : public Render::IWindowTransformer {
     bool clothMoving() const noexcept;
     bool clothOpening() const noexcept;
 
-    // Paper and cloth: advances the sheet and refreshes its frame. A no-op for other styles or an idle sheet.
-    void advanceSheet(double elapsed, liquid_glass::Vec2 captureSize);
-
     // Moves the whole state out for a close record. The transformer keeps a fresh liquid state; it is detached next.
     SStyleState takeStyle() noexcept;
 
@@ -175,6 +170,10 @@ class CLiquidGlassTransformer final : public Render::IWindowTransformer {
     double sheetOpacity() const noexcept;
     bool   sheetShaded() const noexcept;
     void   restoreBox();
+    void   driveBox();
+    void   refreshPose(liquid_glass::Vec2 captureSize);
+    void   advanceLiquid(double elapsed, liquid_glass::Vec2 size, double strength, double drive);
+    void   advanceSheet(double elapsed, liquid_glass::Vec2 captureSize);
 
     PHLWINDOWREF    m_window;
     SStyleState     m_style;

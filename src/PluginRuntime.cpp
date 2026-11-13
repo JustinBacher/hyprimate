@@ -24,11 +24,15 @@
 namespace {
 
 constexpr const char *WOBBLE_MESSAGE = "[liquid-glass] Disable decoration:wobble:enabled before enabling liquid-glass";
-constexpr double      MAX_JUMP_FACTOR = 1.5;
 
 bool isUsableBox(const CBox &box) {
     return std::isfinite(box.x) && std::isfinite(box.y) && std::isfinite(box.w) && std::isfinite(box.h) &&
            box.w > 0.0 && box.h > 0.0;
+}
+
+// Identity of the window's monitor; zero when it has none, which matches no live monitor.
+std::uintptr_t monitorId(const PHLWINDOW &window) {
+    return reinterpret_cast<std::uintptr_t>(window->m_monitor.lock().get());
 }
 
 // ARGB config value to a float colour; channel bytes are unpacked, not treated as one packed integer.
@@ -130,7 +134,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                         {capture.x, capture.y, capture.w, capture.h}, m_neighbours, closeGeometry);
                 } else {
                     const auto &close = m_config.close.liquid;
-                    const bool  continuing = matched && transformer->transition().active();
+                    const bool  continuing = matched && transformer->transitionActive();
                     const auto  closeFrame = continuing ? std::optional<liquid_glass::EdgeFrame>{}
                                                         : edgeFrameFor(window, false, entry->openEdge);
                     const auto  params = toTransition(close.elasticity, close.momentum);
@@ -358,9 +362,8 @@ void CPluginRuntime::track(const PHLWINDOW &window) {
 
     STracked entry;
     entry.window = PHLWINDOWREF{window};
-    // Starts false so a window that is already opening registers the rising edge on its first sample.
-    entry.wasAnimatingIn = false;
-    baseline(entry, window);
+    entry.tracker.track(toBox(window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT)),
+                        toBox(window->getFullWindowBoundingBox()), monitorId(window));
     m_tracked.push_back(entry);
 }
 
@@ -368,19 +371,15 @@ void CPluginRuntime::forget(const PHLWINDOW &window) {
     std::erase_if(m_tracked, [&window](const STracked &entry) { return entry.window.get() == window.get(); });
 }
 
-void CPluginRuntime::baseline(STracked &entry, const PHLWINDOW &window) const {
-    entry.lastBox = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
-    entry.lastCapture = window->getFullWindowBoundingBox();
-    entry.monitor = window->m_monitor;
-    entry.baselined = true;
-    entry.lastAdvance = std::chrono::steady_clock::now();
-    entry.lastSample = entry.lastAdvance;
+void CPluginRuntime::rebaseline(STracked &entry, const PHLWINDOW &window) const {
+    const CBox current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+    entry.tracker.baseline(toBox(current), toBox(window->getFullWindowBoundingBox()), monitorId(window));
 }
 
 void CPluginRuntime::baselineAll() {
     for (auto &entry : m_tracked) {
         if (const auto window = entry.window.lock())
-            baseline(entry, window);
+            rebaseline(entry, window);
     }
 }
 
@@ -396,17 +395,13 @@ void CPluginRuntime::onRenderPre(const PHLMONITOR &monitor) {
     m_config = liquid_glass::config::readConfig(m_values);
     m_openSolid->setColor(colorFromArgb(m_config.open.liquid.color));
     m_closeSolid->setColor(colorFromArgb(m_config.close.liquid.color));
-    // Every monitor's frame samples all windows: sampling also handles disable/fullscreen/config eligibility
-    // transitions. Only windows on the monitor about to draw advance, so each animation steps once per its frame.
+    // Sampling runs on each window's own monitor only, so a window steps once per frame of the monitor it is on.
     const auto now = clock::now();
     for (auto &entry : m_tracked) {
         const auto window = entry.window.lock();
-        if (!window)
+        if (!window || window->m_monitor.lock() != monitor)
             continue;
-
-        sampleWindow(entry, window);
-        if (entry.monitor.lock() == monitor)
-            advanceWindow(entry, window, now);
+        updateWindow(entry, window, now);
     }
 
     std::erase_if(m_tracked, [](const STracked &entry) { return entry.window.expired(); });
@@ -424,82 +419,66 @@ void CPluginRuntime::onRenderPre(const PHLMONITOR &monitor) {
     }
 }
 
-void CPluginRuntime::sampleWindow(STracked &entry, const PHLWINDOW &window) {
-    const auto now = clock::now();
+void CPluginRuntime::updateWindow(STracked &entry, const PHLWINDOW &window, clock::time_point now) {
+    const double elapsed = std::max(0.0, std::chrono::duration<double>(now - entry.lastUpdate).count());
+    entry.lastUpdate = now;
     const bool animating = window->presentation().animatingIn();
-    const bool wasAnimating = entry.wasAnimatingIn;
-    const bool openingEdge = animating && !wasAnimating;
-    entry.wasAnimatingIn = animating;
+    // A window that is not stepping, not deforming, and not opening cannot change until it becomes eligible or
+    // starts animating, so it skips the snapshot entirely.
+    const auto *existing = transformerOf(window);
+    const bool  stepping = existing && existing->active();
+    if (!stepping && entry.tracker.dormant(animating) && !eligible(window))
+        return;
 
-    const bool     canDeform = eligible(window);
-    const CBox     current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
-    const CBox     capture = window->getFullWindowBoundingBox();
-    const Vector2D captureSize = capture.size();
-    const double   sampleElapsed = std::chrono::duration<double>(now - entry.lastSample).count();
-
-    if (!canDeform || !entry.wasEligible || !entry.baselined || !isUsableBox(entry.lastBox) || !isUsableBox(current) ||
-        !isUsableBox(entry.lastCapture) || !isUsableBox(capture) || entry.monitor != window->m_monitor ||
-        sampleElapsed > liquid_glass::kStallSeconds) {
+    const liquid_glass::TrackDecision decision = entry.tracker.update(snapshotOf(window, animating, elapsed));
+    if (decision.action == liquid_glass::TrackAction::Rebaseline) {
+        // Covers a material change, a stall, a movement jump, and a window that stopped being deformable.
         detachWindow(entry, window);
-        baseline(entry, window);
-        entry.wasEligible = canDeform && isUsableBox(capture);
-        if (openingEdge && entry.wasEligible)
+        if (decision.beginOpen)
             beginOpening(entry, window);
         return;
     }
-    entry.lastSample = now;
-
-    if (auto *existing = transformerOf(window); existing && materialChanged(*existing)) {
-        detachWindow(entry, window);
-        baseline(entry, window);
-        entry.wasEligible = true;
-        return;
+    if (decision.cancelOpening) {
+        if (auto *transformer = transformerOf(window))
+            transformer->cancelOpening();
     }
-
-    if (!openEnabled()) {
-        if (auto *existing = transformerOf(window))
-            existing->cancelOpening();
-    }
-
-    if (openingEdge) {
+    if (decision.action == liquid_glass::TrackAction::Opening) {
         beginOpening(entry, window);
         // A cloth opening may warp native popin geometry to its goal. Baseline the box actually displayed.
-        baseline(entry, window);
+        rebaseline(entry, window);
+        stepWindow(entry, window, 0.0);
         return;
     }
-    auto      *transformer = transformerOf(window);
-    const bool clothHandoff = m_config.style == cfg::Style::Cloth && transformer &&
-                              (transformer->clothOpening() || transformer->clothMoving());
-    const bool liquidBusy = transformer && transformer->liquidStyle() && transformer->transition().active();
-    const bool sheetBusy = transformer && transformer->sheetActive() && !clothHandoff;
-    if (((animating || wasAnimating) && !clothHandoff) || liquidBusy || sheetBusy) {
-        // Native opening and a liquid box-driven transition are not movement impulses. Cloth's opening box
-        // is already fixed at its goal, so subsequent geometry changes can take over its displayed sheet.
-        entry.lastBox = current;
-        entry.lastCapture = capture;
-        return;
-    }
+    if (decision.action == liquid_glass::TrackAction::Move)
+        recordMovement(entry, window, decision, elapsed);
+    stepWindow(entry, window, elapsed);
+}
 
-    const CBox   previousCapture = entry.lastCapture;
-    const auto   delta = current.pos() - entry.lastBox.pos();
-    const bool   translated = delta.x != 0.0 || delta.y != 0.0;
-    const bool   resized = current.size() != entry.lastBox.size();
-    const bool   captureChanged = capture.pos() != previousCapture.pos() || capture.size() != previousCapture.size();
-    const double largest = std::max({current.w, current.h, entry.lastBox.w, entry.lastBox.h});
-    entry.lastBox = current;
-    entry.lastCapture = capture;
+liquid_glass::WindowSnapshot CPluginRuntime::snapshotOf(const PHLWINDOW &window, bool animating, double elapsed) {
+    const auto                  *transformer = transformerOf(window);
+    liquid_glass::WindowSnapshot s;
+    s.current = toBox(window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT));
+    s.capture = toBox(window->getFullWindowBoundingBox());
+    s.deformable = eligible(window);
+    s.animatingIn = animating;
+    s.clothHandoff = m_config.style == cfg::Style::Cloth && transformer &&
+                     (transformer->clothOpening() || transformer->clothMoving());
+    s.transitionBusy =
+        transformer && (transformer->transitionActive() || (transformer->sheetActive() && !s.clothHandoff));
+    s.materialChanged = transformer && materialChanged(*transformer);
+    s.clothMoving = transformer && transformer->clothMoving();
+    s.openEnabled = openEnabled();
+    s.movementEnabled = movementEnabled();
+    s.monitor = monitorId(window);
+    s.elapsed = elapsed;
+    return s;
+}
 
-    if (std::hypot(delta.x, delta.y) > MAX_JUMP_FACTOR * largest) {
-        detachWindow(entry, window);
-        baseline(entry, window);
-        return;
-    }
-
+void CPluginRuntime::recordMovement(STracked &entry, const PHLWINDOW &window,
+                                    const liquid_glass::TrackDecision &decision, double elapsed) {
     const bool enabled = movementEnabled();
-    const bool cancelledMovement = transformer && transformer->clothMoving() && !enabled;
-    if (!translated && !resized && !captureChanged && !cancelledMovement)
-        return;
-    const bool moving = translated && enabled;
+    const bool moving = decision.translated && enabled;
+    auto      *transformer = transformerOf(window);
     if (!moving && !transformer)
         return;
     if (entry.hasFootprint) {
@@ -508,48 +487,25 @@ void CPluginRuntime::sampleWindow(STracked &entry, const PHLWINDOW &window) {
     }
     if (!transformer)
         transformer = acquireTransformer(window);
-    const bool wasActive = transformer->active();
-    if (cancelledMovement)
+    const CBox     capture = window->getFullWindowBoundingBox();
+    const CBox     current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+    const Vector2D delta{current.x - decision.previousBox.x, current.y - decision.previousBox.y};
+    if (decision.cancelMovement)
         transformer->cancelMovement();
     switch (m_config.style) {
     case cfg::Style::Cloth:
         if (moving && !transformer->clothMoving())
-            transformer->beginClothMovement(
-                m_nextSeed++, {previousCapture.x, previousCapture.y, previousCapture.w, previousCapture.h},
-                movementGrab(window, capture, delta));
+            transformer->beginClothMovement(m_nextSeed++, decision.previousCapture,
+                                            movementGrab(window, capture, delta));
         if (enabled && transformer->clothMoving())
-            transformer->updateClothMovement({capture.x, capture.y, capture.w, capture.h}, sampleElapsed);
+            transformer->updateClothMovement(toBox(capture), elapsed);
         break;
     case cfg::Style::Liquid:
-        if (moving)
-            transformer->mesh().recordTranslation({delta.x, delta.y}, {captureSize.x, captureSize.y},
-                                                  movementStrength());
-        else if (enabled)
-            transformer->mesh().advance(0.0, {captureSize.x, captureSize.y});
-        else
-            transformer->mesh().reset();
-        transformer->refreshPose({captureSize.x, captureSize.y});
+        transformer->recordLiquidMove({delta.x, delta.y}, {capture.w, capture.h}, movementStrength(), moving, enabled);
         break;
     case cfg::Style::Paper:
         break; // paper windows move undeformed
     }
-    if (!wasActive) {
-        // The first live target spans the observed geometry interval, even though this frame's advance follows the
-        // sample immediately. Otherwise its initial velocity would be compressed into almost zero time.
-        entry.lastAdvance = m_config.style == cfg::Style::Cloth && moving
-                                ? now - std::chrono::duration_cast<clock::duration>(
-                                            std::chrono::duration<double>(std::max(0.0, sampleElapsed)))
-                                : now;
-    }
-
-    if (transformer->active()) {
-        entry.footprint = worldFootprint(window);
-        entry.hasFootprint = true;
-    } else {
-        window->effects().transformers()->removeInactive();
-    }
-    g_pHyprRenderer->damageWindow(window);
-    scheduleAnimation(window);
 }
 
 void CPluginRuntime::beginOpening(STracked &entry, const PHLWINDOW &window) {
@@ -587,7 +543,7 @@ void CPluginRuntime::beginOpening(STracked &entry, const PHLWINDOW &window) {
             g_pHyprRenderer->damageBox(capture);
             window->positionAnimation()->setValueAndWarp(goal.pos());
             window->sizeAnimation()->setValueAndWarp(goal.size());
-            baseline(entry, window);
+            rebaseline(entry, window);
         }
         break;
     }
@@ -606,7 +562,6 @@ void CPluginRuntime::beginOpening(STracked &entry, const PHLWINDOW &window) {
         break;
     }
     }
-    entry.lastAdvance = clock::now();
 
     if (entry.hasFootprint)
         g_pHyprRenderer->damageBox(entry.footprint);
@@ -617,12 +572,8 @@ void CPluginRuntime::beginOpening(STracked &entry, const PHLWINDOW &window) {
     scheduleAnimation(window);
 }
 
-void CPluginRuntime::advanceWindow(STracked &entry, const PHLWINDOW &window,
-                                   std::chrono::steady_clock::time_point now) {
-    auto        *transformer = transformerOf(window);
-    const double elapsed = std::max(0.0, std::chrono::duration<double>(now - entry.lastAdvance).count());
-    entry.lastAdvance = now;
-
+void CPluginRuntime::stepWindow(STracked &entry, const PHLWINDOW &window, double elapsed) {
+    auto *transformer = transformerOf(window);
     if (!transformer || !transformer->active()) {
         if (transformer)
             transformer->cancelOpening(); // a driven open that went inactive (fullscreen, unmap) returns the layout box
@@ -634,57 +585,30 @@ void CPluginRuntime::advanceWindow(STracked &entry, const PHLWINDOW &window,
         }
         return;
     }
-
-    if (materialChanged(*transformer)) {
-        detachWindow(entry, window);
-        baseline(entry, window);
-        entry.wasEligible = eligible(window);
-        return;
-    }
-
-    if (elapsed > liquid_glass::kStallSeconds) {
-        detachWindow(entry, window);
-        baseline(entry, window);
-        return;
-    }
-
     if (entry.hasFootprint) {
         g_pHyprRenderer->damageBox(entry.footprint);
         entry.hasFootprint = false;
     }
-
     const CBox capture = window->getFullWindowBoundingBox();
     if (!isUsableBox(capture)) {
         detachWindow(entry, window);
-        baseline(entry, window);
-        entry.wasEligible = false;
         return;
     }
-    entry.lastCapture = capture;
-    const liquid_glass::Vec2 size{capture.w, capture.h};
-    const bool               enabled = movementEnabled();
-    const bool               moving = enabled && m_config.style == cfg::Style::Liquid;
+    const bool enabled = movementEnabled();
     if (!enabled && transformer->clothMoving())
         transformer->cancelMovement();
-    transformer->advanceSheet(elapsed, size);
-    if (transformer->liquidStyle()) {
-        if (!moving)
-            transformer->mesh().reset();
-        transformer->advanceLiquid(elapsed, size, movementStrength(), moving ? m_config.open.liquid.emergeDrag : 0.0);
-        transformer->refreshPose(size);
-        transformer->driveBox();
-    }
-    entry.lastBox = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
-    entry.lastCapture = window->getFullWindowBoundingBox();
-    const bool stillActive = transformer->active();
-    if (stillActive) {
+    transformer->step(elapsed, {capture.w, capture.h}, movementStrength(),
+                      enabled && m_config.style == cfg::Style::Liquid, m_config.open.liquid.emergeDrag);
+    // The step may drive the layout box. Baselining after it keeps that drive from reading as window movement.
+    entry.tracker.baseline(toBox(window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT)),
+                           toBox(window->getFullWindowBoundingBox()), monitorId(window));
+    if (transformer->active()) {
         entry.footprint = worldFootprint(window);
         entry.hasFootprint = true;
     } else {
         // Settled fields have already restored the undeformed mesh; pruning drops the transformer.
         window->effects().transformers()->removeInactive();
     }
-
     g_pHyprRenderer->damageWindow(window);
     scheduleAnimation(window);
 }

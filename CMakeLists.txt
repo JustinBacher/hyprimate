@@ -76,6 +76,7 @@ add_library(liquid-glass-core STATIC
     src/PaperTakes.cpp
     src/SheetFrame.cpp
     src/ClothFlutter.cpp
+    src/WindowTracker.cpp
 )
 # PaperTakes.cpp #embeds the baked crumples; rebuild it whenever they are re-packed.
 set_source_files_properties(src/PaperTakes.cpp PROPERTIES OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/paper_takes.bin)
@@ -146,4 +147,9 @@ if(BUILD_TESTING)
     target_link_libraries(cloth-flutter-tests PRIVATE liquid-glass-core Jolt)
     target_compile_options(cloth-flutter-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME cloth-flutter-tests COMMAND cloth-flutter-tests)
+
+    add_executable(window-tracker-tests tests/WindowTrackerTests.cpp)
+    target_link_libraries(window-tracker-tests PRIVATE liquid-glass-core)
+    target_compile_options(window-tracker-tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME window-tracker-tests COMMAND window-tracker-tests)
 endif()

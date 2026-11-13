@@ -5,6 +5,7 @@
 #include <hyprland/src/helpers/signal/Signal.hpp>
 #include <hyprland/src/plugins/PluginAPI.hpp>
 #include "LiquidGlassTransformer.hpp"
+#include "WindowTracker.hpp"
 #include "LiquidCloseRenderer.hpp"
 #include "SolidFill.hpp"
 #include "config_generated.hpp"
@@ -31,17 +32,11 @@ class CPluginRuntime {
     using clock = std::chrono::steady_clock;
 
     struct STracked {
-        PHLWINDOWREF                      window;
-        PHLMONITORREF                     monitor;
-        CBox                              lastBox;     // last sampled current geometry (world space)
-        CBox                              lastCapture; // decorated, untransformed capture domain
-        CBox                              footprint;   // world-space damage footprint of the last deformation
-        bool                              hasFootprint = false;
-        bool                              baselined = false;
-        bool                              wasAnimatingIn = false;
-        bool                              wasEligible = false;
-        clock::time_point                 lastSample = clock::now();
-        clock::time_point                 lastAdvance = clock::now();
+        PHLWINDOWREF                window;
+        liquid_glass::WindowTracker tracker;
+        CBox                        footprint; // world-space damage footprint of the last deformation
+        bool                        hasFootprint = false;
+        clock::time_point           lastUpdate = clock::now(); // previous update; stall and physics elapsed run from it
         std::optional<liquid_glass::Edge> openEdge; // edge the opening began from; close_side=origin drains here
     };
 
@@ -63,7 +58,7 @@ class CPluginRuntime {
     STracked *find(const PHLWINDOW &window);
     void      track(const PHLWINDOW &window);
     void      forget(const PHLWINDOW &window);
-    void      baseline(STracked &entry, const PHLWINDOW &window) const;
+    void      rebaseline(STracked &entry, const PHLWINDOW &window) const;
     void      baselineAll();
     bool      eligible(const PHLWINDOW &window) const;
 
@@ -77,9 +72,12 @@ class CPluginRuntime {
                                                         std::optional<liquid_glass::Edge> origin = std::nullopt) const;
 
     // Sampling and simulation.
-    void onRenderPre(const PHLMONITOR &monitor);
-    void sampleWindow(STracked &entry, const PHLWINDOW &window);
-    void advanceWindow(STracked &entry, const PHLWINDOW &window, clock::time_point now);
+    void                         onRenderPre(const PHLMONITOR &monitor);
+    void                         updateWindow(STracked &entry, const PHLWINDOW &window, clock::time_point now);
+    liquid_glass::WindowSnapshot snapshotOf(const PHLWINDOW &window, bool animating, double elapsed);
+    void recordMovement(STracked &entry, const PHLWINDOW &window, const liquid_glass::TrackDecision &decision,
+                        double elapsed);
+    void stepWindow(STracked &entry, const PHLWINDOW &window, double elapsed);
     void beginOpening(STracked &entry, const PHLWINDOW &window);
 
     // Mutations. Each one damages the previous and restored footprints.

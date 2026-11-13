@@ -319,6 +319,34 @@ void CLiquidGlassTransformer::advanceLiquid(double elapsed, Vec2 size, double st
     liquid_glass::advanceLiquidPose(state.mesh, state.transition, state.grid, elapsed, size, strength, drive);
 }
 
+bool CLiquidGlassTransformer::transitionActive() const noexcept {
+    return liquidStyle() && liquid().transition.active();
+}
+
+void CLiquidGlassTransformer::recordLiquidMove(Vec2 delta, Vec2 size, double strength, bool moving, bool enabled) {
+    if (!liquidStyle())
+        return;
+    auto &state = liquid();
+    if (moving)
+        state.mesh.recordTranslation(delta, size, strength);
+    else if (enabled)
+        state.mesh.advance(0.0, size);
+    else
+        state.mesh.reset();
+    refreshPose(size);
+}
+
+void CLiquidGlassTransformer::step(double elapsed, Vec2 size, double strength, bool moving, double emergeDrag) {
+    advanceSheet(elapsed, size);
+    if (!liquidStyle())
+        return;
+    if (!moving)
+        liquid().mesh.reset();
+    advanceLiquid(elapsed, size, strength, moving ? emergeDrag : 0.0);
+    refreshPose(size);
+    driveBox();
+}
+
 bool CLiquidGlassTransformer::deforming() const noexcept {
     if (const auto *state = std::get_if<SLiquidStyle>(&m_style))
         return !(state->mesh.settled() && !state->transition.active());
