@@ -49,11 +49,12 @@ class CLiquidCloseRenderer {
         CBox                     sourceDevice; // undeformed window box inside the snapshot, device px
         double                   scale = 1.0;  // monitor scale at staging time
         liquid_glass::Vec2       captureLogical{};
-        Vector2D                 snapshotSize{};    // snapshot texture size, device px
-        CBox                     renderBox;         // owned placement: unit scale, centre follows native
-        CBox                     extentsDevice;     // deformed extents of sourceDevice, device px
-        bool                     hasLiquid = false; // edge liquid present this frame (liquid only)
-        CBox                     liquidDevice;      // edge liquid box inside the snapshot, device px
+        Vector2D                 snapshotSize{};        // snapshot texture size, device px
+        CBox                     renderBox;             // owned placement: unit scale, centre follows native
+        CBox                     extentsDevice;         // deformed extents of sourceDevice, device px
+        bool                     hasLiquid = false;     // edge liquid present this frame (liquid only)
+        bool                     verticesStale = false; // liquid vertices lag the mesh; refilled when drawn
+        CBox                     liquidDevice;          // edge liquid box inside the snapshot, device px
         clock::time_point        lastAdvance{};
     };
 
@@ -72,7 +73,7 @@ class CLiquidCloseRenderer {
     // listener, before the window is detached.
     // `closeSplash` plays the splash bump at the dive point after the drain (EdgeTransition::begin). `transition`
     // carries the close's own elasticity/momentum; the movement mesh's params never drive the close edge transition.
-    void stage(const PHLWINDOW &window, const SLiquidPose &pose, double strength,
+    void stage(const PHLWINDOW &window, const liquid_glass::LiquidPose &pose, double strength,
                std::optional<liquid_glass::EdgeFrame> closeFrame, bool closeSplash,
                const liquid_glass::TransitionParams &transition);
 

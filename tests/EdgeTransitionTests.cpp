@@ -1,6 +1,7 @@
 #include "Check.hpp"
 #include "EdgeTransition.hpp"
 #include "LiquidMesh.hpp"
+#include "LiquidPose.hpp"
 
 #include <algorithm>
 #include <array>
@@ -212,6 +213,11 @@ constexpr Vec2 kCapture{948.0, 532.0};
 
 // Displayed centre displacement (logical px) from the rest capture centre.
 Vec2 centreOf(const EdgeTransition &tr) { return tr.map({0.0, 0.0}, kCapture); }
+
+// Movement-field gain for `mesh` and `tr` at the rest capture size (no grid).
+double fitGain(const LiquidMesh &mesh, const EdgeTransition &tr, Vec2 comp = {1.0, 1.0}) {
+    return liquid_glass::fitLiquidPoseGain(liquid_glass::LiquidPose{mesh, tr, comp}, kCapture, nullptr);
+}
 
 // Centre displacement into the screen along the edge normal (0 at rest, negative toward and behind the edge).
 double centreInward(const EdgeTransition &tr) {
@@ -497,48 +503,53 @@ void testDisplacementGainGuard() {
     EdgeTransition idle;
     LiquidMesh     fresh;
     CHECK(fresh.settled());
-    CHECK(idle.displacementGain(fresh, kCapture, {1.0, 1.0}) == 1.0);
+    CHECK(fitGain(fresh, idle) == 1.0);
 
     EdgeTransition tr;
     tr.begin(Transition::Open, kQuarter, TransitionParams{}, kStrength);
-    CHECK(tr.displacementGain(fresh, kCapture, {1.0, 1.0}) == 1.0); // settled mesh: no gain reduction
+    CHECK(fitGain(fresh, tr) == 1.0); // settled mesh: no gain reduction
 
     LiquidMesh moving;
     moving.recordTranslation({40.0, 0.0}, kCapture, kStrength);
     for (int i = 0; i < 24; ++i)
         moving.advance(kStep, kCapture);
-    const double g = tr.displacementGain(moving, kCapture, {1.0, 1.0});
+    const double g = fitGain(moving, tr);
     CHECK(g >= 0.0 && g <= 1.0);
     if (g > 0.0)
         CHECK(std::abs(std::log2(g) - std::round(std::log2(g))) < 1e-9); // halvings of 1
 }
 
-// Smallest triangle-area ratio (moved / gain-0) over the renderer's 32x32 grid, composed exactly as the renderer does:
-// map(((u-0.5)*S + g*d) * c, S*c) against map((u-0.5)*S * c, S*c). Independent of the guard implementation.
-double minRendererRatio(const EdgeTransition &tr, const LiquidMesh &mesh, double g, Vec2 size, Vec2 c) {
-    constexpr int                   kSide = 33;
-    const Vec2                      scaled{size.x * c.x, size.y * c.y};
-    std::array<Vec2, kSide * kSide> base{}, moved{};
-    for (int j = 0; j < kSide; ++j)
-        for (int i = 0; i < kSide; ++i) {
-            const double u = static_cast<double>(i) / (kSide - 1), v = static_cast<double>(j) / (kSide - 1);
-            const auto   d = mesh.sampleDisplacement(u, v);
-            const double bx = (u - 0.5) * size.x, by = (v - 0.5) * size.y;
-            base[j * kSide + i] = tr.map({bx * c.x, by * c.y}, scaled);
-            moved[j * kSide + i] = tr.map({(bx + g * d.x) * c.x, (by + g * d.y) * c.y}, scaled);
-        }
-    const auto area = [](Vec2 a, Vec2 b, Vec2 q) { return (b.x - a.x) * (q.y - a.y) - (b.y - a.y) * (q.x - a.x); };
-    double     worst = 1.0;
-    for (int j = 0; j + 1 < kSide; ++j)
-        for (int i = 0; i + 1 < kSide; ++i) {
-            const int p00 = j * kSide + i, p10 = p00 + 1, p01 = p00 + kSide, p11 = p01 + 1;
-            for (const auto &[a, b, q] : {std::array{p00, p10, p01}, std::array{p10, p11, p01}}) {
-                const double ref = area(base[a], base[b], base[q]);
-                if (std::abs(ref) < 1e-9)
-                    continue; // degenerate at rest: nothing to fold
-                worst = std::min(worst, area(moved[a], moved[b], moved[q]) / ref);
-            }
-        }
+// Render mesh the renderer draws at displacement gain g, filled through the same LiquidPose path. Output is in logical
+// px (unit output device), so triangle-area ratios equal those in device px.
+std::vector<liquid_glass::LiquidVertex> renderMesh(const EdgeTransition &tr, const LiquidMesh &mesh, double g,
+                                                   Vec2 size, Vec2 c) {
+    liquid_glass::LiquidPose pose{mesh, tr, c};
+    pose.displacementGain = g;
+    liquid_glass::LiquidPoseGrid            grid;
+    std::vector<liquid_glass::LiquidVertex> out;
+    const liquid_glass::Box                 logical{0.0, 0.0, size.x, size.y};
+    liquid_glass::fillLiquidRenderMesh(pose, logical, 1.0, liquid_glass::Box{0.0, 0.0, 1.0, 1.0}, Vec2{0.0, 0.0}, size,
+                                       grid, out);
+    return out;
+}
+
+// Smallest triangle-area ratio (moved / gain-0) over the emitted render mesh. A ratio under 0.2 is a fold that pinches
+// the window.
+double minRenderRatio(const EdgeTransition &tr, const LiquidMesh &mesh, double g, Vec2 size, Vec2 c) {
+    const auto base = renderMesh(tr, mesh, 0.0, size, c);
+    const auto moved = renderMesh(tr, mesh, g, size, c);
+    const auto area = [](const liquid_glass::LiquidVertex &a, const liquid_glass::LiquidVertex &b,
+                         const liquid_glass::LiquidVertex &q) {
+        return (static_cast<double>(b.x) - a.x) * (static_cast<double>(q.y) - a.y) -
+               (static_cast<double>(b.y) - a.y) * (static_cast<double>(q.x) - a.x);
+    };
+    double worst = 1.0;
+    for (std::size_t t = 0; t + 2 < base.size(); t += 3) { // six vertices per cell: two triangles of three
+        const double ref = area(base[t], base[t + 1], base[t + 2]);
+        if (std::abs(ref) < 1e-9)
+            continue; // degenerate at rest: nothing to fold
+        worst = std::min(worst, area(moved[t], moved[t + 1], moved[t + 2]) / ref);
+    }
     return worst;
 }
 
@@ -556,9 +567,9 @@ void testDisplacementGainKeepsTrianglesWhenCompensated() {
     }
     for (double c : {1.0, 1.5, 2.0}) {
         const Vec2   comp{c, c};
-        const double g = tr.displacementGain(mesh, kCapture, comp);
+        const double g = fitGain(mesh, tr, comp);
         CHECK(g < 1.0);
-        CHECK(minRendererRatio(tr, mesh, g, kCapture, comp) >= 0.2 - 1e-9);
+        CHECK(minRenderRatio(tr, mesh, g, kCapture, comp) >= 0.2 - 1e-9);
     }
 }
 

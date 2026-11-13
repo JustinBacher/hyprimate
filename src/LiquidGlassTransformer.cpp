@@ -17,224 +17,19 @@
 using namespace Render;
 using liquid_glass::EdgeTransition;
 using liquid_glass::LiquidMesh;
+using liquid_glass::LiquidPose;
 using liquid_glass::Vec2;
 
 namespace {
 constexpr double EXTENTS_PADDING = 4.0;
-constexpr int    SAMPLES = liquid_glass::LIQUID_RENDER_CELLS + 1;
-// Edge liquid extends this far behind the screen edge so it meets the window without a gap.
-constexpr double BEHIND_EDGE = 2.0;
-// Half-plane extent in logical px; far larger than any monitor.
-constexpr double HUGE_SPAN = 1.0e6;
-
-// Lattice coordinate of render sample i along one axis, in [0, 1].
-constexpr double sampleCoordinate(int i) noexcept { return static_cast<double>(i) / liquid_glass::LIQUID_RENDER_CELLS; }
-
-// Window sample offset from the box centre, in logical px. A box-driven open leaves only the movement field: the
-// real window box already is the pop-out. Otherwise (a retained closing snapshot) the pop-out maps the rest box.
-Vec2 poseOffset(const SLiquidPose &pose, double u, double v, Vec2 size) {
-    const Vec2   d = pose.mesh.sampleDisplacement(u, v);
-    const double gain = pose.displacementGain;
-    if (pose.boxPose)
-        return {(u - 0.5) * size.x + d.x * gain, (v - 0.5) * size.y + d.y * gain};
-    const Vec2 c = pose.compensation;
-    const Vec2 scaled{size.x * c.x, size.y * c.y};
-    const Vec2 mapped =
-        pose.transition.map({((u - 0.5) * size.x + d.x * gain) * c.x, ((v - 0.5) * size.y + d.y * gain) * c.y}, scaled);
-    return {mapped.x + pose.openOffset.x, mapped.y + pose.openOffset.y};
-}
-
-// Edge liquid point relative to the box centre, in logical px.
-Vec2 liquidPoint(const SLiquidPose &pose, double t, double n) {
-    const Vec2 p = liquid_glass::edgePoint(pose.transition.frame(), t, n);
-    return {p.x + pose.openOffset.x, p.y + pose.openOffset.y};
-}
-
-// Span along one axis of the visible half-plane: the screen side of the edge line.
-void visibleSpan(double edge, double inward, double &lo, double &hi) noexcept {
-    if (inward > 0.0) {
-        lo = edge;
-        hi = edge + HUGE_SPAN;
-    } else if (inward < 0.0) {
-        lo = edge - HUGE_SPAN;
-        hi = edge;
-    } else {
-        lo = edge - HUGE_SPAN;
-        hi = edge + HUGE_SPAN;
-    }
-}
 } // namespace
 
-void advanceLiquidPose(LiquidMesh &mesh, EdgeTransition &transition, double elapsed, Vec2 size, double strength,
-                       double drive) {
-    transition.advance(elapsed);
-    // Drained every frame so travel never accumulates while drive is 0.
-    const Vec2   travel = transition.takeTravel();
-    const double share = std::isfinite(drive) ? std::clamp(drive, 0.0, 1.0) : 0.0;
-    if (share > 0.0 && (travel.x != 0.0 || travel.y != 0.0))
-        mesh.recordTranslation({travel.x * share, travel.y * share}, size, strength);
-    mesh.advance(elapsed, size);
-}
-
-std::optional<CBox> liquidVisibleBox(const SLiquidPose &pose, const CBox &logicalBox) {
-    if (!pose.transition.active())
-        return std::nullopt;
-
-    const auto  &frame = pose.transition.frame();
-    const Vec2   inward = liquid_glass::inwardNormal(frame.edge);
-    const Vec2   edge = liquidPoint(pose, 0.0, 0.0);
-    const double edgeX = logicalBox.x + 0.5 * logicalBox.w + edge.x;
-    const double edgeY = logicalBox.y + 0.5 * logicalBox.h + edge.y;
-
-    double minX = 0.0, maxX = 0.0, minY = 0.0, maxY = 0.0;
-    visibleSpan(edgeX, inward.x, minX, maxX);
-    visibleSpan(edgeY, inward.y, minY, maxY);
-    return CBox{minX, minY, maxX - minX, maxY - minY};
-}
-
-std::optional<CBox> liquidMeniscusExtents(const SLiquidPose &pose, const CBox &logicalBox) {
-    const double low = pose.transition.meniscusLow();
-    const double high = pose.transition.meniscusHigh();
-    const double peak = pose.transition.meniscusPeak();
-    if (!(peak > 0.0) || !(high > low))
-        return std::nullopt;
-
-    const double centreX = logicalBox.x + 0.5 * logicalBox.w;
-    const double centreY = logicalBox.y + 0.5 * logicalBox.h;
-    double       minX = std::numeric_limits<double>::max();
-    double       minY = std::numeric_limits<double>::max();
-    double       maxX = std::numeric_limits<double>::lowest();
-    double       maxY = std::numeric_limits<double>::lowest();
-    for (const double t : {low, high}) {
-        for (const double n : {-BEHIND_EDGE, peak}) {
-            const Vec2 p = liquidPoint(pose, t, n);
-            minX = std::min(minX, centreX + p.x);
-            minY = std::min(minY, centreY + p.y);
-            maxX = std::max(maxX, centreX + p.x);
-            maxY = std::max(maxY, centreY + p.y);
-        }
-    }
-    return CBox{minX, minY, maxX - minX, maxY - minY};
-}
-
-CBox liquidRenderExtents(const SLiquidPose &pose, const CBox &logicalBox) {
-    // Only displayed samples and the meniscus contribute; the undeformed box is not part of the canvas.
-    double       minX = std::numeric_limits<double>::max();
-    double       minY = std::numeric_limits<double>::max();
-    double       maxX = std::numeric_limits<double>::lowest();
-    double       maxY = std::numeric_limits<double>::lowest();
-    const Vec2   size{logicalBox.w, logicalBox.h};
-    const double centreX = logicalBox.x + 0.5 * logicalBox.w;
-    const double centreY = logicalBox.y + 0.5 * logicalBox.h;
-
-    for (int j = 0; j < SAMPLES; ++j) {
-        for (int i = 0; i < SAMPLES; ++i) {
-            const Vec2 p = poseOffset(pose, sampleCoordinate(i), sampleCoordinate(j), size);
-            minX = std::min(minX, centreX + p.x);
-            minY = std::min(minY, centreY + p.y);
-            maxX = std::max(maxX, centreX + p.x);
-            maxY = std::max(maxY, centreY + p.y);
-        }
-    }
-
-    if (const auto meniscus = liquidMeniscusExtents(pose, logicalBox)) {
-        minX = std::min(minX, meniscus->x);
-        minY = std::min(minY, meniscus->y);
-        maxX = std::max(maxX, meniscus->x + meniscus->w);
-        maxY = std::max(maxY, meniscus->y + meniscus->h);
-    }
-
-    CBox extents{minX, minY, maxX - minX, maxY - minY};
-    if (const auto visible = liquidVisibleBox(pose, logicalBox)) {
-        extents = extents.intersection(*visible);
-        if (extents.empty()) {
-            // Nothing visible yet: a 1 px sliver on the screen side of the edge keeps the damage path valid.
-            const Vec2 inward = liquid_glass::inwardNormal(pose.transition.frame().edge);
-            const Vec2 edge = liquidPoint(pose, 0.0, 0.0);
-            extents = CBox{centreX + edge.x + inward.x, centreY + edge.y + inward.y, 1.0, 1.0};
-        }
-    }
-    return extents;
-}
-
-void fillLiquidRenderMesh(const SLiquidPose &pose, const CBox &sourceDevice, double scale, const CBox &outputDevice,
-                          Vec2 textureOrigin, Vec2 textureSize, std::vector<SMeshRenderVertex> &out) {
-    if (out.size() != LIQUID_RENDER_VERTEX_COUNT)
-        out.resize(LIQUID_RENDER_VERTEX_COUNT);
-
-    // Compute each grid sample once, then reuse it for its neighbouring triangles. Fixed stack storage.
-    struct Sample {
-        float x, y, u, v;
-    };
-    std::array<Sample, SAMPLES * SAMPLES> samples;
-    const Vec2                            size{sourceDevice.w / scale, sourceDevice.h / scale};
-    const double                          centreX = sourceDevice.x + 0.5 * sourceDevice.w;
-    const double                          centreY = sourceDevice.y + 0.5 * sourceDevice.h;
-    for (int j = 0; j < SAMPLES; ++j) {
-        for (int i = 0; i < SAMPLES; ++i) {
-            const double u = sampleCoordinate(i);
-            const double v = sampleCoordinate(j);
-            const Vec2   p = poseOffset(pose, u, v, size);
-            samples[j * SAMPLES + i] = {
-                static_cast<float>((centreX + p.x * scale - outputDevice.x) / outputDevice.w),
-                static_cast<float>((centreY + p.y * scale - outputDevice.y) / outputDevice.h),
-                static_cast<float>((sourceDevice.x + sourceDevice.w * u - textureOrigin.x) / textureSize.x),
-                static_cast<float>((sourceDevice.y + sourceDevice.h * v - textureOrigin.y) / textureSize.y),
-            };
-        }
-    }
-
-    constexpr int ORDER[6][2] = {{0, 0}, {0, 1}, {1, 0}, {1, 0}, {0, 1}, {1, 1}};
-    std::size_t   k = 0;
-    for (int cj = 0; cj < liquid_glass::LIQUID_RENDER_CELLS; ++cj) {
-        for (int ci = 0; ci < liquid_glass::LIQUID_RENDER_CELLS; ++ci) {
-            for (const auto &corner : ORDER) {
-                SMeshRenderVertex &vertex = out[k++];
-                const Sample      &sample = samples[(cj + corner[1]) * SAMPLES + ci + corner[0]];
-                vertex.x = sample.x;
-                vertex.y = sample.y;
-                vertex.u = sample.u;
-                vertex.v = sample.v;
-            }
-        }
-    }
-}
-
-void fillLiquidMeniscusMesh(const SLiquidPose &pose, const CBox &sourceDevice, double scale, const CBox &outputDevice,
-                            std::vector<SMeshRenderVertex> &out) {
-    if (out.size() != LIQUID_MENISCUS_VERTEX_COUNT)
-        out.resize(LIQUID_MENISCUS_VERTEX_COUNT);
-
-    const double centreX = sourceDevice.x + 0.5 * sourceDevice.w;
-    const double centreY = sourceDevice.y + 0.5 * sourceDevice.h;
-    const double low = pose.transition.meniscusLow();
-    const double span = pose.transition.meniscusHigh() - low;
-
-    // Texture coordinates are unused: the liquid is a flat colour sampled at its centre.
-    const auto place = [&](SMeshRenderVertex &vertex, double t, double n) {
-        const Vec2 p = liquidPoint(pose, t, n);
-        vertex.x = static_cast<float>((centreX + p.x * scale - outputDevice.x) / outputDevice.w);
-        vertex.y = static_cast<float>((centreY + p.y * scale - outputDevice.y) / outputDevice.h);
-        vertex.u = 0.5F;
-        vertex.v = 0.5F;
-    };
-
-    for (int i = 0; i < LIQUID_MENISCUS_COLUMNS; ++i) {
-        const double t0 = low + span * static_cast<double>(i) / LIQUID_MENISCUS_COLUMNS;
-        const double t1 = low + span * static_cast<double>(i + 1) / LIQUID_MENISCUS_COLUMNS;
-        const double h0 = pose.transition.meniscus(t0);
-        const double h1 = pose.transition.meniscus(t1);
-
-        // Corners: a = behind edge at t0, b = behind edge at t1, c = crest at t0, d = crest at t1. Triangles abc, bdc.
-        SMeshRenderVertex *quad = &out[static_cast<std::size_t>(i) * 6];
-        place(quad[0], t0, -BEHIND_EDGE);
-        place(quad[1], t1, -BEHIND_EDGE);
-        place(quad[2], t0, h0);
-        place(quad[3], t1, -BEHIND_EDGE);
-        place(quad[4], t1, h1);
-        place(quad[5], t0, h0);
-    }
-}
+// The core fills write liquid_glass::LiquidVertex straight into Hyprland's mesh vertices: the layout must match.
+static_assert(sizeof(SMeshRenderVertex) == sizeof(liquid_glass::LiquidVertex));
+static_assert(offsetof(SMeshRenderVertex, x) == offsetof(liquid_glass::LiquidVertex, x));
+static_assert(offsetof(SMeshRenderVertex, y) == offsetof(liquid_glass::LiquidVertex, y));
+static_assert(offsetof(SMeshRenderVertex, u) == offsetof(liquid_glass::LiquidVertex, u));
+static_assert(offsetof(SMeshRenderVertex, v) == offsetof(liquid_glass::LiquidVertex, v));
 
 CLiquidGlassTransformer::CLiquidGlassTransformer(PHLWINDOWREF window, SStyleState state, SP<CSolidFill> solid,
                                                  SP<CPaperShade> shade)
@@ -276,6 +71,7 @@ void CLiquidGlassTransformer::cancelOpening() {
         state.transition.reset();
         state.boxDriven = false;
         state.displacementGain = 1.0;
+        state.grid.invalidate();
         return;
     }
     if (auto *paper = std::get_if<SPaperStyle>(&m_style); paper && paper->crumple.active())
@@ -287,6 +83,7 @@ void CLiquidGlassTransformer::cancelOpening() {
 void CLiquidGlassTransformer::cancelMovement() {
     if (std::holds_alternative<SLiquidStyle>(m_style)) {
         liquid().mesh.reset();
+        liquid().grid.invalidate();
         return;
     }
     if (clothMoving()) {
@@ -479,10 +276,10 @@ void CLiquidGlassTransformer::driveBox() {
 
 // Pop-out geometry for a retained closing snapshot: the window as drawn at its driven box, scaled and moved back to the
 // rest box. The scale is large for a small bead; the bound only guards against degenerate boxes.
-SLiquidPose CLiquidGlassTransformer::closePose() const {
-    const auto       &state = liquid();
-    const auto        window = m_window.lock();
-    const SLiquidPose unitPose{state.mesh, state.transition, {1.0, 1.0}, {0.0, 0.0}, state.displacementGain, false};
+LiquidPose CLiquidGlassTransformer::closePose() const {
+    const auto      &state = liquid();
+    const auto       window = m_window.lock();
+    const LiquidPose unitPose{state.mesh, state.transition, {1.0, 1.0}, {0.0, 0.0}, state.displacementGain, false};
     if (!window || !state.boxDriven)
         return unitPose;
     const CBox current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
@@ -500,7 +297,7 @@ SLiquidPose CLiquidGlassTransformer::closePose() const {
             false};
 }
 
-SLiquidPose CLiquidGlassTransformer::renderPose() const {
+LiquidPose CLiquidGlassTransformer::renderPose() const {
     const auto &state = liquid();
     if (!state.boxDriven)
         return {state.mesh, state.transition, {1.0, 1.0}, {0.0, 0.0}, state.displacementGain, false};
@@ -511,7 +308,15 @@ SLiquidPose CLiquidGlassTransformer::renderPose() const {
 
 void CLiquidGlassTransformer::refreshPose(Vec2 captureSize) {
     auto &state = liquid();
-    state.displacementGain = state.transition.displacementGain(state.mesh, captureSize, {1.0, 1.0}, state.boxDriven);
+    // Gain only: the shared grid is built by the pose that draws it, so nothing is pre-filled here.
+    const liquid_glass::LiquidPose fit{state.mesh, state.transition, {1.0, 1.0}, {0.0, 0.0}, 1.0, state.boxDriven};
+    state.displacementGain = liquid_glass::fitLiquidPoseGain(fit, captureSize, nullptr);
+    state.grid.invalidate();
+}
+
+void CLiquidGlassTransformer::advanceLiquid(double elapsed, Vec2 size, double strength, double drive) {
+    auto &state = liquid();
+    liquid_glass::advanceLiquidPose(state.mesh, state.transition, state.grid, elapsed, size, strength, drive);
 }
 
 bool CLiquidGlassTransformer::deforming() const noexcept {
@@ -544,12 +349,13 @@ CBox CLiquidGlassTransformer::transformedExtents(const CBox &currentBox) const {
         return extents;
     }
 
-    const SLiquidPose pose = renderPose();
-    CBox              extents = liquidRenderExtents(pose, currentBox);
-    extents.expand(EXTENTS_PADDING);
-    if (const auto visible = liquidVisibleBox(pose, currentBox))
-        extents = extents.intersection(*visible);
-    return extents;
+    const LiquidPose        pose = renderPose();
+    const liquid_glass::Box logical = toBox(currentBox);
+    liquid_glass::Box       extents = liquid_glass::liquidRenderExtents(pose, logical, liquid().grid);
+    liquid_glass::expandBox(extents, EXTENTS_PADDING);
+    if (const auto visible = liquid_glass::liquidVisibleBox(pose, logical))
+        extents = liquid_glass::intersectBoxes(extents, *visible);
+    return toCBox(extents);
 }
 
 CBox CLiquidGlassTransformer::sourceBoxForOutput(const CBox &outputBox, const CBox &inputBox) const {
@@ -617,16 +423,18 @@ SWindowTransformBuffer CLiquidGlassTransformer::transform(CRenderContext &ctx, c
             .success = false,
         };
 
-    auto              &state = liquid();
-    const SLiquidPose  pose = renderPose();
-    const auto         visible = liquidVisibleBox(pose, context.currentBox);
-    const auto         meniscus = liquidMeniscusExtents(pose, context.currentBox);
-    const SP<ITexture> solid = meniscus && m_solid ? m_solid->texture() : SP<ITexture>{};
-    const CBox         LIQUIDBOX = meniscus ? pixelBoxForLogical(*meniscus, SCALE) : CBox{};
+    auto                   &state = liquid();
+    const LiquidPose        pose = renderPose();
+    const liquid_glass::Box logical = toBox(context.currentBox);
+    const auto              visible = liquid_glass::liquidVisibleBox(pose, logical);
+    const auto              meniscus = liquid_glass::liquidMeniscusExtents(pose, logical);
+    const SP<ITexture>      solid = meniscus && m_solid ? m_solid->texture() : SP<ITexture>{};
+    const CBox              LIQUIDBOX = meniscus ? pixelBoxForLogical(toCBox(*meniscus), SCALE) : CBox{};
 
-    fillLiquidRenderMesh(pose, SOURCEBOX, SCALE, OUTPUTBOX, Vec2{in.box.x, in.box.y}, Vec2{texW, texH}, state.vertices);
+    liquid_glass::fillLiquidRenderMesh(pose, toBox(SOURCEBOX), SCALE, toBox(OUTPUTBOX), Vec2{in.box.x, in.box.y},
+                                       Vec2{texW, texH}, state.grid, state.vertices);
     if (solid)
-        fillLiquidMeniscusMesh(pose, SOURCEBOX, SCALE, LIQUIDBOX, state.meniscusVertices);
+        liquid_glass::fillLiquidMeniscusMesh(pose, toBox(SOURCEBOX), SCALE, toBox(LIQUIDBOX), state.meniscusVertices);
 
     GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
     auto                         drawState = ctx.saveDrawState();
@@ -640,7 +448,7 @@ SWindowTransformBuffer CLiquidGlassTransformer::transform(CRenderContext &ctx, c
 
     // Nothing behind the screen edge is visible: the window and liquid are clipped to the screen side.
     if (visible) {
-        CBox clip = pixelBoxForLogical(*visible, SCALE);
+        CBox clip = pixelBoxForLogical(toCBox(*visible), SCALE);
         clip.translate(-OUTPUTCANVAS.pos());
         renderData.damage.intersect(CRegion{clip});
     }
@@ -663,8 +471,10 @@ SWindowTransformBuffer CLiquidGlassTransformer::transform(CRenderContext &ctx, c
 
 void CLiquidGlassTransformer::markDetached() {
     m_detached = true;
-    if (auto *state = std::get_if<SLiquidStyle>(&m_style))
+    if (auto *state = std::get_if<SLiquidStyle>(&m_style)) {
         state->mesh.reset();
+        state->grid.invalidate();
+    }
     cancelOpening();
     if (auto *paper = std::get_if<SPaperStyle>(&m_style))
         paper->crumple.reset();

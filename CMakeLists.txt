@@ -69,6 +69,7 @@ add_custom_target(update-config-docs
 
 # Hyprland-independent core: liquid mesh, edge transition, paper and cloth models. The plugin and the tests link it.
 add_library(liquid-glass-core STATIC
+    src/LiquidPose.cpp
     src/LiquidMesh.cpp
     src/EdgeTransition.cpp
     src/PaperCrumple.cpp

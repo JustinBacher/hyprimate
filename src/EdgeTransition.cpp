@@ -51,10 +51,6 @@ constexpr double kSplashSkirt = 0.55;    // skirt half-width per radius
 constexpr double kQuietPixels = 0.15, kQuietPixelsPerSecond = 2.0;
 constexpr double kQuietSpread = 1e-4,
                  kQuietSpreadPerSecond = 1e-3; // spreads are unitless; ~0.1 px on a 1000 px half-extent
-// Renderer guard: keep this much of each triangle's map-only area.
-constexpr double kMinAreaFraction = 0.2;
-constexpr int    kGainHalvings = 8;
-constexpr int    kGridSide = LIQUID_RENDER_CELLS + 1; // vertices per side (32 x 32 cells)
 
 bool runsHorizontally(Edge e) { return e == Edge::Top || e == Edge::Bottom; }
 
@@ -134,22 +130,17 @@ bool validFrame(const EdgeFrame &f) {
 }
 
 // Radially homogeneous outline map in units of the capture half-extents. The rectangle outline (max(|x|,|y|) = 1)
-// is carried onto the superellipse of exponent 2 / roundness; every ray from the centre maps onto itself, so the
-// image cannot fold. roundness 0 is the identity (rectangle); roundness 1 is the circle.
-Vec2 outline(Vec2 p, double roundness) {
-    if (!(roundness >= 2e-4))
-        return p; // exponent > 1e4 is indistinguishable from a rectangle
-    const double n = 2.0 / roundness;
+// is carried onto the superellipse of exponent n = 2 / roundness; every ray from the centre maps onto itself, so the
+// image cannot fold. `invN` is 1/n. Callers pass the rectangle through unchanged (roundness below 2e-4).
+Vec2 outline(Vec2 p, double n, double invN) {
     const double ax = std::abs(p.x), ay = std::abs(p.y);
     const double rho = std::max(ax, ay);
     if (!(rho > 0.0))
         return p;
-    const double x = ax / rho, y = ay / rho;                             // direction on the rectangle outline, max = 1
-    const double g = std::pow(std::pow(x, n) + std::pow(y, n), 1.0 / n); // in [1, 2^(1/n)]
+    const double x = ax / rho, y = ay / rho;                          // direction on the rectangle outline, max = 1
+    const double g = std::pow(std::pow(x, n) + std::pow(y, n), invN); // in [1, 2^(1/n)]
     return {p.x / g, p.y / g};
 }
-
-double triangleArea(Vec2 a, Vec2 b, Vec2 c) { return 0.5 * ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)); }
 
 } // namespace
 
@@ -447,89 +438,50 @@ Vec2 EdgeTransition::beadHalf(Vec2 restSize) const noexcept {
     return hz ? Vec2{eT, eN} : Vec2{eN, eT};
 }
 
-Vec2 EdgeTransition::map(Vec2 fromCentre, Vec2 size) const noexcept {
-    if (!active() || !std::isfinite(fromCentre.x) || !std::isfinite(fromCentre.y) || !std::isfinite(size.x) ||
-        !std::isfinite(size.y) || size.x <= 0.0 || size.y <= 0.0)
-        return fromCentre;
-
-    const bool   hz = runsHorizontally(m_frame.edge);
-    const Vec2   in = inwardNormal(m_frame.edge);
-    const Vec2   along = hz ? Vec2{1.0, 0.0} : Vec2{0.0, 1.0};
-    const double halfT = 0.5 * (hz ? size.x : size.y);
-    const double halfN = 0.5 * (hz ? size.y : size.x);
-
-    // Rest point in units of the capture half-extents.
-    const double a = edgeTangent(m_frame, fromCentre) / halfT;
-    const double b = (fromCentre.x * in.x + fromCentre.y * in.y) / halfN;
+EdgeTransition::RestMap EdgeTransition::restMap(Vec2 size) const noexcept {
+    RestMap m;
+    if (!active() || !std::isfinite(size.x) || !std::isfinite(size.y) || size.x <= 0.0 || size.y <= 0.0)
+        return m;
+    m.identity = false;
+    const bool hz = runsHorizontally(m_frame.edge);
+    m.horizontal = hz;
+    m.along = hz ? Vec2{1.0, 0.0} : Vec2{0.0, 1.0};
+    m.inward = inwardNormal(m_frame.edge);
+    m.halfT = 0.5 * (hz ? size.x : size.y);
+    m.halfN = 0.5 * (hz ? size.y : size.x);
 
     const double sT = m_spreadT.value;
     const double sN = m_spreadN.value;
     const double roundness = std::pow(1.0 - std::clamp(std::min(sT, sN), 0.0, 1.0), 1.5);
-    const Vec2   shape = outline({a, b}, roundness);
+    m.rectangle = !(roundness >= 2e-4); // exponent > 1e4 is indistinguishable from a rectangle
+    if (!m.rectangle) {
+        m.exponent = 2.0 / roundness;
+        m.invExponent = 1.0 / m.exponent;
+    }
 
     const double centreT = 0.5 * (m_frame.bodyT0 + m_frame.bodyT1);
-    const double tOut = centreT * (1.0 - sT) + (m_radius + (halfT - m_radius) * sT) * shape.x;
+    m.tBase = centreT * (1.0 - sT);
+    m.tScale = m_radius + (m.halfT - m_radius) * sT;
     // The normal extent comes from `size`, like the tangential one: the frame's capture is taken when the open begins,
     // before decorations (shadow) report their extents, and a stale extent leaves the window short of its rest box.
-    const double nOut = (m_nc - m_frame.edgeDistance) + (m_radius + (halfN - m_radius) * sN) * shape.y;
-    return {along.x * tOut + in.x * nOut, along.y * tOut + in.y * nOut};
+    m.nBase = m_nc - m_frame.edgeDistance;
+    m.nScale = m_radius + (m.halfN - m_radius) * sN;
+    return m;
 }
 
-double EdgeTransition::displacementGain(const LiquidMesh &mesh, Vec2 restSize, Vec2 compensation,
-                                        bool boxCarriesPose) const noexcept {
-    if (!active() || mesh.settled())
-        return 1.0;
-    if (!std::isfinite(restSize.x) || !std::isfinite(restSize.y) || !std::isfinite(compensation.x) ||
-        !std::isfinite(compensation.y) || restSize.x <= 0.0 || restSize.y <= 0.0 || compensation.x <= 0.0 ||
-        compensation.y <= 0.0)
-        return 0.0;
-    // Same composition as the renderer: the displayed sample is map(((u-0.5)*S + g*d) * c, S*c).
-    const Vec2 scaled{restSize.x * compensation.x, restSize.y * compensation.y};
-
-    constexpr int               kVertices = kGridSide * kGridSide;
-    std::array<Vec2, kVertices> base{}, flow{}, mapOnly{}, moved{};
-    for (int j = 0; j < kGridSide; ++j) {
-        for (int i = 0; i < kGridSide; ++i) {
-            const double u = static_cast<double>(i) / (kGridSide - 1);
-            const double v = static_cast<double>(j) / (kGridSide - 1);
-            const int    k = j * kGridSide + i;
-            base[k] = {(u - 0.5) * restSize.x, (v - 0.5) * restSize.y};
-            flow[k] = mesh.sampleDisplacement(u, v);
-            mapOnly[k] =
-                boxCarriesPose ? base[k] : map({base[k].x * compensation.x, base[k].y * compensation.y}, scaled);
-        }
-    }
-
-    for (int h = 0; h <= kGainHalvings; ++h) {
-        const double gain = std::ldexp(1.0, -h);
-        for (int k = 0; k < kVertices; ++k)
-            moved[k] = boxCarriesPose ? Vec2{base[k].x + gain * flow[k].x, base[k].y + gain * flow[k].y}
-                                      : map({(base[k].x + gain * flow[k].x) * compensation.x,
-                                             (base[k].y + gain * flow[k].y) * compensation.y},
-                                            scaled);
-
-        bool ok = true;
-        for (int j = 0; ok && j + 1 < kGridSide; ++j) {
-            for (int i = 0; ok && i + 1 < kGridSide; ++i) {
-                const int p00 = j * kGridSide + i, p10 = p00 + 1, p01 = p00 + kGridSide, p11 = p01 + 1;
-                const int tris[2][3] = {{p00, p10, p01}, {p10, p11, p01}};
-                for (const auto &t : tris) {
-                    const double before = triangleArea(mapOnly[t[0]], mapOnly[t[1]], mapOnly[t[2]]);
-                    if (!(before > 0.0))
-                        continue; // degenerate at rest: nothing to keep
-                    const double after = triangleArea(moved[t[0]], moved[t[1]], moved[t[2]]);
-                    if (!(after >= kMinAreaFraction * before)) {
-                        ok = false;
-                        break;
-                    }
-                }
-            }
-        }
-        if (ok)
-            return gain;
-    }
-    return 0.0;
+Vec2 EdgeTransition::RestMap::map(Vec2 fromCentre) const noexcept {
+    if (identity || !std::isfinite(fromCentre.x) || !std::isfinite(fromCentre.y))
+        return fromCentre;
+    // Rest point in units of the capture half-extents.
+    const double a = (horizontal ? fromCentre.x : fromCentre.y) / halfT;
+    const double b = (fromCentre.x * inward.x + fromCentre.y * inward.y) / halfN;
+    const Vec2   shape = rectangle ? Vec2{a, b} : outline({a, b}, exponent, invExponent);
+    const double tOut = tBase + tScale * shape.x;
+    const double nOut = nBase + nScale * shape.y;
+    return {along.x * tOut + inward.x * nOut, along.y * tOut + inward.y * nOut};
 }
+
+Vec2 EdgeTransition::map(Vec2 fromCentre, Vec2 size) const noexcept { return restMap(size).map(fromCentre); }
 
 Vec2 EdgeTransition::takeTravel() noexcept {
     const double delta = m_phase != Phase::Idle ? m_nc - m_taken : 0.0; // Closed keeps the final substep's travel

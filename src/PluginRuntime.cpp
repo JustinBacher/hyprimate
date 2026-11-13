@@ -140,8 +140,8 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                     else {
                         const liquid_glass::LiquidMesh     mesh{effectiveMaterialParams()};
                         const liquid_glass::EdgeTransition transition;
-                        m_close->stage(window, SLiquidPose{mesh, transition}, close.strength, closeFrame, close.splash,
-                                       params);
+                        m_close->stage(window, liquid_glass::LiquidPose{mesh, transition}, close.strength, closeFrame,
+                                       close.splash, params);
                     }
                 }
             }
@@ -670,8 +670,7 @@ void CPluginRuntime::advanceWindow(STracked &entry, const PHLWINDOW &window,
     if (transformer->liquidStyle()) {
         if (!moving)
             transformer->mesh().reset();
-        advanceLiquidPose(transformer->mesh(), transformer->transition(), elapsed, size, movementStrength(),
-                          moving ? m_config.open.liquid.emergeDrag : 0.0);
+        transformer->advanceLiquid(elapsed, size, movementStrength(), moving ? m_config.open.liquid.emergeDrag : 0.0);
         transformer->refreshPose(size);
         transformer->driveBox();
     }

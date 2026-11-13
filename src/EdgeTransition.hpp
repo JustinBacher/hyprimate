@@ -75,13 +75,25 @@ class EdgeTransition {
     // displayed position relative to that centre. Exact identity unless active. Radially homogeneous outline map
     // (rest rectangle -> rounded/scaled outline) plus a translation along the edge normal; it never folds the image.
     Vec2 map(Vec2 fromCentre, Vec2 size) const noexcept;
-    // Renderer guard for the movement field: 1 when inactive or `mesh` settled, else the largest of 1, 1/2, 1/4, ...
-    // (0 when none qualifies) at which every triangle of the renderer's 32x32 grid keeps >= 20% of its gain-0 area.
-    // `restSize` is the renderer's sample size and `compensation` its open scale c; the grid is evaluated exactly as
-    // the renderer composes it: map(((u-0.5)*S + gain*d) * c, S*c). With `boxCarriesPose` the window box itself carries
-    // the pop-out and the renderer applies the field alone: the displayed sample is (u-0.5)*S + gain*d.
-    double displacementGain(const LiquidMesh &mesh, Vec2 restSize, Vec2 compensation,
-                            bool boxCarriesPose = false) const noexcept;
+
+    // The map for one capture size in the current state, with its constants computed once: restMap(size).map(p)
+    // equals map(p, size). Build it once per grid or frame and call map() per sample.
+    class RestMap {
+      public:
+        Vec2 map(Vec2 fromCentre) const noexcept;
+
+      private:
+        friend class EdgeTransition;
+        bool   identity = true;    // inactive or invalid size: the map is the identity
+        bool   horizontal = false; // the edge runs horizontally, so the tangent is x
+        bool   rectangle = true;   // roundness below 2e-4: the outline is the rectangle itself
+        Vec2   along{1.0, 0.0};
+        Vec2   inward{0.0, 0.0};
+        double halfT = 1.0, halfN = 1.0;
+        double exponent = 2.0, invExponent = 0.5; // outline exponent 2 / roundness and its reciprocal
+        double tBase = 0.0, tScale = 0.0, nBase = 0.0, nScale = 0.0;
+    };
+    RestMap restMap(Vec2 size) const noexcept;
     // Window-centre translation since the previous call (begin() does not count). Feeds the movement field.
     Vec2 takeTravel() noexcept;
     // The pop-out as a box, for a window whose real box is driven to follow it. `centre` is the bead's centre relative

@@ -4,6 +4,7 @@
 #include "Core.hpp"
 #include "EdgeTransition.hpp"
 #include "LiquidMesh.hpp"
+#include "LiquidPose.hpp"
 #include "PaperCrumple.hpp"
 #include "PaperRenderer.hpp"
 #include "SheetFrame.hpp"
@@ -27,26 +28,9 @@
 #include <variant>
 #include <vector>
 
-// Two triangles (six vertices) per cell.
-inline constexpr std::size_t LIQUID_RENDER_VERTEX_COUNT =
-    static_cast<std::size_t>(liquid_glass::LIQUID_RENDER_CELLS) * liquid_glass::LIQUID_RENDER_CELLS * 6;
-// Meniscus strip resolution along the edge; two triangles (six vertices) per column.
-inline constexpr int         LIQUID_MENISCUS_COLUMNS = 96;
-inline constexpr std::size_t LIQUID_MENISCUS_VERTEX_COUNT = static_cast<std::size_t>(LIQUID_MENISCUS_COLUMNS) * 6;
-
-// One pose for both live-window transforms and retained closing snapshots. With `boxPose` the real window box is driven
-// to follow the pop-out, so the renderer applies only the movement field to the window and `openOffset` only places the
-// edge liquid. Without it (closing snapshots) `compensation` and `openOffset` carry the window from its drawn box to
-// the rest box.
-struct SLiquidPose {
-    const liquid_glass::LiquidMesh     &mesh;
-    const liquid_glass::EdgeTransition &transition;
-    liquid_glass::Vec2                  compensation{1.0, 1.0};
-    liquid_glass::Vec2                  openOffset{0.0, 0.0};
-    // Cached movement-field guard (EdgeTransition::displacementGain); 1 when idle.
-    double displacementGain = 1.0;
-    bool   boxPose = false;
-};
+// Converts between the plugin's CBox and the core's liquid_glass::Box at the renderer boundary.
+inline liquid_glass::Box toBox(const CBox &box) { return {box.x, box.y, box.w, box.h}; }
+inline CBox              toCBox(const liquid_glass::Box &box) { return CBox{box.x, box.y, box.w, box.h}; }
 
 // Liquid style: the movement mesh, the edge pop-out, and the window box the pop-out drives.
 struct SLiquidStyle {
@@ -61,6 +45,8 @@ struct SLiquidStyle {
     Vector2D warpSize{};
     bool     warped = false;
     double   displacementGain = 1.0;
+    // Pose offsets sampled from mesh and transition. Invalidated wherever a pose input changes.
+    mutable liquid_glass::LiquidPoseGrid grid{};
     // Sized on first render; the render path only writes into them.
     std::vector<SMeshRenderVertex> vertices{};
     std::vector<SMeshRenderVertex> meniscusVertices{};
@@ -103,11 +89,6 @@ inline SStyleState initialStyle(liquid_glass::config::Style style, liquid_glass:
     return SLiquidStyle{.mesh = liquid_glass::LiquidMesh{liquid, seed}};
 }
 
-// Advances the edge pop-out and the movement field one frame. `drive` (0-1) is the share of pop-out travel fed to the
-// mesh as drag; 0 is a rigid pop.
-void advanceLiquidPose(liquid_glass::LiquidMesh &mesh, liquid_glass::EdgeTransition &transition, double elapsed,
-                       liquid_glass::Vec2 size, double strength, double drive);
-
 // Paper and cloth styles: their sheet buffers, or nullptr for liquid.
 SSheetBuffers       *sheetBuffersOf(SStyleState &style) noexcept;
 const SSheetBuffers *sheetBuffersOf(const SStyleState &style) noexcept;
@@ -115,28 +96,6 @@ const SSheetBuffers *sheetBuffersOf(const SStyleState &style) noexcept;
 void advanceSheetStyle(SStyleState &style, double elapsed);
 // Recomputes a paper or cloth style's displayed frame from its state. A no-op for liquid.
 void refreshSheetFrame(SStyleState &style);
-
-// Union of every displayed window sample and the meniscus, in logical pixels (unpadded). Clipped to the visible
-// half-plane while the transition is active; never empty.
-CBox liquidRenderExtents(const SLiquidPose &pose, const CBox &logicalBox);
-
-// The half-plane inside the screen edge in logical pixels, or nullopt when no transition is active.
-std::optional<CBox> liquidVisibleBox(const SLiquidPose &pose, const CBox &logicalBox);
-
-// Bounding box of the edge liquid in logical pixels, or nullopt when there is no meniscus.
-std::optional<CBox> liquidMeniscusExtents(const SLiquidPose &pose, const CBox &logicalBox);
-
-// Fills `out` with the smooth render mesh. `sourceDevice` is the undeformed window box in device pixels,
-// `scale` is the monitor scale (displacements are logical pixels), `outputDevice` is the output box in device
-// pixels, and `textureOrigin`/`textureSize` describe the source texture in device pixels.
-// `out` is resized to LIQUID_RENDER_VERTEX_COUNT only when its size differs, so the steady state does not allocate.
-void fillLiquidRenderMesh(const SLiquidPose &pose, const CBox &sourceDevice, double scale, const CBox &outputDevice,
-                          liquid_glass::Vec2 textureOrigin, liquid_glass::Vec2 textureSize,
-                          std::vector<SMeshRenderVertex> &out);
-
-// Fills `out` with the edge liquid strip for `pose`. Geometry is in the same device space as fillLiquidRenderMesh.
-void fillLiquidMeniscusMesh(const SLiquidPose &pose, const CBox &sourceDevice, double scale, const CBox &outputDevice,
-                            std::vector<SMeshRenderVertex> &out);
 
 class CLiquidGlassTransformer final : public Render::IWindowTransformer {
   public:
@@ -168,9 +127,9 @@ class CLiquidGlassTransformer final : public Render::IWindowTransformer {
     void beginOpen(const liquid_glass::EdgeFrame &frame, const liquid_glass::TransitionParams &params, double strength,
                    liquid_glass::Vec2 captureSize);
     // The pose the transformer draws with.
-    SLiquidPose renderPose() const;
+    liquid_glass::LiquidPose renderPose() const;
     // The same pop-out for a closing snapshot taken now: the window as drawn at its driven box, mapped to the rest box.
-    SLiquidPose closePose() const;
+    liquid_glass::LiquidPose closePose() const;
     // Follows the pop-out with the window's real box, so decorations that draw at that box (borders, HyprGlass) grow
     // out of the bead with the window. Called once per physics advance after the transition has stepped; restores the
     // layout box when the pop-out ends.
@@ -180,6 +139,8 @@ class CLiquidGlassTransformer final : public Render::IWindowTransformer {
     void cancelMovement();
     // Recomputes the cached movement-field gain. Called once per physics advance, never from the render path.
     void refreshPose(liquid_glass::Vec2 captureSize);
+    // Advances the edge pop-out and the movement field one physics step; invalidates the cached pose grid.
+    void advanceLiquid(double elapsed, liquid_glass::Vec2 size, double strength, double drive);
 
     // Paper style. Sheet animations stay at the capture box and do not drive the window's layout box.
     void beginPaperOpen(const liquid_glass::PaperParams &params, std::uint64_t seed, liquid_glass::Vec2 captureSize);

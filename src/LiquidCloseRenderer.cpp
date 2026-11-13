@@ -57,24 +57,16 @@ void *exactSymbol(const std::vector<SFunctionMatch> &matches, const char *signat
     return count == 1 ? found : nullptr;
 }
 
-// Maps snapshot-space texels into the output: F(p) = B.pos + p * B.size / T.
+// Maps snapshot-space texels into the output, in CBox terms; the arithmetic lives in liquid_glass::projectToOutput.
 CBox projectToOutput(const CBox &extentsDevice, const CBox &renderBox, const Vector2D &snapshotSize) {
-    const double kx = renderBox.w / snapshotSize.x;
-    const double ky = renderBox.h / snapshotSize.y;
-    return CBox{renderBox.x + extentsDevice.x * kx, renderBox.y + extentsDevice.y * ky, extentsDevice.w * kx,
-                extentsDevice.h * ky};
+    return toCBox(
+        liquid_glass::projectToOutput(toBox(extentsDevice), toBox(renderBox), Vec2{snapshotSize.x, snapshotSize.y}));
 }
 
-// Owned placement: the snapshot at unit scale (device px), with the window's centre riding the native fadeout's
-// centre. Dividing out the native box's current scale cancels popout scale whatever it already is at this moment.
+// Owned placement in CBox terms; the arithmetic lives in liquid_glass::ownedRenderBox.
 CBox ownedRenderBox(const CBox &sourceDevice, const CBox &nativeBox, const Vector2D &snapshotSize) {
-    const double kx = nativeBox.w / snapshotSize.x;
-    const double ky = nativeBox.h / snapshotSize.y;
-    const double mx = sourceDevice.x + sourceDevice.w * 0.5;
-    const double my = sourceDevice.y + sourceDevice.h * 0.5;
-    const double cx = nativeBox.x + mx * kx;
-    const double cy = nativeBox.y + my * ky;
-    return CBox{cx - mx, cy - my, snapshotSize.x, snapshotSize.y};
+    return toCBox(
+        liquid_glass::ownedRenderBox(toBox(sourceDevice), toBox(nativeBox), Vec2{snapshotSize.x, snapshotSize.y}));
 }
 
 // A bound record matches only its captured workspace (an expired one matches nothing); an unbound record matches
@@ -236,7 +228,7 @@ void CLiquidCloseRenderer::clear() {
     m_records.clear();
 }
 
-void CLiquidCloseRenderer::stage(const PHLWINDOW &window, const SLiquidPose &pose, double strength,
+void CLiquidCloseRenderer::stage(const PHLWINDOW &window, const liquid_glass::LiquidPose &pose, double strength,
                                  std::optional<liquid_glass::EdgeFrame> closeFrame, bool closeSplash,
                                  const liquid_glass::TransitionParams &transition) {
     if (!std::isfinite(strength) || strength <= 0.0)
@@ -405,24 +397,29 @@ void CLiquidCloseRenderer::fillVertices(SClosing &record) {
         return;
     }
 
-    auto       &liquid = std::get<SLiquidStyle>(record.style);
-    SLiquidPose pose{liquid.mesh, liquid.transition, record.compensation};
-    const CBox  logical = record.sourceDevice.copy().scale(1.0 / record.scale);
-    const Vec2  c = record.compensation;
-    pose.displacementGain = liquid.transition.displacementGain(liquid.mesh, {logical.w, logical.h}, c);
-    CBox extents = liquidRenderExtents(pose, logical);
-    extents.expand(EXTENTS_PADDING);
-    record.extentsDevice = extents.copy().scale(record.scale);
+    auto                    &liquid = std::get<SLiquidStyle>(record.style);
+    const CBox               logical = record.sourceDevice.copy().scale(1.0 / record.scale);
+    liquid_glass::LiquidPose pose{liquid.mesh, liquid.transition, record.compensation};
+    // The gain search fills the grid with the offsets at the gain it returns, so the extents and both meshes read the
+    // grid without sampling it again.
+    pose.displacementGain = liquid_glass::fitLiquidPoseGain(pose, {logical.w, logical.h}, &liquid.grid);
+    const liquid_glass::Box logicalBox = toBox(logical);
+    liquid_glass::Box       extents = liquid_glass::liquidRenderExtents(pose, logicalBox, liquid.grid);
+    liquid_glass::expandBox(extents, EXTENTS_PADDING);
+    record.extentsDevice = toCBox(extents).scale(record.scale);
 
-    fillLiquidRenderMesh(pose, record.sourceDevice, record.scale, record.extentsDevice, Vec2{0.0, 0.0},
-                         Vec2{record.snapshotSize.x, record.snapshotSize.y}, liquid.vertices);
+    liquid_glass::fillLiquidRenderMesh(pose, toBox(record.sourceDevice), record.scale, toBox(record.extentsDevice),
+                                       Vec2{0.0, 0.0}, Vec2{record.snapshotSize.x, record.snapshotSize.y}, liquid.grid,
+                                       liquid.vertices);
 
-    const auto meniscus = liquidMeniscusExtents(pose, logical);
+    const auto meniscus = liquid_glass::liquidMeniscusExtents(pose, logicalBox);
     record.hasLiquid = meniscus.has_value();
     if (meniscus) {
-        record.liquidDevice = meniscus->copy().scale(record.scale);
-        fillLiquidMeniscusMesh(pose, record.sourceDevice, record.scale, record.liquidDevice, liquid.meniscusVertices);
+        record.liquidDevice = toCBox(*meniscus).scale(record.scale);
+        liquid_glass::fillLiquidMeniscusMesh(pose, toBox(record.sourceDevice), record.scale, toBox(record.liquidDevice),
+                                             liquid.meniscusVertices);
     }
+    record.verticesStale = false;
 }
 
 bool CLiquidCloseRenderer::tick(clock::time_point now, const PHLMONITOR &rendering,
@@ -462,12 +459,15 @@ bool CLiquidCloseRenderer::tick(clock::time_point now, const PHLMONITOR &renderi
                 std::clamp(std::chrono::duration<double>(now - record->lastAdvance).count(), 0.0, kStallSeconds);
             if (isLiquid(record->style)) {
                 auto &liquid = std::get<SLiquidStyle>(record->style);
-                advanceLiquidPose(liquid.mesh, liquid.transition, elapsed, record->captureLogical, record->strength,
-                                  0.0);
+                liquid_glass::advanceLiquidPose(liquid.mesh, liquid.transition, liquid.grid, elapsed,
+                                                record->captureLogical, record->strength, 0.0);
             } else {
                 advanceSheetStyle(record->style, elapsed);
             }
-            fillVertices(*record);
+            if (isLiquid(record->style))
+                record->verticesStale = true; // refilled when drawn
+            else
+                fillVertices(*record);
             record->lastAdvance = now;
             activeMonitors.push_back(PHLMONITORREF{monitor});
             return false;
@@ -486,7 +486,7 @@ bool CLiquidCloseRenderer::tick(clock::time_point now, const PHLMONITOR &renderi
             std::clamp(std::chrono::duration<double>(now - record->lastAdvance).count(), 0.0, kStallSeconds);
         liquid.mesh.advance(elapsed, record->captureLogical);
         record->lastAdvance = now;
-        fillVertices(*record);
+        record->verticesStale = true; // refilled when drawn
         activeMonitors.push_back(PHLMONITORREF{monitor});
         return false;
     });
@@ -631,6 +631,8 @@ bool CLiquidCloseRenderer::renderBatch(Render::CRenderContext &ctx, const PHLMON
                 continue;
             }
 
+            if (record->verticesStale)
+                fillVertices(*record);
             auto                          &liquid = std::get<SLiquidStyle>(record->style);
             CLiquidClosePassElement::SData data;
             data.tex = tex;
@@ -645,9 +647,9 @@ bool CLiquidCloseRenderer::renderBatch(Render::CRenderContext &ctx, const PHLMON
                 CBox{record->renderBox.x + record->sourceDevice.x, record->renderBox.y + record->sourceDevice.y,
                      record->sourceDevice.w, record->sourceDevice.h}
                     .scale(1.0 / record->scale);
-            const SLiquidPose visiblePose{liquid.mesh, liquid.transition, record->compensation};
-            if (const auto visible = liquidVisibleBox(visiblePose, restLogical))
-                clip = clip.intersection(visible->copy().scale(record->scale));
+            const liquid_glass::LiquidPose visiblePose{liquid.mesh, liquid.transition, record->compensation};
+            if (const auto visible = liquid_glass::liquidVisibleBox(visiblePose, toBox(restLogical)))
+                clip = clip.intersection(toCBox(*visible).scale(record->scale));
             data.damage = CRegion{clip};
             data.solid = m_solid ? m_solid->texture() : nullptr;
             data.liquid = record->hasLiquid && data.solid ? &liquid.meniscusVertices : nullptr;
@@ -671,6 +673,8 @@ bool CLiquidCloseRenderer::renderBatch(Render::CRenderContext &ctx, const PHLMON
         // Texture blur rides on a stock element; the mesh path only replaces the plain texture draw.
         if (record && sameMonitor(record->monitor, monitor) && !effects.textureBlur.enabled &&
             tex->m_size.x == record->snapshotSize.x && tex->m_size.y == record->snapshotSize.y) {
+            if (record->verticesStale)
+                fillVertices(*record);
             CLiquidClosePassElement::SData data;
             data.tex = tex;
             data.box = projectToOutput(record->extentsDevice, fadeout->renderBox(), record->snapshotSize);
