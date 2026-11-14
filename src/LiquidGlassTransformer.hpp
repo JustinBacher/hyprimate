@@ -146,7 +146,7 @@ class CLiquidGlassTransformer final : public Render::IWindowTransformer {
     // Cloth style.
     void beginClothOpen(const liquid_glass::ClothParams &params, std::uint64_t seed, const liquid_glass::Box &window,
                         std::span<const liquid_glass::Box> obstacles);
-    void beginClothMovement(std::uint64_t seed, const liquid_glass::Box &window, liquid_glass::Vec2 grabUV);
+    void beginClothMovement(std::uint64_t seed, const liquid_glass::Box &window);
     void updateClothMovement(const liquid_glass::Box &window, double elapsedSeconds);
     // Whether the active style is liquid. The liquid accessors above require it.
     bool liquidStyle() const noexcept { return std::holds_alternative<SLiquidStyle>(m_style); }
@@ -154,7 +154,6 @@ class CLiquidGlassTransformer final : public Render::IWindowTransformer {
     bool sheetActive() const noexcept;
     // Cloth is following a window move, or opening (not moving).
     bool clothMoving() const noexcept;
-    bool clothRegrabs(liquid_glass::Vec2 grabUV) const noexcept;
     bool clothOpening() const noexcept;
 
     // Moves the whole state out for a close record. The transformer keeps a fresh liquid state; it is detached next.

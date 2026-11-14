@@ -16,7 +16,7 @@ struct ClothParams {
 };
 
 struct ClothMovementParams {
-    double strength = 0.65, flutter = 0.5, shading = 0.7, variation = 0.5, shine = 0.0;
+    double strength = 0.65, flutter = 0.5, shading = 0.7, variation = 0.5, shine = 0.0, springiness = 0.0;
     bool   operator==(const ClothMovementParams &) const = default;
 };
 
@@ -38,9 +38,8 @@ class ClothPhysics {
     static void pauseWorkersForTesting(bool pause, int afterSnapshots = 0) noexcept;
 };
 
-// A fully simulated 57x57 sheet. Opening drops an outward-raised sheet from its fixed top edge. Closing releases
-// all particles to fall downward, or pulls the complete leading edge upward/sideways while the rest trails behind.
-// Movement holds the sheet by a small pinch at the grab point and tows it through still air (see ClothSolver).
+// A fully simulated 57x57 fabric panel with a weighted hem, suspended along its entire top edge.
+// Opening spreads a vertically pleated sheet; closing carries its top rod toward the selected screen edge.
 // Copies retain the same immutable recording; each copy has its own playback clock.
 class ClothFlutter {
   public:
@@ -55,14 +54,11 @@ class ClothFlutter {
     // below the window; provided invalid geometry, invalid params or no live ClothPhysics leave the model idle.
     void begin(Transition kind, const ClothParams &params, std::uint64_t seed, const Box &window,
                std::span<const Box> obstacles, std::optional<ClothCloseGeometry> closeGeometry = std::nullopt);
-    // The grab coordinate is in [0,1] across the decorated capture. Geometry updates only set a target;
-    // advance() sends one timestamped target per rendered frame, including stationary frames while the sheet settles.
-    void   beginMovement(const ClothMovementParams &params, std::uint64_t seed, const Box &capture, Vec2 grabUV);
+    // Geometry updates only set a target; advance() sends one timestamped target per rendered frame,
+    // including stationary frames while the sheet settles.
+    void   beginMovement(const ClothMovementParams &params, std::uint64_t seed, const Box &capture);
     void   updateMovement(const Box &capture, double elapsedSeconds) noexcept;
     bool   moving() const noexcept;
-    // True once a moving sheet has paused and the next pull would take it from a different point: time to begin a
-    // new movement there, which inherits the displayed pose.
-    bool   regrabs(Vec2 grabUV) const noexcept;
     bool   advance(double elapsedSeconds) noexcept;
     void   reset() noexcept;
     bool   active() const noexcept;
@@ -89,6 +85,8 @@ class ClothFlutter {
     ClothParams                       m_params{};
     double                            m_t = 0, m_rate = 0;
     double                            m_startupWait = 0, m_fallbackTime = 0, m_initialOpacity = 1;
+    int                               m_startupRecorded = 0;
+    bool                              m_transitionHeld = false;
     std::shared_ptr<Run>              m_run;
     std::shared_ptr<Fallback>         m_fallback;
     std::unique_ptr<MovementPlayback> m_movement;

@@ -1,5 +1,4 @@
 #include "ClothFlutter.hpp"
-#include "ClothSolver.hpp"
 
 #include <Jolt/Jolt.h>
 #include <Jolt/Core/Factory.h>
@@ -10,6 +9,7 @@
 #include <Jolt/Physics/Collision/BroadPhase/ObjectVsBroadPhaseLayerFilterTable.h>
 #include <Jolt/Physics/Collision/ObjectLayerPairFilterTable.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
+#include <Jolt/Physics/Constraints/SliderConstraint.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/SoftBody/SoftBodyCreationSettings.h>
 #include <Jolt/Physics/SoftBody/SoftBodyMotionProperties.h>
@@ -35,10 +35,9 @@ constexpr double        OPEN_LENGTH = 1.4;
 constexpr double        SETTLE_FROM = 0.84;
 constexpr double        GRAVITY = 9.81;
 constexpr double        RADIUS = 0.002;
-constexpr double        FALL_DAMPING = 0.15;
-constexpr double        STARTUP_TIMEOUT = 0.15;
 constexpr double        FALLBACK_LENGTH = 0.18;
 constexpr int           MAX_OBSTACLES = 32;
+constexpr float         CLOTH_INV_MASS = 4.0F, STRETCH_COMPLIANCE = 4e-6F, BEND_COMPLIANCE = 1.2F;
 constexpr std::uint64_t BASE_SEED = 0xC1074F1A77E2ULL;
 std::atomic<bool>       s_live{false}, s_pause{false};
 std::atomic<int>        s_pauseAfter{0};
@@ -47,11 +46,7 @@ std::atomic<int>        s_pauseAfter{0};
 // posts it, so the snapshot pair around the displayed time must already exist one 60 Hz frame plus one step later.
 // Displaying any later alternates interpolation with extrapolation from whichever snapshots happen to be ready.
 constexpr double MOVEMENT_LATENCY = 4 * DT;
-// A stopped sheet first hangs and swings out, then eases flat over this long; only then is it replaced by the exact
-// flat window.
-constexpr double MOVEMENT_SETTLE = 1.5;
-// The opening sheet swings broadside towards the desktop. Air resists fabric across its face, not along it; without
-// this the free edge reaches the desktop plane at full pendulum speed and stops dead within one displayed frame.
+// Air resists fabric across its face, damping the opening folds as the gathered header spreads.
 // Closes move their sheets in plane, so their gusts stay undamped.
 constexpr double OPEN_AIR_DRAG = 4.0; // per simulated second, on the velocity along the local normal
 
@@ -71,6 +66,26 @@ SheetGrid restGrid() noexcept {
         for (int i = 0; i < GRID; ++i)
             out[index(i, j)] = {double(i) / PAPER_CELLS - 0.5, -double(j) / PAPER_CELLS, 0};
     return out;
+}
+// A curtain has enough material across its width to form vertical folds. Integrate unit-length tangents so
+// gathering spends width in depth without pre-stretching the mesh. Jolt, not a display warp, unfolds this drape.
+SheetGrid curtainGrid() noexcept {
+    std::array<Vec2, GRID> header{};
+    for (int i = 1; i < GRID; ++i) {
+        const double angle = 1.1 * std::sin(10 * std::numbers::pi * (i - .5) / PAPER_CELLS);
+        header[i] = {header[i - 1].x + std::cos(angle) / PAPER_CELLS, header[i - 1].y + std::sin(angle) / PAPER_CELLS};
+    }
+    SheetGrid out{};
+    for (int j = 0; j < GRID; ++j)
+        for (int i = 0; i < GRID; ++i) {
+            const double down = double(j) / PAPER_CELLS;
+            out[index(i, j)] = {header[i].x - header.back().x / 2, -down, header[i].y * smoothstep(0, .18, down)};
+        }
+    return out;
+}
+float clothInverseMass(int row) noexcept {
+    // A sewn hem carries extra inertia without turning the whole panel into a heavy rubber membrane.
+    return CLOTH_INV_MASS / float(1 + 2 * smoothstep(.92, 1, double(row) / PAPER_CELLS));
 }
 bool validBox(const Box &b) noexcept {
     // Logical desktop geometry is far smaller than these bounds. Reject values that cannot safely pass through
@@ -101,11 +116,10 @@ struct ClothFlutter::Run {
         Vec3                                       rigidVelocity{};
         std::array<float, PAPER_GRID_VERTICES * 6> values{};
     };
-    // Live movement retains the snapshots inside its display latency, plus one maximum-gap burst of steps.
-    static constexpr unsigned INPUT_CAPACITY = 64, OUTPUT_CAPACITY = 40;
+    // Buffer a full stall interval of targets at up to 1000 Hz, and the resulting 120 Hz snapshot burst.
+    static constexpr unsigned INPUT_CAPACITY = 256, OUTPUT_CAPACITY = 40;
     bool                      live = false;
     ClothMovementParams       movement{};
-    Vec2                      grab{};
     Vec3 publishVelocity{}; // rigid motion omitted by the strength-scaled translating simulation frame
     Vec3 snapshotRigidVelocity{};
     std::array<Target, INPUT_CAPACITY>    targets{};
@@ -128,14 +142,8 @@ struct ClothFlutter::Run {
     std::thread        worker; // only the registry reaper joins it
 
     double playable() const noexcept { return std::max(0, recorded.load(std::memory_order_acquire) - 1) * DT; }
-    bool   pinned(int i, int j) const noexcept {
-        return kind == Transition::Open ? j == 0
-               : edge == Edge::Top      ? j == 0
-               : edge == Edge::Left     ? i == 0
-               : edge == Edge::Right    ? i == PAPER_CELLS
-                                        : false;
-    }
-    void sample(double t, SheetGrid &p, SheetGrid &v) const noexcept {
+    bool   pinned(int j) const noexcept { return j == 0; }
+    void   sample(double t, SheetGrid &p, SheetGrid &v) const noexcept {
         const int count = recorded.load(std::memory_order_acquire);
         if (count < 2) {
             p = start;
@@ -154,6 +162,12 @@ struct ClothFlutter::Run {
             const float *s1 = samples.data() + (std::size_t(b) * p.size() + k) * 6;
             const Vec3   p0{s0[0], s0[1], s0[2]}, v0{s0[3], s0[4], s0[5]};
             const Vec3   p1{s1[0], s1[1], s1[2]}, v1{s1[3], s1[4], s1[5]};
+            if (k < GRID) {
+                // Interpolation between solved pocket positions cannot overshoot an end stop or reorder samples.
+                p[k] = lerp(p0, p1, u);
+                v[k] = lerp(v0, v1, u);
+                continue;
+            }
             p[k] = add(add(mul(p0, h00), mul(v0, h10 * DT)), add(mul(p1, h01), mul(v1, h11 * DT)));
             v[k] = add(add(mul(p0, d00), mul(v0, d10)), add(mul(p1, d01), mul(v1, d11)));
             const double extra = std::clamp(t - (count - 1) * DT, 0.0, DT);
@@ -182,7 +196,8 @@ ClothFlutter &ClothFlutter::operator=(ClothFlutter &&) noexcept = default;
 ClothFlutter::ClothFlutter(const ClothFlutter &other)
     : m_phase(other.m_phase), m_params(other.m_params), m_t(other.m_t), m_rate(other.m_rate),
       m_startupWait(other.m_startupWait), m_fallbackTime(other.m_fallbackTime),
-      m_initialOpacity(other.m_initialOpacity), m_run(other.m_run), m_fallback(other.m_fallback) {
+      m_initialOpacity(other.m_initialOpacity), m_startupRecorded(other.m_startupRecorded),
+      m_transitionHeld(other.m_transitionHeld), m_run(other.m_run), m_fallback(other.m_fallback) {
     if (other.m_movement) {
         m_movement = std::make_unique<MovementPlayback>(*other.m_movement);
         m_movement->producer = false; // retained closes copy the displayed pose, never the live input stream
@@ -299,7 +314,118 @@ bool record(Run &run, int frame, const JPH::Array<JPH::SoftBodyVertex> &vertices
 struct SimInput {
     std::vector<Box> obstacles;
     double           flutter = 0;
-    double           phaseA = 0, phaseB = 0, freqA = 0, freqB = 0;
+    double           phaseA = 0, phaseB = 0, freqA = 0;
+};
+// Invisible samples carry an effective header-column mass. The soft body follows their solved
+// positions, but does not feed forces back: this is a reduced-coupling model of a continuous sleeve.
+class Pocket {
+    class BroadFilter final : public JPH::ObjectVsBroadPhaseLayerFilter {
+        bool ShouldCollide(JPH::ObjectLayer, JPH::BroadPhaseLayer) const override { return false; }
+    };
+
+  public:
+    explicit Pocket(const SheetGrid &start, const SheetGrid &velocity, double amount)
+        : springiness(float(amount)), pairs(1), broadPhase(1, 1) {
+        using namespace JPH;
+        broadPhase.MapObjectToBroadPhaseLayer(0, BroadPhaseLayer(0));
+        system.Init(GRID, 0, 1, 1, broadPhase, objectVsBroadPhase, pairs);
+        // Signed neighbour limits prevent tunnelling or sample swapping under abrupt reversal.
+        PhysicsSettings physics = system.GetPhysicsSettings();
+        physics.mBaumgarte = 1.0F;
+        physics.mNumVelocitySteps = 64;
+        physics.mNumPositionSteps = 64;
+        system.SetPhysicsSettings(physics);
+        system.SetGravity(JPH::Vec3::sZero());
+        auto &bodies = system.GetBodyInterfaceNoLock();
+        // Shapes provide effective header masses, not rendered hardware or collision-based exclusion.
+        RefConst<Shape> shape = new BoxShape(JPH::Vec3(HALF_WIDTH, .01F, .01F), 0.0F);
+        for (int i = 0; i < GRID; ++i) {
+            const float          x = std::clamp(float(start[i].x), -LIMIT, LIMIT);
+            BodyCreationSettings creation(shape, RVec3(x, 0, 0), Quat::sIdentity(), EMotionType::Dynamic, 0);
+            creation.mOverrideMassProperties = EOverrideMassProperties::CalculateInertia;
+            creation.mMassPropertiesOverride.mMass = MASS;
+            creation.mGravityFactor = 0;
+            creation.mLinearDamping = 0;
+            creation.mFriction = 0;
+            creation.mAllowSleeping = false;
+            creation.mMaxLinearVelocity = 8;
+            ids[i] = bodies.CreateAndAddBody(creation, EActivation::Activate);
+            if (ids[i].IsInvalid())
+                return;
+            bodies.SetLinearVelocity(ids[i], JPH::Vec3(float(velocity[i].x) * springiness, 0, 0));
+            SliderConstraintSettings slider;
+            slider.mPoint1 = slider.mPoint2 = RVec3(x, 0, 0);
+            slider.mLimitsMin = -LIMIT - x;
+            slider.mLimitsMax = LIMIT - x;
+            constraints[i] = bodies.CreateConstraint(&slider, BodyID(), ids[i]);
+            if (!constraints[i])
+                return;
+            system.AddConstraint(constraints[i]);
+            if (i > 0) {
+                SliderConstraintSettings spacing;
+                spacing.mPoint1 = bodies.GetPosition(ids[i - 1]) + RVec3(2 * HALF_WIDTH, 0, 0);
+                spacing.mPoint2 = RVec3(x, 0, 0);
+                spacing.mLimitsMin = 0;
+                spacing.mLimitsMax = 1;
+                neighbours[i - 1] = bodies.CreateConstraint(&spacing, ids[i - 1], ids[i]);
+                if (!neighbours[i - 1])
+                    return;
+                system.AddConstraint(neighbours[i - 1]);
+            }
+        }
+        ready = true;
+    }
+
+    ~Pocket() {
+        auto &bodies = system.GetBodyInterfaceNoLock();
+        for (auto &constraint : neighbours)
+            if (constraint)
+                system.RemoveConstraint(constraint);
+        for (auto &constraint : constraints)
+            if (constraint)
+                system.RemoveConstraint(constraint);
+        for (const auto &id : ids)
+            if (!id.IsInvalid()) {
+                bodies.RemoveBody(id);
+                bodies.DestroyBody(id);
+            }
+    }
+
+    bool update(double acceleration, double rodVelocity, double quiet, JPH::TempAllocator &temp, JPH::JobSystem &jobs) {
+        auto &bodies = system.GetBodyInterfaceNoLock();
+        // Reinforce the trailing end by up to 4x; blend through zero speed when stopping or reversing.
+        const float direction = float(std::clamp(rodVelocity / .05, -1.0, 1.0));
+        const float trailing = .5F * std::abs(direction);
+        for (int i = 0; i < GRID; ++i) {
+            const float x = float(bodies.GetPosition(ids[i]).GetX());
+            const float rest = float(double(i) / PAPER_CELLS - .5);
+            const float velocity = bodies.GetLinearVelocity(ids[i]).GetX();
+            // A distributed lengthwise spring restores the sleeve during travel, not only after it stops.
+            // Jolt integrates the spring force; spring damping controls the rebound without sliding friction.
+            const float spring = SPRING * (4 - 3 * springiness) * (1 + 3 * (trailing - direction * rest));
+            const float damping = DAMPING * std::sqrt(spring / SPRING);
+            const float force =
+                float(-MASS * acceleration * springiness + (spring + quiet * 8) * (rest - x) - damping * velocity);
+            bodies.AddForce(ids[i], JPH::Vec3(force, 0, 0));
+        }
+        return system.Update(float(DT), 1, &temp, &jobs) == JPH::EPhysicsUpdateError::None;
+    }
+
+    float position(int i) { return float(system.GetBodyInterfaceNoLock().GetPosition(ids[i]).GetX()); }
+    bool  valid() const { return ready; }
+
+  private:
+    static constexpr float                                 MASS = 1.0F, SPRING = 48.0F, DAMPING = 4.0F;
+    static constexpr float                                 HALF_WIDTH = .002F, LIMIT = .5F - HALF_WIDTH;
+    const float                                            springiness;
+    JPH::ObjectLayerPairFilterTable                        pairs;
+    JPH::BroadPhaseLayerInterfaceTable                     broadPhase;
+    BroadFilter                                            objectVsBroadPhase;
+    JPH::PhysicsSystem                                     system;
+    std::array<JPH::BodyID, GRID>                          ids{};
+    std::array<JPH::Ref<JPH::TwoBodyConstraint>, GRID>     constraints{};
+    std::array<JPH::Ref<JPH::TwoBodyConstraint>, GRID - 1> neighbours{};
+    bool                                                   ready = false;
 };
 
 bool publishMovement(Run &run, double time, const JPH::Array<JPH::SoftBodyVertex> &vertices) {
@@ -312,87 +438,94 @@ bool publishMovement(Run &run, double time, const JPH::Array<JPH::SoftBodyVertex
     snapshot.time = time;
     snapshot.rigidVelocity = run.snapshotRigidVelocity;
     float *out = snapshot.values.data();
-    for (const auto &vertex : vertices) {
-        const auto p = vertex.mPosition, v = vertex.mVelocity;
+    for (std::size_t k = 0; k < vertices.size(); ++k) {
+        const auto &vertex = vertices[k];
+        const auto  p = vertex.mPosition, v = vertex.mVelocity;
+        // Header vertices follow the rod directly; only the free panel uses the partial inertial rebase.
+        const auto &frameVelocity = k < GRID ? run.snapshotRigidVelocity : run.publishVelocity;
         if (!std::isfinite(p.GetX()) || !std::isfinite(p.GetY()) || !std::isfinite(p.GetZ()) ||
             !std::isfinite(v.GetX()) || !std::isfinite(v.GetY()) || !std::isfinite(v.GetZ()))
             return false;
         *out++ = p.GetX();
         *out++ = p.GetY();
         *out++ = p.GetZ();
-        *out++ = float(v.GetX() + run.publishVelocity.x);
-        *out++ = float(v.GetY() + run.publishVelocity.y);
-        *out++ = float(v.GetZ() + run.publishVelocity.z);
+        *out++ = float(v.GetX() + frameVelocity.x);
+        *out++ = float(v.GetY() + frameVelocity.y);
+        *out++ = float(v.GetZ() + frameVelocity.z);
     }
     run.outputHead.store(head + 1, std::memory_order_release);
     run.recorded.fetch_add(1, std::memory_order_release);
     return true;
 }
 
-// Movement is a real sheet held where it was grabbed. Everything it does comes from being towed through still air:
-// the pinch drags it, the air it sweeps through holds it back and gusts across it, and gravity hangs it from the
-// grab. Slow moves keep the window taut; the faster it travels, the more of that hold is let go.
 void simulateMovement(Run &run, double phase) {
-    constexpr double GRAVITY_PULL = 20;  // a window-sized sheet falls like a handkerchief, not a banner
-    constexpr double AIR_DRAG = 9;       // light fabric: it gives in to the air within a tenth of a second
-    constexpr double TAUT_HOLD = 14;     // per second: how firmly a slow window is kept flat
-    constexpr double SETTLE_HOLD = 2;    // and a stopped one calmed
-    constexpr double MAX_FRAME_ACCELERATION = 120;
-    constexpr double MAX_WIND = 4;
-    const auto       stopped = [&] { return run.stop.stop_requested(); };
-    const auto       side = [](const Box &b) { return std::sqrt(b.w * b.h); };
-    const auto       sizeOf = [&](const Box &b) { return Vec2{b.w / side(b), b.h / side(b)}; };
-    Box              box = run.window;
-    Vec2             size = sizeOf(box);
-    ClothSolver      solver(PAPER_CELLS, size, run.grab);
-    for (int j = 0; j < GRID; ++j)
-        for (int i = 0; i < GRID; ++i) {
-            auto      &p = solver.particle(i, j);
-            const auto k = index(i, j);
-            p.position = {run.start[k].x * size.x, run.start[k].y * size.y, run.start[k].z};
-            p.velocity = {run.velocity[k].x * size.x, run.velocity[k].y * size.y, run.velocity[k].z};
-        }
-    JPH::Array<JPH::SoftBodyVertex> display;
-    display.resize(PAPER_GRID_VERTICES);
-    // A stopped sheet is drawn taut from the hand that holds it. What is shown fades from the cloth to the flat
-    // window along a front that spreads outwards from the pinch, a little unevenly, so the far corners go on hanging
-    // and swinging until it reaches them. Nothing can overshoot, and folds that have crossed through themselves
-    // cannot resist. `reach` is each vertex's place in that order, 0 at the pinch.
-    constexpr double    FRONT_BAND = .5, FRONT_END = 1.15 + FRONT_BAND;
-    double              front = 0;
-    std::vector<double> reach(PAPER_GRID_VERTICES);
-    {
-        double furthest = 1e-9;
-        for (int j = 0; j < GRID; ++j)
-            for (int i = 0; i < GRID; ++i) {
-                const double u = double(i) / PAPER_CELLS, v = double(j) / PAPER_CELLS;
-                reach[index(i, j)] = std::hypot((u - run.grab.x) * size.x, (v - run.grab.y) * size.y);
-                furthest = std::max(furthest, reach[index(i, j)]);
-            }
-        for (int j = 0; j < GRID; ++j)
-            for (int i = 0; i < GRID; ++i) {
-                const double u = double(i) / PAPER_CELLS, v = double(j) / PAPER_CELLS;
-                reach[index(i, j)] = reach[index(i, j)] / furthest +
-                                     .15 * (.5 + .5 * std::sin(5.3 * u + phase) * std::sin(4.1 * v + 1.7 * phase));
-            }
+    using namespace JPH;
+    enum : ObjectLayer { CLOTH = 0 };
+    ObjectLayerPairFilterTable    pairs(1);
+    BroadPhaseLayerInterfaceTable broadPhase(1, 1);
+    broadPhase.MapObjectToBroadPhaseLayer(CLOTH, BroadPhaseLayer(0));
+    ObjectVsBroadPhaseLayerFilterTable objectVsBroadPhase(broadPhase, 1, pairs, 1);
+    TempAllocatorImpl                  temp(8 << 20);
+    JobSystemSingleThreaded            jobs(cMaxPhysicsJobs);
+    PhysicsSystem                      system;
+    system.Init(1, 0, 32, 32, broadPhase, objectVsBroadPhase, pairs);
+    system.SetGravity(JPH::Vec3(0, float(-GRAVITY), 0));
+    const auto stopped = [&] { return run.stop.stop_requested(); };
+    if (stopped())
+        return;
+    const SheetGrid          rest = restGrid();
+    std::array<double, GRID> pleats{};
+    for (int i = 0; i < GRID; ++i)
+        pleats[i] = std::sin(8 * std::numbers::pi * i / PAPER_CELLS + phase);
+    Ref<SoftBodySharedSettings> settings = new SoftBodySharedSettings;
+    for (std::size_t k = 0; k < rest.size(); ++k) {
+        const auto p = rest[k];
+        settings->mVertices.emplace_back(Float3(float(p.x), float(p.y), 0), Float3(0, 0, 0),
+                                         k < GRID ? 0.0F : clothInverseMass(int(k / GRID)));
     }
-    const auto publish = [&](double when) {
-        for (int j = 0; j < GRID; ++j)
-            for (int i = 0; i < GRID; ++i) {
-                const auto  &p = solver.particle(i, j);
-                const double cloth = 1 - smoothstep(reach[index(i, j)], reach[index(i, j)] + FRONT_BAND, front);
-                const Vec3   shown = add(p.rest, mul(sub(p.position, p.rest), cloth));
-                auto        &v = display[index(i, j)];
-                v.mPosition = JPH::Vec3(float(shown.x / size.x), float(shown.y / size.y), float(shown.z));
-                v.mVelocity = JPH::Vec3(float(p.velocity.x / size.x), float(p.velocity.y / size.y), float(p.velocity.z)) *
-                              float(cloth);
-            }
-        return publishMovement(run, when, display);
-    };
-    bool        good = publish(-DT) && publish(0);
+    for (int j = 0; j < PAPER_CELLS; ++j)
+        for (int i = 0; i < PAPER_CELLS; ++i) {
+            const auto a = uint32(index(i, j)), b = uint32(index(i + 1, j)), c = uint32(index(i, j + 1)),
+                       d = uint32(index(i + 1, j + 1));
+            settings->AddFace(SoftBodySharedSettings::Face(a, c, b));
+            settings->AddFace(SoftBodySharedSettings::Face(b, c, d));
+        }
+    const SoftBodySharedSettings::VertexAttributes attributes(STRETCH_COMPLIANCE, STRETCH_COMPLIANCE, BEND_COMPLIANCE,
+                                                              SoftBodySharedSettings::ELRAType::GeodesicDistance);
+    settings->CreateConstraints(&attributes, 1, SoftBodySharedSettings::EBendType::Dihedral);
+    settings->Optimize();
+    if (stopped())
+        return;
+    SoftBodyCreationSettings creation(settings, RVec3::sZero(), Quat::sIdentity(), CLOTH);
+    creation.mUpdatePosition = false;
+    creation.mAllowSleeping = false;
+    creation.mNumIterations = 8;
+    creation.mLinearDamping = 2;
+    creation.mMaxLinearVelocity = 20;
+    auto        &bodies = system.GetBodyInterfaceNoLock();
+    const BodyID id = bodies.CreateAndAddSoftBody(creation, EActivation::Activate);
+    if (id.IsInvalid())
+        return;
+    auto *motion = static_cast<SoftBodyMotionProperties *>(
+        system.GetBodyLockInterfaceNoLock().TryGetBody(id)->GetMotionProperties());
+    auto &vertices = motion->GetVertices();
+    for (std::size_t k = 0; k < rest.size(); ++k) {
+        const auto p = run.start[k], v = run.velocity[k];
+        vertices[k].mPosition = JPH::Vec3(float(p.x), float(p.y), float(p.z));
+        vertices[k].mVelocity = JPH::Vec3(float(v.x), float(v.y), float(v.z));
+    }
+    std::optional<Pocket> pocket;
+    if (run.movement.springiness > 0)
+        pocket.emplace(run.start, run.velocity, run.movement.springiness);
+    if (pocket && !pocket->valid()) {
+        bodies.RemoveBody(id);
+        bodies.DestroyBody(id);
+        return;
+    }
+    bool        good = publishMovement(run, -DT, vertices) && publishMovement(run, 0, vertices);
     Run::Target previous{0, run.window};
-    double      time = 0, lastMotion = 0, loose = 0;
-    Vec3        travel{}, drift{}; // filtered frame velocity, and how far the frame has gone through the air
+    Box         box = run.window;
+    double      time = 0, lastMotion = 0, previousRodVelocity = 0;
     while (good && !stopped()) {
         if (s_pause.load(std::memory_order_acquire) &&
             run.recorded.load(std::memory_order_relaxed) >= s_pauseAfter.load(std::memory_order_relaxed)) {
@@ -413,58 +546,87 @@ void simulateMovement(Run &run, double phase) {
                               previous.box.y + u * (target.box.y - previous.box.y),
                               previous.box.w + u * (target.box.w - previous.box.w),
                               previous.box.h + u * (target.box.h - previous.box.h)};
-            const double dx = next.x - box.x, dy = next.y - box.y, L = side(next);
+            const double dx = next.x - box.x, dy = next.y - box.y;
             run.snapshotRigidVelocity = {dx / DT / next.w, -dy / DT / next.h, 0};
-            run.publishVelocity = run.snapshotRigidVelocity;
-            if (next.w != box.w || next.h != box.h)
-                solver.resize(size = sizeOf(next));
-            // Targets arrive once per rendered frame, so the raw velocity is a staircase. Its acceleration is only
-            // meaningful after smoothing over about one frame.
-            const double blend = 1 - std::exp(-DT / .015);
-            const Vec3   raw{dx / DT / L, -dy / DT / L, 0};
-            const Vec3   before = travel;
-            travel = add(travel, mul(sub(raw, travel), blend));
-            Vec3         frame = mul(sub(travel, before), 1 / DT);
-            const double jolt = std::sqrt(frame.x * frame.x + frame.y * frame.y);
-            if (jolt > MAX_FRAME_ACCELERATION)
-                frame = mul(frame, MAX_FRAME_ACCELERATION / jolt);
-            drift = add(drift, mul(travel, DT));
-            if (std::hypot(dx, dy) > 1e-7)
+            const double gain = std::min(run.movement.strength, 1.5);
+            run.publishVelocity = {(1 - gain) * dx / DT / next.w, -(1 - gain) * dy / DT / next.h, 0};
+            const double speed = std::hypot(dx, dy) / DT / std::min(next.w, next.h);
+            if (speed > 1e-5 || std::abs(next.w - box.w) + std::abs(next.h - box.h) > 1e-5)
                 lastMotion = nextTime;
-            const double settle = smoothstep(.15, MOVEMENT_SETTLE - .25, nextTime - lastMotion);
-            // A fresh pull takes the cloth back up without a jump.
-            front += (FRONT_END * settle - front) * (1 - std::exp(-DT / .06));
-            // Strength is how readily the window lets go: at the default a brisk drag frees it completely.
-            const double pixelsPerSecond = std::hypot(travel.x, travel.y) * L * run.movement.strength / .65;
-            // It lets go quickly and is gathered back slowly, so a pause or a stop does not snap it taut.
-            const double wanted = smoothstep(150, 900, pixelsPerSecond) * (1 - settle);
-            loose += (wanted - loose) * (1 - std::exp(-DT / (wanted > loose ? .12 : 1.0)));
-            const double inherited = std::exp(-12 * nextTime); // an interrupted opening hands its pinch over
+            const double quiet = nextTime - lastMotion;
+            const double settle = smoothstep(0.05, 0.5, quiet);
+            const double inherited = std::exp(-6 * nextTime);
+            const double rodVelocity = dx / DT / next.w;
+            const double acceleration = gain * (rodVelocity - previousRodVelocity) / DT;
+            previousRodVelocity = rodVelocity;
+            if (pocket && !pocket->update(acceleration, rodVelocity, settle, temp, jobs)) {
+                good = false;
+                break;
+            }
+            const double shortSide = std::min(next.w, next.h), L = std::sqrt(next.w * next.h);
+            motion->SetLinearDamping(float(2 + 9 * settle));
+            const double gust = std::sin(phase + nextTime * 7);
             for (int j = 0; j < GRID; ++j)
-                for (int i = 0; i < GRID; ++i)
-                    if (auto &p = solver.particle(i, j); p.pinned) {
-                        const auto start = run.start[index(i, j)];
-                        p.position = add(p.rest, mul(sub({start.x * size.x, start.y * size.y, start.z}, p.rest),
-                                                     inherited));
+                for (int i = 0; i < GRID; ++i) {
+                    const auto k = index(i, j);
+                    auto      &vertex = vertices[k];
+                    auto       p = vertex.mPosition;
+                    if (j != 0)
+                        p = JPH::Vec3(
+                            float((box.x + box.w / 2 + p.GetX() * box.w - next.x - next.w / 2 + (1 - gain) * dx) /
+                                  next.w),
+                            float((gain * dy + p.GetY() * box.h) / next.h),
+                            float(p.GetZ() * std::sqrt(box.w * box.h) / L));
+                    auto v = vertex.mVelocity;
+                    v = JPH::Vec3(float(v.GetX() * box.w / next.w), float(v.GetY() * box.h / next.h),
+                                  float(v.GetZ() * std::sqrt(box.w * box.h) / L));
+                    const auto      r = rest[k];
+                    const Vec3      oldOffset = sub(run.start[k], r);
+                    const JPH::Vec3 desired(float(r.x + oldOffset.x * inherited), float(r.y + oldOffset.y * inherited),
+                                            float(oldOffset.z * inherited));
+                    if (j == 0) {
+                        const float x = pocket ? pocket->position(i) : desired.GetX();
+                        v = (JPH::Vec3(x, 0, 0) - p) / float(DT);
+                    } else {
+                        const double down = double(j) / PAPER_CELLS;
+                        const double response = vertex.mInvMass / CLOTH_INV_MASS;
+                        const double spring = 4 + 30 * (1 - down) * (1 - down) + 120 * settle;
+                        v += (desired - p) * float(spring * response * DT);
+                        const double drive = std::min(speed, 3.0) * run.movement.strength;
+                        // Alternating pressure excites long folds instead of inflating the entire sheet forward.
+                        const double pressure = pleats[i] * (16 + 8 * run.movement.flutter * gust) * (.3 + .7 * down);
+                        v += JPH::Vec3(0, 0, float(response * drive * pressure * DT));
                     }
-            ClothSolver::Forces forces;
-            forces.acceleration = {-frame.x, -frame.y - GRAVITY_PULL * loose, 0};
-            // Past a few window lengths a second the sheet already streams flat out; more wind only strains it.
-            const double pace = std::hypot(travel.x, travel.y);
-            forces.wind = mul(travel, pace > 1e-9 ? -MAX_WIND * std::tanh(pace / MAX_WIND) / pace : 0.0);
-            forces.airOffset = drift;
-            forces.drag = AIR_DRAG;
-            forces.gust = .08 + .6 * run.movement.flutter; // never quite still, or slack cloth could not buckle
-            forces.phase = phase + 2 * nextTime;
-            forces.damping = 1 + 4 * settle;
-            forces.hold = TAUT_HOLD * (1 - loose) * (1 - loose) * (1 - settle) + SETTLE_HOLD * settle * settle;
-            solver.step(DT, forces);
+                    vertex.mPosition = p;
+                    vertex.mVelocity = v;
+                }
+            if (system.Update(float(DT), 1, &temp, &jobs) != EPhysicsUpdateError::None) {
+                good = false;
+                break;
+            }
+            for (std::size_t k = GRID; k < rest.size(); ++k) {
+                auto           &vertex = vertices[k];
+                const auto      r = rest[k];
+                const Vec3      inheritedOffset = mul(sub(run.start[k], r), inherited);
+                const JPH::Vec3 centre(float(r.x + inheritedOffset.x), float(r.y + inheritedOffset.y),
+                                       float(inheritedOffset.z));
+                auto            offset = vertex.mPosition - centre;
+                const double    limit = 0.2 * shortSide;
+                const double pixels = std::sqrt(std::pow(offset.GetX() * next.w, 2) +
+                                                std::pow(offset.GetY() * next.h, 2) + std::pow(offset.GetZ() * L, 2));
+                if (pixels > limit) {
+                    vertex.mPosition = centre + offset * float(limit / pixels);
+                    vertex.mVelocity *= 0.5F;
+                }
+            }
             box = next;
             time = nextTime;
-            good = publish(time);
+            good = publishMovement(run, time, vertices);
         }
         previous = target;
     }
+    bodies.RemoveBody(id);
+    bodies.DestroyBody(id);
 }
 
 void simulate(Run &run, const SimInput &in) {
@@ -508,17 +670,16 @@ void simulate(Run &run, const SimInput &in) {
         return;
     Ref<SoftBodySharedSettings> settings = new SoftBodySharedSettings;
     const SheetGrid             rest = restGrid();
+    std::array<double, GRID>    gustColumns{};
+    if (in.flutter > 0)
+        for (int i = 0; i < GRID; ++i)
+            gustColumns[i] = std::sin(8 * std::numbers::pi * i / PAPER_CELLS + in.phaseA);
     // Keep the wall behind the exact display plane: a flat, fully free sheet must not start embedded by its radius.
-    // Four times the inverse mass preserves areal density when a coarse cell becomes four simulated cells.
-    // Compliance scales with inverse mass to preserve XPBD alpha/inverse-mass ratios. At 57x57 a nonzero
-    // stretch/shear compliance is essential: perfectly rigid local constraints amplify floating-point noise
-    // in an unanchored sheet. Long-range attachments keep opening and pulling inextensible at sheet scale.
-    constexpr float INV_MASS = 4.0F, BEND_COMPLIANCE = 4e-2F;
     for (int j = 0; j < GRID; ++j)
         for (int i = 0; i < GRID; ++i) {
             const Vec3 &p = rest[index(i, j)];
             settings->mVertices.emplace_back(Float3(float(p.x), float(p.y), float(p.z)), Float3(0, 0, 0),
-                                             run.pinned(i, j) ? 0.0F : INV_MASS);
+                                             run.pinned(j) ? 0.0F : clothInverseMass(j));
         }
     for (int j = 0; j < PAPER_CELLS; ++j)
         for (int i = 0; i < PAPER_CELLS; ++i) {
@@ -527,10 +688,8 @@ void simulate(Run &run, const SimInput &in) {
             settings->AddFace(SoftBodySharedSettings::Face(a, c, b));
             settings->AddFace(SoftBodySharedSettings::Face(b, c, d));
         }
-    const bool                                     falling = run.kind == Transition::Close && run.edge == Edge::Bottom;
-    const SoftBodySharedSettings::VertexAttributes attributes(
-        1e-4F, 1e-4F, BEND_COMPLIANCE,
-        falling ? SoftBodySharedSettings::ELRAType::None : SoftBodySharedSettings::ELRAType::GeodesicDistance);
+    const SoftBodySharedSettings::VertexAttributes attributes(STRETCH_COMPLIANCE, STRETCH_COMPLIANCE, BEND_COMPLIANCE,
+                                                              SoftBodySharedSettings::ELRAType::GeodesicDistance);
     settings->CreateConstraints(&attributes, 1, SoftBodySharedSettings::EBendType::Dihedral);
     settings->Optimize();
     if (stopped())
@@ -540,7 +699,7 @@ void simulate(Run &run, const SimInput &in) {
     creation.mAllowSleeping = false;
     creation.mNumIterations = 8;
     creation.mVertexRadius = float(RADIUS);
-    creation.mLinearDamping = falling ? float(FALL_DAMPING) : 1.5F;
+    creation.mLinearDamping = 1.5F;
     creation.mFriction = 0.3F;
     creation.mMaxLinearVelocity =
         float(std::max(500.0, 1.5 * run.maxInitialSpeed + 8 * std::hypot(run.travel.x, run.travel.y) / run.length));
@@ -556,6 +715,30 @@ void simulate(Run &run, const SimInput &in) {
         vertices[k].mPosition = JPH::Vec3(float(p.x), float(p.y), float(p.z));
         vertices[k].mVelocity = JPH::Vec3(float(v.x), float(v.y), float(v.z));
     }
+    if (run.kind == Transition::Open) {
+        // A level, gathered sleeve compresses the first material rows. Relax that sewn pocket with Jolt on
+        // the worker before publishing frame zero, instead of displaying its initial constraint correction.
+        motion->SetLinearDamping(8);
+        for (int step = 0; step < 24; ++step) {
+            if (!waitPublication() || system.Update(float(DT), 1, &temp, &jobs) != EPhysicsUpdateError::None) {
+                bodies.RemoveBody(id);
+                bodies.DestroyBody(id);
+                return;
+            }
+        }
+        for (auto &vertex : vertices)
+            vertex.mVelocity = JPH::Vec3::sZero();
+        motion->SetLinearDamping(1.5F);
+    }
+    std::optional<Pocket> pocket;
+    if (run.kind == Transition::Close && run.movement.springiness > 0) {
+        pocket.emplace(run.start, run.velocity, run.movement.springiness);
+        if (!pocket->valid()) {
+            bodies.RemoveBody(id);
+            bodies.DestroyBody(id);
+            return;
+        }
+    }
     if (!record(run, 0, vertices)) {
         bodies.RemoveBody(id);
         bodies.DestroyBody(id);
@@ -564,19 +747,32 @@ void simulate(Run &run, const SimInput &in) {
     const float openAirDrag = float(1 - std::exp(-OPEN_AIR_DRAG * DT));
     for (int step = 1; step < run.frames && waitPublication(); ++step) {
         const double time = (step - 1) * DT;
+        if (pocket) {
+            const double t = std::clamp((time + DT) / run.length, 0.0, 1.0);
+            const double rodVelocity = run.travel.x * 30 * t * t * (1 - t) * (1 - t) / run.length;
+            if (!pocket->update(0, rodVelocity, 0, temp, jobs))
+                break;
+        }
         if (run.kind == Transition::Open)
             motion->SetLinearDamping(float(1.5 + 8 * smoothstep(0.65, 0.95, time / run.length)));
-        for (int j = 0; j < GRID; ++j)
+        const double headerSpread = run.kind == Transition::Open ? smoothstep(0, .72, (time + DT) / run.length) : 0;
+        for (int j = 0; j < GRID; ++j) {
+            const double rowGust =
+                in.flutter > 0 ? std::sin(in.freqA * time + .8 * double(j) / PAPER_CELLS + in.phaseB) : 0;
             for (int i = 0; i < GRID; ++i) {
                 const auto k = index(i, j);
                 auto      &v = vertices[k];
-                if (run.pinned(i, j)) {
+                if (run.pinned(j)) {
                     Vec3 target = run.start[k];
+                    if (run.kind == Transition::Open)
+                        target = lerp(target, rest[k], headerSpread);
                     if (run.kind == Transition::Close) {
                         const double t = std::clamp((time + DT) / run.length, 0.0, 1.0);
                         const double distance = t * t * t * (10 + t * (-15 + 6 * t));
-                        target = add(target, add(mul(run.travel, distance),
-                                                 mul(run.velocity[k], (time + DT) * (1 - t) * (1 - t))));
+                        const double inheritedTime = (time + DT) * (1 - t) * (1 - t);
+                        target.x = (pocket ? pocket->position(i) : target.x) + run.travel.x * distance;
+                        target.y += run.travel.y * distance + run.velocity[0].y * inheritedTime;
+                        target.z = 0;
                     }
                     const JPH::Vec3 p(float(target.x), float(target.y), float(target.z));
                     v.mVelocity = (p - v.mPosition) / float(DT);
@@ -588,13 +784,12 @@ void simulate(Run &run, const SimInput &in) {
                     if (run.kind == Transition::Open)
                         v.mVelocity -= n * (v.mVelocity.Dot(n) * openAirDrag);
                     if (in.flutter > 0) {
-                        const double wave =
-                            std::sin(in.freqA * time + 2 * std::numbers::pi * v.mPosition.GetX() + in.phaseA) *
-                            std::sin(in.freqB * time + 3 * std::numbers::pi * v.mPosition.GetY() + in.phaseB);
-                        v.mVelocity += n * float(3 * in.flutter * (0.55 + 0.45 * wave) * DT * n.GetZ());
+                        const double wave = gustColumns[i] * rowGust;
+                        v.mVelocity += n * float(5 * in.flutter * wave * DT * n.GetZ() * (v.mInvMass / CLOTH_INV_MASS));
                     }
                 }
             }
+        }
         if (system.Update(float(DT), 1, &temp, &jobs) != EPhysicsUpdateError::None)
             break;
         if (!record(run, step, vertices))
@@ -626,12 +821,10 @@ void ClothPhysics::pauseWorkersForTesting(bool pause, int afterSnapshots) noexce
     s_pause.store(pause, std::memory_order_release);
 }
 
-void ClothFlutter::beginMovement(const ClothMovementParams &params, std::uint64_t seed, const Box &capture,
-                                 Vec2 grabUV) {
+void ClothFlutter::beginMovement(const ClothMovementParams &params, std::uint64_t seed, const Box &capture) {
     if (!validBox(capture) || !s_live.load(std::memory_order_acquire) || !std::isfinite(params.strength) ||
         params.strength <= 0 || !std::isfinite(params.flutter) || !std::isfinite(params.shading) ||
-        !std::isfinite(params.variation) || !std::isfinite(params.shine) || !std::isfinite(grabUV.x) ||
-        !std::isfinite(grabUV.y)) {
+        !std::isfinite(params.variation) || !std::isfinite(params.shine) || !std::isfinite(params.springiness)) {
         reset();
         return;
     }
@@ -639,9 +832,8 @@ void ClothFlutter::beginMovement(const ClothMovementParams &params, std::uint64_
     run->live = true;
     run->window = capture;
     run->movement = {std::clamp(params.strength, 0.0, 1.5), std::clamp(params.flutter, 0.0, 1.0),
-                     std::clamp(params.shading, 0.0, 1.0), std::clamp(params.variation, 0.0, 1.0),
-                     std::clamp(params.shine, 0.0, 1.0)};
-    run->grab = {std::clamp(grabUV.x, 0.0, 1.0), std::clamp(grabUV.y, 0.0, 1.0)};
+                     std::clamp(params.shading, 0.0, 1.0),  std::clamp(params.variation, 0.0, 1.0),
+                     std::clamp(params.shine, 0.0, 1.0),    std::clamp(params.springiness, 0.0, 1.0)};
     const double alpha = opacity();
     sampleVertices(run->start, run->velocity);
     auto playback = std::make_unique<MovementPlayback>();
@@ -696,10 +888,9 @@ void ClothFlutter::updateMovement(const Box &capture, double elapsed) noexcept {
     const Box old = m_movement->target;
     if (capture.x != old.x || capture.y != old.y || capture.w != old.w || capture.h != old.h) {
         if (m_fallback && m_movement->settling) {
-            // A fresh grab during the exact-flat transition starts from its displayed pose.
+            // Motion during the exact-flat transition starts from its displayed pose.
             const auto params = m_run->movement;
-            const auto grab = m_run->grab;
-            beginMovement(params, BASE_SEED, old, grab);
+            beginMovement(params, BASE_SEED, old);
         }
         if (!m_movement)
             return;
@@ -709,10 +900,6 @@ void ClothFlutter::updateMovement(const Box &capture, double elapsed) noexcept {
 }
 
 bool ClothFlutter::moving() const noexcept { return m_phase == Phase::Movement; }
-bool ClothFlutter::regrabs(Vec2 grabUV) const noexcept {
-    return moving() && m_movement && m_run && m_t - m_movement->lastMotion >= 0.2 &&
-           std::hypot(grabUV.x - m_run->grab.x, grabUV.y - m_run->grab.y) > 0.05;
-}
 
 void ClothFlutter::begin(Transition kind, const ClothParams &params, std::uint64_t seed, const Box &window,
                          std::span<const Box> obstacles, std::optional<ClothCloseGeometry> geometry) {
@@ -731,42 +918,24 @@ void ClothFlutter::begin(Transition kind, const ClothParams &params, std::uint64
     run->screen = geometry ? geometry->screen : Box{window.x, window.y, window.w, window.h};
     run->edge = geometry ? geometry->edge : Edge::Bottom;
     const double oldOpacity = opacity();
-    if (kind == Transition::Close && (m_phase == Phase::Opening || m_phase == Phase::Movement) && m_run)
+    if (kind == Transition::Close && (m_phase == Phase::Opening || m_phase == Phase::Movement) && m_run) {
+        run->movement.springiness = m_run->movement.springiness;
         sampleVertices(run->start, run->velocity);
-    else
+    } else
         run->start = restGrid();
     if (kind == Transition::Open) {
-        constexpr double angle = 80 * std::numbers::pi / 180;
-        for (Vec3 &v : run->start) {
-            v.z = -v.y * std::sin(angle);
-            v.y *= std::cos(angle);
-        }
+        run->start = curtainGrid();
     } else {
         const double W = window.w, H = window.h;
-        if (run->edge == Edge::Bottom) {
-            double top = 0, upward = 0;
-            for (std::size_t k = 0; k < run->start.size(); ++k) {
-                top = std::max(top, run->start[k].y);
-                upward = std::max(upward, run->velocity[k].y);
-            }
-            const double distance = std::max(0.0, (run->screen.y + run->screen.h - window.y) / H) + top + 0.5;
-            // Conservative gravity-only flight time with damping; no downward kinematic drive or attachments.
-            double       t = 1.1;
-            const double simUp = upward * p.duration / 1.1;
-            while (t < 12 &&
-                   GRAVITY / FALL_DAMPING * (t - (1 - std::exp(-FALL_DAMPING * t)) / FALL_DAMPING) - simUp * t <
-                       distance)
-                t += DT;
-            run->length = t;
-        } else {
-            run->length = 1.4;
-            if (run->edge == Edge::Top)
-                run->travel.y = std::max(0.0, (window.y - run->screen.y) / H) + 2.5;
-            if (run->edge == Edge::Left)
-                run->travel.x = -(std::max(0.0, (window.x - run->screen.x) / W) + 2.5);
-            if (run->edge == Edge::Right)
-                run->travel.x = std::max(0.0, (run->screen.x + run->screen.w - window.x - W) / W) + 2.5;
-        }
+        run->length = 1.4;
+        if (run->edge == Edge::Bottom)
+            run->travel.y = -(std::max(0.0, (run->screen.y + run->screen.h - window.y) / H) + 2.5);
+        if (run->edge == Edge::Top)
+            run->travel.y = std::max(0.0, (window.y - run->screen.y) / H) + 2.5;
+        if (run->edge == Edge::Left)
+            run->travel.x = -(std::max(0.0, (window.x - run->screen.x) / W) + 2.5);
+        if (run->edge == Edge::Right)
+            run->travel.x = std::max(0.0, (run->screen.x + run->screen.w - window.x - W) / W) + 2.5;
     }
     run->frames = int(std::ceil(run->length / DT)) + 1;
     run->length = (run->frames - 1) * DT;
@@ -786,7 +955,6 @@ void ClothFlutter::begin(Transition kind, const ClothParams &params, std::uint64
     input.phaseA = 2 * std::numbers::pi * draw();
     input.phaseB = 2 * std::numbers::pi * draw();
     input.freqA = 9 + 4 * draw();
-    input.freqB = 6 + 3 * draw();
     std::vector<std::pair<double, Box>> nearest;
     for (const Box &o : obstacles) {
         if (!validBox(o) ||
@@ -837,6 +1005,8 @@ void ClothFlutter::begin(Transition kind, const ClothParams &params, std::uint64
     m_rate = rate;
     m_t = 0;
     m_startupWait = 0;
+    m_startupRecorded = 0;
+    m_transitionHeld = false;
     m_fallbackTime = 0;
     m_fallback.reset();
     m_initialOpacity = kind == Transition::Close ? oldOpacity : 1;
@@ -920,29 +1090,71 @@ bool ClothFlutter::advance(double dt) noexcept {
         playback.time = std::min(wanted, playback.b.time); // a starved worker holds the newest pose
         if (m_run->recorded.load(std::memory_order_acquire) < 2) {
             m_startupWait += dt;
-            if (m_startupWait >= STARTUP_TIMEOUT || m_run->finished.load(std::memory_order_acquire))
+            if (m_startupWait >= kStallSeconds || m_run->finished.load(std::memory_order_acquire))
                 startFallback();
         } else {
             m_startupWait = progressed || wanted <= playback.b.time + 1e-8 ? 0 : m_startupWait + dt;
-            playback.settling = m_t - playback.lastMotion >= MOVEMENT_SETTLE;
-            if (m_run->overflow.load(std::memory_order_acquire) || m_startupWait >= 0.05 ||
+            playback.settling = m_t - playback.lastMotion >= 0.5;
+            if (m_run->overflow.load(std::memory_order_acquire) || m_startupWait >= kStallSeconds ||
                 m_run->finished.load(std::memory_order_acquire) || playback.settling)
                 startFallback();
         }
         return active();
     }
-    if (m_run->recorded.load(std::memory_order_acquire) < 2) {
+    const bool finished = m_run->finished.load(std::memory_order_acquire);
+    const int  recorded = m_run->recorded.load(std::memory_order_acquire);
+    const bool complete = recorded >= m_run->frames;
+    if (finished && !complete) {
+        startFallback();
+        return active();
+    }
+    if (recorded < 2) {
+        if (dt > 0)
+            m_transitionHeld = true;
+        if (recorded > m_startupRecorded) {
+            m_startupRecorded = recorded;
+            m_startupWait = 0;
+        }
         m_startupWait += dt;
-        if (m_startupWait >= STARTUP_TIMEOUT || m_run->finished.load(std::memory_order_acquire))
+        if (m_startupWait >= kStallSeconds) {
+            const bool finishedNow = m_run->finished.load(std::memory_order_acquire);
+            const int  recordedNow = m_run->recorded.load(std::memory_order_acquire);
+            if (finishedNow && recordedNow < m_run->frames)
+                startFallback();
+            else if (recordedNow > m_startupRecorded) {
+                m_startupRecorded = recordedNow;
+                m_startupWait = 0;
+            } else
+                startFallback();
+        }
+        return active();
+    }
+    const double oldTime = m_t;
+    const double wanted = std::min(oldTime + dt * m_rate, m_run->length);
+    const double frontier = std::min(m_run->length, (recorded - 1) * DT + DT);
+    m_t = std::min(wanted, frontier);
+    const bool waiting = !complete && (wanted > frontier + 1e-10 || wanted >= m_run->length - 1e-10);
+    if (dt > 0)
+        m_transitionHeld = m_t <= oldTime + 1e-10;
+    if (complete)
+        m_startupWait = 0;
+    else if (frontier > oldTime + 1e-10) {
+        const double served = std::clamp((frontier - oldTime) / m_rate, 0.0, dt);
+        m_startupWait = waiting ? dt - served : 0;
+    } else if (waiting)
+        m_startupWait += dt;
+    if (waiting && m_startupWait >= kStallSeconds) {
+        const bool finishedNow = m_run->finished.load(std::memory_order_acquire);
+        const int  recordedNow = m_run->recorded.load(std::memory_order_acquire);
+        if (finishedNow && recordedNow < m_run->frames)
+            startFallback();
+        else if (recordedNow > recorded)
+            m_startupWait = 0;
+        else
             startFallback();
         return active();
     }
-    const double wanted = std::min(m_t + dt * m_rate, m_run->length);
-    const double available = m_run->playable();
-    m_t = std::min(wanted, available + DT);
-    if (wanted > available + DT + 1e-10)
-        startFallback();
-    else if (m_t >= m_run->length - 1e-10) {
+    if (complete && m_t >= m_run->length - 1e-10) {
         if (m_phase == Phase::Opening)
             reset();
         else {
@@ -955,6 +1167,8 @@ bool ClothFlutter::advance(double dt) noexcept {
 void ClothFlutter::reset() noexcept {
     m_phase = Phase::Idle;
     m_t = 0;
+    m_startupRecorded = 0;
+    m_transitionHeld = false;
     m_run.reset();
     m_fallback.reset();
     m_movement.reset();
@@ -992,10 +1206,16 @@ void ClothFlutter::sampleVertices(SheetGrid &p, SheetGrid &v) const noexcept {
         for (std::size_t k = 0; k < p.size(); ++k) {
             const Vec3 a = m_fallback->positions[k], speed = m_fallback->velocities[k];
             if (m_phase != Phase::Closing) {
-                p[k] = add(add(mul(a, 2 * t3 - 3 * t2 + 1), mul(speed, (t3 - 2 * t2 + t) * FALLBACK_LENGTH)),
-                           mul(rest[k], -2 * t3 + 3 * t2));
-                v[k] = add(add(mul(a, (6 * t2 - 6 * t) / FALLBACK_LENGTH), mul(speed, 3 * t2 - 4 * t + 1)),
-                           mul(rest[k], (-6 * t2 + 6 * t) / FALLBACK_LENGTH));
+                if (k < GRID) {
+                    // A common convex return keeps the sleeve ordered and inside the rod even without a worker.
+                    p[k] = lerp(a, rest[k], t2 * (3 - 2 * t));
+                    v[k] = mul(sub(rest[k], a), 6 * t * (1 - t) / FALLBACK_LENGTH);
+                } else {
+                    p[k] = add(add(mul(a, 2 * t3 - 3 * t2 + 1), mul(speed, (t3 - 2 * t2 + t) * FALLBACK_LENGTH)),
+                               mul(rest[k], -2 * t3 + 3 * t2));
+                    v[k] = add(add(mul(a, (6 * t2 - 6 * t) / FALLBACK_LENGTH), mul(speed, 3 * t2 - 4 * t + 1)),
+                               mul(rest[k], (-6 * t2 + 6 * t) / FALLBACK_LENGTH));
+                }
                 if (m_phase == Phase::Movement && m_movement)
                     v[k] = add(v[k], m_movement->rigidVelocity);
             } else {
@@ -1018,13 +1238,18 @@ void ClothFlutter::sampleVertices(SheetGrid &p, SheetGrid &v) const noexcept {
             // latest capture, which can already have started or stopped.
             v[k] = add(sub(lerp(v0, v1, at), snapshotRigid), m_movement->rigidVelocity);
             p[k] = lerp(p0, p1, at);
+            if (k < GRID)
+                continue; // The native rod limits, not the lower-panel displacement cap, own the sleeve.
             const Vec3   rest{double(k % GRID) / PAPER_CELLS - .5, -double(k / GRID) / PAPER_CELLS, 0};
-            const auto   offset = sub(p[k], rest);
-            const double distance = std::sqrt(offset.x * offset.x + offset.y * offset.y + offset.z * offset.z);
-            if (!std::isfinite(distance) || distance > 10) {
-                p[k] = rest;
-                v[k] = {};
-            }
+            const Vec3   centre = add(rest, mul(sub(m_run->start[k], rest), std::exp(-6 * m_movement->time)));
+            const auto   offset = sub(p[k], centre);
+            const auto   box = m_movement->target;
+            const double L = std::sqrt(box.w * box.h);
+            const double pixels =
+                std::sqrt(std::pow(offset.x * box.w, 2) + std::pow(offset.y * box.h, 2) + std::pow(offset.z * L, 2));
+            const double limit = .2 * std::min(box.w, box.h);
+            if (pixels > limit)
+                p[k] = add(centre, mul(offset, limit / pixels));
         }
         return;
     }
@@ -1039,7 +1264,7 @@ void ClothFlutter::sampleVertices(SheetGrid &p, SheetGrid &v) const noexcept {
         }
     }
     for (auto &speed : v)
-        speed = mul(speed, m_rate);
+        speed = m_transitionHeld ? Vec3{} : mul(speed, m_rate);
 }
 bool ClothFlutter::waitForRecording(double timeout) const noexcept {
     if (!m_run || !std::isfinite(timeout) || timeout < 0)

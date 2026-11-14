@@ -49,7 +49,6 @@ class CPluginRuntime {
     liquid_glass::ClothMovementParams clothMovementParams() const;
     bool                              materialUsable() const;
     bool                              materialChanged(const CLiquidGlassTransformer &transformer) const;
-    liquid_glass::Vec2                movementGrab(const PHLWINDOW &window, const CBox &capture, Vector2D delta) const;
     bool                              wobbleEnabled() const;
     void                              notify(const std::string &text) const;
     void                              onReload();

@@ -115,12 +115,12 @@ void CLiquidGlassTransformer::beginClothOpen(const liquid_glass::ClothParams &pa
     refreshSheetFrame(m_style);
 }
 
-void CLiquidGlassTransformer::beginClothMovement(std::uint64_t seed, const liquid_glass::Box &window, Vec2 grabUV) {
+void CLiquidGlassTransformer::beginClothMovement(std::uint64_t seed, const liquid_glass::Box &window) {
     auto *cloth = std::get_if<SClothStyle>(&m_style);
     if (!cloth)
         return;
     // An interrupted cloth opening keeps its displayed pose; the movement model inherits it.
-    cloth->cloth.beginMovement(cloth->movement, seed, window, grabUV);
+    cloth->cloth.beginMovement(cloth->movement, seed, window);
     cloth->sheet.captureSize = {window.w, window.h};
     refreshSheetFrame(m_style);
 }
@@ -137,11 +137,6 @@ void CLiquidGlassTransformer::updateClothMovement(const liquid_glass::Box &windo
 bool CLiquidGlassTransformer::clothMoving() const noexcept {
     const auto *cloth = std::get_if<SClothStyle>(&m_style);
     return cloth && cloth->cloth.moving();
-}
-
-bool CLiquidGlassTransformer::clothRegrabs(liquid_glass::Vec2 grabUV) const noexcept {
-    const auto *cloth = std::get_if<SClothStyle>(&m_style);
-    return cloth && cloth->cloth.regrabs(grabUV);
 }
 
 bool CLiquidGlassTransformer::clothOpening() const noexcept {

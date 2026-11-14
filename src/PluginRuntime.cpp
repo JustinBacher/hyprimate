@@ -8,8 +8,6 @@
 #include <hyprland/src/desktop/view/window/WindowEffectsController.hpp>
 #include <hyprland/src/render/transformer/TransformerList.hpp>
 #include <hyprland/src/managers/fullscreen/FullscreenController.hpp>
-#include <hyprland/src/layout/LayoutManager.hpp>
-#include <hyprland/src/managers/input/InputManager.hpp>
 #include <hyprland/src/output/Monitor.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/state/MonitorState.hpp>
@@ -233,7 +231,8 @@ liquid_glass::ClothMovementParams CPluginRuntime::clothMovementParams() const {
             .flutter = cloth.flutter,
             .shading = cloth.shading,
             .variation = cloth.variation,
-            .shine = cloth.shine};
+            .shine = cloth.shine,
+            .springiness = cloth.springiness};
 }
 
 bool CPluginRuntime::movementEnabled() const {
@@ -331,29 +330,6 @@ bool CPluginRuntime::materialUsable() const {
 
 bool CPluginRuntime::materialChanged(const CLiquidGlassTransformer &transformer) const {
     return !transformer.builtFor(m_config.style, effectiveMaterialParams(), clothMovementParams());
-}
-
-liquid_glass::Vec2 CPluginRuntime::movementGrab(const PHLWINDOW &window, const CBox &capture, Vector2D delta) const {
-    if (window->isFloating() && g_layoutManager && g_pInputManager) {
-        const auto &drag = g_layoutManager->dragController();
-        const auto  target = drag ? drag->target() : nullptr;
-        if (drag && drag->mode() == MBIND_MOVE && target && target->window() == window) {
-            const auto cursor = g_pInputManager->getMouseCoordsInternal();
-            if (std::isfinite(cursor.x) && std::isfinite(cursor.y))
-                return {std::clamp((cursor.x - capture.x) / capture.w, 0.0, 1.0),
-                        std::clamp((cursor.y - capture.y) / capture.h, 0.0, 1.0)};
-        }
-    }
-    // Anything else is pulled by its leading side: the corner when it travels diagonally, otherwise some point along
-    // the leading edge, drawn afresh for each movement.
-    std::uint64_t seed = m_nextSeed;
-    const double  along = 0.15 + 0.7 * liquid_glass::unitDraw(seed);
-    const double  x = delta.x > 0 ? 1.0 : 0.0, y = delta.y > 0 ? 1.0 : 0.0;
-    if (std::abs(delta.x) >= 2 * std::abs(delta.y))
-        return {x, along};
-    if (std::abs(delta.y) >= 2 * std::abs(delta.x))
-        return {along, y};
-    return {x, y};
 }
 
 bool CPluginRuntime::wobbleEnabled() const { return *m_wobble != 0; }
@@ -529,12 +505,8 @@ void CPluginRuntime::recordMovement(STracked &entry, const PHLWINDOW &window,
         transformer->cancelMovement();
     switch (m_config.style) {
     case cfg::Style::Cloth:
-        if (moving) {
-            // A pull after a pause may take the sheet somewhere else: it is pinched afresh there.
-            const auto grab = movementGrab(window, capture, delta);
-            if (!transformer->clothMoving() || transformer->clothRegrabs(grab))
-                transformer->beginClothMovement(m_nextSeed++, decision.previousCapture, grab);
-        }
+        if (moving && !transformer->clothMoving())
+            transformer->beginClothMovement(m_nextSeed++, decision.previousCapture);
         if (enabled && transformer->clothMoving())
             transformer->updateClothMovement(toBox(capture), elapsed);
         break;

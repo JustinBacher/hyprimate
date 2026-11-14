@@ -60,6 +60,7 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                         },
 --                         cloth = {
 --                             strength = 0.65,
+--                             springiness = 0,
 --                             flutter = 0.5,
 --                             shading = 0.7,
 --                             shine = 0,
