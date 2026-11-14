@@ -1,0 +1,200 @@
+#pragma once
+
+#include "animations/shared/Core.hpp"
+#include "animations/liquid/LiquidMesh.hpp"
+
+#include <array>
+#include <optional>
+#include <span>
+
+namespace liquid_glass {
+
+// Edge-transition tuning. Finite values are clamped to [0, 1].
+struct TransitionParams {
+    double elasticity = 0.5; // [0,1] spring stiffness; higher = snappier
+    double momentum = 0.5;   // [0,1] inertia / overshoot; 0 = none
+};
+
+// Rest geometry in the edge frame. n = distance from the screen edge into the screen; t = tangential coordinate.
+// Every value is for points given relative to the capture (decorated + shadow) centre at rest.
+struct EdgeFrame {
+    Edge   edge = Edge::Bottom;
+    double edgeDistance = 0.0; // n of the capture centre (> 0)
+    double captureFar = 0.0;   // n of the capture side farthest from the edge
+    double bodyNear = 0.0;     // n of the decorated window side nearest the edge (>= 0)
+    double bodyFar = 0.0;      // n of the decorated window side farthest from the edge
+    double bodyT0 = 0.0;       // tangential span of the decorated window
+    double bodyT1 = 0.0;
+};
+
+// Chooses the edge a window emerges from or drains into. An edge is valid when the decorated body lies inside the
+// screen along its normal. preferFallback (first window on its workspace, or close_side=origin) picks `fallback` when
+// valid. Otherwise the neighbours decide: each body side sums the length it shares with neighbours whose facing gap is
+// in [-2, 64] px. The sides within 1 px of the largest contact point at the opposite screen edges, and the valid
+// candidate nearest the body centre wins. Without usable contact, the valid edge nearest the body centre wins. Ties
+// within 1 px go to `fallback`, then Bottom, Right, Left, Top. nullopt for unusable boxes or when no edge is valid.
+std::optional<EdgeFrame> resolveEdgeFrame(const Box &body, const Box &capture, const Box &screen,
+                                          std::span<const Box> neighbours, Edge fallback, bool preferFallback) noexcept;
+
+// Where a closing window exits.
+enum class CloseSide { Auto, Nearest, Origin, Top, Bottom, Left, Right };
+
+// Shared liquid/cloth close policy. Nearest ignores neighbours; Origin prefers the recorded opening edge;
+// Top/Bottom/Left/Right prefer that fixed edge. An unavailable or invalid preference uses the usual resolver.
+std::optional<EdgeFrame> resolveCloseEdgeFrame(const Box &body, const Box &capture, const Box &bounds,
+                                               std::span<const Box> neighbours, Edge fallback, CloseSide side,
+                                               std::optional<Edge> origin = std::nullopt) noexcept;
+
+// Every screen edge a window appears from, for motion that may use several at once (swarm). A side of the body is
+// free when no neighbour touches it (same contact rule as resolveEdgeFrame). The free edges opposite the sides
+// within 1 px of the largest contact win; without those, the free edges within 1 px of the nearest one to the body
+// centre; a body touched on every side uses the nearest edges overall. Empty for unusable boxes.
+EdgeSet resolveEdgeSides(const Box &body, const Box &screen, std::span<const Box> neighbours) noexcept;
+
+// Edge frame <-> point relative to the capture centre.
+Vec2   edgePoint(const EdgeFrame &frame, double t, double n) noexcept;
+double edgeNormal(const EdgeFrame &frame, Vec2 p) noexcept;
+double edgeTangent(const EdgeFrame &frame, Vec2 p) noexcept;
+// Unit vector pointing from the edge into the screen.
+Vec2 inwardNormal(Edge edge) noexcept;
+
+// Pop-out lifecycle modelled on a droplet leaving a liquid surface. Open: a small round bead pops out from behind a
+// screen edge, the edge liquid fillets, necks, snaps and recoils behind it, then the bead grows (along the edge
+// first) into the window at its rest box. Close: the window shrinks back into a bead near the edge, the edge rises
+// to meet it and the bead dives behind the edge. Fixed 1/240 s substeps; no compositor dependency.
+class EdgeTransition {
+  public:
+    // Invalid frame, parameters or non-positive strength leave it idle. A Close begun during an Open continues
+    // from the current bead on the Open's edge and ignores `frame`; visible open liquid snaps into a recoil. For a
+    // Close: `closeSplash` plays a single splash bump at the dive point once the bead is
+    // behind the edge; false ends the close at the drain. Ignored for an Open.
+    void begin(Transition kind, const EdgeFrame &frame, const TransitionParams &params, double strength,
+               bool closeSplash = true) noexcept;
+    // Nonfinite, negative or > kStallSeconds steps abort: Open returns to idle, Close to closed.
+    bool             advance(double elapsedSeconds) noexcept;
+    void             reset() noexcept;
+    bool             active() const noexcept;
+    bool             closed() const noexcept;
+    const EdgeFrame &frame() const noexcept { return m_frame; }
+
+    // Maps a point given relative to the rest capture centre (logical px; `size` is the capture size) to its
+    // displayed position relative to that centre. Exact identity unless active. Radially homogeneous outline map
+    // (rest rectangle -> rounded/scaled outline) plus a translation along the edge normal; it never folds the image.
+    Vec2 map(Vec2 fromCentre, Vec2 size) const noexcept;
+
+    // The map for one capture size in the current state, with its constants computed once: restMap(size).map(p)
+    // equals map(p, size). Build it once per grid or frame and call map() per sample.
+    class RestMap {
+      public:
+        Vec2 map(Vec2 fromCentre) const noexcept;
+
+      private:
+        friend class EdgeTransition;
+        bool   identity = true;    // inactive or invalid size: the map is the identity
+        bool   horizontal = false; // the edge runs horizontally, so the tangent is x
+        bool   rectangle = true;   // roundness below 2e-4: the outline is the rectangle itself
+        Vec2   along{1.0, 0.0};
+        Vec2   inward{0.0, 0.0};
+        double halfT = 1.0, halfN = 1.0;
+        double exponent = 2.0, invExponent = 0.5; // outline exponent 2 / roundness and its reciprocal
+        double tBase = 0.0, tScale = 0.0, nBase = 0.0, nScale = 0.0;
+    };
+    RestMap restMap(Vec2 size) const noexcept;
+    // Window-centre translation since the previous call (begin() does not count). Feeds the movement field.
+    Vec2 takeTravel() noexcept;
+    // The pop-out as a box, for a window whose real box is driven to follow it. `centre` is the bead's centre relative
+    // to the rest capture centre; `half` is its half-extent per screen axis for a rest capture of `restSize`. Both are
+    // the rest values when idle.
+    Vec2 beadCentre() const noexcept;
+    Vec2 beadHalf(Vec2 restSize) const noexcept;
+
+    // Edge liquid height in px into the screen at tangential coordinate t. 0 unless active; never negative.
+    double meniscus(double t) const noexcept;
+    // meniscus() is 0 outside [meniscusLow, meniscusHigh]; empty (low == high) when there is none.
+    double meniscusLow() const noexcept;
+    double meniscusHigh() const noexcept;
+    double meniscusPeak() const noexcept;
+
+  private:
+    enum class Phase { Idle, Opening, Closing, Closed };
+    struct Spring {
+        double value = 0.0;
+        double velocity = 0.0;
+    };
+    // One bell of edge liquid, centred on the body's tangential centre.
+    struct Lobe {
+        double height = 0.0;  // px into the screen; 0 means unused
+        double plateau = 0.0; // half-width of the flat top
+        double skirt = 1.0;   // falloff width beyond the plateau
+    };
+    // Liquid is the maximum over the visible lobes: the open liquid or a recoil, plus the splash during a close (a
+    // close interrupting an opening can carry a decaying recoil into the splash).
+    struct Profile {
+        static constexpr int        kMaxLobes = 2;
+        std::array<Lobe, kMaxLobes> lobes{};
+        // Adds a visible lobe to the first free slot. Callers stay within kMaxLobes.
+        void add(const Lobe &lobe) noexcept {
+            if (!(lobe.height > 0.0))
+                return;
+            for (Lobe &slot : lobes) {
+                if (!(slot.height > 0.0)) {
+                    slot = lobe;
+                    return;
+                }
+            }
+        }
+        double peak() const noexcept {
+            double h = 0.0;
+            for (const Lobe &l : lobes)
+                h = l.height > h ? l.height : h;
+            return h;
+        }
+    };
+
+    void   step() noexcept;
+    void   abort() noexcept;
+    void   startRecoil(const Lobe &snap) noexcept; // the recoil starts at snap.height with snap's plateau and skirt
+    void   advanceRecoil() noexcept;
+    bool   quiet() const noexcept;
+    bool   recoilSettled() const noexcept;
+    double eNormal() const noexcept;  // bead half-extent into the screen (n)
+    double nearSide() const noexcept; // n of the bead's side nearest the edge
+    double farSide() const noexcept;  // n of the bead's side farthest from the edge
+    Lobe   liveLobe() const noexcept; // opening only: attached neck or crossing fillets
+    Lobe   recoilLobe() const noexcept;
+    Lobe   splashLobe() const noexcept;
+    void   refreshProfile() noexcept;
+
+    Phase     m_phase = Phase::Idle;
+    EdgeFrame m_frame{};
+    double    m_halfN = 0.0;      // capture half-extent along the normal
+    double    m_radius = 0.0;     // bead radius r
+    double    m_tuck = 0.0;       // Fs
+    double    m_pinch = 0.0;      // Lp
+    double    m_neckSkirt = 0.0;  // sigma_n
+    double    m_crossSkirt = 0.0; // sigma_c
+    double    m_hover = 0.0;      // nh: hover centre
+    Spring    m_hop{};            // centre n during the hop
+    double    m_hopOmega = 0.0, m_hopZeta = 1.0;
+    Spring    m_spreadT{}; // tangential spread (0 bead .. 1 rest)
+    Spring    m_spreadN{}; // normal spread
+    double    m_growOmega = 0.0, m_growZeta = 1.0;
+    bool      m_growing = false;
+    double    m_nc = 0.0;                            // displayed centre n (absolute, from the edge)
+    double    m_nc0 = 0.0, m_sT0 = 1.0, m_sN0 = 1.0; // close timeline start
+    double    m_duration = 0.0, m_time = 0.0;
+    double    m_closeMomentum = 0.5; // changes the dive curve; 0.5 preserves the original trajectory
+    bool      m_drained = false;
+    bool      m_closeSplash = true;
+    bool      m_splashing = false;
+    double    m_splashTime = 0.0, m_splashDuration = 0.0; // splash clock and length (s)
+    bool      m_recoiling = false;
+    Spring    m_recoil{};
+    double    m_recoilOmega = 0.0, m_recoilZeta = 1.0, m_recoilTime = 0.0;
+    Lobe      m_snap{};      // the recoil's plateau and skirt at the snap
+    Profile   m_profile{};   // cached profile for the current state
+    double    m_taken = 0.0; // centre n at the last takeTravel()
+    double    m_accumulator = 0.0;
+};
+
+} // namespace liquid_glass

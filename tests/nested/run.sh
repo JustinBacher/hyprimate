@@ -7,7 +7,7 @@ usage() {
     cat <<'EOF'
 Usage: tests/nested/run.sh [options]
 
-  --style STYLE       window style for movement, open and close: liquid | paper | cloth (default: liquid)
+  --style STYLE       window style for movement, open and close: liquid | paper | cloth | swarm (default: liquid)
   --lua TABLE         extra settings merged into plugin.liquid_glass, e.g.
                       --lua 'window = { close = { options = { paper = { shading = 0 } } } }'
   --eval LUA          Lua run in the nested compositor once the plugin is loaded, before the first window,

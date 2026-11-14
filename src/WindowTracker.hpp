@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Core.hpp"
+#include "animations/shared/Core.hpp"
 
 #include <cstdint>
 
@@ -12,10 +12,10 @@ struct WindowSnapshot {
     Box            capture;                 // decorated + shadow box, logical px
     bool           deformable = false;      // plugin enabled, not inert, mapped, not fullscreen
     bool           animatingIn = false;     // the host's open animation is running
-    bool           clothHandoff = false;    // cloth style owns the open or movement motion
+    bool           handoff = false;         // the style (cloth, swarm) draws its own open or movement at the goal box
     bool           transitionBusy = false;  // a liquid edge transition or sheet motion is running
     bool           materialChanged = false; // the style or material changed under an existing transformer
-    bool           clothMoving = false;     // the transformer currently has cloth movement
+    bool           handoffMoving = false;   // that style's movement is running on the transformer
     bool           openEnabled = false;
     bool           movementEnabled = false;
     std::uintptr_t monitor = 0;   // identity of the window's monitor
@@ -37,7 +37,7 @@ struct TrackDecision {
     bool beginOpen = false;
     // Cancel any opening in progress; the open setting is off.
     bool cancelOpening = false;
-    // Cloth movement is in progress while movement is off; cancel it.
+    // A handoff style's movement is in progress while movement is off; cancel it.
     bool cancelMovement = false;
     // Movement since the previous baseline. Move uses these to record the impulse.
     bool translated = false;

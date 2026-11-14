@@ -19,8 +19,9 @@ END = '<!-- END GENERATED CONFIGURATION -->'
 LUA_BEGIN = '-- BEGIN GENERATED PLUGIN CONFIG'
 LUA_END = '-- END GENERATED PLUGIN CONFIG'
 KEY_PREFIX = 'plugin:liquid-glass:'
-KINDS = {'boolean': 'CBoolValue', 'float': 'CFloatValue', 'string': 'CStringValue', 'color': 'CColorValue'}
-CTYPES = {'boolean': 'bool', 'float': 'double', 'color': 'std::uint32_t'}
+KINDS = {'boolean': 'CBoolValue', 'int': 'CIntValue', 'float': 'CFloatValue', 'string': 'CStringValue',
+         'set': 'CStringValue', 'color': 'CColorValue'}
+CTYPES = {'boolean': 'bool', 'int': 'int', 'float': 'double', 'color': 'std::uint32_t'}
 SEGMENT = re.compile(r'[a-z][a-z0-9_]*\Z')
 MEMBER = re.compile(r'm_[A-Za-z][A-Za-z0-9]*\Z')
 COLOR = re.compile(r'0x[0-9a-fA-F]{8}\Z')
@@ -78,6 +79,10 @@ def validate(settings):
         default = item['default']
         if kind == 'boolean' and not isinstance(default, bool):
             raise ValueError(f'{path}: boolean default must be true or false')
+        if kind == 'int':
+            low, high = item['min'], item['max']
+            if not all(type(value) is int for value in (low, high, default)) or not low <= default <= high:
+                raise ValueError(f'{path}: int default must lie within integer min..max')
         if kind == 'float':
             low, high = item['min'], item['max']
             if not (is_number(low) and is_number(high) and is_number(default)) or not low <= default <= high:
@@ -86,6 +91,17 @@ def validate(settings):
             choices = item['choices']
             if not isinstance(choices, list) or not choices or not all(isinstance(c, str) for c in choices) or default not in choices:
                 raise ValueError(f'{path}: string default must be one of the non-empty string choices')
+        if kind == 'set':
+            choices, all_keyword = item['choices'], item['all']
+            if (not isinstance(choices, list) or not 1 <= len(choices) <= 8
+                    or not all(isinstance(c, str) and SEGMENT.fullmatch(c) for c in choices)
+                    or len(set(choices)) != len(choices)):
+                raise ValueError(f'{path}: set choices must be 1..8 distinct valid names')
+            if not isinstance(all_keyword, str) or not SEGMENT.fullmatch(all_keyword) or all_keyword in choices:
+                raise ValueError(f'{path}: set all must be a distinct valid name')
+            if not isinstance(default, str) or not all(token.strip(' \t') in choices + [all_keyword]
+                                                       for token in default.split(',')):
+                raise ValueError(f'{path}: set default must be a comma-separated list of the choices')
         if kind == 'color' and not (isinstance(default, str) and COLOR.match(default)):
             raise ValueError(f'{path}: color default must be 0x followed by eight hex digits')
         members.add(member)
@@ -94,6 +110,7 @@ def validate(settings):
         for depth in range(1, len(parts)):
             if '.'.join(parts[:depth]) in paths:
                 raise ValueError(f'{path!r} conflicts with a setting at {".".join(parts[:depth])!r}')
+    enums(settings)
 
 
 class _Node(dict):
@@ -143,11 +160,12 @@ def enum_name(item):
 def enums(settings):
     found = {}
     for item in settings:
-        if item['type'] != 'string':
+        if item['type'] not in ('string', 'set'):
             continue
         name = enum_name(item)
-        if name in found and found[name]['choices'] != item['choices']:
-            raise ValueError(f'{item["path"]}: enum {name} is already declared with other choices')
+        if name in found and (found[name]['type'] != item['type'] or found[name]['choices'] != item['choices']
+                              or (item['type'] == 'set' and found[name]['all'] != item['all'])):
+            raise ValueError(f'{item["path"]}: enum {name} is already declared with other choices or type')
         found.setdefault(name, item)
     return found
 
@@ -169,7 +187,9 @@ def struct_types(settings):
             fields = types.setdefault(type_name(segments[:depth]), {})
             field = segments[depth]
             if depth == len(segments) - 1:
-                fields[field] = ('leaf', enum_name(item) if item['type'] == 'string' else CTYPES[item['type']])
+                typ = (enum_name(item) if item['type'] == 'string' else
+                       f'Flags<{enum_name(item)}>' if item['type'] == 'set' else CTYPES[item['type']])
+                fields[field] = ('leaf', typ)
             else:
                 fields[field] = ('node', type_name(segments[:depth + 1]))
     return types
@@ -192,10 +212,19 @@ def emit_struct(types, name, emitted, out):
 def config_header(settings):
     out = ['// Generated from config/settings.json; do not edit.', '#pragma once', '',
            '#include <algorithm>', '#include <cmath>', '#include <cstdint>', '#include <expected>',
-           '#include <stdexcept>', '#include <string>', '', 'namespace liquid_glass::config {', '']
+           '#include <optional>', '#include <stdexcept>', '#include <string>', '', 'namespace liquid_glass::config {', '']
     enum_items = enums(settings)
+    if any(item['type'] == 'set' for item in enum_items.values()):
+        out.append('template <class E> struct Flags {')
+        out.append('    std::uint8_t bits = 0;')
+        out.append('    constexpr bool has(E v) const noexcept { return (bits & static_cast<std::uint8_t>(v)) != 0; }')
+        out.append('    constexpr bool operator==(const Flags &) const = default;')
+        out.append('};')
+        out.append('')
     for name, item in enum_items.items():
-        out.append(f'enum class {name} : std::uint8_t {{ {", ".join(pascal(c) for c in item["choices"])} }};')
+        choices = (', '.join(f'{pascal(c)} = {1 << i}' for i, c in enumerate(item['choices']))
+                   if item['type'] == 'set' else ', '.join(pascal(c) for c in item['choices']))
+        out.append(f'enum class {name} : std::uint8_t {{ {choices} }};')
     out.append('')
     out.append('namespace detail {')
     out.append('// Non-finite values read as the schema minimum, which turns a strength or drain off.')
@@ -203,7 +232,32 @@ def config_header(settings):
     out.append('    return std::isfinite(value) ? std::clamp(static_cast<double>(value), low, high) : low;')
     out.append('}')
     out.append('')
+    out.append('inline int clampInt(long long value, long long low, long long high) noexcept {')
+    out.append('    return static_cast<int>(std::clamp(value, low, high));')
+    out.append('}')
+    out.append('')
     for name, item in enum_items.items():
+        if item['type'] == 'set':
+            out.append(f'inline std::optional<Flags<{name}>> parse{name}(const std::string& text) noexcept {{')
+            out.append(f'    Flags<{name}> result;')
+            out.append('    std::size_t start = 0;')
+            out.append('    while (true) {')
+            out.append("        const auto end = text.find(',', start);")
+            out.append('        const auto first = text.find_first_not_of(" \\t", start);')
+            out.append('        if (first == std::string::npos || (end != std::string::npos && first >= end)) return std::nullopt;')
+            out.append('        const auto last = text.find_last_not_of(" \\t", end == std::string::npos ? end : end - 1);')
+            out.append('        const auto length = last - first + 1;')
+            out.append(f'        if (text.compare(first, length, {literal(item["all"])}) == 0) result.bits = {(1 << len(item["choices"])) - 1};')
+            for i, choice in enumerate(item['choices']):
+                out.append(f'        else if (text.compare(first, length, {literal(choice)}) == 0) result.bits |= {1 << i};')
+            out.append('        else return std::nullopt;')
+            out.append('        if (end == std::string::npos) break;')
+            out.append('        start = end + 1;')
+            out.append('    }')
+            out.append('    return result;')
+            out.append('}')
+            out.append('')
+            continue
         out.append(f'inline {name} parse{name}(const std::string& text) noexcept {{')
         for choice in item['choices']:
             out.append(f'    if (text == {literal(choice)}) return {name}::{pascal(choice)};')
@@ -228,13 +282,22 @@ def config_header(settings):
         default = item['default']
         cls = KINDS[kind]
         value = float_literal(default) if kind == 'float' else (default if kind == 'color' else literal(default))
-        if kind == 'float':
-            options = f'.min = {float_literal(item["min"])}, .max = {float_literal(item["max"])}'
+        if kind in ('int', 'float'):
+            if kind == 'float':
+                options = f'.min = {float_literal(item["min"])}, .max = {float_literal(item["max"])}'
+                options_type = 'SFloatValueOptions'
+            else:
+                options = f'.min = {item["min"]}, .max = {item["max"]}'
+                options_type = 'SIntValueOptions'
             out.append(f'    values.{member} = makeShared<Config::Values::{cls}>({literal(name)}, {desc}, {value},')
-            out.append(f'        Config::Values::SFloatValueOptions{{{options}}});')
-        elif kind == 'string':
-            conditions = ' || '.join(f'value == {literal(choice)}' for choice in item['choices'])
-            error = name + ' must be one of: ' + ', '.join(item['choices'])
+            out.append(f'        Config::Values::{options_type}{{{options}}});')
+        elif kind in ('string', 'set'):
+            if kind == 'string':
+                conditions = ' || '.join(f'value == {literal(choice)}' for choice in item['choices'])
+                error = name + ' must be one of: ' + ', '.join(item['choices'])
+            else:
+                conditions = f'detail::parse{enum_name(item)}(value)'
+                error = name + ' must be a comma-separated list of: ' + ', '.join(item['choices'] + [item['all']])
             out.append(f'    values.{member} = makeShared<Config::Values::{cls}>({literal(name)}, {desc}, {literal(default)},')
             out.append('        Config::Values::SStringValueOptions{.validator = [](const Config::STRING& value) -> std::expected<void, std::string> {')
             out.append(f'            if ({conditions}) return {{}};')
@@ -251,7 +314,14 @@ def config_header(settings):
     for item in settings:
         target = 'c.' + '.'.join(camel(s) for s in config_segments(item))
         source = f'v.{item["member"]}->value()'
-        if item['type'] == 'float':
+        if item['type'] == 'int':
+            value = f'detail::clampInt({source}, {item["min"]}, {item["max"]})'
+        elif item['type'] == 'set':
+            tokens = [token.strip(' \t') for token in item['default'].split(',')]
+            bits = ((1 << len(item['choices'])) - 1 if item['all'] in tokens else
+                    sum(1 << i for i, choice in enumerate(item['choices']) if choice in tokens))
+            value = f'detail::parse{enum_name(item)}({source}).value_or(Flags<{enum_name(item)}>{{{bits}}})'
+        elif item['type'] == 'float':
             value = f'detail::clampFloat({source}, {float_literal(item["min"])}, {float_literal(item["max"])})'
         elif item['type'] == 'string':
             value = f'detail::parse{enum_name(item)}({source})'
@@ -278,6 +348,11 @@ def documentation(settings):
         meaning = item['description']
         if kind == 'float':
             meaning += f' Finite values clamped to {item["min"]}–{item["max"]}.'
+        if kind == 'int':
+            meaning += f' Clamped to {item["min"]}–{item["max"]}.'
+        if kind == 'set':
+            choices = ', '.join('`' + x + '`' for x in item['choices'])
+            meaning += f' Comma-separated list of: {choices}; `{item["all"]}` selects every one and overrides the rest.'
         if kind == 'string':
             meaning += ' Allowed: ' + ', '.join('`' + x + '`' for x in item['choices']) + '.'
         lines.append(f'| `{key(item)}` | {kind} / `{default}` | {meaning} |')

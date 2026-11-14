@@ -7,8 +7,7 @@
 #include <string>
 
 namespace {
-constexpr char MISMATCH_MESSAGE[] =
-    "[liquid-glass] Hyprland/header version mismatch; rebuild against the running compositor";
+constexpr char MISMATCH_MESSAGE[] = "[liquid-glass] Hyprland/header version mismatch; rebuild against the running compositor";
 
 // Owned only while the plugin is loaded. Constructed after every compatibility check passes.
 std::unique_ptr<CPluginRuntime> g_runtime;

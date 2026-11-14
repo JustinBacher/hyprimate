@@ -4,10 +4,10 @@
 #include <hyprland/src/event/EventBus.hpp>
 #include <hyprland/src/helpers/signal/Signal.hpp>
 #include <hyprland/src/plugins/PluginAPI.hpp>
-#include "LiquidGlassTransformer.hpp"
+#include "AnimationTransformer.hpp"
 #include "WindowTracker.hpp"
-#include "LiquidCloseRenderer.hpp"
-#include "SolidFill.hpp"
+#include "AnimationCloseRenderer.hpp"
+#include "animations/liquid/SolidFill.hpp"
 #include "config_generated.hpp"
 
 #include <chrono>
@@ -27,6 +27,11 @@ class CPluginRuntime {
 
     CPluginRuntime(const CPluginRuntime &) = delete;
     CPluginRuntime &operator=(const CPluginRuntime &) = delete;
+
+    friend struct SLiquidLiveStyle;
+    friend struct SPaperLiveStyle;
+    friend struct SClothLiveStyle;
+    friend struct SSwarmLiveStyle;
 
   private:
     using clock = std::chrono::steady_clock;
@@ -48,7 +53,7 @@ class CPluginRuntime {
     liquid_glass::MaterialParams      effectiveMaterialParams() const;
     liquid_glass::ClothMovementParams clothMovementParams() const;
     bool                              materialUsable() const;
-    bool                              materialChanged(const CLiquidGlassTransformer &transformer) const;
+    bool                              materialChanged(const CAnimationTransformer &transformer) const;
     bool                              wobbleEnabled() const;
     void                              notify(const std::string &text) const;
     void                              onReload();
@@ -69,6 +74,9 @@ class CPluginRuntime {
     CBox                                   edgeBoundsBox(const PHLMONITOR &monitor, bool opening) const;
     std::optional<liquid_glass::EdgeFrame> edgeFrameFor(const PHLWINDOW &window, bool opening,
                                                         std::optional<liquid_glass::Edge> origin = std::nullopt) const;
+    // Screen sides a swarm enters from (opening) or leaves through: the configured sides for a window alone on its
+    // workspace, otherwise the sides it appears from.
+    liquid_glass::EdgeSet swarmSides(const PHLWINDOW &window, bool opening) const;
 
     // Sampling and simulation.
     void                         onRenderPre(const PHLMONITOR &monitor);
@@ -80,8 +88,8 @@ class CPluginRuntime {
     void beginOpening(STracked &entry, const PHLWINDOW &window);
 
     // Mutations. Each one damages the previous and restored footprints.
-    CLiquidGlassTransformer *transformerOf(const PHLWINDOW &window) const;
-    CLiquidGlassTransformer *acquireTransformer(const PHLWINDOW &window);
+    CAnimationTransformer *transformerOf(const PHLWINDOW &window) const;
+    CAnimationTransformer *acquireTransformer(const PHLWINDOW &window);
     CBox                     worldFootprint(const PHLWINDOW &window) const;
     void                     scheduleAnimation(const PHLWINDOW &window) const;
     void                     detachWindow(STracked &entry, const PHLWINDOW &window);
@@ -100,7 +108,8 @@ class CPluginRuntime {
     SP<CSolidFill>                        m_openSolid = makeShared<CSolidFill>();
     SP<CSolidFill>                        m_closeSolid = makeShared<CSolidFill>();
     SP<CPaperShade>                       m_shade = makeShared<CPaperShade>();
-    std::unique_ptr<CLiquidCloseRenderer> m_close;
+    SP<CSwarmSprites>                     m_sprites = makeShared<CSwarmSprites>();
+    std::unique_ptr<CAnimationCloseRenderer> m_close;
     mutable std::vector<liquid_glass::Box>
         m_neighbours; // tiled neighbours for the contact rule; rebuilt per edge choice
     // Next per-window movement seed; random per load (set in the constructor), so loads do not replay characters.

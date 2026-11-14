@@ -48,6 +48,20 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --             window = {
 --                 enabled = true,
 --                 style = "liquid",
+--                 options = {
+--                     swarm = {
+--                         creature = "spider",
+--                         count = 250,
+--                         speed = 1400,
+--                         stagger = 0.6,
+--                         cohesion = 0.5,
+--                         separation = 0.5,
+--                         responsiveness = 0.5,
+--                         settling = 0.5,
+--                         wander = 0.5,
+--                         variation = 0.5,
+--                     },
+--                 },
 --                 movement = {
 --                     enabled = true,
 --                     options = {
@@ -93,6 +107,9 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                             shine = 0,
 --                             variation = 0.5,
 --                         },
+--                         swarm = {
+--                             lone_window_sides = "all",
+--                         },
 --                     },
 --                 },
 --                 close = {
@@ -119,6 +136,9 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                             shading = 0.7,
 --                             shine = 0,
 --                             variation = 0.5,
+--                         },
+--                         swarm = {
+--                             lone_window_sides = "all",
 --                         },
 --                     },
 --                 },

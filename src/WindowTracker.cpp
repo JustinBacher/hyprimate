@@ -74,9 +74,9 @@ TrackDecision WindowTracker::update(const WindowSnapshot &s) noexcept {
         return d;
     }
 
-    // Native opening and a running transition are not movement impulses. Cloth's opening box is already fixed at
-    // its goal, so its displayed sheet takes over later geometry changes.
-    const bool nativeOpen = (s.animatingIn || wasAnimating) && !s.clothHandoff;
+    // Native opening and a running transition are not movement impulses. A handoff style's opening box is already
+    // fixed at its goal, so what it displays takes over later geometry changes.
+    const bool nativeOpen = (s.animatingIn || wasAnimating) && !s.handoff;
     if (nativeOpen || s.transitionBusy) {
         d.action = TrackAction::Busy;
         adopt(s, true);
@@ -96,7 +96,7 @@ TrackDecision WindowTracker::update(const WindowSnapshot &s) noexcept {
         return d;
     }
 
-    d.cancelMovement = s.clothMoving && !s.movementEnabled;
+    d.cancelMovement = s.handoffMoving && !s.movementEnabled;
     if (!d.translated && !d.resized && !d.captureChanged && !d.cancelMovement)
         return d;
 

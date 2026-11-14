@@ -3,8 +3,6 @@
 **/build/
 /cmake-build-*/
 
-# Local project-manager artifacts and worktrees
-/.project-manager/
 
 # Captured demo and test videos
 *.mp4
@@ -15,6 +13,10 @@
 # Python bytecode and caches
 __pycache__/
 *.py[cod]
+/.pytest_cache/
 
-# graft's local graph cache — regenerable, not committed (run `graft build`).
+# AI
+/.hermes/
+/.claude/
+/.project-manager/
 /graft/

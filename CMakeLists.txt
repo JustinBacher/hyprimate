@@ -67,20 +67,23 @@ add_custom_target(update-config-docs
     VERBATIM
 )
 
-# Hyprland-independent core: liquid mesh, edge transition, paper and cloth models. The plugin and the tests link it.
+# Hyprland-independent core: liquid mesh, edge transition, paper, cloth and swarm models. The plugin and the tests
+# link it.
 add_library(liquid-glass-core STATIC
-    src/LiquidPose.cpp
-    src/LiquidMesh.cpp
-    src/EdgeTransition.cpp
-    src/PaperCrumple.cpp
-    src/PaperTakes.cpp
-    src/SheetFrame.cpp
-    src/ClothFlutter.cpp
+    src/animations/liquid/LiquidPose.cpp
+    src/animations/liquid/LiquidMesh.cpp
+    src/animations/shared/EdgeTransition.cpp
+    src/animations/paper/PaperCrumple.cpp
+    src/animations/paper/PaperTakes.cpp
+    src/animations/shared/SheetFrame.cpp
+    src/animations/cloth/ClothFlutter.cpp
+    src/animations/swarm/Swarm.cpp
+    src/animations/swarm/SwarmSprite.cpp
     src/WindowTracker.cpp
 )
 # PaperTakes.cpp #embeds the baked crumples; rebuild it whenever they are re-packed.
-set_source_files_properties(src/PaperTakes.cpp PROPERTIES OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/paper_takes.bin)
-set_source_files_properties(src/ClothFlutter.cpp PROPERTIES COMPILE_OPTIONS "-fvisibility=hidden;-fvisibility-inlines-hidden")
+set_source_files_properties(src/animations/paper/PaperTakes.cpp PROPERTIES OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/animations/paper/assets/paper_takes.bin)
+set_source_files_properties(src/animations/cloth/ClothFlutter.cpp PROPERTIES COMPILE_OPTIONS "-fvisibility=hidden;-fvisibility-inlines-hidden")
 target_include_directories(liquid-glass-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(liquid-glass-core PRIVATE Jolt)
 target_compile_options(liquid-glass-core PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>:-fno-gnu-unique> -Wall -Wextra -Wpedantic)
@@ -88,12 +91,22 @@ target_compile_options(liquid-glass-core PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>
 add_library(liquid-glass SHARED
     src/main.cpp
     src/PluginRuntime.cpp
-    src/SolidFill.cpp
-    src/LiquidGlassTransformer.cpp
-    src/LiquidCloseRenderer.cpp
+    src/animations/liquid/SolidFill.cpp
+    src/animations/liquid/LiquidLiveStyle.cpp
+    src/animations/paper/PaperLiveStyle.cpp
+    src/animations/cloth/ClothLiveStyle.cpp
+    src/animations/swarm/SwarmLiveStyle.cpp
+    src/animations/swarm/SwarmRenderer.cpp
+    src/animations/liquid/LiquidCloseStyle.cpp
+    src/animations/shared/SheetClosePass.cpp
+    src/AnimationTransformer.cpp
+    src/AnimationCloseRenderer.cpp
     src/NativeFadeoutPass.cpp
-    src/PaperRenderer.cpp
+    src/animations/shared/PaperRenderer.cpp
 )
+# SwarmRenderer.cpp #embeds the creature sheets; rebuild it whenever one changes.
+set_source_files_properties(src/animations/swarm/SwarmRenderer.cpp PROPERTIES OBJECT_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/animations/swarm/sprites/spider.png;${CMAKE_CURRENT_SOURCE_DIR}/src/animations/swarm/sprites/cat.png")
 set_target_properties(liquid-glass PROPERTIES PREFIX "" INTERPROCEDURAL_OPTIMIZATION FALSE)
 add_dependencies(liquid-glass generate-config)
 target_include_directories(liquid-glass PRIVATE ${CONFIG_GENERATED_DIR})
@@ -129,25 +142,31 @@ include(CTest)
 if(BUILD_TESTING)
     add_test(NAME config-docs-check COMMAND ${Python3_EXECUTABLE} ${CONFIG_GENERATOR} --schema ${CONFIG_SCHEMA} --readme ${CMAKE_CURRENT_SOURCE_DIR}/README.md --lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/nested/hyprland.lua --check)
     add_test(NAME config-generator-tests COMMAND ${Python3_EXECUTABLE} -m unittest discover -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p test_config_generator.py)
-    add_executable(liquid-mesh-tests tests/LiquidMeshTests.cpp)
+    add_executable(liquid-mesh-tests src/animations/liquid/tests/LiquidMeshTests.cpp)
     target_link_libraries(liquid-mesh-tests PRIVATE liquid-glass-core)
-    target_compile_options(liquid-mesh-tests PRIVATE -Wall -Wextra -Wpedantic)
+    target_include_directories(liquid-mesh-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME liquid-mesh-tests COMMAND liquid-mesh-tests)
 
-    add_executable(edge-transition-tests tests/EdgeTransitionTests.cpp)
+    add_executable(edge-transition-tests src/animations/shared/tests/EdgeTransitionTests.cpp)
     target_link_libraries(edge-transition-tests PRIVATE liquid-glass-core)
-    target_compile_options(edge-transition-tests PRIVATE -Wall -Wextra -Wpedantic)
+    target_include_directories(edge-transition-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME edge-transition-tests COMMAND edge-transition-tests)
 
-    add_executable(paper-crumple-tests tests/PaperCrumpleTests.cpp)
+    add_executable(paper-crumple-tests src/animations/paper/tests/PaperCrumpleTests.cpp)
     target_link_libraries(paper-crumple-tests PRIVATE liquid-glass-core)
-    target_compile_options(paper-crumple-tests PRIVATE -Wall -Wextra -Wpedantic)
+    target_include_directories(paper-crumple-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME paper-crumple-tests COMMAND paper-crumple-tests)
 
-    add_executable(cloth-flutter-tests tests/ClothFlutterTests.cpp)
+    add_executable(cloth-flutter-tests src/animations/cloth/tests/ClothFlutterTests.cpp)
     target_link_libraries(cloth-flutter-tests PRIVATE liquid-glass-core Jolt)
-    target_compile_options(cloth-flutter-tests PRIVATE -Wall -Wextra -Wpedantic)
+    target_include_directories(cloth-flutter-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME cloth-flutter-tests COMMAND cloth-flutter-tests)
+
+    add_executable(swarm-tests src/animations/swarm/tests/SwarmTests.cpp)
+    target_link_libraries(swarm-tests PRIVATE liquid-glass-core)
+    target_include_directories(swarm-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_compile_options(swarm-tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME swarm-tests COMMAND swarm-tests)
 
     add_executable(window-tracker-tests tests/WindowTrackerTests.cpp)
     target_link_libraries(window-tracker-tests PRIVATE liquid-glass-core)

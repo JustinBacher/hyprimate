@@ -183,7 +183,7 @@ int main() {
         WindowTracker  t = eligibleAt(0, 0, 400, 300);
         WindowSnapshot s = snap(0, 0, 400, 300);
         s.movementEnabled = false;
-        s.clothMoving = true;
+        s.handoffMoving = true;
         const TrackDecision d = t.update(s);
         CHECK(d.cancelMovement);
         CHECK(d.action == TrackAction::Move);

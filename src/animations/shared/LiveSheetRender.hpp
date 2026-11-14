@@ -1,0 +1,29 @@
+#pragma once
+
+#include "LiveRender.hpp"
+
+#include <hyprland/src/render/Renderer.hpp>
+
+inline CBox liveSheetExtents(const SSheetBuffers &sheet, const CBox &box) {
+    CBox extents = sheetExtents(*sheet.frame, box);
+    extents.expand(4.0);
+    return extents;
+}
+
+inline Render::SWindowTransformBuffer renderLiveSheet(SSheetBuffers &sheet, double opacity, bool shaded,
+    Render::CRenderContext &ctx, const Render::SWindowTransformBuffer &in, const SLiveRenderGeometry &g,
+    const SP<CPaperShade> &shade) {
+    fillSheetMeshes(*sheet.frame, g.source, g.output, {in.box.x, in.box.y}, g.textureSize, sheet.window, sheet.shade);
+    const auto layer = renderPaper(ctx, SPaperDraw{
+        .window = in.framebuffer->getTexture(),
+        .shade = shaded && shade ? shade->texture() : SP<Render::ITexture>{},
+        .canvas = g.canvas.size(),
+        .meshBox = g.localOutput,
+        .windowVertices = &sheet.window,
+        .shadeVertices = &sheet.shade,
+        .alpha = float(opacity),
+    });
+    if (!layer)
+        return {.framebuffer = in.framebuffer, .box = in.box, .success = false};
+    return {.framebuffer = layer, .box = g.canvas};
+}

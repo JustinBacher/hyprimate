@@ -164,6 +164,53 @@ class ConfigGeneratorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'string default'):
             GEN.validate(items)
 
+    def test_int_defaults_must_be_in_integer_range(self):
+        item = {'path': 'window.example', 'member': 'm_example', 'type': 'int',
+                'default': 2, 'min': 1, 'max': 3, 'description': 'Example.'}
+        for field, value in [('default', 0), ('default', 2.0), ('default', True),
+                             ('min', False), ('max', 3.0)]:
+            with self.subTest(field=field, value=value):
+                invalid = dict(item, **{field: value})
+                with self.assertRaisesRegex(ValueError, 'window.example: int default'):
+                    GEN.validate([invalid])
+
+    def test_set_default_rejects_unknown_or_empty_tokens(self):
+        item = {'path': 'window.example', 'member': 'm_example', 'type': 'set',
+                'choices': ['top', 'bottom'], 'all': 'all', 'default': 'top', 'description': 'Example.'}
+        for default in ('top,unknown', '', 'top,', 'all,unknown'):
+            with self.subTest(default=default):
+                with self.assertRaisesRegex(ValueError, 'window.example: set default'):
+                    GEN.validate([dict(item, default=default)])
+
+    def test_set_enum_collisions_are_rejected(self):
+        item = {'path': 'window.open.sides', 'member': 'm_openSides', 'type': 'set',
+                'choices': ['top', 'bottom'], 'all': 'all', 'default': 'all', 'description': 'Example.'}
+        for other in (dict(item, path='window.close.sides', member='m_closeSides', choices=['top']),
+                      dict(item, path='window.close.sides', member='m_closeSides', all='every', default='top'),
+                      dict(item, path='window.close.sides', member='m_closeSides', type='string', default='top')):
+            with self.subTest(other=other):
+                with self.assertRaises(ValueError):
+                    GEN.validate([item, other])
+
+    def test_set_defaults_and_choices(self):
+        item = {'path': 'window.example', 'member': 'm_example', 'type': 'set',
+                'choices': ['top', 'bottom'], 'all': 'all', 'default': ' top,\tbottom ', 'description': 'Example.'}
+        GEN.validate([item])
+        self.assertIn('value_or(Flags<Example>{3})', GEN.config_header([item]))
+        for changes in ({'choices': []}, {'choices': ['top', 'top']}, {'choices': ['Bad']},
+                        {'choices': [f'choice{i}' for i in range(9)]}, {'all': 'top'}, {'all': 'bad-name'}):
+            with self.subTest(changes=changes):
+                with self.assertRaisesRegex(ValueError, 'window.example: set'):
+                    GEN.validate([dict(item, **changes)])
+
+    def test_swarm_header_contract(self):
+        header = GEN.config_header(SCHEMA)
+        self.assertIn('enum class LoneWindowSides : std::uint8_t { Top = 1, Bottom = 2, Left = 4, Right = 8 };', header)
+        self.assertIn('c.swarm.count = detail::clampInt(v.m_swarmCount->value(), 1, 400);', header)
+        for direction in ('open', 'close'):
+            self.assertIn(f'values.m_{direction}SwarmLoneWindowSides = makeShared<Config::Values::CStringValue>', header)
+            self.assertIn(f'c.{direction}.swarm.loneWindowSides = detail::parseLoneWindowSides(', header)
+
     def test_missing_readme_markers_fail(self):
         readme, _ = self.copies()
         readme.write_text(readme.read_text().replace(GEN.BEGIN, ''))
