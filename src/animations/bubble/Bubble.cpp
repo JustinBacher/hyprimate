@@ -98,17 +98,25 @@ BubbleFrame Bubble::frame(Vec2 size) const {
         f.seed = seed_;
         const double shortSide = std::min(size.x, size.y);
         const double radius = shortSide * mix(0.08, 0.42, smoothstep(0.0, 0.38, t));
-        const double flatten = smoothstep(0.38, 0.78, t);
-        const double splat = 0.045 * smoothstep(0.62, 0.79, t) * (1.0 - smoothstep(0.79, 1.0, t));
+        const double flatten = smoothstep(0.38, 0.68, t);
+        const double splat = 0.045 * smoothstep(0.55, 0.68, t) * (1.0 - smoothstep(0.68, 0.76, t));
         f.halfSize = {mix(radius, size.x * 0.5, flatten) + size.x * 0.5 * splat,
                       mix(radius, size.y * 0.5, flatten) + size.y * 0.5 * splat};
         f.corner = mix(radius, 0.0, flatten);
-        f.depth = radius * (1.0 - smoothstep(0.45, 0.96, t));
-        f.content = smoothstep(0.08, 0.90, t);
-        f.windowMix = smoothstep(0.42, 0.92, t);
+        f.depth = radius * (1.0 - smoothstep(0.45, 0.68, t));
+        // The perimeter lands first. Its impact excites a separate, clamped
+        // membrane: pressure gathers in the middle, recoils, then rings down.
+        const double settle = std::clamp((t - 0.64) / 0.36, 0.0, 1.0);
+        const double envelope =
+            shortSide * 0.20 * smoothstep(0.48, 0.64, t) * std::exp(-2.0 * settle) * (1.0 - smoothstep(0.92, 1.0, t));
+        constexpr double pi = 3.14159265358979323846;
+        f.core = {envelope * (std::cos(3.0 * pi * settle) + 2.0 * std::sin(3.0 * pi * settle) / (3.0 * pi)),
+                  envelope * 0.35 * std::sin(5.0 * pi * settle)};
+        f.content = smoothstep(0.08, 0.76, t);
+        f.windowMix = smoothstep(0.42, 0.76, t);
         f.film = 1.0 - smoothstep(0.56, 1.0, t);
         f.visibility = smoothstep(0.0, 0.13, t);
-        f.ripple = shortSide * 0.012 * smoothstep(0.60, 0.76, t) * (1.0 - smoothstep(0.76, 1.0, t));
+        f.ripple = shortSide * 0.012 * smoothstep(0.56, 0.68, t) * (1.0 - smoothstep(0.68, 0.76, t));
         return f;
     }
 
@@ -119,6 +127,8 @@ BubbleFrame Bubble::frame(Vec2 size) const {
     f.halfSize = {initial_.halfSize.x * sx, initial_.halfSize.y * sy};
     f.corner = initial_.corner * scale;
     f.depth = initial_.depth * scale;
+    const double coreScale = scale * (1.0 - smoothstep(0.0, 0.5, t));
+    f.core = {initial_.core.x * coreScale, initial_.core.y * coreScale};
     f.ripple = initial_.ripple * scale * (1.0 - smoothstep(0.0, 0.35, t));
     f.seed = seed_;
     f.closing = true;

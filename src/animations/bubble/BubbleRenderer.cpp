@@ -74,7 +74,8 @@ bool CBubbleRenderer::initialize() {
                                          "content",       "film",           "visibility",      "ripple",
                                          "tear",          "retract",        "remnant",         "seed",
                                          "time",          "wallpaperImage", "wallpaperOrigin", "wallpaperX",
-                                         "wallpaperY",    "windowMix",      "wallpaperReady",  "wallpaperPixel"};
+                                         "wallpaperY",    "windowMix",      "wallpaperReady",  "wallpaperPixel",
+                                         "core"};
         for (std::size_t i = 0; i < m_uniforms.size(); ++i)
             m_uniforms[i] = glGetUniformLocation(m_program, names[i]);
     }
@@ -183,6 +184,7 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(Render::CRenderContext &ctx, co
     u1(25, d.frame.windowMix);
     glUniform1i(m_uniforms[26], wallpaper && wallpaper->m_texID ? 1 : 0);
     u2(27, wallpaper ? 1.0 / wallpaper->m_size.x : 1.0, wallpaper ? 1.0 / wallpaper->m_size.y : 1.0);
+    u2(28, d.frame.core.x, d.frame.core.y);
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(tex));
     gl.setActiveTexture(GL_TEXTURE1);

@@ -63,6 +63,34 @@ void flatEndpointAndSplat() {
     CHECK(f.halfSize.x == SIZE.x / 2 && f.halfSize.y == SIZE.y / 2);
     CHECK(f.corner == 0 && f.depth == 0 && f.film == 0 && f.ripple == 0);
     CHECK(f.content == 1 && f.visibility == 1 && f.windowMix == 1);
+    CHECK(f.core.x == 0 && f.core.y == 0);
+}
+
+void fluidCoreOutlivesTheLanding() {
+    for (Vec2 size : {Vec2{1400, 300}, Vec2{300, 1400}, SIZE}) {
+        Bubble b;
+        b.begin(Transition::Open, 1, 3, size);
+        advanceFor(b, 0.64);
+        const double impact = b.frame(size).core.x;
+        CHECK(impact > 0);
+        advanceFor(b, 0.12);
+        CHECK(b.frame(size).core.x < 0); // pressure recoils through the screen plane
+        advanceFor(b, 0.02);
+        const auto landed = b.frame(size);
+        CHECK(landed.halfSize.x == size.x / 2 && landed.halfSize.y == size.y / 2);
+        CHECK(landed.corner == 0 && landed.depth == 0 && landed.ripple == 0);
+        CHECK(landed.content == 1 && landed.windowMix == 1);
+        CHECK(std::abs(landed.core.x) + std::abs(landed.core.y) > 0);
+        advanceFor(b, 0.10);
+        CHECK(b.frame(size).core.x > 0); // a smaller rebound after the boundary has stopped
+        CHECK(b.frame(size).core.x < impact);
+        advanceFor(b, 0.10);
+        CHECK(std::abs(b.frame(size).core.x) + std::abs(b.frame(size).core.y) < impact * 0.1);
+        advanceFor(b, 0.02);
+        CHECK(b.frame(size).core.x == 0 && b.frame(size).core.y == 0);
+        b.begin(Transition::Close, 1, 9, size);
+        CHECK(b.frame(size).core.x == 0 && b.frame(size).core.y == 0);
+    }
 }
 
 void interruptedCloseIsContinuous() {
@@ -76,6 +104,9 @@ void interruptedCloseIsContinuous() {
         CHECK(after.closing && b.active() && !b.opening());
         CHECK(before.halfSize.x == after.halfSize.x && before.halfSize.y == after.halfSize.y);
         CHECK(before.corner == after.corner && before.depth == after.depth);
+        CHECK(before.core.x == after.core.x && before.core.y == after.core.y);
+        const auto scaled = b.frame({SIZE.x * 1.25, SIZE.y * 1.25});
+        CHECK(scaled.core.x == before.core.x * 1.25 && scaled.core.y == before.core.y * 1.25);
         CHECK(before.content == after.content && before.film == after.film);
         CHECK(before.windowMix == after.windowMix);
         CHECK(before.seed == after.seed);
@@ -135,11 +166,12 @@ void deterministicAndInvalidInput() {
     Bubble a, b;
     a.begin(Transition::Open, 1, 55, SIZE);
     b.begin(Transition::Open, 1, 55, SIZE);
-    advanceFor(a, 0.4, 0.01);
-    advanceFor(b, 0.4, 0.02);
+    advanceFor(a, 0.84, 0.01);
+    advanceFor(b, 0.84, 0.02);
     auto x = a.frame(SIZE), y = b.frame(SIZE);
     CHECK(std::abs(x.halfSize.x - y.halfSize.x) < 1e-9);
     CHECK(std::abs(x.depth - y.depth) < 1e-9 && x.seed == y.seed);
+    CHECK(std::abs(x.core.x - y.core.x) < 1e-9 && std::abs(x.core.y - y.core.y) < 1e-9);
     a.advance(-1);
     a.advance(std::numeric_limits<double>::quiet_NaN());
     CHECK(a.frame(SIZE).halfSize.x == x.halfSize.x);
@@ -160,6 +192,7 @@ int main() {
     roundFormation();
     windowAppearsDuringFlattening();
     flatEndpointAndSplat();
+    fluidCoreOutlivesTheLanding();
     interruptedCloseIsContinuous();
     ruptureCoversCorners();
     boundsContainTheSurface();

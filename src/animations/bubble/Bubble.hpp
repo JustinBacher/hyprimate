@@ -11,6 +11,7 @@ struct BubbleFrame {
     Vec2   halfSize{};
     double corner = 0;
     double depth = 0;
+    Vec2   core{}; // signed heights of the interior pressure and radial recoil modes
     double content = 1;
     double windowMix = 1; // wallpaper first; window imagery arrives as the membrane flattens
     double film = 0;

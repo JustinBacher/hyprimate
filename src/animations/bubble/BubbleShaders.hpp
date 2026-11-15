@@ -13,7 +13,7 @@ uniform vec2 wallpaperOrigin, wallpaperX, wallpaperY, wallpaperPixel;
 uniform float windowMix;
 uniform int wallpaperReady;
 uniform vec2 canvas, sourcePos, sourceSize, textureOrigin, textureSize, outputOrigin;
-uniform vec2 size, halfSize, rupture;
+uniform vec2 size, halfSize, rupture, core;
 uniform float corner, depth, content, film, visibility, ripple, time, tear, retract, remnant, seed;
 uniform int closing;
 out vec4 colour;
@@ -40,7 +40,7 @@ void main() {
 
 
     // Exact endpoint: no analytical silhouette or filtering change to native alpha.
-    if (depth == 0.0 && film == 0.0 && ripple == 0.0 && tear == 0.0 &&
+    if (depth == 0.0 && all(equal(core, vec2(0.0))) && film == 0.0 && ripple == 0.0 && tear == 0.0 &&
         retract == 0.0 && visibility == 1.0 && content == 1.0 && windowMix == 1.0) {
         if (any(lessThan(logical, vec2(0.0))) || any(greaterThanEqual(logical, size))) colour = vec4(0.0);
         else {
@@ -69,10 +69,19 @@ void main() {
         gradient = normalize(gradient) * sign(p);
     else
         gradient = q.x > q.y ? vec2(sign(p.x), 0.0) : vec2(0.0, sign(p.y));
-    vec2 normal = gradient * radius * curve / max(0.22, cap + 0.22);
+    vec2 domeNormal = gradient * radius * curve / max(0.22, cap + 0.22);
+    // A clamped rectangular membrane, not another circular lens. Height and
+    // slope vanish at every edge; two pressure modes move only the soft core.
+    vec2 b = max(vec2(0.0), vec2(1.0) - nxy * nxy);
+    float support = b.x * b.x * b.y * b.y;
+    float pressure = core.x + core.y * dot(nxy, nxy);
+    vec2 supportGradient = -4.0 * nxy * vec2(b.x * b.y * b.y, b.y * b.x * b.x);
+    vec2 coreNormal = -(supportGradient * pressure + support * core.y * 2.0 * nxy) / h;
+    vec2 coreOffset = coreNormal * (0.30 * min(h.x, h.y)) / size;
+    vec2 normal = domeNormal + coreNormal;
     // The spherical surface refracts wallpaper near its screen position, not a scaled destination window.
     vec2 projected = nxy * (1.0 - 0.22 * curve * (1.0 - cap));
-    vec2 uvUnit = 0.5 + 0.5 * projected - normal * (0.028 * curve) + tug;
+    vec2 uvUnit = 0.5 + 0.5 * projected - domeNormal * (0.028 * curve) - coreOffset + tug;
     vec2 fromTear = p - rupture;
     float a = atan(fromTear.y, fromTear.x);
     float dist = length(fromTear);
@@ -93,7 +102,7 @@ void main() {
     vec2 uv = (sourcePos + sourceSize * uvUnit - textureOrigin) / textureSize;
     vec4 imagery = windowMix > 0.0 ? texture(image, clamp(uv, lo, hi)) * windowMix : vec4(0.0);
     if (windowMix < 1.0 && wallpaperReady != 0) {
-        vec2 backgroundUnit = 0.5 + (h * projected - normal * depth * 0.14) / size + tug + rolled;
+        vec2 backgroundUnit = 0.5 + (h * projected - domeNormal * depth * 0.14) / size - coreOffset + tug + rolled;
         vec2 backgroundUV = wallpaperOrigin + wallpaperX * backgroundUnit.x + wallpaperY * backgroundUnit.y;
         imagery += texture(wallpaperImage, clamp(backgroundUV, wallpaperPixel * 0.5,
                                                  vec2(1.0) - wallpaperPixel * 0.5)) * (1.0 - windowMix);

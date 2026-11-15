@@ -31,7 +31,7 @@ class CBubbleRenderer {
 
   private:
     bool                initialize();
-    std::array<int, 28> m_uniforms{};
+    std::array<int, 29> m_uniforms{};
     unsigned int        m_program = 0;
     unsigned int        m_vao = 0;
     bool                m_tried = false;
