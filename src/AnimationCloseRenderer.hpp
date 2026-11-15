@@ -9,6 +9,7 @@
 #include "animations/paper/PaperCloseStyleData.hpp"
 #include "animations/cloth/ClothCloseStyleData.hpp"
 #include "animations/swarm/SwarmCloseStyleData.hpp"
+#include "animations/bubble/BubbleCloseStyleData.hpp"
 
 #include <hyprland/src/desktop/state/Fadeout.hpp>
 #include <hyprland/src/desktop/state/WindowFadeout.hpp>
@@ -27,7 +28,8 @@
 #include <string>
 #include <vector>
 bool closeAnimationEnabled(const liquid_glass::config::SConfig &config);
-using SCloseStyleData = std::variant<SLiquidCloseData, SPaperCloseData, SClothCloseData, SSwarmCloseData>;
+using SCloseStyleData =
+    std::variant<SLiquidCloseData, SPaperCloseData, SClothCloseData, SSwarmCloseData, SBubbleCloseData>;
 
 // Deforms the native window-close fadeout through two narrow hooks, each selected by exact demangled signature:
 //   * Desktop::CWindowFadeout::create - associates the created fadeout with the staged closing window.

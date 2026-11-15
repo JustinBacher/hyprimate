@@ -5,7 +5,7 @@
 **Transition**: a window's open or close animation. Each direction (open, close) has its own **Transition settings**: enabled, style, and the per-style options; a few settings exist for only one direction.
 _Avoid_: phase (reserved for the paper crumple's internal progress).
 
-**Style**: the one material a user picks for all window animation: liquid, paper, cloth, or swarm. Movement, open, and close all follow it; each can still be switched off on its own. Paper has no movement animation, so paper windows move undeformed.
+**Style**: the one material a user picks for all window animation: liquid, paper, cloth, swarm, or bubble. Movement, open, and close all follow it; each can still be switched off on its own. Paper and bubble have no movement animation, so their windows move undeformed.
 _Avoid_: mode, material (as separate per-direction choices).
 
 **Sheet**: the window drawn as a lit, folding surface in 3D. Paper and cloth are the sheet styles; liquid is not.
@@ -15,6 +15,12 @@ _Avoid_: mode, material (as separate per-direction choices).
 **Drain**: a liquid close; the window sinks into a screen edge, optionally ending in a **splash**.
 
 **Take**: one baked paper crumple, a flat sheet crumpling into a ball. A paper transition plays a take forward (close) or backward (open).
+
+**Bubble**: a window's soap-film surface. Opening inflates it as a round bubble before flattening it into the window; closing ruptures the surface where it is.
+
+**Splat**: the bubble's brief outward stretch on reaching the screen plane, followed by elastic settlement.
+
+**Rupture**: the off-center tear whose retracting rim consumes a closing bubble's membrane; not a reversed inflation.
 
 **Stall**: a gap between compositor frames longer than an animation can play through faithfully. Each animation decides its own response to a stall (abort, clamp, or restart), but what counts as a stall is defined once.
 

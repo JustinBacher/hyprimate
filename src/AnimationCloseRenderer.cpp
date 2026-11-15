@@ -4,6 +4,7 @@
 #include "animations/paper/PaperCloseStyle.hpp"
 #include "animations/liquid/LiquidCloseStyle.hpp"
 #include "animations/swarm/SwarmCloseStyle.hpp"
+#include "animations/bubble/BubbleCloseStyle.hpp"
 
 #include <hyprland/src/render/scene/SceneSelection.hpp>
 #include <hyprland/src/render/WindowRenderPresentation.hpp>
@@ -161,6 +162,8 @@ bool closeAnimationEnabled(const liquid_glass::config::SConfig &config) {
     case Style::Paper: return close_style::closeEnabled(SPaperCloseData{}, config);
     case Style::Cloth: return close_style::closeEnabled(SClothCloseData{}, config);
     case Style::Swarm: return close_style::closeEnabled(SSwarmCloseData{}, config);
+    case Style::Bubble:
+        return close_style::closeEnabled(SBubbleCloseData{}, config);
     }
     return false;
 }
@@ -340,8 +343,12 @@ void CAnimationCloseRenderer::onFadeoutCreated(const PHLWINDOW &window, const SP
     record->owned = running(record->style) && record->sourceAlpha > 0.F;
     if (!record->owned && std::visit([](const auto &style) { return close_style::needsOwned(style); }, record->style))
         return;
-    if (record->owned)
-        record->renderBox = ownedRenderBox(record->sourceDevice, created->renderBox(), record->snapshotSize);
+    if (record->owned) {
+        // A soap membrane ruptures where the snapshot was taken, independent of native slide/pop geometry.
+        record->renderBox = std::holds_alternative<SBubbleStyle>(record->style)
+                                ? CBox{0.0, 0.0, record->snapshotSize.x, record->snapshotSize.y}
+                                : ownedRenderBox(record->sourceDevice, created->renderBox(), record->snapshotSize);
+    }
 
     fillVertices(*record);
     m_records.push_back(std::move(record));
@@ -375,7 +382,7 @@ void CAnimationCloseRenderer::tick(clock::time_point now, const PHLMONITOR &rend
                 return !nativeAlive;
             }
 
-            if (nativeAlive)
+            if (nativeAlive && !std::holds_alternative<SBubbleStyle>(record->style))
                 record->renderBox = ownedRenderBox(record->sourceDevice, fadeout->renderBox(), record->snapshotSize);
 
             bool advanced = false;

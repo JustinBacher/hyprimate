@@ -8,6 +8,7 @@ Currently, hyprimate animates windows as they move, open, and close:
 - **Cloth** lets moving windows trail and fold like a sheet pulled from the cursor or a corner, then settle flat.
 - **Paper** is an alternative open and close style. A closing window crumples into a creased, lit ball where it is and disappears; an opening window starts as a ball at its own position and uncrumples into place.
 - **Swarm** breaks a window into creature-shaped pieces of itself. They scurry in from the screen edges and merge into the window when it opens, trail and regroup when it moves, and scatter off the screen when it closes.
+- **Bubble** blows a translucent soap bubble into existence, refracts the window through it, then flattens and splats into place. Closing tears the membrane from an off-center rupture. Movement is unchanged.
 
 ![Demo of hyprimate's window animations](hyprimate-demo.webp)
 
@@ -31,7 +32,7 @@ To load enabled plugins at startup, add `hyprpm reload` to your Hyprland autosta
 
 ## Animation architecture
 
-The root-level compositor adapters (`AnimationTransformer` and `AnimationCloseRenderer`) track windows, schedule damage, and integrate retained close fadeouts. Style-specific live and close state, lifecycle decisions, and rendering live under `src/animations/liquid/`, `paper/`, `cloth/`, and `swarm/`. Shared sheet state, rendering, and animation primitives live under `src/animations/shared/`.
+The root-level compositor adapters (`AnimationTransformer` and `AnimationCloseRenderer`) track windows, schedule damage, and integrate retained close fadeouts. Style-specific live and close state, lifecycle decisions, and rendering live under `src/animations/liquid/`, `paper/`, `cloth/`, `swarm/`, and `bubble/`. Shared sheet state, rendering, and animation primitives live under `src/animations/shared/`.
 
 Swarm keeps three concerns apart so creatures can be swapped without touching the motion: `Swarm` is the fixed-timestep steering simulation (where each agent is, how far it has walked, how locked into the window it is); `SwarmSprite` maps that to a walk-cycle frame, a rotation and a size from a sheet's measurements; `SwarmRenderer` bakes the sheets in `src/animations/swarm/sprites/` into mask atlases and draws the window through them. A new creature is a PNG sheet of equal walk-cycle frames plus one entry in `sourceOf()` (`SwarmRenderer.cpp`), the `SwarmCreature` enum and the `creature` choices in `config/settings.json`.
 
@@ -39,11 +40,11 @@ Swarm keeps three concerns apart so creatures can be swapped without touching th
 
 Hyprland 0.57 has a built-in **wobble** effect for moving and resizing windows. Its `decoration.wobble.enabled` setting defaults to `false`. If you enabled it, disable it before loading hyprimate: the two window-deformation effects conflict, and the plugin will refuse to load while both are enabled. You do not need to disable Hyprland's regular window or workspace animations.
 
-While a window opens, hyprimate drives the window's real box along the pop-out, so anything that draws at that box, such as borders and [HyprGlass](https://github.com/hyprnux/hyprglass) panes, grows out of the bead from the edge together with the window. HyprGlass needs no changes.
+While a liquid window opens, hyprimate drives the window's real box along the pop-out, so anything that draws at that box, such as borders and [HyprGlass](https://github.com/hyprnux/hyprglass) panes, grows out of the bead from the edge together with the window. HyprGlass needs no changes for that style.
 
 The example below explicitly disables Hyprland's wobble and shows all hyprimate settings with their defaults. Add the plugin settings to your Hyprland Lua configuration after the plugin has been loaded.
 
-Set `window.style` to `"liquid"`, `"paper"`, `"cloth"` or `"swarm"` to choose the material for movement, open and close together. Liquid deforms moving windows and animates them in and out from the screen edge; paper crumples windows open and closed and never moves them undeformed; cloth folds moving windows and opens or closes them as a sheet; swarm carries the window as a flock of creatures. Each of open and close keeps its own options for the chosen style, and movement is configured under `window.movement.options`.
+Set `window.style` to `"liquid"`, `"paper"`, `"cloth"`, `"swarm"` or `"bubble"` to choose the material for movement, open and close together. Liquid deforms moving windows and animates them in and out from the screen edge; paper crumples windows open and closed; cloth folds moving windows and opens or closes them as a sheet; swarm carries the window as a flock of creatures; bubble inflates and pops a soap-film surface. Paper and bubble leave movement undeformed. Each of open and close keeps its own options for the chosen style, and movement is configured under `window.movement.options`.
 
 Liquid closing shrinks and travels toward the screen edge in one continuous motion, without stopping at a bead-sized hover. Close momentum advances the dive; elasticity controls its speed. The optional splash follows once the window has disappeared.
 
@@ -68,6 +69,14 @@ Creatures are steered by a custom fixed 1/120 s solver (no physics engine), and 
 What has merged reads as a blob, not as a stack of squares. A merged tile on its own is rounded off; where merged tiles meet, their corners square up into each other, and the notch two of them leave at the corner of a third is filled in, so a group has one smooth outline, holes included. Only when the last tile is in do the remaining corners square up into the window, which is then drawn natively again.
 
 Nothing about where a creature comes from or when it arrives depends on where its tile is. Opening sends each one in from a random point beyond a random one of the allowed screen edges, and times it to reach its place at a random moment within `stagger` seconds, hurrying or dawdling a little to keep to that; near and far tiles therefore fill in no order (zero lands them all together). Closing lets creatures go in random order over `stagger` and runs each off a random point of the edges. Moving a window slower than a creature's grip keeps it whole; faster movement shakes creatures loose, each stays where it was for its own reaction time, then chases the window, and they regroup when it stops. `responsiveness` sets the grip and how hard they accelerate, `settling` how eagerly they lock back in. All swarm settings are shared by movement, open and close under `window.options.swarm`; only the screen sides are per direction. Changed settings apply from the next animation.
+
+Bubble (`window.style` set to `"bubble"`) starts round even for a wide or tall window. It inflates independently of the native window box, reveals curved window imagery, stretches and loses depth, then overshoots slightly and settles into the native renderer. Closing does not reverse inflation: an off-center tear rolls the remaining film toward its edges, leaving a few brief highlights and droplets. A close during inflation pops the shape already displayed. Native close slides do not move the bubble.
+
+Bubble has two timing controls: `window.open.options.bubble.duration` (default `0.62` seconds) and `window.close.options.bubble.duration` (default `0.28` seconds). Disable either direction with its existing `enabled` switch. There is no bubble movement animation, wake, or movement-specific setting.
+
+The bubble material uses an analytic curved membrane, Fresnel reflection and approximate wavelength-dependent thin-film interference in one GPU pass. It refracts **window imagery**, not the desktop: the desktop is visible through transparency, and no background-scene capture is added. Captured borders, rounded corners and alpha resolve back to their native appearance. Independently rendered third-party panes are not part of the captured surface. As with the other retained styles, texture-blurred close snapshots use the native fadeout path; this restriction does not disable ordinary background blur. A shared shader is released on plugin unload; per-close snapshot references are released when the pop finishes.
+
+For an isolated preview, run `tests/nested/run.sh --style bubble`; use `--lua 'window = { open = { options = { bubble = { duration = 2 } } }, close = { options = { bubble = { duration = 1 } } } }'` to inspect the phases slowly.
 
 Active window animations continue to render until they settle, including after scrolling-layout focus changes; no mouse movement is needed to complete them.
 
@@ -144,6 +153,9 @@ hl.config({
                         swarm = {
                             lone_window_sides = "all",
                         },
+                        bubble = {
+                            duration = 0.62,
+                        },
                     },
                 },
                 close = {
@@ -174,6 +186,9 @@ hl.config({
                         swarm = {
                             lone_window_sides = "all",
                         },
+                        bubble = {
+                            duration = 0.28,
+                        },
                     },
                 },
             },
@@ -187,7 +202,7 @@ Hyprland 0.57 normalizes hyphens to underscores in Lua config names: use `liquid
 | Setting | Type / default | Meaning |
 |---|---|---|
 | `plugin:liquid-glass:window:enabled` | boolean / `true` | Master switch: when false, no movement, open or close deformation runs. |
-| `plugin:liquid-glass:window:style` | string / `"liquid"` | Material for movement, open and close: liquid deforms edges with a viscous field, paper crumples into a ball (paper windows move undeformed), cloth drapes and flutters, swarm breaks the window into creature-shaped pieces that scurry and regroup. Invalid names are rejected. Allowed: `liquid`, `paper`, `cloth`, `swarm`. |
+| `plugin:liquid-glass:window:style` | string / `"liquid"` | Material for movement, open and close: liquid deforms edges with a viscous field, paper crumples into a ball, cloth drapes and flutters, swarm breaks the window into creature-shaped pieces, bubble inflates a soap film into the window and ruptures it on close. Paper and bubble windows move undeformed. Invalid names are rejected. Allowed: `liquid`, `paper`, `cloth`, `swarm`, `bubble`. |
 | `plugin:liquid-glass:window:options:swarm:creature` | string / `"spider"` | Swarm-only creature every window piece is shaped as. Allowed: `spider`, `cat`. |
 | `plugin:liquid-glass:window:options:swarm:count` | int / `250` | Swarm-only number of creatures a window breaks into; each carries one piece of the window, so fewer creatures are larger. Clamped to 1–400. |
 | `plugin:liquid-glass:window:options:swarm:speed` | float / `1400` | Swarm-only creature cruise speed in logical pixels per second. Finite values clamped to 100–6000. |
@@ -228,6 +243,7 @@ Hyprland 0.57 normalizes hyphens to underscores in Lua config names: use `liquid
 | `plugin:liquid-glass:window:open:options:cloth:shine` | float / `0` | Cloth-only highlight strength on the folds; zero removes highlights. Finite values clamped to 0–1. |
 | `plugin:liquid-glass:window:open:options:cloth:variation` | float / `0.5` | Cloth-only per-window variation; zero uses the same motion for every window. Finite values clamped to 0–1. |
 | `plugin:liquid-glass:window:open:options:swarm:lone_window_sides` | set / `"all"` | Swarm-only screen sides the creatures enter from when the window is the first on its workspace; later windows enter from the side they appear on (see Edge choice). Comma-separated list of: `top`, `bottom`, `left`, `right`; `all` selects every one and overrides the rest. |
+| `plugin:liquid-glass:window:open:options:bubble:duration` | float / `0.62` | Bubble-only seconds for formation, inflation, flattening, splat and elastic settlement. Finite values clamped to 0.1–3. |
 | `plugin:liquid-glass:window:close:enabled` | boolean / `true` | Animate windows as they close (see style); false closes natively. Movement is unaffected. |
 | `plugin:liquid-glass:window:close:options:liquid:strength` | float / `0.65` | Liquid-only drain deformation intensity; zero closes natively. Finite values clamped to 0–1.5. |
 | `plugin:liquid-glass:window:close:options:liquid:color` | color / `0xff000000` | Liquid-only edge liquid colour (ARGB); alpha zero draws no liquid. |
@@ -246,6 +262,7 @@ Hyprland 0.57 normalizes hyphens to underscores in Lua config names: use `liquid
 | `plugin:liquid-glass:window:close:options:cloth:shine` | float / `0` | Cloth-only highlight strength on the folds; zero removes highlights. Finite values clamped to 0–1. |
 | `plugin:liquid-glass:window:close:options:cloth:variation` | float / `0.5` | Cloth-only per-window variation; zero uses the same motion for every window. Finite values clamped to 0–1. |
 | `plugin:liquid-glass:window:close:options:swarm:lone_window_sides` | set / `"all"` | Swarm-only screen sides the creatures leave through when the window is the last on its workspace; otherwise they leave through the side the window sits on (see Edge choice). Comma-separated list of: `top`, `bottom`, `left`, `right`; `all` selects every one and overrides the rest. |
+| `plugin:liquid-glass:window:close:options:bubble:duration` | float / `0.28` | Bubble-only seconds for surface tension, asymmetric rupture, membrane retraction and brief film remnants. Finite values clamped to 0.1–3. |
 <!-- END GENERATED CONFIGURATION -->
 
 ### Edge choice

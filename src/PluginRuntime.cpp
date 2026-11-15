@@ -97,6 +97,8 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                 if (!matched)
                     fresh.emplace(initialStyle(m_config.style, effectiveMaterialParams(), clothMovementParams(), 0));
                 auto &state = matched ? transformer->styleState() : *fresh;
+                if (auto *bubble = std::get_if<SBubbleStyle>(&state))
+                    bubble->renderer = m_bubble;
 
                 const auto edge = [&] { return edgeFrameFor(window, false, entry->openEdge); };
                 const auto obstacles = [&]() -> std::span<const liquid_glass::Box> {
@@ -159,6 +161,7 @@ CPluginRuntime::~CPluginRuntime() {
     m_openSolid.reset();
     m_shade.reset();
     m_sprites.reset();
+    m_bubble.reset();
 }
 
 bool CPluginRuntime::pluginEnabled() const { return m_config.enabled; }
@@ -526,9 +529,11 @@ CAnimationTransformer *CPluginRuntime::acquireTransformer(const PHLWINDOW &windo
     if (auto *existing = list->get<CAnimationTransformer>())
         return existing;
     // Each window draws from its own stream, so windows moved together (scrolling, workspace slides) still differ.
+    auto state = initialStyle(m_config.style, effectiveMaterialParams(), clothMovementParams(), m_nextSeed++);
+    if (auto *bubble = std::get_if<SBubbleStyle>(&state))
+        bubble->renderer = m_bubble;
     return list->emplace<CAnimationTransformer>(
-        window->m_self, initialStyle(m_config.style, effectiveMaterialParams(), clothMovementParams(), m_nextSeed++),
-        m_openSolid, m_shade, m_sprites);
+        window->m_self, std::move(state), m_openSolid, m_shade, m_sprites);
 }
 
 CBox CPluginRuntime::worldFootprint(const PHLWINDOW &window) const {

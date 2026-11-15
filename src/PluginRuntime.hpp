@@ -32,6 +32,7 @@ class CPluginRuntime {
     friend struct SPaperLiveStyle;
     friend struct SClothLiveStyle;
     friend struct SSwarmLiveStyle;
+    friend struct SBubbleLiveStyle;
 
   private:
     using clock = std::chrono::steady_clock;
@@ -109,6 +110,7 @@ class CPluginRuntime {
     SP<CSolidFill>                        m_closeSolid = makeShared<CSolidFill>();
     SP<CPaperShade>                       m_shade = makeShared<CPaperShade>();
     SP<CSwarmSprites>                     m_sprites = makeShared<CSwarmSprites>();
+    SP<CBubbleRenderer>                      m_bubble = makeShared<CBubbleRenderer>();
     std::unique_ptr<CAnimationCloseRenderer> m_close;
     mutable std::vector<liquid_glass::Box>
         m_neighbours; // tiled neighbours for the contact rule; rebuilt per edge choice

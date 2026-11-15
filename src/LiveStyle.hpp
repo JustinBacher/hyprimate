@@ -24,11 +24,13 @@ LIVE_STYLE_OPERATIONS(SLiquidLiveStyle)
 LIVE_STYLE_OPERATIONS(SPaperLiveStyle)
 LIVE_STYLE_OPERATIONS(SClothLiveStyle)
 LIVE_STYLE_OPERATIONS(SSwarmLiveStyle)
+LIVE_STYLE_OPERATIONS(SBubbleLiveStyle)
 
 inline SLiquidLiveStyle liveStyleFor(const SLiquidStyle &) { return {}; }
 inline SPaperLiveStyle liveStyleFor(const SPaperStyle &) { return {}; }
 inline SClothLiveStyle liveStyleFor(const SClothStyle &) { return {}; }
 inline SSwarmLiveStyle liveStyleFor(const SSwarmStyle &) { return {}; }
+inline SBubbleLiveStyle liveStyleFor(const SBubbleStyle &) { return {}; }
 #undef LIVE_STYLE_OPERATIONS
 
 template <class F>
@@ -37,6 +39,8 @@ decltype(auto) withLiveStyle(liquid_glass::config::Style style, F &&f) {
     case liquid_glass::config::Style::Paper: return f(SPaperLiveStyle{});
     case liquid_glass::config::Style::Cloth: return f(SClothLiveStyle{});
     case liquid_glass::config::Style::Swarm: return f(SSwarmLiveStyle{});
+    case liquid_glass::config::Style::Bubble:
+        return f(SBubbleLiveStyle{});
     case liquid_glass::config::Style::Liquid: return f(SLiquidLiveStyle{});
     }
     return f(SLiquidLiveStyle{});

@@ -17,6 +17,7 @@ CBox liveExtents(const SLiquidStyle &state, const CBox &box);
 CBox liveExtents(const SPaperStyle &state, const CBox &box);
 CBox liveExtents(const SClothStyle &state, const CBox &box);
 CBox liveExtents(const SSwarmStyle &state, const CBox &box);
+CBox                     liveExtents(const SBubbleStyle &state, const CBox &box);
 
 Render::SWindowTransformBuffer renderLive(SLiquidStyle &state, Render::CRenderContext &ctx,
     const Render::SWindowTransformBuffer &in, const Render::SWindowTransformContext &context,
@@ -34,3 +35,8 @@ Render::SWindowTransformBuffer renderLive(SSwarmStyle &state, Render::CRenderCon
     const Render::SWindowTransformBuffer &in, const Render::SWindowTransformContext &context,
     const SLiveRenderGeometry &geometry, const SP<CSolidFill> &solid, const SP<CPaperShade> &shade,
     const SP<CSwarmSprites> &sprites);
+Render::SWindowTransformBuffer renderLive(SBubbleStyle &state, Render::CRenderContext &ctx,
+                                          const Render::SWindowTransformBuffer  &in,
+                                          const Render::SWindowTransformContext &context,
+                                          const SLiveRenderGeometry &geometry, const SP<CSolidFill> &solid,
+                                          const SP<CPaperShade> &shade, const SP<CSwarmSprites> &sprites);

@@ -14,6 +14,7 @@
 #include "animations/cloth/ClothLiveState.hpp"
 #include "animations/swarm/SwarmLiveState.hpp"
 #include "animations/swarm/SwarmRenderer.hpp"
+#include "animations/bubble/BubbleLiveState.hpp"
 
 #include <hyprland/src/config/values/types/BoolValue.hpp>
 #include <hyprland/src/config/values/types/ColorValue.hpp>
@@ -40,7 +41,7 @@ inline CBox              toCBox(const liquid_glass::Box &box) { return CBox{box.
 
 
 // The one style a window's transformer or close record carries.
-using SStyleState = std::variant<SLiquidStyle, SPaperStyle, SClothStyle, SSwarmStyle>;
+using SStyleState = std::variant<SLiquidStyle, SPaperStyle, SClothStyle, SSwarmStyle, SBubbleStyle>;
 
 // The state a window starts from in `style`. `liquid`, `cloth`, and `seed` are the settings it is built for.
 SStyleState initialStyle(liquid_glass::config::Style style, liquid_glass::MaterialParams liquid,
@@ -84,6 +85,7 @@ class CAnimationTransformer final : public Render::IWindowTransformer {
     friend struct SPaperLiveStyle;
     friend struct SClothLiveStyle;
     friend struct SSwarmLiveStyle;
+    friend struct SBubbleLiveStyle;
 
     // Whether the active style is still deforming the window.
     bool   deforming() const noexcept;

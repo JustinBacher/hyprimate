@@ -110,6 +110,9 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                         swarm = {
 --                             lone_window_sides = "all",
 --                         },
+--                         bubble = {
+--                             duration = 0.62,
+--                         },
 --                     },
 --                 },
 --                 close = {
@@ -139,6 +142,9 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                         },
 --                         swarm = {
 --                             lone_window_sides = "all",
+--                         },
+--                         bubble = {
+--                             duration = 0.28,
 --                         },
 --                     },
 --                 },
