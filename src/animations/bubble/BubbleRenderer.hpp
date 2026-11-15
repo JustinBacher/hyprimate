@@ -1,6 +1,7 @@
 #pragma once
 
 #include "animations/bubble/Bubble.hpp"
+#include "animations/bubble/BubbleMaterial.hpp"
 #include "animations/bubble/BubbleWallpaper.hpp"
 
 #include <hyprland/src/render/Context.hpp>
@@ -11,15 +12,17 @@
 #include <array>
 
 struct SBubbleDraw {
-    SP<Render::ITexture>      window;
-    SP<SBubbleWallpaper>      wallpaper;
-    liquid_glass::BubbleFrame frame;
-    Vector2D                  canvas;
-    CBox                      source;
-    liquid_glass::Vec2        textureOrigin;
-    liquid_glass::Vec2        textureSize;
-    liquid_glass::Vec2        outputOrigin;
-    double                    residueTime = -1; // >=0: procedural screen film; no source texture
+    SP<Render::ITexture>                                                      window;
+    SP<SBubbleWallpaper>                                                      wallpaper;
+    liquid_glass::BubbleFrame                                                 frame;
+    Vector2D                                                                  canvas;
+    CBox                                                                      source;
+    liquid_glass::Vec2                                                        textureOrigin;
+    liquid_glass::Vec2                                                        textureSize;
+    liquid_glass::Vec2                                                        outputOrigin;
+    std::array<liquid_glass::BubbleParticle, liquid_glass::kBubbleMaxImpacts> glassParticles{};
+    std::size_t                                                               glassCount = 0;
+    bool                                                                      onGlass = false;
 };
 
 class CBubbleRenderer {
@@ -29,14 +32,14 @@ class CBubbleRenderer {
     CBubbleRenderer(const CBubbleRenderer &) = delete;
     CBubbleRenderer         &operator=(const CBubbleRenderer &) = delete;
     SP<Render::IFramebuffer> render(Render::CRenderContext &, const SBubbleDraw &);
+    // Compiles the material ahead of the first bubble. Compilation takes long enough to read as a frame stall, which
+    // would otherwise cancel the opening that first needs it. Safe to call often; only the first call does work.
+    void warmUp();
 
   private:
-    bool                               initialize();
-    std::array<int, 15>                m_uniforms{};
-    std::array<std::array<int, 14>, 2> m_surfaceUniforms{};
-    unsigned int                       m_program = 0;
-    unsigned int                       m_vao = 0;
-    bool                               m_tried = false;
+    CBubbleMaterial                                                                 m_material;
+    std::array<liquid_glass::BubbleParticle, 2 * liquid_glass::kBubbleMaxParticles> m_particles{};
+    bool                                                                            m_warmed = false;
 };
 
 class CBubblePassElement final : public IPassElement {

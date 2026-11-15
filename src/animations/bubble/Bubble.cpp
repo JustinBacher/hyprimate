@@ -24,18 +24,67 @@ BubbleFrame neutral(Vec2 size) {
     return f;
 }
 
-void pop(BubbleSurface &surface, double progress) {
-    surface.closing = true;
-    surface.time = progress;
-    const double corner = std::clamp(surface.corner, 0.0, std::min(surface.halfSize.x, surface.halfSize.y));
-    const double farthest = std::hypot(surface.halfSize.x - corner + std::abs(surface.rupture.x),
-                                       surface.halfSize.y - corner + std::abs(surface.rupture.y)) +
-                            corner;
-    surface.tear = farthest * 1.3 * smoothstep(.10, .84, progress);
-    surface.retract = smoothstep(.12, .92, progress);
-    surface.remnant = smoothstep(.45, .68, progress) * (1 - smoothstep(.86, 1.0, progress));
-    if (progress >= 1)
-        surface.visibility = 0;
+void updateRupture(BubbleSurface &surface) {
+    for (std::size_t i = 0; i < surface.holeCount; ++i) {
+        auto        &h = surface.holes[i];
+        const double age = std::max(0.0, surface.clock - h.start);
+        const double transient = surface.spherical ? .05 : .075;
+        h.radius = surface.speed * (age - transient * (1 - std::exp(-age / transient)));
+        h.precursor = 1 - smoothstep(h.start, h.start + .018, surface.clock);
+        h.precursor *= smoothstep(h.start - (i == 0 ? (surface.spherical ? .10 : .15) : .06), h.start, surface.clock);
+        h.rim = std::clamp(1.2 + .12 * std::sqrt(h.radius * (surface.spherical ? surface.halfSize.x : 1)), 1.2, 4.5);
+        const double fingers = smoothstep(.012, .045, age);
+        for (std::size_t m = 0; m < h.amplitude.size(); ++m)
+            h.amplitude[m] = fingers * (.014 - .002 * m);
+    }
+}
+
+void startRupture(BubbleSurface &s, Vec2 spot, std::uint64_t seed, double duration, bool sphere) {
+    s.closing = true;
+    s.spherical = sphere;
+    s.clock = 0;
+    s.rate = 1 / duration;
+    s.debris = seed;
+    s.aureole = 1;
+    s.holeCount = 3;
+    if (!sphere && s.thickness <= 0)
+        s.thickness = 380 + 270 * unitDraw(seed);
+    const double x = spot.x, y = spot.y;
+    if (sphere) {
+        s.holes[0].centre = {x, -.55, std::sqrt(std::max(0.0, 1 - x * x - .55 * .55))};
+        const double turn = (unitDraw(seed) - .5) * .5;
+        s.holes[1].centre = {-.5 * std::cos(turn) - .45 * std::sin(turn), -.5 * std::sin(turn) + .45 * std::cos(turn),
+                             -.74};
+        s.holes[2].centre = {.55 * std::cos(turn) - .35 * std::sin(turn), .55 * std::sin(turn) + .35 * std::cos(turn),
+                             -.76};
+        for (auto &h : s.holes) {
+            const double n = std::sqrt(h.centre.x * h.centre.x + h.centre.y * h.centre.y + h.centre.z * h.centre.z);
+            if (n > 0)
+                h.centre = {h.centre.x / n, h.centre.y / n, h.centre.z / n};
+        }
+        s.speed = 12.5;
+    } else {
+        s.holes[0].centre = {x * s.halfSize.x, -std::abs(y) * s.halfSize.y, 0};
+        const double first = .72 + .04 * unitDraw(seed), second = .72 + .04 * unitDraw(seed);
+        const double cross1 = .5 + .1 * unitDraw(seed), cross2 = .5 + .1 * unitDraw(seed);
+        if (s.halfSize.x >= s.halfSize.y) {
+            s.holes[1].centre = {-s.halfSize.x * first, s.halfSize.y * cross1, 0};
+            s.holes[2].centre = {s.halfSize.x * second, s.halfSize.y * cross2, 0};
+        } else {
+            s.holes[1].centre = {s.halfSize.x * cross1, s.halfSize.y * first, 0};
+            s.holes[2].centre = {-s.halfSize.x * cross2, -s.halfSize.y * second, 0};
+        }
+        const double farthest =
+            std::hypot(s.halfSize.x + std::abs(s.holes[0].centre.x), s.halfSize.y + std::abs(s.holes[0].centre.y));
+        s.speed = farthest * 2.5;
+    }
+    s.holes[0].start = sphere ? .31 : .15;
+    s.holes[1].start = sphere ? .38 : .25;
+    s.holes[2].start = sphere ? .42 : .31;
+    for (std::size_t i = 0; i < s.holeCount; ++i)
+        for (double &phase : s.holes[i].phase)
+            phase = 6.283185307179586 * unitDraw(seed);
+    updateRupture(s);
 }
 
 } // namespace
@@ -57,6 +106,8 @@ void Bubble::begin(Transition direction, double duration, std::uint64_t seed, Ve
     elapsed_ = 0;
     seed_ = materialSeed;
     rupture_ = {x, y};
+    if (direction == Transition::Close && initial_.window.visibility > 0 && !initial_.window.closing)
+        startRupture(initial_.window, rupture_, static_cast<std::uint64_t>(seed_ * 0x1p53), duration_, false);
     active_ = true;
     opening_ = direction == Transition::Open;
     closed_ = false;
@@ -106,9 +157,14 @@ BubbleFrame Bubble::frame(Vec2 size) const {
         shell.content = .55 * smoothstep(.04, .26, t);
         shell.film = 1;
         shell.visibility = smoothstep(0, .13, t);
-        shell.rupture = {rupture_.x * radius, rupture_.y * radius};
-        if (t > .30)
-            pop(shell, std::clamp((t - .30) / .36, 0.0, 1.0));
+        shell.spherical = true;
+        shell.thickness = std::min(1500.0, 450 * std::pow(shortSide * .46 / radius, 2));
+        shell.flow = elapsed_ * 2;
+        startRupture(shell, rupture_, static_cast<std::uint64_t>(seed_ * 0x1p53), duration_, true);
+        shell.clock = t;
+        updateRupture(shell);
+        if (t >= .55)
+            shell.visibility = 0;
 
         // The window is a second membrane behind the rupturing, still round shell.
         auto        &window = f.window;
@@ -126,6 +182,11 @@ BubbleFrame Bubble::frame(Vec2 size) const {
         window.core = {envelope * (std::cos(3 * pi * settle) + 2 * std::sin(3 * pi * settle) / (3 * pi)),
                        envelope * .35 * std::sin(5 * pi * settle)};
         window.film = 1 - smoothstep(.56, 1.0, t);
+        // The inner film stays clear while the outer bubble bursts, so no image appears with the pop; the window's
+        // imagery develops as the film flattens and lands.
+        window.content = smoothstep(.50, .78, t);
+        window.thickness = 450;
+        window.flow = elapsed_ * 2;
         window.visibility = smoothstep(.36, .42, t);
         window.ripple = shortSide * .012 * smoothstep(.56, .68, t) * (1 - smoothstep(.68, .76, t));
         window.time = t;
@@ -144,12 +205,25 @@ BubbleFrame Bubble::frame(Vec2 size) const {
         const double damping = scale * (1 - smoothstep(0, .5, t));
         surface.core = {surface.core.x * damping, surface.core.y * damping};
         surface.ripple *= scale * (1 - smoothstep(0, .35, t));
-        const double start = surface.closing ? surface.time : 0;
-        if (surface.closing)
-            surface.rupture = {surface.rupture.x * xScale, surface.rupture.y * yScale};
-        else
-            surface.rupture = {rupture_.x * surface.halfSize.x, rupture_.y * surface.halfSize.y};
-        pop(surface, mix(start, 1, t));
+        if (!surface.closing) {
+            if (surface.visibility <= 0)
+                return;
+            startRupture(surface, rupture_, static_cast<std::uint64_t>(seed_ * 0x1p53), duration_, spherical);
+        } else {
+            for (std::size_t i = 0; i < surface.holeCount; ++i) {
+                auto &h = surface.holes[i];
+                if (!spherical) {
+                    h.centre.x *= xScale;
+                    h.centre.y *= yScale;
+                }
+            }
+            // Flat radii use the larger scale to preserve coverage after an anisotropic resize.
+            if (!spherical)
+                surface.speed *= std::max(sx, sy);
+        }
+        surface.clock += elapsed_ * surface.rate;
+        surface.flow += elapsed_;
+        updateRupture(surface);
     };
     close(f.window, false);
     close(f.shell, true);
@@ -161,8 +235,8 @@ Box Bubble::bounds(Vec2 size) const {
         return {};
     const auto f = frame(size);
     const auto extent = [](const BubbleSurface &surface) {
-        const double margin = 2 + std::abs(surface.ripple) +
-                              (surface.closing ? .04 * std::min(surface.halfSize.x, surface.halfSize.y) : 0);
+        const double margin = 8 + std::abs(surface.ripple) +
+                              (surface.closing ? .45 * std::min(surface.halfSize.x, surface.halfSize.y) : 0);
         return Vec2{surface.halfSize.x + margin, surface.halfSize.y + margin};
     };
     const auto window = extent(f.window), shell = extent(f.shell);

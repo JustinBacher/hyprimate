@@ -23,15 +23,20 @@ inline bool valid(const SBubbleStyle &, const Pending &, bool blur) { return !bl
 inline void begin(SBubbleStyle &style, const Pending &pending, bool) {
     const auto &data = std::get<SBubbleCloseData>(pending.closeData);
     style.bubble.begin(liquid_glass::Transition::Close, data.duration, data.seed, pending.captureLogical);
+    // An interrupted opening hands over its clock, so its pending beads keep landing in step.
+    if (!style.impacts.running())
+        style.impacts.start();
 }
 inline bool running(const SBubbleStyle &style) { return style.bubble.active(); }
 inline bool finished(const SBubbleStyle &style) { return style.bubble.closed(); }
 inline bool needsOwned(const SBubbleStyle &) { return true; }
 inline void advance(SBubbleStyle &style, Record &record, double elapsed, bool) {
     style.bubble.advance(elapsed);
+    style.impacts.advance(elapsed);
     if (style.bubble.closed()) {
         record.snapshot.reset(); // only the suppression record must outlive the effect
         style.wallpaper.reset();
+        style.impacts.release(); // beads still in flight keep their own time from here
     }
 }
 inline bool settled(const SBubbleStyle &) { return true; }
@@ -71,12 +76,10 @@ inline void render(SBubbleStyle &style, Record &record, Render::CRenderContext &
         .textureSize = {record.snapshotSize.x, record.snapshotSize.y},
         .outputOrigin = {record.extentsDevice.x, record.extentsDevice.y},
     };
-    const auto &frame = data.draw.frame;
-    if (!style.residueEmitted && style.residue && frame.shell.retract >= .15 && frame.shell.visibility > 0 &&
-        !ctx.readOnlyEffects() && !ctx.m_renderingCapture && !ctx.m_renderingSnapshot) {
+    if (!ctx.readOnlyEffects() && !ctx.m_renderingCapture && !ctx.m_renderingSnapshot) {
         const auto source =
             project(record.sourceDevice, record.renderBox, record.snapshotSize).scale(1.0 / record.scale);
-        style.residueEmitted = style.residue->deposit(monitor, source.middle(), frame.shell.halfSize.x, frame.seed);
+        depositBubbleImpacts(style, data.draw.frame, monitor, source.middle());
     }
     data.box = project(record.extentsDevice, record.renderBox, record.snapshotSize);
     data.alpha = record.sourceAlpha;

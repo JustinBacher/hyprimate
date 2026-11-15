@@ -1,6 +1,6 @@
+
 #include "LiveRender.hpp"
 #include "LiveStyle.hpp"
-
 #include <hyprland/src/desktop/view/window/Window.hpp>
 #include <hyprland/src/desktop/view/window/WindowPresentation.hpp>
 #include <hyprland/src/render/Renderer.hpp>
@@ -31,10 +31,8 @@ Render::SWindowTransformBuffer renderLive(SBubbleStyle &state, Render::CRenderCo
                                                                  });
     if (!layer)
         return failed;
-    if (!state.residueEmitted && state.residue && frame.shell.retract >= .15 && frame.shell.visibility > 0 &&
-        !ctx.readOnlyEffects() && !ctx.m_renderingCapture && !ctx.m_renderingSnapshot)
-        state.residueEmitted = state.residue->deposit(context.monitor.lock(), context.currentBox.middle(),
-                                                      frame.shell.halfSize.x, frame.seed);
+    if (!ctx.readOnlyEffects() && !ctx.m_renderingCapture && !ctx.m_renderingSnapshot)
+        depositBubbleImpacts(state, frame, context.monitor.lock(), context.currentBox.middle());
     return {.framebuffer = layer, .box = g.canvas};
 }
 
@@ -54,7 +52,8 @@ bool SBubbleLiveStyle::open(CPluginRuntime &runtime, CPluginRuntime::STracked &e
         return false;
     state.wallpaper = makeShared<SBubbleWallpaper>();
     state.residue = runtime.m_bubbleResidue;
-    state.residueEmitted = false;
+    state.shellImpactsDeposited = state.windowImpactsDeposited = false;
+    state.impacts.start();
     // Bubble owns formation, placement and opacity. Keep focus/workspace/user alpha factors intact.
     g_pHyprRenderer->damageBox(capture);
     window->positionAnimation()->setValueAndWarp(goal.pos());
@@ -77,14 +76,19 @@ void SBubbleLiveStyle::step(CPluginRuntime &, CAnimationTransformer &transformer
                             bool) {
     auto &state = std::get<SBubbleStyle>(transformer.m_style);
     state.bubble.advance(elapsed);
-    if (!state.bubble.active())
+    state.impacts.advance(elapsed);
+    if (!state.bubble.active()) {
         state.wallpaper.reset();
+        state.impacts.release(); // beads still in flight keep their own time from here
+    }
 }
 
 void SBubbleLiveStyle::cancelOpening(CAnimationTransformer &transformer) {
     auto &state = std::get<SBubbleStyle>(transformer.m_style);
     state.bubble.reset();
     state.wallpaper.reset();
+    // Droplets of a cancelled opening vanish with it, so none of them may still land on the glass.
+    state.impacts.cancel();
 }
 
 void SBubbleLiveStyle::cancelMovement(CAnimationTransformer &) {}

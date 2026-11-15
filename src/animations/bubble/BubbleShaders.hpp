@@ -7,183 +7,251 @@ void main() {
 )GLSL";
 constexpr const char *FRAGMENT = R"GLSL(#version 300 es
 precision highp float;
-uniform sampler2D image, wallpaperImage;
+uniform sampler2D image, wallpaperImage, filmLut;
 uniform vec2 wallpaperOrigin, wallpaperX, wallpaperY, wallpaperPixel;
 uniform int wallpaperReady;
-uniform vec2 sourcePos, sourceSize, textureOrigin, textureSize, outputOrigin, size;
-uniform float seed, residueTime;
+uniform vec2 sourcePos, sourceSize, textureOrigin, imageSize, outputOrigin, size;
+struct Hole { vec3 centre; float radius, rim, precursor; vec4 amplitude, phase; };
 struct Membrane {
-    vec2 halfSize, rupture, core;
-    float corner, depth, content, film, visibility, ripple, time, tear, retract, remnant;
-    int closing;
+    vec2 halfSize, core;
+    float corner, depth, content, film, visibility, ripple, thickness, flow, aureole;
+    int spherical, holeCount;
+    Hole holes[4];
 };
 uniform Membrane windowSurface, shellSurface;
 out vec4 colour;
-
-vec4 over(vec4 front, vec4 back) { return front + back * (1.0 - front.a); }
-vec3 filmTint(float thickness, float viewCosine) {
-    vec3 interference = cos(6.2831853 * 2.0 * 1.33 * thickness * viewCosine / vec3(650.0, 510.0, 475.0));
-    return vec3(0.82, 0.89, 0.92) + 0.035 * interference;
-}
+vec4 over(vec4 a, vec4 b) { return a + b * (1.0 - a.a); }
+float luminance(vec3 c) { return dot(c, vec3(.2126,.7152,.0722)); }
 float boxDistance(vec2 p, vec2 h, float r) {
     vec2 q = abs(p) - h + r;
     return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
 }
-vec4 membrane(Membrane s, vec2 logical, bool background) {
-    if (s.visibility <= 0.0) return vec4(0.0);
-    vec2 halfSize = s.halfSize, rupture = s.rupture, core = s.core;
-    float corner = s.corner, depth = s.depth, content = s.content, film = s.film;
-    float visibility = s.visibility, ripple = s.ripple, time = s.time;
-    float tear = s.tear, retract = s.retract, remnant = s.remnant;
-    vec2 p = logical - size * 0.5;
-    vec2 baseUV = (sourcePos + sourceSize * (logical / size) - textureOrigin) / textureSize;
-    vec2 lo = max((sourcePos - textureOrigin + 0.5) / textureSize, vec2(0.5) / textureSize);
-    vec2 hi = min((sourcePos + sourceSize - textureOrigin - 0.5) / textureSize,
-                  vec2(1.0) - vec2(0.5) / textureSize);
-    float tension = s.closing != 0 ? smoothstep(0.0, 0.045, time) * (1.0 - smoothstep(0.10, 0.20, time)) : 0.0;
-    vec2 tensionDelta = p - rupture;
-    float tensionRadius = max(4.0, min(size.x, size.y) * 0.22);
-    float tensionField = exp(-dot(tensionDelta, tensionDelta) / (tensionRadius * tensionRadius));
-    vec2 tug = tensionDelta / max(size, vec2(1.0)) * (0.055 * tension * tensionField);
-
-    // Exact endpoint: no analytical silhouette or filtering change to native alpha.
-    if (!background && depth == 0.0 && all(equal(core, vec2(0.0))) && film == 0.0 && ripple == 0.0 &&
-        tear == 0.0 && retract == 0.0 && visibility == 1.0 && content == 1.0) {
-        if (any(lessThan(logical, vec2(0.0))) || any(greaterThanEqual(logical, size))) return vec4(0.0);
-        vec4 result = texture(image, clamp(baseUV + tug * sourceSize / textureSize, lo, hi));
-        float shine = 0.055 * tension * tensionField;
-        result.rgb = mix(result.rgb, vec3(result.a) * vec3(0.90, 0.95, 1.0), shine);
-        return result;
-    }
-    vec2 h = max(halfSize, vec2(0.001));
-    float r = clamp(corner, 0.0, min(h.x, h.y));
-    float phase = atan(p.y, p.x);
-    float wave = ripple * sin(phase * 5.0 + seed * 6.0) * 0.35;
-    float sd = boxDistance(p, h + vec2(wave), r);
-    float aa = max(fwidth(sd), 0.5 * max(size.x / sourceSize.x, size.y / sourceSize.y));
-    float shape = 1.0 - smoothstep(-aa, aa, sd);
-    vec2 nxy = clamp(p / h, -1.0, 1.0);
-    // The dome follows the current boundary: the shell stays spherical, while
-    // the independently emerging window's cap flattens onto its rectangular rim.
-    float radius = clamp(1.0 + sd / min(h.x, h.y), 0.0, 1.0);
-    float cap = sqrt(max(0.0, 1.0 - radius * radius));
-    float curve = clamp(depth / max(min(h.x, h.y), 1.0), 0.0, 1.0);
-    vec2 q = abs(p) - h + r;
-    vec2 gradient = max(q, 0.0);
-    if (dot(gradient, gradient) > 0.000001)
-        gradient = normalize(gradient) * sign(p);
-    else
-        gradient = q.x > q.y ? vec2(sign(p.x), 0.0) : vec2(0.0, sign(p.y));
-    vec2 domeNormal = gradient * radius * curve / max(0.22, cap + 0.22);
-    // Height and slope vanish at every edge; the two approved pressure modes
-    // move only the soft core after the perimeter has landed.
-    vec2 b = max(vec2(0.0), vec2(1.0) - nxy * nxy);
-    float support = b.x * b.x * b.y * b.y;
-    float pressure = core.x + core.y * dot(nxy, nxy);
-    vec2 supportGradient = -4.0 * nxy * vec2(b.x * b.y * b.y, b.y * b.x * b.x);
-    vec2 coreNormal = -(supportGradient * pressure + support * core.y * 2.0 * nxy) / h;
-    vec2 coreOffset = coreNormal * (0.30 * min(h.x, h.y)) / size;
-    vec2 normal = domeNormal + coreNormal;
-    vec2 projected = nxy * (1.0 - 0.22 * curve * (1.0 - cap));
-    vec2 uvUnit = 0.5 + 0.5 * projected - domeNormal * (0.028 * curve) - coreOffset + tug;
-    vec2 fromTear = p - rupture;
-    float a = atan(fromTear.y, fromTear.x);
-    float dist = length(fromTear);
-    float uneven = 1.0 + 0.10 * sin(3.0*a + seed*6.0 + retract*1.3) +
-                   0.05 * sin(7.0*a - seed*4.0 - retract*2.0);
-    float edge = dist - tear * uneven;
-    float intact = tear > 0.0 ? smoothstep(-aa, aa, edge) : 1.0;
-    float rimWidth = max(1.5, min(h.x, h.y) * 0.025);
-    float rim = tear > 0.0 ? exp(-abs(edge) / rimWidth) * shape : 0.0;
-    // Gather a wide band of imagery into the narrow rolling, retracting lip.
-    vec2 radial = fromTear / max(dist, 0.001);
-    float band = exp(-max(edge, 0.0) / (rimWidth * 5.0));
-    float curl = retract * band * (rimWidth * 7.0 + max(edge, 0.0) * 1.2);
-    vec2 rolled = -radial * curl / max(size, vec2(1.0)) +
-                  radial * (0.04 * retract * exp(-abs(edge - rimWidth) / rimWidth));
-    uvUnit += rolled;
-    vec4 imagery = vec4(0.0);
-    if (background) {
-        if (wallpaperReady != 0) {
-            vec2 backgroundUnit = 0.5 + (h * projected - domeNormal * depth * 0.14) / size - coreOffset + tug + rolled;
-            vec2 backgroundUV = wallpaperOrigin + wallpaperX * backgroundUnit.x + wallpaperY * backgroundUnit.y;
-            imagery = texture(wallpaperImage, clamp(backgroundUV, wallpaperPixel * 0.5,
-                                                     vec2(1.0) - wallpaperPixel * 0.5));
+float noise(vec3 p) {
+    vec3 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+    vec4 h = vec4(dot(i,vec3(1,57,113)),dot(i+vec3(1,0,0),vec3(1,57,113)),
+                  dot(i+vec3(0,1,0),vec3(1,57,113)),dot(i+vec3(1,1,0),vec3(1,57,113)));
+    vec4 a = fract(sin(h)*43758.5453), b = fract(sin(h+113.0)*43758.5453);
+    return mix(mix(mix(a.x,a.y,f.x),mix(a.z,a.w,f.x),f.y),
+               mix(mix(b.x,b.y,f.x),mix(b.z,b.w,f.x),f.y),f.z);
+}
+// White studio seen in reflection (y down, z toward the viewer): dim ground, brighter sky, a mullioned window
+// softbox at the upper left and a small fill light. All colour comes from interference in the film.
+vec3 env(vec3 n) {
+    vec3 r = reflect(vec3(0,0,-1), n);
+    float sky = mix(.05,.5,smoothstep(-.3,.6,-r.y));
+    vec2 q = r.xy / max(.25, abs(r.z)+.4);
+    vec2 k = (q-vec2(-.36,-.40))/vec2(.17,.24);
+    float window = 1.0-smoothstep(.78,1.0,max(abs(k.x),abs(k.y)));
+    window *= mix(.2,1.0,min(smoothstep(.035,.09,abs(k.x)),smoothstep(.035,.09,abs(k.y+.12))));
+    float fill = exp(-dot((q-vec2(.42,-.16))*7.0,(q-vec2(.42,-.16))*7.0));
+    return vec3(sky + 4.0*window + 1.2*fill);
+}
+vec4 layer(Membrane s, vec2 p, vec3 point, vec3 normal, float cosView, float curve, float cap, bool back, bool background) {
+    float minHalf = max(min(s.halfSize.x,s.halfSize.y),1.0);
+    float edge = 1e6, band = 0.0, bandWeight = 0.0, precursor = 0.0, blackFilm = 0.0;
+    float domain=1.0;
+    vec2 radial = vec2(0);
+    for (int i=0;i<4;i++) {
+        if (i >= s.holeCount) break;
+        Hole h = s.holes[i];
+        vec2 delta = p-h.centre.xy;
+        float dist, phi;
+        if (s.spherical != 0) {
+            vec3 axis = abs(h.centre.z)<.9 ? vec3(0,0,1) : vec3(1,0,0);
+            vec3 e1 = normalize(cross(axis,h.centre)), e2 = cross(h.centre,e1);
+            phi = atan(dot(point,e2),dot(point,e1));
+            dist = acos(clamp(dot(point,h.centre),-1.0,1.0))*minHalf;
+            delta = p-h.centre.xy*minHalf;
+        } else { dist=length(delta); phi=atan(delta.y,delta.x); }
+        float radius = h.radius * (s.spherical != 0 ? minHalf : 1.0);
+        float boundary = radius * (1.0 + dot(h.amplitude,cos(vec4(3,5,9,14)*phi+h.phase)));
+        if (s.spherical!=0 && boundary>=3.14159265359*minHalf) domain=0.0;
+        float d = dist-boundary;
+        float spot = exp(-pow(dist/(minHalf*(s.spherical != 0 ? .12 : .1)),2.0));
+        spot *= step(.002,spot);
+        precursor = max(precursor,h.precursor*spot);
+        // The black film: the very centre turns see-through in the last moments before the opening.
+        blackFilm = max(blackFilm,smoothstep(.75,1.0,h.precursor)*exp(-pow(dist/(minHalf*.025+2.0),2.0)));
+        if (radius > 0.0 && d < edge) {
+            edge=d; radial=normalize(delta+vec2(1e-5));
+            float w=max(radius*.25,1.0);
+            float u=clamp(1.0-max(d,0.0)/w,0.0,1.0);
+            bandWeight = d>=0.0 ? s.aureole*u*u : 0.0;
+            band = d>=0.0 ? .3*s.aureole*w*u*u*u : 0.0;
         }
-    } else {
-        vec2 uv = (sourcePos + sourceSize * uvUnit - textureOrigin) / textureSize;
-        imagery = texture(image, clamp(uv, lo, hi));
     }
-    float breakup = 1.0 - 0.38 * remnant * smoothstep(0.25, 0.9, sin(a * 13.0 + seed * 8.0 + retract * 2.0)) *
-                    exp(-abs(sd) / max(rimWidth * 3.0, 1.0));
-    float transmission = clamp(content, 0.0, 1.0) * shape * intact * visibility * breakup;
-    vec4 result = imagery * transmission;
-    float viewCosine = inversesqrt(1.0 + dot(normal, normal));
-    float fresnel = pow(1.0 - viewCosine, 2.0);
-    float thickness = 310.0 + 85.0 * cap + 24.0 * nxy.y + 12.0 * sin(phase + seed * 6.0);
-    vec3 tint = filmTint(thickness, viewCosine);
-    // Narrow, elongated reflections instead of a large plastic specular orb.
-    vec2 light = nxy + vec2(0.38, 0.46) + normal * 0.12;
-    float glint = exp(-light.x * light.x * 85.0 - light.y * light.y * 9.0) +
-                  0.38 * exp(-pow((light.x - 0.11) * 12.0, 2.0) - pow((light.y + 0.12) * 5.0, 2.0));
-    float filmAlpha = clamp(film * shape * intact * visibility * (0.022 + 0.40*fresnel + 0.14*glint), 0.0, 0.45);
-    float curlShadow = tear > 0.0 ? exp(-abs(edge - rimWidth * 1.8) / (rimWidth * 1.3)) : 0.0;
-    result.rgb *= 1.0 - 0.38 * curlShadow * retract;
-    float lip = tear > 0.0 ? exp(-abs(edge) / max(0.8, rimWidth * 0.22)) * shape : 0.0;
-    float rimAlpha = clamp((rim * 0.18 + lip * 0.72) * smoothstep(0.0, 0.14, retract) * visibility, 0.0, 0.85);
-    float materialAlpha = filmAlpha + rimAlpha * (1.0 - filmAlpha);
-    vec3 material = mix(tint, vec3(0.92, 0.97, 1.0), rimAlpha);
-    result = over(vec4(material * materialAlpha, materialAlpha), result);
-    if (s.closing != 0 && remnant > 0.0) {
-        float drops = 0.0;
-        for (int i = 0; i < 3; ++i) {
-            float angle = seed * 6.0 + float(i) * 2.18 + 0.6;
-            vec2 direction = vec2(cos(angle), sin(angle));
-            vec2 centre = direction * min(h.x, h.y) * (0.88 + 0.15 * retract);
-            float d = length(p - centre) - max(0.7, min(h.x, h.y) * 0.009);
-            drops = max(drops, 1.0 - smoothstep(-aa, aa, d));
+    float aa=max(fwidth(edge),.35);
+    float intact=domain*smoothstep(-aa,aa,edge);
+    // Aureole: film material ahead of the rim is drawn toward it (compressed) and flaps.
+    vec2 shifted=p+radial*(band + 1.8*bandWeight*sin(edge*.3-s.flow*12.0));
+    float local=max(s.film,max(precursor,bandWeight*.8));
+    vec4 reflection=vec4(0);
+    // The thickness field is only evaluated where film is visible: a closing window needs it near its holes only.
+    if (local>0.0 && intact>0.0) {
+        vec3 warpedPoint=point;
+        warpedPoint.xy += (shifted-p)/max(s.halfSize,vec2(1.0));
+        vec3 q=warpedPoint*2.6+vec3(0,s.flow*.12,0);
+        float turn=s.flow*.15;
+        q.xy=mat2(cos(turn),-sin(turn),sin(turn),cos(turn))*q.xy;
+        vec3 swirl=vec3(noise(q*.8),noise(q*.8+vec3(5.2,1.3,2.7)),0.0)*2.0-1.0;
+        vec3 warp=q+swirl*1.1;
+        float marble=(noise(warp)*.65+noise(warp*2.1+3.1)*.35)*2.0-1.0;
+        float thick=s.thickness * exp(.65*marble) * clamp(1.0+.28*warpedPoint.y,.55,1.45);
+        thick *= 1.0-.97*precursor;
+        thick *= 1.0 + .5*bandWeight;
+        // Near the rim the thickened film curls toward it: its tilted surface catches the light as a moving sheen.
+        vec3 curled=normalize(normal-vec3(radial,0.0)*(.7*bandWeight*bandWeight));
+        float curledView=clamp(curled.z,0.0,1.0);
+        vec3 R=texture(filmLut,vec2(clamp(thick/1500.0,0.0,1.0),curledView)).rgb;
+        vec3 reflectedNormal=back ? vec3(-curled.xy,curled.z) : curled;
+        vec3 illumination=env(reflectedNormal)+vec3(precursor);
+        reflection=vec4(R*illumination*(back ? .45 : 1.0), luminance(R))*local*intact;
+    }
+    vec4 imagery=vec4(0);
+    if (!back) {
+        vec2 corePoint=p/max(s.halfSize,vec2(1.0));
+        vec2 b=max(vec2(0),vec2(1)-corePoint*corePoint);
+        vec2 supportGradient=-4.0*corePoint*vec2(b.x*b.y*b.y,b.y*b.x*b.x);
+        vec2 coreNormal=-(supportGradient*(s.core.x+s.core.y*dot(corePoint,corePoint)) +
+                          b.x*b.x*b.y*b.y*s.core.y*2.0*corePoint)/max(s.halfSize,vec2(1.0));
+        vec2 unit=background ? (shifted+size*.5)/size :
+            .5+.5*(shifted/max(s.halfSize,vec2(1.0)))*(1.0-.12*curve*(1.0-cap))-coreNormal*.15;
+        if (background) {
+            if (wallpaperReady!=0) {
+                vec2 offset=point.xy*(1.0-cosView)*.015*minHalf/size;
+                vec2 uv=wallpaperOrigin+wallpaperX*(unit.x+offset.x)+wallpaperY*(unit.y+offset.y);
+                vec4 wall=texture(wallpaperImage,clamp(uv,wallpaperPixel*.5,vec2(1)-wallpaperPixel*.5));
+                imagery=wall*(.25*(1.0-cosView)*s.content);
+            }
+        } else {
+            vec2 uv=(sourcePos+sourceSize*unit-textureOrigin)/imageSize;
+            vec2 lo=max((sourcePos-textureOrigin+.5)/imageSize,vec2(.5)/imageSize);
+            vec2 hi=min((sourcePos+sourceSize-textureOrigin-.5)/imageSize,vec2(1)-.5/imageSize);
+            imagery=texture(image,clamp(uv,lo,hi))*s.content*(1.0-blackFilm);
         }
-        float da = drops * remnant * 0.25 * visibility * (1.0 - shape * intact);
-        result.rgb += vec3(0.85, 0.92, 0.97) * da * (1.0 - result.a);
-        result.a += da * (1.0 - result.a);
     }
+    vec4 result=over(reflection,imagery*intact);
     return result;
 }
-vec4 screenFilm(vec2 p) {
-    float radius = min(size.x, size.y) * 0.5;
-    float envelope = smoothstep(0.0, 0.08, residueTime) * (1.0 - smoothstep(0.45, 1.0, residueTime));
-    float wetting = mix(0.72, 1.0, smoothstep(0.0, 0.16, residueTime));
-    vec4 result = vec4(0.0);
-    // Two flat smears and three tiny beads wet the screen. Their centres and
-    // orientation never follow the window, its core, or a later workspace move.
-    for (int i = 0; i < 5; ++i) {
-        float angle = seed * 6.0 + float(i) * 2.18 + 0.6;
-        vec2 direction = vec2(cos(angle), sin(angle));
-        vec2 centre = direction * radius * (i < 2 ? 0.62 : 0.82);
-        vec2 delta = p - centre;
-        vec2 local = vec2(dot(delta, vec2(-direction.y, direction.x)), dot(delta, direction));
-        vec2 axes = radius * wetting * (i < 2 ? vec2(0.22, 0.052) : vec2(0.022, 0.036));
-        vec2 q = local / max(axes, vec2(0.75));
-        float distance = length(q);
-        float aa = max(fwidth(distance), 0.015);
-        float shape = 1.0 - smoothstep(1.0 - aa, 1.0 + aa, distance);
-        float rim = exp(-pow((distance - 0.86) * 17.0, 2.0)) * shape;
-        float glint = exp(-pow(q.x + 0.32, 2.0) * 30.0 - pow(q.y + 0.60, 2.0) * 55.0) * shape;
-        float shadow = rim * smoothstep(-0.4, 0.7, q.y);
-        float alpha = envelope * (shape * 0.008 + rim * 0.20 + glint * 0.38);
-        vec3 tint = filmTint(320.0 + 24.0 * q.y, 0.8) - vec3(shadow * 0.55);
-        tint = mix(tint, vec3(0.96, 0.98, 1.0), glint);
-        result = over(vec4(tint * alpha, alpha), result);
+vec4 membrane(Membrane s, vec2 logical, bool background) {
+    if (s.visibility<=0.0) return vec4(0);
+    vec2 p=logical-size*.5;
+    vec2 base=(sourcePos+sourceSize*(logical/size)-textureOrigin)/imageSize;
+    if (!background && s.holeCount==0 && s.film==0.0 && s.depth==0.0 &&
+        all(equal(s.core,vec2(0))) && s.ripple==0.0 && s.content==1.0 && s.visibility==1.0) {
+        if (any(lessThan(logical,vec2(0))) || any(greaterThanEqual(logical,size))) return vec4(0);
+        return texture(image,clamp(base,max((sourcePos-textureOrigin+.5)/imageSize,vec2(.5)/imageSize),
+                     min((sourcePos+sourceSize-textureOrigin-.5)/imageSize,vec2(1)-.5/imageSize)));
     }
-    return result;
+    vec2 h=max(s.halfSize,vec2(.001));
+    float corner=clamp(s.corner,0.0,min(h.x,h.y));
+    float sd=boxDistance(p,h,corner);
+    float aa=max(fwidth(sd),.5);
+    float shape=1.0-smoothstep(-aa,aa,sd);
+    vec2 xy=p/h;
+    float z=sqrt(max(0.0,1.0-min(dot(xy,xy),1.0)));
+    float curve=clamp(s.depth/min(h.x,h.y),0.0,1.0);
+    // The window's dome follows its current rounded outline, so corners slope like edges instead of grazing.
+    float radius=clamp(1.0+sd/min(h.x,h.y),0.0,1.0);
+    float cap=sqrt(max(0.0,1.0-radius*radius));
+    vec2 q=abs(p)-h+corner;
+    vec2 gradient=max(q,0.0);
+    gradient=dot(gradient,gradient)>1e-6 ? normalize(gradient)*sign(p) :
+                                           (q.x>q.y ? vec2(sign(p.x),0.0) : vec2(0.0,sign(p.y)));
+    vec2 b=max(vec2(0),vec2(1)-xy*xy);
+    vec2 supportGradient=-4.0*xy*vec2(b.x*b.y*b.y,b.y*b.x*b.x);
+    vec2 coreNormal=-(supportGradient*(s.core.x+s.core.y*dot(xy,xy)) +
+                      b.x*b.x*b.y*b.y*s.core.y*2.0*xy)/h;
+    vec3 normal=normalize(vec3(gradient*radius*curve/max(.22,cap+.22)+coreNormal,1.0));
+    vec3 front=vec3(xy,max(z,.001)), back=vec3(xy,-max(z,.001));
+    if (s.spherical!=0) { normal=normalize(front); cap=z; }
+    float cv=clamp(normal.z,0.0,1.0);
+    vec4 a=layer(s,p,front,normal,cv,curve,cap,false,background);
+    if (s.spherical!=0) a=over(a,layer(s,p,back,normal,cv,curve,cap,true,background));
+    return a*shape*s.visibility;
 }
 void main() {
-    // The work buffer and Hyprland's canvas quad both use texture v=0 at y=0.
-    vec2 logical = (outputOrigin + gl_FragCoord.xy - sourcePos) * size / sourceSize;
-    if (residueTime >= 0.0) {
-        colour = screenFilm(logical - size * 0.5);
+    vec2 logical=(outputOrigin+gl_FragCoord.xy-sourcePos)*size/sourceSize;
+    colour=over(membrane(shellSurface,logical,true),membrane(windowSurface,logical,false));
+    colour.rgb=min(colour.rgb,vec3(1.0));
+}
+)GLSL";
+constexpr const char *PARTICLE_VERTEX = R"GLSL(#version 300 es
+precision highp float;
+layout(location=0) in vec4 geometry;
+layout(location=1) in vec4 detail;
+layout(location=2) in vec4 optical;
+uniform vec2 canvas, origin, sourcePos, sourceSize, size;
+out vec2 pixel, centre, tail;
+out vec4 params;
+out vec3 optics;
+void main() {
+    vec2 scale=sourceSize/size;
+    centre=sourcePos+sourceSize*.5+geometry.xy*scale-origin;
+    tail=sourcePos+sourceSize*.5+geometry.zw*scale-origin;
+    float r=max(detail.x,detail.y)*max(scale.x,scale.y)+2.0+optical.z*2.0;
+    vec2 lo=min(centre,tail)-r, hi=max(centre,tail)+r;
+    vec2 corner=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));
+    pixel=mix(lo,hi,corner);
+    gl_Position=vec4(pixel/canvas*2.0-1.0,0,1);
+    params=vec4(detail.xy*max(scale.x,scale.y),detail.zw);
+    optics=optical.xyz;
+}
+)GLSL";
+constexpr const char *PARTICLE_FRAGMENT = R"GLSL(#version 300 es
+precision highp float;
+uniform sampler2D filmLut;
+uniform int onGlass;
+in vec2 pixel, centre, tail;
+in vec4 params;
+in vec3 optics;
+out vec4 colour;
+void main() {
+    vec2 p=pixel-centre;
+    if (onGlass!=0) p.y*=1.25;
+    if (optics.x>0.0 && onGlass==0) {
+        vec2 q=p/max(params.x,.001);
+        float c=cos(optics.y), s=sin(optics.y);
+        q=mat2(c,-s,s,c)*q;
+        float angle=atan(q.y,q.x);
+        float boundary=.72+.12*sin(3.0*angle+.7)+.08*sin(5.0*angle-1.1);
+        float dist=length(q)-boundary;
+        float coverage=1.0-smoothstep(-fwidth(dist),fwidth(dist),dist);
+        vec3 n=normalize(vec3(.65*sin(q.x*4.0+optics.y),.5*cos(q.y*4.0-optics.y),1.0));
+        vec3 R=texture(filmLut,vec2(clamp(optics.x/1500.0,0.0,1.0),abs(n.z))).rgb;
+        float alpha=coverage*dot(R,vec3(.2126,.7152,.0722));
+        colour=vec4(min(coverage*R*(1.2+1.8*max(0.0,dot(n,normalize(vec3(-.4,-.5,1))))),vec3(1)),alpha);
         return;
     }
-    colour = over(membrane(shellSurface, logical, true), membrane(windowSurface, logical, false));
+    float r=max(params.x,.001), d=length(p)/r;
+    vec2 v=tail-centre;
+    float len2=dot(v,v);
+    float t=clamp(dot(pixel-centre,v)/max(len2,.001),0.0,1.0);
+    // A ligament leaves the drop as a neck thinner than the drop, then tapers toward its anchor.
+    float lineRadius=mix(min(r*.55,params.y*1.6+.2),params.y,t);
+    float lineDistance=length(pixel-centre-v*t);
+    float aa=.5+optics.z*1.5;
+    float dropCoverage=(1.0-smoothstep(r-aa,r+aa,length(p)))*min(1.0,2.0*r);
+    float lineCoverage=(1.0-smoothstep(lineRadius-aa,lineRadius+aa,lineDistance))*
+                       min(1.0,2.5*lineRadius)*step(.001,params.y)*step(.01,len2);
+    // A clear drop: dark refraction ring, bright highlight toward the window light, faint focused caustic. Drops
+    // resting on the glass spread into flatter lenses with a broader highlight and a brighter focused crescent.
+    float spread=onGlass!=0 ? 2.4 : 3.0;
+    float ringOffset=(d-.8)*6.0;
+    float ring=exp(-ringOffset*ringOffset);
+    float highlight=exp(-dot((p/r-vec2(-.3,-.36))*spread,(p/r-vec2(-.3,-.36))*spread));
+    float caustic=exp(-dot((p/r-vec2(.32,.42))*4.0,(p/r-vec2(.32,.42))*4.0))*(onGlass!=0 ? 1.8 : 1.0);
+    float tiny=1.0-smoothstep(1.0,2.2,r);
+    float alpha=dropCoverage*mix(.05+.32*ring+.9*highlight+.22*caustic,.62,tiny);
+    vec3 rgb=vec3(dropCoverage*mix(.95*highlight+.3*caustic,.62,tiny));
+    // Threads glint most where they lie across the light's direction.
+    vec2 direction=len2>.01 ? v*inversesqrt(len2) : vec2(1,0);
+    vec2 light=normalize(vec2(-.5,-.62));
+    float glint=.3+.7*abs(direction.x*light.y-direction.y*light.x);
+    float thread=lineCoverage*(.26+.34*glint);
+    alpha=max(alpha,thread);
+    rgb=max(rgb,vec3(thread*(.1+.9*glint)));
+    rgb*=params.z<0.0 ? .75 : 1.0;
+    colour=vec4(min(rgb,vec3(1.0)),clamp(alpha,0.0,1.0));
 }
 )GLSL";

@@ -96,6 +96,7 @@ class CPluginRuntime {
     void                     scheduleAnimation(const PHLWINDOW &window) const;
     void                     detachWindow(STracked &entry, const PHLWINDOW &window);
     void                     detachAll();
+    bool                     bubbleResidueEnabled() const;
     void                     clearBubbleResidue();
     void                     restoreBubbleScanout(const PHLMONITOR &monitor);
 

@@ -72,7 +72,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     m_nextSeed = (std::uint64_t{entropy()} << 32) | entropy();
     liquid_glass::config::registerConfigValues(m_handle, m_values);
     m_config = liquid_glass::config::readConfig(m_values);
-    m_bubbleResidue->setEnabled(openEnabled() && m_config.style == liquid_glass::config::Style::Bubble);
+    m_bubbleResidue->setEnabled(bubbleResidueEnabled());
 
     if (pluginEnabled() && wobbleEnabled()) {
         notify(WOBBLE_MESSAGE);
@@ -240,6 +240,10 @@ bool CPluginRuntime::openEnabled() const { return pluginEnabled() && !m_inert &&
 
 bool CPluginRuntime::closeEnabled() const { return pluginEnabled() && !m_inert && m_config.close.enabled; }
 
+bool CPluginRuntime::bubbleResidueEnabled() const {
+    return (openEnabled() || closeEnabled()) && m_config.style == liquid_glass::config::Style::Bubble;
+}
+
 liquid_glass::Edge CPluginRuntime::firstWindowEdge() const {
     switch (m_config.open.liquid.firstWindowSide) {
     case cfg::FirstWindowSide::Top:
@@ -331,7 +335,7 @@ void CPluginRuntime::notify(const std::string &text) const {
 
 void CPluginRuntime::onReload() {
     m_config = liquid_glass::config::readConfig(m_values);
-    m_bubbleResidue->setEnabled(openEnabled() && m_config.style == liquid_glass::config::Style::Bubble);
+    m_bubbleResidue->setEnabled(bubbleResidueEnabled());
     clearBubbleResidue();
     detachAll();
     m_close->clear();
@@ -409,7 +413,10 @@ void CPluginRuntime::onRenderPre(const PHLMONITOR &monitor) {
     // Config is read live: runtime edits (hl.config, hyprctl keyword) need not fire a reload. The texture is
     // rebuilt only when the value actually changes.
     m_config = liquid_glass::config::readConfig(m_values);
-    const bool residueEnabled = openEnabled() && m_config.style == liquid_glass::config::Style::Bubble;
+    // Compile the bubble material before any bubble needs it: done mid-animation, the compile reads as a stall.
+    if (m_config.style == liquid_glass::config::Style::Bubble)
+        m_bubble->warmUp();
+    const bool residueEnabled = bubbleResidueEnabled();
     m_bubbleResidue->setEnabled(residueEnabled);
     if (!residueEnabled)
         clearBubbleResidue();

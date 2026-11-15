@@ -80,6 +80,8 @@ add_library(liquid-glass-core STATIC
     src/animations/swarm/Swarm.cpp
     src/animations/swarm/SwarmSprite.cpp
     src/animations/bubble/Bubble.cpp
+    src/animations/bubble/BubbleRupture.cpp
+    src/animations/bubble/BubbleOptics.cpp
     src/WindowTracker.cpp
 )
 # PaperTakes.cpp #embeds the baked crumples; rebuild it whenever they are re-packed.
@@ -100,6 +102,7 @@ add_library(liquid-glass SHARED
     src/animations/swarm/SwarmRenderer.cpp
     src/animations/bubble/BubbleLiveStyle.cpp
     src/animations/bubble/BubbleRenderer.cpp
+    src/animations/bubble/BubbleMaterial.cpp
     src/animations/bubble/BubbleResidue.cpp
     src/animations/bubble/BubbleWallpaper.cpp
     src/animations/liquid/LiquidCloseStyle.cpp
@@ -178,6 +181,11 @@ if(BUILD_TESTING)
     target_include_directories(bubble-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     target_compile_options(bubble-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME bubble-tests COMMAND bubble-tests)
+
+    add_executable(bubble-optics-tests src/animations/bubble/tests/BubbleOpticsTests.cpp)
+    target_link_libraries(bubble-optics-tests PRIVATE liquid-glass-core)
+    target_include_directories(bubble-optics-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    add_test(NAME bubble-optics-tests COMMAND bubble-optics-tests)
 
     add_executable(window-tracker-tests tests/WindowTrackerTests.cpp)
     target_link_libraries(window-tracker-tests PRIVATE liquid-glass-core)
