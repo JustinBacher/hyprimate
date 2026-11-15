@@ -52,7 +52,8 @@ struct SwarmAgent {
     double rest = 0.0;      // direction it faces once it has settled; its own, so no two settle alike
     double turn = 0.0;      // 0 facing `rest`, its tile upright .. 1 facing `heading`, its tile turned with it
     double lock = 0.0;      // 0 free creature .. 1 merged into the window as its whole tile
-    double travel = 0.0;    // px walked so far; drives the walk cycle
+    double travel = 0.0;    // px walked so far
+    double walk = 0.0;      // gait distance, rate-limited so sprite frames remain visible
     bool   visible = false; // false while waiting beyond the screen and after leaving
     // The outline its tile takes while the window is incomplete, per TileCorner, so merged tiles amass into a blob
     // rather than a stack of squares. `round` is how far a corner is rounded off: 0 square .. 1 by a radius of
@@ -69,6 +70,7 @@ struct SwarmAgent {
     double grip = 0.0;      // window speed (px/s) it stays locked through
     double reaction = 0.0;  // seconds it stays put after the window shakes it loose
     double pause = 0.0;     // what is left of that
+    double settleWait = -1.0; // movement: randomized wait at home before docking; negative until arrival
     double arc = 0.0;       // radians its approach is turned off the straight line; it comes in on a curve
     double weave = 0.0;     // meander phase
     double weaveRate = 0.0; // meander phase speed, rad/s
@@ -144,6 +146,7 @@ class Swarm {
     Phase                   m_phase = Phase::Idle;
     SwarmParams             m_params{};
     std::vector<SwarmAgent> m_agents;
+    int                     m_rows = 0;          // fixed for an animation so resizing does not reassign tiles
     Vec2                    m_origin{};          // capture top-left in the placement's space
     Vec2                    m_size{};            // capture size
     Box                     m_body{};            // body, relative to the capture's top-left

@@ -173,7 +173,9 @@ void Swarm::layout(const SwarmPlacement &placement) {
                                                                           : Box{0.0, 0.0, capture.w, capture.h};
 
     const auto count = static_cast<int>(m_agents.size());
-    const int  rows = std::clamp(static_cast<int>(std::lround(std::sqrt(count * m_body.h / m_body.w))), 1, count);
+    if (m_rows == 0)
+        m_rows = std::clamp(static_cast<int>(std::lround(std::sqrt(count * m_body.h / m_body.w))), 1, count);
+    const int rows = m_rows;
     m_spacing = std::sqrt(m_body.w * m_body.h / count);
 
     // Rows share the agents as evenly as integers allow, so every row's tiles are near square.
@@ -216,6 +218,7 @@ void Swarm::build(const SwarmParams &params, std::uint64_t seed, const SwarmPlac
     m_params = sane(params);
     m_rng = seed ^ 0x5DEECE66D1CE4E5BULL;
     m_agents.assign(static_cast<std::size_t>(m_params.count), SwarmAgent{});
+    m_rows = 0;
     for (SwarmAgent &a : m_agents) {
         a.docked = true;
         a.lock = 1.0;
@@ -391,6 +394,7 @@ bool Swarm::advance(double elapsedSeconds) {
                 a.velocity = {};
                 a.heading = std::atan2(m_shift.y, m_shift.x);
                 a.pause = a.reaction;
+                a.settleWait = -1.0;
             }
         }
         m_still = 0.0;
@@ -559,9 +563,10 @@ void Swarm::step() {
         }
         if (a.docked) {
             // It swings round to its rest direction first, then swells into its tile.
-            if (a.turn > 0.0)
+            if (a.turn > 0.0) {
+                a.walk += 4.0 * a.fit * std::min(kStep, a.turn * kTurnTime);
                 a.turn = std::max(0.0, a.turn - kStep / kTurnTime);
-            else
+            } else
                 a.lock = std::min(1.0, a.lock + kStep / merge);
             continue;
         }
@@ -622,6 +627,8 @@ void Swarm::step() {
         a.position = a.position + a.velocity * kStep;
         const double speed = length(a.velocity);
         a.travel += speed * kStep;
+        // Keep the gait readable even when small agents travel many body lengths per display frame.
+        a.walk += std::min(speed, 4.0 * a.fit) * kStep;
         if (speed > kHeadingSpeed * cruise) {
             const double swing = wrapAngle(std::atan2(a.velocity.y, a.velocity.x) - a.heading);
             a.heading = wrapAngle(a.heading + std::clamp(swing, -kTurnRate * kStep, kTurnRate * kStep));
@@ -641,9 +648,13 @@ void Swarm::step() {
         const double left = length(a.home - a.position);
         a.turn = approach(a.turn, left < kRestRadius * m_spacing ? 0.0 : 1.0, kStep / kTurnTime);
         if (left < kDockDistance && speed < kDockSpeed && m_windowSpeed <= kDockWindowSpeed * a.grip) {
-            a.docked = true;
-            a.position = a.home;
-            a.velocity = {};
+            if (m_phase == Phase::Movement && a.settleWait < 0.0)
+                a.settleWait = m_params.stagger * unitDraw(m_rng);
+            if (m_phase != Phase::Movement || (a.settleWait -= kStep) <= 0.0) {
+                a.docked = true;
+                a.position = a.home;
+                a.velocity = {};
+            }
         }
     }
     shape();

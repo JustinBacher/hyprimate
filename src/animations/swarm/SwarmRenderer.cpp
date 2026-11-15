@@ -311,7 +311,7 @@ void fillSwarmMeshes(const liquid_glass::Swarm &swarm, const CSwarmSprites::SShe
         if (a.lock >= 1.0)
             pushRect(meshes.mask, lx(x0, stands), ly(y0), lx(x1, stands), ly(y1), solidU, 0.5, solidU, 0.5);
         else {
-            const int    k = liquid_glass::walkFrame(a.travel, sheet.stride * 2.0 * a.fit, frames);
+            const int    k = liquid_glass::walkFrame(a.walk, sheet.stride * 2.0 * a.fit, frames);
             const auto  &frame = sheet.frames[static_cast<std::size_t>(k)];
             const double side = liquid_glass::spriteSize(frame, a.fit * unit, a.reach * std::max(sx, sy), a.lock);
             const double facing = liquid_glass::spriteRotation(a.rest, sheet.forward, 1.0);

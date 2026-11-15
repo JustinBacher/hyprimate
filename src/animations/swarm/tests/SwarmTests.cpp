@@ -581,6 +581,94 @@ void edgeSidesFollowTheNeighbours() {
     CHECK(resolveEdgeSides({0, 0, 0, 0}, SCREEN, {}).empty());
 }
 
+void movingSpritesAdvanceAtAVisibleRate() {
+    Swarm       m;
+    SwarmParams p;
+    p.count = 250;
+    m.begin(Transition::Open, p, 7, placement(), sides({Edge::Left}));
+    bool observed = false;
+    for (int step = 0; step < 60 && m.active(); ++step) {
+        std::vector<double> before;
+        for (const auto &a : m.agents())
+            before.push_back(a.walk);
+        m.advance(1.0 / 60.0);
+        for (std::size_t i = 0; i < before.size(); ++i) {
+            const auto &a = m.agents()[i];
+            if (a.visible && !a.docked && a.walk > before[i]) {
+                observed = true;
+                // At 60 Hz, no more than a quarter of the shortest creature cycle per frame.
+                CHECK(a.walk - before[i] <= 0.25 * 1.1 * 2.0 * a.fit);
+            }
+        }
+    }
+    CHECK(observed);
+}
+void turningSpritesKeepAnimating() {
+    Swarm m;
+    m.begin(Transition::Open, {}, 12, placement(), sides({Edge::Left}));
+    bool observed = false;
+    for (int step = 0; step < 1200 && m.active(); ++step) {
+        const std::vector<SwarmAgent> before(m.agents().begin(), m.agents().end());
+        m.advance(1.0 / 120.0);
+        for (std::size_t i = 0; i < before.size(); ++i) {
+            const auto &a = m.agents()[i];
+            if (before[i].docked && before[i].turn > a.turn) {
+                observed = true;
+                CHECK(a.walk > before[i].walk);
+            }
+        }
+    }
+    CHECK(observed);
+}
+void resizeKeepsAgentsAssignedToNearbyTiles() {
+    Swarm       m;
+    SwarmParams p;
+    p.count = 250;
+    SwarmPlacement box = {{380, 180, 864, 640}, {400, 200, 824, 600}, SCREEN};
+    m.beginMovement(p, 2, box);
+    box.capture.x -= 100.0;
+    box.body.x -= 100.0;
+    m.updateMovement(box);
+    m.advance(1.0 / 60.0);
+    std::vector<Vec2> homes;
+    for (const auto &a : m.agents())
+        homes.push_back(a.home);
+    box.capture.w -= 2.0;
+    box.body.w -= 2.0;
+    m.updateMovement(box);
+    for (std::size_t i = 0; i < homes.size(); ++i) {
+        const auto &home = m.agents()[i].home;
+        CHECK(std::hypot(home.x - homes[i].x, home.y - homes[i].y) < 3.0);
+    }
+    run(m, 8.0);
+    CHECK(!m.active() && inFormation(m));
+}
+void movementLandingsAreRandomlyStaggered() {
+    Swarm       m;
+    SwarmParams p;
+    p.stagger = 1.5;
+    m.beginMovement(p, 7, placement());
+    m.updateMovement(placement({-200.0, 0.0}));
+    m.advance(1.0 / 60.0);
+    std::vector<double> arrived(m.agents().size(), -1.0);
+    int                 delayed = 0;
+    for (double t = 0.0; t < 6.0 && m.active(); t += FRAME) {
+        m.advance(FRAME);
+        for (std::size_t i = 0; i < arrived.size(); ++i) {
+            const auto &a = m.agents()[i];
+            if (arrived[i] < 0.0 && !a.docked && std::hypot(a.position.x - a.home.x, a.position.y - a.home.y) < 1.5 &&
+                std::hypot(a.velocity.x, a.velocity.y) < 60.0)
+                arrived[i] = t;
+            if (arrived[i] >= 0.0 && a.docked) {
+                if (t - arrived[i] > 0.25)
+                    ++delayed;
+                arrived[i] = -2.0;
+            }
+        }
+    }
+    CHECK(delayed > 20);
+    CHECK(!m.active() && inFormation(m));
+}
 } // namespace
 
 int main() {
@@ -604,5 +692,9 @@ int main() {
     spriteMeasuresBodyAndLegs();
     walkCycleFollowsDistance();
     edgeSidesFollowTheNeighbours();
+    movingSpritesAdvanceAtAVisibleRate();
+    turningSpritesKeepAnimating();
+    resizeKeepsAgentsAssignedToNearbyTiles();
+    movementLandingsAreRandomlyStaggered();
     return g_failures == 0 ? 0 : 1;
 }
