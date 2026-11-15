@@ -68,10 +68,13 @@ bool CBubbleRenderer::initialize() {
         m_program = 0;
     }
     if (m_program) {
-        constexpr const char *names[] = {
-            "image",      "closing",  "sourcePos", "sourceSize", "textureOrigin", "textureSize", "outputOrigin",
-            "size",       "halfSize", "rupture",   "corner",     "depth",         "content",     "film",
-            "visibility", "ripple",   "tear",      "retract",    "remnant",       "seed",        "time"};
+        constexpr const char *names[] = {"image",         "closing",        "sourcePos",       "sourceSize",
+                                         "textureOrigin", "textureSize",    "outputOrigin",    "size",
+                                         "halfSize",      "rupture",        "corner",          "depth",
+                                         "content",       "film",           "visibility",      "ripple",
+                                         "tear",          "retract",        "remnant",         "seed",
+                                         "time",          "wallpaperImage", "wallpaperOrigin", "wallpaperX",
+                                         "wallpaperY",    "windowMix",      "wallpaperReady",  "wallpaperPixel"};
         for (std::size_t i = 0; i < m_uniforms.size(); ++i)
             m_uniforms[i] = glGetUniformLocation(m_program, names[i]);
     }
@@ -106,13 +109,19 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(Render::CRenderContext &ctx, co
     auto &gl = *Render::GL::g_pHyprOpenGL;
     if (!initialize())
         return nullptr;
+    // A monitor's private background snapshot must never be reused in a separate capture context.
+    const auto wallpaper = d.wallpaper && d.wallpaper->framebuffer && !ctx.readOnlyEffects() &&
+                                   !ctx.m_renderingCapture && !ctx.m_renderingSnapshot
+                               ? d.wallpaper->framebuffer->getTexture()
+                               : SP<Render::ITexture>{};
     Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
     auto                                 state = ctx.saveDrawState();
     const auto                           layer = g_pHyprRenderer->getWorkBuffer(ctx, d.canvas);
-    if (!layer || !layer->getTexture() || layer->getTexture()->m_texID == d.window->m_texID)
+    if (!layer || !layer->getTexture() || layer->getTexture()->m_texID == d.window->m_texID ||
+        (wallpaper && layer->getTexture()->m_texID == wallpaper->m_texID))
         return nullptr;
 
-    GLint     program, vao, active, tex, viewport[4];
+    GLint     program, vao, active, tex, wallpaperTex, viewport[4];
     GLboolean mask[4];
     glGetIntegerv(GL_CURRENT_PROGRAM, &program);
     glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
@@ -124,6 +133,10 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(Render::CRenderContext &ctx, co
     const bool blend = gl.blendEnabled();
     gl.setActiveTexture(GL_TEXTURE0);
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &tex);
+    gl.setActiveTexture(GL_TEXTURE1);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &wallpaperTex);
+    glBindTexture(GL_TEXTURE_2D, wallpaper ? wallpaper->m_texID : d.window->m_texID);
+    gl.setActiveTexture(GL_TEXTURE0);
     g_pHyprRenderer->bindFB(ctx, layer);
     gl.setViewport(0, 0, static_cast<GLsizei>(d.canvas.x), static_cast<GLsizei>(d.canvas.y));
     gl.setCapStatus(GL_SCISSOR_TEST, false);
@@ -160,8 +173,20 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(Render::CRenderContext &ctx, co
     u1(18, d.frame.remnant);
     u1(19, d.frame.seed);
     u1(20, d.frame.time);
+    glUniform1i(m_uniforms[21], 1);
+    const auto origin = wallpaper ? d.wallpaper->origin : Vector2D{};
+    const auto axisX = wallpaper ? d.wallpaper->axisX : Vector2D{};
+    const auto axisY = wallpaper ? d.wallpaper->axisY : Vector2D{};
+    u2(22, origin.x, origin.y);
+    u2(23, axisX.x, axisX.y);
+    u2(24, axisY.x, axisY.y);
+    u1(25, d.frame.windowMix);
+    glUniform1i(m_uniforms[26], wallpaper && wallpaper->m_texID ? 1 : 0);
+    u2(27, wallpaper ? 1.0 / wallpaper->m_size.x : 1.0, wallpaper ? 1.0 / wallpaper->m_size.y : 1.0);
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(tex));
+    gl.setActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(wallpaperTex));
     gl.setActiveTexture(static_cast<GLenum>(active));
     glBindVertexArray(static_cast<GLuint>(vao));
     glUseProgram(static_cast<GLuint>(program));

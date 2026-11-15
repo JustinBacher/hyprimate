@@ -100,6 +100,7 @@ add_library(liquid-glass SHARED
     src/animations/swarm/SwarmRenderer.cpp
     src/animations/bubble/BubbleLiveStyle.cpp
     src/animations/bubble/BubbleRenderer.cpp
+    src/animations/bubble/BubbleWallpaper.cpp
     src/animations/liquid/LiquidCloseStyle.cpp
     src/animations/shared/SheetClosePass.cpp
     src/AnimationTransformer.cpp

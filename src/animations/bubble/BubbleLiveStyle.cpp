@@ -20,6 +20,7 @@ Render::SWindowTransformBuffer renderLive(SBubbleStyle &state, Render::CRenderCo
     const liquid_glass::Vec2 size{g.source.w / g.scale, g.source.h / g.scale};
     const auto               layer = state.renderer->render(ctx, SBubbleDraw{
                                                                      .window = in.framebuffer->getTexture(),
+                                                                     .wallpaper = state.wallpaper,
                                                                      .frame = state.bubble.frame(size),
                                                                      .canvas = g.canvas.size(),
                                                                      .source = g.source,
@@ -46,6 +47,7 @@ bool SBubbleLiveStyle::open(CPluginRuntime &runtime, CPluginRuntime::STracked &e
                        {rest.w, rest.h});
     if (!state.bubble.active())
         return false;
+    state.wallpaper = makeShared<SBubbleWallpaper>();
     // Bubble owns formation, placement and opacity. Keep focus/workspace/user alpha factors intact.
     g_pHyprRenderer->damageBox(capture);
     window->positionAnimation()->setValueAndWarp(goal.pos());
@@ -66,11 +68,16 @@ void SBubbleLiveStyle::snapshot(const CAnimationTransformer *transformer, liquid
 
 void SBubbleLiveStyle::step(CPluginRuntime &, CAnimationTransformer &transformer, double elapsed, liquid_glass::Vec2,
                             bool) {
-    std::get<SBubbleStyle>(transformer.m_style).bubble.advance(elapsed);
+    auto &state = std::get<SBubbleStyle>(transformer.m_style);
+    state.bubble.advance(elapsed);
+    if (!state.bubble.active())
+        state.wallpaper.reset();
 }
 
 void SBubbleLiveStyle::cancelOpening(CAnimationTransformer &transformer) {
-    std::get<SBubbleStyle>(transformer.m_style).bubble.reset();
+    auto &state = std::get<SBubbleStyle>(transformer.m_style);
+    state.bubble.reset();
+    state.wallpaper.reset();
 }
 
 void SBubbleLiveStyle::cancelMovement(CAnimationTransformer &) {}

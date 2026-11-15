@@ -6,4 +6,5 @@
 struct SBubbleStyle {
     liquid_glass::Bubble bubble;
     SP<CBubbleRenderer>  renderer;
+    SP<SBubbleWallpaper> wallpaper;
 };

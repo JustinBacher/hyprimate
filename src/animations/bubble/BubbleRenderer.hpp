@@ -1,6 +1,7 @@
 #pragma once
 
 #include "animations/bubble/Bubble.hpp"
+#include "animations/bubble/BubbleWallpaper.hpp"
 
 #include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/Framebuffer.hpp>
@@ -11,6 +12,7 @@
 
 struct SBubbleDraw {
     SP<Render::ITexture>      window;
+    SP<SBubbleWallpaper>      wallpaper;
     liquid_glass::BubbleFrame frame;
     Vector2D                  canvas;
     CBox                      source;
@@ -29,7 +31,7 @@ class CBubbleRenderer {
 
   private:
     bool                initialize();
-    std::array<int, 21> m_uniforms{};
+    std::array<int, 28> m_uniforms{};
     unsigned int        m_program = 0;
     unsigned int        m_vao = 0;
     bool                m_tried = false;

@@ -8,6 +8,10 @@ void main() {
 constexpr const char *FRAGMENT = R"GLSL(#version 300 es
 precision highp float;
 uniform sampler2D image;
+uniform sampler2D wallpaperImage;
+uniform vec2 wallpaperOrigin, wallpaperX, wallpaperY, wallpaperPixel;
+uniform float windowMix;
+uniform int wallpaperReady;
 uniform vec2 canvas, sourcePos, sourceSize, textureOrigin, textureSize, outputOrigin;
 uniform vec2 size, halfSize, rupture;
 uniform float corner, depth, content, film, visibility, ripple, time, tear, retract, remnant, seed;
@@ -37,7 +41,7 @@ void main() {
 
     // Exact endpoint: no analytical silhouette or filtering change to native alpha.
     if (depth == 0.0 && film == 0.0 && ripple == 0.0 && tear == 0.0 &&
-        retract == 0.0 && visibility == 1.0 && content == 1.0) {
+        retract == 0.0 && visibility == 1.0 && content == 1.0 && windowMix == 1.0) {
         if (any(lessThan(logical, vec2(0.0))) || any(greaterThanEqual(logical, size))) colour = vec4(0.0);
         else {
             colour = texture(image, clamp(baseUV + tug * sourceSize / textureSize, lo, hi));
@@ -66,7 +70,7 @@ void main() {
     else
         gradient = q.x > q.y ? vec2(sign(p.x), 0.0) : vec2(0.0, sign(p.y));
     vec2 normal = gradient * radius * curve / max(0.22, cap + 0.22);
-    // Project the window through the curved cap rather than scaling a rectangular mask.
+    // The spherical surface refracts wallpaper near its screen position, not a scaled destination window.
     vec2 projected = nxy * (1.0 - 0.22 * curve * (1.0 - cap));
     vec2 uvUnit = 0.5 + 0.5 * projected - normal * (0.028 * curve) + tug;
     vec2 fromTear = p - rupture;
@@ -83,14 +87,21 @@ void main() {
     vec2 radial = fromTear / max(dist, 0.001);
     float band = exp(-max(edge, 0.0) / (rimWidth * 5.0));
     float curl = retract * band * (rimWidth * 7.0 + max(edge, 0.0) * 1.2);
-    uvUnit -= radial * curl / max(size, vec2(1.0));
-    uvUnit += radial * (0.04 * retract * exp(-abs(edge - rimWidth) / rimWidth));
+    vec2 rolled = -radial * curl / max(size, vec2(1.0)) +
+                  radial * (0.04 * retract * exp(-abs(edge - rimWidth) / rimWidth));
+    uvUnit += rolled;
     vec2 uv = (sourcePos + sourceSize * uvUnit - textureOrigin) / textureSize;
-    vec4 window = texture(image, clamp(uv, lo, hi));
+    vec4 imagery = windowMix > 0.0 ? texture(image, clamp(uv, lo, hi)) * windowMix : vec4(0.0);
+    if (windowMix < 1.0 && wallpaperReady != 0) {
+        vec2 backgroundUnit = 0.5 + (h * projected - normal * depth * 0.14) / size + tug + rolled;
+        vec2 backgroundUV = wallpaperOrigin + wallpaperX * backgroundUnit.x + wallpaperY * backgroundUnit.y;
+        imagery += texture(wallpaperImage, clamp(backgroundUV, wallpaperPixel * 0.5,
+                                                 vec2(1.0) - wallpaperPixel * 0.5)) * (1.0 - windowMix);
+    }
     float breakup = 1.0 - 0.38 * remnant * smoothstep(0.25, 0.9, sin(a * 13.0 + seed * 8.0 + retract * 2.0)) *
                     exp(-abs(sd) / max(rimWidth * 3.0, 1.0));
     float transmission = clamp(content, 0.0, 1.0) * shape * intact * visibility * breakup;
-    vec4 result = window * transmission;
+    vec4 result = imagery * transmission;
     float viewCosine = inversesqrt(1.0 + dot(normal, normal));
     float fresnel = pow(1.0 - viewCosine, 2.0);
     // Thin-film phase for three representative wavelengths, with a gentle

@@ -29,8 +29,10 @@ inline bool finished(const SBubbleStyle &style) { return style.bubble.closed(); 
 inline bool needsOwned(const SBubbleStyle &) { return true; }
 inline void advance(SBubbleStyle &style, Record &record, double elapsed, bool) {
     style.bubble.advance(elapsed);
-    if (style.bubble.closed())
+    if (style.bubble.closed()) {
         record.snapshot.reset(); // only the suppression record must outlive the effect
+        style.wallpaper.reset();
+    }
 }
 inline bool settled(const SBubbleStyle &) { return true; }
 inline bool renderNative(SBubbleStyle &, Record &, Render::CRenderContext &, const SP<Desktop::IFadeout> &,
@@ -61,6 +63,7 @@ inline void render(SBubbleStyle &style, Record &record, Render::CRenderContext &
     data.renderer = style.renderer;
     data.draw = SBubbleDraw{
         .window = tex,
+        .wallpaper = style.wallpaper,
         .frame = style.bubble.frame(record.captureLogical),
         .canvas = record.extentsDevice.size(),
         .source = record.sourceDevice,

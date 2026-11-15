@@ -105,6 +105,7 @@ BubbleFrame Bubble::frame(Vec2 size) const {
         f.corner = mix(radius, 0.0, flatten);
         f.depth = radius * (1.0 - smoothstep(0.45, 0.96, t));
         f.content = smoothstep(0.08, 0.90, t);
+        f.windowMix = smoothstep(0.42, 0.92, t);
         f.film = 1.0 - smoothstep(0.56, 1.0, t);
         f.visibility = smoothstep(0.0, 0.13, t);
         f.ripple = shortSide * 0.012 * smoothstep(0.60, 0.76, t) * (1.0 - smoothstep(0.76, 1.0, t));

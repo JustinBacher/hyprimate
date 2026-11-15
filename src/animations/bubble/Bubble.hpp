@@ -12,6 +12,7 @@ struct BubbleFrame {
     double corner = 0;
     double depth = 0;
     double content = 1;
+    double windowMix = 1; // wallpaper first; window imagery arrives as the membrane flattens
     double film = 0;
     double visibility = 1;
     double ripple = 0;

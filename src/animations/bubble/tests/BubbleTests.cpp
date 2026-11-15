@@ -28,8 +28,23 @@ void roundFormation() {
         CHECK(f.corner == f.halfSize.x);
         CHECK(f.depth > 0 && f.film > 0 && f.content < 1);
         CHECK(f.content > 0.08); // imagery must be visible while the silhouette is still spherical
+        CHECK(f.windowMix == 0); // the spherical object must not reveal the destination window
         CHECK(f.visibility > 0 && f.visibility <= 1);
     }
+}
+
+void windowAppearsDuringFlattening() {
+    Bubble b;
+    b.begin(Transition::Open, 1, 42, SIZE);
+    advanceFor(b, 0.38);
+    CHECK(b.frame(SIZE).windowMix == 0);
+    advanceFor(b, 0.22);
+    CHECK(b.frame(SIZE).windowMix > 0 && b.frame(SIZE).windowMix < 1);
+    advanceFor(b, 0.36);
+    CHECK(b.frame(SIZE).windowMix == 1);
+    b.reset();
+    b.begin(Transition::Close, 1, 42, SIZE);
+    CHECK(b.frame(SIZE).windowMix == 1); // an ordinary close still ruptures window content
 }
 
 void flatEndpointAndSplat() {
@@ -47,7 +62,7 @@ void flatEndpointAndSplat() {
     CHECK(!b.active() && !b.closed());
     CHECK(f.halfSize.x == SIZE.x / 2 && f.halfSize.y == SIZE.y / 2);
     CHECK(f.corner == 0 && f.depth == 0 && f.film == 0 && f.ripple == 0);
-    CHECK(f.content == 1 && f.visibility == 1);
+    CHECK(f.content == 1 && f.visibility == 1 && f.windowMix == 1);
 }
 
 void interruptedCloseIsContinuous() {
@@ -62,6 +77,7 @@ void interruptedCloseIsContinuous() {
         CHECK(before.halfSize.x == after.halfSize.x && before.halfSize.y == after.halfSize.y);
         CHECK(before.corner == after.corner && before.depth == after.depth);
         CHECK(before.content == after.content && before.film == after.film);
+        CHECK(before.windowMix == after.windowMix);
         CHECK(before.seed == after.seed);
         CHECK(before.visibility == after.visibility && before.ripple == after.ripple);
         CHECK(after.tear == 0 && after.retract == 0);
@@ -69,6 +85,7 @@ void interruptedCloseIsContinuous() {
         after = b.frame(SIZE);
         CHECK(std::abs(before.halfSize.x - after.halfSize.x) < 1.0);
         CHECK(after.halfSize.x <= before.halfSize.x && after.halfSize.y <= before.halfSize.y);
+        CHECK(before.windowMix == after.windowMix);
     }
 }
 
@@ -141,6 +158,7 @@ void deterministicAndInvalidInput() {
 
 int main() {
     roundFormation();
+    windowAppearsDuringFlattening();
     flatEndpointAndSplat();
     interruptedCloseIsContinuous();
     ruptureCoversCorners();
