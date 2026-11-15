@@ -6,24 +6,29 @@
 
 namespace liquid_glass {
 
-struct BubbleFrame {
-    Vec2   size{};
+// A membrane has its own geometry and rupture clock, independent of its imagery.
+struct BubbleSurface {
     Vec2   halfSize{};
     double corner = 0;
     double depth = 0;
     Vec2   core{}; // signed heights of the interior pressure and radial recoil modes
     double content = 1;
-    double windowMix = 1; // wallpaper first; window imagery arrives as the membrane flattens
     double film = 0;
-    double visibility = 1;
+    double visibility = 0;
     double ripple = 0;
     double time = 0;
     Vec2   rupture{};
     double tear = 0;
     double retract = 0;
     double remnant = 0;
-    double seed = 0;
     bool   closing = false;
+};
+
+struct BubbleFrame {
+    Vec2          size{};
+    BubbleSurface window{};
+    BubbleSurface shell{};
+    double        seed = 0;
 };
 
 class Bubble {

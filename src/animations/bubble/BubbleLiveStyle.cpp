@@ -11,17 +11,18 @@ CBox liveExtents(const SBubbleStyle &state, const CBox &box) {
 }
 
 Render::SWindowTransformBuffer renderLive(SBubbleStyle &state, Render::CRenderContext &ctx,
-                                          const Render::SWindowTransformBuffer &in,
-                                          const Render::SWindowTransformContext &, const SLiveRenderGeometry &g,
+                                          const Render::SWindowTransformBuffer  &in,
+                                          const Render::SWindowTransformContext &context, const SLiveRenderGeometry &g,
                                           const SP<CSolidFill> &, const SP<CPaperShade> &, const SP<CSwarmSprites> &) {
     const Render::SWindowTransformBuffer failed{.framebuffer = in.framebuffer, .box = in.box, .success = false};
     if (!state.renderer)
         return failed;
     const liquid_glass::Vec2 size{g.source.w / g.scale, g.source.h / g.scale};
+    const auto               frame = state.bubble.frame(size);
     const auto               layer = state.renderer->render(ctx, SBubbleDraw{
                                                                      .window = in.framebuffer->getTexture(),
                                                                      .wallpaper = state.wallpaper,
-                                                                     .frame = state.bubble.frame(size),
+                                                                     .frame = frame,
                                                                      .canvas = g.canvas.size(),
                                                                      .source = g.source,
                                                                      .textureOrigin = {in.box.x, in.box.y},
@@ -30,6 +31,10 @@ Render::SWindowTransformBuffer renderLive(SBubbleStyle &state, Render::CRenderCo
                                                                  });
     if (!layer)
         return failed;
+    if (!state.residueEmitted && state.residue && frame.shell.retract >= .15 && frame.shell.visibility > 0 &&
+        !ctx.readOnlyEffects() && !ctx.m_renderingCapture && !ctx.m_renderingSnapshot)
+        state.residueEmitted = state.residue->deposit(context.monitor.lock(), context.currentBox.middle(),
+                                                      frame.shell.halfSize.x, frame.seed);
     return {.framebuffer = layer, .box = g.canvas};
 }
 
@@ -48,6 +53,8 @@ bool SBubbleLiveStyle::open(CPluginRuntime &runtime, CPluginRuntime::STracked &e
     if (!state.bubble.active())
         return false;
     state.wallpaper = makeShared<SBubbleWallpaper>();
+    state.residue = runtime.m_bubbleResidue;
+    state.residueEmitted = false;
     // Bubble owns formation, placement and opacity. Keep focus/workspace/user alpha factors intact.
     g_pHyprRenderer->damageBox(capture);
     window->positionAnimation()->setValueAndWarp(goal.pos());

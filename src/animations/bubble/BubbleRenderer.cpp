@@ -68,16 +68,22 @@ bool CBubbleRenderer::initialize() {
         m_program = 0;
     }
     if (m_program) {
-        constexpr const char *names[] = {"image",         "closing",        "sourcePos",       "sourceSize",
-                                         "textureOrigin", "textureSize",    "outputOrigin",    "size",
-                                         "halfSize",      "rupture",        "corner",          "depth",
-                                         "content",       "film",           "visibility",      "ripple",
-                                         "tear",          "retract",        "remnant",         "seed",
-                                         "time",          "wallpaperImage", "wallpaperOrigin", "wallpaperX",
-                                         "wallpaperY",    "windowMix",      "wallpaperReady",  "wallpaperPixel",
-                                         "core"};
+        constexpr const char *names[] = {"image",          "wallpaperImage",  "sourcePos",    "sourceSize",
+                                         "textureOrigin",  "textureSize",     "outputOrigin", "size",
+                                         "seed",           "wallpaperOrigin", "wallpaperX",   "wallpaperY",
+                                         "wallpaperReady", "wallpaperPixel",  "residueTime"};
         for (std::size_t i = 0; i < m_uniforms.size(); ++i)
             m_uniforms[i] = glGetUniformLocation(m_program, names[i]);
+        constexpr const char *fields[] = {"halfSize",   "rupture", "core", "corner", "depth",   "content", "film",
+                                          "visibility", "ripple",  "time", "tear",   "retract", "remnant", "closing"};
+        constexpr const char *surfaces[] = {"windowSurface", "shellSurface"};
+        for (std::size_t surface = 0; surface < m_surfaceUniforms.size(); ++surface) {
+            for (std::size_t field = 0; field < m_surfaceUniforms[surface].size(); ++field) {
+                char name[64];
+                std::snprintf(name, sizeof(name), "%s.%s", surfaces[surface], fields[field]);
+                m_surfaceUniforms[surface][field] = glGetUniformLocation(m_program, name);
+            }
+        }
     }
     return m_program && m_vao;
 }
@@ -102,10 +108,13 @@ CBubbleRenderer::~CBubbleRenderer() {
 }
 
 SP<Render::IFramebuffer> CBubbleRenderer::render(Render::CRenderContext &ctx, const SBubbleDraw &d) {
-    if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL || !d.window || !d.window->m_texID ||
-        (d.window->m_type != Render::TEXTURE_RGBA && d.window->m_type != Render::TEXTURE_RGBX) ||
-        !(d.canvas.x > 0 && d.canvas.y > 0 && d.source.w > 0 && d.source.h > 0 && d.textureSize.x >= 1 &&
-          d.textureSize.y >= 1 && d.frame.size.x > 0 && d.frame.size.y > 0))
+    const bool residue = d.residueTime >= 0;
+    if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL ||
+        (!residue && (!d.window || !d.window->m_texID ||
+                      (d.window->m_type != Render::TEXTURE_RGBA && d.window->m_type != Render::TEXTURE_RGBX) ||
+                      !(d.textureSize.x >= 1 && d.textureSize.y >= 1))) ||
+        !(d.canvas.x > 0 && d.canvas.y > 0 && d.source.w > 0 && d.source.h > 0 && d.frame.size.x > 0 &&
+          d.frame.size.y > 0))
         return nullptr;
     auto &gl = *Render::GL::g_pHyprOpenGL;
     if (!initialize())
@@ -118,7 +127,8 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(Render::CRenderContext &ctx, co
     Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
     auto                                 state = ctx.saveDrawState();
     const auto                           layer = g_pHyprRenderer->getWorkBuffer(ctx, d.canvas);
-    if (!layer || !layer->getTexture() || layer->getTexture()->m_texID == d.window->m_texID ||
+    const GLuint                         image = d.window ? d.window->m_texID : 0;
+    if (!layer || !layer->getTexture() || layer->getTexture()->m_texID == image ||
         (wallpaper && layer->getTexture()->m_texID == wallpaper->m_texID))
         return nullptr;
 
@@ -136,7 +146,7 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(Render::CRenderContext &ctx, co
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &tex);
     gl.setActiveTexture(GL_TEXTURE1);
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &wallpaperTex);
-    glBindTexture(GL_TEXTURE_2D, wallpaper ? wallpaper->m_texID : d.window->m_texID);
+    glBindTexture(GL_TEXTURE_2D, wallpaper ? wallpaper->m_texID : image);
     gl.setActiveTexture(GL_TEXTURE0);
     g_pHyprRenderer->bindFB(ctx, layer);
     gl.setViewport(0, 0, static_cast<GLsizei>(d.canvas.x), static_cast<GLsizei>(d.canvas.y));
@@ -148,43 +158,57 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(Render::CRenderContext &ctx, co
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glUseProgram(m_program);
     glBindVertexArray(m_vao);
-    glBindTexture(GL_TEXTURE_2D, d.window->m_texID);
+    glBindTexture(GL_TEXTURE_2D, image);
     const auto u1 = [&](std::size_t index, double value) { glUniform1f(m_uniforms[index], static_cast<float>(value)); };
     const auto u2 = [&](std::size_t index, double x, double y) {
         glUniform2f(m_uniforms[index], static_cast<float>(x), static_cast<float>(y));
     };
     glUniform1i(m_uniforms[0], 0);
-    glUniform1i(m_uniforms[1], d.frame.closing ? 1 : 0);
+    glUniform1i(m_uniforms[1], 1);
     u2(2, d.source.x, d.source.y);
     u2(3, d.source.w, d.source.h);
     u2(4, d.textureOrigin.x, d.textureOrigin.y);
-    u2(5, d.textureSize.x, d.textureSize.y);
+    u2(5, residue ? 1.0 : d.textureSize.x, residue ? 1.0 : d.textureSize.y);
     u2(6, d.outputOrigin.x, d.outputOrigin.y);
     u2(7, d.frame.size.x, d.frame.size.y);
-    u2(8, d.frame.halfSize.x, d.frame.halfSize.y);
-    u2(9, d.frame.rupture.x, d.frame.rupture.y);
-    u1(10, d.frame.corner);
-    u1(11, d.frame.depth);
-    u1(12, d.frame.content);
-    u1(13, d.frame.film);
-    u1(14, d.frame.visibility);
-    u1(15, d.frame.ripple);
-    u1(16, d.frame.tear);
-    u1(17, d.frame.retract);
-    u1(18, d.frame.remnant);
-    u1(19, d.frame.seed);
-    u1(20, d.frame.time);
-    glUniform1i(m_uniforms[21], 1);
+    u1(8, d.frame.seed);
     const auto origin = wallpaper ? d.wallpaper->origin : Vector2D{};
     const auto axisX = wallpaper ? d.wallpaper->axisX : Vector2D{};
     const auto axisY = wallpaper ? d.wallpaper->axisY : Vector2D{};
-    u2(22, origin.x, origin.y);
-    u2(23, axisX.x, axisX.y);
-    u2(24, axisY.x, axisY.y);
-    u1(25, d.frame.windowMix);
-    glUniform1i(m_uniforms[26], wallpaper && wallpaper->m_texID ? 1 : 0);
-    u2(27, wallpaper ? 1.0 / wallpaper->m_size.x : 1.0, wallpaper ? 1.0 / wallpaper->m_size.y : 1.0);
-    u2(28, d.frame.core.x, d.frame.core.y);
+    u2(9, origin.x, origin.y);
+    u2(10, axisX.x, axisX.y);
+    u2(11, axisY.x, axisY.y);
+    glUniform1i(m_uniforms[12], wallpaper && wallpaper->m_texID ? 1 : 0);
+    u2(13, wallpaper ? 1.0 / wallpaper->m_size.x : 1.0, wallpaper ? 1.0 / wallpaper->m_size.y : 1.0);
+    u1(14, d.residueTime);
+    if (!residue) {
+        const auto upload = [](const std::array<int, 14> &uniforms, const liquid_glass::BubbleSurface &surface) {
+            glUniform1f(uniforms[7], static_cast<float>(surface.visibility));
+            if (surface.visibility <= 0)
+                return;
+            const auto vector = [&](std::size_t index, liquid_glass::Vec2 value) {
+                glUniform2f(uniforms[index], static_cast<float>(value.x), static_cast<float>(value.y));
+            };
+            const auto scalar = [&](std::size_t index, double value) {
+                glUniform1f(uniforms[index], static_cast<float>(value));
+            };
+            vector(0, surface.halfSize);
+            vector(1, surface.rupture);
+            vector(2, surface.core);
+            scalar(3, surface.corner);
+            scalar(4, surface.depth);
+            scalar(5, surface.content);
+            scalar(6, surface.film);
+            scalar(8, surface.ripple);
+            scalar(9, surface.time);
+            scalar(10, surface.tear);
+            scalar(11, surface.retract);
+            scalar(12, surface.remnant);
+            glUniform1i(uniforms[13], surface.closing ? 1 : 0);
+        };
+        upload(m_surfaceUniforms[0], d.frame.window);
+        upload(m_surfaceUniforms[1], d.frame.shell);
+    }
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(tex));
     gl.setActiveTexture(GL_TEXTURE1);
@@ -208,8 +232,8 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(Render::CRenderContext &ctx, co
     return layer;
 }
 
-CBubbleClosePassElement::CBubbleClosePassElement(SData data) : m_data(std::move(data)) {}
-std::vector<UP<IPassElement>> CBubbleClosePassElement::draw(Render::CRenderContext &ctx) {
+CBubblePassElement::CBubblePassElement(SData data) : m_data(std::move(data)) {}
+std::vector<UP<IPassElement>> CBubblePassElement::draw(Render::CRenderContext &ctx) {
     const auto layer = m_data.renderer ? m_data.renderer->render(ctx, m_data.draw) : SP<Render::IFramebuffer>{};
     Render::GL::CHyprOpenGLImpl::STextureRenderData td{};
     td.damage = &m_data.damage;
@@ -240,11 +264,11 @@ std::vector<UP<IPassElement>> CBubbleClosePassElement::draw(Render::CRenderConte
     }
     return {};
 }
-bool                CBubbleClosePassElement::needsLiveBlur(Render::CRenderContext &) { return false; }
-bool                CBubbleClosePassElement::needsPrecomputeBlur(Render::CRenderContext &) { return false; }
-const char         *CBubbleClosePassElement::passName() { return "liquid-glass-bubble-close"; }
-ePassElementType    CBubbleClosePassElement::type() { return EK_CUSTOM; }
-std::optional<CBox> CBubbleClosePassElement::boundingBox(Render::CRenderContext &) {
+bool                CBubblePassElement::needsLiveBlur(Render::CRenderContext &) { return false; }
+bool                CBubblePassElement::needsPrecomputeBlur(Render::CRenderContext &) { return false; }
+const char         *CBubblePassElement::passName() { return "liquid-glass-bubble"; }
+ePassElementType    CBubblePassElement::type() { return EK_CUSTOM; }
+std::optional<CBox> CBubblePassElement::boundingBox(Render::CRenderContext &) {
     return m_data.box.copy().scale(1.0 / m_data.scale).round();
 }
-CRegion CBubbleClosePassElement::opaqueRegion(Render::CRenderContext &) { return {}; }
+CRegion CBubblePassElement::opaqueRegion(Render::CRenderContext &) { return {}; }

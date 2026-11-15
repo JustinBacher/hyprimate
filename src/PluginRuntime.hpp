@@ -8,6 +8,7 @@
 #include "WindowTracker.hpp"
 #include "AnimationCloseRenderer.hpp"
 #include "animations/liquid/SolidFill.hpp"
+#include "animations/bubble/BubbleResidue.hpp"
 #include "config_generated.hpp"
 
 #include <chrono>
@@ -95,6 +96,8 @@ class CPluginRuntime {
     void                     scheduleAnimation(const PHLWINDOW &window) const;
     void                     detachWindow(STracked &entry, const PHLWINDOW &window);
     void                     detachAll();
+    void                     clearBubbleResidue();
+    void                     restoreBubbleScanout(const PHLMONITOR &monitor);
 
     // Must outlive close records and every transformer detached during destruction.
     liquid_glass::ClothPhysics m_clothPhysics;
@@ -111,6 +114,8 @@ class CPluginRuntime {
     SP<CPaperShade>                       m_shade = makeShared<CPaperShade>();
     SP<CSwarmSprites>                     m_sprites = makeShared<CSwarmSprites>();
     SP<CBubbleRenderer>                      m_bubble = makeShared<CBubbleRenderer>();
+    SP<CBubbleResidue>                    m_bubbleResidue = makeShared<CBubbleResidue>();
+    std::vector<PHLMONITORREF>            m_residueInhibited;
     std::unique_ptr<CAnimationCloseRenderer> m_close;
     mutable std::vector<liquid_glass::Box>
         m_neighbours; // tiled neighbours for the contact rule; rebuilt per edge choice
@@ -120,7 +125,10 @@ class CPluginRuntime {
     CHyprSignalListener m_listenOpenLate;
     CHyprSignalListener m_listenClose;
     CHyprSignalListener m_listenDestroy;
+    CHyprSignalListener m_listenRenderPreChecks;
     CHyprSignalListener m_listenRenderPre;
     CHyprSignalListener m_listenRenderPost;
     CHyprSignalListener m_listenReload;
+    CHyprSignalListener m_listenMonitorLayout;
+    CHyprSignalListener m_listenMonitorRemoved;
 };

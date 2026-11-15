@@ -72,6 +72,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     m_nextSeed = (std::uint64_t{entropy()} << 32) | entropy();
     liquid_glass::config::registerConfigValues(m_handle, m_values);
     m_config = liquid_glass::config::readConfig(m_values);
+    m_bubbleResidue->setEnabled(openEnabled() && m_config.style == liquid_glass::config::Style::Bubble);
 
     if (pluginEnabled() && wobbleEnabled()) {
         notify(WOBBLE_MESSAGE);
@@ -97,8 +98,10 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                 if (!matched)
                     fresh.emplace(initialStyle(m_config.style, effectiveMaterialParams(), clothMovementParams(), 0));
                 auto &state = matched ? transformer->styleState() : *fresh;
-                if (auto *bubble = std::get_if<SBubbleStyle>(&state))
+                if (auto *bubble = std::get_if<SBubbleStyle>(&state)) {
                     bubble->renderer = m_bubble;
+                    bubble->residue = m_bubbleResidue;
+                }
 
                 const auto edge = [&] { return edgeFrameFor(window, false, entry->openEdge); };
                 const auto obstacles = [&]() -> std::span<const liquid_glass::Box> {
@@ -120,6 +123,18 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
             return entry.window.expired() || entry.window.get() == window.get();
         });
     });
+
+    // A solitary client bypasses the monitor scene entirely, and can also direct-scan out before render.pre.
+    // Remove it for this frame while residue exists; restore native selection when the last deposit expires.
+    m_listenRenderPreChecks = Event::bus()->m_events.render.preChecks.listen([this](PHLMONITOR monitor) {
+        if (!monitor || !m_bubbleResidue->active(monitor) || monitor->m_solitaryClient.expired())
+            return;
+        if (std::ranges::none_of(m_residueInhibited, [&](const auto &entry) { return entry.lock() == monitor; }))
+            m_residueInhibited.emplace_back(monitor);
+        monitor->m_solitaryClient.reset();
+    });
+    m_listenMonitorLayout = Event::bus()->m_events.monitor.layoutChanged.listen([this]() { clearBubbleResidue(); });
+    m_listenMonitorRemoved = Event::bus()->m_events.monitor.preRemoved.listen([this](PHLMONITOR) { clearBubbleResidue(); });
 
     // Everything advances once per rendered frame of its monitor, after native animations have ticked and before the
     // frame collects damage. Animation ticks are not used: a self-requested tick re-fires every millisecond.
@@ -145,8 +160,14 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
             }
             return;
         }
+        if (event.stage == RENDER_POST_WINDOWS && event.context && event.monitor) {
+            m_bubbleResidue->queue(event.context->get(), event.monitor, m_bubble);
+            return;
+        }
         if (event.stage != RENDER_POST)
             return;
+        if (event.monitor && m_bubbleResidue->active(event.monitor))
+            event.monitor->scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_ANIMATION);
         for (const auto &entry : m_tracked) {
             const auto window = entry.window.lock();
             if (!window || window->m_monitor.lock() != event.monitor)
@@ -170,9 +191,13 @@ CPluginRuntime::~CPluginRuntime() {
     m_listenOpenLate.reset();
     m_listenClose.reset();
     m_listenDestroy.reset();
+    m_listenRenderPreChecks.reset();
     m_listenRenderPre.reset();
     m_listenRenderPost.reset();
     m_listenReload.reset();
+    m_listenMonitorLayout.reset();
+    m_listenMonitorRemoved.reset();
+    clearBubbleResidue();
     m_close->shutdown();
     detachAll();
     m_closeSolid.reset();
@@ -180,6 +205,7 @@ CPluginRuntime::~CPluginRuntime() {
     m_shade.reset();
     m_sprites.reset();
     m_bubble.reset();
+    m_bubbleResidue.reset();
 }
 
 bool CPluginRuntime::pluginEnabled() const { return m_config.enabled; }
@@ -305,6 +331,8 @@ void CPluginRuntime::notify(const std::string &text) const {
 
 void CPluginRuntime::onReload() {
     m_config = liquid_glass::config::readConfig(m_values);
+    m_bubbleResidue->setEnabled(openEnabled() && m_config.style == liquid_glass::config::Style::Bubble);
+    clearBubbleResidue();
     detachAll();
     m_close->clear();
 
@@ -381,6 +409,15 @@ void CPluginRuntime::onRenderPre(const PHLMONITOR &monitor) {
     // Config is read live: runtime edits (hl.config, hyprctl keyword) need not fire a reload. The texture is
     // rebuilt only when the value actually changes.
     m_config = liquid_glass::config::readConfig(m_values);
+    const bool residueEnabled = openEnabled() && m_config.style == liquid_glass::config::Style::Bubble;
+    m_bubbleResidue->setEnabled(residueEnabled);
+    if (!residueEnabled)
+        clearBubbleResidue();
+    else {
+        m_bubbleResidue->tick(clock::now(), monitor);
+        if (!m_bubbleResidue->active(monitor))
+            restoreBubbleScanout(monitor);
+    }
     m_openSolid->setColor(colorFromArgb(m_config.open.liquid.color));
     m_closeSolid->setColor(colorFromArgb(m_config.close.liquid.color));
     // Sampling runs on each window's own monitor only, so a window steps once per frame of the monitor it is on.
@@ -548,8 +585,10 @@ CAnimationTransformer *CPluginRuntime::acquireTransformer(const PHLWINDOW &windo
         return existing;
     // Each window draws from its own stream, so windows moved together (scrolling, workspace slides) still differ.
     auto state = initialStyle(m_config.style, effectiveMaterialParams(), clothMovementParams(), m_nextSeed++);
-    if (auto *bubble = std::get_if<SBubbleStyle>(&state))
+    if (auto *bubble = std::get_if<SBubbleStyle>(&state)) {
         bubble->renderer = m_bubble;
+        bubble->residue = m_bubbleResidue;
+    }
     return list->emplace<CAnimationTransformer>(
         window->m_self, std::move(state), m_openSolid, m_shade, m_sprites);
 }
@@ -592,4 +631,25 @@ void CPluginRuntime::detachAll() {
         if (const auto window = entry.window.lock())
             detachWindow(entry, window);
     }
+}
+
+void CPluginRuntime::restoreBubbleScanout(const PHLMONITOR &monitor) {
+    std::erase_if(m_residueInhibited, [&](const auto &entry) {
+        const auto candidate = entry.lock();
+        if (!candidate)
+            return true;
+        if (candidate != monitor)
+            return false;
+        candidate->recheckSolitary();
+        return true;
+    });
+}
+
+void CPluginRuntime::clearBubbleResidue() {
+    m_bubbleResidue->clear();
+    for (const auto &entry : m_residueInhibited) {
+        if (const auto monitor = entry.lock())
+            monitor->recheckSolitary();
+    }
+    m_residueInhibited.clear();
 }

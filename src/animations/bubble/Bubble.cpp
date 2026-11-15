@@ -17,38 +17,48 @@ bool usable(Vec2 size) {
 double mix(double a, double b, double t) { return a + (b - a) * t; }
 
 BubbleFrame neutral(Vec2 size) {
-    BubbleFrame f;
+    BubbleFrame f{};
     f.size = size;
-    f.halfSize = {size.x * 0.5, size.y * 0.5};
+    f.window.halfSize = {size.x * .5, size.y * .5};
+    f.window.visibility = 1;
     return f;
+}
+
+void pop(BubbleSurface &surface, double progress) {
+    surface.closing = true;
+    surface.time = progress;
+    const double corner = std::clamp(surface.corner, 0.0, std::min(surface.halfSize.x, surface.halfSize.y));
+    const double farthest = std::hypot(surface.halfSize.x - corner + std::abs(surface.rupture.x),
+                                       surface.halfSize.y - corner + std::abs(surface.rupture.y)) +
+                            corner;
+    surface.tear = farthest * 1.3 * smoothstep(.10, .84, progress);
+    surface.retract = smoothstep(.12, .92, progress);
+    surface.remnant = smoothstep(.45, .68, progress) * (1 - smoothstep(.86, 1.0, progress));
+    if (progress >= 1)
+        surface.visibility = 0;
 }
 
 } // namespace
 
 void Bubble::begin(Transition direction, double duration, std::uint64_t seed, Vec2 size) {
-    if (!usable(size) || !std::isfinite(duration) || duration <= 0 ||
-        (direction != Transition::Open && direction != Transition::Close)) {
+    if ((direction != Transition::Open && direction != Transition::Close) || !std::isfinite(duration) ||
+        duration <= 0 || !usable(size)) {
         reset();
         return;
     }
-
     const bool   inherit = direction == Transition::Close && active_ && opening_;
-    BubbleFrame  start = inherit ? frame(size) : neutral(size);
+    const auto   start = inherit ? frame(size) : neutral(size);
     const double materialSeed = inherit ? start.seed : unitDraw(seed);
-    const double xMagnitude = 0.16 + 0.12 * unitDraw(seed);
-    const double xSign = unitDraw(seed) < 0.5 ? -1.0 : 1.0;
-    const double yMagnitude = 0.12 + 0.12 * unitDraw(seed);
-    const double ySign = unitDraw(seed) < 0.5 ? -1.0 : 1.0;
-    const double x = xMagnitude * xSign, y = yMagnitude * ySign;
-
+    const double x = (.16 + .12 * unitDraw(seed)) * (unitDraw(seed) < .5 ? -1 : 1);
+    const double y = (.12 + .12 * unitDraw(seed)) * (unitDraw(seed) < .5 ? -1 : 1);
+    initial_ = start;
     size_ = size;
-    duration_ = std::clamp(duration, 0.01, 60.0);
+    duration_ = std::clamp(duration, .01, 60.0);
     elapsed_ = 0;
     seed_ = materialSeed;
-    initial_ = start;
-    rupture_ = {x * start.halfSize.x, y * start.halfSize.y};
-    opening_ = direction == Transition::Open;
+    rupture_ = {x, y};
     active_ = true;
+    opening_ = direction == Transition::Open;
     closed_ = false;
 }
 
@@ -79,78 +89,85 @@ bool Bubble::closed() const { return closed_; }
 BubbleFrame Bubble::frame(Vec2 size) const {
     if (!usable(size))
         return {};
+    BubbleFrame f = neutral(size);
     if (!active_) {
-        BubbleFrame f = neutral(size);
-        if (closed_) {
-            f.closing = true;
-            f.visibility = 0;
-            f.retract = 1;
-            f.time = 1;
-        }
+        if (closed_)
+            f.window.visibility = 0;
         return f;
     }
-
     const double t = std::clamp(elapsed_ / duration_, 0.0, 1.0);
+    f.seed = seed_;
     if (opening_) {
-        BubbleFrame f;
-        f.size = size;
-        f.time = t;
-        f.seed = seed_;
         const double shortSide = std::min(size.x, size.y);
-        const double radius = shortSide * mix(0.08, 0.42, smoothstep(0.0, 0.38, t));
-        const double flatten = smoothstep(0.38, 0.68, t);
-        const double splat = 0.045 * smoothstep(0.55, 0.68, t) * (1.0 - smoothstep(0.68, 0.76, t));
-        f.halfSize = {mix(radius, size.x * 0.5, flatten) + size.x * 0.5 * splat,
-                      mix(radius, size.y * 0.5, flatten) + size.y * 0.5 * splat};
-        f.corner = mix(radius, 0.0, flatten);
-        f.depth = radius * (1.0 - smoothstep(0.45, 0.68, t));
-        // The perimeter lands first. Its impact excites a separate, clamped
-        // membrane: pressure gathers in the middle, recoils, then rings down.
-        const double settle = std::clamp((t - 0.64) / 0.36, 0.0, 1.0);
+        auto        &shell = f.shell;
+        const double radius = shortSide * mix(.08, .46, smoothstep(0, .30, t));
+        shell.halfSize = {radius, radius};
+        shell.corner = shell.depth = radius;
+        shell.content = .55 * smoothstep(.04, .26, t);
+        shell.film = 1;
+        shell.visibility = smoothstep(0, .13, t);
+        shell.rupture = {rupture_.x * radius, rupture_.y * radius};
+        if (t > .30)
+            pop(shell, std::clamp((t - .30) / .36, 0.0, 1.0));
+
+        // The window is a second membrane behind the rupturing, still round shell.
+        auto        &window = f.window;
+        const double windowRadius = shortSide * mix(.08, .40, smoothstep(.36, .52, t));
+        const double flatten = smoothstep(.52, .68, t);
+        const double splat = .045 * smoothstep(.55, .68, t) * (1 - smoothstep(.68, .76, t));
+        window.halfSize = {mix(windowRadius, size.x * .5, flatten) + size.x * .5 * splat,
+                           mix(windowRadius, size.y * .5, flatten) + size.y * .5 * splat};
+        window.corner = mix(windowRadius, 0, flatten);
+        window.depth = windowRadius * (1 - smoothstep(.52, .68, t));
+        const double settle = std::clamp((t - .64) / .36, 0.0, 1.0);
         const double envelope =
-            shortSide * 0.20 * smoothstep(0.48, 0.64, t) * std::exp(-2.0 * settle) * (1.0 - smoothstep(0.92, 1.0, t));
+            shortSide * .20 * smoothstep(.48, .64, t) * std::exp(-2.0 * settle) * (1 - smoothstep(.92, 1.0, t));
         constexpr double pi = 3.14159265358979323846;
-        f.core = {envelope * (std::cos(3.0 * pi * settle) + 2.0 * std::sin(3.0 * pi * settle) / (3.0 * pi)),
-                  envelope * 0.35 * std::sin(5.0 * pi * settle)};
-        f.content = smoothstep(0.08, 0.76, t);
-        f.windowMix = smoothstep(0.42, 0.76, t);
-        f.film = 1.0 - smoothstep(0.56, 1.0, t);
-        f.visibility = smoothstep(0.0, 0.13, t);
-        f.ripple = shortSide * 0.012 * smoothstep(0.56, 0.68, t) * (1.0 - smoothstep(0.68, 0.76, t));
+        window.core = {envelope * (std::cos(3 * pi * settle) + 2 * std::sin(3 * pi * settle) / (3 * pi)),
+                       envelope * .35 * std::sin(5 * pi * settle)};
+        window.film = 1 - smoothstep(.56, 1.0, t);
+        window.visibility = smoothstep(.36, .42, t);
+        window.ripple = shortSide * .012 * smoothstep(.56, .68, t) * (1 - smoothstep(.68, .76, t));
+        window.time = t;
         return f;
     }
-
-    BubbleFrame  f = initial_;
+    f = initial_;
+    f.size = size;
+    f.seed = seed_;
     const double sx = size.x / size_.x, sy = size.y / size_.y;
     const double scale = std::min(sx, sy);
-    f.size = size;
-    f.halfSize = {initial_.halfSize.x * sx, initial_.halfSize.y * sy};
-    f.corner = initial_.corner * scale;
-    f.depth = initial_.depth * scale;
-    const double coreScale = scale * (1.0 - smoothstep(0.0, 0.5, t));
-    f.core = {initial_.core.x * coreScale, initial_.core.y * coreScale};
-    f.ripple = initial_.ripple * scale * (1.0 - smoothstep(0.0, 0.35, t));
-    f.seed = seed_;
-    f.closing = true;
-    f.time = t;
-    f.rupture = {rupture_.x * sx, rupture_.y * sy};
-    const double farthest = std::hypot(f.halfSize.x + std::abs(f.rupture.x), f.halfSize.y + std::abs(f.rupture.y));
-    // Extra travel covers irregular edge modulation and rim thickness.
-    f.tear = farthest * 1.3 * smoothstep(0.10, 0.84, t);
-    f.retract = smoothstep(0.12, 0.92, t);
-    f.remnant = smoothstep(0.45, 0.68, t) * (1.0 - smoothstep(0.86, 1.0, t));
+    const auto   close = [&](BubbleSurface &surface, bool spherical) {
+        const double xScale = spherical ? scale : sx, yScale = spherical ? scale : sy;
+        surface.halfSize = {surface.halfSize.x * xScale, surface.halfSize.y * yScale};
+        surface.corner *= scale;
+        surface.depth *= scale;
+        const double damping = scale * (1 - smoothstep(0, .5, t));
+        surface.core = {surface.core.x * damping, surface.core.y * damping};
+        surface.ripple *= scale * (1 - smoothstep(0, .35, t));
+        const double start = surface.closing ? surface.time : 0;
+        if (surface.closing)
+            surface.rupture = {surface.rupture.x * xScale, surface.rupture.y * yScale};
+        else
+            surface.rupture = {rupture_.x * surface.halfSize.x, rupture_.y * surface.halfSize.y};
+        pop(surface, mix(start, 1, t));
+    };
+    close(f.window, false);
+    close(f.shell, true);
     return f;
 }
 
 Box Bubble::bounds(Vec2 size) const {
     if (!usable(size) || closed_)
         return {};
-    const BubbleFrame f = frame(size);
-    // The shader displaces the silhouette by less than ripple and places droplets
-    // within 1.04 times the short half-axis. Long windows need no tall empty buffer.
-    const double margin = 2.0 + std::abs(f.ripple) + (f.closing ? 0.04 * std::min(f.halfSize.x, f.halfSize.y) : 0.0);
-    return {size.x * 0.5 - f.halfSize.x - margin, size.y * 0.5 - f.halfSize.y - margin, 2.0 * (f.halfSize.x + margin),
-            2.0 * (f.halfSize.y + margin)};
+    const auto f = frame(size);
+    const auto extent = [](const BubbleSurface &surface) {
+        const double margin = 2 + std::abs(surface.ripple) +
+                              (surface.closing ? .04 * std::min(surface.halfSize.x, surface.halfSize.y) : 0);
+        return Vec2{surface.halfSize.x + margin, surface.halfSize.y + margin};
+    };
+    const auto window = extent(f.window), shell = extent(f.shell);
+    const Vec2 half{std::max(window.x, shell.x), std::max(window.y, shell.y)};
+    return {size.x * .5 - half.x, size.y * .5 - half.y, half.x * 2, half.y * 2};
 }
 
 } // namespace liquid_glass

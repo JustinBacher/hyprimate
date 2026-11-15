@@ -59,7 +59,7 @@ inline void render(SBubbleStyle &style, Record &record, Render::CRenderContext &
                    const SP<CSwarmSprites> &) {
     if (!style.renderer || record.extentsDevice.empty() || record.sourceAlpha <= 0.F)
         return;
-    CBubbleClosePassElement::SData data;
+    CBubblePassElement::SData data;
     data.renderer = style.renderer;
     data.draw = SBubbleDraw{
         .window = tex,
@@ -71,11 +71,18 @@ inline void render(SBubbleStyle &style, Record &record, Render::CRenderContext &
         .textureSize = {record.snapshotSize.x, record.snapshotSize.y},
         .outputOrigin = {record.extentsDevice.x, record.extentsDevice.y},
     };
+    const auto &frame = data.draw.frame;
+    if (!style.residueEmitted && style.residue && frame.shell.retract >= .15 && frame.shell.visibility > 0 &&
+        !ctx.readOnlyEffects() && !ctx.m_renderingCapture && !ctx.m_renderingSnapshot) {
+        const auto source =
+            project(record.sourceDevice, record.renderBox, record.snapshotSize).scale(1.0 / record.scale);
+        style.residueEmitted = style.residue->deposit(monitor, source.middle(), frame.shell.halfSize.x, frame.seed);
+    }
     data.box = project(record.extentsDevice, record.renderBox, record.snapshotSize);
     data.alpha = record.sourceAlpha;
     data.scale = record.scale;
     data.damage =
         CRegion{CBox{0.0, 0.0, monitor->m_transformedSize.x, monitor->m_transformedSize.y}.intersection(data.box)};
-    Render::IHyprRenderer::addPassElement(ctx, makeUnique<CBubbleClosePassElement>(std::move(data)));
+    Render::IHyprRenderer::addPassElement(ctx, makeUnique<CBubblePassElement>(std::move(data)));
 }
 } // namespace close_style

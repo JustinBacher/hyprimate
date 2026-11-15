@@ -19,6 +19,7 @@ struct SBubbleDraw {
     liquid_glass::Vec2        textureOrigin;
     liquid_glass::Vec2        textureSize;
     liquid_glass::Vec2        outputOrigin;
+    double                    residueTime = -1; // >=0: procedural screen film; no source texture
 };
 
 class CBubbleRenderer {
@@ -30,14 +31,15 @@ class CBubbleRenderer {
     SP<Render::IFramebuffer> render(Render::CRenderContext &, const SBubbleDraw &);
 
   private:
-    bool                initialize();
-    std::array<int, 29> m_uniforms{};
-    unsigned int        m_program = 0;
-    unsigned int        m_vao = 0;
-    bool                m_tried = false;
+    bool                               initialize();
+    std::array<int, 15>                m_uniforms{};
+    std::array<std::array<int, 14>, 2> m_surfaceUniforms{};
+    unsigned int                       m_program = 0;
+    unsigned int                       m_vao = 0;
+    bool                               m_tried = false;
 };
 
-class CBubbleClosePassElement final : public IPassElement {
+class CBubblePassElement final : public IPassElement {
   public:
     struct SData {
         SP<CBubbleRenderer> renderer;
@@ -47,7 +49,7 @@ class CBubbleClosePassElement final : public IPassElement {
         double              scale = 1.0;
         CRegion             damage;
     };
-    explicit CBubbleClosePassElement(SData data);
+    explicit CBubblePassElement(SData data);
     std::vector<UP<IPassElement>> draw(Render::CRenderContext &) override;
     bool                          needsLiveBlur(Render::CRenderContext &) override;
     bool                          needsPrecomputeBlur(Render::CRenderContext &) override;
