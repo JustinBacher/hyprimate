@@ -126,8 +126,9 @@ namespace hyprimate {
         // on the next advance; a new size re-cuts the tiles. Ignored unless opening or moving.
         void updateMovement(const SwarmPlacement &placement);
         // Steps the simulation. Non-finite or negative time counts as zero; more than kStallSeconds
-        // is clamped to it. Returns active().
-        bool advance(double elapsedSeconds);
+        // is clamped to it. While a movement gesture is held, wander keeps agents loose even when
+        // the window is stationary; releasing it lets them regroup. Returns active().
+        bool advance(double elapsedSeconds, bool movementHeld = false);
         // Back to idle, in formation.
         void reset() noexcept;
 
@@ -163,7 +164,7 @@ namespace hyprimate {
 
         void build(const SwarmParams &params, std::uint64_t seed, const SwarmPlacement &placement);
         void layout(const SwarmPlacement &placement);
-        void step();
+        void step(bool wandering);
         void shape();
         void hash();
         // What the loose agents around one agent do to it.

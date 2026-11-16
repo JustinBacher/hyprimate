@@ -431,12 +431,20 @@ namespace hyprimate {
         return {x0, y0, x1 - x0, y1 - y0};
     }
 
-    bool Swarm::advance(double elapsedSeconds) {
+    bool Swarm::advance(double elapsedSeconds, bool movementHeld) {
         if (!active()) return false;
         const double dt = std::isfinite(elapsedSeconds) && elapsedSeconds > 0.0
                               ? std::min(elapsedSeconds, kStallSeconds)
                               : 0.0;
         if (!(dt > 0.0)) return true;
+        const bool wandering = moving() && movementHeld && m_params.wander > 0.0;
+        if (wandering) {
+            for (SwarmAgent &a : m_agents) {
+                a.docked = false;
+                a.pause = 0.0;
+                a.settleWait = -1.0;
+            }
+        }
 
         const double speed = length(m_shift) / dt;
         if (speed > 0.0) {
@@ -456,14 +464,15 @@ namespace hyprimate {
                 }
             }
             m_still = 0.0;
-        } else
+        } else if (!wandering)
             m_still += dt;
+        if (wandering) m_still = 0.0;
         m_windowSpeed = std::max(speed, m_windowSpeed * std::exp(-dt / kWindowSpeedHold));
         m_shift = {};
 
         m_accumulator += dt;
         while (m_accumulator >= kStep - kAccumulatorTolerance) {
-            step();
+            step(wandering);
             m_accumulator = std::max(0.0, m_accumulator - kStep);
         }
 
@@ -471,7 +480,7 @@ namespace hyprimate {
             if (m_time > m_params.stagger + kCloseDeadline ||
                 std::ranges::all_of(m_agents, [](const SwarmAgent &a) { return a.gone; }))
                 m_phase = Phase::Closed;
-        } else if (std::ranges::all_of(m_agents, [](const SwarmAgent &a) {
+        } else if (!wandering && std::ranges::all_of(m_agents, [](const SwarmAgent &a) {
                        // Whole only once the last rounded corner has squared up.
                        return a.docked && a.lock >= 1.0 && a.turn <= 0.0 &&
                               std::ranges::all_of(a.round, [](double r) { return r <= 0.0; });
@@ -581,7 +590,7 @@ namespace hyprimate {
         return out;
     }
 
-    void Swarm::step() {
+    void Swarm::step(bool wandering) {
         m_time += kStep;
         hash();
 
@@ -593,8 +602,8 @@ namespace hyprimate {
         const double patience =
             m_params.stagger + lerp(kPatienceMax, kPatienceMin, m_params.settling);
         const double urgency =
-            closing ? 0.0 : smoothstep(patience, patience + kPatienceRamp, m_still);
-        const bool overdue = !closing && m_still > patience + kPatienceDeadline;
+            closing || wandering ? 0.0 : smoothstep(patience, patience + kPatienceRamp, m_still);
+        const bool overdue = !closing && !wandering && m_still > patience + kPatienceDeadline;
         const double solid = std::min(1.0, m_params.separation / kContactFull) * (1.0 - urgency);
 
         for (std::size_t i = 0; i < m_agents.size(); ++i) {
@@ -648,7 +657,14 @@ namespace hyprimate {
             }
             a.velocity = a.velocity + crowd.check * solid;
 
-            const Vec2 target = a.leaving ? a.exit : a.home;
+            a.weave += a.weaveRate * kStep;
+            a.gait += a.gaitRate * kStep;
+            // A moving home keeps the spring walking around the tile throughout a held drag.
+            // Its radius scales with wander; the real home is restored immediately on release.
+            const double radius = wandering ? m_params.wander * m_spacing : 0.0;
+            const Vec2 target = a.leaving ? a.exit
+                                         : a.home + Vec2{radius * std::cos(a.weave),
+                                                        radius * std::sin(0.73 * a.weave + a.gait)};
             const Vec2 offset = target - a.position;
             const double distance = length(offset);
             const Vec2 toward = distance > 1e-9 ? offset * (1.0 / distance) : Vec2{};
@@ -658,8 +674,6 @@ namespace hyprimate {
                 a.leaving ? 1.0
                           : smoothstep(kRouteNear * m_spacing, kRouteFar * m_spacing, distance) *
                                 (1.0 - urgency);
-            a.weave += a.weaveRate * kStep;
-            a.gait += a.gaitRate * kStep;
             const double sway = (std::sin(a.weave) + 0.5 * std::sin(2.3 * a.weave + 1.7)) / 1.5;
             const double off = std::clamp(
                 (a.arc + kMeanderAngle * m_params.wander * sway) * fade, -kRouteLimit, kRouteLimit);
@@ -718,9 +732,10 @@ namespace hyprimate {
             }
 
             const double left = length(a.home - a.position);
-            a.turn =
-                approach(a.turn, left < kRestRadius * m_spacing ? 0.0 : 1.0, kStep / kTurnTime);
-            if (left < kDockDistance && speed < kDockSpeed &&
+            a.turn = approach(a.turn,
+                !wandering && left < kRestRadius * m_spacing ? 0.0 : 1.0,
+                kStep / kTurnTime);
+            if (!wandering && left < kDockDistance && speed < kDockSpeed &&
                 m_windowSpeed <= kDockWindowSpeed * a.grip) {
                 if (m_phase == Phase::Movement && a.settleWait < 0.0)
                     a.settleWait = m_params.stagger * unitDraw(m_rng);

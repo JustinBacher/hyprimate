@@ -1,6 +1,7 @@
 #include <optional>
 
 #include <hyprland/src/desktop/view/window/Window.hpp>
+#include <hyprland/src/layout/LayoutManager.hpp>
 #include <hyprland/src/output/Monitor.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Renderer.hpp>
@@ -150,7 +151,10 @@ void SSwarmLiveStyle::step(CPluginRuntime &,
     bool enabled) {
     auto &state = std::get<SSwarmStyle>(transformer.m_style);
     if (!enabled && state.swarm.moving()) cancelMovement(transformer);
-    state.swarm.advance(elapsed);
+    const auto target = g_layoutManager->dragController()->target();
+    const bool held = enabled && target && target->window() == transformer.m_window.lock() &&
+                      g_layoutManager->dragController()->mode() == MBIND_MOVE;
+    state.swarm.advance(elapsed, held);
 }
 
 void SSwarmLiveStyle::cancelOpening(CAnimationTransformer &transformer) {

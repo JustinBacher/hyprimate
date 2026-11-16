@@ -40,6 +40,8 @@ The example below shows the default settings and disables wobble. After loading 
 
 Swarm's former `creature` and `responsiveness` settings are now named `sprite` and `agility`; update both global settings and any per-animation overrides.
 
+During a mouse move gesture, swarm agents keep wandering even when the pointer pauses. `wander` controls this motion; zero retains formation when stationary. Releasing the gesture lets the agents settle back into the window.
+
 For example, to set a shared bubble duration while giving closing its own duration:
 
 ```lua

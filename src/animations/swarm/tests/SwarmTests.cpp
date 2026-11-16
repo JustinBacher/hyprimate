@@ -370,6 +370,49 @@ namespace {
         CHECK(inFormation(m));
     }
 
+    void heldMovementWandersUntilRelease() {
+        for (double wander : {0.1, 0.5, 1.0}) {
+            Swarm m;
+            SwarmParams p;
+            p.wander = wander;
+            m.beginMovement(p, 23, placement());
+            // No translations at all, including a pause longer than the forced-settle deadline.
+            for (int interval = 0; interval < 20; ++interval) {
+                const std::vector<SwarmAgent> before(m.agents().begin(), m.agents().end());
+                for (int frame = 0; frame < 60; ++frame) m.advance(1.0 / 120.0, true);
+                CHECK(m.moving());
+                for (std::size_t i = 0; i < before.size(); ++i) {
+                    const auto &a = m.agents()[i];
+                    CHECK(!a.docked);
+                    CHECK(a.travel > before[i].travel + 0.01);
+                    CHECK(a.walk > before[i].walk);
+                    CHECK(std::isfinite(a.position.x) && std::isfinite(a.position.y));
+                }
+            }
+            run(m, 10.0);
+            CHECK(!m.active());
+            CHECK(inFormation(m));
+        }
+    }
+
+    void heldMovementRespectsWander() {
+        const auto distance = [](double wander) {
+            Swarm m;
+            SwarmParams p;
+            p.count = 1;
+            p.wander = wander;
+            m.beginMovement(p, 23, placement());
+            for (int frame = 0; frame < 600; ++frame) m.advance(1.0 / 120.0, true);
+            if (wander == 0.0) {
+                CHECK(!m.active());
+                CHECK(inFormation(m));
+            }
+            return m.agents()[0].travel;
+        };
+        CHECK(distance(0.0) == 0.0);
+        CHECK(distance(1.0) > distance(0.1) * 2.0);
+    }
+
     void departuresAreStaggered() {
         // How long the middle four fifths of an opening's agents take to land.
         const auto landingSpan = [](double stagger) {
@@ -708,6 +751,8 @@ int main() {
     closeTakesOverAnOpening();
     slowMovementKeepsTheWindowWhole();
     fastMovementScattersThenRegroups();
+    heldMovementWandersUntilRelease();
+    heldMovementRespectsWander();
     departuresAreStaggered();
     routesAreNotStraightLines();
     bodiesInTransitDoNotPassThroughEachOther();
