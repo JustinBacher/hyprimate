@@ -177,6 +177,12 @@ namespace {
         CHECK(close(CloseSide::Nearest) == Edge::Bottom);  // ignores tiled contact
         CHECK(close(CloseSide::Origin, Edge::Top) == Edge::Top);
         CHECK(close(CloseSide::Origin) == close(CloseSide::Auto));
+        const auto last = hyprimate::resolveCloseEdgeFrame(
+            body, withShadow(body), kScreen, {}, Edge::Top, CloseSide::Auto, std::nullopt, true);
+        CHECK(last && last->edge == Edge::Top);
+        const auto nearest = hyprimate::resolveCloseEdgeFrame(
+            body, withShadow(body), kScreen, {}, Edge::Top, CloseSide::Nearest, std::nullopt, true);
+        CHECK(nearest && nearest->edge == Edge::Bottom);
         for (const auto &[side, edge] :
             std::array<std::pair<CloseSide, Edge>, 4>{{{CloseSide::Left, Edge::Left},
                 {CloseSide::Right, Edge::Right},

@@ -46,16 +46,17 @@ namespace hyprimate {
     // Where a closing window exits.
     enum class CloseSide { Auto, Nearest, Origin, Top, Bottom, Left, Right };
 
-    // Shared liquid/cloth close policy. Nearest ignores neighbours; Origin prefers the recorded
-    // opening edge; Top/Bottom/Left/Right prefer that fixed edge. An unavailable or invalid
-    // preference uses the usual resolver.
+    // Shared liquid/cloth close policy. Auto prefers fallback for the last window; Nearest ignores
+    // neighbours; Origin prefers the recorded opening edge; fixed sides prefer that edge. An
+    // unavailable or invalid preference uses the usual resolver.
     std::optional<EdgeFrame> resolveCloseEdgeFrame(const Box &body,
         const Box &capture,
         const Box &bounds,
         std::span<const Box> neighbours,
         Edge fallback,
         CloseSide side,
-        std::optional<Edge> origin = std::nullopt) noexcept;
+        std::optional<Edge> origin = std::nullopt,
+        bool lastWindow = false) noexcept;
 
     // Every screen edge a window appears from, for motion that may use several at once (swarm). A
     // side of the body is free when no neighbour touches it (same contact rule as

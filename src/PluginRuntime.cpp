@@ -285,15 +285,17 @@ bool CPluginRuntime::bubbleResidueEnabled() const {
            m_config.style == hyprimate::config::Style::Bubble;
 }
 
-hyprimate::Edge CPluginRuntime::firstWindowEdge() const {
-    switch (m_config.open.liquid.firstWindowSide) {
-        case cfg::FirstWindowSide::Top:
+hyprimate::Edge CPluginRuntime::defaultAnimationEdge(bool opening) const {
+    const auto edge = opening ? m_config.open.liquid.defaultAnimationEdge
+                              : m_config.close.liquid.defaultAnimationEdge;
+    switch (edge) {
+        case cfg::DefaultAnimationEdge::Top:
             return hyprimate::Edge::Top;
-        case cfg::FirstWindowSide::Left:
+        case cfg::DefaultAnimationEdge::Left:
             return hyprimate::Edge::Left;
-        case cfg::FirstWindowSide::Right:
+        case cfg::DefaultAnimationEdge::Right:
             return hyprimate::Edge::Right;
-        case cfg::FirstWindowSide::Bottom:
+        case cfg::DefaultAnimationEdge::Bottom:
             return hyprimate::Edge::Bottom;
     }
     return hyprimate::Edge::Bottom;
@@ -360,14 +362,15 @@ std::optional<hyprimate::EdgeFrame> CPluginRuntime::edgeFrameFor(
             box(rest),
             box(edgeBoundsBox(monitor, false)),
             m_neighbours,
-            firstWindowEdge(),
+            defaultAnimationEdge(false),
             closeSide(m_config.close.liquid.side),
-            origin);
+            origin,
+            !workspaceHasOtherWindows(window));
     return hyprimate::resolveEdgeFrame(box(body),
         box(rest),
         box(edgeBoundsBox(monitor, opening)),
         m_neighbours,
-        firstWindowEdge(),
+        defaultAnimationEdge(true),
         !workspaceHasOtherWindows(window));
 }
 

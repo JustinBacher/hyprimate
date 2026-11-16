@@ -72,7 +72,7 @@ class CPluginRuntime {
     bool eligible(const PHLWINDOW &window) const;
 
     // Edge pop-out placement and configuration.
-    hyprimate::Edge firstWindowEdge() const;
+    hyprimate::Edge defaultAnimationEdge(bool opening) const;
     bool workspaceHasOtherWindows(const PHLWINDOW &window) const;
     void gatherNeighbours(const PHLWINDOW &window) const;
     void gatherClothObstacles(const PHLWINDOW &window) const;

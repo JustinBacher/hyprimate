@@ -162,7 +162,8 @@ namespace hyprimate {
         std::span<const Box> neighbours,
         Edge fallback,
         CloseSide side,
-        std::optional<Edge> origin) noexcept {
+        std::optional<Edge> origin,
+        bool lastWindow) noexcept {
         bool prefer = true;
         switch (side) {
             case CloseSide::Origin:
@@ -182,6 +183,8 @@ namespace hyprimate {
                 fallback = Edge::Right;
                 break;
             case CloseSide::Auto:
+                prefer = lastWindow;
+                break;
             case CloseSide::Nearest:
                 prefer = false;
                 break;

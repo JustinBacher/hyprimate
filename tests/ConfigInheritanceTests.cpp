@@ -97,17 +97,23 @@ int main() {
     set("window:options:liquid:color", 0xff123456U);
     set("window:options:liquid:splash", false);
     set("window:options:swarm:lone_window_sides", std::string("top,left"));
+    set("window:options:liquid:default_animation_edge", std::string("top"));
     c = readConfig(values);
     assert(c.movement.bubble.shape == Shape::Circle);
     assert(c.open.liquid.color == 0xff123456U && c.close.liquid.color == 0xff123456U);
+    assert(c.open.liquid.defaultAnimationEdge == DefaultAnimationEdge::Top);
+    assert(c.close.liquid.defaultAnimationEdge == DefaultAnimationEdge::Top);
     assert(!c.close.liquid.splash);
     assert(c.open.swarm.loneWindowSides.has(LoneWindowSides::Top));
     assert(!c.open.swarm.loneWindowSides.has(LoneWindowSides::Bottom));
     assert(c.close.swarm.loneWindowSides.has(LoneWindowSides::Left));
     set("window:close:options:liquid:splash", true);
     set("window:open:options:swarm:lone_window_sides", std::string("all"));
+    set("window:close:options:liquid:default_animation_edge", std::string("right"));
     c = readConfig(values);
     assert(c.close.liquid.splash);
+    assert(c.open.liquid.defaultAnimationEdge == DefaultAnimationEdge::Top);
+    assert(c.close.liquid.defaultAnimationEdge == DefaultAnimationEdge::Right);
     assert(c.open.swarm.loneWindowSides.has(LoneWindowSides::Bottom));
     assert(!c.close.swarm.loneWindowSides.has(LoneWindowSides::Bottom));
 
