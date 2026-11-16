@@ -3,6 +3,7 @@
 
 #include "animations/bubble/BubbleCurl.hpp"
 #include "animations/bubble/BubbleRupture.hpp"
+#include "animations/bubble/BubbleSheets.hpp"
 
 namespace hyprimate {
     namespace {
@@ -172,6 +173,237 @@ namespace hyprimate {
             return entry;
         }
     }  // namespace
+
+    namespace {
+        BubbleHole sheetHole(const BubbleSurface &s, const BubbleSheet &sheet, std::size_t i) {
+            BubbleHole h = s.holes[i];
+            h.radius = sheet.radii[i];
+            for (std::size_t m = 0; m < h.amplitude.size(); ++m)
+                h.amplitude[m] = sheet.onsets[i] * (.014 - .002 * m);
+            return h;
+        }
+        Vec3 sheetMaterial(const BubbleSurface &s, const BubbleHole &h, double phi, double u) {
+            const double r = std::min(s.halfSize.x, s.halfSize.y);
+            const double b = bubbleHoleBoundary(h, phi);
+            const double w = bubbleCurlSection(s, h, b * (s.spherical ? r : 1), phi).width;
+            const double d = b + (1 - u) * w / (s.spherical ? r : 1);
+            if (!s.spherical)
+                return {h.centre.x + d * std::cos(phi), h.centre.y + d * std::sin(phi), 0};
+            Vec3 e1, e2;
+            basis(h.centre, e1, e2);
+            const Vec3 dir{e1.x * std::cos(phi) + e2.x * std::sin(phi),
+                e1.y * std::cos(phi) + e2.y * std::sin(phi),
+                e1.z * std::cos(phi) + e2.z * std::sin(phi)};
+            return {h.centre.x * std::cos(d) + dir.x * std::sin(d),
+                h.centre.y * std::cos(d) + dir.y * std::sin(d),
+                h.centre.z * std::cos(d) + dir.z * std::sin(d)};
+        }
+        Vec3 rotate(Vec3 v, Vec3 axis, double angle) {
+            const double c = std::cos(angle), sn = std::sin(angle), d = dot(axis, v);
+            const Vec3 x = cross(axis, v);
+            return {v.x * c + x.x * sn + axis.x * d * (1 - c),
+                v.y * c + x.y * sn + axis.y * d * (1 - c),
+                v.z * c + x.z * sn + axis.z * d * (1 - c)};
+        }
+    }  // namespace
+
+    bool bubbleSheetContains(const BubbleSurface &s, const BubbleSheet &sheet, Vec3 material) {
+        if (sheet.hole >= std::min(s.holeCount, kBubbleHoles)) return false;
+        const auto h = sheetHole(s, sheet, sheet.hole);
+        const double r = std::min(s.halfSize.x, s.halfSize.y);
+        if (r <= 0) return false;
+        const double phi = bubbleHoleAzimuth(h, material, s.spherical);
+        const double b = bubbleHoleBoundary(h, phi);
+        const double d = s.spherical ? std::acos(std::clamp(dot(material, h.centre), -1.0, 1.0))
+                                     : std::hypot(material.x - h.centre.x, material.y - h.centre.y);
+        const double w = bubbleCurlSection(s, h, b * (s.spherical ? r : 1), phi).width;
+        if (w <= 0) return false;
+        const double u = 1 - (d - b) * (s.spherical ? r : 1) / w;
+        if (u < 0 || u > 1) return false;
+        const double limit = sheet.halfAngle * (.82 + .14 * std::sin(pi * u) +
+                                                   .04 * std::sin(3 * pi * u + h.phase[0]));
+        if (std::abs(std::remainder(phi - sheet.phi, 2 * pi)) > limit) return false;
+        const double ownRank = 1 - u;
+        for (std::size_t i = 0; i < std::min(s.holeCount, kBubbleHoles); ++i) {
+            if (i == sheet.hole || sheet.radii[i] <= 0) continue;
+            const auto other = sheetHole(s, sheet, i);
+            const double otherPhi = bubbleHoleAzimuth(other, material, s.spherical);
+            const double boundary = bubbleHoleBoundary(other, otherPhi);
+            const double distance =
+                s.spherical ? std::acos(std::clamp(dot(material, other.centre), -1.0, 1.0))
+                            : std::hypot(material.x - other.centre.x, material.y - other.centre.y);
+            const double width =
+                bubbleCurlSection(s, other, boundary * (s.spherical ? r : 1), otherPhi).width;
+            if (width <= 0) continue;
+            const double rank = (distance - boundary) * (s.spherical ? r : 1) / width;
+            if (rank >= 0 && rank <= 1 && (rank < ownRank || (rank == ownRank && i < sheet.hole)))
+                return false;
+        }
+        return true;
+    }
+
+    BubbleCurlSample bubbleSheetSample(
+        const BubbleSurface &s, const BubbleSheet &sheet, double phi, double u) {
+        auto sample = bubblePeelSample(s, sheetHole(s, sheet, sheet.hole), phi, u);
+        Vec3 relative{sample.position.x - sheet.pivot.x,
+            sample.position.y - sheet.pivot.y,
+            sample.position.z - sheet.pivot.z};
+        relative = rotate(relative, sheet.axis, sheet.rotation);
+        sample.position = {sheet.pivot.x + sheet.translation.x + relative.x * sheet.scale,
+            sheet.pivot.y + sheet.translation.y + relative.y * sheet.scale,
+            sheet.pivot.z + sheet.translation.z + relative.z * sheet.scale};
+        sample.normal = rotate(sample.normal, sheet.axis, sheet.rotation);
+        return sample;
+    }
+
+    std::size_t bubbleSheets(const BubbleSurface &s, std::span<BubbleSheet> out) {
+        const std::size_t n = std::min(s.holeCount, kBubbleHoles);
+        const double r = std::min(s.halfSize.x, s.halfSize.y);
+        if (!s.closing || n == 0 || s.speed <= 0 || s.rate <= 0 || r <= 0 || out.empty()) return 0;
+        const auto &events = collapse(s);
+        struct Candidate {
+            const BurstEvent *event;
+            double birth;
+            std::size_t source, other;
+        };
+        const auto candidateFor = [&](const BurstEvent &event) {
+            const Vec3 point = s.spherical ? normalize(event.position) : event.position;
+            std::size_t source = 0, other = n;
+            if (event.id != 1200) {
+                source = (event.id - 1000) / 20;
+                other = ((event.id - 1000) % 20) / 5;
+            } else {
+                double first = 1e100;
+                for (std::size_t i = 0; i < n; ++i) {
+                    const double d =
+                        s.spherical
+                            ? std::acos(std::clamp(dot(point, s.holes[i].centre), -1.0, 1.0))
+                            : std::hypot(
+                                  point.x - s.holes[i].centre.x, point.y - s.holes[i].centre.y);
+                    const double arrival = s.holes[i].start + d / s.speed;
+                    if (arrival < first) {
+                        first = arrival;
+                        source = i;
+                    }
+                }
+            }
+            const auto widthAt = [&](std::size_t i) {
+                BubbleHole h = s.holes[i];
+                h.radius = radiusAt(s, h, event.time);
+                const double onset = smoothstep(.012, .045, event.time - h.start);
+                for (std::size_t m = 0; m < h.amplitude.size(); ++m)
+                    h.amplitude[m] = onset * (.014 - .002 * m);
+                const double phi = bubbleHoleAzimuth(h, point, s.spherical);
+                return bubbleCurlSection(
+                    s, h, bubbleHoleBoundary(h, phi) * (s.spherical ? r : 1), phi)
+                    .width;
+            };
+            double width = widthAt(source);
+            if (other < n) width = .5 * (width + widthAt(other));
+            const double birth = std::max(s.holes[source].start,
+                event.time - .55 * width / (s.speed * (s.spherical ? r : 1)));
+            return Candidate{&event, birth, source, other};
+        };
+        std::array<Candidate, kBubbleMaxSheets> candidates{};
+        std::size_t total = 0;
+        const auto insert = [&](const BurstEvent &event) {
+            const auto candidate = candidateFor(event);
+            std::size_t i = total++;
+            while (i > 0 && (candidates[i - 1].birth > candidate.birth ||
+                                (candidates[i - 1].birth == candidate.birth &&
+                                    candidates[i - 1].event->id > candidate.event->id))) {
+                candidates[i] = candidates[i - 1];
+                --i;
+            }
+            candidates[i] = candidate;
+        };
+        for (std::size_t i = 0; i < std::min(events.mergeCount, events.merges.size()); ++i)
+            insert(events.merges[i]);
+        const BurstEvent final{events.position, events.time, 1200};
+        insert(final);
+        auto sheets = out.first(std::min(out.size(), kBubbleMaxSheets));
+        std::size_t count = 0;
+        // Try the other side of a neck only if the first owns no visible material.
+        for (std::size_t attempt = 0; attempt < total * 2 && count < sheets.size(); ++attempt) {
+            const auto &candidate = candidates[attempt / 2];
+            const auto &event = *candidate.event;
+            const bool alternate = attempt % 2 != 0;
+            if (alternate && (event.id == 1200 || (count > 0 && sheets[count - 1].id == event.id)))
+                continue;
+            Vec3 point = s.spherical ? normalize(event.position) : event.position;
+            const std::size_t source = alternate ? candidate.other : candidate.source;
+            double phi = bubbleHoleAzimuth(s.holes[source], point, s.spherical);
+            BubbleSheet sheet;
+            sheet.id = event.id;
+            sheet.hole = source;
+            sheet.birth = candidate.birth;
+            if (sheet.birth > s.clock || sheet.birth >= 1) continue;
+            sheet.phi = phi;
+            for (std::size_t i = 0; i < n; ++i) {
+                sheet.radii[i] = radiusAt(s, s.holes[i], sheet.birth);
+                sheet.onsets[i] = smoothstep(.012, .045, sheet.birth - s.holes[i].start);
+            }
+            const auto h = sheetHole(s, sheet, source);
+            const double b = bubbleHoleBoundary(h, phi);
+            const double w = bubbleCurlSection(s, h, b * (s.spherical ? r : 1), phi).width;
+            if (w <= 0 || (s.spherical && b >= pi)) continue;
+            sheet.halfAngle = std::min(.35,
+                std::clamp(.11 * r, 16.0, 40.0) /
+                    std::max(b * (s.spherical ? r : 1) + .5 * w, 1.0));
+            bool available = false;
+            // Centre the piece on surviving material, not on an occluded sliver's empty pivot.
+            for (double offset : {0.0, -1.0 / 3, 1.0 / 3, -2.0 / 3, 2.0 / 3}) {
+                const double trialPhi = phi + sheet.halfAngle * offset;
+                const Vec3 p = sheetMaterial(s, h, trialPhi, .5);
+                if (!s.spherical) {
+                    const double corner = std::clamp(s.corner, 0.0, r);
+                    const double x = std::max(std::abs(p.x) - (s.halfSize.x - corner), 0.0);
+                    const double y = std::max(std::abs(p.y) - (s.halfSize.y - corner), 0.0);
+                    if (std::abs(p.x) > s.halfSize.x || std::abs(p.y) > s.halfSize.y ||
+                        x * x + y * y > corner * corner)
+                        continue;
+                }
+                bool valid = bubbleSheetContains(s, sheet, p);
+                for (std::size_t i = 0; i < n && valid; ++i) {
+                    if (i == source || sheet.radii[i] <= 0) continue;
+                    const auto prior = sheetHole(s, sheet, i);
+                    const double distance =
+                        s.spherical ? std::acos(std::clamp(dot(p, prior.centre), -1.0, 1.0))
+                                    : std::hypot(p.x - prior.centre.x, p.y - prior.centre.y);
+                    const double priorPhi = bubbleHoleAzimuth(prior, p, s.spherical);
+                    if (distance < bubbleHoleBoundary(prior, priorPhi)) valid = false;
+                }
+                for (std::size_t i = 0; i < count && valid; ++i)
+                    if (sheets[i].birth <= sheet.birth && bubbleSheetContains(s, sheets[i], p))
+                        valid = false;
+                if (valid) {
+                    phi = sheet.phi = trialPhi;
+                    available = true;
+                    break;
+                }
+            }
+            if (!available) continue;
+            sheet.pivot = bubblePeelSample(s, h, phi, .5).position;
+            const Vec3 before = bubblePeelSample(s, h, phi - .001, .5).position;
+            const Vec3 after = bubblePeelSample(s, h, phi + .001, .5).position;
+            sheet.axis = normalize({after.x - before.x, after.y - before.y, after.z - before.z});
+            sheet.age = std::max(0.0, (s.clock - sheet.birth) / s.rate);
+            sheet.life = std::min(.16, (1 - sheet.birth) / s.rate);
+            const double t = sheet.life > 0 ? std::clamp(sheet.age / sheet.life, 0.0, 1.0) : 1;
+            sheet.scale = 1 - smoothstep(0, 1, t);
+            sheet.rotation = 2.2 * t;
+            const auto root = bubblePeelSample(s, h, phi, 0).position;
+            Vec3 outward = normalize({root.x - (s.spherical ? h.centre.x * r : h.centre.x),
+                root.y - (s.spherical ? h.centre.y * r : h.centre.y),
+                s.spherical ? root.z - h.centre.z * r : 0});
+            const double travel = std::min(.16 * r, 80.0) * (1 - std::exp(-sheet.age / .08));
+            sheet.translation = {outward.x * travel,
+                outward.y * travel + .04 * r * t * t,
+                outward.z * travel + .05 * r * t};
+            sheets[count++] = sheet;
+        }
+        return count;
+    }
     namespace {
         struct ImpactCache {
             BubbleSurface key{};
@@ -255,22 +487,10 @@ namespace hyprimate {
                         scale * (h.centre.z * c + direction.z * sn)};
                 };
                 const auto edge = [&](double boundary) {
-                    const Vec3 base = at(boundary);
-                    const double c = s.spherical ? std::cos(boundary) : 1;
-                    const double sn = s.spherical ? std::sin(boundary) : 0;
-                    const Vec3 outward{direction.x * c - h.centre.x * sn,
-                        direction.y * c - h.centre.y * sn,
-                        direction.z * c - h.centre.z * sn};
-                    const Vec3 normal = s.spherical ? Vec3{base.x / s.halfSize.x,
-                                                          base.y / s.halfSize.x,
-                                                          base.z / s.halfSize.x}
-                                                    : Vec3{0, 0, 1};
-                    return bubbleCurlSample(base,
-                        outward,
-                        normal,
-                        bubbleCurlSection(s, h, boundary * (s.spherical ? s.halfSize.x : 1), phi),
-                        1)
-                        .position;
+                    BubbleHole frozen = h;
+                    frozen.radius = boundary;
+                    frozen.amplitude = {};
+                    return bubblePeelSample(s, frozen, phi, 1).position;
                 };
                 const auto tipAt = [&](double boundary, Vec3 root) {
                     const Vec3 base = at(boundary);
@@ -540,22 +760,15 @@ namespace hyprimate {
                 const double life = std::min(.22 * s.rate, .995 - birth);
                 if (age < 0 || age >= life) return;
                 const double reach = .12 * std::min(s.halfSize.x, s.halfSize.y);
-                for (std::uint32_t i = 0; i < 5; ++i) {
+                for (std::uint32_t i = 0; i < 4; ++i) {
                     const double phi = 2 * pi * (i + .13 * (id % 7)) / 4;
                     const double motion = reach * (1 - std::exp(-age / .09));
                     BubbleParticle p;
                     p.centre = {origin.x + motion * std::cos(phi),
                         origin.y + motion * std::sin(phi) + reach * .1 * age};
                     p.tail = p.centre;
-                    p.radius = (i == 4 ? std::min(6.0 + ((id / 5) % 5) * 2.0,
-                                             .08 * std::min(s.halfSize.x, s.halfSize.y))
-                                       : 2.5 + .35 * i) *
-                               (1 - age / life);
+                    p.radius = (2.5 + .35 * i) * (1 - age / life);
                     p.depth = s.spherical ? origin.z / s.halfSize.x : 0;
-                    if (i == 4) {
-                        p.thickness = std::max(250.0, s.thickness) * (1 - age / life);
-                        p.spin = phi + age * 28;
-                    }
                     if (count < out.size())
                         out[count++] = p;
                     else if (count < identified.size())

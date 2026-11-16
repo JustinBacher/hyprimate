@@ -55,6 +55,7 @@ namespace hyprimate {
             s.rate = 1 / duration;
             s.debris = seed;
             s.aureole = 1;
+            s.ruptureVisibility = s.visibility;
             s.holeCount = 3;
             if (!sphere && s.thickness <= 0) s.thickness = 380 + 270 * unitDraw(seed);
             const double x = spot.x, y = spot.y;
@@ -258,7 +259,7 @@ namespace hyprimate {
         const auto extent = [](const BubbleSurface &surface) {
             const double margin =
                 8 + std::abs(surface.ripple) +
-                (surface.closing ? .45 * std::min(surface.halfSize.x, surface.halfSize.y) : 0);
+                (surface.closing ? 1.2 * std::min(surface.halfSize.x, surface.halfSize.y) : 0);
             return Vec2{surface.halfSize.x + margin, surface.halfSize.y + margin};
         };
         const auto window = extent(f.window), shell = extent(f.shell);

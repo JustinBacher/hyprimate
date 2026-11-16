@@ -41,9 +41,8 @@ vec3 env(vec3 n) {
 }
 vec4 layer(Membrane s, vec2 p, vec3 point, vec3 normal, float cosView, float curve, float cap, bool back, bool background) {
     float minHalf = max(min(s.halfSize.x,s.halfSize.y),1.0);
-    float edge = 1e6, band = 0.0, bandWeight = 0.0, precursor = 0.0, blackFilm = 0.0;
+    float edge = 1e6, precursor = 0.0, blackFilm = 0.0;
     float domain=1.0;
-    vec2 radial = vec2(0);
     for (int i=0;i<4;i++) {
         if (i >= s.holeCount) break;
         Hole h = s.holes[i];
@@ -59,30 +58,23 @@ vec4 layer(Membrane s, vec2 p, vec3 point, vec3 normal, float cosView, float cur
         float radius = h.radius * (s.spherical != 0 ? minHalf : 1.0);
         float boundary = radius * (1.0 + dot(h.amplitude,cos(vec4(3,5,9,14)*phi+h.phase)));
         if (s.spherical!=0 && boundary>=3.14159265359*minHalf) domain=0.0;
-        float d = dist-boundary;
+        float width=max(0.0,min(64.0,min(.24*minHalf,.45*boundary)))*clamp(s.aureole,0.0,1.0);
+        if (s.spherical!=0) width=min(width,max(0.0,3.14159265359*minHalf-boundary));
+        float d = dist-boundary-width;
         float spot = exp(-pow(dist/(minHalf*(s.spherical != 0 ? .12 : .1)),2.0));
         spot *= step(.002,spot);
         precursor = max(precursor,h.precursor*spot);
         // The black film: the very centre turns see-through in the last moments before the opening.
         blackFilm = max(blackFilm,smoothstep(.75,1.0,h.precursor)*exp(-pow(dist/(minHalf*.025+2.0),2.0)));
-        if (radius > 0.0 && d < edge) {
-            edge=d; radial=normalize(delta+vec2(1e-5));
-            float w=max(radius*.25,1.0);
-            float u=clamp(1.0-max(d,0.0)/w,0.0,1.0);
-            bandWeight = d>=0.0 ? s.aureole*u*u : 0.0;
-            band = d>=0.0 ? .3*s.aureole*w*u*u*u : 0.0;
-        }
+        if (radius > 0.0) edge=min(edge,d);
     }
     float aa=max(fwidth(edge),.35);
     float intact=domain*smoothstep(-aa,aa,edge);
-    // Aureole: film material ahead of the rim is drawn toward it (compressed) and flaps.
-    vec2 shifted=p+radial*(band + 1.8*bandWeight*sin(edge*.3-s.flow*12.0));
-    float local=max(s.film,max(precursor,bandWeight*.8));
+    float local=max(s.film,precursor);
     vec4 reflection=vec4(0);
     // The thickness field is only evaluated where film is visible: a closing window needs it near its holes only.
     if (local>0.0 && intact>0.0) {
         vec3 warpedPoint=point;
-        warpedPoint.xy += (shifted-p)/max(s.halfSize,vec2(1.0));
         vec3 q=warpedPoint*2.6+vec3(0,s.flow*.12,0);
         float turn=s.flow*.15;
         q.xy=mat2(cos(turn),-sin(turn),sin(turn),cos(turn))*q.xy;
@@ -91,9 +83,7 @@ vec4 layer(Membrane s, vec2 p, vec3 point, vec3 normal, float cosView, float cur
         float marble=(noise(warp)*.65+noise(warp*2.1+3.1)*.35)*2.0-1.0;
         float thick=s.thickness * exp(.65*marble) * clamp(1.0+.28*warpedPoint.y,.55,1.45);
         thick *= 1.0-.97*precursor;
-        thick *= 1.0 + .5*bandWeight;
-        // Near the rim the thickened film curls toward it: its tilted surface catches the light as a moving sheen.
-        vec3 curled=normalize(normal-vec3(radial,0.0)*(.7*bandWeight*bandWeight));
+        vec3 curled=normal;
         float curledView=clamp(curled.z,0.0,1.0);
         vec3 R=texture(filmLut,vec2(clamp(thick/1500.0,0.0,1.0),curledView)).rgb;
         vec3 reflectedNormal=back ? vec3(-curled.xy,curled.z) : curled;
@@ -107,8 +97,8 @@ vec4 layer(Membrane s, vec2 p, vec3 point, vec3 normal, float cosView, float cur
         vec2 supportGradient=-4.0*corePoint*vec2(b.x*b.y*b.y,b.y*b.x*b.x);
         vec2 coreNormal=-(supportGradient*(s.core.x+s.core.y*dot(corePoint,corePoint)) +
                           b.x*b.x*b.y*b.y*s.core.y*2.0*corePoint)/max(s.halfSize,vec2(1.0));
-        vec2 unit=background ? (shifted+size*.5)/size :
-            .5+.5*(shifted/max(s.halfSize,vec2(1.0)))*(1.0-.12*curve*(1.0-cap))-coreNormal*.15;
+        vec2 unit=background ? (p+size*.5)/size :
+            .5+.5*(p/max(s.halfSize,vec2(1.0)))*(1.0-.12*curve*(1.0-cap))-coreNormal*.15;
         if (background) {
             if (wallpaperReady!=0) {
                 vec2 offset=point.xy*(1.0-cosView)*.015*minHalf/size;

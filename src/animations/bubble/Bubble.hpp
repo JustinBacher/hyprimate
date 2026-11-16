@@ -56,6 +56,7 @@ namespace hyprimate {
         double rate = 1;  // rupture-clock seconds per animation second
         double speed = 0;  // terminal rim speed: px/s (flat) or rad/s (spherical)
         double aureole = 0;  // 0..1 thickened, flapping band ahead of every rim
+        double ruptureVisibility = 0;  // film opacity retained after the parent is consumed
         std::uint64_t debris = 0;  // seed of this rupture's ligament and droplet stream
         std::array<BubbleHole, kBubbleHoles> holes{};
         std::size_t holeCount = 0;  // holes[0, holeCount) exist, nucleated or still precursors
@@ -68,17 +69,13 @@ namespace hyprimate {
         double seed = 0;
     };
 
-    // A drawn piece of rupture debris in logical px from the frame centre, y down: a liquid
-    // droplet, possibly still on its ligament, or a small film flake. Evaporation shrinks radius;
-    // there is no opacity fade.
+    // A liquid droplet, possibly still on its ligament. Evaporation shrinks its radius.
     struct BubbleParticle {
         Vec2 centre{};
         double radius = 0;
         Vec2 tail{};  // ligament anchor; equals centre once detached
         double tailRadius = 0;  // ligament radius at the anchor; 0 = none
         double depth = 0;  // -1 behind the bubble .. +1 toward the viewer
-        double thickness = 0;  // > 0: film flake of this thickness (nm); 0: liquid droplet
-        double spin = 0;  // flake orientation, radians
         double blur = 0;  // 0..1 defocus of a droplet approaching the screen glass
     };
 

@@ -1,10 +1,12 @@
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdio>
 #include <vector>
 
 #include "animations/bubble/BubbleMaterial.hpp"
 #include "animations/bubble/BubbleOptics.hpp"
+#include "animations/bubble/BubbleSheets.hpp"
 
 namespace {
 #include "bubble_shaders_generated.hpp"
@@ -80,7 +82,7 @@ namespace {
         }
     }
     struct Instance {
-        float values[12];
+        float values[8];
     };
 }  // namespace
 
@@ -111,7 +113,7 @@ bool CBubbleMaterial::initialize() {
         "wallpaperImage",
         "filmLut"};
     constexpr const char *particleNames[] = {
-        "canvas", "origin", "sourcePos", "sourceSize", "size", "onGlass", "filmLut"};
+        "canvas", "origin", "sourcePos", "sourceSize", "size", "onGlass"};
     constexpr const char *curlNames[] = {"size",
         "canvas",
         "origin",
@@ -149,6 +151,25 @@ bool CBubbleMaterial::initialize() {
         m_particleUniforms[i] = glGetUniformLocation(m_particles, particleNames[i]);
     for (std::size_t i = 0; i < m_curlUniforms.size(); ++i)
         m_curlUniforms[i] = glGetUniformLocation(m_curl, curlNames[i]);
+    constexpr const char *sheetNames[] = {"sheetMode",
+        "maskCount",
+        "sheetHole",
+        "sector",
+        "pivot",
+        "axis",
+        "translation",
+        "rotation",
+        "shrink",
+        "imageFade"};
+    for (std::size_t i = 0; i < m_sheetUniforms.size(); ++i)
+        m_sheetUniforms[i] = glGetUniformLocation(m_curl, sheetNames[i]);
+    constexpr const char *maskFields[] = {"domain", "radii", "onsets"};
+    for (std::size_t s = 0; s < m_sheetMaskUniforms.size(); ++s)
+        for (std::size_t i = 0; i < std::size(maskFields); ++i) {
+            char name[80];
+            std::snprintf(name, sizeof(name), "masks[%zu].%s", s, maskFields[i]);
+            m_sheetMaskUniforms[s][i] = glGetUniformLocation(m_curl, name);
+        }
     for (std::size_t s = 0; s < m_surfaceUniforms.size(); ++s) {
         char name[80];
         for (std::size_t i = 0; i < std::size(fields); ++i) {
@@ -179,7 +200,7 @@ bool CBubbleMaterial::initialize() {
     glGenBuffers(1, &m_instance);
     glBindVertexArray(m_particleVao);
     glBindBuffer(GL_ARRAY_BUFFER, m_instance);
-    for (GLuint i = 0; i < 3; ++i) {
+    for (GLuint i = 0; i < 2; ++i) {
         glEnableVertexAttribArray(i);
         glVertexAttribPointer(i,
             4,
@@ -257,7 +278,19 @@ void CBubbleMaterial::drawMembranes(
             if (s.holes[i].radius > 0) return true;
         return false;
     };
-    if (!active(frame.window) && !active(frame.shell)) return;
+    const std::array<const hyprimate::BubbleSurface *, 2> surfaces{&frame.window, &frame.shell};
+    std::array<std::array<hyprimate::BubbleSheet, hyprimate::kBubbleMaxSheets>, 2> sheets;
+    std::array<std::size_t, 2> counts{};
+    std::array<bool, 2> visible{};
+    for (std::size_t i = 0; i < surfaces.size(); ++i) {
+        counts[i] = hyprimate::bubbleSheets(*surfaces[i], sheets[i]);
+        visible[i] = active(*surfaces[i]) ||
+                     (surfaces[i]->ruptureVisibility > 0 &&
+                         std::any_of(sheets[i].begin(),
+                             sheets[i].begin() + counts[i],
+                             [](const hyprimate::BubbleSheet &sheet) { return sheet.scale > 0; }));
+    }
+    if (!visible[0] && !visible[1]) return;
     GLint srcRgb, dstRgb, srcAlpha, dstAlpha;
     glGetIntegerv(GL_BLEND_SRC_RGB, &srcRgb);
     glGetIntegerv(GL_BLEND_DST_RGB, &dstRgb);
@@ -283,11 +316,76 @@ void CBubbleMaterial::drawMembranes(
     glUniform1i(c[12], 0);
     glUniform1i(c[13], 1);
     glUniform1i(c[14], 2);
-    for (const auto *s : {&frame.window, &frame.shell}) {
-        if (!active(*s)) continue;
+    for (std::size_t index = 0; index < surfaces.size(); ++index) {
+        if (!visible[index]) continue;
+        const auto *s = surfaces[index];
+        const auto count = counts[index];
+        for (std::size_t i = 0; i < count; ++i) {
+            const auto &piece = sheets[index][i];
+            const auto &m = m_sheetMaskUniforms[i];
+            glUniform4f(m[0], float(piece.hole), float(piece.phi), float(piece.halfAngle), 0);
+            glUniform4f(m[1],
+                float(piece.radii[0]),
+                float(piece.radii[1]),
+                float(piece.radii[2]),
+                float(piece.radii[3]));
+            glUniform4f(m[2],
+                float(piece.onsets[0]),
+                float(piece.onsets[1]),
+                float(piece.onsets[2]),
+                float(piece.onsets[3]));
+        }
+        glUniform1i(m_sheetUniforms[0], 0);
+        glUniform1i(m_sheetUniforms[1], int(count));
         surface(m_curlSurfaceUniforms, *s);
-        glDrawArraysInstanced(
-            GL_TRIANGLES, 0, 96 * 12 * 6, GLsizei(std::min(s->holeCount, hyprimate::kBubbleHoles)));
+        if (active(*s))
+            glDrawArraysInstanced(GL_TRIANGLES,
+                0,
+                96 * 12 * 6,
+                GLsizei(std::min(s->holeCount, hyprimate::kBubbleHoles)));
+        // Detached material outlives its consumed parent; only the sheet's own contraction ends it.
+        glUniform1f(m_curlSurfaceUniforms[6], float(s->ruptureVisibility));
+        for (std::size_t i = 0; i < count; ++i) {
+            const auto &piece = sheets[index][i];
+            if (piece.scale <= 0) continue;
+            for (std::size_t h = 0; h < hyprimate::kBubbleHoles; ++h) {
+                glUniform1f(m_curlSurfaceUniforms[14 + h * 6], float(piece.radii[h]));
+                const float onset = float(piece.onsets[h]);
+                glUniform4f(m_curlSurfaceUniforms[17 + h * 6],
+                    onset * .014f,
+                    onset * .012f,
+                    onset * .010f,
+                    onset * .008f);
+            }
+            glUniform1i(m_sheetUniforms[0], 1);
+            glUniform1i(m_sheetUniforms[1], int(i));
+            glUniform1i(m_sheetUniforms[2], int(piece.hole));
+            glUniform2f(m_sheetUniforms[3], float(piece.phi), float(piece.halfAngle));
+            glUniform3f(m_sheetUniforms[4],
+                float(piece.pivot.x),
+                float(piece.pivot.y),
+                float(piece.pivot.z));
+            glUniform3f(
+                m_sheetUniforms[5], float(piece.axis.x), float(piece.axis.y), float(piece.axis.z));
+            glUniform3f(m_sheetUniforms[6],
+                float(piece.translation.x),
+                float(piece.translation.y),
+                float(piece.translation.z));
+            glUniform1f(m_sheetUniforms[7], float(piece.rotation));
+            glUniform1f(m_sheetUniforms[8], float(piece.scale));
+            glUniform1f(m_sheetUniforms[9], float(std::clamp(1.0 - piece.age / .05, 0.0, 1.0)));
+            // Preserve the attached mesh's vertices when a sector becomes a free sheet.
+            constexpr double twoPi = 6.283185307179586;
+            constexpr int slices = 96, verticesPerSlice = 12 * 6;
+            const double phi = std::fmod(piece.phi + twoPi, twoPi);
+            const int first = int(std::floor((phi - piece.halfAngle) * slices / twoPi));
+            const int last = int(std::ceil((phi + piece.halfAngle) * slices / twoPi));
+            const int start = (first + slices) % slices;
+            const int length = last - first;
+            const int head = std::min(length, slices - start);
+            glDrawArrays(GL_TRIANGLES, start * verticesPerSlice, head * verticesPerSlice);
+            if (head < length) glDrawArrays(GL_TRIANGLES, 0, (length - head) * verticesPerSlice);
+        }
     }
     glBlendFuncSeparate(srcRgb, dstRgb, srcAlpha, dstAlpha);
     if (!blending) glDisable(GL_BLEND);
@@ -308,11 +406,7 @@ void CBubbleMaterial::drawParticles(std::span<const hyprimate::BubbleParticle> p
             float(p.radius),
             float(p.tailRadius),
             float(p.depth),
-            0,
-            float(p.thickness),
-            float(p.spin),
-            float(p.blur),
-            0}};
+            float(p.blur)}};
     }
     glUseProgram(m_particles);
     glBindVertexArray(m_particleVao);
@@ -326,8 +420,5 @@ void CBubbleMaterial::drawParticles(std::span<const hyprimate::BubbleParticle> p
     vector(u[3], t.sourceSize);
     vector(u[4], size);
     glUniform1i(u[5], onGlass);
-    glUniform1i(u[6], 2);
-    glActiveTexture(GL_TEXTURE2);
-    glBindTexture(GL_TEXTURE_2D, m_lut);
     glDrawArraysInstanced(GL_TRIANGLES, 0, 3, GLsizei(count));
 }

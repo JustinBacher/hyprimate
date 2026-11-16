@@ -60,6 +60,8 @@ class CBubbleMaterial {
     std::array<std::array<GLint, 37>, 2> m_surfaceUniforms{};
     std::array<GLint, 37> m_curlSurfaceUniforms{};
     std::array<GLint, 15> m_curlUniforms{};
-    std::array<GLint, 7> m_particleUniforms{};
+    std::array<GLint, 10> m_sheetUniforms{};
+    std::array<std::array<GLint, 3>, 7> m_sheetMaskUniforms{};
+    std::array<GLint, 6> m_particleUniforms{};
     bool m_tried = false;
 };
