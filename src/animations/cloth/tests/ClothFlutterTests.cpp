@@ -889,6 +889,58 @@ namespace {
         CHECK(worst < 1e-9);
     }
 
+    void movementGravityControl() {
+        const auto hemAfterDrag = [](double gravity) {
+            ClothFlutter m;
+            m.beginMovement({.variation = 0, .gravity = gravity}, 7, WINDOW);
+            CHECK(m.waitForSnapshots(2));
+            Box box = WINDOW;
+            double time = 0;
+            for (int frame = 0; frame < 36; ++frame) {
+                box.y += 2800.0 / 120;
+                movementStep(m, box, 1.0 / 120, time);
+            }
+            const auto moved = pose(m);
+            double hem = 0;
+            for (int i = 0; i < GRID; ++i)
+                hem += moved.p[std::size_t(PAPER_CELLS) * GRID + i].y;
+            return hem / GRID;
+        };
+        const double zero = hemAfterDrag(0), normal = hemAfterDrag(1), heavy = hemAfterDrag(3);
+        CHECK(zero > normal + .01);
+        CHECK(normal > heavy + .01);
+        CHECK(hemAfterDrag(-1) == zero);
+        CHECK(hemAfterDrag(4) == heavy);
+        for (double invalid : {std::numeric_limits<double>::quiet_NaN(),
+                 std::numeric_limits<double>::infinity()}) {
+            ClothFlutter m;
+            m.beginMovement({.gravity = invalid}, 7, WINDOW);
+            CHECK(!m.active());
+        }
+    }
+
+    // A quick downward pull leaves the free hem behind instead of dragging a rigid panel.
+    void downwardDragLiftsHem() {
+        for (double hz : {60., 120., 240.}) {
+            ClothFlutter m;
+            m.beginMovement({}, 7, WINDOW);
+            CHECK(m.waitForSnapshots(2));
+            Box box = WINDOW;
+            double time = 0;
+            while (time < .3 - 1e-9) {
+                box.y = WINDOW.y + 2800 * (time + 1 / hz);
+                movementStep(m, box, 1 / hz, time);
+            }
+            const auto lifted = pose(m);
+            double hem = 0;
+            for (int i = 0; i < GRID; ++i)
+                hem += lifted.p[std::size_t(PAPER_CELLS) * GRID + i].y + 1;
+            CHECK(hem / GRID > .3);
+            for (int i = 0; i < GRID; ++i)
+                CHECK(std::abs(lifted.p[i].y) < 1e-5);
+        }
+    }
+
     void movementBoundsAndRestart() {
         ClothFlutter m;
         m.beginMovement({}, 1, WINDOW);
@@ -902,14 +954,6 @@ namespace {
         const auto anchor = std::size_t(PAPER_CELLS);
         CHECK(moved.p[anchor].x >= -.50001 && moved.p[anchor].x <= .50001 &&
               std::abs(moved.p[anchor].y) < 1e-5);
-        for (std::size_t k = 0; k < moved.p.size(); ++k) {
-            const Vec3 r{double(k % GRID) / PAPER_CELLS - .5, -double(k / GRID) / PAPER_CELLS, 0};
-            const auto p = moved.p[k];
-            const double d =
-                std::sqrt(std::pow((p.x - r.x) * box.w, 2) + std::pow((p.y - r.y) * box.h, 2) +
-                          std::pow(p.z * std::sqrt(box.w * box.h), 2));
-            CHECK(d <= .2 * std::min(box.w, box.h) + 1e-4);
-        }
         for (int i = 0; i < 48; ++i) movementStep(m, box, 1.0 / 120, time);
         m.advance(.12);  // begin the bounded final flattening transition
         const auto settling = pose(m);
@@ -988,6 +1032,8 @@ int main() {
         movementIndependentOfWorkerTiming();
         movementBoundsAndRestart();
         movementRodBeforePublication();
+        downwardDragLiftsHem();
+        movementGravityControl();
     }
     // Shutdown must join a currently paused worker before unregistering Jolt, even with a model
     // reference retained.

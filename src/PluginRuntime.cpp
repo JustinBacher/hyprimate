@@ -263,7 +263,8 @@ hyprimate::ClothMovementParams CPluginRuntime::clothMovementParams() const {
         .shading = cloth.shading,
         .variation = cloth.variation,
         .shine = cloth.shine,
-        .springiness = cloth.springiness};
+        .springiness = cloth.springiness,
+        .gravity = cloth.gravity};
 }
 
 bool CPluginRuntime::movementEnabled() const {
