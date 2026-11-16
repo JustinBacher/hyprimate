@@ -535,7 +535,7 @@ namespace hyprimate {
             JobSystemSingleThreaded jobs(cMaxPhysicsJobs);
             PhysicsSystem system;
             system.Init(1, 0, 32, 32, broadPhase, objectVsBroadPhase, pairs);
-            system.SetGravity(JPH::Vec3(0, float(-GRAVITY), 0));
+            system.SetGravity(JPH::Vec3(0, float(-GRAVITY * run.movement.gravity), 0));
             const auto stopped = [&] { return run.stop.stop_requested(); };
             if (stopped()) return;
             const SheetGrid rest = restGrid();
@@ -633,8 +633,7 @@ namespace hyprimate {
                         good = false;
                         break;
                     }
-                    const double shortSide = std::min(next.w, next.h),
-                                 L = std::sqrt(next.w * next.h);
+                    const double L = std::sqrt(next.w * next.h);
                     motion->SetLinearDamping(float(2 + 9 * settle));
                     const double gust = std::sin(phase + nextTime * 7);
                     for (int j = 0; j < GRID; ++j)
@@ -681,23 +680,8 @@ namespace hyprimate {
                         good = false;
                         break;
                     }
-                    for (std::size_t k = GRID; k < rest.size(); ++k) {
-                        auto &vertex = vertices[k];
-                        const auto r = rest[k];
-                        const Vec3 inheritedOffset = mul(sub(run.start[k], r), inherited);
-                        const JPH::Vec3 centre(float(r.x + inheritedOffset.x),
-                            float(r.y + inheritedOffset.y),
-                            float(inheritedOffset.z));
-                        auto offset = vertex.mPosition - centre;
-                        const double limit = 0.2 * shortSide;
-                        const double pixels = std::sqrt(std::pow(offset.GetX() * next.w, 2) +
-                                                        std::pow(offset.GetY() * next.h, 2) +
-                                                        std::pow(offset.GetZ() * L, 2));
-                        if (pixels > limit) {
-                            vertex.mPosition = centre + offset * float(limit / pixels);
-                            vertex.mVelocity *= 0.5F;
-                        }
-                    }
+                    // Keep Jolt's solved pose and velocity together. Clamping vertices back toward
+                    // the flat panel breaks its constraints and clips inertial upward folds.
                     box = next;
                     time = nextTime;
                     good = publishMovement(run, time, vertices);
@@ -921,7 +905,7 @@ namespace hyprimate {
             !std::isfinite(params.strength) || params.strength <= 0 ||
             !std::isfinite(params.flutter) || !std::isfinite(params.shading) ||
             !std::isfinite(params.variation) || !std::isfinite(params.shine) ||
-            !std::isfinite(params.springiness)) {
+            !std::isfinite(params.springiness) || !std::isfinite(params.gravity)) {
             reset();
             return;
         }
@@ -933,7 +917,8 @@ namespace hyprimate {
             std::clamp(params.shading, 0.0, 1.0),
             std::clamp(params.variation, 0.0, 1.0),
             std::clamp(params.shine, 0.0, 1.0),
-            std::clamp(params.springiness, 0.0, 1.0)};
+            std::clamp(params.springiness, 0.0, 1.0),
+            std::clamp(params.gravity, 0.0, 3.0)};
         const double alpha = opacity();
         sampleVertices(run->start, run->velocity);
         auto playback = std::make_unique<MovementPlayback>();
@@ -1366,21 +1351,6 @@ namespace hyprimate {
                 // sheet moves with the latest capture, which can already have started or stopped.
                 v[k] = add(sub(lerp(v0, v1, at), snapshotRigid), m_movement->rigidVelocity);
                 p[k] = lerp(p0, p1, at);
-                if (k < GRID)
-                    continue;  // The native rod limits, not the lower-panel displacement cap, own
-                               // the sleeve.
-                const Vec3 rest{
-                    double(k % GRID) / PAPER_CELLS - .5, -double(k / GRID) / PAPER_CELLS, 0};
-                const Vec3 centre =
-                    add(rest, mul(sub(m_run->start[k], rest), std::exp(-6 * m_movement->time)));
-                const auto offset = sub(p[k], centre);
-                const auto box = m_movement->target;
-                const double L = std::sqrt(box.w * box.h);
-                const double pixels =
-                    std::sqrt(std::pow(offset.x * box.w, 2) + std::pow(offset.y * box.h, 2) +
-                              std::pow(offset.z * L, 2));
-                const double limit = .2 * std::min(box.w, box.h);
-                if (pixels > limit) p[k] = add(centre, mul(offset, limit / pixels));
             }
             return;
         }

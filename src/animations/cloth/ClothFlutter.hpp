@@ -17,7 +17,7 @@ namespace hyprimate {
 
     struct ClothMovementParams {
         double strength = 0.65, flutter = 0.5, shading = 0.7, variation = 0.5, shine = 0.0,
-               springiness = 0.0;
+               springiness = 0.0, gravity = 1.0;
         bool operator==(const ClothMovementParams &) const = default;
     };
 
