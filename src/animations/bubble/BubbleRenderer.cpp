@@ -127,13 +127,14 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
         // The wrapper skips the call when its cached RGB pair already matches; separate alpha
         // factors may differ.
         glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-        if (d.onGlass)
+        if (d.onGlass) {
             m_material.drawParticles(
                 std::span{d.glassParticles}.first(std::min(d.glassCount, d.glassParticles.size())),
                 d.frame.size,
                 target,
                 true);
-        else {
+            if (d.wake) m_material.drawWake(*d.wake, target);
+        } else {
             const auto shellCount = hyprimate::bubbleParticles(
                 d.frame.shell, std::span{m_particles}.first(hyprimate::kBubbleMaxParticles));
             const auto windowCount = hyprimate::bubbleParticles(d.frame.window,
@@ -142,6 +143,10 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
                 d.frame.size,
                 target,
                 false);
+            m_material.drawMicrobubbles(
+                std::span{d.frame.micro}.first(std::min(d.frame.microCount, d.frame.micro.size())),
+                d.frame.size,
+                target);
         }
     }
     for (int i = 0; i < 4; ++i) {

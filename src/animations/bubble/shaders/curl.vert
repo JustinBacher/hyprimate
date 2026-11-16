@@ -1,13 +1,7 @@
 #version 300 es
 precision highp float;
 precision highp int;
-struct Hole { vec3 centre; float radius, rim, precursor; vec4 amplitude, phase; };
-struct Membrane {
-    vec2 halfSize, core;
-    float corner, depth, content, film, visibility, ripple, thickness, flow, aureole;
-    int spherical, holeCount;
-    Hole holes[4];
-};
+#include "membrane.glsl"
 uniform Membrane sheet;
 uniform vec2 size, canvas, origin, sourcePos, sourceSize;
 uniform int sheetMode, sheetHole;
@@ -65,6 +59,8 @@ void main() {
         v=filmNormal;
         filmNormal=v*c+cross(axis,v)*s+axis*dot(axis,v)*(1.0-c);
     }
+    // The curl rides the film where movement has carried it, like the membrane it peels from.
+    if (moving(sheet)) position.xy+=motionOffset(sheet,position.xy);
     vec2 pixel=sourcePos+sourceSize*((position.xy+size*.5)/size)-origin;
     gl_Position=vec4(pixel/canvas*2.0-1.0,0,1);
 }

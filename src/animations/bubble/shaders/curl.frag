@@ -1,13 +1,7 @@
 #version 300 es
 precision highp float;
 precision highp int;
-struct Hole { vec3 centre; float radius, rim, precursor; vec4 amplitude, phase; };
-struct Membrane {
-    vec2 halfSize, core;
-    float corner, depth, content, film, visibility, ripple, thickness, flow, aureole;
-    int spherical, holeCount;
-    Hole holes[4];
-};
+#include "membrane.glsl"
 uniform Membrane sheet;
 uniform sampler2D image, wallpaperImage, filmLut;
 uniform vec2 size, sourcePos, sourceSize, textureOrigin, imageSize;

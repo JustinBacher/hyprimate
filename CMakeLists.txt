@@ -70,6 +70,12 @@ set(BUBBLE_SHADER_FILES
     ${BUBBLE_SHADER_DIR}/curl.frag
     ${BUBBLE_SHADER_DIR}/particle.vert
     ${BUBBLE_SHADER_DIR}/particle.frag
+    ${BUBBLE_SHADER_DIR}/membrane.glsl
+    ${BUBBLE_SHADER_DIR}/soap.glsl
+    ${BUBBLE_SHADER_DIR}/film.vert
+    ${BUBBLE_SHADER_DIR}/film.frag
+    ${BUBBLE_SHADER_DIR}/microbubble.vert
+    ${BUBBLE_SHADER_DIR}/microbubble.frag
 )
 add_custom_command(
     OUTPUT ${CONFIG_GENERATED_DIR}/bubble_shaders_generated.hpp
@@ -100,6 +106,8 @@ add_library(hyprimate-core STATIC
     src/animations/bubble/Bubble.cpp
     src/animations/bubble/BubbleRupture.cpp
     src/animations/bubble/BubbleOptics.cpp
+    src/animations/bubble/BubbleMotion.cpp
+    src/animations/bubble/BubbleWake.cpp
     src/WindowTracker.cpp
 )
 # PaperTakes.cpp #embeds the baked crumples; rebuild it whenever they are re-packed.
@@ -205,6 +213,12 @@ if(BUILD_TESTING)
     target_include_directories(bubble-optics-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     target_compile_options(bubble-optics-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME bubble-optics-tests COMMAND bubble-optics-tests)
+
+    add_executable(bubble-motion-tests src/animations/bubble/tests/BubbleMotionTests.cpp)
+    target_link_libraries(bubble-motion-tests PRIVATE hyprimate-core)
+    target_include_directories(bubble-motion-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_compile_options(bubble-motion-tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME bubble-motion-tests COMMAND bubble-motion-tests)
 
     add_executable(window-tracker-tests tests/WindowTrackerTests.cpp)
     target_link_libraries(window-tracker-tests PRIVATE hyprimate-core)

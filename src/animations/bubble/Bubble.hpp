@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <span>
 
+#include "animations/bubble/BubbleMotion.hpp"
 #include "animations/shared/Core.hpp"
 
 namespace hyprimate {
@@ -50,6 +51,9 @@ namespace hyprimate {
         bool spherical =
             false;  // holes and shading on a sphere of radius halfSize.x (the outer bubble)
         bool closing = false;  // the surface is rupturing
+        // Movement's deformation of a flat surface (the window); the opening and rest leave it
+        // still.
+        BubbleDeformation motion{};
 
         // Rupture. Holes and debris are pure functions of these fields.
         double clock = 0;  // s on this surface's rupture clock
@@ -67,6 +71,9 @@ namespace hyprimate {
         BubbleSurface window{};
         BubbleSurface shell{};
         double seed = 0;
+        // Microbubbles riding the window's film, in frame coordinates.
+        std::array<BubbleMicro, kBubbleMicroCapacity> micro{};
+        std::size_t microCount = 0;
     };
 
     // A liquid droplet, possibly still on its ligament. Evaporation shrinks its radius.
@@ -102,29 +109,52 @@ namespace hyprimate {
     // written.
     std::size_t bubbleImpacts(const BubbleSurface &surface, std::span<BubbleImpact> out);
 
+    // One window's soap film for its whole life: the open or close transition it is in, if any, and
+    // the movement of its fluid, which keeps running across them.
     class Bubble {
       public:
         void begin(Transition direction, double duration, std::uint64_t seed, Vec2 size);
+        // Advances the transition alone (a closing window no longer moves).
         void advance(double elapsed);
+        // Advances the transition and the movement of a live window: size is its membrane
+        // (capture box), body the window body inside it, logical px from the membrane's centre.
+        void advance(double elapsed, Vec2 size, Box body, const BubbleMotionParams &params);
+        // Ends the transition; the movement is untouched.
         void reset();
+        // Window translation since the previous advance, logical px.
+        void drive(Vec2 displacement);
+        // Seeds the movement's microbubbles and buffeting, per window.
+        void seedMotion(std::uint64_t seed);
+        // Drops the movement at once (movement switched off or the window detached).
+        void stopMotion();
         bool active() const;
         bool opening() const;
+        // An opening whose film has landed flat and is settling: movement may act on it.
+        bool landed() const;
         bool closed() const;
+        // The movement still disturbs the window's film.
+        bool stirred() const;
+        const BubbleMotion &motion() const;
+        void clearEmissions();
         BubbleFrame frame(Vec2 size) const;
         // Contains every drawn surface pixel and every particle (ligaments and perspective
         // included).
         Box bounds(Vec2 size) const;
 
       private:
+        void applyMotion(BubbleFrame &frame) const;
+
         BubbleFrame initial_{};
         Vec2 size_{};
         double duration_ = 0;
         double elapsed_ = 0;
         double seed_ = 0;
+        double flow_ = 0;  // film-flow phase of the live window, s
         Vec2 rupture_{};
         bool active_ = false;
         bool opening_ = false;
         bool closed_ = false;
+        BubbleMotion motion_{};
     };
 
 }  // namespace hyprimate

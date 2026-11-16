@@ -62,6 +62,7 @@ struct SBubbleStyle {
     bool shellImpactsDeposited = false;
     bool windowImpactsDeposited = false;
     CBubbleImpactLease impacts;
+    std::uint64_t wake = 0;  // the residue wake this window's movement is laying down
 };
 
 // Hands each surface's glass impacts to the residue once, as soon as its first hole has opened.

@@ -8,6 +8,7 @@
 #include <hyprland/src/render/Renderer.hpp>
 
 #include "animations/bubble/Bubble.hpp"
+#include "animations/bubble/BubbleWake.hpp"
 
 class CBubbleRenderer;
 
@@ -21,13 +22,22 @@ struct SBubbleImpactClock {
     bool ended = false;
 };
 
-// Screen-space deposits retain neither the window nor its textures.
+// Screen-space deposits retain neither the window nor its textures: glass beads from ruptures, and
+// the wakes of film and microbubbles that moving windows leave behind.
 class CBubbleResidue {
   public:
     bool deposit(const PHLMONITOR &monitor,
         Vector2D centre,
         std::span<const hyprimate::BubbleImpact> impacts,
         const SP<SBubbleImpactClock> &clock);
+    // Lays a moving window's film and released microbubbles down on the glass. centre is the frame
+    // centre in monitor-local logical px; wake is the wake the window continued last (0: none).
+    // Returns the wake to continue next time.
+    std::uint64_t trail(const PHLMONITOR &monitor,
+        std::uint64_t wake,
+        Vector2D centre,
+        std::span<const hyprimate::BubbleTrailPoint> points,
+        std::span<const hyprimate::BubbleRelease> releases);
     void tick(std::chrono::steady_clock::time_point now, const PHLMONITOR &monitor);
     void queue(Render::CRenderContext &ctx,
         const PHLMONITOR &monitor,
@@ -50,6 +60,17 @@ class CBubbleResidue {
         SP<SBubbleImpactClock> clock;  // source transition until the bead has landed
         double land = 0;  // impact time on that clock
     };
+    struct Wake {
+        PHLMONITORREF monitor;
+        std::uint64_t id = 0;
+        hyprimate::BubbleWake film;
+        std::chrono::steady_clock::time_point last;
+    };
+    Wake *wakeFor(const PHLMONITOR &monitor, std::uint64_t id);
+    Wake &beginWake(const PHLMONITOR &monitor);
+
     bool m_enabled = true;
     std::vector<Deposit> m_deposits;
+    std::vector<Wake> m_wakes;
+    std::uint64_t m_nextWake = 1;
 };

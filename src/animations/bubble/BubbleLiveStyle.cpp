@@ -35,8 +35,20 @@ Render::SWindowTransformBuffer renderLive(SBubbleStyle &state,
             .outputOrigin = {g.canvas.x, g.canvas.y},
         });
     if (!layer) return failed;
-    if (!ctx.readOnlyEffects() && !ctx.m_renderingCapture && !ctx.m_renderingSnapshot)
-        depositBubbleImpacts(state, frame, context.monitor.lock(), context.currentBox.middle());
+    if (!ctx.readOnlyEffects() && !ctx.m_renderingCapture && !ctx.m_renderingSnapshot) {
+        const auto monitor = context.monitor.lock();
+        const auto centre = context.currentBox.middle();
+        depositBubbleImpacts(state, frame, monitor, centre);
+        // Film and microbubbles the movement shed since the last frame stay where they were laid,
+        // relative to the window drawn now.
+        const auto &motion = state.bubble.motion();
+        if (!motion.trail().empty() || !motion.releases().empty()) {
+            if (state.residue && monitor)
+                state.wake = state.residue->trail(
+                    monitor, state.wake, centre, motion.trail(), motion.releases());
+            state.bubble.clearEmissions();
+        }
+    }
     return {.framebuffer = layer, .box = g.canvas};
 }
 
@@ -72,24 +84,49 @@ bool SBubbleLiveStyle::open(
 }
 
 void SBubbleLiveStyle::movement(CPluginRuntime &,
-    CAnimationTransformer &,
-    const PHLWINDOW &,
-    const hyprimate::TrackDecision &,
+    CAnimationTransformer &transformer,
+    const PHLWINDOW &window,
+    const hyprimate::TrackDecision &decision,
     double,
     bool,
-    bool) {
+    bool moving) {
+    if (!moving) return;
+    // The fluid follows the body's centre: an edge dragged by a resize carries it by half as much.
+    const CBox current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+    const auto &was = decision.previousBox;
+    std::get<SBubbleStyle>(transformer.m_style)
+        .bubble.drive({current.x + current.w * .5 - (was.x + was.w * .5),
+            current.y + current.h * .5 - (was.y + was.h * .5)});
 }
 
 void SBubbleLiveStyle::snapshot(
     const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &s) {
     const auto *state = transformer ? std::get_if<SBubbleStyle>(&transformer->m_style) : nullptr;
-    s.transitionBusy = state && state->bubble.active();
+    // A landed opening is already the window's film: movement acts on it while it settles.
+    s.transitionBusy = state && state->bubble.active() && !state->bubble.landed();
 }
 
-void SBubbleLiveStyle::step(
-    CPluginRuntime &, CAnimationTransformer &transformer, double elapsed, hyprimate::Vec2, bool) {
+void SBubbleLiveStyle::step(CPluginRuntime &runtime,
+    CAnimationTransformer &transformer,
+    double elapsed,
+    hyprimate::Vec2 size,
+    bool enabled) {
     auto &state = std::get<SBubbleStyle>(transformer.m_style);
-    state.bubble.advance(elapsed);
+    if (!enabled && state.bubble.stirred()) cancelMovement(transformer);
+    hyprimate::Box body{-size.x * .5, -size.y * .5, size.x, size.y};
+    if (const auto window = transformer.m_window.lock()) {
+        const CBox current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+        const CBox capture = window->getFullWindowBoundingBox();
+        body = {
+            current.x - capture.middle().x, current.y - capture.middle().y, current.w, current.h};
+    }
+    const auto &options = runtime.m_config.movement.bubble;
+    state.bubble.advance(elapsed,
+        size,
+        body,
+        enabled
+            ? hyprimate::BubbleMotionParams{options.strength, options.microbubbles, options.trail}
+            : hyprimate::BubbleMotionParams{});
     state.impacts.advance(elapsed);
     if (!state.bubble.active()) {
         state.wallpaper.reset();
@@ -105,7 +142,11 @@ void SBubbleLiveStyle::cancelOpening(CAnimationTransformer &transformer) {
     state.impacts.cancel();
 }
 
-void SBubbleLiveStyle::cancelMovement(CAnimationTransformer &) {
+void SBubbleLiveStyle::cancelMovement(CAnimationTransformer &transformer) {
+    auto &state = std::get<SBubbleStyle>(transformer.m_style);
+    // Film already on the glass dissolves on its own; the window's film comes to rest at once.
+    state.bubble.stopMotion();
+    state.wake = 0;
 }
 
 bool SBubbleLiveStyle::available(const CAnimationTransformer &transformer) noexcept {
@@ -113,7 +154,8 @@ bool SBubbleLiveStyle::available(const CAnimationTransformer &transformer) noexc
 }
 
 bool SBubbleLiveStyle::deforming(const CAnimationTransformer &transformer) noexcept {
-    return std::get<SBubbleStyle>(transformer.m_style).bubble.active();
+    const auto &bubble = std::get<SBubbleStyle>(transformer.m_style).bubble;
+    return bubble.active() || bubble.stirred();
 }
 
 bool SBubbleLiveStyle::builtFor(const CAnimationTransformer &,
@@ -124,12 +166,14 @@ bool SBubbleLiveStyle::builtFor(const CAnimationTransformer &,
 }
 
 SStyleState SBubbleLiveStyle::initial(
-    hyprimate::MaterialParams, hyprimate::ClothMovementParams, std::uint64_t) {
-    return SBubbleStyle{};
+    hyprimate::MaterialParams, hyprimate::ClothMovementParams, std::uint64_t seed) {
+    SBubbleStyle state;
+    state.bubble.seedMotion(seed);
+    return state;
 }
 
-double SBubbleLiveStyle::strength(const CPluginRuntime &) {
-    return 0.0;
+double SBubbleLiveStyle::strength(const CPluginRuntime &runtime) {
+    return runtime.m_config.movement.bubble.strength;
 }
 bool SBubbleLiveStyle::usable(const CPluginRuntime &) {
     return true;

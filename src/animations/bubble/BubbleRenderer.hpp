@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <optional>
 
 #include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/Framebuffer.hpp>
@@ -22,7 +23,8 @@ struct SBubbleDraw {
     hyprimate::Vec2 outputOrigin;
     std::array<hyprimate::BubbleParticle, hyprimate::kBubbleMaxImpacts> glassParticles{};
     std::size_t glassCount = 0;
-    bool onGlass = false;
+    bool onGlass = false;  // screen-space residue: no window imagery, frame is the deposit's box
+    std::optional<hyprimate::BubbleWakeView> wake{};  // on the glass: a film trail to draw
 };
 
 class CBubbleRenderer {

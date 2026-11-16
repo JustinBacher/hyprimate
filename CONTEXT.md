@@ -5,7 +5,7 @@
 **Transition**: a window's open or close animation. Each direction (open, close) has its own **Transition settings**: enabled, style, and the per-style options; a few settings exist for only one direction.
 _Avoid_: phase (reserved for the paper crumple's internal progress).
 
-**Style**: the one material a user picks for all window animation: liquid, paper, cloth, swarm, or bubble. Movement, open, and close all follow it; each can still be switched off on its own. Paper and bubble have no movement animation, so their windows move undeformed.
+**Style**: the one material a user picks for all window animation: liquid, paper, cloth, swarm, or bubble. Movement, open, and close all follow it; each can still be switched off on its own. Paper has no movement animation, so its windows move undeformed.
 _Avoid_: mode, material (as separate per-direction choices).
 
 **Sheet**: the window drawn as a lit, folding surface in 3D. Paper and cloth are the sheet styles; liquid is not.
@@ -27,6 +27,12 @@ _Avoid_: mode, material (as separate per-direction choices).
 **Aureole**: the band of film ahead of a rim that is being drawn into it; content visibly compresses there before the rim consumes it.
 
 **Glass bead**: a droplet that reached the screen glass. It stays at its screen position and evaporates independently of the window.
+
+**Drag** (bubble): the lag of a moving bubble's trailing film behind its leading edge, as a displacement. It bows the trailing side out, overshoots forward when the window stops, and is the same state across movement, the end of an opening and the start of a close.
+
+**Microbubble**: a small soap bubble that swells out of a moving window's film, rides its outline toward the trailing side, and then detaches, merges back or collapses.
+
+**Wake**: the soap film a moving bubble leaves on the screen, with the microbubbles that detached into it. Like glass beads it stays at its screen position and drains, breaks up and disappears on its own.
 
 **Stall**: a gap between compositor frames longer than an animation can play through faithfully. Each animation decides its own response to a stall (abort, clamp, or restart), but what counts as a stall is defined once.
 

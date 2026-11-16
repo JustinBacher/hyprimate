@@ -80,6 +80,11 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                             shine = 0,
 --                             variation = 0.5,
 --                         },
+--                         bubble = {
+--                             strength = 0.65,
+--                             microbubbles = 0.5,
+--                             trail = 0.5,
+--                         },
 --                     },
 --                 },
 --                 open = {

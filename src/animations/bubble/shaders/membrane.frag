@@ -4,28 +4,14 @@ uniform sampler2D image, wallpaperImage, filmLut;
 uniform vec2 wallpaperOrigin, wallpaperX, wallpaperY, wallpaperPixel;
 uniform int wallpaperReady;
 uniform vec2 sourcePos, sourceSize, textureOrigin, imageSize, outputOrigin, size;
-struct Hole { vec3 centre; float radius, rim, precursor; vec4 amplitude, phase; };
-struct Membrane {
-    vec2 halfSize, core;
-    float corner, depth, content, film, visibility, ripple, thickness, flow, aureole;
-    int spherical, holeCount;
-    Hole holes[4];
-};
+#include "membrane.glsl"
 uniform Membrane windowSurface, shellSurface;
 out vec4 colour;
 vec4 over(vec4 a, vec4 b) { return a + b * (1.0 - a.a); }
-float luminance(vec3 c) { return dot(c, vec3(.2126,.7152,.0722)); }
+#include "soap.glsl"
 float boxDistance(vec2 p, vec2 h, float r) {
     vec2 q = abs(p) - h + r;
     return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
-}
-float noise(vec3 p) {
-    vec3 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
-    vec4 h = vec4(dot(i,vec3(1,57,113)),dot(i+vec3(1,0,0),vec3(1,57,113)),
-                  dot(i+vec3(0,1,0),vec3(1,57,113)),dot(i+vec3(1,1,0),vec3(1,57,113)));
-    vec4 a = fract(sin(h)*43758.5453), b = fract(sin(h+113.0)*43758.5453);
-    return mix(mix(mix(a.x,a.y,f.x),mix(a.z,a.w,f.x),f.y),
-               mix(mix(b.x,b.y,f.x),mix(b.z,b.w,f.x),f.y),f.z);
 }
 // White studio seen in reflection (y down, z toward the viewer): dim ground, brighter sky, a mullioned window
 // softbox at the upper left and a small fill light. All colour comes from interference in the film.
@@ -70,7 +56,19 @@ vec4 layer(Membrane s, vec2 p, vec3 point, vec3 normal, float cosView, float cur
     }
     float aa=max(fwidth(edge),.35);
     float intact=domain*smoothstep(-aa,aa,edge);
-    float local=max(s.film,precursor);
+    // Movement stretches the film near the outline, most on the trailing side: there it thins and
+    // shows interference colour while the window's middle stays clear.
+    float stress=0.0;
+    if (s.sheen>0.0 && s.spherical==0) {
+        vec2 h=max(s.halfSize,vec2(1.0)), u=p/h, u2=u*u;
+        float trailing=1.0, drag=length(s.drag);
+        if (drag>1e-6) {
+            vec2 dir=s.drag/drag;
+            trailing=.35+.65*smoothstep(-1.0,1.0,dot(p,dir)/dot(abs(dir),h));
+        }
+        stress=s.sheen*smoothstep(.55,1.0,sqrt(sqrt(dot(u2,u2))))*trailing;
+    }
+    float local=max(max(s.film,precursor),stress);
     vec4 reflection=vec4(0);
     // The thickness field is only evaluated where film is visible: a closing window needs it near its holes only.
     if (local>0.0 && intact>0.0) {
@@ -82,7 +80,7 @@ vec4 layer(Membrane s, vec2 p, vec3 point, vec3 normal, float cosView, float cur
         vec3 warp=q+swirl*1.1;
         float marble=(noise(warp)*.65+noise(warp*2.1+3.1)*.35)*2.0-1.0;
         float thick=s.thickness * exp(.65*marble) * clamp(1.0+.28*warpedPoint.y,.55,1.45);
-        thick *= 1.0-.97*precursor;
+        thick *= (1.0-.97*precursor)*(1.0-.45*stress);
         vec3 curled=normal;
         float curledView=clamp(curled.z,0.0,1.0);
         vec3 R=texture(filmLut,vec2(clamp(thick/1500.0,0.0,1.0),curledView)).rgb;
@@ -120,12 +118,15 @@ vec4 membrane(Membrane s, vec2 logical, bool background) {
     if (s.visibility<=0.0) return vec4(0);
     vec2 p=logical-size*.5;
     vec2 base=(sourcePos+sourceSize*(logical/size)-textureOrigin)/imageSize;
-    if (!background && s.holeCount==0 && s.film==0.0 && s.depth==0.0 &&
+    bool deformed=!background && moving(s);
+    if (!background && !deformed && s.sheen==0.0 && s.holeCount==0 && s.film==0.0 && s.depth==0.0 &&
         all(equal(s.core,vec2(0))) && s.ripple==0.0 && s.content==1.0 && s.visibility==1.0) {
         if (any(lessThan(logical,vec2(0))) || any(greaterThanEqual(logical,size))) return vec4(0);
         return texture(image,clamp(base,max((sourcePos-textureOrigin+.5)/imageSize,vec2(.5)/imageSize),
                      min((sourcePos+sourceSize-textureOrigin-.5)/imageSize,vec2(1)-.5/imageSize)));
     }
+    // Every material property below belongs to the undeformed film point drawn here.
+    if (deformed) p=motionSource(s,p);
     vec2 h=max(s.halfSize,vec2(.001));
     float corner=clamp(s.corner,0.0,min(h.x,h.y));
     float sd=boxDistance(p,h,corner);
@@ -145,7 +146,9 @@ vec4 membrane(Membrane s, vec2 logical, bool background) {
     vec2 supportGradient=-4.0*xy*vec2(b.x*b.y*b.y,b.y*b.x*b.x);
     vec2 coreNormal=-(supportGradient*(s.core.x+s.core.y*dot(xy,xy)) +
                       b.x*b.x*b.y*b.y*s.core.y*2.0*xy)/h;
-    vec3 normal=normalize(vec3(gradient*radius*curve/max(.22,cap+.22)+coreNormal,1.0));
+    // The film leans the way movement carries it, so its reflections slide with the deformation.
+    vec2 tilt=deformed ? motionOffset(s,p)/max(min(h.x,h.y),1.0)*1.5 : vec2(0);
+    vec3 normal=normalize(vec3(gradient*radius*curve/max(.22,cap+.22)+coreNormal+tilt,1.0));
     vec3 front=vec3(xy,max(z,.001)), back=vec3(xy,-max(z,.001));
     if (s.spherical!=0) { normal=normalize(front); cap=z; }
     float cv=clamp(normal.z,0.0,1.0);

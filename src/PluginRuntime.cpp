@@ -272,7 +272,9 @@ bool CPluginRuntime::closeEnabled() const {
 }
 
 bool CPluginRuntime::bubbleResidueEnabled() const {
-    return (openEnabled() || closeEnabled()) && m_config.style == hyprimate::config::Style::Bubble;
+    // Glass beads come from ruptures; film trails and free microbubbles from movement.
+    return (openEnabled() || closeEnabled() || (movementEnabled() && !m_inert)) &&
+           m_config.style == hyprimate::config::Style::Bubble;
 }
 
 hyprimate::Edge CPluginRuntime::firstWindowEdge() const {
