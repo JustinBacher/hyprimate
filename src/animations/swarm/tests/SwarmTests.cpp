@@ -740,6 +740,12 @@ namespace {
 }  // namespace
 
 int main() {
+    // Bare names resolve under the sprite directory; explicit paths stay unchanged.
+    CHECK(hyprimate::spritePath("cat", "/sprites") == "/sprites/cat.png");
+    CHECK(hyprimate::spritePath("bird.png", "/sprites") == "/sprites/bird.png");
+    CHECK(hyprimate::spritePath("/tmp/custom.png", "/sprites") == "/tmp/custom.png");
+    CHECK(hyprimate::spritePath("./custom.png", "/sprites") == "./custom.png");
+    CHECK(hyprimate::spritePath("", "/sprites").empty());
     tilesPartitionTheCapture();
     openingEntersFromItsSidesAndSettlesExactly();
     equalSeedsGiveEqualMotion();

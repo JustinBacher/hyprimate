@@ -132,16 +132,16 @@ int main() {
     set("window:options:swarm:speed", 2100.0F);
     set("window:open:options:swarm:count", 250LL);
     set("window:close:options:swarm:speed", 900.0F);
-    set("window:options:swarm:sprite", std::string("cat"));
-    set("window:open:options:swarm:sprite", std::string("spider"));
+    set("window:options:swarm:sprite", std::string("/tmp/custom sprite.png"));
+    set("window:open:options:swarm:sprite", std::string("/tmp/open.png"));
     set("window:options:swarm:agility", 0.8F);
     set("window:movement:options:swarm:agility", 0.5F);
     c = readConfig(values);
     assert(c.open.swarm.count == 250 && c.close.swarm.count == 123 && c.movement.swarm.count == 123);
     assert(near(c.open.swarm.speed, 2100) && near(c.close.swarm.speed, 900));
     assert(near(c.movement.swarm.speed, 2100));
-    assert(c.open.swarm.sprite == Sprite::Spider && c.close.swarm.sprite == Sprite::Cat);
-    assert(c.movement.swarm.sprite == Sprite::Cat);
+    assert(c.open.swarm.sprite == "/tmp/open.png" && c.close.swarm.sprite == "/tmp/custom sprite.png");
+    assert(c.movement.swarm.sprite == "/tmp/custom sprite.png");
     assert(near(c.open.swarm.agility, 0.8) && near(c.close.swarm.agility, 0.8));
     assert(near(c.movement.swarm.agility, 0.5));
 }

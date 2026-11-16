@@ -2,18 +2,19 @@
 
 #include <cstdint>
 #include <span>
+#include <string>
+#include <string_view>
 
 #include "animations/shared/Core.hpp"
 
 namespace hyprimate {
+    // Bare names refer to PNGs in the sprite directory; explicit paths are used directly.
+    std::string spritePath(std::string_view value, std::string_view directory);
+
 
     // How a creature is drawn, independent of how the swarm moves: the sheet's walk cycle, which
     // way it faces, and what its silhouette measures. The simulation only supplies where an agent
     // is, how far it has walked and how locked it is.
-
-    // The creatures a swarm can be drawn as; each has a sprite sheet.
-    enum class SwarmCreature : std::uint8_t { Spider, Cat };
-
     // One square frame of a sprite sheet, measured from its alpha. Lengths are fractions of the
     // frame's side.
     struct SpriteFrame {

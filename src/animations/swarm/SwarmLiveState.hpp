@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <vector>
 
 #include <hyprland/src/helpers/DeformableMesh.hpp>
@@ -21,7 +22,6 @@ struct SSwarmMeshes {
 
 struct SSwarmStyle {
     hyprimate::Swarm swarm{};
-    hyprimate::SwarmCreature creature =
-        hyprimate::SwarmCreature::Spider;  // what the running animation is drawn as
+    std::string creature;  // what the running animation is drawn as
     SSwarmMeshes meshes{};
 };

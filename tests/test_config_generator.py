@@ -115,7 +115,7 @@ class ConfigGeneratorTests(unittest.TestCase):
     def test_string_choices_and_float_ranges_are_enforced(self):
         header = GEN.config_header(SCHEMA)
         for item in REGISTERED:
-            if item['type'] == 'string':
+            if item['type'] == 'string' and 'choices' in item:
                 self.assertIn(GEN.key(item) + ' must be one of: ' + ', '.join(item['choices']), header)
             if item['type'] == 'float':
                 self.assertIn(f'.min = {GEN.float_literal(item["min"])}', header)

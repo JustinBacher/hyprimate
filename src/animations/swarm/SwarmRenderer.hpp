@@ -2,6 +2,8 @@
 
 #include <array>
 #include <cstdint>
+#include <map>
+#include <string>
 #include <vector>
 
 #include <hyprland/src/render/Context.hpp>
@@ -23,10 +25,10 @@ class CSwarmSprites {
     };
 
     // The creature's measurements; null when its sheet cannot be decoded. Touches no GL state.
-    const SSheet *sheet(hyprimate::SwarmCreature creature);
+    const SSheet *sheet(const std::string &creature);
     // The creature's atlas; null when unavailable. Creates GL objects on first use, so call it only
     // while rendering.
-    SP<Render::ITexture> texture(hyprimate::SwarmCreature creature);
+    SP<Render::ITexture> texture(const std::string &creature);
 
   private:
     struct SEntry {
@@ -35,9 +37,9 @@ class CSwarmSprites {
         std::vector<std::uint8_t> pixels;  // premultiplied BGRA until uploaded
         SP<Render::ITexture> texture;
     };
-    SEntry &entry(hyprimate::SwarmCreature creature);
+    SEntry &entry(const std::string &creature);
 
-    std::array<SEntry, 2> m_entries;
+    std::map<std::string, SEntry, std::less<>> m_entries;
 };
 
 // Drawing a swarm takes two steps. The layer is the window cut into shape, in two halves side by

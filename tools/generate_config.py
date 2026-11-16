@@ -87,10 +87,12 @@ def validate(settings):
             low, high = item['min'], item['max']
             if not (is_number(low) and is_number(high) and is_number(default)) or not low <= default <= high:
                 raise ValueError(f'{path}: float default must lie within finite min..max')
-        if kind == 'string':
+        if kind == 'string' and 'choices' in item:
             choices = item['choices']
             if not isinstance(choices, list) or not choices or not all(isinstance(c, str) for c in choices) or default not in choices:
                 raise ValueError(f'{path}: string default must be one of the non-empty string choices')
+        elif kind == 'string' and not isinstance(default, str):
+            raise ValueError(f'{path}: string default must be text')
         if kind == 'set':
             choices, all_keyword = item['choices'], item['all']
             if (not isinstance(choices, list) or not 1 <= len(choices) <= 8
@@ -199,7 +201,7 @@ def enum_name(item):
 def enums(settings):
     found = {}
     for item in settings:
-        if item['type'] not in ('string', 'set'):
+        if item['type'] not in ('string', 'set') or (item['type'] == 'string' and 'choices' not in item):
             continue
         name = enum_name(item)
         if name in found and (found[name]['type'] != item['type'] or found[name]['choices'] != item['choices']
@@ -226,7 +228,8 @@ def struct_types(settings):
             fields = types.setdefault(type_name(segments[:depth]), {})
             field = segments[depth]
             if depth == len(segments) - 1:
-                typ = (enum_name(item) if item['type'] == 'string' else
+                typ = (enum_name(item) if item['type'] == 'string' and 'choices' in item else
+                       'std::string' if item['type'] == 'string' else
                        f'Flags<{enum_name(item)}>' if item['type'] == 'set' else CTYPES[item['type']])
                 fields[field] = ('leaf', typ)
             else:
@@ -334,7 +337,7 @@ def config_header(settings):
                 options_type = 'SIntValueOptions'
             out.append(f'    values.{member} = makeShared<Config::Values::{cls}>({literal(name)}, {desc}, {value},')
             out.append(f'        Config::Values::{options_type}{{{options}}});')
-        elif kind in ('string', 'set'):
+        elif kind == 'set' or (kind == 'string' and 'choices' in item):
             if kind == 'string':
                 conditions = ' || '.join(f'value == {literal(choice)}' for choice in item['choices'])
                 error = name + ' must be one of: ' + ', '.join(item['choices'])
@@ -377,7 +380,7 @@ def config_header(settings):
             value = f'detail::parse{enum_name(item)}({source}).value_or(Flags<{enum_name(item)}>{{{bits}}})'
         elif item['type'] == 'float':
             value = f'detail::clampFloat({source}, {float_literal(item["min"])}, {float_literal(item["max"])})'
-        elif item['type'] == 'string':
+        elif item['type'] == 'string' and 'choices' in item:
             value = f'detail::parse{enum_name(item)}({source})'
         elif item['type'] == 'color':
             value = f'static_cast<std::uint32_t>({source})'
@@ -412,7 +415,7 @@ def documentation(settings):
         if kind == 'set':
             choices = ', '.join('`' + x + '`' for x in item['choices'])
             meaning += f' Comma-separated list of: {choices}; `{item["all"]}` selects every one and overrides the rest.'
-        if kind == 'string':
+        if kind == 'string' and 'choices' in item:
             meaning += ' Allowed: ' + ', '.join('`' + x + '`' for x in item['choices']) + '.'
         label = f'{kind} / `{default}`'
         if item.get('optional'):

@@ -17,14 +17,8 @@ inline hyprimate::SwarmParams swarmParams(const SwarmConfig &swarm) {
 }
 
 template <typename SwarmConfig>
-inline hyprimate::SwarmCreature swarmCreature(const SwarmConfig &swarm) {
-    switch (swarm.sprite) {
-        case hyprimate::config::Sprite::Spider:
-            return hyprimate::SwarmCreature::Spider;
-        case hyprimate::config::Sprite::Cat:
-            return hyprimate::SwarmCreature::Cat;
-    }
-    return hyprimate::SwarmCreature::Spider;
+inline const std::string &swarmCreature(const SwarmConfig &swarm) {
+    return swarm.sprite;
 }
 
 inline hyprimate::EdgeSet swarmSides(

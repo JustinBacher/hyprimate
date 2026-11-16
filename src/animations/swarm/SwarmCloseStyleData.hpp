@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <string>
 
 #include "Swarm.hpp"
 #include "SwarmSprite.hpp"
@@ -9,5 +10,5 @@ struct SSwarmCloseData {
     std::uint64_t seed = 0;
     hyprimate::SwarmPlacement placement{};
     hyprimate::EdgeSet sides{};
-    hyprimate::SwarmCreature creature = hyprimate::SwarmCreature::Spider;
+    std::string creature;
 };

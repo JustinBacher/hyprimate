@@ -7,6 +7,15 @@
 #include "animations/swarm/SwarmSprite.hpp"
 
 namespace hyprimate {
+    std::string spritePath(std::string_view value, std::string_view directory) {
+        if (value.empty() || value.find('/') != std::string_view::npos) return std::string(value);
+        std::string result(directory);
+        result += '/';
+        result += value;
+        if (!value.ends_with(".png")) result += ".png";
+        return result;
+    }
+
     namespace {
 
         constexpr std::uint8_t kSolid = 128;

@@ -2,7 +2,6 @@
 #include <cmath>
 #include <cstring>
 #include <numbers>
-#include <span>
 
 #include <cairo/cairo.h>
 #include <drm_fourcc.h>
@@ -12,7 +11,6 @@
 
 #include "animations/swarm/SwarmRenderer.hpp"
 
-using hyprimate::SwarmCreature;
 using hyprimate::Vec2;
 
 namespace {
@@ -30,64 +28,27 @@ namespace {
     // Px between the two halves of the layer, so filtering one never reaches the other.
     constexpr double LAYER_GAP = 2.0;
 
-    constexpr unsigned char SPIDER_PNG[] = {
-#embed "sprites/spider.png"
-    };
-    constexpr unsigned char CAT_PNG[] = {
-#embed "sprites/cat.png"
-    };
-
-    // A sprite sheet as drawn: `columns` x `rows` equal frames in walk-cycle order, row by row.
-    struct SSheetSource {
-        std::span<const unsigned char> png;
-        int columns = 1, rows = 1;
-        double forward = 0.0;  // heading the creature faces, radians (atan2(y, x), y down)
-        double stride = 1.0;  // body lengths walked per cycle
-    };
-
-    SSheetSource sourceOf(SwarmCreature creature) {
-        switch (creature) {
-            case SwarmCreature::Spider:  // seen from above, head up
-                return {SPIDER_PNG, 4, 2, -0.5 * std::numbers::pi, 1.1};
-            case SwarmCreature::Cat:  // seen from above, head down
-                return {CAT_PNG, 4, 2, 0.5 * std::numbers::pi, 1.4};
-        }
-        return {SPIDER_PNG, 4, 2, -0.5 * std::numbers::pi, 1.1};
-    }
-
-    struct SPngReader {
-        std::span<const unsigned char> data;
-        std::size_t at = 0;
-    };
-
-    cairo_status_t readPng(void *closure, unsigned char *out, unsigned int length) {
-        auto *reader = static_cast<SPngReader *>(closure);
-        if (length > reader->data.size() - reader->at) return CAIRO_STATUS_READ_ERROR;
-        std::memcpy(out, reader->data.data() + reader->at, length);
-        reader->at += length;
-        return CAIRO_STATUS_SUCCESS;
-    }
-
     // Decodes the sheet, resamples its frames into the atlas and measures them. False when the
     // sheet cannot be decoded.
-    bool bake(const SSheetSource &source,
+    bool bake(const std::string &creature,
         CSwarmSprites::SSheet &sheet,
         std::vector<std::uint8_t> &pixels) {
-        SPngReader reader{source.png};
-        cairo_surface_t *image = cairo_image_surface_create_from_png_stream(readPng, &reader);
+        const auto path = hyprimate::spritePath(creature, HYPRIMATE_SPRITE_DIR);
+        cairo_surface_t *image = cairo_image_surface_create_from_png(path.c_str());
         if (cairo_surface_status(image) != CAIRO_STATUS_SUCCESS) {
             cairo_surface_destroy(image);
             return false;
         }
 
-        const int frames = source.columns * source.rows;
+        constexpr int columns = 4, rows = 2;
+        constexpr int frames = columns * rows;
         const int width = (frames + SHAPE_CELLS) * CELL_PX;
         cairo_surface_t *atlas = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, CELL_PX);
         cairo_t *cr = cairo_create(atlas);
         const double frameW =
-            static_cast<double>(cairo_image_surface_get_width(image)) / source.columns;
+            static_cast<double>(cairo_image_surface_get_width(image)) / columns;
         const double frameH =
-            static_cast<double>(cairo_image_surface_get_height(image)) / source.rows;
+            static_cast<double>(cairo_image_surface_get_height(image)) / rows;
         for (int k = 0; k < frames; ++k) {
             const double x = k * CELL_PX + GUTTER_PX;
             cairo_save(cr);
@@ -96,7 +57,7 @@ namespace {
             cairo_translate(cr, x, GUTTER_PX);
             cairo_scale(cr, FRAME_PX / frameW, FRAME_PX / frameH);
             cairo_set_source_surface(
-                cr, image, -(k % source.columns) * frameW, -(k / source.columns) * frameH);
+                cr, image, -(k % columns) * frameW, -(k / columns) * frameH);
             cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_BEST);
             cairo_paint(cr);
             cairo_restore(cr);
@@ -146,8 +107,8 @@ namespace {
                 }
                 sheet.frames.push_back(hyprimate::measureSprite(alpha, FRAME_PX));
             }
-            sheet.forward = source.forward;
-            sheet.stride = source.stride;
+            sheet.forward = -0.5 * std::numbers::pi;
+            sheet.stride = 1.0;
         }
         cairo_surface_destroy(atlas);
         cairo_surface_destroy(image);
@@ -233,11 +194,11 @@ namespace {
 
 }  // namespace
 
-CSwarmSprites::SEntry &CSwarmSprites::entry(SwarmCreature creature) {
-    SEntry &e = m_entries[std::min(static_cast<std::size_t>(creature), m_entries.size() - 1)];
+CSwarmSprites::SEntry &CSwarmSprites::entry(const std::string &creature) {
+    SEntry &e = m_entries[creature];
     if (!e.tried) {
         e.tried = true;
-        if (!bake(sourceOf(creature), e.sheet, e.pixels)) {
+        if (!bake(creature, e.sheet, e.pixels)) {
             e.sheet.frames.clear();
             e.pixels.clear();
         }
@@ -245,12 +206,12 @@ CSwarmSprites::SEntry &CSwarmSprites::entry(SwarmCreature creature) {
     return e;
 }
 
-const CSwarmSprites::SSheet *CSwarmSprites::sheet(SwarmCreature creature) {
+const CSwarmSprites::SSheet *CSwarmSprites::sheet(const std::string &creature) {
     const SEntry &e = entry(creature);
     return e.sheet.frames.empty() ? nullptr : &e.sheet;
 }
 
-SP<Render::ITexture> CSwarmSprites::texture(SwarmCreature creature) {
+SP<Render::ITexture> CSwarmSprites::texture(const std::string &creature) {
     SEntry &e = entry(creature);
     if (e.texture || e.pixels.empty() || !g_pHyprRenderer) return e.texture;
     const int width = (static_cast<int>(e.sheet.frames.size()) + SHAPE_CELLS) * CELL_PX;

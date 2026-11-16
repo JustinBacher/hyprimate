@@ -138,12 +138,10 @@ add_library(hyprimate SHARED
     src/NativeFadeoutPass.cpp
     src/animations/shared/PaperRenderer.cpp
 )
-# SwarmRenderer.cpp #embeds the creature sheets; rebuild it whenever one changes.
-set_source_files_properties(src/animations/swarm/SwarmRenderer.cpp PROPERTIES OBJECT_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/animations/swarm/sprites/spider.png;${CMAKE_CURRENT_SOURCE_DIR}/src/animations/swarm/sprites/cat.png")
 set_target_properties(hyprimate PROPERTIES PREFIX "" INTERPROCEDURAL_OPTIMIZATION FALSE)
 add_dependencies(hyprimate generate-config generate-bubble-shaders)
 target_include_directories(hyprimate PRIVATE ${CONFIG_GENERATED_DIR})
+target_compile_definitions(hyprimate PRIVATE HYPRIMATE_SPRITE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/animations/swarm/sprites")
 target_link_libraries(hyprimate PRIVATE PkgConfig::HYPRLAND Jolt hyprimate-core)
 # Keep Jolt's symbols out of the plugin's dynamic symbol table, so they cannot bind to another copy in the process.
 target_link_options(hyprimate PRIVATE -Wl,--exclude-libs,ALL)
