@@ -16,11 +16,17 @@ _Avoid_: mode, material (as separate per-direction choices).
 
 **Take**: one baked paper crumple, a flat sheet crumpling into a ball. A paper transition plays a take forward (close) or backward (open).
 
-**Bubble**: a window's soap-film surface. Opening inflates it as a round bubble before flattening it into the window; closing ruptures the surface where it is.
+**Bubble**: a window's soap-film surface. Opening inflates a round outer bubble that ruptures while a clear inner film emerges and flattens into the window; closing ruptures the window's film where it is.
 
 **Splat**: the bubble's brief outward stretch on reaching the screen plane, followed by elastic settlement.
 
-**Rupture**: the off-center tear whose retracting rim consumes a closing bubble's membrane; not a reversed inflation.
+**Rupture**: holes that open at thinning (black-film) spots and grow at constant speed until their rims have consumed a membrane; never a reversed inflation.
+
+**Rim**: the liquid thread at a hole's edge. It gathers the retracting film and sheds ligaments that pinch off into droplets.
+
+**Aureole**: the band of film ahead of a rim that is being drawn into it; content visibly compresses there before the rim consumes it.
+
+**Glass bead**: a droplet that reached the screen glass. It stays at its screen position and evaporates independently of the window.
 
 **Stall**: a gap between compositor frames longer than an animation can play through faithfully. Each animation decides its own response to a stall (abort, clamp, or restart), but what counts as a stall is defined once.
 

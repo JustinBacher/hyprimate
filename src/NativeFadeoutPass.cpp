@@ -1,12 +1,13 @@
-#include "NativeFadeoutPass.hpp"
+#include <utility>
 
 #include <hyprland/src/render/pass/RectPassElement.hpp>
 #include <hyprland/src/render/pass/TexPassElement.hpp>
 
-#include <utility>
+#include "NativeFadeoutPass.hpp"
 
 CNativeFadeoutPass::CNativeFadeoutPass(Render::CRenderContext &ctx, PHLMONITOR monitor)
-    : m_ctx(ctx), m_monitor(std::move(monitor)) {}
+    : m_ctx(ctx), m_monitor(std::move(monitor)) {
+}
 
 CRegion CNativeFadeoutPass::damage() const {
     return CRegion{0, 0, m_monitor->m_transformedSize.x, m_monitor->m_transformedSize.y};
@@ -33,8 +34,9 @@ void CNativeFadeoutPass::drawBackdrop(const Desktop::SFadeoutRenderEffects &effe
     }
 }
 
-void CNativeFadeoutPass::drawTexture(const Desktop::IFadeout &fadeout, const SP<Render::ITexture> &tex,
-                                     const Desktop::SFadeoutRenderEffects &effects) {
+void CNativeFadeoutPass::drawTexture(const Desktop::IFadeout &fadeout,
+    const SP<Render::ITexture> &tex,
+    const Desktop::SFadeoutRenderEffects &effects) {
     CTexPassElement::SRenderData data;
     data.tex = tex;
     data.box = fadeout.renderBox();

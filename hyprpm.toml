@@ -1,7 +1,7 @@
 [repository]
-name = "liquid-glass"
+name = "hyprimate"
 
-[liquid-glass]
+[hyprimate]
 description = "Viscous window deformation during movement"
-output = "build/liquid-glass.so"
+output = "build/hyprimate.so"
 build = ["cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo", "cmake --build build"]

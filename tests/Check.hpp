@@ -2,8 +2,8 @@
 
 #include <cstdio>
 
-// Shared check harness for the standalone test executables. CHECK reports a failed expression and keeps going;
-// main() returns g_failures == 0 ? 0 : 1.
+// Shared check harness for the standalone test executables. CHECK reports a failed expression and
+// keeps going; main() returns g_failures == 0 ? 0 : 1.
 inline int g_failures = 0;
 
 inline void report(bool ok, const char *expression, const char *file, int line) {

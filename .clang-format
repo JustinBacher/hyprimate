@@ -1,9 +1,29 @@
-BasedOnStyle: LLVM
+BasedOnStyle: Google
 IndentWidth: 4
 ContinuationIndentWidth: 4
-ColumnLimit: 120
+ColumnLimit: 100
+NamespaceIndentation: All
+IndentCaseLabels: true
 AccessModifierOffset: -2
-AlignConsecutiveDeclarations: true
-AlignTrailingComments: true
+AlignConsecutiveDeclarations: None
+AlignTrailingComments: false
+AlignAfterOpenBracket: DontAlign
+AllowShortFunctionsOnASingleLine: None
+BinPackArguments: false
+PointerAlignment: Right
+BinPackParameters: OnePerLine
 BreakBeforeBraces: Attach
-SortIncludes: false
+SortIncludes:
+  Enabled: true
+  IgnoreCase: false
+IncludeBlocks: Regroup
+# Keep the requested group order even for a source file's matching header.
+IncludeIsMainRegex: "$^"
+IncludeCategories:
+  # Standard C++ headers have no directory or filename extension.
+  - Regex: "^<[^/.]+>$"
+    Priority: 1
+  - Regex: "^<"
+    Priority: 2
+  - Regex: '^"'
+    Priority: 3

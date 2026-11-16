@@ -1,12 +1,13 @@
 #pragma once
-#include "Swarm.hpp"
-#include "SwarmSprite.hpp"
 #include <cstdint>
 
+#include "Swarm.hpp"
+#include "SwarmSprite.hpp"
+
 struct SSwarmCloseData {
-    liquid_glass::SwarmParams    params{};
-    std::uint64_t                seed = 0;
-    liquid_glass::SwarmPlacement placement{};
-    liquid_glass::EdgeSet        sides{};
-    liquid_glass::SwarmCreature  creature = liquid_glass::SwarmCreature::Spider;
+    hyprimate::SwarmParams params{};
+    std::uint64_t seed = 0;
+    hyprimate::SwarmPlacement placement{};
+    hyprimate::EdgeSet sides{};
+    hyprimate::SwarmCreature creature = hyprimate::SwarmCreature::Spider;
 };

@@ -22,11 +22,13 @@ Add the project's Git repository with hyprpm, then enable and load the plugin:
 
 ```sh
 hyprpm add https://github.com/JustinBacher/hyprimate
-hyprpm enable liquid-glass
+hyprpm enable hyprimate
 hyprpm reload
 ```
 
-The plugin is registered with hyprpm as `liquid-glass`. Access to the repository is required while it is private.
+The plugin is registered with hyprpm as `hyprimate`. Access to the repository is required while it is private.
+
+If you used the former `liquid-glass` plugin name, update your hyprpm entry and Lua configuration to `hyprimate`. The settings now use `plugin:hyprimate:*`; the former keys are no longer registered.
 
 To load enabled plugins at startup, add `hyprpm reload` to your Hyprland autostart. See the [Hyprland plugin guide](https://wiki.hypr.land/Plugins/Using-Plugins/) for hyprpm dependencies, updates, and permission settings.
 
@@ -95,7 +97,7 @@ After the first load has registered the settings, add this Lua configuration:
 hl.config({
     decoration = { wobble = { enabled = false } },
     plugin = {
-        ["liquid_glass"] = {
+        ["hyprimate"] = {
             window = {
                 enabled = true,
                 style = "liquid",
@@ -205,72 +207,72 @@ hl.config({
 })
 ```
 
-Hyprland 0.57 normalizes hyphens to underscores in Lua config names: use `liquid_glass` in `hl.config`, while the plugin name and `hyprctl` keys remain `liquid-glass` / `plugin:liquid-glass:*`. Each nested Lua table maps to colon-separated segments of the key, for example `window.movement.options.liquid.viscosity` is `plugin:liquid-glass:window:movement:options:liquid:viscosity`.
+Use `hyprimate` under `plugin` in `hl.config`; the matching `hyprctl` keys begin with `plugin:hyprimate:`. Each nested Lua table maps to colon-separated segments of the key, for example `window.movement.options.liquid.viscosity` is `plugin:hyprimate:window:movement:options:liquid:viscosity`.
 
 | Setting | Type / default | Meaning |
 |---|---|---|
-| `plugin:liquid-glass:window:enabled` | boolean / `true` | Master switch: when false, no movement, open or close deformation runs. |
-| `plugin:liquid-glass:window:style` | string / `"liquid"` | Material for movement, open and close: liquid deforms edges with a viscous field, paper crumples into a ball, cloth drapes and flutters, swarm breaks the window into creature-shaped pieces, bubble inflates a soap film into the window and ruptures it on close. Paper and bubble windows move undeformed. Invalid names are rejected. Allowed: `liquid`, `paper`, `cloth`, `swarm`, `bubble`. |
-| `plugin:liquid-glass:window:options:swarm:creature` | string / `"spider"` | Swarm-only creature every window piece is shaped as. Allowed: `spider`, `cat`. |
-| `plugin:liquid-glass:window:options:swarm:count` | int / `250` | Swarm-only number of creatures a window breaks into; each carries one piece of the window, so fewer creatures are larger. Clamped to 1–400. |
-| `plugin:liquid-glass:window:options:swarm:speed` | float / `1400` | Swarm-only creature cruise speed in logical pixels per second. Finite values clamped to 100–6000. |
-| `plugin:liquid-glass:window:options:swarm:stagger` | float / `0.6` | Swarm-only seconds over which creatures reach their places in random order when a window opens, or let go in random order when it closes, and half that when movement shakes them loose; zero lands or releases them all together. Finite values clamped to 0–3. |
-| `plugin:liquid-glass:window:options:swarm:cohesion` | float / `0.5` | Swarm-only pull that keeps nearby creatures travelling together; zero lets each find its own way. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:options:swarm:separation` | float / `0.5` | Swarm-only personal space while travelling: creatures step around those in their way and bump off each other instead of passing through; zero lets them cross freely. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:options:swarm:responsiveness` | float / `0.5` | Swarm-only acceleration and grip: higher holds formation through faster window movement and turns more sharply; lower breaks apart sooner and trails further. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:options:swarm:settling` | float / `0.5` | Swarm-only eagerness to lock back into the window: higher regroups and merges sooner; lower mills about longer first. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:options:swarm:wander` | float / `0.5` | Swarm-only meander and hesitation while travelling; zero walks steadily along its route. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:options:swarm:variation` | float / `0.5` | Swarm-only per-creature difference in speed, grip and how far its route curves; zero sends every creature straight and alike. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:movement:enabled` | boolean / `true` | Deform windows while they move. Does not enable or disable open or close. |
-| `plugin:liquid-glass:window:movement:options:liquid:strength` | float / `0.65` | Liquid-only movement deformation intensity; zero moves windows undeformed. Finite values clamped to 0–1.5. |
-| `plugin:liquid-glass:window:movement:options:liquid:viscosity` | float / `0.75` | Liquid-only internal flow resistance; higher is thicker and more cohesive. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:movement:options:liquid:elasticity` | float / `0.5` | Liquid-only movement stiffness and recovery speed; higher snaps back faster. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:movement:options:liquid:momentum` | float / `0.5` | Liquid-only movement inertia after a stop; zero lands without overshoot. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:movement:options:liquid:variation` | float / `0.5` | Liquid-only per-window and per-movement randomness; zero moves windows identically. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:movement:options:cloth:strength` | float / `0.65` | Cloth-only movement deformation intensity; zero moves windows undeformed. Finite values clamped to 0–1.5. |
-| `plugin:liquid-glass:window:movement:options:cloth:springiness` | float / `0` | Horizontal springiness of the curtain header; zero keeps the top stiff, higher values allow more gathering and rebound. The lower curtain stays free-flowing. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:movement:options:cloth:flutter` | float / `0.5` | Cloth-only movement ripple strength; zero removes the varying gusts while motion still bends the sheet. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:movement:options:cloth:shading` | float / `0.7` | Cloth-only light and shadow on movement folds; zero draws the folds unlit. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:movement:options:cloth:shine` | float / `0` | Cloth-only highlight strength on the folds; zero removes highlights. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:movement:options:cloth:variation` | float / `0.5` | Cloth-only per-window movement variation; zero uses the same motion for every window. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:open:enabled` | boolean / `true` | Animate windows as they open (see style); false opens without it. Movement is unaffected. |
-| `plugin:liquid-glass:window:open:options:liquid:strength` | float / `0.65` | Liquid-only pop-out size and deformation intensity; zero opens without the pop-out. Finite values clamped to 0–1.5. |
-| `plugin:liquid-glass:window:open:options:liquid:color` | color / `0xff000000` | Liquid-only edge liquid colour (ARGB); alpha zero draws no liquid. |
-| `plugin:liquid-glass:window:open:options:liquid:first_window_side` | string / `"bottom"` | Edge the first window on a workspace pops out of; later windows use the side they appear on (see Edge choice). Allowed: `bottom`, `top`, `left`, `right`. |
-| `plugin:liquid-glass:window:open:options:liquid:edge_bounds` | string / `"screen"` | Use monitor edges (screen) or edges inside reserved areas (work_area) for the pop-out. Allowed: `screen`, `work_area`. |
-| `plugin:liquid-glass:window:open:options:liquid:emerge_drag` | float / `0.5` | Share of pop-out travel fed to the movement field as drag; zero is a rigid pop. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:open:options:liquid:elasticity` | float / `0.5` | Open-only stiffness and recovery speed of the pop-out; higher snaps back faster. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:open:options:liquid:momentum` | float / `0.5` | Open-only inertia of the pop-out; zero lands without overshoot. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:open:options:paper:duration` | float / `0.6` | Paper-only seconds for the ball to uncrumple into the window. Finite values clamped to 0.1–3. |
-| `plugin:liquid-glass:window:open:options:paper:crumpliness` | float / `0.6` | Paper-only crumple tightness; higher crumples into a smaller, more creased ball. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:open:options:paper:shading` | float / `0.7` | Paper-only light and shadow on the creases; zero draws the folds unlit. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:open:options:paper:variation` | float / `0.5` | Paper-only per-window randomness of which crumple plays and its mirroring; zero crumples every window identically. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:open:options:cloth:duration` | float / `1.0` | Cloth-only seconds for the gathered curtain panel to spread from its top edge and settle flat. Finite values clamped to 0.1–4. |
-| `plugin:liquid-glass:window:open:options:cloth:flutter` | float / `0.5` | Cloth-only gust strength; zero removes flutter while gravity still moves the sheet. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:open:options:cloth:shading` | float / `0.7` | Cloth-only light and shadow on the folds; zero draws the folds unlit. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:open:options:cloth:shine` | float / `0` | Cloth-only highlight strength on the folds; zero removes highlights. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:open:options:cloth:variation` | float / `0.5` | Cloth-only per-window variation; zero uses the same motion for every window. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:open:options:swarm:lone_window_sides` | set / `"all"` | Swarm-only screen sides the creatures enter from when the window is the first on its workspace; later windows enter from the side they appear on (see Edge choice). Comma-separated list of: `top`, `bottom`, `left`, `right`; `all` selects every one and overrides the rest. |
-| `plugin:liquid-glass:window:open:options:bubble:duration` | float / `0.62` | Bubble-only seconds for inflation, the outer film's rupture, flattening, splat and elastic settlement. Finite values clamped to 0.1–3. |
-| `plugin:liquid-glass:window:close:enabled` | boolean / `true` | Animate windows as they close (see style); false closes natively. Movement is unaffected. |
-| `plugin:liquid-glass:window:close:options:liquid:strength` | float / `0.65` | Liquid-only drain deformation intensity; zero closes natively. Finite values clamped to 0–1.5. |
-| `plugin:liquid-glass:window:close:options:liquid:color` | color / `0xff000000` | Liquid-only edge liquid colour (ARGB); alpha zero draws no liquid. |
-| `plugin:liquid-glass:window:close:options:liquid:side` | string / `"auto"` | Shared liquid/cloth exit: side of appearance (auto), nearest valid edge, opening origin, or a fixed edge. Invalid preferred edges fall back to the normal resolver. Allowed: `auto`, `nearest`, `origin`, `top`, `bottom`, `left`, `right`. |
-| `plugin:liquid-glass:window:close:options:liquid:edge_bounds` | string / `"screen"` | Shared liquid/cloth edge choice: monitor edges (screen) or edges inside reserved areas (work_area). Cloth travels beyond the actual screen before disappearing. Allowed: `screen`, `work_area`. |
-| `plugin:liquid-glass:window:close:options:liquid:splash` | boolean / `true` | Small edge-liquid splash where a closing window disappears; false closes without liquid. |
-| `plugin:liquid-glass:window:close:options:liquid:elasticity` | float / `0.5` | Close-only stiffness and recovery speed of the drain; higher snaps back faster. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:close:options:liquid:momentum` | float / `0.5` | Close-only dive acceleration; higher advances the dive faster. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:close:options:paper:duration` | float / `0.5` | Paper-only seconds to crumple the window into a ball and vanish. Finite values clamped to 0.1–3. |
-| `plugin:liquid-glass:window:close:options:paper:crumpliness` | float / `0.6` | Paper-only crumple tightness; higher crumples into a smaller, more creased ball. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:close:options:paper:shading` | float / `0.7` | Paper-only light and shadow on the creases; zero draws the folds unlit. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:close:options:paper:variation` | float / `0.5` | Paper-only per-window randomness of which crumple plays and its mirroring; zero crumples every window identically. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:close:options:cloth:duration` | float / `0.9` | Cloth-only seconds for the top rod to carry the curtain beyond the selected screen edge. Finite values clamped to 0.1–4. |
-| `plugin:liquid-glass:window:close:options:cloth:flutter` | float / `0.5` | Cloth-only gust strength; zero removes flutter while gravity still moves the sheet. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:close:options:cloth:shading` | float / `0.7` | Cloth-only light and shadow on the folds; zero draws the folds unlit. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:close:options:cloth:shine` | float / `0` | Cloth-only highlight strength on the folds; zero removes highlights. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:close:options:cloth:variation` | float / `0.5` | Cloth-only per-window variation; zero uses the same motion for every window. Finite values clamped to 0–1. |
-| `plugin:liquid-glass:window:close:options:swarm:lone_window_sides` | set / `"all"` | Swarm-only screen sides the creatures leave through when the window is the last on its workspace; otherwise they leave through the side the window sits on (see Edge choice). Comma-separated list of: `top`, `bottom`, `left`, `right`; `all` selects every one and overrides the rest. |
-| `plugin:liquid-glass:window:close:options:bubble:duration` | float / `0.42` | Bubble-only seconds for the film to thin, tear open, retract into ligaments and droplets, and for the droplets to evaporate. Finite values clamped to 0.1–3. |
+| `plugin:hyprimate:window:enabled` | boolean / `true` | Master switch: when false, no movement, open or close deformation runs. |
+| `plugin:hyprimate:window:style` | string / `"liquid"` | Material for movement, open and close: liquid deforms edges with a viscous field, paper crumples into a ball, cloth drapes and flutters, swarm breaks the window into creature-shaped pieces, bubble inflates a soap film into the window and ruptures it on close. Paper and bubble windows move undeformed. Invalid names are rejected. Allowed: `liquid`, `paper`, `cloth`, `swarm`, `bubble`. |
+| `plugin:hyprimate:window:options:swarm:creature` | string / `"spider"` | Swarm-only creature every window piece is shaped as. Allowed: `spider`, `cat`. |
+| `plugin:hyprimate:window:options:swarm:count` | int / `250` | Swarm-only number of creatures a window breaks into; each carries one piece of the window, so fewer creatures are larger. Clamped to 1–400. |
+| `plugin:hyprimate:window:options:swarm:speed` | float / `1400` | Swarm-only creature cruise speed in logical pixels per second. Finite values clamped to 100–6000. |
+| `plugin:hyprimate:window:options:swarm:stagger` | float / `0.6` | Swarm-only seconds over which creatures reach their places in random order when a window opens, or let go in random order when it closes, and half that when movement shakes them loose; zero lands or releases them all together. Finite values clamped to 0–3. |
+| `plugin:hyprimate:window:options:swarm:cohesion` | float / `0.5` | Swarm-only pull that keeps nearby creatures travelling together; zero lets each find its own way. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:options:swarm:separation` | float / `0.5` | Swarm-only personal space while travelling: creatures step around those in their way and bump off each other instead of passing through; zero lets them cross freely. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:options:swarm:responsiveness` | float / `0.5` | Swarm-only acceleration and grip: higher holds formation through faster window movement and turns more sharply; lower breaks apart sooner and trails further. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:options:swarm:settling` | float / `0.5` | Swarm-only eagerness to lock back into the window: higher regroups and merges sooner; lower mills about longer first. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:options:swarm:wander` | float / `0.5` | Swarm-only meander and hesitation while travelling; zero walks steadily along its route. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:options:swarm:variation` | float / `0.5` | Swarm-only per-creature difference in speed, grip and how far its route curves; zero sends every creature straight and alike. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:movement:enabled` | boolean / `true` | Deform windows while they move. Does not enable or disable open or close. |
+| `plugin:hyprimate:window:movement:options:liquid:strength` | float / `0.65` | Liquid-only movement deformation intensity; zero moves windows undeformed. Finite values clamped to 0–1.5. |
+| `plugin:hyprimate:window:movement:options:liquid:viscosity` | float / `0.75` | Liquid-only internal flow resistance; higher is thicker and more cohesive. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:movement:options:liquid:elasticity` | float / `0.5` | Liquid-only movement stiffness and recovery speed; higher snaps back faster. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:movement:options:liquid:momentum` | float / `0.5` | Liquid-only movement inertia after a stop; zero lands without overshoot. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:movement:options:liquid:variation` | float / `0.5` | Liquid-only per-window and per-movement randomness; zero moves windows identically. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:movement:options:cloth:strength` | float / `0.65` | Cloth-only movement deformation intensity; zero moves windows undeformed. Finite values clamped to 0–1.5. |
+| `plugin:hyprimate:window:movement:options:cloth:springiness` | float / `0` | Horizontal springiness of the curtain header; zero keeps the top stiff, higher values allow more gathering and rebound. The lower curtain stays free-flowing. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:movement:options:cloth:flutter` | float / `0.5` | Cloth-only movement ripple strength; zero removes the varying gusts while motion still bends the sheet. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:movement:options:cloth:shading` | float / `0.7` | Cloth-only light and shadow on movement folds; zero draws the folds unlit. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:movement:options:cloth:shine` | float / `0` | Cloth-only highlight strength on the folds; zero removes highlights. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:movement:options:cloth:variation` | float / `0.5` | Cloth-only per-window movement variation; zero uses the same motion for every window. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:open:enabled` | boolean / `true` | Animate windows as they open (see style); false opens without it. Movement is unaffected. |
+| `plugin:hyprimate:window:open:options:liquid:strength` | float / `0.65` | Liquid-only pop-out size and deformation intensity; zero opens without the pop-out. Finite values clamped to 0–1.5. |
+| `plugin:hyprimate:window:open:options:liquid:color` | color / `0xff000000` | Liquid-only edge liquid colour (ARGB); alpha zero draws no liquid. |
+| `plugin:hyprimate:window:open:options:liquid:first_window_side` | string / `"bottom"` | Edge the first window on a workspace pops out of; later windows use the side they appear on (see Edge choice). Allowed: `bottom`, `top`, `left`, `right`. |
+| `plugin:hyprimate:window:open:options:liquid:edge_bounds` | string / `"screen"` | Use monitor edges (screen) or edges inside reserved areas (work_area) for the pop-out. Allowed: `screen`, `work_area`. |
+| `plugin:hyprimate:window:open:options:liquid:emerge_drag` | float / `0.5` | Share of pop-out travel fed to the movement field as drag; zero is a rigid pop. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:open:options:liquid:elasticity` | float / `0.5` | Open-only stiffness and recovery speed of the pop-out; higher snaps back faster. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:open:options:liquid:momentum` | float / `0.5` | Open-only inertia of the pop-out; zero lands without overshoot. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:open:options:paper:duration` | float / `0.6` | Paper-only seconds for the ball to uncrumple into the window. Finite values clamped to 0.1–3. |
+| `plugin:hyprimate:window:open:options:paper:crumpliness` | float / `0.6` | Paper-only crumple tightness; higher crumples into a smaller, more creased ball. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:open:options:paper:shading` | float / `0.7` | Paper-only light and shadow on the creases; zero draws the folds unlit. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:open:options:paper:variation` | float / `0.5` | Paper-only per-window randomness of which crumple plays and its mirroring; zero crumples every window identically. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:open:options:cloth:duration` | float / `1.0` | Cloth-only seconds for the gathered curtain panel to spread from its top edge and settle flat. Finite values clamped to 0.1–4. |
+| `plugin:hyprimate:window:open:options:cloth:flutter` | float / `0.5` | Cloth-only gust strength; zero removes flutter while gravity still moves the sheet. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:open:options:cloth:shading` | float / `0.7` | Cloth-only light and shadow on the folds; zero draws the folds unlit. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:open:options:cloth:shine` | float / `0` | Cloth-only highlight strength on the folds; zero removes highlights. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:open:options:cloth:variation` | float / `0.5` | Cloth-only per-window variation; zero uses the same motion for every window. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:open:options:swarm:lone_window_sides` | set / `"all"` | Swarm-only screen sides the creatures enter from when the window is the first on its workspace; later windows enter from the side they appear on (see Edge choice). Comma-separated list of: `top`, `bottom`, `left`, `right`; `all` selects every one and overrides the rest. |
+| `plugin:hyprimate:window:open:options:bubble:duration` | float / `0.62` | Bubble-only seconds for inflation, the outer film's rupture, flattening, splat and elastic settlement. Finite values clamped to 0.1–3. |
+| `plugin:hyprimate:window:close:enabled` | boolean / `true` | Animate windows as they close (see style); false closes natively. Movement is unaffected. |
+| `plugin:hyprimate:window:close:options:liquid:strength` | float / `0.65` | Liquid-only drain deformation intensity; zero closes natively. Finite values clamped to 0–1.5. |
+| `plugin:hyprimate:window:close:options:liquid:color` | color / `0xff000000` | Liquid-only edge liquid colour (ARGB); alpha zero draws no liquid. |
+| `plugin:hyprimate:window:close:options:liquid:side` | string / `"auto"` | Shared liquid/cloth exit: side of appearance (auto), nearest valid edge, opening origin, or a fixed edge. Invalid preferred edges fall back to the normal resolver. Allowed: `auto`, `nearest`, `origin`, `top`, `bottom`, `left`, `right`. |
+| `plugin:hyprimate:window:close:options:liquid:edge_bounds` | string / `"screen"` | Shared liquid/cloth edge choice: monitor edges (screen) or edges inside reserved areas (work_area). Cloth travels beyond the actual screen before disappearing. Allowed: `screen`, `work_area`. |
+| `plugin:hyprimate:window:close:options:liquid:splash` | boolean / `true` | Small edge-liquid splash where a closing window disappears; false closes without liquid. |
+| `plugin:hyprimate:window:close:options:liquid:elasticity` | float / `0.5` | Close-only stiffness and recovery speed of the drain; higher snaps back faster. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:close:options:liquid:momentum` | float / `0.5` | Close-only dive acceleration; higher advances the dive faster. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:close:options:paper:duration` | float / `0.5` | Paper-only seconds to crumple the window into a ball and vanish. Finite values clamped to 0.1–3. |
+| `plugin:hyprimate:window:close:options:paper:crumpliness` | float / `0.6` | Paper-only crumple tightness; higher crumples into a smaller, more creased ball. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:close:options:paper:shading` | float / `0.7` | Paper-only light and shadow on the creases; zero draws the folds unlit. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:close:options:paper:variation` | float / `0.5` | Paper-only per-window randomness of which crumple plays and its mirroring; zero crumples every window identically. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:close:options:cloth:duration` | float / `0.9` | Cloth-only seconds for the top rod to carry the curtain beyond the selected screen edge. Finite values clamped to 0.1–4. |
+| `plugin:hyprimate:window:close:options:cloth:flutter` | float / `0.5` | Cloth-only gust strength; zero removes flutter while gravity still moves the sheet. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:close:options:cloth:shading` | float / `0.7` | Cloth-only light and shadow on the folds; zero draws the folds unlit. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:close:options:cloth:shine` | float / `0` | Cloth-only highlight strength on the folds; zero removes highlights. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:close:options:cloth:variation` | float / `0.5` | Cloth-only per-window variation; zero uses the same motion for every window. Finite values clamped to 0–1. |
+| `plugin:hyprimate:window:close:options:swarm:lone_window_sides` | set / `"all"` | Swarm-only screen sides the creatures leave through when the window is the last on its workspace; otherwise they leave through the side the window sits on (see Edge choice). Comma-separated list of: `top`, `bottom`, `left`, `right`; `all` selects every one and overrides the rest. |
+| `plugin:hyprimate:window:close:options:bubble:duration` | float / `0.42` | Bubble-only seconds for the film to thin, tear open, retract into ligaments and droplets, and for the droplets to evaporate. Finite values clamped to 0.1–3. |
 <!-- END GENERATED CONFIGURATION -->
 
 ### Edge choice

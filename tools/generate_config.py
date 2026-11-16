@@ -18,7 +18,7 @@ BEGIN = '<!-- BEGIN GENERATED CONFIGURATION -->'
 END = '<!-- END GENERATED CONFIGURATION -->'
 LUA_BEGIN = '-- BEGIN GENERATED PLUGIN CONFIG'
 LUA_END = '-- END GENERATED PLUGIN CONFIG'
-KEY_PREFIX = 'plugin:liquid-glass:'
+KEY_PREFIX = 'plugin:hyprimate:'
 KINDS = {'boolean': 'CBoolValue', 'int': 'CIntValue', 'float': 'CFloatValue', 'string': 'CStringValue',
          'set': 'CStringValue', 'color': 'CColorValue'}
 CTYPES = {'boolean': 'bool', 'int': 'int', 'float': 'double', 'color': 'std::uint32_t'}
@@ -145,7 +145,7 @@ def lua_fields(node, depth):
 def lua_config(settings):
     body = lua_fields(tree(settings), 3)
     return '\n'.join(['hl.config({', '    decoration = { wobble = { enabled = false } },', '    plugin = {',
-                      '        ["liquid_glass"] = {', *body, '        },', '    },', '})'])
+                      '        ["hyprimate"] = {', *body, '        },', '    },', '})'])
 
 
 def config_segments(item):
@@ -212,7 +212,7 @@ def emit_struct(types, name, emitted, out):
 def config_header(settings):
     out = ['// Generated from config/settings.json; do not edit.', '#pragma once', '',
            '#include <algorithm>', '#include <cmath>', '#include <cstdint>', '#include <expected>',
-           '#include <optional>', '#include <stdexcept>', '#include <string>', '', 'namespace liquid_glass::config {', '']
+           '#include <optional>', '#include <stdexcept>', '#include <string>', '', 'namespace hyprimate::config {', '']
     enum_items = enums(settings)
     if any(item['type'] == 'set' for item in enum_items.values()):
         out.append('template <class E> struct Flags {')
@@ -306,7 +306,7 @@ def config_header(settings):
         else:
             out.append(f'    values.{member} = makeShared<Config::Values::{cls}>({literal(name)}, {desc}, {value});')
     out.append('    if (' + '\n     || '.join(f'!HyprlandAPI::addConfigValueV2(handle, values.{x["member"]})' for x in settings) + ')')
-    out.append('        throw std::runtime_error("[liquid-glass] failed to register configuration values");')
+    out.append('        throw std::runtime_error("[hyprimate] failed to register configuration values");')
     out.append('}')
     out.append('')
     out.append('inline SConfig readConfig(const SConfigValues& v) {')
@@ -333,14 +333,14 @@ def config_header(settings):
     out.append('    return c;')
     out.append('}')
     out.append('')
-    out.append('} // namespace liquid_glass::config')
+    out.append('} // namespace hyprimate::config')
     return '\n'.join(out) + '\n'
 
 
 def documentation(settings):
     lines = ['After the first load has registered the settings, add this Lua configuration:', '', '```lua',
              lua_config(settings), '```', '',
-             'Hyprland 0.57 normalizes hyphens to underscores in Lua config names: use `liquid_glass` in `hl.config`, while the plugin name and `hyprctl` keys remain `liquid-glass` / `plugin:liquid-glass:*`. Each nested Lua table maps to colon-separated segments of the key, for example `window.movement.options.liquid.viscosity` is `plugin:liquid-glass:window:movement:options:liquid:viscosity`.', '',
+             'Use `hyprimate` under `plugin` in `hl.config`; the matching `hyprctl` keys begin with `plugin:hyprimate:`. Each nested Lua table maps to colon-separated segments of the key, for example `window.movement.options.liquid.viscosity` is `plugin:hyprimate:window:movement:options:liquid:viscosity`.', '',
              '| Setting | Type / default | Meaning |', '|---|---|---|']
     for item in settings:
         kind = item['type']

@@ -24,11 +24,11 @@ LUA_END = '-- END GENERATED PLUGIN CONFIG'
 
 
 def lua_leaf_paths(text):
-    """Return dotted paths of every leaf (including empty tables) in the liquid_glass Lua table."""
+    """Return dotted paths of every leaf (including empty tables) in the hyprimate Lua table."""
     stack, leaves, in_plugin = [], set(), False
     for line in text.splitlines():
         stripped = line.strip()
-        if stripped.startswith('["liquid_glass"] = {'):
+        if stripped.startswith('["hyprimate"] = {'):
             in_plugin = True
             continue
         if not in_plugin:
@@ -91,7 +91,7 @@ class ConfigGeneratorTests(unittest.TestCase):
             self.assertIn(f'values.{item["member"]} = makeShared<', header)
             self.assertIn(f'"{GEN.key(item)}"', header)
         self.assertEqual(len(re.findall(r'= makeShared<', header)), len(REGISTERED))
-        self.assertIn('plugin:liquid-glass:window:close:options:liquid:splash', header)
+        self.assertIn('plugin:hyprimate:window:close:options:liquid:splash', header)
         self.assertIn('m_closeSplash', header)
 
     def test_string_choices_and_float_ranges_are_enforced(self):
@@ -111,7 +111,7 @@ class ConfigGeneratorTests(unittest.TestCase):
 
     def test_readme_documents_every_registered_key(self):
         block = GEN.documentation(SCHEMA)
-        documented = set(re.findall(r'`(plugin:liquid-glass:[a-z_:]+)`', block))
+        documented = set(re.findall(r'`(plugin:hyprimate:[a-z_:]+)`', block))
         self.assertEqual(documented, {GEN.key(item) for item in REGISTERED})
 
     def test_strength_zero_contract_is_documented_in_schema(self):

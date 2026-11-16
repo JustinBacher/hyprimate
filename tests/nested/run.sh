@@ -8,7 +8,7 @@ usage() {
 Usage: tests/nested/run.sh [options]
 
   --style STYLE       window style: liquid | paper | cloth | swarm | bubble (default: liquid)
-  --lua TABLE         extra settings merged into plugin.liquid_glass, e.g.
+  --lua TABLE         extra settings merged into plugin.hyprimate, e.g.
                       --lua 'window = { close = { options = { paper = { shading = 0 } } } }'
   --eval LUA          Lua run in the nested compositor once the plugin is loaded, before the first window,
                       e.g. --eval 'hl.config({ general = { border_size = 0 } })'
@@ -38,7 +38,7 @@ while (($#)); do
 done
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-plugin=$root/build/liquid-glass.so
+plugin=$root/build/hyprimate.so
 config=$root/tests/nested/hyprland.lua
 
 for tool in Hyprland hyprctl jq loginctl; do
@@ -90,10 +90,10 @@ result=$(hc plugin load "$plugin")
 [[ $result == ok ]] || { echo "plugin load failed: $result" >&2; exit 1; }
 
 settings="window = { style = \"$style\" }"
-result=$(hc eval "hl.config({ plugin = { liquid_glass = { $settings } } })")
+result=$(hc eval "hl.config({ plugin = { hyprimate = { $settings } } })")
 [[ $result == ok ]] || { echo "settings rejected: $result" >&2; exit 1; }
 if [[ -n $extra_lua ]]; then
-    result=$(hc eval "hl.config({ plugin = { liquid_glass = { $extra_lua } } })")
+    result=$(hc eval "hl.config({ plugin = { hyprimate = { $extra_lua } } })")
     [[ $result == ok ]] || { echo "--lua settings rejected: $result" >&2; exit 1; }
 fi
 
@@ -116,8 +116,8 @@ Nested Hyprland is running (pid $pid), plugin loaded from $plugin.
   style=$style
 
 Change settings live from another terminal:
-  hyprctl -i $instance eval 'hl.config({ plugin = { liquid_glass = { window = { open = { options = { paper = { duration = 1.5 } } } } } } })'
-  hyprctl -i $instance getoption plugin:liquid-glass:window:style
+  hyprctl -i $instance eval 'hl.config({ plugin = { hyprimate = { window = { open = { options = { paper = { duration = 1.5 } } } } } } })'
+  hyprctl -i $instance getoption plugin:hyprimate:window:style
 Reload after rebuilding:
   hyprctl -i $instance plugin unload $plugin && hyprctl -i $instance plugin load $plugin
   (settings reset to defaults on reload)

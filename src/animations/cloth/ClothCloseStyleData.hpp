@@ -1,13 +1,14 @@
 #pragma once
-#include "ClothFlutter.hpp"
 #include <cstdint>
 #include <optional>
 #include <vector>
 
+#include "ClothFlutter.hpp"
+
 struct SClothCloseData {
-    liquid_glass::ClothParams params{};
+    hyprimate::ClothParams params{};
     std::uint64_t seed = 0;
-    liquid_glass::Box capture{};
-    std::vector<liquid_glass::Box> obstacles;
-    std::optional<liquid_glass::ClothCloseGeometry> geometry;
+    hyprimate::Box capture{};
+    std::vector<hyprimate::Box> obstacles;
+    std::optional<hyprimate::ClothCloseGeometry> geometry;
 };

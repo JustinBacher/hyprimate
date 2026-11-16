@@ -44,7 +44,7 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 -- hl.config({
 --     decoration = { wobble = { enabled = false } },
 --     plugin = {
---         ["liquid_glass"] = {
+--         ["hyprimate"] = {
 --             window = {
 --                 enabled = true,
 --                 style = "liquid",
@@ -144,7 +144,7 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                             lone_window_sides = "all",
 --                         },
 --                         bubble = {
---                             duration = 0.28,
+--                             duration = 0.42,
 --                         },
 --                     },
 --                 },

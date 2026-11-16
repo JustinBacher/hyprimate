@@ -1,9 +1,9 @@
 #pragma once
 
-#include "animations/shared/LiveSheetState.hpp"
 #include "animations/paper/PaperCrumple.hpp"
+#include "animations/shared/LiveSheetState.hpp"
 
 struct SPaperStyle {
-    liquid_glass::PaperCrumple crumple{};
+    hyprimate::PaperCrumple crumple{};
     SSheetBuffers sheet{};
 };

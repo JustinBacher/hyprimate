@@ -1,14 +1,15 @@
 #pragma once
-#include "LiquidPose.hpp"
 #include <optional>
 
+#include "LiquidPose.hpp"
+
 struct SLiquidCloseData {
-    liquid_glass::Vec2 compensation{1.0, 1.0};
+    hyprimate::Vec2 compensation{1.0, 1.0};
     double strength = 0.0;
-    std::optional<liquid_glass::EdgeFrame> frame;
+    std::optional<hyprimate::EdgeFrame> frame;
     bool splash = true;
-    liquid_glass::TransitionParams params{};
+    hyprimate::TransitionParams params{};
     bool hasLiquid = false;
     bool verticesStale = false;
-    liquid_glass::Box liquidDevice{};
+    hyprimate::Box liquidDevice{};
 };

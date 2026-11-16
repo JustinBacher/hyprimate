@@ -1,12 +1,13 @@
 #pragma once
 
-#include "Bubble.hpp"
-#include "BubbleRenderer.hpp"
-#include "BubbleResidue.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <span>
+
+#include "Bubble.hpp"
+#include "BubbleRenderer.hpp"
+#include "BubbleResidue.hpp"
 
 // A transition's hold on its impact clock. However the transition stops, the clock is marked:
 // cancel() when its droplets vanish (an aborted opening), otherwise ended, so pending beads never
@@ -22,7 +23,9 @@ class CBubbleImpactLease {
         }
         return *this;
     }
-    ~CBubbleImpactLease() { release(); }
+    ~CBubbleImpactLease() {
+        release();
+    }
 
     void start() {
         release();
@@ -30,53 +33,58 @@ class CBubbleImpactLease {
     }
     void advance(double elapsed) {
         if (m_clock && std::isfinite(elapsed) && elapsed > 0)
-            m_clock->time += std::min(elapsed, liquid_glass::kStallSeconds);
+            m_clock->time += std::min(elapsed, hyprimate::kStallSeconds);
     }
     void cancel() {
-        if (m_clock)
-            m_clock->cancelled = true;
+        if (m_clock) m_clock->cancelled = true;
         m_clock.reset();
     }
     void release() {
-        if (m_clock)
-            m_clock->ended = true;
+        if (m_clock) m_clock->ended = true;
         m_clock.reset();
     }
-    bool                          running() const { return bool(m_clock); }
-    const SP<SBubbleImpactClock> &clock() const { return m_clock; }
+    bool running() const {
+        return bool(m_clock);
+    }
+    const SP<SBubbleImpactClock> &clock() const {
+        return m_clock;
+    }
 
   private:
     SP<SBubbleImpactClock> m_clock;
 };
 
 struct SBubbleStyle {
-    liquid_glass::Bubble bubble;
-    SP<CBubbleRenderer>  renderer;
+    hyprimate::Bubble bubble;
+    SP<CBubbleRenderer> renderer;
     SP<SBubbleWallpaper> wallpaper;
-    SP<CBubbleResidue>   residue;
-    bool                 shellImpactsDeposited = false;
-    bool                 windowImpactsDeposited = false;
-    CBubbleImpactLease   impacts;
+    SP<CBubbleResidue> residue;
+    bool shellImpactsDeposited = false;
+    bool windowImpactsDeposited = false;
+    CBubbleImpactLease impacts;
 };
 
 // Hands each surface's glass impacts to the residue once, as soon as its first hole has opened.
 // Pending beads land when the transition's shared clock reaches them, so they neither lead their
 // droplets nor outlive an aborted opening. Callers exclude capture and read-only passes. centre is
 // the frame centre in monitor-local logical coordinates.
-inline void depositBubbleImpacts(SBubbleStyle &state, const liquid_glass::BubbleFrame &frame, const PHLMONITOR &monitor,
-                                 Vector2D centre) {
-    if (!state.residue || !monitor)
-        return;
-    const auto deposit = [&](const liquid_glass::BubbleSurface &surface, bool &done) {
-        if (done)
+inline void depositBubbleImpacts(SBubbleStyle &state,
+    const hyprimate::BubbleFrame &frame,
+    const PHLMONITOR &monitor,
+    Vector2D centre) {
+    if (!state.residue || !monitor) return;
+    const auto deposit = [&](const hyprimate::BubbleSurface &surface, bool &done) {
+        if (done) return;
+        const auto holes =
+            std::span(surface.holes).first(std::min(surface.holeCount, surface.holes.size()));
+        if (std::ranges::none_of(
+                holes, [](const hyprimate::BubbleHole &hole) { return hole.radius > 0; }))
             return;
-        const auto holes = std::span(surface.holes).first(std::min(surface.holeCount, surface.holes.size()));
-        if (std::ranges::none_of(holes, [](const liquid_glass::BubbleHole &hole) { return hole.radius > 0; }))
-            return;
-        std::array<liquid_glass::BubbleImpact, liquid_glass::kBubbleMaxImpacts> found{};
-        const auto count = liquid_glass::bubbleImpacts(surface, found);
+        std::array<hyprimate::BubbleImpact, hyprimate::kBubbleMaxImpacts> found{};
+        const auto count = hyprimate::bubbleImpacts(surface, found);
         // A disabled residue declines the beads; they are not retried later.
-        state.residue->deposit(monitor, centre, std::span(found).first(count), state.impacts.clock());
+        state.residue->deposit(
+            monitor, centre, std::span(found).first(count), state.impacts.clock());
         done = true;
     };
     deposit(frame.shell, state.shellImpactsDeposited);

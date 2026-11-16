@@ -1,8 +1,9 @@
 #pragma once
-#include "PaperCrumple.hpp"
 #include <cstdint>
 
+#include "PaperCrumple.hpp"
+
 struct SPaperCloseData {
-    liquid_glass::PaperParams params{};
+    hyprimate::PaperParams params{};
     std::uint64_t seed = 0;
 };

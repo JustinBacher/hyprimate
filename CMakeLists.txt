@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(liquid-glass VERSION 0.1.0 LANGUAGES CXX)
+project(hyprimate VERSION 0.1.0 LANGUAGES CXX)
 
 # The plugin runs inside the compositor's frame loop: an unoptimised build halves the frame rate during paper
 # crumples. Default to the same build type hyprpm uses.
@@ -62,6 +62,24 @@ add_custom_command(
     VERBATIM
 )
 add_custom_target(generate-config DEPENDS ${CONFIG_GENERATED_DIR}/config_generated.hpp)
+set(BUBBLE_SHADER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/animations/bubble/shaders)
+set(BUBBLE_SHADER_FILES
+    ${BUBBLE_SHADER_DIR}/membrane.vert
+    ${BUBBLE_SHADER_DIR}/membrane.frag
+    ${BUBBLE_SHADER_DIR}/curl.vert
+    ${BUBBLE_SHADER_DIR}/curl.frag
+    ${BUBBLE_SHADER_DIR}/particle.vert
+    ${BUBBLE_SHADER_DIR}/particle.frag
+)
+add_custom_command(
+    OUTPUT ${CONFIG_GENERATED_DIR}/bubble_shaders_generated.hpp
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_bubble_shaders.py
+            --source-dir ${BUBBLE_SHADER_DIR}
+            --output ${CONFIG_GENERATED_DIR}/bubble_shaders_generated.hpp
+    DEPENDS ${BUBBLE_SHADER_FILES} ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_bubble_shaders.py
+    VERBATIM
+)
+add_custom_target(generate-bubble-shaders DEPENDS ${CONFIG_GENERATED_DIR}/bubble_shaders_generated.hpp)
 add_custom_target(update-config-docs
     COMMAND ${Python3_EXECUTABLE} ${CONFIG_GENERATOR} --schema ${CONFIG_SCHEMA} --readme ${CMAKE_CURRENT_SOURCE_DIR}/README.md --lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/nested/hyprland.lua
     VERBATIM
@@ -69,7 +87,7 @@ add_custom_target(update-config-docs
 
 # Hyprland-independent core: liquid mesh, edge transition, paper, cloth and swarm models. The plugin and the tests
 # link it.
-add_library(liquid-glass-core STATIC
+add_library(hyprimate-core STATIC
     src/animations/liquid/LiquidPose.cpp
     src/animations/liquid/LiquidMesh.cpp
     src/animations/shared/EdgeTransition.cpp
@@ -87,11 +105,11 @@ add_library(liquid-glass-core STATIC
 # PaperTakes.cpp #embeds the baked crumples; rebuild it whenever they are re-packed.
 set_source_files_properties(src/animations/paper/PaperTakes.cpp PROPERTIES OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/animations/paper/assets/paper_takes.bin)
 set_source_files_properties(src/animations/cloth/ClothFlutter.cpp PROPERTIES COMPILE_OPTIONS "-fvisibility=hidden;-fvisibility-inlines-hidden")
-target_include_directories(liquid-glass-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(liquid-glass-core PRIVATE Jolt)
-target_compile_options(liquid-glass-core PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>:-fno-gnu-unique> -Wall -Wextra -Wpedantic)
+target_include_directories(hyprimate-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(hyprimate-core PRIVATE Jolt)
+target_compile_options(hyprimate-core PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>:-fno-gnu-unique> -Wall -Wextra -Wpedantic)
 
-add_library(liquid-glass SHARED
+add_library(hyprimate SHARED
     src/main.cpp
     src/PluginRuntime.cpp
     src/animations/liquid/SolidFill.cpp
@@ -115,14 +133,14 @@ add_library(liquid-glass SHARED
 # SwarmRenderer.cpp #embeds the creature sheets; rebuild it whenever one changes.
 set_source_files_properties(src/animations/swarm/SwarmRenderer.cpp PROPERTIES OBJECT_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/animations/swarm/sprites/spider.png;${CMAKE_CURRENT_SOURCE_DIR}/src/animations/swarm/sprites/cat.png")
-set_target_properties(liquid-glass PROPERTIES PREFIX "" INTERPROCEDURAL_OPTIMIZATION FALSE)
-add_dependencies(liquid-glass generate-config)
-target_include_directories(liquid-glass PRIVATE ${CONFIG_GENERATED_DIR})
-target_link_libraries(liquid-glass PRIVATE PkgConfig::HYPRLAND Jolt liquid-glass-core)
+set_target_properties(hyprimate PROPERTIES PREFIX "" INTERPROCEDURAL_OPTIMIZATION FALSE)
+add_dependencies(hyprimate generate-config generate-bubble-shaders)
+target_include_directories(hyprimate PRIVATE ${CONFIG_GENERATED_DIR})
+target_link_libraries(hyprimate PRIVATE PkgConfig::HYPRLAND Jolt hyprimate-core)
 # Keep Jolt's symbols out of the plugin's dynamic symbol table, so they cannot bind to another copy in the process.
-target_link_options(liquid-glass PRIVATE -Wl,--exclude-libs,ALL)
+target_link_options(hyprimate PRIVATE -Wl,--exclude-libs,ALL)
 # GNU-unique inline statics otherwise make dlclose retain stale plugin code.
-target_compile_options(liquid-glass PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>:-fno-gnu-unique> -Wall -Wextra -Wpedantic)
+target_compile_options(hyprimate PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>:-fno-gnu-unique> -Wall -Wextra -Wpedantic)
 
 find_program(CLANG_FORMAT_EXECUTABLE clang-format)
 if(CLANG_FORMAT_EXECUTABLE)
@@ -151,44 +169,45 @@ if(BUILD_TESTING)
     add_test(NAME config-docs-check COMMAND ${Python3_EXECUTABLE} ${CONFIG_GENERATOR} --schema ${CONFIG_SCHEMA} --readme ${CMAKE_CURRENT_SOURCE_DIR}/README.md --lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/nested/hyprland.lua --check)
     add_test(NAME config-generator-tests COMMAND ${Python3_EXECUTABLE} -m unittest discover -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p test_config_generator.py)
     add_executable(liquid-mesh-tests src/animations/liquid/tests/LiquidMeshTests.cpp)
-    target_link_libraries(liquid-mesh-tests PRIVATE liquid-glass-core)
+    target_link_libraries(liquid-mesh-tests PRIVATE hyprimate-core)
     target_include_directories(liquid-mesh-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME liquid-mesh-tests COMMAND liquid-mesh-tests)
 
     add_executable(edge-transition-tests src/animations/shared/tests/EdgeTransitionTests.cpp)
-    target_link_libraries(edge-transition-tests PRIVATE liquid-glass-core)
+    target_link_libraries(edge-transition-tests PRIVATE hyprimate-core)
     target_include_directories(edge-transition-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME edge-transition-tests COMMAND edge-transition-tests)
 
     add_executable(paper-crumple-tests src/animations/paper/tests/PaperCrumpleTests.cpp)
-    target_link_libraries(paper-crumple-tests PRIVATE liquid-glass-core)
+    target_link_libraries(paper-crumple-tests PRIVATE hyprimate-core)
     target_include_directories(paper-crumple-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME paper-crumple-tests COMMAND paper-crumple-tests)
 
     add_executable(cloth-flutter-tests src/animations/cloth/tests/ClothFlutterTests.cpp)
-    target_link_libraries(cloth-flutter-tests PRIVATE liquid-glass-core Jolt)
+    target_link_libraries(cloth-flutter-tests PRIVATE hyprimate-core Jolt)
     target_include_directories(cloth-flutter-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME cloth-flutter-tests COMMAND cloth-flutter-tests)
 
     add_executable(swarm-tests src/animations/swarm/tests/SwarmTests.cpp)
-    target_link_libraries(swarm-tests PRIVATE liquid-glass-core)
+    target_link_libraries(swarm-tests PRIVATE hyprimate-core)
     target_include_directories(swarm-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     target_compile_options(swarm-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME swarm-tests COMMAND swarm-tests)
 
     add_executable(bubble-tests src/animations/bubble/tests/BubbleTests.cpp)
-    target_link_libraries(bubble-tests PRIVATE liquid-glass-core)
+    target_link_libraries(bubble-tests PRIVATE hyprimate-core)
     target_include_directories(bubble-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     target_compile_options(bubble-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME bubble-tests COMMAND bubble-tests)
 
     add_executable(bubble-optics-tests src/animations/bubble/tests/BubbleOpticsTests.cpp)
-    target_link_libraries(bubble-optics-tests PRIVATE liquid-glass-core)
+    target_link_libraries(bubble-optics-tests PRIVATE hyprimate-core)
     target_include_directories(bubble-optics-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_compile_options(bubble-optics-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME bubble-optics-tests COMMAND bubble-optics-tests)
 
     add_executable(window-tracker-tests tests/WindowTrackerTests.cpp)
-    target_link_libraries(window-tracker-tests PRIVATE liquid-glass-core)
+    target_link_libraries(window-tracker-tests PRIVATE hyprimate-core)
     target_compile_options(window-tracker-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME window-tracker-tests COMMAND window-tracker-tests)
 
