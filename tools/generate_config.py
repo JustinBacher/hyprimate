@@ -112,6 +112,45 @@ def validate(settings):
                 raise ValueError(f'{path!r} conflicts with a setting at {".".join(parts[:depth])!r}')
     enums(settings)
 
+def expanded_settings(settings):
+    """Derive shared style keys and swarm overrides from the canonical animation settings."""
+    if not any(item.get('style_options_inherit') for item in settings):
+        return settings
+    globals_by_path = {item['path']: item for item in settings if item['path'].startswith('window.options.')}
+    generated_globals = []
+    for item in settings:
+        parts = item['path'].split('.')
+        if len(parts) != 5 or parts[1] not in ('open', 'close', 'movement') or parts[2] != 'options':
+            continue
+        path = '.'.join(('window', 'options', *parts[3:]))
+        if path not in globals_by_path:
+            shared = dict(item, path=path, member='m_global' + pascal(parts[3]) + pascal(parts[4]),
+                          optional=True, description=f'Shared {parts[3]} {parts[4].replace("_", " ")} setting.')
+            globals_by_path[path] = shared
+            generated_globals.append(shared)
+        shared = globals_by_path[path]
+        if item['type'] in ('int', 'float'):
+            shared['min'] = min(shared['min'], item['min'])
+            shared['max'] = max(shared['max'], item['max'])
+
+    swarm_overrides = []
+    for transition in ('movement', 'open', 'close'):
+        for item in settings:
+            if not item['path'].startswith('window.options.swarm.'):
+                continue
+            leaf = item['path'].split('.')[-1]
+            swarm_overrides.append(dict(item, path=f'window.{transition}.options.swarm.{leaf}',
+                                        member='m_' + transition + 'Swarm' + pascal(leaf),
+                                        optional=True, inherited=True))
+
+    result = []
+    for item in settings:
+        parts = item['path'].split('.')
+        if len(parts) == 5 and parts[1] in ('open', 'close', 'movement') and parts[2] == 'options':
+            item = dict(item, optional=True, inherited=True)
+        result.append(item)
+    return generated_globals + result + swarm_overrides
+
 
 class _Node(dict):
     """Interior table of the nested Lua configuration tree; leaves are schema items."""
@@ -143,7 +182,7 @@ def lua_fields(node, depth):
 
 
 def lua_config(settings):
-    body = lua_fields(tree(settings), 3)
+    body = lua_fields(tree([item for item in settings if not item.get('optional')]), 3)
     return '\n'.join(['hl.config({', '    decoration = { wobble = { enabled = false } },', '    plugin = {',
                       '        ["hyprimate"] = {', *body, '        },', '    },', '})'])
 
@@ -272,6 +311,10 @@ def config_header(settings):
     out.append('struct SConfigValues {')
     for item in settings:
         out.append(f'    SP<Config::Values::{KINDS[item["type"]]}> {item["member"]};')
+        if item.get('optional'):
+            storage = {'boolean': 'BOOL', 'int': 'INTEGER', 'float': 'FLOAT',
+                       'string': 'STRING', 'set': 'STRING', 'color': 'INTEGER'}[item['type']]
+            out.append(f'    CConfigValue<Config::{storage}> {item["member"]}Set;')
     out.append('};')
     out.append('')
     out.append('inline void registerConfigValues(HANDLE handle, SConfigValues& values) {')
@@ -307,13 +350,24 @@ def config_header(settings):
             out.append(f'    values.{member} = makeShared<Config::Values::{cls}>({literal(name)}, {desc}, {value});')
     out.append('    if (' + '\n     || '.join(f'!HyprlandAPI::addConfigValueV2(handle, values.{x["member"]})' for x in settings) + ')')
     out.append('        throw std::runtime_error("[hyprimate] failed to register configuration values");')
+    for item in settings:
+        if item.get('optional'):
+            out.append(f'    values.{item["member"]}Set.bind({literal(key(item))});')
     out.append('}')
     out.append('')
     out.append('inline SConfig readConfig(const SConfigValues& v) {')
     out.append('    SConfig c;')
+    by_path = {item['path']: item for item in settings}
     for item in settings:
         target = 'c.' + '.'.join(camel(s) for s in config_segments(item))
         source = f'v.{item["member"]}->value()'
+        if item.get('inherited'):
+            parts = item['path'].split('.')
+            shared = by_path['.'.join(('window', 'options', *parts[3:]))]
+            shared_source = f'v.{shared["member"]}->value()'
+            if shared.get('optional'):
+                shared_source = f'(v.{shared["member"]}Set.setByUser() ? {shared_source} : {source})'
+            source = f'(v.{item["member"]}Set.setByUser() ? {source} : {shared_source})'
         if item['type'] == 'int':
             value = f'detail::clampInt({source}, {item["min"]}, {item["max"]})'
         elif item['type'] == 'set':
@@ -341,11 +395,16 @@ def documentation(settings):
     lines = ['After the first load has registered the settings, add this Lua configuration:', '', '```lua',
              lua_config(settings), '```', '',
              'Use `hyprimate` under `plugin` in `hl.config`; the matching `hyprctl` keys begin with `plugin:hyprimate:`. Each nested Lua table maps to colon-separated segments of the key, for example `window.movement.options.liquid.viscosity` is `plugin:hyprimate:window:movement:options:liquid:viscosity`.', '',
+             'Style settings under `window.options.<style>` apply to each animation unless its matching `window.<animation>.options.<style>` setting is explicitly set. When neither is set, each animation keeps its own default. Shared values are clamped to the receiving animation’s range. Optional settings are omitted from the example so they do not override inheritance.', '',
              '| Setting | Type / default | Meaning |', '|---|---|---|']
     for item in settings:
         kind = item['type']
         default = item['default'] if kind == 'color' else literal(item['default'])
         meaning = item['description']
+        if item.get('inherited'):
+            meaning += ' Overrides the shared setting when explicitly set; otherwise inherits it, or uses this animation’s default if the shared setting is unset.'
+        elif item.get('optional'):
+            meaning += ' Optional shared value; when unset, each animation uses its own default.'
         if kind == 'float':
             meaning += f' Finite values clamped to {item["min"]}–{item["max"]}.'
         if kind == 'int':
@@ -355,7 +414,10 @@ def documentation(settings):
             meaning += f' Comma-separated list of: {choices}; `{item["all"]}` selects every one and overrides the rest.'
         if kind == 'string':
             meaning += ' Allowed: ' + ', '.join('`' + x + '`' for x in item['choices']) + '.'
-        lines.append(f'| `{key(item)}` | {kind} / `{default}` | {meaning} |')
+        label = f'{kind} / `{default}`'
+        if item.get('optional'):
+            label = f'{kind} / unset (fallback `{default}`)' if item.get('inherited') else f'{kind} / unset'
+        lines.append(f'| `{key(item)}` | {label} | {meaning} |')
     return '\n'.join(lines)
 
 
@@ -381,6 +443,8 @@ def main():
     if not (args.readme or args.lua or args.header):
         parser.error('specify --readme, --lua, or --header')
     settings = json.loads(args.schema.read_text())
+    validate(settings)
+    settings = expanded_settings(settings)
     validate(settings)
     outputs = []
     if args.header:

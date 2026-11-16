@@ -28,13 +28,13 @@ namespace close_style {
         const auto sides = swarmSides();
         const auto seed = nextSeed();
         if (!monitor || sides.empty()) return false;
-        pending.closeData = SSwarmCloseData{.params = swarmParams(config),
+        pending.closeData = SSwarmCloseData{.params = swarmParams(config.close.swarm),
             .seed = seed,
             .placement = {toBox(window->getFullWindowBoundingBox()),
                 toBox(window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT)),
                 toBox(monitor->logicalBox())},
             .sides = sides,
-            .creature = swarmCreature(config)};
+            .creature = swarmCreature(config.close.swarm)};
         pending.style = std::move(style);
         return true;
     }

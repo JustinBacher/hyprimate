@@ -91,7 +91,7 @@ bool SSwarmLiveStyle::open(
     CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window) {
     const auto sides = runtime.swarmSides(window, true);
     const auto placement = placementOf(window, true);
-    const auto creature = swarmCreature(runtime.m_config);
+    const auto creature = swarmCreature(runtime.m_config.open.swarm);
     if (!placement || sides.empty() || !runtime.m_sprites->sheet(creature)) return false;
 
     auto *transformer = runtime.acquireTransformer(window);
@@ -99,7 +99,7 @@ bool SSwarmLiveStyle::open(
     state.creature = creature;
     state.swarm.reset();
     state.swarm.begin(
-        Transition::Open, swarmParams(runtime.m_config), runtime.m_nextSeed++, *placement, sides);
+        Transition::Open, swarmParams(runtime.m_config.open.swarm), runtime.m_nextSeed++, *placement, sides);
     if (state.swarm.active()) {
         // The swarm assembles the window where it will rest, so the native popin is taken straight
         // to its goal.
@@ -124,9 +124,9 @@ void SSwarmLiveStyle::movement(CPluginRuntime &runtime,
     if (!placement) return;
     if (moving && !state.swarm.active()) {
         // Formed where the window was, so the first update carries this frame's movement.
-        state.creature = swarmCreature(runtime.m_config);
+        state.creature = swarmCreature(runtime.m_config.movement.swarm);
         state.swarm.reset();
-        state.swarm.beginMovement(swarmParams(runtime.m_config),
+        state.swarm.beginMovement(swarmParams(runtime.m_config.movement.swarm),
             runtime.m_nextSeed++,
             {decision.previousCapture, decision.previousBox, placement->screen});
     }
@@ -189,5 +189,5 @@ double SSwarmLiveStyle::strength(const CPluginRuntime &) {
     return 1.0;
 }
 bool SSwarmLiveStyle::usable(const CPluginRuntime &runtime) {
-    return runtime.m_sprites->sheet(swarmCreature(runtime.m_config)) != nullptr;
+    return runtime.m_sprites->sheet(swarmCreature(runtime.m_config.movement.swarm)) != nullptr;
 }

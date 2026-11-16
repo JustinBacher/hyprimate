@@ -17,7 +17,7 @@ SPEC.loader.exec_module(GEN)
 SCHEMA_PATH = ROOT / 'config' / 'settings.json'
 README = ROOT / 'README.md'
 LUA = ROOT / 'tests' / 'nested' / 'hyprland.lua'
-SCHEMA = json.loads(SCHEMA_PATH.read_text())
+SCHEMA = GEN.expanded_settings(json.loads(SCHEMA_PATH.read_text()))
 REGISTERED = SCHEMA
 LUA_BEGIN = '-- BEGIN GENERATED PLUGIN CONFIG'
 LUA_END = '-- END GENERATED PLUGIN CONFIG'
@@ -85,6 +85,24 @@ class ConfigGeneratorTests(unittest.TestCase):
         self.assertIn('window.close.options.liquid.splash', paths)
         self.assertFalse(any(p.endswith(('close_side', 'close_splash')) for p in paths))
 
+    def test_every_animation_style_setting_has_a_shared_key(self):
+        paths = {item['path'] for item in SCHEMA}
+        for path in paths:
+            parts = path.split('.')
+            if len(parts) == 5 and parts[1] in ('open', 'close', 'movement') and parts[2] == 'options':
+                with self.subTest(path=path):
+                    self.assertIn('.'.join(('window', 'options', *parts[3:])), paths)
+
+    def test_every_global_swarm_setting_has_animation_overrides(self):
+        paths = {item['path'] for item in SCHEMA}
+        for item in json.loads(SCHEMA_PATH.read_text()):
+            path = item['path']
+            if path.startswith('window.options.swarm.'):
+                suffix = path.removeprefix('window.options.')
+                for direction in ('open', 'close', 'movement'):
+                    with self.subTest(path=path, direction=direction):
+                        self.assertIn(f'window.{direction}.options.{suffix}', paths)
+
     def test_registration_keys_and_members(self):
         header = GEN.config_header(SCHEMA)
         for item in REGISTERED:
@@ -103,11 +121,13 @@ class ConfigGeneratorTests(unittest.TestCase):
                 self.assertIn(f'.min = {GEN.float_literal(item["min"])}', header)
 
     def test_lua_leaves_match_schema_paths(self):
-        self.assertEqual(lua_leaf_paths(GEN.lua_config(SCHEMA)), {item['path'] for item in SCHEMA})
+        self.assertEqual(lua_leaf_paths(GEN.lua_config(SCHEMA)),
+                         {item['path'] for item in SCHEMA if not item.get('optional')})
 
     def test_nested_example_leaves_match_schema_paths(self):
         region = nested_region(LUA.read_text())
-        self.assertEqual(lua_leaf_paths(region), {item['path'] for item in SCHEMA})
+        self.assertEqual(lua_leaf_paths(region),
+                         {item['path'] for item in SCHEMA if not item.get('optional')})
 
     def test_readme_documents_every_registered_key(self):
         block = GEN.documentation(SCHEMA)
@@ -115,7 +135,7 @@ class ConfigGeneratorTests(unittest.TestCase):
         self.assertEqual(documented, {GEN.key(item) for item in REGISTERED})
 
     def test_strength_zero_contract_is_documented_in_schema(self):
-        strengths = [item for item in SCHEMA if item['path'].endswith('.strength')]
+        strengths = [item for item in json.loads(SCHEMA_PATH.read_text()) if item['path'].endswith('.strength')]
         self.assertTrue(strengths)
         for strength in strengths:
             self.assertEqual(strength['min'], 0)
@@ -128,15 +148,18 @@ class ConfigGeneratorTests(unittest.TestCase):
     def test_schema_change_regenerates_outputs_and_flags_stale_repo_copies(self):
         items = json.loads(SCHEMA_PATH.read_text())
         next(item for item in items if item['path'] == 'window.movement.options.liquid.strength')['default'] = 0.7
+        next(item for item in items if item['path'] == 'window.options.swarm.count')['default'] = 300
         schema = self.write_schema(items)
         readme, lua = self.copies()
         header = self.tmp / 'config_generated.hpp'
         result = self.run_generator('--schema', str(schema), '--readme', str(readme), '--lua', str(lua),
                                     '--header', str(header))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('strength = 0.7,', lua.read_text())
+        self.assertIn('count = 300,', lua.read_text())
+        self.assertNotIn('strength = 0.7,', lua.read_text())
         self.assertIn('0.7F', header.read_text())
-        self.assertIn('strength = 0.7,', readme.read_text())
+        self.assertIn('count = 300,', readme.read_text())
+        self.assertIn('fallback `0.7`', readme.read_text())
         stale = self.run_generator('--schema', str(schema), '--readme', str(README), '--lua', str(LUA), '--check')
         self.assertEqual(stale.returncode, 1)
 
@@ -209,7 +232,17 @@ class ConfigGeneratorTests(unittest.TestCase):
         self.assertIn('c.swarm.count = detail::clampInt(v.m_swarmCount->value(), 1, 400);', header)
         for direction in ('open', 'close'):
             self.assertIn(f'values.m_{direction}SwarmLoneWindowSides = makeShared<Config::Values::CStringValue>', header)
-            self.assertIn(f'c.{direction}.swarm.loneWindowSides = detail::parseLoneWindowSides(', header)
+
+    def test_generated_config_inheritance_at_runtime(self):
+        header = self.tmp / 'config_generated.hpp'
+        header.write_text(GEN.config_header(SCHEMA))
+        binary = self.tmp / 'config-inheritance-tests'
+        result = subprocess.run(['c++', '-std=c++23', '-I', str(self.tmp),
+                                 str(ROOT / 'tests' / 'ConfigInheritanceTests.cpp'), '-o', str(binary)],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = subprocess.run([str(binary)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_missing_readme_markers_fail(self):
         readme, _ = self.copies()
@@ -230,7 +263,9 @@ class ConfigGeneratorTests(unittest.TestCase):
 
     def test_nested_lua_edit_inside_region_is_stale(self):
         _, lua = self.copies()
-        lua.write_text(lua.read_text().replace('strength = 0.65,', 'strength = 0.5,', 1))
+        original = lua.read_text()
+        self.assertIn('count = 250,', original)
+        lua.write_text(original.replace('count = 250,', 'count = 200,', 1))
         result = self.run_generator('--lua', str(lua), '--check')
         self.assertEqual(result.returncode, 1)
 

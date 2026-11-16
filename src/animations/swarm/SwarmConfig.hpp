@@ -3,24 +3,25 @@
 #include "AnimationTransformer.hpp"
 
 // The swarm settings as the simulation and the sprite layer take them.
-inline hyprimate::SwarmParams swarmParams(const hyprimate::config::SConfig &config) {
-    const auto &swarm = config.swarm;
+template <typename SwarmConfig>
+inline hyprimate::SwarmParams swarmParams(const SwarmConfig &swarm) {
     return {.count = swarm.count,
         .speed = swarm.speed,
         .stagger = swarm.stagger,
         .cohesion = swarm.cohesion,
         .separation = swarm.separation,
-        .responsiveness = swarm.responsiveness,
+        .responsiveness = swarm.agility,
         .settling = swarm.settling,
         .wander = swarm.wander,
         .variation = swarm.variation};
 }
 
-inline hyprimate::SwarmCreature swarmCreature(const hyprimate::config::SConfig &config) {
-    switch (config.swarm.creature) {
-        case hyprimate::config::Creature::Spider:
+template <typename SwarmConfig>
+inline hyprimate::SwarmCreature swarmCreature(const SwarmConfig &swarm) {
+    switch (swarm.sprite) {
+        case hyprimate::config::Sprite::Spider:
             return hyprimate::SwarmCreature::Spider;
-        case hyprimate::config::Creature::Cat:
+        case hyprimate::config::Sprite::Cat:
             return hyprimate::SwarmCreature::Cat;
     }
     return hyprimate::SwarmCreature::Spider;
