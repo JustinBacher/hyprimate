@@ -69,8 +69,8 @@ vec4 layer(Membrane s, vec2 p, vec3 point, vec3 normal, float cosView, float cur
         stress=s.sheen*smoothstep(.55,1.0,sqrt(sqrt(dot(u2,u2))))*trailing;
     }
     // A rounded-up window is a bubble: film over all of it, its imagery seen through the film.
-    float rounded=s.spherical==0 ? clamp(s.round,0.0,1.0) : 0.0;
-    float local=max(max(max(s.film,precursor),stress),.5*rounded);
+    float rounded=s.spherical==0 ? smoothstep(0.0,.45,s.round) : 0.0;
+    float local=max(max(max(s.film,precursor),stress),rounded);
     vec4 reflection=vec4(0);
     // The thickness field is only evaluated where film is visible: a closing window needs it near its holes only.
     if (local>0.0 && intact>0.0) {
@@ -112,7 +112,7 @@ vec4 layer(Membrane s, vec2 p, vec3 point, vec3 normal, float cosView, float cur
             vec2 hi=min((sourcePos+sourceSize-textureOrigin-.5)/imageSize,vec2(1)-.5/imageSize);
             // A contracted window becomes part of the translucent soap film: its premultiplied
             // colour and opacity fade together while the dome lensing and reflections remain.
-            imagery=texture(image,clamp(uv,lo,hi))*s.content*(1.0-blackFilm)*(1.0-.2*rounded);
+            imagery=texture(image,clamp(uv,lo,hi))*s.content*(1.0-blackFilm)*(1.0-.4*rounded);
         }
     }
     vec4 result=over(reflection,imagery*intact);
@@ -160,7 +160,8 @@ vec4 membrane(Membrane s, vec2 logical, bool background) {
     vec2 tilt=deformed ? motionOffset(s,roundPoint(s,p))/max(min(h.x,h.y),1.0)*1.5 : vec2(0);
     vec3 normal=normalize(vec3(gradient*radius*curve/max(.22,cap+.22)+coreNormal+tilt,1.0));
     // Contracted, the film bulges like a dome over its outline: its reflections, rim and lensing follow it.
-    float rounded=deformed ? clamp(s.round,0.0,1.0) : 0.0;
+    // Optical depth reaches full strength for a pillow too; geometry keeps its own roundness.
+    float rounded=deformed ? smoothstep(0.0,.45,s.round) : 0.0;
     if (rounded>0.0) {
         vec2 ps=roundPoint(s,p)/max(s.extent,vec2(1.0));
         float zs=sqrt(max(0.0,1.0-min(dot(ps,ps),1.0)));
