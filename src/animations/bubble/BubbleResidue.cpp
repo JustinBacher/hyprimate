@@ -43,6 +43,14 @@ namespace {
             .intersection(screen);
     }
 
+    // Only the monitor's own normal frame draws residue: never captures, snapshots or read-only
+    // passes.
+    bool drawsResidue(const Render::CRenderContext &ctx, const PHLMONITOR &monitor) {
+        return monitor && !ctx.readOnlyEffects() && !ctx.m_renderingCapture &&
+               !ctx.m_renderingSnapshot && ctx.m_mode == Render::RENDER_MODE_NORMAL &&
+               ctx.m_data.pMonitor.lock() == monitor;
+    }
+
     // Wakes alive at once over every monitor; beyond this the oldest dissolve faster.
     constexpr std::size_t kMaxWakes = 12;
 }  // namespace
@@ -110,6 +118,7 @@ void CBubbleResidue::tick(std::chrono::steady_clock::time_point now, const PHLMO
     });
     for (auto &wake : m_wakes) {
         if (wake.monitor.lock() != monitor) continue;
+        wake.queued = false;  // a new frame of this monitor begins
         const double elapsed = std::clamp(
             std::chrono::duration<double>(now - wake.last).count(), 0.0, hyprimate::kStallSeconds);
         wake.last = now;
@@ -130,11 +139,12 @@ CBubbleResidue::Wake *CBubbleResidue::wakeFor(const PHLMONITOR &monitor, std::ui
     return nullptr;
 }
 
-CBubbleResidue::Wake &CBubbleResidue::beginWake(const PHLMONITOR &monitor) {
+CBubbleResidue::Wake &CBubbleResidue::beginWake(const PHLMONITOR &monitor, const PHLWINDOW &owner) {
     if (m_wakes.size() >= kMaxWakes)
         for (std::size_t i = 0; i + kMaxWakes <= m_wakes.size(); ++i) m_wakes[i].film.hurry();
     const auto id = m_nextWake++;
     m_wakes.push_back({monitor,
+        owner,
         id,
         hyprimate::BubbleWake{id * 0x9E3779B97F4A7C15ULL},
         std::chrono::steady_clock::now()});
@@ -142,6 +152,7 @@ CBubbleResidue::Wake &CBubbleResidue::beginWake(const PHLMONITOR &monitor) {
 }
 
 std::uint64_t CBubbleResidue::trail(const PHLMONITOR &monitor,
+    const PHLWINDOW &owner,
     std::uint64_t wake,
     Vector2D centre,
     std::span<const hyprimate::BubbleTrailPoint> points,
@@ -154,14 +165,14 @@ std::uint64_t CBubbleResidue::trail(const PHLMONITOR &monitor,
             // A full wake hands its newest point on, so the ribbon continues without a gap.
             std::optional<hyprimate::BubbleTrailPoint> carry;
             if (current && !point.start && current->film.last()) carry = *current->film.last();
-            current = &beginWake(monitor);
+            current = &beginWake(monitor, owner);
             if (carry) current->film.extend(*carry, {});
         }
         current->film.extend(point, origin);
     }
     for (const auto &release : releases) {
         if (!current || !current->film.release(release, origin)) {
-            current = &beginWake(monitor);
+            current = &beginWake(monitor, owner);
             current->film.release(release, origin);
         }
     }
@@ -170,12 +181,43 @@ std::uint64_t CBubbleResidue::trail(const PHLMONITOR &monitor,
     return current->id;
 }
 
+void CBubbleResidue::queueWake(Render::CRenderContext &ctx,
+    const PHLMONITOR &monitor,
+    Wake &wake,
+    const SP<CBubbleRenderer> &renderer) {
+    wake.queued = true;
+    const auto bounds = wake.film.bounds();
+    if (!hyprimate::isUsable(bounds)) return;
+    const auto source = CBox{bounds.x, bounds.y, bounds.w, bounds.h}.scale(monitor->m_scale);
+    const auto clipped = onScreen(monitor, source);
+    if (clipped.empty()) return;
+    CBubblePassElement::SData data;
+    data.renderer = renderer;
+    data.draw.frame.size = {bounds.w, bounds.h};
+    data.draw.canvas = clipped.size();
+    data.draw.source = source;
+    data.draw.outputOrigin = {clipped.x, clipped.y};
+    data.draw.onGlass = true;
+    wake.film.view(data.draw.wake.emplace());
+    data.box = clipped;
+    data.scale = monitor->m_scale;
+    data.damage = CRegion{clipped};
+    Render::IHyprRenderer::addPassElement(ctx, makeUnique<CBubblePassElement>(std::move(data)));
+}
+
+void CBubbleResidue::queueUnder(Render::CRenderContext &ctx,
+    const PHLMONITOR &monitor,
+    const PHLWINDOW &window,
+    const SP<CBubbleRenderer> &renderer) {
+    if (!window || !renderer || !drawsResidue(ctx, monitor)) return;
+    for (auto &wake : m_wakes)
+        if (!wake.queued && wake.monitor.lock() == monitor && wake.owner.lock() == window)
+            queueWake(ctx, monitor, wake, renderer);
+}
+
 void CBubbleResidue::queue(
     Render::CRenderContext &ctx, const PHLMONITOR &monitor, const SP<CBubbleRenderer> &renderer) {
-    if (!monitor || !renderer || ctx.readOnlyEffects() || ctx.m_renderingCapture ||
-        ctx.m_renderingSnapshot || ctx.m_mode != Render::RENDER_MODE_NORMAL ||
-        ctx.m_data.pMonitor.lock() != monitor)
-        return;
+    if (!renderer || !drawsResidue(ctx, monitor)) return;
     for (const auto &deposit : m_deposits) {
         if (deposit.monitor.lock() != monitor || deposit.age < 0) continue;
         const auto source = footprint(deposit.position, deposit.radius).scale(monitor->m_scale);
@@ -199,26 +241,10 @@ void CBubbleResidue::queue(
         data.damage = CRegion{clipped};
         Render::IHyprRenderer::addPassElement(ctx, makeUnique<CBubblePassElement>(std::move(data)));
     }
-    for (const auto &wake : m_wakes) {
-        if (wake.monitor.lock() != monitor) continue;
-        const auto bounds = wake.film.bounds();
-        if (!hyprimate::isUsable(bounds)) continue;
-        const auto source = CBox{bounds.x, bounds.y, bounds.w, bounds.h}.scale(monitor->m_scale);
-        const auto clipped = onScreen(monitor, source);
-        if (clipped.empty()) continue;
-        CBubblePassElement::SData data;
-        data.renderer = renderer;
-        data.draw.frame.size = {bounds.w, bounds.h};
-        data.draw.canvas = clipped.size();
-        data.draw.source = source;
-        data.draw.outputOrigin = {clipped.x, clipped.y};
-        data.draw.onGlass = true;
-        wake.film.view(data.draw.wake.emplace());
-        data.box = clipped;
-        data.scale = monitor->m_scale;
-        data.damage = CRegion{clipped};
-        Render::IHyprRenderer::addPassElement(ctx, makeUnique<CBubblePassElement>(std::move(data)));
-    }
+    // Wakes whose window was not drawn this frame (closed, or on a hidden workspace) lie over the
+    // windows instead.
+    for (auto &wake : m_wakes)
+        if (!wake.queued && wake.monitor.lock() == monitor) queueWake(ctx, monitor, wake, renderer);
 }
 
 bool CBubbleResidue::active(const PHLMONITOR &monitor) const {

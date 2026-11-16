@@ -186,6 +186,14 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                 }
                 return;
             }
+            // A wake lies just under the window that left it; beads, and wakes whose window was
+            // not drawn, lie over every window.
+            if (event.stage == RENDER_PRE_WINDOW && event.context && event.monitor) {
+                auto &ctx = event.context->get();
+                m_bubbleResidue->queueUnder(
+                    ctx, event.monitor, ctx.m_data.currentWindow.lock(), m_bubble);
+                return;
+            }
             if (event.stage == RENDER_POST_WINDOWS && event.context && event.monitor) {
                 m_bubbleResidue->queue(event.context->get(), event.monitor, m_bubble);
                 return;

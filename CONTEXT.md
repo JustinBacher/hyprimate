@@ -30,6 +30,10 @@ _Avoid_: mode, material (as separate per-direction choices).
 
 **Drag** (bubble): the lag of a moving bubble's trailing film behind its leading edge, as a displacement. It bows the trailing side out, overshoots forward when the window stops, and is the same state across movement, the end of an opening and the start of a close.
 
+**Round-up** (bubble): a moving window's film contracting from its rectangle toward its moving shape (pillow, ellipse or disc), content and all, as far as its speed asks, and spreading back out when it rests. One continuous, interruptible state, never a played sequence; it is drawn only and never resizes the client.
+
+**Carry** (bubble): how far a window's film is drawn from the window itself while it follows a layout-animated move. It starts at the whole jump and closes in critically damped, so the bubble travels where the layout only jumps.
+
 **Microbubble**: a small soap bubble that swells out of a moving window's film, rides its outline toward the trailing side, and then detaches, merges back or collapses.
 
 **Wake**: the soap film a moving bubble leaves on the screen, with the microbubbles that detached into it. Like glass beads it stays at its screen position and drains, breaks up and disappears on its own.

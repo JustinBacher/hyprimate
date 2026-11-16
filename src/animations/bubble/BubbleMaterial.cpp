@@ -53,7 +53,7 @@ namespace {
     }
     template <std::size_t N>
     void surface(const std::array<GLint, N> &u, const hyprimate::BubbleSurface &s) {
-        static_assert(N == 13 + 4 * 6 + 4);
+        static_assert(N == 13 + 4 * 6 + 7);
         vector(u[0], s.halfSize);
         vector(u[1], s.core);
         glUniform1f(u[2], float(s.corner));
@@ -95,6 +95,9 @@ namespace {
             float(m.waveSin[2]),
             float(m.waveSin[3]));
         glUniform1f(u[40], float(m.sheen));
+        glUniform1f(u[41], float(m.round));
+        vector(u[42], m.extent);
+        vector(u[43], m.carry);
     }
     struct Instance {
         float values[8];
@@ -105,7 +108,8 @@ namespace {
     constexpr std::size_t kMicroInstances =
         std::max(hyprimate::kBubbleMicroCapacity, hyprimate::kBubbleWakeBubbles);
     // Movement uniforms follow the 13 fields and 4 holes of every membrane.
-    constexpr const char *kMotionFields[] = {"drag", "waveCos", "waveSin", "sheen"};
+    constexpr const char *kMotionFields[] = {
+        "drag", "waveCos", "waveSin", "sheen", "round", "extent", "carry"};
 }  // namespace
 
 bool CBubbleMaterial::initialize() {

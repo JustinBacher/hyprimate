@@ -68,7 +68,9 @@ vec4 layer(Membrane s, vec2 p, vec3 point, vec3 normal, float cosView, float cur
         }
         stress=s.sheen*smoothstep(.55,1.0,sqrt(sqrt(dot(u2,u2))))*trailing;
     }
-    float local=max(max(s.film,precursor),stress);
+    // A rounded-up window is a bubble: film over all of it, its imagery seen through the film.
+    float rounded=s.spherical==0 ? clamp(s.round,0.0,1.0) : 0.0;
+    float local=max(max(max(s.film,precursor),stress),.5*rounded);
     vec4 reflection=vec4(0);
     // The thickness field is only evaluated where film is visible: a closing window needs it near its holes only.
     if (local>0.0 && intact>0.0) {
@@ -108,7 +110,9 @@ vec4 layer(Membrane s, vec2 p, vec3 point, vec3 normal, float cosView, float cur
             vec2 uv=(sourcePos+sourceSize*unit-textureOrigin)/imageSize;
             vec2 lo=max((sourcePos-textureOrigin+.5)/imageSize,vec2(.5)/imageSize);
             vec2 hi=min((sourcePos+sourceSize-textureOrigin-.5)/imageSize,vec2(1)-.5/imageSize);
-            imagery=texture(image,clamp(uv,lo,hi))*s.content*(1.0-blackFilm);
+            // A contracted window becomes part of the translucent soap film: its premultiplied
+            // colour and opacity fade together while the dome lensing and reflections remain.
+            imagery=texture(image,clamp(uv,lo,hi))*s.content*(1.0-blackFilm)*(1.0-.2*rounded);
         }
     }
     vec4 result=over(reflection,imagery*intact);
@@ -125,8 +129,14 @@ vec4 membrane(Membrane s, vec2 logical, bool background) {
         return texture(image,clamp(base,max((sourcePos-textureOrigin+.5)/imageSize,vec2(.5)/imageSize),
                      min((sourcePos+sourceSize-textureOrigin-.5)/imageSize,vec2(1)-.5/imageSize)));
     }
-    // Every material property below belongs to the undeformed film point drawn here.
-    if (deformed) p=motionSource(s,p);
+    // Every material property below belongs to the undeformed film point drawn here. Far outside
+    // the bubble the inverse has no solution; the point it settles on does not map back here.
+    vec2 drawn=p;
+    float valid=1.0;
+    if (deformed) {
+        p=motionSource(s,p);
+        valid=step(length(motionPoint(s,p)-drawn),1.5);
+    }
     vec2 h=max(s.halfSize,vec2(.001));
     float corner=clamp(s.corner,0.0,min(h.x,h.y));
     float sd=boxDistance(p,h,corner);
@@ -147,14 +157,23 @@ vec4 membrane(Membrane s, vec2 logical, bool background) {
     vec2 coreNormal=-(supportGradient*(s.core.x+s.core.y*dot(xy,xy)) +
                       b.x*b.x*b.y*b.y*s.core.y*2.0*xy)/h;
     // The film leans the way movement carries it, so its reflections slide with the deformation.
-    vec2 tilt=deformed ? motionOffset(s,p)/max(min(h.x,h.y),1.0)*1.5 : vec2(0);
+    vec2 tilt=deformed ? motionOffset(s,roundPoint(s,p))/max(min(h.x,h.y),1.0)*1.5 : vec2(0);
     vec3 normal=normalize(vec3(gradient*radius*curve/max(.22,cap+.22)+coreNormal+tilt,1.0));
+    // Contracted, the film bulges like a dome over its outline: its reflections, rim and lensing follow it.
+    float rounded=deformed ? clamp(s.round,0.0,1.0) : 0.0;
+    if (rounded>0.0) {
+        vec2 ps=roundPoint(s,p)/max(s.extent,vec2(1.0));
+        float zs=sqrt(max(0.0,1.0-min(dot(ps,ps),1.0)));
+        normal=normalize(mix(normal,normalize(vec3(ps,max(zs,.05))),.85*rounded));
+        cap=mix(cap,zs,rounded);
+        curve=max(curve,rounded);
+    }
     vec3 front=vec3(xy,max(z,.001)), back=vec3(xy,-max(z,.001));
     if (s.spherical!=0) { normal=normalize(front); cap=z; }
     float cv=clamp(normal.z,0.0,1.0);
     vec4 a=layer(s,p,front,normal,cv,curve,cap,false,background);
     if (s.spherical!=0) a=over(a,layer(s,p,back,normal,cv,curve,cap,true,background));
-    return a*shape*s.visibility;
+    return a*shape*s.visibility*valid;
 }
 void main() {
     vec2 logical=(outputOrigin+gl_FragCoord.xy-sourcePos)*size/sourceSize;

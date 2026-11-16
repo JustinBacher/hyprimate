@@ -60,7 +60,7 @@ void main() {
         filmNormal=v*c+cross(axis,v)*s+axis*dot(axis,v)*(1.0-c);
     }
     // The curl rides the film where movement has carried it, like the membrane it peels from.
-    if (moving(sheet)) position.xy+=motionOffset(sheet,position.xy);
+    if (moving(sheet)) position.xy=motionPoint(sheet,position.xy);
     vec2 pixel=sourcePos+sourceSize*((position.xy+size*.5)/size)-origin;
     gl_Position=vec4(pixel/canvas*2.0-1.0,0,1);
 }

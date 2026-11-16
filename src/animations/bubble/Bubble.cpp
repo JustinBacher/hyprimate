@@ -165,8 +165,8 @@ namespace hyprimate {
         active_ = opening_ = closed_ = false;
     }
 
-    void Bubble::drive(Vec2 displacement) {
-        motion_.drive(displacement);
+    void Bubble::drive(Vec2 displacement, bool carried) {
+        motion_.drive(displacement, carried);
     }
 
     void Bubble::seedMotion(std::uint64_t seed) {
@@ -294,6 +294,9 @@ namespace hyprimate {
                 motion.waveSin[i] *= damping;
             }
             motion.sheen *= 1 - smoothstep(0, .5, t);
+            // A bubble that closes while contracted bursts that way: its shape is the film being
+            // torn.
+            motion.extent = {motion.extent.x * xScale, motion.extent.y * yScale};
             if (!surface.closing) {
                 if (surface.visibility <= 0) return;
                 startRupture(surface,
@@ -331,24 +334,40 @@ namespace hyprimate {
     Box Bubble::bounds(Vec2 size) const {
         if (!usable(size) || closed_) return {};
         const auto f = frame(size);
+        // Each membrane's box around where it is drawn; a carried film is offset from the window.
         const auto extent = [](const BubbleSurface &surface) {
             double reach = std::hypot(surface.motion.drag.x, surface.motion.drag.y);
             for (std::size_t i = 0; i < surface.motion.waveCos.size(); ++i)
                 reach += std::hypot(surface.motion.waveCos[i], surface.motion.waveSin[i]);
-            const double margin =
-                8 + std::abs(surface.ripple) + reach +
-                (surface.closing ? 1.2 * std::min(surface.halfSize.x, surface.halfSize.y) : 0);
-            return Vec2{surface.halfSize.x + margin, surface.halfSize.y + margin};
+            // A contracted membrane may reach past its rectangle where its shape bulges; one
+            // overshooting back swells slightly past it everywhere.
+            const Vec2 round = bubbleRoundHalf(surface.halfSize, surface.motion);
+            reach += std::max(0.0, -surface.motion.round) *
+                     std::max(surface.halfSize.x, surface.halfSize.y);
+            const Vec2 base{
+                std::max(surface.halfSize.x, round.x), std::max(surface.halfSize.y, round.y)};
+            const double margin = 8 + std::abs(surface.ripple) + reach +
+                                  (surface.closing ? 1.2 * std::min(base.x, base.y) : 0);
+            const Vec2 half{base.x + margin, base.y + margin};
+            const Vec2 at = surface.motion.carry;
+            return std::array<double, 4>{
+                at.x - half.x, at.y - half.y, at.x + half.x, at.y + half.y};
         };
-        const auto window = extent(f.window), shell = extent(f.shell);
-        Vec2 half{std::max(window.x, shell.x), std::max(window.y, shell.y)};
+        auto box = extent(f.window);
+        const auto shell = extent(f.shell);
+        for (std::size_t i = 0; i < 2; ++i) {
+            box[i] = std::min(box[i], shell[i]);
+            box[i + 2] = std::max(box[i + 2], shell[i + 2]);
+        }
         for (std::size_t i = 0; i < f.microCount; ++i) {
             const auto &m = f.micro[i];
             const double r = m.radius * 1.4 + 3;
-            half = {std::max(half.x, std::abs(m.centre.x) + r),
-                std::max(half.y, std::abs(m.centre.y) + r)};
+            box = {std::min(box[0], m.centre.x - r),
+                std::min(box[1], m.centre.y - r),
+                std::max(box[2], m.centre.x + r),
+                std::max(box[3], m.centre.y + r)};
         }
-        return {size.x * .5 - half.x, size.y * .5 - half.y, half.x * 2, half.y * 2};
+        return {size.x * .5 + box[0], size.y * .5 + box[1], box[2] - box[0], box[3] - box[1]};
     }
 
 }  // namespace hyprimate

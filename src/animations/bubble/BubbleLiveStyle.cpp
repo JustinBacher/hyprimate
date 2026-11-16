@@ -5,6 +5,20 @@
 #include "LiveRender.hpp"
 #include "LiveStyle.hpp"
 
+namespace {
+    hyprimate::BubbleShape bubbleShape(hyprimate::config::Shape shape) {
+        switch (shape) {
+            case hyprimate::config::Shape::Ellipse:
+                return hyprimate::BubbleShape::Ellipse;
+            case hyprimate::config::Shape::Circle:
+                return hyprimate::BubbleShape::Circle;
+            case hyprimate::config::Shape::Pillow:
+                break;
+        }
+        return hyprimate::BubbleShape::Pillow;
+    }
+}  // namespace
+
 CBox liveExtents(const SBubbleStyle &state, const CBox &box) {
     const auto bounds = state.bubble.bounds({box.w, box.h});
     return CBox{box.x + bounds.x, box.y + bounds.y, bounds.w, bounds.h}.expand(2.0);
@@ -44,8 +58,12 @@ Render::SWindowTransformBuffer renderLive(SBubbleStyle &state,
         const auto &motion = state.bubble.motion();
         if (!motion.trail().empty() || !motion.releases().empty()) {
             if (state.residue && monitor)
-                state.wake = state.residue->trail(
-                    monitor, state.wake, centre, motion.trail(), motion.releases());
+                state.wake = state.residue->trail(monitor,
+                    state.window.lock(),
+                    state.wake,
+                    centre,
+                    motion.trail(),
+                    motion.releases());
             state.bubble.clearEmissions();
         }
     }
@@ -92,11 +110,13 @@ void SBubbleLiveStyle::movement(CPluginRuntime &,
     bool moving) {
     if (!moving) return;
     // The fluid follows the body's centre: an edge dragged by a resize carries it by half as much.
+    // A layout animating the window moves it faster than a bubble travels; the film follows.
     const CBox current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
     const auto &was = decision.previousBox;
     std::get<SBubbleStyle>(transformer.m_style)
         .bubble.drive({current.x + current.w * .5 - (was.x + was.w * .5),
-            current.y + current.h * .5 - (was.y + was.h * .5)});
+                          current.y + current.h * .5 - (was.y + was.h * .5)},
+            window->positionAnimation()->isBeingAnimated());
 }
 
 void SBubbleLiveStyle::snapshot(
@@ -114,6 +134,7 @@ void SBubbleLiveStyle::step(CPluginRuntime &runtime,
     auto &state = std::get<SBubbleStyle>(transformer.m_style);
     if (!enabled && state.bubble.stirred()) cancelMovement(transformer);
     hyprimate::Box body{-size.x * .5, -size.y * .5, size.x, size.y};
+    state.window = transformer.m_window;
     if (const auto window = transformer.m_window.lock()) {
         const CBox current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
         const CBox capture = window->getFullWindowBoundingBox();
@@ -124,9 +145,13 @@ void SBubbleLiveStyle::step(CPluginRuntime &runtime,
     state.bubble.advance(elapsed,
         size,
         body,
-        enabled
-            ? hyprimate::BubbleMotionParams{options.strength, options.microbubbles, options.trail}
-            : hyprimate::BubbleMotionParams{});
+        enabled ? hyprimate::BubbleMotionParams{options.strength,
+                      options.microbubbles,
+                      options.trail,
+                      options.roundness,
+                      bubbleShape(options.shape),
+                      options.shapeSpeed}
+                : hyprimate::BubbleMotionParams{});
     state.impacts.advance(elapsed);
     if (!state.bubble.active()) {
         state.wallpaper.reset();

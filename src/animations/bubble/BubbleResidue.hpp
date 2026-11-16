@@ -23,7 +23,8 @@ struct SBubbleImpactClock {
 };
 
 // Screen-space deposits retain neither the window nor its textures: glass beads from ruptures, and
-// the wakes of film and microbubbles that moving windows leave behind.
+// the wakes of film and microbubbles that moving windows leave behind. Beads lie on the glass over
+// every window; a wake lies just under the window that left it.
 class CBubbleResidue {
   public:
     bool deposit(const PHLMONITOR &monitor,
@@ -34,11 +35,19 @@ class CBubbleResidue {
     // centre in monitor-local logical px; wake is the wake the window continued last (0: none).
     // Returns the wake to continue next time.
     std::uint64_t trail(const PHLMONITOR &monitor,
+        const PHLWINDOW &owner,
         std::uint64_t wake,
         Vector2D centre,
         std::span<const hyprimate::BubbleTrailPoint> points,
         std::span<const hyprimate::BubbleRelease> releases);
+    // Advances the monitor's residue; once per frame, before it renders.
     void tick(std::chrono::steady_clock::time_point now, const PHLMONITOR &monitor);
+    // Before a window renders: the wakes it left, beneath it.
+    void queueUnder(Render::CRenderContext &ctx,
+        const PHLMONITOR &monitor,
+        const PHLWINDOW &window,
+        const SP<CBubbleRenderer> &renderer);
+    // After every window: the beads, and wakes no window drew this frame.
     void queue(Render::CRenderContext &ctx,
         const PHLMONITOR &monitor,
         const SP<CBubbleRenderer> &renderer);
@@ -62,12 +71,18 @@ class CBubbleResidue {
     };
     struct Wake {
         PHLMONITORREF monitor;
+        PHLWINDOWREF owner;  // the window it lies under
         std::uint64_t id = 0;
         hyprimate::BubbleWake film;
         std::chrono::steady_clock::time_point last;
+        bool queued = false;  // drawn in the monitor's current frame
     };
     Wake *wakeFor(const PHLMONITOR &monitor, std::uint64_t id);
-    Wake &beginWake(const PHLMONITOR &monitor);
+    Wake &beginWake(const PHLMONITOR &monitor, const PHLWINDOW &owner);
+    void queueWake(Render::CRenderContext &ctx,
+        const PHLMONITOR &monitor,
+        Wake &wake,
+        const SP<CBubbleRenderer> &renderer);
 
     bool m_enabled = true;
     std::vector<Deposit> m_deposits;

@@ -318,6 +318,206 @@ namespace {
         CHECK(accepted == kBubbleWakeNodes && full.full());
     }
 
+    constexpr BubbleMotionParams ROUND{.65, .5, .5, 1, BubbleShape::Circle, 1200};
+    double roundness(const Bubble &b) {
+        return b.frame(SIZE).window.motion.round;
+    }
+    // Where contraction carries a point of the membrane's outline.
+    Vec2 shaped(const BubbleDeformation &m, Vec2 q) {
+        return bubbleRoundPoint({SIZE.x / 2, SIZE.y / 2}, m, q);
+    }
+    // Distance from the centre of a rounded point of the membrane's outline.
+    double reach(const BubbleDeformation &m, Vec2 q) {
+        const auto p = shaped(m, q);
+        return std::hypot(p.x, p.y);
+    }
+
+    void roundsUpWhileMovingAndSpreadsBack() {
+        Bubble b;
+        b.seedMotion(8);
+        double t = 0, jump = 0, previous = 0;
+        const auto smooth = [&](const Bubble &x) {
+            jump = std::max(jump, std::abs(roundness(x) - previous));
+            previous = roundness(x);
+        };
+        // A quick flick already rounds the window visibly.
+        travel(b, t, .15, [](double) { return Vec2{1500, 0}; }, ROUND, smooth);
+        CHECK(roundness(b) > .25);
+        travel(b, t, 1, [](double) { return Vec2{1500, 0}; }, ROUND, smooth);
+        const auto m = b.frame(SIZE).window.motion;
+        CHECK(m.round > .85 && m.round < 1);
+        // Nearly circular: the corners have pulled in to the edges' distance, wide as it is.
+        const double side = reach(m, {SIZE.x / 2, 0}), top = reach(m, {0, SIZE.y / 2});
+        const double corner = reach(m, {SIZE.x / 2, SIZE.y / 2});
+        CHECK(std::abs(side - top) < .08 * side && std::abs(corner - side) < .12 * side);
+        CHECK(side < SIZE.x / 2);
+        const auto bounds = b.bounds(SIZE);
+        CHECK(bounds.h >= 2 * top && bounds.w >= 2 * side);
+        // Stopping spreads it back out, past the rectangle a little, then exactly to it.
+        double least = 1;
+        travel(b, t, 3, still, ROUND, [&](const Bubble &x) {
+            smooth(x);
+            least = std::min(least, roundness(x));
+        });
+        CHECK(least < 0 && least > -.12);
+        CHECK(jump < .08);
+        CHECK(!b.stirred() && b.frame(SIZE).window.motion.still());
+    }
+
+    void pillowAndEllipseKeepTheWindowsProportions() {
+        for (const auto shape : {BubbleShape::Pillow, BubbleShape::Ellipse}) {
+            Bubble b;
+            double t = 0;
+            travel(b, t, 1.2, [](double) { return Vec2{1500, 0}; }, {.65, .5, .5, 1, shape});
+            const auto m = b.frame(SIZE).window.motion;
+            const auto side = shaped(m, {SIZE.x / 2, 0}), top = shaped(m, {0, SIZE.y / 2});
+            const auto corner = shaped(m, {SIZE.x / 2, SIZE.y / 2});
+            // As wide for its height as the window, and its sides bow gently outward.
+            CHECK(std::abs(side.x / top.y - SIZE.x / SIZE.y) < .02);
+            CHECK(side.x > SIZE.x / 2 && side.x < SIZE.x / 2 * 1.12);
+            // The corners pull in: much more for the ellipse than for the pillow.
+            const double pulled = 1 - corner.x / (SIZE.x / 2);
+            if (shape == BubbleShape::Pillow)
+                CHECK(pulled > .08 && pulled < .25);
+            else
+                CHECK(pulled > .18);
+            // A pillow's sides stay nearly straight well toward its corners.
+            if (shape == BubbleShape::Pillow)
+                CHECK(shaped(m, {SIZE.x / 2, SIZE.y / 4}).x > .98 * SIZE.x / 2);
+            const auto bounds = b.bounds(SIZE);
+            CHECK(bounds.w >= 2 * side.x && bounds.h >= 2 * top.y);
+        }
+    }
+
+    void contractionFollowsSpeed() {
+        const auto settle = [](double speed) {
+            Bubble b;
+            double t = 0;
+            travel(b, t, 1.2, [=](double) { return Vec2{speed, 0}; }, ROUND);
+            return roundness(b);
+        };
+        const double slow = settle(300), brisk = settle(700), fast = settle(1500);
+        CHECK(slow > 0 && slow < brisk && brisk < fast);
+        CHECK(slow < .3 * fast);
+        // Slowing down without stopping relaxes it as it goes.
+        Bubble b;
+        double t = 0;
+        travel(b, t, 1, [](double) { return Vec2{1500, 0}; }, ROUND);
+        travel(b, t, 1.2, [](double) { return Vec2{300, 0}; }, ROUND);
+        CHECK(roundness(b) < .5 * fast && roundness(b) > .5 * slow);
+        // The speed of full contraction is the setting's.
+        Bubble c;
+        t = 0;
+        auto lazy = ROUND;
+        lazy.shapeSpeed = 4000;
+        travel(c, t, 1.2, [](double) { return Vec2{1500, 0}; }, lazy);
+        CHECK(roundness(c) < .6 * fast);
+    }
+
+    void pausesAndResumptionsDoNotSnap() {
+        Bubble b;
+        double t = 0, jump = 0, previous = 0, lowest = 1;
+        const auto watch = [&](const Bubble &x) {
+            jump = std::max(jump, std::abs(roundness(x) - previous));
+            previous = roundness(x);
+        };
+        travel(b, t, .8, [](double) { return Vec2{0, 1500}; }, ROUND, watch);
+        // A brief pause keeps the bubble round.
+        travel(b, t, .12, still, ROUND, [&](const Bubble &x) {
+            watch(x);
+            lowest = std::min(lowest, roundness(x));
+        });
+        CHECK(lowest > .8);
+        // A longer one lets it spread; moving again pulls it back from wherever it got to.
+        travel(b, t, .45, still, ROUND, watch);
+        const double spread = roundness(b);
+        CHECK(spread < .6);
+        travel(b, t, .5, [](double) { return Vec2{-1500, 0}; }, ROUND, watch);
+        CHECK(roundness(b) > spread + .2);
+        CHECK(jump < .08);
+    }
+
+    void roundnessZeroKeepsTheRectangle() {
+        Bubble b;
+        double t = 0;
+        travel(
+            b,
+            t,
+            .8,
+            [](double) { return Vec2{1500, 0}; },
+            PARAMS,
+            [](const Bubble &x) { CHECK(roundness(x) == 0); });
+        Bubble c;
+        travel(
+            c,
+            t,
+            .8,
+            [](double) { return Vec2{1500, 0}; },
+            {0, 1, 1, 1},
+            [](const Bubble &x) { CHECK(roundness(x) == 0); });
+    }
+
+    void microbubblesRideTheRoundedFilm() {
+        Bubble b;
+        b.seedMotion(13);
+        double t = 0;
+        const BubbleMotionParams params{.65, 1, 1, 1, BubbleShape::Circle, 1200};
+        travel(b, t, .8, [](double) { return Vec2{1400, 0}; }, params);
+        bool seen = false;
+        travel(
+            b,
+            t,
+            1.5,
+            [](double s) { return Vec2{1400 * std::cos(s), 600}; },
+            params,
+            [&](const Bubble &x) {
+                const auto f = x.frame(SIZE);
+                if (f.window.motion.round < .8) return;
+                const double R = f.window.motion.extent.x;
+                for (std::size_t i = 0; i < f.microCount; ++i) {
+                    const double r = std::hypot(f.micro[i].anchor.x, f.micro[i].anchor.y);
+                    CHECK(r > .8 * R && r < 1.2 * R);
+                    seen = true;
+                }
+                // Film is shed from the rounded outline, not from the rectangle's.
+                for (const auto &p : x.motion().trail())
+                    CHECK(std::hypot(p.position.x, p.position.y) < 1.2 * R);
+            });
+        CHECK(seen);
+    }
+
+    void layoutMovesCarryTheFilm() {
+        Bubble b;
+        b.seedMotion(21);
+        const BubbleMotionParams params{.65, .5, .5, 1};
+        // The layout swaps the window 640 px to the right within a tenth of a second.
+        double drawn = 0, previous = -1e9, longest = 0, arrived = -1;
+        bool monotonic = true, contracted = false, covered = true;
+        for (int frame = 0; frame < 240; ++frame) {
+            if (frame < 6) b.drive({640.0 / 6, 0}, true);
+            b.advance(DT, SIZE, BODY, params);
+            const auto m = b.frame(SIZE).window.motion;
+            // Where the window's centre is drawn, relative to its real place.
+            drawn = m.carry.x;
+            if (frame == 0) CHECK(drawn < -640.0 / 6 * .9);
+            // Once the layout has placed the window, the film only closes in on it.
+            if (frame >= 6) monotonic = monotonic && drawn >= previous - 1e-9 && drawn <= 1e-9;
+            previous = drawn;
+            contracted = contracted || m.round > .1;
+            const auto bounds = b.bounds(SIZE);
+            covered = covered && bounds.x <= SIZE.x / 2 + drawn - BODY.w / 2 &&
+                      bounds.x + bounds.w >= SIZE.x / 2 + drawn + BODY.w / 2;
+            longest = std::max(longest, -drawn);
+            if (arrived < 0 && drawn > -.05 * 640) arrived = frame * DT;
+            b.clearEmissions();
+        }
+        // It sets off from where the window was, travels over without overshooting, contracting
+        // as it goes, and arrives within about half a second.
+        CHECK(longest > 500 && monotonic && contracted && covered);
+        CHECK(arrived > .3 && arrived < .7);
+        CHECK(!b.stirred() && b.frame(SIZE).window.motion.still());
+    }
+
     void deterministicMotion() {
         Bubble a, b;
         a.seedMotion(42);
@@ -348,5 +548,12 @@ int main() {
     openingHandsOverToMovement();
     wakeDrainsAndEnds();
     deterministicMotion();
+    roundsUpWhileMovingAndSpreadsBack();
+    pillowAndEllipseKeepTheWindowsProportions();
+    contractionFollowsSpeed();
+    pausesAndResumptionsDoNotSnap();
+    roundnessZeroKeepsTheRectangle();
+    microbubblesRideTheRoundedFilm();
+    layoutMovesCarryTheFilm();
     return g_failures == 0 ? 0 : 1;
 }

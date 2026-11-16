@@ -14,26 +14,50 @@ namespace hyprimate {
     // Trail points and released microbubbles one movement step can hand to the screen.
     inline constexpr std::size_t kBubbleEmissions = 8;
 
+    // What surface tension pulls a moving window into: a soft pillow (rounded corners, gently
+    // bulging sides, its proportions kept), an ellipse of the same proportions, or a disc.
+    enum class BubbleShape : std::uint8_t { Pillow, Ellipse, Circle };
+
     struct BubbleMotionParams {
         double strength = 0;  // scales every deformation; 0 leaves movement undeformed
         double microbubbles = 0;  // 0..1 how readily microbubbles form on the film
         double trail = 0;  // 0..1 how much film the moving window leaves behind
+        double roundness = 0;  // 0..1 how far a moving window contracts toward its shape
+        BubbleShape shape = BubbleShape::Pillow;
+        double shapeSpeed = 1200;  // px/s at which the contraction is full; slower is less
     };
 
-    // The movement's share of a flat membrane's shape, in logical px. The renderer displaces the
-    // undeformed membrane by bubbleMotionOffset; the GPU material mirrors it.
+    // The movement's share of a flat membrane's shape, in logical px. The renderer carries every
+    // point of the undeformed membrane by bubbleMotionPoint; the GPU material mirrors it.
     struct BubbleDeformation {
         Vec2 drag{};  // displacement of the trailing film: it points at the side that lags
         std::array<double, 4> waveCos{}, waveSin{};  // outward capillary modes n = 2..5
         double sheen = 0;  // 0..1 interference colour on the stressed film near the outline
+        // How far surface tension has pulled the membrane toward its moving shape: 0 its
+        // rectangle, 1 the elliptical-grid image of the rectangle on the ellipse of half extents
+        // `extent`; slightly negative while it overshoots back.
+        double round = 0;
+        Vec2 extent{};
+        // Where the film is drawn relative to the window: a layout move animates the window faster
+        // than a bubble travels, so the film follows it from where it was.
+        Vec2 carry{};
 
         bool still() const noexcept;
     };
 
-    // Where a point of the undeformed membrane (logical px from its centre, y down) is carried.
-    // The leading edge stays with the window; the trailing film lags by drag and narrows across the
+    // The membrane's half size at the given roundness: its rectangle's, moving toward `extent`.
+    Vec2 bubbleRoundHalf(Vec2 halfSize, const BubbleDeformation &deformation);
+    // Where contraction carries a point of the rectangle (logical px from its centre, y down): its
+    // position on the ellipse of half extents `extent` under the elliptical-grid square-to-disc
+    // map, mixed in by `round`. The corners pull in first, the edges bow outward, and the content
+    // goes with them.
+    Vec2 bubbleRoundPoint(Vec2 halfSize, const BubbleDeformation &deformation, Vec2 point);
+    // Displacement of a point of the (possibly rounded) membrane, whose half size is roundHalf. The
+    // leading edge stays with the window; the trailing film lags by drag and narrows across the
     // motion, and the capillary modes ripple the outline while the centre stays put.
-    Vec2 bubbleMotionOffset(Vec2 halfSize, const BubbleDeformation &deformation, Vec2 point);
+    Vec2 bubbleMotionOffset(Vec2 roundHalf, const BubbleDeformation &deformation, Vec2 point);
+    // Where movement carries a point of the undeformed membrane: rounded, displaced, then carried.
+    Vec2 bubbleMotionPoint(Vec2 halfSize, const BubbleDeformation &deformation, Vec2 point);
 
     // A soap microbubble as drawn: attached ones in frame coordinates, free ones in the coordinates
     // of the wake that carries them.
@@ -71,8 +95,9 @@ namespace hyprimate {
     // of it is one state advanced in fixed substeps; nothing restarts between movements.
     class BubbleMotion {
       public:
-        // Window translation since the previous advance, logical px.
-        void drive(Vec2 displacement) noexcept;
+        // Window translation since the previous advance, logical px. A carried translation is one
+        // the layout animates: the film keeps its place and follows the window at its own pace.
+        void drive(Vec2 displacement, bool carried = false) noexcept;
         // size: the membrane (capture box); body: the window body inside it, logical px from the
         // membrane's centre.
         void advance(double elapsed, Vec2 size, Box body, const BubbleMotionParams &params);
@@ -140,6 +165,11 @@ namespace hyprimate {
         std::array<Vec2, 4> wave_{}, waveRate_{};  // capillary modes (cos, sin), px
         Vec2 pressure_{}, pressureRate_{};  // interior pressure and recoil modes, dimensionless
         double sheen_ = 0;
+        double round_ = 0, roundRate_ = 0;  // contraction toward the moving shape
+        double hold_ = 0;  // the contraction the movement asks for, held through brief pauses
+        double idle_ = 0;  // s the window has been paused
+        Vec2 carry_{}, carryRate_{};  // film position behind a layout-animated window, px
+        Vec2 carryMark_{};  // carry_ as of the previous advance
         BubbleDeformation shape_{};  // the deformation the state shows, cached per advance
         std::array<double, 4> phase_{};  // buffeting phases
         std::uint64_t random_ = 0x9E3779B97F4A7C15ULL;

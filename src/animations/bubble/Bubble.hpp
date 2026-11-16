@@ -121,8 +121,9 @@ namespace hyprimate {
         void advance(double elapsed, Vec2 size, Box body, const BubbleMotionParams &params);
         // Ends the transition; the movement is untouched.
         void reset();
-        // Window translation since the previous advance, logical px.
-        void drive(Vec2 displacement);
+        // Window translation since the previous advance, logical px; carried when the layout
+        // animates it (see BubbleMotion::drive).
+        void drive(Vec2 displacement, bool carried = false);
         // Seeds the movement's microbubbles and buffeting, per window.
         void seedMotion(std::uint64_t seed);
         // Drops the movement at once (movement switched off or the window detached).
