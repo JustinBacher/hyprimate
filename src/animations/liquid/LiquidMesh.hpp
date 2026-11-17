@@ -27,26 +27,26 @@ namespace hyprimate {
       public:
         // Meshes with the same params and seed respond identically; give each window its own seed.
         explicit LiquidMesh(MaterialParams params = {}, std::uint64_t seed = 0) noexcept;
-        const MaterialParams &params() const noexcept {
+        [[nodiscard]] const MaterialParams &params() const noexcept {
             return m_params;
         }
-        double viscosity() const noexcept {
+        [[nodiscard]] double viscosity() const noexcept {
             return m_params.viscosity;
         }
         void reset() noexcept;
         void recordTranslation(Vec2 delta, Vec2 size, double strength) noexcept;
         bool advance(double elapsed_seconds, Vec2 size) noexcept;
-        bool settled() const noexcept;
+        [[nodiscard]] bool settled() const noexcept;
         // C1-smooth interpolation of the 9x9 lattice field; both fractions are clamped to [0, 1].
-        Vec2 sampleDisplacement(
+        [[nodiscard]] Vec2 sampleDisplacement(
             double horizontal_fraction, double vertical_fraction) const noexcept;
-        const std::array<Vec2, 81> &displacements() const noexcept {
+        [[nodiscard]] const std::array<Vec2, 81> &displacements() const noexcept {
             return m_displacements;
         }
 
       private:
         bool constrain(Vec2 size) noexcept;
-        bool validTriangles(Vec2 size) const noexcept;
+        [[nodiscard]] bool validTriangles(Vec2 size) const noexcept;
         void integrateLiquidSubstep(Vec2 size) noexcept;
         // Draws a new Liquid character (gains and shape) scaled by params.variation; neutral when
         // variation is 0.

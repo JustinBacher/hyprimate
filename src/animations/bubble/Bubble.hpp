@@ -129,19 +129,19 @@ namespace hyprimate {
         void seedMotion(std::uint64_t seed);
         // Drops the movement at once (movement switched off or the window detached).
         void stopMotion();
-        bool active() const;
-        bool opening() const;
+        [[nodiscard]] bool active() const;
+        [[nodiscard]] bool opening() const;
         // An opening whose film has landed flat and is settling: movement may act on it.
-        bool landed() const;
-        bool closed() const;
+        [[nodiscard]] bool landed() const;
+        [[nodiscard]] bool closed() const;
         // The movement still disturbs the window's film.
-        bool stirred() const;
-        const BubbleMotion &motion() const;
+        [[nodiscard]] bool stirred() const;
+        [[nodiscard]] const BubbleMotion &motion() const;
         void clearEmissions();
-        BubbleFrame frame(Vec2 size) const;
+        [[nodiscard]] BubbleFrame frame(Vec2 size) const;
         // Contains every drawn surface pixel and every particle (ligaments and perspective
         // included).
-        Box bounds(Vec2 size) const;
+        [[nodiscard]] Box bounds(Vec2 size) const;
 
       private:
         void applyMotion(BubbleFrame &frame) const;

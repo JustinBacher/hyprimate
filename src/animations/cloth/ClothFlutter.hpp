@@ -70,20 +70,21 @@ namespace hyprimate {
         void beginMovement(
             const ClothMovementParams &params, std::uint64_t seed, const Box &capture);
         void updateMovement(const Box &capture, double elapsed_seconds) noexcept;
-        bool moving() const noexcept;
+        [[nodiscard]] bool moving() const noexcept;
         bool advance(double elapsed_seconds) noexcept;
         void reset() noexcept;
-        bool active() const noexcept;
-        bool closed() const noexcept;
-        double opacity() const noexcept;
-        bool shaded() const noexcept;
+        [[nodiscard]] bool active() const noexcept;
+        [[nodiscard]] bool closed() const noexcept;
+        [[nodiscard]] double opacity() const noexcept;
+        [[nodiscard]] bool shaded() const noexcept;
         void frame(Vec2 size, SheetFrame &out) const noexcept;
 
         // Model diagnostics: wait off the compositor path for a complete recording; sample the
         // displayed normalized sheet (x right, y up from the top, z towards viewer) and its
         // velocity per real second.
-        bool waitForRecording(double timeout_seconds = 10.0) const noexcept;
-        bool waitForSnapshots(int count, double timeout_seconds = 10.0) const noexcept;
+        [[nodiscard]] bool waitForRecording(double timeout_seconds = 10.0) const noexcept;
+        [[nodiscard]] bool waitForSnapshots(
+            int count, double timeout_seconds = 10.0) const noexcept;
         void sampleVertices(SheetGrid &positions, SheetGrid &velocities) const noexcept;
 
         struct Run;

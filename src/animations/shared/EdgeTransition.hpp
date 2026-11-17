@@ -105,9 +105,9 @@ namespace hyprimate {
         // closed.
         bool advance(double elapsedSeconds) noexcept;
         void reset() noexcept;
-        bool active() const noexcept;
-        bool closed() const noexcept;
-        const EdgeFrame &frame() const noexcept {
+        [[nodiscard]] bool active() const noexcept;
+        [[nodiscard]] bool closed() const noexcept;
+        [[nodiscard]] const EdgeFrame &frame() const noexcept {
             return m_frame;
         }
 
@@ -115,14 +115,14 @@ namespace hyprimate {
         // size) to its displayed position relative to that centre. Exact identity unless active.
         // Radially homogeneous outline map (rest rectangle -> rounded/scaled outline) plus a
         // translation along the edge normal; it never folds the image.
-        Vec2 map(Vec2 fromCentre, Vec2 size) const noexcept;
+        [[nodiscard]] Vec2 map(Vec2 fromCentre, Vec2 size) const noexcept;
 
         // The map for one capture size in the current state, with its constants computed once:
         // restMap(size).map(p) equals map(p, size). Build it once per grid or frame and call map()
         // per sample.
         class RestMap {
           public:
-            Vec2 map(Vec2 fromCentre) const noexcept;
+            [[nodiscard]] Vec2 map(Vec2 fromCentre) const noexcept;
 
           private:
             friend class EdgeTransition;
@@ -136,24 +136,24 @@ namespace hyprimate {
                    invExponent = 0.5;  // outline exponent 2 / roundness and its reciprocal
             double tBase = 0.0, tScale = 0.0, nBase = 0.0, nScale = 0.0;
         };
-        RestMap restMap(Vec2 size) const noexcept;
+        [[nodiscard]] RestMap restMap(Vec2 size) const noexcept;
         // Window-centre translation since the previous call (begin() does not count). Feeds the
         // movement field.
         Vec2 takeTravel() noexcept;
         // The pop-out as a box, for a window whose real box is driven to follow it. `centre` is the
         // bead's centre relative to the rest capture centre; `half` is its half-extent per screen
         // axis for a rest capture of `restSize`. Both are the rest values when idle.
-        Vec2 beadCentre() const noexcept;
-        Vec2 beadHalf(Vec2 restSize) const noexcept;
+        [[nodiscard]] Vec2 beadCentre() const noexcept;
+        [[nodiscard]] Vec2 beadHalf(Vec2 restSize) const noexcept;
 
         // Edge liquid height in px into the screen at tangential coordinate t. 0 unless active;
         // never negative.
-        double meniscus(double t) const noexcept;
+        [[nodiscard]] double meniscus(double t) const noexcept;
         // meniscus() is 0 outside [meniscusLow, meniscusHigh]; empty (low == high) when there is
         // none.
-        double meniscusLow() const noexcept;
-        double meniscusHigh() const noexcept;
-        double meniscusPeak() const noexcept;
+        [[nodiscard]] double meniscusLow() const noexcept;
+        [[nodiscard]] double meniscusHigh() const noexcept;
+        [[nodiscard]] double meniscusPeak() const noexcept;
 
       private:
         enum class Phase { Idle, Opening, Closing, Closed };
@@ -185,7 +185,7 @@ namespace hyprimate {
                     }
                 }
             }
-            double peak() const noexcept {
+            [[nodiscard]] double peak() const noexcept {
                 double peak_height = 0.0;
                 for (const Lobe &lobe : lobes) {
                     peak_height = lobe.height > peak_height ? lobe.height : peak_height;
@@ -199,14 +199,16 @@ namespace hyprimate {
         void startRecoil(const Lobe
                 &snap) noexcept;  // the recoil starts at snap.height with snap's plateau and skirt
         void advanceRecoil() noexcept;
-        bool quiet() const noexcept;
-        bool recoilSettled() const noexcept;
-        double eNormal() const noexcept;  // bead half-extent into the screen (n)
-        double nearSide() const noexcept;  // n of the bead's side nearest the edge
-        double farSide() const noexcept;  // n of the bead's side farthest from the edge
-        Lobe liveLobe() const noexcept;  // opening only: attached neck or crossing fillets
-        Lobe recoilLobe() const noexcept;
-        Lobe splashLobe() const noexcept;
+        [[nodiscard]] bool quiet() const noexcept;
+        [[nodiscard]] bool recoilSettled() const noexcept;
+        [[nodiscard]] double eNormal() const noexcept;  // bead half-extent into the screen (n)
+        [[nodiscard]] double nearSide() const noexcept;  // n of the bead's side nearest the edge
+        [[nodiscard]] double farSide()
+            const noexcept;  // n of the bead's side farthest from the edge
+        [[nodiscard]] Lobe liveLobe()
+            const noexcept;  // opening only: attached neck or crossing fillets
+        [[nodiscard]] Lobe recoilLobe() const noexcept;
+        [[nodiscard]] Lobe splashLobe() const noexcept;
         void refreshProfile() noexcept;
 
         Phase m_phase = Phase::Idle;
