@@ -201,5 +201,86 @@ int main() {
         CHECK(!t.eligible());
     }
 
+    // Workspace slides move the displayed window even when its layout box stays fixed.
+    {
+        WindowTracker t = eligibleAt(100, 80, 400, 300);
+        auto s = snap(100, 80, 400, 300);
+        s.workspaceMoving = true;
+        s.workspaceOffset = {1600, 0};
+        CHECK(t.update(s).action == TrackAction::Rebaseline); // incoming workspace placement
+        s.workspaceOffset = {1500, 0};
+        const auto d = t.update(s);
+        CHECK(d.action == TrackAction::Move);
+        CHECK(d.translated);
+        CHECK(d.currentBox.x - d.previousBox.x == -100);
+        CHECK(d.currentCapture.x - d.previousCapture.x == -100);
+        // Layout baselining after a simulation step must retain workspace history.
+        t.baseline(s.current, s.capture, kMonitor);
+        s.workspaceOffset = {1500, 35};
+        const auto vertical = t.update(s);
+        CHECK(vertical.currentBox.y - vertical.previousBox.y == 35);
+        s.workspaceOffset = {1530, 35};
+        CHECK(t.update(s).currentBox.x == 1630); // interrupted/reversed slide
+    }
+
+    // The global opt-out removes only workspace movement, not ordinary window motion.
+    {
+        WindowTracker t = eligibleAt(100, 80, 400, 300);
+        auto s = snap(100, 80, 400, 300);
+        s.workspaceMovement = false;
+        s.workspaceMoving = true;
+        s.workspaceOffset = {1600, 0};
+        t.update(s); // live setting change rebaselines without an impulse
+        s.workspaceOffset = {1200, 0};
+        CHECK(t.update(s).action == TrackAction::Idle);
+        s.current.x += 20;
+        s.capture.x += 20;
+        const auto d = t.update(s);
+        CHECK(d.action == TrackAction::Move);
+        CHECK(d.currentBox.x - d.previousBox.x == 20);
+        s.workspaceMovement = true;
+        CHECK(t.update(s).action == TrackAction::Rebaseline);
+    }
+
+    // Arrival at zero offset retains settlement; fade-only transitions stay idle.
+    {
+        WindowTracker t = eligibleAt(100, 80, 400, 300);
+        auto s = snap(100, 80, 400, 300);
+        s.workspaceMoving = true;
+        s.workspaceOffset = {10, 0};
+        t.update(s);
+        s.workspaceOffset = {};
+        s.workspaceMoving = false;
+        const auto arrival = t.update(s);
+        CHECK(arrival.action == TrackAction::Move);
+        CHECK(arrival.currentBox.x - arrival.previousBox.x == -10);
+        CHECK(t.update(s).action == TrackAction::Idle);
+    }
+
+    // A fast compositor slide is not a client teleport, even for a small window.
+    {
+        WindowTracker t = eligibleAt(100, 80, 120, 100);
+        auto s = snap(100, 80, 120, 100);
+        s.workspaceMoving = true;
+        s.workspaceOffset = {3000, 0};
+        t.update(s);
+        s.workspaceOffset = {2300, 0};
+        s.current.x += 20;
+        s.capture.x += 20;
+        const auto d = t.update(s);
+        CHECK(d.action == TrackAction::Move);
+        CHECK(d.currentBox.x - d.previousBox.x == -680);
+        // Moving a window between workspaces is a discontinuity, not a slide.
+        s.workspace = 2;
+        CHECK(t.update(s).action == TrackAction::Rebaseline);
+        s.deformable = false;
+        CHECK(t.update(s).action == TrackAction::Rebaseline);
+        s.workspaceMoving = false;
+        s.workspaceOffset = {};
+        CHECK(t.update(s).action == TrackAction::Idle);
+        s.deformable = true;
+        CHECK(t.update(s).action == TrackAction::Rebaseline);
+    }
+
     return g_failures == 0 ? 0 : 1;
 }

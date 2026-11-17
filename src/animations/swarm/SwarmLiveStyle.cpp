@@ -121,8 +121,12 @@ void SSwarmLiveStyle::movement(CPluginRuntime &runtime,
     bool enabled,
     bool moving) {
     auto &state = std::get<SSwarmStyle>(transformer.m_style);
-    const auto placement = placementOf(window, false);
+    auto placement = placementOf(window, false);
     if (!placement) return;
+    if (!state.swarm.opening()) {
+        placement->capture = decision.currentCapture;
+        placement->body = decision.currentBox;
+    }
     if (moving && !state.swarm.active()) {
         // Formed where the window was, so the first update carries this frame's movement.
         state.creature = swarmCreature(runtime.m_config.movement.swarm);

@@ -64,6 +64,7 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                 },
 --                 movement = {
 --                     enabled = true,
+--                     workspace_movement = true,
 --                 },
 --                 open = {
 --                     enabled = true,

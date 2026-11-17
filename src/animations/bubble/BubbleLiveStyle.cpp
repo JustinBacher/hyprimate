@@ -111,12 +111,12 @@ void SBubbleLiveStyle::movement(CPluginRuntime &,
     if (!moving) return;
     // The fluid follows the body's centre: an edge dragged by a resize carries it by half as much.
     // A layout animating the window moves it faster than a bubble travels; the film follows.
-    const CBox current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+    const auto &current = decision.currentBox;
     const auto &was = decision.previousBox;
     std::get<SBubbleStyle>(transformer.m_style)
         .bubble.drive({current.x + current.w * .5 - (was.x + was.w * .5),
                           current.y + current.h * .5 - (was.y + was.h * .5)},
-            window->positionAnimation()->isBeingAnimated());
+            !decision.workspaceMoving && window->positionAnimation()->isBeingAnimated());
 }
 
 void SBubbleLiveStyle::snapshot(

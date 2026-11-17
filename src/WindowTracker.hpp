@@ -22,6 +22,10 @@ namespace hyprimate {
         bool movementEnabled = false;
         std::uintptr_t monitor = 0;  // identity of the window's monitor
         double elapsed = 0.0;  // seconds since this window's previous update
+        Vec2 workspaceOffset{};  // presentation displacement, never client geometry
+        bool workspaceMoving = false;
+        bool workspaceMovement = true;  // global opt-in, independent of movementEnabled
+        std::uintptr_t workspace = 0;
     };
 
     // What the runtime does for a window this frame. The tracker never touches the transformer
@@ -49,6 +53,9 @@ namespace hyprimate {
         bool captureChanged = false;
         Box previousBox{};  // baseline body box the snapshot was compared against
         Box previousCapture{};  // baseline capture box the snapshot was compared against
+        Box currentBox{};  // screen-space body and capture, including workspace displacement
+        Box currentCapture{};
+        bool workspaceMoving = false;
     };
 
     // Per-window tracking state. Eligibility is one rule: the window is deformable, its body and
@@ -83,6 +90,10 @@ namespace hyprimate {
         std::uintptr_t m_monitor = 0;
         bool m_eligible = false;
         bool m_wasAnimatingIn = false;
+        Vec2 m_workspaceOffset{};
+        bool m_workspaceMoving = false;
+        bool m_workspaceMovement = true;
+        std::uintptr_t m_workspace = 0;
     };
 
 }  // namespace hyprimate
