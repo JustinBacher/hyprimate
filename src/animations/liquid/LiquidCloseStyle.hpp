@@ -71,7 +71,10 @@ namespace close_style {
         using hyprimate::Vec2;
         auto &data = std::get<SLiquidCloseData>(record.closeData);
         hyprimate::LiquidPose pose{
-            .mesh = style.mesh, .transition = style.transition, .compensation = data.compensation};
+            .mesh = style.mesh,
+            .transition = style.transition,
+            .compensation = data.compensation,
+        };
         const CBox LOGICAL = CBox{record.sourceDevice}.scale(1.0 / record.scale);
         const auto LOGICAL_BOX = toBox(LOGICAL);
         pose.displacementGain =
@@ -126,7 +129,10 @@ namespace close_style {
             record.sourceDevice.h}
                                       .scale(1.0 / record.scale);
         const hyprimate::LiquidPose POSE{
-            .mesh = style.mesh, .transition = style.transition, .compensation = close.compensation};
+            .mesh = style.mesh,
+            .transition = style.transition,
+            .compensation = close.compensation,
+        };
         if (const auto VISIBLE = hyprimate::liquidVisibleBox(POSE, toBox(REST_LOGICAL))) {
             clip = clip.intersection(toCBox(*VISIBLE).scale(record.scale));
         }
@@ -138,12 +144,14 @@ namespace close_style {
             ctx, makeUnique<CLiquidClosePassElement>(std::move(data)));
     }
     inline hyprimate::LiquidPose closePose(const SLiquidStyle &state, const PHLWINDOW &window) {
-        const hyprimate::LiquidPose UNIT{.mesh = state.mesh,
+        const hyprimate::LiquidPose UNIT{
+            .mesh = state.mesh,
             .transition = state.transition,
             .compensation = {.x = 1.0, .y = 1.0},
             .openOffset = {.x = 0.0, .y = 0.0},
             .displacementGain = state.displacementGain,
-            .boxPose = false};
+            .boxPose = false,
+        };
         if (!window || !state.boxDriven) {
             return UNIT;
         }
@@ -153,14 +161,22 @@ namespace close_style {
             return UNIT;
         }
         constexpr double MAX_SCALE = 64.0;
-        return {.mesh = state.mesh,
+        return {
+            .mesh = state.mesh,
             .transition = state.transition,
-            .compensation = {.x = std::clamp(GOAL.w / CURRENT.w, 1.0 / MAX_SCALE, MAX_SCALE),
-                .y = std::clamp(GOAL.h / CURRENT.h, 1.0 / MAX_SCALE, MAX_SCALE)},
-            .openOffset = {.x = (GOAL.x + (0.5 * GOAL.w)) - (CURRENT.x + (0.5 * CURRENT.w)),
-                .y = (GOAL.y + (0.5 * GOAL.h)) - (CURRENT.y + (0.5 * CURRENT.h))},
+            .compensation =
+                {
+                    .x = std::clamp(GOAL.w / CURRENT.w, 1.0 / MAX_SCALE, MAX_SCALE),
+                    .y = std::clamp(GOAL.h / CURRENT.h, 1.0 / MAX_SCALE, MAX_SCALE),
+                },
+            .openOffset =
+                {
+                    .x = (GOAL.x + (0.5 * GOAL.w)) - (CURRENT.x + (0.5 * CURRENT.w)),
+                    .y = (GOAL.y + (0.5 * GOAL.h)) - (CURRENT.y + (0.5 * CURRENT.h)),
+                },
             .displacementGain = state.displacementGain,
-            .boxPose = false};
+            .boxPose = false,
+        };
     }
     inline bool stage(const SLiquidStyle &style,
         Pending &pending,

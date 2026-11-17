@@ -42,9 +42,11 @@ namespace hyprimate {
             return (a.x * b.x) + (a.y * b.y) + (a.z * b.z);
         }
         Vec3 cross(Vec3 a, Vec3 b) noexcept {
-            return {.x = (a.y * b.z) - (a.z * b.y),
+            return {
+                .x = (a.y * b.z) - (a.z * b.y),
                 .y = (a.z * b.x) - (a.x * b.z),
-                .z = (a.x * b.y) - (a.y * b.x)};
+                .z = (a.x * b.y) - (a.y * b.x),
+            };
         }
 
         std::size_t grid_index(int col, int row) noexcept {
@@ -60,10 +62,10 @@ namespace hyprimate {
             const bool SECOND = (triangle & 1U) != 0;
             return SECOND ? Triangle{grid_index(COL + 1, ROW),
                                 grid_index(COL, ROW + 1),
-                                grid_index(COL + 1, ROW + 1)}
+                                grid_index(COL + 1, ROW + 1),}
                           : Triangle{grid_index(COL, ROW),
                                 grid_index(COL, ROW + 1),
-                                grid_index(COL + 1, ROW)};
+                                grid_index(COL + 1, ROW),};
         }
 
         const Topology &topology() noexcept {
@@ -72,8 +74,10 @@ namespace hyprimate {
                 for (std::size_t vertex = 0; vertex < PAPER_GRID_VERTICES; ++vertex) {
                     const int COL = static_cast<int>(vertex % GRID);
                     const int ROW = static_cast<int>(vertex / GRID);
-                    result.uv[vertex] = {.x = static_cast<double>(COL) / PAPER_CELLS,
-                        .y = static_cast<double>(ROW) / PAPER_CELLS};
+                    result.uv[vertex] = {
+                        .x = static_cast<double>(COL) / PAPER_CELLS,
+                        .y = static_cast<double>(ROW) / PAPER_CELLS,
+                    };
 
                     auto &adjacent = result.adjacent[vertex];
                     const auto ADD = [&](int cell_col, int cell_row, unsigned half) {
@@ -162,8 +166,10 @@ namespace hyprimate {
         for (std::size_t vi = 0; vi < PAPER_GRID_VERTICES; ++vi) {
             const Vec3 &world_point = world[vi];
             const double DENOM = std::max(0.25 * FOCAL_LENGTH, FOCAL_LENGTH - world_point.z);
-            out.position[vi] = {.x = world_point.x * FOCAL_LENGTH / DENOM / WIDTH,
-                .y = world_point.y * FOCAL_LENGTH / DENOM / HEIGHT};
+            out.position[vi] = {
+                .x = world_point.x * FOCAL_LENGTH / DENOM / WIDTH,
+                .y = world_point.y * FOCAL_LENGTH / DENOM / HEIGHT,
+            };
         }
 
         sort_back_to_front(world, out.order);
@@ -185,7 +191,10 @@ namespace hyprimate {
         const double L_LEN = std::sqrt((LIGHT_DIR_X * LIGHT_DIR_X) + (LIGHT_DIR_Y * LIGHT_DIR_Y) +
                                        (LIGHT_DIR_Z * LIGHT_DIR_Z));
         const Vec3 LIGHT_DIR{
-            .x = LIGHT_DIR_X / L_LEN, .y = LIGHT_DIR_Y / L_LEN, .z = LIGHT_DIR_Z / L_LEN};
+            .x = LIGHT_DIR_X / L_LEN,
+            .y = LIGHT_DIR_Y / L_LEN,
+            .z = LIGHT_DIR_Z / L_LEN,
+        };
 
         // Area-weighted (unnormalised) normals are used by both modes; unit face normals are only
         // needed for paper creases.
@@ -221,9 +230,11 @@ namespace hyprimate {
                     continue;
                 }
                 const Vec3 &neighbor_normal = face_normal[NEIGHBOR];
-                sum = {.x = sum.x + neighbor_normal.x,
+                sum = {
+                    .x = sum.x + neighbor_normal.x,
                     .y = sum.y + neighbor_normal.y,
-                    .z = sum.z + neighbor_normal.z};
+                    .z = sum.z + neighbor_normal.z,
+                };
             }
             return sum;
         };

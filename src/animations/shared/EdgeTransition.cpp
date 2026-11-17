@@ -145,12 +145,14 @@ namespace hyprimate {
         }
 
         bool valid_frame(const EdgeFrame &frame) {
-            const std::array VALUES = {frame.edgeDistance,
+            const std::array VALUES = {
+                frame.edgeDistance,
                 frame.captureFar,
                 frame.bodyNear,
                 frame.bodyFar,
                 frame.bodyT0,
-                frame.bodyT1};
+                frame.bodyT1,
+            };
             for (const double VALUE : VALUES) {
                 if (!std::isfinite(VALUE)) {
                     return false;
@@ -247,10 +249,12 @@ namespace hyprimate {
         const auto FREE = [&](Edge e) { return !(contact[SLOT(e)] > 0.0); };
         const double BODY_CENTRE_X = body.x + (0.5 * body.w);
         const double BODY_CENTRE_Y = body.y + (0.5 * body.h);
-        const std::array<double, 4> REACH{BODY_CENTRE_X - screen.x,
+        const std::array<double, 4> REACH{
+            BODY_CENTRE_X - screen.x,
             screen.x + screen.w - BODY_CENTRE_X,
             BODY_CENTRE_Y - screen.y,
-            screen.y + screen.h - BODY_CENTRE_Y};
+            screen.y + screen.h - BODY_CENTRE_Y,
+        };
 
         if (MOST > 0.0) {
             for (const Edge SIDE : K_EDGES) {
@@ -571,8 +575,10 @@ namespace hyprimate {
         const double TANGENT_CENTRE =
             0.5 * (m_frame.bodyT0 + m_frame.bodyT1) * (1.0 - m_spreadT.value);
         const double NORMAL_CENTRE = m_nc - m_frame.edgeDistance;
-        return {.x = (ALONG.x * TANGENT_CENTRE) + (INWARD.x * NORMAL_CENTRE),
-            .y = (ALONG.y * TANGENT_CENTRE) + (INWARD.y * NORMAL_CENTRE)};
+        return {
+            .x = (ALONG.x * TANGENT_CENTRE) + (INWARD.x * NORMAL_CENTRE),
+            .y = (ALONG.y * TANGENT_CENTRE) + (INWARD.y * NORMAL_CENTRE),
+        };
     }
 
     Vec2 EdgeTransition::beadHalf(Vec2 rest_size) const noexcept {
@@ -634,8 +640,10 @@ namespace hyprimate {
                                      : outline({.x = REST_T, .y = REST_N}, exponent, invExponent);
         const double T_OUT = tBase + (tScale * SHAPE.x);
         const double N_OUT = nBase + (nScale * SHAPE.y);
-        return {.x = (along.x * T_OUT) + (inward.x * N_OUT),
-            .y = (along.y * T_OUT) + (inward.y * N_OUT)};
+        return {
+            .x = (along.x * T_OUT) + (inward.x * N_OUT),
+            .y = (along.y * T_OUT) + (inward.y * N_OUT),
+        };
     }
 
     Vec2 EdgeTransition::map(Vec2 from_centre, Vec2 size) const noexcept {
@@ -766,35 +774,43 @@ namespace hyprimate {
         if (NEAR_SIDE < 0.0) {
             // Crossing: fillets hug the bead where it passes through the edge. They ramp in as the
             // bead's far side breaks the surface.
-            return {.height = m_tuck * smoothstep(0.0, 2.0 * m_tuck, farSide()),
+            return {
+                .height = m_tuck * smoothstep(0.0, 2.0 * m_tuck, farSide()),
                 .plateau = m_radius,
-                .skirt = m_crossSkirt};
+                .skirt = m_crossSkirt,
+            };
         }
         if (NEAR_SIDE <= m_pinch) {
             // Attached: the tip stays tucked under the near side while the contact patch necks
             // down.
             const double PINCH_BLEND = smoothstep(0.0, m_pinch, NEAR_SIDE);
-            return {.height = NEAR_SIDE + m_tuck,
+            return {
+                .height = NEAR_SIDE + m_tuck,
                 .plateau = m_radius * (1.0 - PINCH_BLEND),
-                .skirt = lerp(m_crossSkirt, m_neckSkirt, PINCH_BLEND)};
+                .skirt = lerp(m_crossSkirt, m_neckSkirt, PINCH_BLEND),
+            };
         }
         return {};
     }
 
     EdgeTransition::Lobe EdgeTransition::recoilLobe() const noexcept {
         const double RECOIL_TIME = m_recoilTime;
-        return {.height = std::max(0.0, m_recoil.value),
+        return {
+            .height = std::max(0.0, m_recoil.value),
             .plateau = m_snap.plateau * std::exp(-RECOIL_TIME / RECOIL_PLATEAU_SECONDS),
             .skirt =
                 m_snap.skirt * (1.0 + (RECOIL_SKIRT_GROWTH *
-                                          (1.0 - std::exp(-RECOIL_TIME / RECOIL_SKIRT_SECONDS))))};
+                                          (1.0 - std::exp(-RECOIL_TIME / RECOIL_SKIRT_SECONDS)))),
+        };
     }
 
     EdgeTransition::Lobe EdgeTransition::splashLobe() const noexcept {
         const double PROGRESS = m_splashTime / m_splashDuration;
-        return {.height = SPLASH_PER_RADIUS * m_radius * splash_impulse(PROGRESS),
+        return {
+            .height = SPLASH_PER_RADIUS * m_radius * splash_impulse(PROGRESS),
             .plateau = 0.0,
-            .skirt = SPLASH_SKIRT * m_radius};
+            .skirt = SPLASH_SKIRT * m_radius,
+        };
     }
 
     void EdgeTransition::refreshProfile() noexcept {

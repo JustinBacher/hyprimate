@@ -318,7 +318,10 @@ namespace {
         Vec2 comp = {.x = 1.0, .y = 1.0}) {
         return hyprimate::fitLiquidPoseGain(
             hyprimate::LiquidPose{
-                .mesh = mesh, .transition = edge_transition, .compensation = comp},
+                .mesh = mesh,
+                .transition = edge_transition,
+                .compensation = comp,
+            },
             CAPTURE,
             nullptr);
     }
@@ -710,7 +713,10 @@ namespace {
         Vec2 size,
         Vec2 centre) {
         hyprimate::LiquidPose pose{
-            .mesh = mesh, .transition = edge_transition, .compensation = centre};
+            .mesh = mesh,
+            .transition = edge_transition,
+            .compensation = centre,
+        };
         pose.displacementGain = gain;
         hyprimate::LiquidPoseGrid grid;
         std::vector<hyprimate::LiquidVertex> out;
