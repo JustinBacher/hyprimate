@@ -43,17 +43,21 @@ namespace {
                 for (int col = 0; col < width; ++col) {
                     const auto PIXEL_INDEX = (row * width) + col;
                     // A recognizable, asymmetric client image, distinct from the desktop.
-                    content[PIXEL_INDEX] = {static_cast<unsigned char>(40 + (col / 4)),
+                    content[PIXEL_INDEX] = {
+                        static_cast<unsigned char>(40 + (col / 4)),
                         30,
                         static_cast<unsigned char>(110 + (row / 4)),
-                        255};
+                        255,
+                    };
                     alternative[PIXEL_INDEX] = {20, 120, 30, 255};
                     // Red increases to the right, green upwards, blue marks an off-centre window
                     // behind.
-                    background[PIXEL_INDEX] = {static_cast<unsigned char>(25 + (col * 3 / 4)),
+                    background[PIXEL_INDEX] = {
+                        static_cast<unsigned char>(25 + (col * 3 / 4)),
                         static_cast<unsigned char>(25 + (row * 3 / 4)),
                         static_cast<unsigned char>(col > 130 && row > 100 ? 210 : 20),
-                        255};
+                        255,
+                    };
                     dark[PIXEL_INDEX] = {0, 0, 0, 255};
                 }
             }
@@ -73,10 +77,12 @@ namespace {
             GLuint backdrop,
             hyprimate::Vec2 pos,
             hyprimate::Vec2 size) {
-            SBubbleTarget const TARGET{.canvas = {.x = width, .y = height},
+            SBubbleTarget const TARGET{
+                .canvas = {.x = width, .y = height},
                 .origin = {.x = 0, .y = 0},
                 .sourcePos = pos,
-                .sourceSize = size};
+                .sourceSize = size,
+            };
             SBubbleImages images{};
             images.window = image;
             images.textureOrigin = {.x = 0, .y = 0};
@@ -116,10 +122,12 @@ namespace {
         // Exact native pixels, including a location away from the centre and the outer clear area.
         for (const auto [PIXEL_X, PIXEL_Y] :
             std::array<std::array<int, 2>, 3>{{{55, 75}, {100, 110}, {165, 145}}}) {
-            const Pixel EXPECTED{static_cast<unsigned char>(40 + (PIXEL_X / 4)),
+            const Pixel EXPECTED{
+                static_cast<unsigned char>(40 + (PIXEL_X / 4)),
                 30,
                 static_cast<unsigned char>(110 + (PIXEL_Y / 4)),
-                255};
+                255,
+            };
             CHECK(at(RESULT, PIXEL_X, PIXEL_Y) == EXPECTED);
         }
         CHECK(at(RESULT, 40, 60)[3] == 0);
@@ -183,7 +191,7 @@ namespace {
     void testMoving(Fixture &f, int w, int h, double round, hyprimate::Vec2 extent) {
         const hyprimate::Vec2 POS{.x = (width - w) / 2.0, .y = (height - h) / 2.0};
         hyprimate::BubbleFrame frame{};
-        frame.size = {static_cast<double>(w), static_cast<double>(h)};
+        frame.size = {.x = static_cast<double>(w), .y = static_cast<double>(h)};
         frame.window.halfSize = {.x = w / 2.0, .y = h / 2.0};
         frame.window.corner = 4;
         frame.window.visibility = 1;
@@ -195,8 +203,8 @@ namespace {
         const auto DESKTOP = f.render(frame, f.window, f.scene, POS, frame.size);
         const auto DARK = f.render(frame, f.window, f.black, POS, frame.size);
         const auto DIFFERENT_WINDOW = f.render(frame, f.otherWindow, f.scene, POS, frame.size);
-        const int CENTER_X = width / 2 + 3;
-        const int CENTER_Y = height / 2 + 2;
+        const int CENTER_X = (width / 2) + 3;
+        const int CENTER_Y = (height / 2) + 2;
         // A changing desktop behind the same client must be visible in the moving film.
         int desktopResponse = 0;
         int windowResponse = 0;
@@ -276,12 +284,13 @@ int main() {
     EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     EGLint major = 0;
     EGLint minor = 0;
-    if (display == EGL_NO_DISPLAY || (eglInitialize(display, &major, &minor) == 0u) ||
-        (eglBindAPI(EGL_OPENGL_ES_API) == 0u)) {
+    if (display == EGL_NO_DISPLAY || (eglInitialize(display, &major, &minor) == 0U) ||
+        (eglBindAPI(EGL_OPENGL_ES_API) == 0U)) {
         std::fprintf(stderr, "Cannot initialize offscreen EGL (try EGL_PLATFORM=surfaceless)\n");
         return 1;
     }
-    const EGLint CONFIG_ATTRS[] = {EGL_SURFACE_TYPE,
+    const EGLint CONFIG_ATTRS[] = {
+        EGL_SURFACE_TYPE,
         EGL_PBUFFER_BIT,
         EGL_RENDERABLE_TYPE,
         EGL_OPENGL_ES3_BIT,
@@ -293,10 +302,11 @@ int main() {
         8,
         EGL_ALPHA_SIZE,
         8,
-        EGL_NONE};
+        EGL_NONE,
+    };
     EGLConfig config{};
     EGLint count = 0;
-    if ((eglChooseConfig(display, CONFIG_ATTRS, &config, 1, &count) == 0u) || count != 1) {
+    if ((eglChooseConfig(display, CONFIG_ATTRS, &config, 1, &count) == 0U) || count != 1) {
         return 1;
     }
     const EGLint SURFACE_ATTRS[] = {EGL_WIDTH, width, EGL_HEIGHT, height, EGL_NONE};
@@ -304,7 +314,7 @@ int main() {
     EGLSurface surface = eglCreatePbufferSurface(display, config, SURFACE_ATTRS);
     EGLContext context = eglCreateContext(display, config, EGL_NO_CONTEXT, CONTEXT_ATTRS);
     if (surface == EGL_NO_SURFACE || context == EGL_NO_CONTEXT ||
-        (eglMakeCurrent(display, surface, surface, context) == 0u)) {
+        (eglMakeCurrent(display, surface, surface, context) == 0U)) {
         std::fprintf(stderr, "Cannot create GLES 3 offscreen context\n");
         return 1;
     }

@@ -159,10 +159,12 @@ namespace {
         double u1,
         double v1) {
         const auto VERTEX = [](double x, double y, double u, double v) {
-            return SMeshRenderVertex{.x = static_cast<float>(x),
+            return SMeshRenderVertex{
+                .x = static_cast<float>(x),
                 .y = static_cast<float>(y),
                 .u = static_cast<float>(u),
-                .v = static_cast<float>(v)};
+                .v = static_cast<float>(v),
+            };
         };
         pushQuad(out,
             VERTEX(x0, y0, u0, v0),
@@ -205,7 +207,8 @@ namespace {
                         .x = start_point.x + ((end_point.x - start_point.x) * FRACTION),
                         .y = start_point.y + ((end_point.y - start_point.y) * FRACTION),
                         .u = start_point.u + ((end_point.u - start_point.u) * FRACTION),
-                        .v = start_point.v + ((end_point.v - start_point.v) * FRACTION)};
+                        .v = start_point.v + ((end_point.v - start_point.v) * FRACTION),
+                    };
                 }
             }
             polygon = kept;
@@ -386,25 +389,31 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
             const auto FRAME_POINT = [&](double fx, double fy) {
                 const double OFFSET_X = (fx - frame.centre.x) * SIDE;
                 const double OFFSET_Y = (fy - frame.centre.y) * SIDE;
-                return SMaskPoint{.x = HOME_X + (OFFSET_X * FACING_COS) - (OFFSET_Y * FACING_SIN),
+                return SMaskPoint{
+                    .x = HOME_X + (OFFSET_X * FACING_COS) - (OFFSET_Y * FACING_SIN),
                     .y = HOME_Y + (OFFSET_X * FACING_SIN) + (OFFSET_Y * FACING_COS),
                     .u = ((FRAME_INDEX * CELL_PX) + GUTTER_PX + (fx * FRAME_PX)) / ATLAS_W,
-                    .v = (GUTTER_PX + (fy * FRAME_PX)) / CELL_PX};
+                    .v = (GUTTER_PX + (fy * FRAME_PX)) / CELL_PX,
+                };
             };
             const double LOW = -FRAME_MARGIN;
             const double HIGH = 1.0 + FRAME_MARGIN;
-            std::array<SMaskPoint, 8> polygon{FRAME_POINT(LOW, LOW),
+            std::array<SMaskPoint, 8> polygon{
+                FRAME_POINT(LOW, LOW),
                 FRAME_POINT(HIGH, LOW),
                 FRAME_POINT(HIGH, HIGH),
-                FRAME_POINT(LOW, HIGH)};
+                FRAME_POINT(LOW, HIGH),
+            };
             const std::size_t POINTS =
                 SIDE > 0.0 ? clipToBox(polygon, 4, TILE_LEFT, TILE_TOP, TILE_RIGHT, TILE_BOTTOM)
                            : 0;
             const auto VERTEX = [&](const SMaskPoint &p) {
-                return SMeshRenderVertex{.x = static_cast<float>(LAYER_X(p.x, STANDS)),
+                return SMeshRenderVertex{
+                    .x = static_cast<float>(LAYER_X(p.x, STANDS)),
                     .y = static_cast<float>(LAYER_Y(p.y)),
                     .u = static_cast<float>(p.u),
-                    .v = static_cast<float>(p.v)};
+                    .v = static_cast<float>(p.v),
+                };
             };
             for (std::size_t i = 1; i + 1 < POINTS; ++i) {
                 out.push_back(VERTEX(polygon[0]));
@@ -460,8 +469,8 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
             const double RADIUS_U = 0.5 * FRAME_PX / ATLAS_W;
             const double RADIUS_V = 0.5 * FRAME_PX / CELL_PX;
             for (unsigned corner = 0; corner < 4; ++corner) {
-                const bool RIGHT = (corner & 1U) != 0u;
-                const bool BOTTOM = (corner & 2U) != 0u;
+                const bool RIGHT = (corner & 1U) != 0U;
+                const bool BOTTOM = (corner & 2U) != 0U;
                 const double OUTER_X = RIGHT ? TILE_RIGHT : TILE_LEFT;
                 const double INNER_X = RIGHT ? TILE_RIGHT - RADIUS : TILE_LEFT + RADIUS;
                 const double OUTER_Y = BOTTOM ? TILE_BOTTOM : TILE_TOP;
@@ -494,7 +503,8 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
                 .y = static_cast<float>(OUTPUT_Y(
                     HOME_Y + SHIFT_Y + ((x - HOME_X) * ANGLE_SIN) + ((y - HOME_Y) * ANGLE_COS))),
                 .u = static_cast<float>(LAYER_X(x, false)),
-                .v = static_cast<float>(LAYER_Y(y))};
+                .v = static_cast<float>(LAYER_Y(y)),
+            };
         };
         pushQuad(meshes.pieces,
             PIECE(TILE_LEFT, TILE_TOP),

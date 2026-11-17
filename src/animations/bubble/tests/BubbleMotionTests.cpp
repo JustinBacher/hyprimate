@@ -214,7 +214,7 @@ namespace {
                     CHECK(release.micro.attach == 0 && release.life > 0);
                     // Released bubbles inherit the window's motion but fall behind it.
                     const double SPEED = x.motion().speed();
-                    CHECK(std::hypot(release.velocity.x, release.velocity.y) < SPEED * 1.2 + 80);
+                    CHECK(std::hypot(release.velocity.x, release.velocity.y) < (SPEED * 1.2) + 80);
                 }
                 for (const auto &point : x.motion().trail()) {
                     ++trail;
@@ -303,7 +303,7 @@ namespace {
         BubbleWake wake(7);
         CHECK(wake.done() && wake.bounds().w == 0);
         for (int i = 0; i < 20; ++i) {
-            CHECK(wake.extend({{-450, 0}, {1, 0}, 80, .8, i == 0}, {100.0 + i * 20, 300}));
+            CHECK(wake.extend({{-450, 0}, {1, 0}, 80, .8, i == 0}, {100.0 + (i * 20), 300}));
         }
         BubbleRelease bubbleRelease;
         bubbleRelease.micro.radius = 5;
@@ -327,7 +327,7 @@ namespace {
             const double START_X = beforeView.bubbles[0].centre.x;
             wake.advance(DT);
             wake.view(afterView);
-            if (afterView.bubbleCount != 0u) {
+            if (afterView.bubbleCount != 0U) {
                 moved = afterView.bubbles[0].centre.x - START_X;
             }
         }
@@ -347,22 +347,27 @@ namespace {
         BubbleWake full(1);
         std::size_t accepted = 0;
         for (int i = 0; i < 100; ++i) {
-            accepted += static_cast<std::size_t>(full.extend({.position = {.x = 0, .y = 0},
-                                                                 .direction = {.x = 1, .y = 0},
-                                                                 .halfWidth = 40,
-                                                                 .density = 1,
-                                                                 .start = false},
+            accepted += static_cast<std::size_t>(full.extend(
+                {
+                    .position = {.x = 0, .y = 0},
+                    .direction = {.x = 1, .y = 0},
+                    .halfWidth = 40,
+                    .density = 1,
+                    .start = false,
+                },
                 {.x = static_cast<double>(i), .y = 0}));
         }
         CHECK(accepted == kBubbleWakeNodes && full.full());
     }
 
-    constexpr BubbleMotionParams ROUND{.strength = .65,
+    constexpr BubbleMotionParams ROUND{
+        .strength = .65,
         .microbubbles = .5,
         .trail = .5,
         .roundness = 1,
         .shape = BubbleShape::Circle,
-        .shapeSpeed = 1200};
+        .shapeSpeed = 1200,
+    };
     double roundness(const Bubble &b) {
         return b.frame(SIZE).window.motion.round;
     }
@@ -425,7 +430,7 @@ namespace {
             const auto TOP = shaped(MOTION, {.x = 0, .y = SIZE.y / 2});
             const auto CORNER = shaped(MOTION, {.x = SIZE.x / 2, .y = SIZE.y / 2});
             // As wide for its height as the window, and its sides bow gently outward.
-            CHECK(std::abs(SIDE.x / TOP.y - SIZE.x / SIZE.y) < .02);
+            CHECK(std::abs((SIDE.x / TOP.y) - (SIZE.x / SIZE.y)) < .02);
             CHECK(SIDE.x > SIZE.x / 2 && SIDE.x < SIZE.x / 2 * 1.12);
             // The corners pull in: much more for the ellipse than for the pillow.
             const double PULLED = 1 - (CORNER.x / (SIZE.x / 2));
@@ -527,12 +532,14 @@ namespace {
         Bubble bubble;
         bubble.seedMotion(13);
         double time = 0;
-        const BubbleMotionParams PARAMS{.strength = .65,
+        const BubbleMotionParams PARAMS{
+            .strength = .65,
             .microbubbles = 1,
             .trail = 1,
             .roundness = 1,
             .shape = BubbleShape::Circle,
-            .shapeSpeed = 1200};
+            .shapeSpeed = 1200,
+        };
         travel(bubble, time, .8, [](double) { return Vec2{.x = 1400, .y = 0}; }, PARAMS);
         bool seen = false;
         travel(
@@ -565,7 +572,11 @@ namespace {
         Bubble bubble;
         bubble.seedMotion(21);
         const BubbleMotionParams PARAMS{
-            .strength = .65, .microbubbles = .5, .trail = .5, .roundness = 1};
+            .strength = .65,
+            .microbubbles = .5,
+            .trail = .5,
+            .roundness = 1,
+        };
         // The layout swaps the window 640 px to the right within a tenth of a second.
         double drawn = 0;
         double previous = -1e9;

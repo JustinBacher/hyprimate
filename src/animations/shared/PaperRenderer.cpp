@@ -127,7 +127,11 @@ void fillSheetMeshes(const hyprimate::SheetFrame &frame,
                     textureSize.y),
             };
             shade[output_index] = {
-                .x = POS_X, .y = POS_Y, .u = shadeU(frame.shade[TRI][corner]), .v = 0.5F};
+                .x = POS_X,
+                .y = POS_Y,
+                .u = shadeU(frame.shade[TRI][corner]),
+                .v = 0.5F,
+            };
             ++output_index;
         }
     }
