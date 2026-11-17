@@ -383,12 +383,12 @@ namespace hyprimate {
         Field &displacements = m_displacements;
         Field &velocities = m_velocities;
         Field &accelerations = m_accelerations;
-        const ConstFieldView field{displacements.data()};
-        const ConstFieldView velocity_field{velocities.data()};
-        const FieldView acceleration_field{accelerations.data()};
-        const ScalarView divergence{m_divergence.data()};
-        const ConstScalarView divergence_field{m_divergence.data()};
-        const ScalarView grip{m_grip.data()};
+        const ConstFieldView FIELD{displacements.data()};
+        const ConstFieldView VELOCITY_FIELD{velocities.data()};
+        const FieldView ACCELERATION_FIELD{accelerations.data()};
+        const ScalarView DIVERGENCE{m_divergence.data()};
+        const ConstScalarView DIVERGENCE_FIELD{m_divergence.data()};
+        const ScalarView GRIP_FIELD{m_grip.data()};
 
         const Vec2 SPACING{.x = size.x / CELLS, .y = size.y / CELLS};
         // Scale each axis's shear so the tighter axis keeps the index-space stiffness and
@@ -402,10 +402,10 @@ namespace hyprimate {
         for (unsigned div_row = 0; div_row < SIDE; ++div_row) {
             for (unsigned div_col = 0; div_col < SIDE; ++div_col) {
                 const double SLOPE_X = line_slope(
-                    [&](unsigned column) { return field[column, div_row].x; }, div_col, SPACING.x);
+                    [&](unsigned column) { return FIELD[column, div_row].x; }, div_col, SPACING.x);
                 const double SLOPE_Y = line_slope(
-                    [&](unsigned row) { return field[div_col, row].y; }, div_row, SPACING.y);
-                divergence[div_col, div_row] = SLOPE_X + SLOPE_Y;
+                    [&](unsigned row) { return FIELD[div_col, row].y; }, div_row, SPACING.y);
+                DIVERGENCE[div_col, div_row] = SLOPE_X + SLOPE_Y;
             }
         }
 
@@ -444,11 +444,11 @@ namespace hyprimate {
                     ((LATTICE_X * PERP_X) + (LATTICE_Y * PERP_Y)) / NORMALIZER, -1.0, 1.0);
                 // Grip relaxes toward head grip while moving and toward zero when still, so a stop
                 // releases the front.
-                grip[col, row] +=
+                GRIP_FIELD[col, row] +=
                     ((SPEED > LIQUID_GRIP_QUIET_SPEED && !LANDING ? head_grip(ALONG_MOTION) : 0.0) -
-                        grip[col, row]) *
+                        GRIP_FIELD[col, row]) *
                     GRIP_BLEND;
-                const double GRIP = grip[col, row];
+                const double GRIP = GRIP_FIELD[col, row];
                 const double STIFFNESS =
                     (m_bodyStiffness * (1.0 - GRIP)) + (m_headStiffness * GRIP);
                 const double LEAD = std::max(ALONG_MOTION, 0.0);
@@ -476,29 +476,29 @@ namespace hyprimate {
                 };
 
                 const double GRAD_X = line_slope(
-                    [&](unsigned column) { return divergence_field[column, row]; }, col, SPACING.x);
+                    [&](unsigned column) { return DIVERGENCE_FIELD[column, row]; }, col, SPACING.x);
                 const double GRAD_Y = line_slope(
-                    [&](unsigned index) { return divergence_field[col, index]; }, row, SPACING.y);
+                    [&](unsigned index) { return DIVERGENCE_FIELD[col, index]; }, row, SPACING.y);
 
                 const double COUPLED_X =
                     (LIQUID_SHEAR_STIFFNESS *
-                        shear_laplacian(field, &Vec2::x, col, row, WEIGHT_X, WEIGHT_Y)) +
+                        shear_laplacian(FIELD, &Vec2::x, col, row, WEIGHT_X, WEIGHT_Y)) +
                     (SHEAR_DAMPING *
-                        shear_laplacian(velocity_field, &Vec2::x, col, row, WEIGHT_X, WEIGHT_Y)) +
+                        shear_laplacian(VELOCITY_FIELD, &Vec2::x, col, row, WEIGHT_X, WEIGHT_Y)) +
                     (WAVE_SPEED2 * GRAD_X);
                 const double COUPLED_Y =
                     (LIQUID_SHEAR_STIFFNESS *
-                        shear_laplacian(field, &Vec2::y, col, row, WEIGHT_X, WEIGHT_Y)) +
+                        shear_laplacian(FIELD, &Vec2::y, col, row, WEIGHT_X, WEIGHT_Y)) +
                     (SHEAR_DAMPING *
-                        shear_laplacian(velocity_field, &Vec2::y, col, row, WEIGHT_X, WEIGHT_Y)) +
+                        shear_laplacian(VELOCITY_FIELD, &Vec2::y, col, row, WEIGHT_X, WEIGHT_Y)) +
                     (WAVE_SPEED2 * GRAD_Y);
 
-                acceleration_field[col, row] = {
-                    .x = (-STIFFNESS * (field[col, row].x - LAG_FIELD.x)) -
-                         (DAMPING * velocity_field[col, row].x) + COUPLED_X +
+                ACCELERATION_FIELD[col, row] = {
+                    .x = (-STIFFNESS * (FIELD[col, row].x - LAG_FIELD.x)) -
+                         (DAMPING * VELOCITY_FIELD[col, row].x) + COUPLED_X +
                          (m_inertia.x * KICK_WEIGHT),
-                    .y = (-STIFFNESS * (field[col, row].y - LAG_FIELD.y)) -
-                         (DAMPING * velocity_field[col, row].y) + COUPLED_Y +
+                    .y = (-STIFFNESS * (FIELD[col, row].y - LAG_FIELD.y)) -
+                         (DAMPING * VELOCITY_FIELD[col, row].y) + COUPLED_Y +
                          (m_inertia.y * KICK_WEIGHT),
                 };
             }
@@ -649,12 +649,12 @@ namespace hyprimate {
         const double FRACTION_X = GRID_X - COL;
         const double FRACTION_Y = GRID_Y - ROW;
 
-        const ConstFieldView field{m_displacements.data()};
+        const ConstFieldView FIELD{m_displacements.data()};
         // Node values with edge clamping, so the spline reproduces the boundary field.
         const auto NODE = [&](int column, int row) -> Vec2 {
             const unsigned CLAMPED_COL = static_cast<unsigned>(std::clamp(column, 0, CELL_COUNT));
             const unsigned CLAMPED_ROW = static_cast<unsigned>(std::clamp(row, 0, CELL_COUNT));
-            return field[CLAMPED_COL, CLAMPED_ROW];
+            return FIELD[CLAMPED_COL, CLAMPED_ROW];
         };
 
         // Interpolate along x for the four rows around the sample, then along y.
@@ -717,7 +717,7 @@ namespace hyprimate {
     }
 
     bool LiquidMesh::validTriangles(Vec2 size) const noexcept {
-        const ConstFieldView field{m_displacements.data()};
+        const ConstFieldView FIELD{m_displacements.data()};
         for (unsigned cell_row = 0; cell_row < CELLS; ++cell_row) {
             for (unsigned cell_column = 0; cell_column < CELLS; ++cell_column) {
                 for (unsigned triangle = 0; triangle < 2; ++triangle) {
@@ -726,7 +726,7 @@ namespace hyprimate {
                     std::array<Vec2, 3> deformed{};
                     for (std::size_t k = 0; k < 3; ++k) {
                         rest[k] = rest_position(CORNERS[k], size);
-                        const Vec2 DISPLACEMENT = field[CORNERS[k].x, CORNERS[k].y];
+                        const Vec2 DISPLACEMENT = FIELD[CORNERS[k].x, CORNERS[k].y];
                         deformed[k] = {
                             .x = rest[k].x + DISPLACEMENT.x,
                             .y = rest[k].y + DISPLACEMENT.y,
