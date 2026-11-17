@@ -4,6 +4,7 @@
 #include <hyprland/src/render/Renderer.hpp>
 
 #include "LiveStyle.hpp"
+#include "animations/shared/EdgeStyleConfig.hpp"
 #include "animations/shared/LiveSheetRender.hpp"
 
 CBox liveExtents(const SClothStyle &state, const CBox &box) {
@@ -24,7 +25,9 @@ Render::SWindowTransformBuffer renderLive(SClothStyle &state,
 
 bool SClothLiveStyle::open(
     CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window) {
-    if (const auto frame = runtime.edgeFrameFor(window, true)) entry.openEdge = frame->edge;
+    if (const auto frame = hyprimate::resolveStyleOpenEdge(
+            runtime.edgeInputFor(window, true), runtime.m_config.open.cloth))
+        entry.openEdge = frame->edge;
     const CBox current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
     const CBox goal = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
     const CBox capture = window->getFullWindowBoundingBox();

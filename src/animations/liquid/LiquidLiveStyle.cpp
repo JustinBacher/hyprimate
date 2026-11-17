@@ -8,6 +8,7 @@
 
 #include "LiveRender.hpp"
 #include "LiveStyle.hpp"
+#include "animations/shared/EdgeStyleConfig.hpp"
 
 using namespace Render;
 using hyprimate::Vec2;
@@ -95,7 +96,8 @@ SWindowTransformBuffer renderLive(SLiquidStyle &state,
 
 bool SLiquidLiveStyle::open(
     CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window) {
-    const auto frame = runtime.edgeFrameFor(window, true);
+    const auto frame = hyprimate::resolveStyleOpenEdge(
+        runtime.edgeInputFor(window, true), runtime.m_config.open.liquid);
     if (!frame) return false;
     entry.openEdge = frame->edge;
     const auto &open = runtime.m_config.open.liquid;

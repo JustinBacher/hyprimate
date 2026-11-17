@@ -3,6 +3,7 @@
 #include <hyprland/src/desktop/view/window/Window.hpp>
 
 #include "animations/shared/CloseSheetRender.hpp"
+#include "animations/shared/EdgeStyleConfig.hpp"
 
 namespace close_style {
     inline bool closeEnabled(const SClothCloseData &, const hyprimate::config::SConfig &) {
@@ -17,11 +18,12 @@ namespace close_style {
         bool,
         const hyprimate::config::SConfig &config,
         hyprimate::MaterialParams,
-        const std::function<std::optional<hyprimate::EdgeFrame>()> &edgeFrame,
+        const std::function<hyprimate::EdgeInput()> &edgeInput,
         const std::function<std::span<const hyprimate::Box>()> &obstacles,
         const std::function<std::uint64_t()> &nextSeed,
         const std::function<hyprimate::EdgeSet()> &) {
-        const auto frame = edgeFrame();
+        const auto input = edgeInput();
+        const auto frame = hyprimate::resolveStyleCloseEdge(input, config.close.cloth);
         const auto monitor = window->m_monitor.lock();
         const auto boxes = obstacles();
         const auto seed = nextSeed();

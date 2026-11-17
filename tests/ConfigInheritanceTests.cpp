@@ -117,6 +117,27 @@ int main() {
     assert(c.open.swarm.loneWindowSides.has(LoneWindowSides::Bottom));
     assert(!c.close.swarm.loneWindowSides.has(LoneWindowSides::Bottom));
 
+    // Liquid and cloth choose opening origins and closing exits independently.
+    set("window:open:options:liquid:edge_bounds", std::string("work_area"));
+    set("window:open:options:cloth:default_animation_edge", std::string("left"));
+    set("window:open:options:cloth:edge_bounds", std::string("screen"));
+    set("window:close:options:liquid:side", std::string("right"));
+    set("window:close:options:liquid:edge_bounds", std::string("work_area"));
+    set("window:close:options:cloth:side", std::string("origin"));
+    set("window:close:options:cloth:default_animation_edge", std::string("top"));
+    set("window:close:options:cloth:edge_bounds", std::string("screen"));
+    c = readConfig(values);
+    assert(c.open.liquid.defaultAnimationEdge == DefaultAnimationEdge::Top);
+    assert(c.open.liquid.edgeBounds == EdgeBounds::WorkArea);
+    assert(c.open.cloth.defaultAnimationEdge == DefaultAnimationEdge::Left);
+    assert(c.open.cloth.edgeBounds == EdgeBounds::Screen);
+    assert(c.close.liquid.side == Side::Right);
+    assert(c.close.liquid.defaultAnimationEdge == DefaultAnimationEdge::Right);
+    assert(c.close.liquid.edgeBounds == EdgeBounds::WorkArea);
+    assert(c.close.cloth.side == Side::Origin);
+    assert(c.close.cloth.defaultAnimationEdge == DefaultAnimationEdge::Top);
+    assert(c.close.cloth.edgeBounds == EdgeBounds::Screen);
+
     // Explicit values equal to old defaults still take precedence over global settings.
     set("window:open:options:paper:duration", 0.6F);
     set("window:close:options:paper:duration", 0.5F);

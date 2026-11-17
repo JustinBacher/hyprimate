@@ -46,6 +46,17 @@ namespace hyprimate {
     // Where a closing window exits.
     enum class CloseSide { Auto, Nearest, Origin, Top, Bottom, Left, Right };
 
+    // Compositor geometry passed to a style; the style selects its own edge policy.
+    struct EdgeInput {
+        Box body;
+        Box capture;
+        Box screen;
+        Box workArea;
+        std::span<const Box> neighbours;
+        std::optional<Edge> origin;
+        bool lastWindow = false;
+    };
+
     // Shared liquid/cloth close policy. Auto prefers fallback for the last window; Nearest ignores
     // neighbours; Origin prefers the recorded opening edge; fixed sides prefer that edge. An
     // unavailable or invalid preference uses the usual resolver.

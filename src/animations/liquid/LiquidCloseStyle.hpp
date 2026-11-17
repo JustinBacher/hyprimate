@@ -7,6 +7,7 @@
 
 #include "../../CloseStyleAdapter.hpp"
 #include "LiquidClosePass.hpp"
+#include "animations/shared/EdgeStyleConfig.hpp"
 
 namespace close_style {
     inline bool closeEnabled(const SLiquidCloseData &, const hyprimate::config::SConfig &config) {
@@ -150,14 +151,15 @@ namespace close_style {
         bool active,
         const hyprimate::config::SConfig &config,
         hyprimate::MaterialParams material,
-        const std::function<std::optional<hyprimate::EdgeFrame>()> &edgeFrame,
+        const std::function<hyprimate::EdgeInput()> &edgeInput,
         const std::function<std::span<const hyprimate::Box>()> &,
         const std::function<std::uint64_t()> &,
         const std::function<hyprimate::EdgeSet()> &) {
         const auto &close = config.close.liquid;
         if (!std::isfinite(close.strength) || close.strength <= 0.0) return false;
         const bool continuing = style.transition.active();
-        const auto frame = continuing ? std::optional<hyprimate::EdgeFrame>{} : edgeFrame();
+        const auto frame = continuing ? std::optional<hyprimate::EdgeFrame>{}
+                                      : hyprimate::resolveStyleCloseEdge(edgeInput(), close);
         SLiquidCloseData data;
         if (active) {
             const auto pose = closePose(style, window);

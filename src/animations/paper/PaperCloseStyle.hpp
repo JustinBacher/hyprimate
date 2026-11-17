@@ -13,7 +13,7 @@ namespace close_style {
         bool,
         const hyprimate::config::SConfig &config,
         hyprimate::MaterialParams,
-        const std::function<std::optional<hyprimate::EdgeFrame>()> &,
+        const std::function<hyprimate::EdgeInput()> &,
         const std::function<std::span<const hyprimate::Box>()> &,
         const std::function<std::uint64_t()> &nextSeed,
         const std::function<hyprimate::EdgeSet()> &) {
