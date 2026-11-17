@@ -151,6 +151,7 @@ namespace hyprimate {
         const bool settling = opening();
         advance(elapsed);
         if (closed_ || (active_ && !opening_)) return;
+        transparency_ = std::clamp(params.transparency, 0.0, 1.0);
         motion_.advance(elapsed, size, body, params);
         // Once landed, the film keeps flowing at the pace the movement stirs it.
         if (!settling)
@@ -197,6 +198,7 @@ namespace hyprimate {
         if (!motion_.stirred()) return;
         auto &window = f.window;
         window.motion = motion_.deformation();
+        window.transparency = transparency_;
         const Vec2 core = motion_.core();
         window.core = {window.core.x + core.x, window.core.y + core.y};
         if (window.thickness <= 0) window.thickness = 450;

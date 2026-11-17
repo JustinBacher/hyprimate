@@ -25,6 +25,7 @@ namespace hyprimate {
         double roundness = 0;  // 0..1 how far a moving window contracts toward its shape
         BubbleShape shape = BubbleShape::Pillow;
         double shapeSpeed = 1200;  // px/s at which the contraction is full; slower is less
+        double transparency = .88;  // window transparency in bubble form, not at rest
     };
 
     // The movement's share of a flat membrane's shape, in logical px. The renderer carries every

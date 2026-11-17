@@ -18,6 +18,10 @@ _Avoid_: mode, material (as separate per-direction choices).
 
 **Bubble**: a window's soap-film surface. Opening inflates a round outer bubble that ruptures while a clear inner film emerges and flattens into the window; closing ruptures the window's film where it is.
 
+**Transmission** (bubble): the desktop seen through a moving film, including wallpaper and windows behind it. The moving window's own image remains a secondary contribution; it returns continuously as the film settles.
+
+**Interference** (bubble): the film's shifting colours, produced by its changing thickness and viewing angle. Curved edges reflect more strongly while the centre remains clear, independent of whether the outline is circular or window-shaped.
+
 **Splat**: the bubble's brief outward stretch on reaching the screen plane, followed by elastic settlement.
 
 **Rupture**: holes that open at thinning (black-film) spots and grow at constant speed until their rims have consumed a membrane; never a reversed inflation.

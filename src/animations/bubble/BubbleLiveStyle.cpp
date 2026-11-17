@@ -150,7 +150,8 @@ void SBubbleLiveStyle::step(CPluginRuntime &runtime,
                       options.trail,
                       options.roundness,
                       bubbleShape(options.shape),
-                      options.shapeSpeed}
+                      options.shapeSpeed,
+                      options.transparency}
                 : hyprimate::BubbleMotionParams{});
     state.impacts.advance(elapsed);
     if (!state.bubble.active()) {

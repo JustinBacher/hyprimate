@@ -157,8 +157,8 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                     auto *bubble = transformer
                                        ? std::get_if<SBubbleStyle>(&transformer->styleState())
                                        : nullptr;
-                    if (!bubble || !bubble->bubble.opening() || !bubble->wallpaper ||
-                        bubble->wallpaper->queued)
+                    if (!bubble || !bubble->bubble.opening() || bubble->bubble.stirred() ||
+                        !bubble->wallpaper || bubble->wallpaper->queued)
                         continue;
                     const auto presentation = window->presentation().renderPresentation();
                     const auto source =
@@ -166,7 +166,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                             .translate(presentation.workspaceOffset + presentation.floatingOffset -
                                        event.monitor->m_position)
                             .scale(event.monitor->m_scale);
-                    queueBubbleWallpaper(event.context->get(), bubble->wallpaper, source);
+                    queueBubbleWallpaper(event.context->get(), bubble->wallpaper, source, false, source);
                 }
                 return;
             }
@@ -174,6 +174,27 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
             // not drawn, lie over every window.
             if (event.stage == RENDER_PRE_WINDOW && event.context && event.monitor) {
                 auto &ctx = event.context->get();
+                const auto window = ctx.m_data.currentWindow.lock();
+                auto *transformer = window ? transformerOf(window) : nullptr;
+                auto *bubble = transformer
+                                   ? std::get_if<SBubbleStyle>(&transformer->styleState())
+                                   : nullptr;
+                // This must precede the window's transformed draw in the monitor pass: its
+                // framebuffer then contains lower windows but not this window itself.
+                if (bubble && transformer->active() && bubble->bubble.stirred()) {
+                    if (!bubble->wallpaper) bubble->wallpaper = makeShared<SBubbleWallpaper>();
+                    const auto presentation = window->presentation().renderPresentation();
+                    const auto logical = window->getFullWindowBoundingBox().translate(
+                        presentation.workspaceOffset + presentation.floatingOffset -
+                        event.monitor->m_position);
+                    // UV axes describe the undeformed source box; capture the larger drawn
+                    // footprint and refraction margin without changing that coordinate system.
+                    const auto source = logical.copy().scale(event.monitor->m_scale);
+                    const auto bounds = transformer->transformedExtents(logical)
+                                            .expand(8.0)
+                                            .scale(event.monitor->m_scale);
+                    queueBubbleWallpaper(ctx, bubble->wallpaper, source, true, bounds);
+                }
                 m_bubbleResidue->queueUnder(
                     ctx, event.monitor, ctx.m_data.currentWindow.lock(), m_bubble);
                 return;
