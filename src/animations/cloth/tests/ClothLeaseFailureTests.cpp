@@ -1,5 +1,6 @@
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -234,7 +235,7 @@ namespace {
     constexpr Box WINDOW{.x = 0, .y = 0, .w = 640, .h = 480};
     constexpr unsigned MAX_ALLOCATIONS = 256;
 
-    enum class Startup { Transition, Movement };
+    enum class Startup : std::uint8_t { Transition, Movement };
 
     void start(ClothFlutter &cloth, Startup startup) {
         if (startup == Startup::Movement) {

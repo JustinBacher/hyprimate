@@ -25,7 +25,7 @@ namespace hyprimate {
         void frame(Vec2 size, SheetFrame &out) const noexcept;  // back-to-front order in out.order
 
       private:
-        enum class Phase { Idle, Opening, Closing, Closed };
+        enum class Phase : std::uint8_t { Idle, Opening, Closing, Closed };
 
         // Draws the seed-dependent choices (take and mirroring) from the current params.
         void roll_shape(std::uint64_t seed) noexcept;

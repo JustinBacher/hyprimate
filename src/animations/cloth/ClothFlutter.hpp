@@ -92,7 +92,7 @@ namespace hyprimate {
         struct MovementPlayback;
 
       private:
-        enum class Phase { Idle, Opening, Movement, Closing, Closed };
+        enum class Phase : std::uint8_t { Idle, Opening, Movement, Closing, Closed };
         void start_fallback() noexcept;
 
         Phase m_phase = Phase::Idle;

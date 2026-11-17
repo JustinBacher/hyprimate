@@ -149,7 +149,7 @@ namespace hyprimate {
         [[nodiscard]] Box bounds() const noexcept;
 
       private:
-        enum class Phase { Idle, Opening, Movement, Closing, Closed };
+        enum class Phase : std::uint8_t { Idle, Opening, Movement, Closing, Closed };
 
         void build(const SwarmParams &params, std::uint64_t seed, const SwarmPlacement &placement);
         void layout(const SwarmPlacement &placement);

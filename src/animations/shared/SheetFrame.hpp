@@ -22,7 +22,7 @@ namespace hyprimate {
     // towards the viewer.
     using SheetGrid = std::array<Vec3, PAPER_GRID_VERTICES>;
 
-    enum class SheetLighting { PaperCreases, ClothSmooth };
+    enum class SheetLighting : std::uint8_t { PaperCreases, ClothSmooth };
 
     // The projected sheet, reused across frames. Triangle t has grid corners sheet_triangle(t), uv
     // sheet_uv(corner).

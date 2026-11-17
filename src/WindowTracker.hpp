@@ -30,7 +30,7 @@ namespace hyprimate {
 
     // What the runtime does for a window this frame. The tracker never touches the transformer
     // itself.
-    enum class TrackAction {
+    enum class TrackAction : std::uint8_t {
         Idle,  // nothing changed; an active transformer still steps
         Rebaseline,  // detach any deformation and adopt the snapshot as the new baseline
         Opening,  // adopt the snapshot and begin the opening pop-out from the window's edge

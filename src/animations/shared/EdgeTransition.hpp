@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <optional>
 #include <span>
 
@@ -156,7 +157,7 @@ namespace hyprimate {
         [[nodiscard]] double meniscus_peak() const noexcept;
 
       private:
-        enum class Phase { Idle, Opening, Closing, Closed };
+        enum class Phase : std::uint8_t { Idle, Opening, Closing, Closed };
         struct Spring {
             double value = 0.0;
             double velocity = 0.0;
