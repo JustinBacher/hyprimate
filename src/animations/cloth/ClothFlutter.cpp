@@ -13,6 +13,7 @@
 #include <span>
 #include <stop_token>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -162,6 +163,23 @@ namespace hyprimate {
     }  // namespace
 
     struct ClothFlutter::Run {
+        struct Float3 {
+            float x, y, z;
+        };
+        struct VertexSample {
+            Float3 position, velocity;
+        };
+        using Frame = std::array<VertexSample, PAPER_GRID_VERTICES>;
+        static_assert(std::is_standard_layout_v<Float3> && std::is_standard_layout_v<VertexSample>);
+        static_assert(sizeof(Float3) == 3 * sizeof(float) && alignof(Float3) == alignof(float));
+        static_assert(offsetof(Float3, x) == 0 && offsetof(Float3, y) == sizeof(float) &&
+                      offsetof(Float3, z) == 2 * sizeof(float));
+        static_assert(
+            sizeof(VertexSample) == 6 * sizeof(float) && alignof(VertexSample) == alignof(float));
+        static_assert(offsetof(VertexSample, position) == 0 &&
+                      offsetof(VertexSample, velocity) == 3 * sizeof(float));
+        static_assert(sizeof(Frame) == PAPER_GRID_VERTICES * 6 * sizeof(float) &&
+                      alignof(Frame) == alignof(float));
         struct Target {
             double time = 0;
             Box box{};
@@ -169,7 +187,7 @@ namespace hyprimate {
         struct Snapshot {
             double time = 0;
             Vec3 rigidVelocity{};
-            std::array<float, PAPER_GRID_VERTICES * 6> values{};
+            Frame values{};
         };
         // Buffer a full stall interval of targets at up to 1000 Hz, and the resulting 120 Hz
         // snapshot burst.
@@ -193,7 +211,7 @@ namespace hyprimate {
         SheetGrid start{}, velocity{};
         // Every six-float position/velocity slot is written once, then published by recorded's
         // release store.
-        std::vector<float> samples;
+        std::unique_ptr<Frame[]> samples;
         std::atomic<int> recorded{0}, outsideFrame{0};
         std::atomic<bool> finished{false}, released{false};
         std::stop_source stop;
@@ -224,12 +242,16 @@ namespace hyprimate {
             const double D01 = (-6 * FRACTION_SQUARED + 6 * FRACTION) / DT;
             const double D11 = 3 * FRACTION_SQUARED - 2 * FRACTION;
             for (std::size_t k = 0; k < p.size(); ++k) {
-                const float *sampleBefore = samples.data() + (((std::size_t(FRAME_BEFORE) * p.size()) + k) * 6);
-                const float *sampleAfter = samples.data() + (((std::size_t(FRAME_AFTER) * p.size()) + k) * 6);
-                const Vec3 POS_BEFORE{sampleBefore[0], sampleBefore[1], sampleBefore[2]};
-                const Vec3 VEL_BEFORE{sampleBefore[3], sampleBefore[4], sampleBefore[5]};
-                const Vec3 POS_AFTER{sampleAfter[0], sampleAfter[1], sampleAfter[2]};
-                const Vec3 VEL_AFTER{sampleAfter[3], sampleAfter[4], sampleAfter[5]};
+                const auto &sampleBefore = samples[std::size_t(FRAME_BEFORE)][k];
+                const auto &sampleAfter = samples[std::size_t(FRAME_AFTER)][k];
+                const Vec3 POS_BEFORE{
+                    sampleBefore.position.x, sampleBefore.position.y, sampleBefore.position.z};
+                const Vec3 VEL_BEFORE{
+                    sampleBefore.velocity.x, sampleBefore.velocity.y, sampleBefore.velocity.z};
+                const Vec3 POS_AFTER{
+                    sampleAfter.position.x, sampleAfter.position.y, sampleAfter.position.z};
+                const Vec3 VEL_AFTER{
+                    sampleAfter.velocity.x, sampleAfter.velocity.y, sampleAfter.velocity.z};
                 if (k < GRID) {
                     // Interpolation between solved pocket positions cannot overshoot an end stop or
                     // reorder samples.
@@ -237,9 +259,10 @@ namespace hyprimate {
                     v[k] = lerp(VEL_BEFORE, VEL_AFTER, FRACTION);
                     continue;
                 }
-                p[k] =
-                    add(add(mul(POS_BEFORE, H00), mul(VEL_BEFORE, H10 * DT)), add(mul(POS_AFTER, H01), mul(VEL_AFTER, H11 * DT)));
-                v[k] = add(add(mul(POS_BEFORE, D00), mul(VEL_BEFORE, D10)), add(mul(POS_AFTER, D01), mul(VEL_AFTER, D11)));
+                p[k] = add(add(mul(POS_BEFORE, H00), mul(VEL_BEFORE, H10 * DT)),
+                    add(mul(POS_AFTER, H01), mul(VEL_AFTER, H11 * DT)));
+                v[k] = add(add(mul(POS_BEFORE, D00), mul(VEL_BEFORE, D10)),
+                    add(mul(POS_AFTER, D01), mul(VEL_AFTER, D11)));
                 const double EXTRA = std::clamp(t - ((COUNT - 1) * DT), 0.0, DT);
                 p[k] = add(p[k], mul(v[k], EXTRA));
             }
@@ -387,9 +410,12 @@ namespace hyprimate {
             const double VELOCITY_LIMIT = 50 + (8 * TRAVEL / run.length) +
                                           (3 * GRAVITY * run.length) + (1.5 * run.maxInitialSpeed);
             for (const auto &softVertex : vertices) {
-                if (!std::isfinite(softVertex.mPosition.GetX()) || !std::isfinite(softVertex.mPosition.GetY()) ||
-                    !std::isfinite(softVertex.mPosition.GetZ()) || !std::isfinite(softVertex.mVelocity.GetX()) ||
-                    !std::isfinite(softVertex.mVelocity.GetY()) || !std::isfinite(softVertex.mVelocity.GetZ()) ||
+                if (!std::isfinite(softVertex.mPosition.GetX()) ||
+                    !std::isfinite(softVertex.mPosition.GetY()) ||
+                    !std::isfinite(softVertex.mPosition.GetZ()) ||
+                    !std::isfinite(softVertex.mVelocity.GetX()) ||
+                    !std::isfinite(softVertex.mVelocity.GetY()) ||
+                    !std::isfinite(softVertex.mVelocity.GetZ()) ||
                     std::max({std::abs(softVertex.mPosition.GetX()),
                         std::abs(softVertex.mPosition.GetY()),
                         std::abs(softVertex.mPosition.GetZ())}) > POSITION_LIMIT ||
@@ -399,14 +425,16 @@ namespace hyprimate {
                     return false;
                 }
             }
-            float *sample = run.samples.data() + (std::size_t(frame) * PAPER_GRID_VERTICES * 6);
+            auto &samples = run.samples[std::size_t(frame)];
+            std::size_t k = 0;
             for (const auto &vertex : vertices) {
-                *sample++ = vertex.mPosition.GetX();
-                *sample++ = vertex.mPosition.GetY();
-                *sample++ = vertex.mPosition.GetZ();
-                *sample++ = vertex.mVelocity.GetX();
-                *sample++ = vertex.mVelocity.GetY();
-                *sample++ = vertex.mVelocity.GetZ();
+                auto &sample = samples[k++];
+                sample.position.x = vertex.mPosition.GetX();
+                sample.position.y = vertex.mPosition.GetY();
+                sample.position.z = vertex.mPosition.GetZ();
+                sample.velocity.x = vertex.mVelocity.GetX();
+                sample.velocity.y = vertex.mVelocity.GetY();
+                sample.velocity.z = vertex.mVelocity.GetZ();
             }
             if (run.kind == Transition::Close &&
                 run.outsideFrame.load(std::memory_order_relaxed) == run.frames &&
@@ -578,7 +606,6 @@ namespace hyprimate {
             auto &snapshot = run.snapshots[HEAD % Run::OUTPUT_CAPACITY];
             snapshot.time = time;
             snapshot.rigidVelocity = run.snapshotRigidVelocity;
-            float *out = snapshot.values.data();
             for (std::size_t k = 0; k < vertices.size(); ++k) {
                 const auto &vertex = vertices[k];
                 const auto POSITION = vertex.mPosition;
@@ -592,12 +619,13 @@ namespace hyprimate {
                     !std::isfinite(VELOCITY.GetY()) || !std::isfinite(VELOCITY.GetZ())) {
                     return false;
                 }
-                *out++ = POSITION.GetX();
-                *out++ = POSITION.GetY();
-                *out++ = POSITION.GetZ();
-                *out++ = static_cast<float>(VELOCITY.GetX() + frameVelocity.x);
-                *out++ = static_cast<float>(VELOCITY.GetY() + frameVelocity.y);
-                *out++ = static_cast<float>(VELOCITY.GetZ() + frameVelocity.z);
+                auto &sample = snapshot.values[k];
+                sample.position.x = POSITION.GetX();
+                sample.position.y = POSITION.GetY();
+                sample.position.z = POSITION.GetZ();
+                sample.velocity.x = static_cast<float>(VELOCITY.GetX() + frameVelocity.x);
+                sample.velocity.y = static_cast<float>(VELOCITY.GetY() + frameVelocity.y);
+                sample.velocity.z = static_cast<float>(VELOCITY.GetZ() + frameVelocity.z);
             }
             run.outputHead.store(HEAD + 1, std::memory_order_release);
             run.recorded.fetch_add(1, std::memory_order_release);
@@ -822,7 +850,7 @@ namespace hyprimate {
             if (!WAIT_PUBLICATION()) {
                 return;
             }
-            run.samples.resize(static_cast<std::size_t>(run.frames) * PAPER_GRID_VERTICES * 6);
+            run.samples = std::make_unique<Run::Frame[]>(static_cast<std::size_t>(run.frames));
             enum : ObjectLayer { STATIC = 0, CLOTH = 1, LAYERS = 2 };
             ObjectLayerPairFilterTable pairs(LAYERS);
             pairs.EnableCollision(STATIC, CLOTH);
@@ -991,9 +1019,13 @@ namespace hyprimate {
                                 target = lerp(target, REST[k], HEADER_SPREAD);
                             }
                             if (run.kind == Transition::Close) {
-                                const double CLOSE_PROGRESS = std::clamp((TIME + DT) / run.length, 0.0, 1.0);
-                                const double DISTANCE = CLOSE_PROGRESS * CLOSE_PROGRESS * CLOSE_PROGRESS * (10 + (CLOSE_PROGRESS * (-15 + (6 * CLOSE_PROGRESS))));
-                                const double INHERITED_TIME = (TIME + DT) * (1 - CLOSE_PROGRESS) * (1 - CLOSE_PROGRESS);
+                                const double CLOSE_PROGRESS =
+                                    std::clamp((TIME + DT) / run.length, 0.0, 1.0);
+                                const double DISTANCE =
+                                    CLOSE_PROGRESS * CLOSE_PROGRESS * CLOSE_PROGRESS *
+                                    (10 + (CLOSE_PROGRESS * (-15 + (6 * CLOSE_PROGRESS))));
+                                const double INHERITED_TIME =
+                                    (TIME + DT) * (1 - CLOSE_PROGRESS) * (1 - CLOSE_PROGRESS);
                                 target.x = (pocket ? pocket->position(i) : target.x) +
                                            (run.travel.x * DISTANCE);
                                 target.y += (run.travel.y * DISTANCE) +
@@ -1008,10 +1040,10 @@ namespace hyprimate {
                             const auto VERTEX_AT = [&](int x, int y) {
                                 return vertices[index(x, y)].mPosition;
                             };
-                            const auto TANGENT_X =
-                                VERTEX_AT(std::min(i + 1, PAPER_CELLS), j) - VERTEX_AT(std::max(i - 1, 0), j);
-                            const auto TANGENT_Y =
-                                VERTEX_AT(i, std::min(j + 1, PAPER_CELLS)) - VERTEX_AT(i, std::max(j - 1, 0));
+                            const auto TANGENT_X = VERTEX_AT(std::min(i + 1, PAPER_CELLS), j) -
+                                                   VERTEX_AT(std::max(i - 1, 0), j);
+                            const auto TANGENT_Y = VERTEX_AT(i, std::min(j + 1, PAPER_CELLS)) -
+                                                   VERTEX_AT(i, std::max(j - 1, 0));
                             const auto NORMAL =
                                 TANGENT_X.Cross(TANGENT_Y).NormalizedOr(JPH::Vec3::sAxisZ());
                             if (run.kind == Transition::Open) {
@@ -1091,14 +1123,14 @@ namespace hyprimate {
         for (std::size_t k = 0; k < RUN->start.size(); ++k) {
             const auto POSITION = RUN->start[k];
             const auto VELOCITY = RUN->velocity[k];
-            const std::array<float, 6> VALUE{static_cast<float>(POSITION.x),
-                static_cast<float>(POSITION.y),
-                static_cast<float>(POSITION.z),
-                static_cast<float>(VELOCITY.x),
-                static_cast<float>(VELOCITY.y),
-                static_cast<float>(VELOCITY.z)};
-            std::copy(VALUE.begin(), VALUE.end(), playback->a.values.begin() + (k * 6));
-            std::copy(VALUE.begin(), VALUE.end(), playback->b.values.begin() + (k * 6));
+            const Run::VertexSample VALUE{{static_cast<float>(POSITION.x),
+                                              static_cast<float>(POSITION.y),
+                                              static_cast<float>(POSITION.z)},
+                {static_cast<float>(VELOCITY.x),
+                    static_cast<float>(VELOCITY.y),
+                    static_cast<float>(VELOCITY.z)}};
+            playback->a.values[k] = VALUE;
+            playback->b.values[k] = VALUE;
         }
         std::uint64_t fixed = BASE_SEED;
         std::uint64_t random = seed;
@@ -1221,9 +1253,12 @@ namespace hyprimate {
         RUN->length = (RUN->frames - 1) * DT;
         const double RATE = RUN->length / clothParams.duration;
         for (auto &initialVelocity : RUN->velocity) {
-            initialVelocity = mul(initialVelocity, 1 / RATE);  // displayed real-time velocity -> new simulation clock
-            RUN->maxInitialSpeed =
-                std::max(RUN->maxInitialSpeed, std::sqrt((initialVelocity.x * initialVelocity.x) + (initialVelocity.y * initialVelocity.y) + (initialVelocity.z * initialVelocity.z)));
+            initialVelocity = mul(
+                initialVelocity, 1 / RATE);  // displayed real-time velocity -> new simulation clock
+            RUN->maxInitialSpeed = std::max(RUN->maxInitialSpeed,
+                std::sqrt((initialVelocity.x * initialVelocity.x) +
+                          (initialVelocity.y * initialVelocity.y) +
+                          (initialVelocity.z * initialVelocity.z)));
         }
         std::uint64_t base = BASE_SEED;
         std::uint64_t random = seed;
@@ -1543,16 +1578,18 @@ namespace hyprimate {
                         // A common convex return keeps the sleeve ordered and inside the rod even
                         // without a worker.
                         p[k] = lerp(START_POS, REST[k], PROGRESS_SQUARED * (3 - (2 * PROGRESS)));
-                        v[k] =
-                            mul(sub(REST[k], START_POS), 6 * PROGRESS * (1 - PROGRESS) / FALLBACK_LENGTH);
+                        v[k] = mul(sub(REST[k], START_POS),
+                            6 * PROGRESS * (1 - PROGRESS) / FALLBACK_LENGTH);
                     } else {
-                        p[k] = add(add(mul(START_POS, (2 * PROGRESS_CUBED) - (3 * PROGRESS_SQUARED) + 1),
-                                       mul(SPEED,
-                                           (PROGRESS_CUBED - (2 * PROGRESS_SQUARED) + PROGRESS) *
-                                               FALLBACK_LENGTH)),
+                        p[k] = add(
+                            add(mul(START_POS, (2 * PROGRESS_CUBED) - (3 * PROGRESS_SQUARED) + 1),
+                                mul(SPEED,
+                                    (PROGRESS_CUBED - (2 * PROGRESS_SQUARED) + PROGRESS) *
+                                        FALLBACK_LENGTH)),
                             mul(REST[k], (-2 * PROGRESS_CUBED) + (3 * PROGRESS_SQUARED)));
                         v[k] = add(
-                            add(mul(START_POS, ((6 * PROGRESS_SQUARED) - (6 * PROGRESS)) / FALLBACK_LENGTH),
+                            add(mul(START_POS,
+                                    ((6 * PROGRESS_SQUARED) - (6 * PROGRESS)) / FALLBACK_LENGTH),
                                 mul(SPEED, (3 * PROGRESS_SQUARED) - (4 * PROGRESS) + 1)),
                             mul(REST[k],
                                 ((-6 * PROGRESS_SQUARED) + (6 * PROGRESS)) / FALLBACK_LENGTH));
@@ -1561,8 +1598,8 @@ namespace hyprimate {
                         v[k] = add(v[k], m_movement->rigidVelocity);
                     }
                 } else {
-                    p[k] =
-                        add(START_POS, mul(SPEED, FALLBACK_LENGTH * (PROGRESS - (0.5 * PROGRESS_SQUARED))));
+                    p[k] = add(START_POS,
+                        mul(SPEED, FALLBACK_LENGTH * (PROGRESS - (0.5 * PROGRESS_SQUARED))));
                     v[k] = mul(SPEED, 1 - PROGRESS);
                 }
             }
@@ -1576,12 +1613,18 @@ namespace hyprimate {
                 std::clamp((m_movement->time - previous.time) / INTERVAL, 0.0, 1.0);
             const Vec3 SNAPSHOT_RIGID = lerp(previous.rigidVelocity, next.rigidVelocity, BLEND);
             for (std::size_t k = 0; k < p.size(); ++k) {
-                const float *previousSample = previous.values.data() + k * 6;
-                const float *nextSample = next.values.data() + k * 6;
-                const Vec3 PREVIOUS_POS{previousSample[0], previousSample[1], previousSample[2]};
-                const Vec3 NEXT_POS{nextSample[0], nextSample[1], nextSample[2]};
-                const Vec3 PREVIOUS_VEL{previousSample[3], previousSample[4], previousSample[5]};
-                const Vec3 NEXT_VEL{nextSample[3], nextSample[4], nextSample[5]};
+                const auto &previousSample = previous.values[k];
+                const auto &nextSample = next.values[k];
+                const Vec3 PREVIOUS_POS{previousSample.position.x,
+                    previousSample.position.y,
+                    previousSample.position.z};
+                const Vec3 NEXT_POS{
+                    nextSample.position.x, nextSample.position.y, nextSample.position.z};
+                const Vec3 PREVIOUS_VEL{previousSample.velocity.x,
+                    previousSample.velocity.y,
+                    previousSample.velocity.z};
+                const Vec3 NEXT_VEL{
+                    nextSample.velocity.x, nextSample.velocity.y, nextSample.velocity.z};
                 // Snapshot velocities carry the rigid motion of their own steps; the displayed
                 // sheet moves with the latest capture, which can already have started or stopped.
                 v[k] = add(sub(lerp(PREVIOUS_VEL, NEXT_VEL, BLEND), SNAPSHOT_RIGID),
@@ -1593,7 +1636,8 @@ namespace hyprimate {
         m_run->sample(m_t, p, v);
         if (m_phase == Phase::Opening) {
             const double SETTLE_BLEND = smoothstep(SETTLE_FROM, 1, m_t / m_run->length);
-            const double SETTLE_RATE = smoothDerivative(SETTLE_FROM, 1, m_t / m_run->length) / m_run->length;
+            const double SETTLE_RATE =
+                smoothDerivative(SETTLE_FROM, 1, m_t / m_run->length) / m_run->length;
             const auto REST = restGrid();
             for (std::size_t k = 0; k < p.size(); ++k) {
                 v[k] = add(mul(v[k], 1 - SETTLE_BLEND), mul(sub(REST[k], p[k]), SETTLE_RATE));
