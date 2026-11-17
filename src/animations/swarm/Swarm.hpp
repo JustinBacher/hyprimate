@@ -106,11 +106,10 @@ namespace hyprimate {
         // Starts in formation, ready to follow the window. Ignored unless idle.
         void beginMovement(
             const SwarmParams &params, std::uint64_t seed, const SwarmPlacement &placement);
-        // The window is now at `placement`. Its translation since the previous placement is applied
-        // on the next advance; a new size re-cuts the tiles. Workspace translation carries the
-        // agents too, rather than stranding them on a screen the compositor is about to hide.
-        // Ignored unless opening or moving.
-        void updateMovement(const SwarmPlacement &placement, Vec2 workspaceDelta = {});
+        // The window is now at `placement` in screen space. Translation is applied on the next
+        // advance: loose agents keep their screen positions and chase their moving homes.
+        // A new size re-cuts the tiles. Ignored unless opening or moving.
+        void updateMovement(const SwarmPlacement &placement);
         // Steps the simulation. Non-finite or negative time counts as zero; more than kStallSeconds
         // is clamped to it. While a movement gesture is held, wander keeps agents loose even when
         // the window is stationary; releasing it lets them regroup. Returns active().
@@ -175,7 +174,6 @@ namespace hyprimate {
         Box m_screen{};  // screen, relative to the capture's top-left
         double m_spacing = 1.0;  // mean tile side; scales every neighbourhood radius
         Vec2 m_shift{};  // window translation not yet applied
-        Vec2 m_workspaceShift{};  // part of m_shift that carries the whole workspace
         double m_windowSpeed = 0.0;  // px/s, held briefly so docking waits for the window to slow
         double m_still = 0.0;  // seconds since the window last moved
         double m_time = 0.0;  // seconds since the phase began
