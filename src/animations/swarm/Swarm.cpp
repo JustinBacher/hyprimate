@@ -338,7 +338,7 @@ namespace hyprimate {
         const double CRUISE = m_params.speed;
         std::array<Edge, 4> allowed{};
         std::size_t edges = 0;
-        auto *allowed_it = allowed.begin();
+        auto allowed_it = std::span(allowed).begin();
         for (const Edge CANDIDATE_EDGE : EDGES) {
             if (sides.has(CANDIDATE_EDGE)) {
                 *allowed_it = CANDIDATE_EDGE;

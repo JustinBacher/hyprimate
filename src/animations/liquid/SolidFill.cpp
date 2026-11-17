@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 #include <drm_fourcc.h>
 #include <hyprland/src/helpers/Color.hpp>
@@ -39,7 +40,8 @@ SP<Render::ITexture> CSolidFill::texture() {
     const auto GREEN = static_cast<uint8_t>(to_byte(static_cast<float>(m_color.g)) * ALPHA / 255U);
     const auto BLUE = static_cast<uint8_t>(to_byte(static_cast<float>(m_color.b)) * ALPHA / 255U);
     std::array<uint8_t, static_cast<std::size_t>(SOLID_SIZE) * SOLID_SIZE * 4> pixels{};
-    for (auto *pixel = pixels.begin(); pixel != pixels.end();) {
+    const auto BYTES = std::span(pixels);
+    for (auto pixel = BYTES.begin(); pixel != BYTES.end();) {
         *pixel = BLUE;
         ++pixel;
         *pixel = GREEN;

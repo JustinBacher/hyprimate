@@ -136,7 +136,7 @@ namespace {
         CHECK(jump < 6);
         double waves = 0;
         const auto &deformation = bubble.frame(SIZE).window.motion;
-        const auto *sine = deformation.wave_sin.begin();
+        auto sine = std::span(deformation.wave_sin).begin();
         for (const double COSINE : deformation.wave_cos) {
             waves += std::hypot(COSINE, *sine++);
         }
