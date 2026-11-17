@@ -212,6 +212,7 @@ namespace hyprimate {
             shape.waveCos[i] += moving.waveCos[i];
             shape.waveSin[i] += moving.waveSin[i];
         }
+        shape.buds = moving.buds;
         for (std::size_t i = 0; i < f.formationCount; ++i) {
             auto &satellite = f.formation[i];
             if (satellite.visibility > 0)
@@ -330,6 +331,9 @@ namespace hyprimate {
             double reach = std::hypot(surface.motion.drag.x, surface.motion.drag.y);
             for (std::size_t i = 0; i < surface.motion.waveCos.size(); ++i)
                 reach += std::hypot(surface.motion.waveCos[i], surface.motion.waveSin[i]);
+            double swell = 0;
+            for (const auto &bud : surface.motion.buds) swell = std::max(swell, bud.height);
+            reach += swell;
             // A contracted membrane may reach past its rectangle where its shape bulges; one
             // overshooting back swells slightly past it everywhere.
             const Vec2 round = bubbleRoundHalf(surface.halfSize, surface.motion);

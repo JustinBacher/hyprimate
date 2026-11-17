@@ -88,13 +88,26 @@ void main() {
     float shown=body*visibility*mix(.45,1.0,formed);
     rgb*=shown;
     alpha*=shown;
-    // The neck: a short meniscus of thicker film where an attached bubble meets its parent.
+    // The neck: a tube of film joining an attached bubble to its parent. It flares into a meniscus
+    // where it meets the parent film and narrows to a waist as the attachment weakens, until it
+    // pinches off. Seen from the side it is clear along its middle and reflects at its flanks.
     if (attach>0.0) {
-        float toAnchor=length(pixel-anchor)/r;
-        float meniscus=attach*exp(-toAnchor*toAnchor*5.0)*smoothstep(.45,1.05,d)*(1.0-collapse)*visibility;
-        vec3 Rm=film(base*1.8,.6,.35);
-        rgb+=Rm*soapLight(vec3(0,0,1))*meniscus*(1.0-alpha);
-        alpha+=luminance(Rm)*meniscus*(1.0-alpha);
+        vec2 axis=centre-anchor;
+        float L=length(axis);
+        vec2 u=L>1e-3 ? axis/L : vec2(0.0,-1.0);
+        vec2 w=pixel-anchor;
+        float t=dot(w,u);
+        float across=length(w-u*clamp(t,0.0,L));
+        float waist=r*mix(.06,.45,attach);
+        float flare=waist+r*.45*attach*exp(-max(t,0.0)/(.3*r));
+        float edge=across/max(flare,.5);
+        float neck=clamp((1.0-edge)*flare+.5,0.0,1.0)*smoothstep(-1.0,.5,t)*(1.0-body)*
+                   (1.0-collapse)*visibility;
+        float graze=pow(clamp(edge,0.0,1.0),4.0);
+        vec3 Rm=film(base*1.6,mix(.9,.3,graze),.35);
+        float k=neck*(.10+.55*graze);
+        rgb+=Rm*soapLight(vec3(0,0,1))*k*(1.0-alpha);
+        alpha+=luminance(Rm)*k*(1.0-alpha);
     }
     colour=vec4(min(rgb,vec3(1.0)),clamp(alpha,0.0,1.0));
 }

@@ -1,6 +1,5 @@
 #include <algorithm>
 #include <cmath>
-#include <optional>
 
 #include <aquamarine/output/Output.hpp>
 #include <hyprland/src/output/Monitor.hpp>
@@ -161,14 +160,11 @@ std::uint64_t CBubbleResidue::trail(const PHLMONITOR &monitor,
     const hyprimate::Vec2 origin{centre.x, centre.y};
     Wake *current = wakeFor(monitor, wake);
     for (const auto &point : points) {
-        if (!current || point.start || current->film.full()) {
-            // A full wake hands its newest point on, so the ribbon continues without a gap.
-            std::optional<hyprimate::BubbleTrailPoint> carry;
-            if (current && !point.start && current->film.last()) carry = *current->film.last();
+        // A wake with no room for another strand hands new ones to a fresh wake.
+        if (!current || !current->film.extend(point, origin)) {
             current = &beginWake(monitor, owner);
-            if (carry) current->film.extend(*carry, {});
+            current->film.extend(point, origin);
         }
-        current->film.extend(point, origin);
     }
     for (const auto &release : releases) {
         if (!current || !current->film.release(release, origin)) {

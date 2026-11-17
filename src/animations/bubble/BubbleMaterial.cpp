@@ -53,7 +53,7 @@ namespace {
     }
     template <std::size_t N>
     void surface(const std::array<GLint, N> &u, const hyprimate::BubbleSurface &s) {
-        static_assert(N == 13 + 4 * 6 + 8);
+        static_assert(N == 13 + 4 * 6 + 9);
         vector(u[0], s.halfSize);
         vector(u[1], s.core);
         glUniform1f(u[2], float(s.corner));
@@ -99,6 +99,15 @@ namespace {
         vector(u[42], m.extent);
         vector(u[43], m.carry);
         glUniform1f(u[44], float(s.transparency));
+        std::array<float, 4 * hyprimate::kBubbleBuds> buds{};
+        for (std::size_t i = 0; i < hyprimate::kBubbleBuds; ++i) {
+            const auto &b = m.buds[i];
+            buds[4 * i + 0] = float(b.foot.x);
+            buds[4 * i + 1] = float(b.foot.y);
+            buds[4 * i + 2] = float(b.height);
+            buds[4 * i + 3] = float(b.width);
+        }
+        glUniform4fv(u[45], GLsizei(hyprimate::kBubbleBuds), buds.data());
     }
     struct Instance {
         float values[8];
@@ -129,7 +138,7 @@ namespace {
     }
     // Movement uniforms follow the 13 fields and 4 holes of every membrane.
     constexpr const char *kMotionFields[] = {
-        "drag", "waveCos", "waveSin", "sheen", "round", "extent", "carry", "transparency"};
+        "drag", "waveCos", "waveSin", "sheen", "round", "extent", "carry", "transparency", "buds[0]"};
 }  // namespace
 
 bool CBubbleMaterial::initialize() {
@@ -561,20 +570,7 @@ void CBubbleMaterial::drawMicrobubbles(
 }
 void CBubbleMaterial::drawWake(const hyprimate::BubbleWakeView &wake, const SBubbleTarget &t) {
     if (!m_film) return;
-    if (wake.nodeCount >= 2) {
-        std::array<float, 4 * hyprimate::kBubbleWakeNodes> nodes{}, state{};
-        const auto count = std::min(wake.nodeCount, hyprimate::kBubbleWakeNodes);
-        for (std::size_t i = 0; i < count; ++i) {
-            const auto &n = wake.nodes[i];
-            nodes[4 * i + 0] = float(n.position.x);
-            nodes[4 * i + 1] = float(n.position.y);
-            nodes[4 * i + 2] = float(n.halfWidth);
-            nodes[4 * i + 3] = float(n.arc);
-            state[4 * i + 0] = float(n.direction.x);
-            state[4 * i + 1] = float(n.direction.y);
-            state[4 * i + 2] = float(n.fade);
-            state[4 * i + 3] = float(n.density);
-        }
+    if (wake.segmentCount > 0) {
         glUseProgram(m_film);
         glBindVertexArray(m_vao);
         const auto &u = m_filmUniforms;
@@ -583,14 +579,33 @@ void CBubbleMaterial::drawWake(const hyprimate::BubbleWakeView &wake, const SBub
         vector(u[2], t.sourcePos);
         vector(u[3], t.sourceSize);
         vector(u[4], wake.size);
-        glUniform4fv(u[5], GLsizei(count), nodes.data());
-        glUniform4fv(u[6], GLsizei(count), state.data());
         glUniform1f(u[7], float(wake.seed));
         glUniform1i(u[8], 2);
-        glUniform2f(u[9], float(wake.nodes[0].arc), float(wake.nodes[count - 1].arc));
         glActiveTexture(GL_TEXTURE2);
         glBindTexture(GL_TEXTURE_2D, m_lut);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, GLsizei(2 * count));
+        // The film program holds 48 nodes; a strand never has more.
+        static_assert(hyprimate::kBubbleWakeStrandNodes <= 48);
+        std::array<float, 4 * 48> nodes{}, state{};
+        for (std::size_t s = 0; s < std::min(wake.segmentCount, wake.segments.size()); ++s) {
+            const auto &segment = wake.segments[s];
+            if (segment.count < 2 || segment.first + segment.count > wake.nodeCount) continue;
+            const auto count = std::min<std::size_t>(segment.count, 48);
+            for (std::size_t i = 0; i < count; ++i) {
+                const auto &n = wake.nodes[segment.first + i];
+                nodes[4 * i + 0] = float(n.position.x);
+                nodes[4 * i + 1] = float(n.position.y);
+                nodes[4 * i + 2] = float(n.halfWidth);
+                nodes[4 * i + 3] = float(n.arc);
+                state[4 * i + 0] = float(n.direction.x);
+                state[4 * i + 1] = float(n.direction.y);
+                state[4 * i + 2] = float(n.thickness);
+                state[4 * i + 3] = float(n.evaporated);
+            }
+            glUniform4fv(u[5], GLsizei(count), nodes.data());
+            glUniform4fv(u[6], GLsizei(count), state.data());
+            glUniform2f(u[9], float(segment.from), float(segment.to));
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, GLsizei(2 * count));
+        }
     }
     drawMicrobubbles(std::span(wake.bubbles).first(std::min(wake.bubbleCount, wake.bubbles.size())),
         wake.size,
