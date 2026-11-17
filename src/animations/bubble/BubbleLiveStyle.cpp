@@ -17,6 +17,7 @@
 #include "LiveStyle.hpp"
 #include "PluginRuntime.hpp"
 #include "WindowTracker.hpp"
+#include "animations/bubble/Bubble.hpp"
 #include "animations/bubble/BubbleLiveState.hpp"
 #include "animations/bubble/BubbleMotion.hpp"
 #include "animations/bubble/BubbleRenderer.hpp"
@@ -117,7 +118,7 @@ bool SBubbleLiveStyle::open(
     auto *transformer = runtime.acquire_transformer(window);
     auto &state = std::get<SBubbleStyle>(transformer->m_style);
     state.bubble.begin(hyprimate::Transition::Open,
-        runtime.m_config.open.bubble.duration,
+        hyprimate::BubbleDuration{runtime.m_config.open.bubble.duration},
         runtime.m_next_seed++,
         {.x = REST.w, .y = REST.h});
     if (!state.bubble.active()) {

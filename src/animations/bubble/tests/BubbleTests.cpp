@@ -30,7 +30,7 @@ namespace {
     void separate_surfaces_during_opening() {
         for (const Vec2 SIZE : {Vec2{.x = 1400, .y = 300}, Vec2{.x = 300, .y = 1400}, SIZE}) {
             Bubble test_bubble;
-            test_bubble.begin(Transition::Open, 1, 42, SIZE);
+            test_bubble.begin(Transition::Open, BubbleDuration{1}, 42, SIZE);
             advance_for(test_bubble, 0.25);
             auto bubble_frame = test_bubble.frame(SIZE);
             CHECK(bubble_frame.shell.visibility > 0 && bubble_frame.window.visibility == 0);
@@ -72,7 +72,7 @@ namespace {
 
     void flat_endpoint_and_splat() {
         Bubble bubble;
-        bubble.begin(Transition::Open, 1, 3, SIZE);
+        bubble.begin(Transition::Open, BubbleDuration{1}, 3, SIZE);
         bool overshoot = false;
         for (int i = 0; i < 100; ++i) {
             bubble.advance(0.01);
@@ -96,7 +96,7 @@ namespace {
     void fluid_core_outlives_the_landing() {
         for (const Vec2 SIZE : {Vec2{.x = 1400, .y = 300}, Vec2{.x = 300, .y = 1400}, SIZE}) {
             Bubble bubble;
-            bubble.begin(Transition::Open, 1, 3, SIZE);
+            bubble.begin(Transition::Open, BubbleDuration{1}, 3, SIZE);
             advance_for(bubble, 0.64);
             const double IMPACT = bubble.frame(SIZE).window.core.x;
             CHECK(IMPACT > 0);
@@ -119,7 +119,7 @@ namespace {
                   IMPACT * 0.1);
             advance_for(bubble, 0.02);
             CHECK(bubble.frame(SIZE).window.core.x == 0 && bubble.frame(SIZE).window.core.y == 0);
-            bubble.begin(Transition::Close, 1, 9, SIZE);
+            bubble.begin(Transition::Close, BubbleDuration{1}, 9, SIZE);
             CHECK(bubble.frame(SIZE).window.core.x == 0 && bubble.frame(SIZE).window.core.y == 0);
         }
     }
@@ -146,10 +146,10 @@ namespace {
         bool inherited_sheet = false;
         for (const double TIME : {0.0, 0.2, 0.38, 0.44, 0.55, 0.62, 0.85}) {
             Bubble bubble;
-            bubble.begin(Transition::Open, 1, 9, SIZE);
+            bubble.begin(Transition::Open, BubbleDuration{1}, 9, SIZE);
             advance_for(bubble, TIME);
             const auto BEFORE = bubble.frame(SIZE);
-            bubble.begin(Transition::Close, .42, 11, SIZE);
+            bubble.begin(Transition::Close, BubbleDuration{.42}, 11, SIZE);
             const auto AFTER = bubble.frame(SIZE);
             CHECK(bubble.active() && !bubble.opening());
             CHECK(BEFORE.seed == AFTER.seed);
@@ -222,9 +222,9 @@ namespace {
 
     void interrupted_resize_keeps_shell_circular() {
         Bubble bubble;
-        bubble.begin(Transition::Open, 1, 9, SIZE);
+        bubble.begin(Transition::Open, BubbleDuration{1}, 9, SIZE);
         advance_for(bubble, 0.44);
-        bubble.begin(Transition::Close, 1, 11, SIZE);
+        bubble.begin(Transition::Close, BubbleDuration{1}, 11, SIZE);
         const auto ORIGINAL = bubble.frame(SIZE);
         const auto RESIZED = bubble.frame({.x = SIZE.x * 1.5, .y = SIZE.y * 0.5});
         CHECK(ORIGINAL.shell.visibility > 0 && std::get<0>(ORIGINAL.shell.holes).radius > 0);
@@ -249,7 +249,7 @@ namespace {
     void rupture_covers_corners() {
         for (const Vec2 SIZE : {Vec2{.x = 1800, .y = 200}, Vec2{.x = 200, .y = 1800}, SIZE}) {
             Bubble bubble;
-            bubble.begin(Transition::Close, 1, 19, SIZE);
+            bubble.begin(Transition::Close, BubbleDuration{1}, 19, SIZE);
             auto film = bubble.frame(SIZE).window;
             CHECK(film.visibility == 1 && bubble.frame(SIZE).shell.visibility == 0);
             CHECK(std::get<0>(film.holes).centre.x != 0 && std::get<0>(film.holes).centre.y != 0);
@@ -283,7 +283,7 @@ namespace {
         for (Vec2 size : {Vec2{.x = 1400, .y = 300}, Vec2{.x = 300, .y = 1400}, SIZE}) {
             const auto VERIFY = [&](Transition direction) {
                 Bubble bubble;
-                bubble.begin(direction, 1, 8, size);
+                bubble.begin(direction, BubbleDuration{1}, 8, size);
                 const auto INITIAL = bubble.frame(size);
                 if (direction == Transition::Open) {
                     CHECK(INITIAL.window.visibility == 0 && INITIAL.shell.visibility == 0);
@@ -323,8 +323,8 @@ namespace {
     void wide_windows_keep_tight_vertical_bounds() {
         Bubble normal;
         Bubble wide;
-        normal.begin(Transition::Close, 1, 8, {.x = 600, .y = 200});
-        wide.begin(Transition::Close, 1, 8, {.x = 1800, .y = 200});
+        normal.begin(Transition::Close, BubbleDuration{1}, 8, {.x = 600, .y = 200});
+        wide.begin(Transition::Close, BubbleDuration{1}, 8, {.x = 1800, .y = 200});
         advance_for(normal, 0.6);
         advance_for(wide, 0.6);
         CHECK(normal.bounds({600, 200}).h == wide.bounds({1800, 200}).h);
@@ -333,7 +333,7 @@ namespace {
     void localized_rupture_and_coverage() {
         for (const Vec2 SIZE : {Vec2{.x = 1800, .y = 200}, Vec2{.x = 200, .y = 1800}, SIZE}) {
             Bubble bubble;
-            bubble.begin(Transition::Close, .42, 19, SIZE);
+            bubble.begin(Transition::Close, BubbleDuration{.42}, 19, SIZE);
             advance_for(bubble, .42 * .149);
             auto surface = bubble.frame(SIZE).window;
             CHECK(std::get<0>(surface.holes).radius == 0);
@@ -342,7 +342,7 @@ namespace {
             const auto *hole = std::next(surface.holes.begin());
             for (std::size_t i = 1; i < surface.hole_count; ++i, ++hole) {
                 Bubble probe;
-                probe.begin(Transition::Close, .42, 19, SIZE);
+                probe.begin(Transition::Close, BubbleDuration{.42}, 19, SIZE);
                 advance_for(probe, .42 * hole->start);
                 const auto AT_BIRTH = probe.frame(SIZE).window;
                 CHECK(AT_BIRTH.holes[i].start > std::get<0>(AT_BIRTH.holes).start);
@@ -380,7 +380,7 @@ namespace {
 
     void precursor_and_remnants() {
         Bubble bubble;
-        bubble.begin(Transition::Close, .42, 42, SIZE);
+        bubble.begin(Transition::Close, BubbleDuration{.42}, 42, SIZE);
         auto surface = bubble.frame(SIZE).window;
         CHECK(surface.film == 0 && surface.thickness >= 380 && surface.thickness <= 650);
         advance_for(bubble, .42 * .02);
@@ -413,7 +413,7 @@ namespace {
         constexpr double PI_VALUE = std::numbers::pi;
         for (std::uint64_t seed = 0; seed < 32; ++seed) {
             Bubble bubble;
-            bubble.begin(Transition::Open, .62, seed, SIZE);
+            bubble.begin(Transition::Open, BubbleDuration{.62}, seed, SIZE);
             advance_for(bubble, .62 * .55);
             const auto SHELL = bubble.frame(SIZE).shell;
             for (int row = 0; row <= 20; ++row) {
@@ -446,7 +446,7 @@ namespace {
         for (const Vec2 SIZE : {Vec2{.x = 1800, .y = 200}, Vec2{.x = 200, .y = 1800}, SIZE}) {
             for (std::uint64_t seed = 0; seed < 16; ++seed) {
                 Bubble bubble;
-                bubble.begin(Transition::Close, .42, seed, SIZE);
+                bubble.begin(Transition::Close, BubbleDuration{.42}, seed, SIZE);
                 advance_for(bubble, .42 * .62);
                 const auto SURFACE = bubble.frame(SIZE).window;
                 for (int row = -3; row <= 3; ++row) {
@@ -468,7 +468,7 @@ namespace {
 
     void impacts_use_animation_time() {
         Bubble bubble;
-        bubble.begin(Transition::Close, .42, 19, SIZE);
+        bubble.begin(Transition::Close, BubbleDuration{.42}, 19, SIZE);
         const auto FIRST = bubble.frame(SIZE).window;
         std::array<BubbleImpact, K_BUBBLE_MAX_IMPACTS> first_impacts{};
         std::array<BubbleImpact, K_BUBBLE_MAX_IMPACTS> later_impacts{};
@@ -490,7 +490,8 @@ namespace {
             for (const auto DIRECTION : {Transition::Open, Transition::Close}) {
                 const bool OPENING = DIRECTION == Transition::Open;
                 Bubble bubble;
-                bubble.begin(DIRECTION, OPENING ? .62 : .42, SEED, {.x = 900, .y = 560});
+                bubble.begin(
+                    DIRECTION, BubbleDuration{OPENING ? .62 : .42}, SEED, {.x = 900, .y = 560});
                 if (OPENING) {
                     advance_for(bubble, .62 * .31);
                 }
@@ -540,7 +541,7 @@ namespace {
 
     void particle_continuity_and_evaporation() {
         Bubble bubble;
-        bubble.begin(Transition::Close, .42, 19, SIZE);
+        bubble.begin(Transition::Close, BubbleDuration{.42}, 19, SIZE);
         std::array<detail::IdentifiedParticle, K_BUBBLE_MAX_PARTICLES> previous{};
         std::array<detail::IdentifiedParticle, K_BUBBLE_MAX_PARTICLES> current{};
         std::size_t old_count = 0;
@@ -581,14 +582,14 @@ namespace {
 
     void fingers_start_gradually() {
         Bubble bubble;
-        bubble.begin(Transition::Close, .42, 42, SIZE);
+        bubble.begin(Transition::Close, BubbleDuration{.42}, 42, SIZE);
         advance_for(bubble, .42 * .17);
         auto surface = bubble.frame(SIZE).window;
         CHECK(std::get<0>(surface.holes).radius < std::max(24.0, .08 * surface.half_size.y));
         std::array<detail::IdentifiedParticle, K_BUBBLE_MAX_PARTICLES> particles{};
         CHECK(detail::bubble_particles_with_ids(surface, particles) == 0);
         Bubble shell;
-        shell.begin(Transition::Open, .62, 42, SIZE);
+        shell.begin(Transition::Open, BubbleDuration{.62}, 42, SIZE);
         advance_for(shell, .62 * .32);
         const auto EARLY_SHELL = shell.frame(SIZE).shell;
         CHECK(std::get<0>(EARLY_SHELL.holes).radius * EARLY_SHELL.half_size.x <
@@ -652,7 +653,7 @@ namespace {
                   SECTION.width + 1e-9);
         }
         Bubble bubble;
-        bubble.begin(Transition::Close, .42, 42, SIZE);
+        bubble.begin(Transition::Close, BubbleDuration{.42}, 42, SIZE);
         std::array<detail::IdentifiedParticle, K_BUBBLE_MAX_PARTICLES> particles{};
         bool attached = false;
         for (int frame = 0; frame < 90; ++frame) {
@@ -678,7 +679,7 @@ namespace {
 
     void sheets_contract() {
         Bubble bubble;
-        bubble.begin(Transition::Close, 2.0, 19, SIZE);
+        bubble.begin(Transition::Close, BubbleDuration{2.0}, 19, SIZE);
         std::array<BubbleSheet, K_BUBBLE_MAX_SHEETS> sheets{};
         std::array<BubbleSheet, K_BUBBLE_MAX_SHEETS> again{};
         bool born = false;
@@ -768,7 +769,7 @@ namespace {
 
     void pinch_birth_is_continuous() {
         Bubble bubble;
-        bubble.begin(Transition::Close, .42, 42, SIZE);
+        bubble.begin(Transition::Close, BubbleDuration{.42}, 42, SIZE);
         std::array<detail::IdentifiedParticle, K_BUBBLE_MAX_PARTICLES> previous{};
         std::array<detail::IdentifiedParticle, K_BUBBLE_MAX_PARTICLES> current{};
         std::size_t old_count = 0;
@@ -827,8 +828,8 @@ namespace {
     void deterministic_and_invalid_input() {
         Bubble first_bubble;
         Bubble bubble;
-        first_bubble.begin(Transition::Open, 1, 55, SIZE);
-        bubble.begin(Transition::Open, 1, 55, SIZE);
+        first_bubble.begin(Transition::Open, BubbleDuration{1}, 55, SIZE);
+        bubble.begin(Transition::Open, BubbleDuration{1}, 55, SIZE);
         advance_for(first_bubble, 0.84, 0.01);
         advance_for(bubble, 0.84, 0.02);
         const auto FIRST_FRAME = first_bubble.frame(SIZE);
@@ -845,9 +846,9 @@ namespace {
         CHECK(std::isfinite(first_bubble.frame(SIZE).window.half_size.x));
         first_bubble.reset();
         CHECK(!first_bubble.active() && !first_bubble.closed());
-        first_bubble.begin(Transition::Close, 0, 1, SIZE);
+        first_bubble.begin(Transition::Close, BubbleDuration{0}, 1, SIZE);
         CHECK(!first_bubble.active() && !first_bubble.closed());
-        first_bubble.begin(Transition::Open, 1, 1, {.x = 0, .y = 100});
+        first_bubble.begin(Transition::Open, BubbleDuration{1}, 1, {.x = 0, .y = 100});
         CHECK(!first_bubble.active());
         const Box INVALID =
             first_bubble.bounds({.x = std::numeric_limits<double>::infinity(), .y = 2});

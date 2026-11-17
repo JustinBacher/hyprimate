@@ -55,7 +55,8 @@ namespace {
     bool bake(const std::string &creature,
         CSwarmSprites::SSheet &sheet,
         std::vector<std::uint8_t> &pixels) {
-        const auto PATH = hyprimate::sprite_path(creature, HYPRIMATE_SPRITE_DIR);
+        const auto PATH = hyprimate::sprite_path(
+            hyprimate::SpriteName{creature}, hyprimate::SpriteDirectory{HYPRIMATE_SPRITE_DIR});
         cairo_surface_t *image = cairo_image_surface_create_from_png(PATH.c_str());
         if (cairo_surface_status(image) != CAIRO_STATUS_SUCCESS) {
             cairo_surface_destroy(image);
@@ -392,9 +393,9 @@ void fill_swarm_meshes(const hyprimate::Swarm &swarm,
                 creature_agent.walk, sheet.stride * 2.0 * creature_agent.fit, FRAMES);
             const auto &frame = sheet.frames[static_cast<std::size_t>(FRAME_INDEX)];
             const double SIDE = hyprimate::sprite_size(frame,
-                creature_agent.fit * UNIT,
-                creature_agent.reach * std::max(SCALE_X, SCALE_Y),
-                lock);
+                hyprimate::SpriteFit{creature_agent.fit * UNIT},
+                hyprimate::SpriteCover{creature_agent.reach * std::max(SCALE_X, SCALE_Y)},
+                hyprimate::SpriteLock{lock});
             const double FACING =
                 hyprimate::sprite_rotation(creature_agent.heading, sheet.forward, 1.0) -
                 hyprimate::sprite_rotation(

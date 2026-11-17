@@ -59,12 +59,19 @@ namespace hyprimate {
             }
         }
 
-        void start_rupture(
-            BubbleSurface &surface, Vec2 spot, std::uint64_t seed, double duration, bool sphere) {
+        struct RuptureDuration {
+            double seconds;
+        };
+
+        void start_rupture(BubbleSurface &surface,
+            Vec2 spot,
+            std::uint64_t seed,
+            RuptureDuration duration,
+            bool sphere) {
             surface.closing = true;
             surface.spherical = sphere;
             surface.clock = 0;
-            surface.rate = 1 / duration;
+            surface.rate = 1 / duration.seconds;
             surface.debris = seed;
             surface.aureole = 1;
             surface.rupture_visibility = surface.visibility;
@@ -155,9 +162,10 @@ namespace hyprimate {
 
     }  // namespace
 
-    void Bubble::begin(Transition direction, double duration, std::uint64_t seed, Vec2 size) {
+    void Bubble::begin(
+        Transition direction, BubbleDuration duration, std::uint64_t seed, Vec2 size) {
         if ((direction != Transition::Open && direction != Transition::Close) ||
-            !std::isfinite(duration) || duration <= 0 || !usable(size)) {
+            !std::isfinite(duration.seconds) || duration.seconds <= 0 || !usable(size)) {
             reset();
             return;
         }
@@ -170,7 +178,7 @@ namespace hyprimate {
         const double SPOT_Y = (.12 + (.12 * unit_draw(seed))) * (unit_draw(seed) < .5 ? -1 : 1);
         m_initial = START;
         m_size = size;
-        m_duration = std::clamp(duration, .01, 60.0);
+        m_duration = std::clamp(duration.seconds, .01, 60.0);
         m_elapsed = 0;
         m_seed = MATERIAL_SEED;
         m_rupture = {.x = SPOT_X, .y = SPOT_Y};
@@ -184,7 +192,7 @@ namespace hyprimate {
             start_rupture(m_initial.window,
                 m_rupture,
                 static_cast<std::uint64_t>(m_seed * 0x1p53),
-                m_duration,
+                RuptureDuration{m_duration},
                 false);
         }
         m_active = true;
@@ -315,8 +323,11 @@ namespace hyprimate {
             shell.spherical = true;
             shell.thickness = std::min(1500.0, 450 * std::pow(SHORT_SIDE * .46 / RADIUS, 2));
             shell.flow = m_elapsed * 2;
-            start_rupture(
-                shell, m_rupture, static_cast<std::uint64_t>(m_seed * 0x1p53), m_duration, true);
+            start_rupture(shell,
+                m_rupture,
+                static_cast<std::uint64_t>(m_seed * 0x1p53),
+                RuptureDuration{m_duration},
+                true);
             shell.clock = PROGRESS;
             update_rupture(shell);
             if (PROGRESS >= .55) {
@@ -397,7 +408,7 @@ namespace hyprimate {
                 start_rupture(surface,
                     m_rupture,
                     static_cast<std::uint64_t>(m_seed * 0x1p53),
-                    m_duration,
+                    RuptureDuration{m_duration},
                     spherical);
             } else {
                 for (auto &hole : std::span(surface.holes).first(surface.hole_count)) {

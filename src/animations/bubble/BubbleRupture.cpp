@@ -1078,7 +1078,7 @@ namespace hyprimate {
             }
         }
         if (!impact_mode && (surface.hole_count != 0U)) {
-            const auto BURST = [&](Vec3 origin, double birth, std::uint32_t particle_id) {
+            const auto BURST = [&](double birth, Vec3 origin, std::uint32_t particle_id) {
                 const double AGE = surface.clock - birth;
                 const double LIFE = std::min(.22 * surface.rate, .995 - birth);
                 if (AGE < 0 || AGE >= LIFE) {
@@ -1105,9 +1105,9 @@ namespace hyprimate {
             };
             const auto &events = collapse(surface);
             for (const auto &merge : std::span(events.merges).first(events.merge_count)) {
-                BURST(merge.position, merge.time, merge.id);
+                BURST(merge.time, merge.position, merge.id);
             }
-            BURST(events.position, events.time, 1200);
+            BURST(events.time, events.position, 1200);
         }
         return count;
     }

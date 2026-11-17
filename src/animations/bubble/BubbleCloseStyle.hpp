@@ -36,8 +36,10 @@ namespace close_style {
     }
     inline void begin(SBubbleStyle &style, const Pending &pending, [[maybe_unused]] bool blur) {
         const auto &data = std::get<SBubbleCloseData>(pending.close_data);
-        style.bubble.begin(
-            hyprimate::Transition::Close, data.duration, data.seed, pending.capture_logical);
+        style.bubble.begin(hyprimate::Transition::Close,
+            hyprimate::BubbleDuration{data.duration},
+            data.seed,
+            pending.capture_logical);
         // An interrupted opening hands over its clock, so its pending beads keep landing in step.
         if (!style.impacts.running()) {
             style.impacts.start();

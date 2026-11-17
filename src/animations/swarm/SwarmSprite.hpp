@@ -8,8 +8,15 @@
 #include "animations/shared/Core.hpp"
 
 namespace hyprimate {
+    struct SpriteName {
+        std::string_view value;
+    };
+    struct SpriteDirectory {
+        std::string_view value;
+    };
+
     // Bare names refer to PNGs in the sprite directory; explicit paths are used directly.
-    std::string sprite_path(std::string_view value, std::string_view directory);
+    std::string sprite_path(SpriteName value, SpriteDirectory directory);
 
     // How a creature is drawn, independent of how the swarm moves: the sheet's walk cycle, which
     // way it faces, and what its silhouette measures. The simulation only supplies where an agent
@@ -35,10 +42,21 @@ namespace hyprimate {
     // its carried tile so straightening the tile does not turn the creature away from its heading.
     double sprite_rotation(double heading, double from, double turn) noexcept;
 
+    struct SpriteFit {
+        double value;
+    };
+    struct SpriteCover {
+        double value;
+    };
+    struct SpriteLock {
+        double value;
+    };
+
     // Size in px of the frame's side for a piece at `lock`. At lock 0 the whole silhouette fits a
     // circle of radius `fit`; at lock 1 its solid core covers a circle of radius `cover`, so the
     // piece shows its whole tile. The size grows geometrically in between, which reads as an even
     // swelling. Zero for a frame with no silhouette.
-    double sprite_size(const SpriteFrame &frame, double fit, double cover, double lock) noexcept;
+    double sprite_size(
+        const SpriteFrame &frame, SpriteFit fit, SpriteCover cover, SpriteLock lock) noexcept;
 
 }  // namespace hyprimate

@@ -11,14 +11,14 @@
 #include "animations/swarm/SwarmSprite.hpp"
 
 namespace hyprimate {
-    std::string sprite_path(std::string_view value, std::string_view directory) {
-        if (value.empty() || value.contains('/')) {
-            return std::string(value);
+    std::string sprite_path(SpriteName value, SpriteDirectory directory) {
+        if (value.value.empty() || value.value.contains('/')) {
+            return std::string(value.value);
         }
-        std::string result(directory);
+        std::string result(directory.value);
         result += '/';
-        result += value;
-        if (!value.ends_with(".png")) {
+        result += value.value;
+        if (!value.value.ends_with(".png")) {
             result += ".png";
         }
         return result;
@@ -176,13 +176,14 @@ namespace hyprimate {
         return std::clamp(turn, 0.0, 1.0) * std::remainder(heading - from, 2.0 * std::numbers::pi);
     }
 
-    double sprite_size(const SpriteFrame &frame, double fit, double cover, double lock) noexcept {
-        if (!(frame.reach > 0.0) || !(frame.core > 0.0) || !(fit > 0.0)) {
+    double sprite_size(
+        const SpriteFrame &frame, SpriteFit fit, SpriteCover cover, SpriteLock lock) noexcept {
+        if (!(frame.reach > 0.0) || !(frame.core > 0.0) || !(fit.value > 0.0)) {
             return 0.0;
         }
-        const double LOOSE = fit / frame.reach;
-        const double WHOLE = std::max(LOOSE, COVER_MARGIN * cover / frame.core);
-        return LOOSE * std::pow(WHOLE / LOOSE, std::clamp(lock, 0.0, 1.0));
+        const double LOOSE = fit.value / frame.reach;
+        const double WHOLE = std::max(LOOSE, COVER_MARGIN * cover.value / frame.core);
+        return LOOSE * std::pow(WHOLE / LOOSE, std::clamp(lock.value, 0.0, 1.0));
     }
 
 }  // namespace hyprimate

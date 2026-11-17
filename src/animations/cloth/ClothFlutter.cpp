@@ -236,7 +236,7 @@ namespace hyprimate {
             return row == 0;
         }
         void sample(
-            double time_seconds, SheetGrid &positions, SheetGrid &velocities) const noexcept {
+            SheetGrid &positions, double time_seconds, SheetGrid &velocities) const noexcept {
             const int COUNT = recorded.load(std::memory_order_acquire);
             if (COUNT < 2) {
                 positions = start;
@@ -599,10 +599,10 @@ namespace hyprimate {
             }
 
             bool update(double acceleration,
-                double rod_velocity,
-                double quiet,
                 JPH::TempAllocator &temp,
-                JPH::JobSystem &jobs) {
+                double rod_velocity,
+                JPH::JobSystem &jobs,
+                double quiet) {
                 auto &bodies = system.GetBodyInterfaceNoLock();
                 // Reinforce the trailing end by up to 4x; blend through zero speed when stopping or
                 // reversing.
@@ -693,7 +693,7 @@ namespace hyprimate {
 
         void simulate_movement(Run &run, double phase) {
             using namespace JPH;
-            enum : ObjectLayer { CLOTH = 0 };
+            constexpr ObjectLayer CLOTH = 0;
             const ObjectLayerPairFilterTable PAIRS(1);
             BroadPhaseLayerInterfaceTable broad_phase(1, 1);
             broad_phase.MapObjectToBroadPhaseLayer(CLOTH, BroadPhaseLayer(0));
@@ -839,7 +839,7 @@ namespace hyprimate {
                     const double ACCELERATION =
                         GAIN * (ROD_VELOCITY - previous_rod_velocity) / STEP_SECONDS;
                     previous_rod_velocity = ROD_VELOCITY;
-                    if (pocket && !pocket->update(ACCELERATION, ROD_VELOCITY, SETTLE, temp, jobs)) {
+                    if (pocket && !pocket->update(ACCELERATION, temp, ROD_VELOCITY, jobs, SETTLE)) {
                         good = false;
                         break;
                     }
@@ -937,7 +937,7 @@ namespace hyprimate {
                 return;
             }
             run.samples = std::make_unique<Run::Frame[]>(static_cast<std::size_t>(run.frames));
-            enum : ObjectLayer { STATIC = 0, CLOTH = 1, LAYERS = 2 };
+            constexpr ObjectLayer STATIC = 0, CLOTH = 1, LAYERS = 2;
             ObjectLayerPairFilterTable pairs(LAYERS);
             pairs.EnableCollision(STATIC, CLOTH);
             BroadPhaseLayerInterfaceTable broad_phase(LAYERS, 2);
@@ -1091,7 +1091,7 @@ namespace hyprimate {
                         std::clamp((TIME + STEP_SECONDS) / run.length, 0.0, 1.0);
                     const double ROD_VELOCITY = run.travel.x * 30 * PROGRESS * PROGRESS *
                                                 (1 - PROGRESS) * (1 - PROGRESS) / run.length;
-                    if (!pocket->update(0, ROD_VELOCITY, 0, temp, jobs)) {
+                    if (!pocket->update(0, temp, ROD_VELOCITY, jobs, 0)) {
                         break;
                     }
                 }
@@ -1795,7 +1795,7 @@ namespace hyprimate {
             }
             return;
         }
-        m_run->sample(m_t, positions, velocities);
+        m_run->sample(positions, m_t, velocities);
         if (m_phase == Phase::Opening) {
             const double SETTLE_BLEND = smoothstep(SETTLE_FROM, 1, m_t / m_run->length);
             const double SETTLE_RATE =

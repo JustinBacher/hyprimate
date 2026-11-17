@@ -804,16 +804,21 @@ namespace {
         const SpriteFrame EMPTY = measure_sprite(
             std::vector<std::uint8_t>(static_cast<std::size_t>(SIDE) * SIDE, 0), SIDE);
         CHECK(EMPTY.core == 0.0 && EMPTY.reach == 0.0);
-        CHECK(sprite_size(EMPTY, 40.0, 60.0, 0.5) == 0.0);
+        CHECK(sprite_size(EMPTY, SpriteFit{40.0}, SpriteCover{60.0}, SpriteLock{0.5}) == 0.0);
 
         // Loose, the whole silhouette fits; locked, the solid core covers the tile; it only grows
         // in between.
-        CHECK(
-            std::abs((FRAME_INFO.reach * sprite_size(FRAME_INFO, 40.0, 60.0, 0.0)) - 40.0) < 1e-9);
-        CHECK(FRAME_INFO.core * sprite_size(FRAME_INFO, 40.0, 60.0, 1.0) >= 60.0);
+        CHECK(std::abs((FRAME_INFO.reach *
+                           sprite_size(
+                               FRAME_INFO, SpriteFit{40.0}, SpriteCover{60.0}, SpriteLock{0.0})) -
+                       40.0) < 1e-9);
+        CHECK(FRAME_INFO.core *
+                  sprite_size(FRAME_INFO, SpriteFit{40.0}, SpriteCover{60.0}, SpriteLock{1.0}) >=
+              60.0);
         double previous = 0.0;
         for (double lock = 0.0; lock <= 1.0; lock += 0.1) {
-            const double SIZE = sprite_size(FRAME_INFO, 40.0, 60.0, lock);
+            const double SIZE =
+                sprite_size(FRAME_INFO, SpriteFit{40.0}, SpriteCover{60.0}, SpriteLock{lock});
             CHECK(SIZE > previous);
             previous = SIZE;
         }
@@ -952,11 +957,16 @@ namespace {
 
 int main() {
     // Bare names resolve under the sprite directory; explicit paths stay unchanged.
-    CHECK(hyprimate::sprite_path("cat", "/sprites") == "/sprites/cat.png");
-    CHECK(hyprimate::sprite_path("bird.png", "/sprites") == "/sprites/bird.png");
-    CHECK(hyprimate::sprite_path("/tmp/custom.png", "/sprites") == "/tmp/custom.png");
-    CHECK(hyprimate::sprite_path("./custom.png", "/sprites") == "./custom.png");
-    CHECK(hyprimate::sprite_path("", "/sprites").empty());
+    CHECK(hyprimate::sprite_path(hyprimate::SpriteName{"cat"},
+              hyprimate::SpriteDirectory{"/sprites"}) == "/sprites/cat.png");
+    CHECK(hyprimate::sprite_path(hyprimate::SpriteName{"bird.png"},
+              hyprimate::SpriteDirectory{"/sprites"}) == "/sprites/bird.png");
+    CHECK(hyprimate::sprite_path(hyprimate::SpriteName{"/tmp/custom.png"},
+              hyprimate::SpriteDirectory{"/sprites"}) == "/tmp/custom.png");
+    CHECK(hyprimate::sprite_path(hyprimate::SpriteName{"./custom.png"},
+              hyprimate::SpriteDirectory{"/sprites"}) == "./custom.png");
+    CHECK(hyprimate::sprite_path(hyprimate::SpriteName{""}, hyprimate::SpriteDirectory{"/sprites"})
+            .empty());
     tiles_partition_the_capture();
     opening_enters_from_its_sides_and_settles_exactly();
     equal_seeds_give_equal_motion();

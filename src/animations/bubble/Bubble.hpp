@@ -111,11 +111,15 @@ namespace hyprimate {
     // written.
     std::size_t bubble_impacts(const BubbleSurface &surface, std::span<BubbleImpact> out);
 
+    struct BubbleDuration {
+        double seconds;
+    };
+
     // One window's soap film for its whole life: the open or close transition it is in, if any, and
     // the movement of its fluid, which keeps running across them.
     class Bubble {
       public:
-        void begin(Transition direction, double duration, std::uint64_t seed, Vec2 size);
+        void begin(Transition direction, BubbleDuration duration, std::uint64_t seed, Vec2 size);
         // Advances the transition alone (a closing window no longer moves).
         void advance(double elapsed);
         // Advances the transition and the movement of a live window: size is its membrane

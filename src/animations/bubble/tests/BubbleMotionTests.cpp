@@ -272,7 +272,7 @@ namespace {
         travel(bubble, time, .3, [](double) { return Vec2{.x = 1400, .y = 0}; });
         const auto BEFORE = bubble.frame(SIZE);
         CHECK(BEFORE.window.motion.drag.x < 0);
-        bubble.begin(Transition::Close, .42, 9, SIZE);
+        bubble.begin(Transition::Close, BubbleDuration{.42}, 9, SIZE);
         const auto AFTER = bubble.frame(SIZE);
         CHECK(AFTER.window.motion.drag.x == BEFORE.window.motion.drag.x);
         CHECK(AFTER.window.core.x == BEFORE.window.core.x);
@@ -287,7 +287,7 @@ namespace {
     void opening_hands_over_to_movement() {
         Bubble bubble;
         bubble.seed_motion(2);
-        bubble.begin(Transition::Open, .62, 4, SIZE);
+        bubble.begin(Transition::Open, BubbleDuration{.62}, 4, SIZE);
         double time = 0;
         while (!bubble.landed()) {
             bubble.advance(TIME_STEP, SIZE, BODY, PARAMS);
