@@ -154,7 +154,7 @@ namespace {
             LiquidMesh mesh{};
             mesh.recordTranslation(Vec2{.x = 5000.0, .y = 0.0}, kWindow, kStrength);
             CHECK(latticeValid(mesh, kWindow));
-            for (int initialFrame = 0; initialFrame < 30; ++initialFrame) {
+            for (int initial_frame = 0; initial_frame < 30; ++initial_frame) {
                 mesh.advance(1.0 / 60.0, kWindow);
                 CHECK(latticeValid(mesh, kWindow));
             }
@@ -171,7 +171,7 @@ namespace {
             for (const Vec2 &impulse : IMPULSES) {
                 mesh.recordTranslation(impulse, kWindow, kStrength);
                 CHECK(latticeValid(mesh, kWindow));
-                for (int frameIndex = 0; frameIndex < 3; ++frameIndex) {
+                for (int frame_index = 0; frame_index < 3; ++frame_index) {
                     mesh.advance(1.0 / 60.0, kWindow);
                     CHECK(latticeValid(mesh, kWindow));
                 }
@@ -318,7 +318,8 @@ namespace {
     // Drags at 2000 px/s for 0.25 s at 60 Hz, then stops and records the trailing response.
     StopTrace traceStop(const MaterialParams &params, double hz = 60.0, std::uint64_t seed = 0) {
         LiquidMesh mesh{params, seed};
-        for (int frameIndex = 0; frameIndex < static_cast<int>(std::lround(hz * 0.25)); ++frameIndex) {
+        for (int frame_index = 0; frame_index < static_cast<int>(std::lround(hz * 0.25));
+            ++frame_index) {
             driveFrame(mesh, Vec2{.x = 2000.0, .y = 0.0}, hz, kWindow, kStrength);
         }
 
@@ -365,7 +366,7 @@ namespace {
         LiquidMesh mesh{params, seed};
         const int FRAMES_DRAG = static_cast<int>(std::lround(hz * 0.25));
         const int FRAMES_TOTAL = static_cast<int>(std::lround(hz * 0.5));
-        for (int dragFrame = 0; dragFrame < FRAMES_DRAG; ++dragFrame) {
+        for (int drag_frame = 0; drag_frame < FRAMES_DRAG; ++drag_frame) {
             driveFrame(mesh, Vec2{.x = 2000.0, .y = 0.0}, hz, kWindow, kStrength);
         }
         LiquidSnapshots result{};
@@ -415,7 +416,7 @@ namespace {
         CHECK(TRACE.laterNegative <= 0.5 * TRACE.overshoot);
         CHECK(TRACE.settleSeconds <= 1.5);
         LiquidMesh mesh{};
-        for (int frameIndex = 0; frameIndex < 15; ++frameIndex) {
+        for (int frame_index = 0; frame_index < 15; ++frame_index) {
             driveFrame(mesh, Vec2{.x = 2000.0, .y = 0.0}, 60.0, kWindow, kStrength);
         }
         for (int frame = 0; frame < 90; ++frame) {
@@ -430,7 +431,7 @@ namespace {
     // leading face. The render mesh keeps every triangle oriented throughout.
     void testLiquidReversal() {
         LiquidMesh mesh{};
-        for (int frameIndex = 0; frameIndex < 15; ++frameIndex) {
+        for (int frame_index = 0; frame_index < 15; ++frame_index) {
             driveFrame(mesh, Vec2{.x = 2000.0, .y = 0.0}, 60.0, kWindow, kStrength);
         }
         CHECK(trailingX(mesh) < -10.0);
@@ -488,7 +489,7 @@ namespace {
     void testLiquidDegenerateGeometrySettles() {
         for (const Vec2 SIZE : {Vec2{.x = 16.0, .y = 16.0}, Vec2{.x = 1000.0, .y = 40.0}}) {
             LiquidMesh mesh{};
-            for (int frameIndex = 0; frameIndex < 15; ++frameIndex) {
+            for (int frame_index = 0; frame_index < 15; ++frame_index) {
                 driveFrame(mesh, Vec2{.x = 2000.0, .y = 0.0}, 60.0, SIZE, kStrength);
                 CHECK(latticeValid(mesh, SIZE));
                 CHECK(renderValid(mesh, SIZE));
@@ -772,7 +773,7 @@ namespace {
         params.variation = 0.5;
         LiquidMesh mesh{params, 7};
         const auto DRAG_ONCE = [&] {
-            for (int frameIndex = 0; frameIndex < 15; ++frameIndex) {
+            for (int frame_index = 0; frame_index < 15; ++frame_index) {
                 driveFrame(mesh, Vec2{.x = 2000.0, .y = 0.0}, 60.0, kWindow, kStrength);
             }
             const auto FIELD = mesh.displacements();
@@ -797,7 +798,7 @@ namespace {
             for (std::uint64_t seed = 0; seed < 48; ++seed) {
                 LiquidMesh mesh{params, seed};
                 bool valid = true;
-                for (int frameIndex = 0; frameIndex < 15; ++frameIndex) {
+                for (int frame_index = 0; frame_index < 15; ++frame_index) {
                     driveFrame(mesh, Vec2{.x = 2400.0, .y = 900.0}, 60.0, kWindow, kStrength);
                     valid = valid && renderValid(mesh, kWindow) && latticeValid(mesh, kWindow);
                 }

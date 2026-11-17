@@ -139,9 +139,9 @@ namespace hyprimate {
         }
 
         bool validFrame(const EdgeFrame &f) {
-            const double values[] = {
+            const double VALUES[] = {
                 f.edgeDistance, f.captureFar, f.bodyNear, f.bodyFar, f.bodyT0, f.bodyT1};
-            for (const double VALUE : values) {
+            for (const double VALUE : VALUES) {
                 if (!std::isfinite(VALUE)) {
                     return false;
                 }
@@ -163,7 +163,8 @@ namespace hyprimate {
             }
             const double DIR_X = ABS_X / RHO;
             const double DIR_Y = ABS_Y / RHO;  // direction on the rectangle outline, max = 1
-            const double OUTLINE_SCALE = std::pow(std::pow(DIR_X, n) + std::pow(DIR_Y, n), invN);  // in [1, 2^(1/n)]
+            const double OUTLINE_SCALE =
+                std::pow(std::pow(DIR_X, n) + std::pow(DIR_Y, n), invN);  // in [1, 2^(1/n)]
             return {.x = p.x / OUTLINE_SCALE, .y = p.y / OUTLINE_SCALE};
         }
 
@@ -235,8 +236,10 @@ namespace hyprimate {
         const auto FREE = [&](Edge e) { return !(contact[SLOT(e)] > 0.0); };
         const double BODY_CENTRE_X = body.x + (0.5 * body.w);
         const double BODY_CENTRE_Y = body.y + (0.5 * body.h);
-        const std::array<double, 4> REACH{
-            BODY_CENTRE_X - screen.x, screen.x + screen.w - BODY_CENTRE_X, BODY_CENTRE_Y - screen.y, screen.y + screen.h - BODY_CENTRE_Y};
+        const std::array<double, 4> REACH{BODY_CENTRE_X - screen.x,
+            screen.x + screen.w - BODY_CENTRE_X,
+            BODY_CENTRE_Y - screen.y,
+            screen.y + screen.h - BODY_CENTRE_Y};
 
         if (MOST > 0.0) {
             for (const Edge SIDE : K_EDGES) {
@@ -383,9 +386,9 @@ namespace hyprimate {
             if (IS_ALLOWED(fallback) && REACH(fallback) <= best + kTieTolerance) {
                 return fallback;
             }
-            for (Edge edgeOption : K_ORDER) {
-                if (IS_ALLOWED(edgeOption) && REACH(edgeOption) <= best + kTieTolerance) {
-                    return edgeOption;
+            for (Edge edge_option : K_ORDER) {
+                if (IS_ALLOWED(edge_option) && REACH(edge_option) <= best + kTieTolerance) {
+                    return edge_option;
                 }
             }
             return std::nullopt;
@@ -589,7 +592,8 @@ namespace hyprimate {
 
         const double SPREAD_T = m_spreadT.value;
         const double SPREAD_N = m_spreadN.value;
-        const double ROUNDNESS = std::pow(1.0 - std::clamp(std::min(SPREAD_T, SPREAD_N), 0.0, 1.0), 1.5);
+        const double ROUNDNESS =
+            std::pow(1.0 - std::clamp(std::min(SPREAD_T, SPREAD_N), 0.0, 1.0), 1.5);
         mapping.rectangle =
             !(ROUNDNESS >= 2e-4);  // exponent > 1e4 is indistinguishable from a rectangle
         if (!mapping.rectangle) {
@@ -615,8 +619,8 @@ namespace hyprimate {
         // Rest point in units of the capture half-extents.
         const double REST_T = (horizontal ? fromCentre.x : fromCentre.y) / halfT;
         const double REST_N = ((fromCentre.x * inward.x) + (fromCentre.y * inward.y)) / halfN;
-        const Vec2 SHAPE =
-            rectangle ? Vec2{.x = REST_T, .y = REST_N} : outline({.x = REST_T, .y = REST_N}, exponent, invExponent);
+        const Vec2 SHAPE = rectangle ? Vec2{.x = REST_T, .y = REST_N}
+                                     : outline({.x = REST_T, .y = REST_N}, exponent, invExponent);
         const double T_OUT = tBase + (tScale * SHAPE.x);
         const double N_OUT = nBase + (nScale * SHAPE.y);
         return {.x = (along.x * T_OUT) + (inward.x * N_OUT),
@@ -819,14 +823,14 @@ namespace hyprimate {
 
     double EdgeTransition::meniscus(double t) const noexcept {
         const double CENTRE = 0.5 * (m_frame.bodyT0 + m_frame.bodyT1);
-        double peakHeight = 0.0;
+        double peak_height = 0.0;
         for (const Lobe &lobe : m_profile.lobes) {
             if (!(lobe.height > 0.0)) {
                 continue;
             }
             const double SKIRT_DISTANCE = std::abs(t - CENTRE) - lobe.plateau;
             if (SKIRT_DISTANCE <= 0.0) {
-                peakHeight = std::max(peakHeight, lobe.height);
+                peak_height = std::max(peak_height, lobe.height);
                 continue;
             }
             const double SKIRT_FRACTION = SKIRT_DISTANCE / lobe.skirt;
@@ -834,11 +838,11 @@ namespace hyprimate {
                 continue;
             }
             const double SKIRT_WEIGHT = 1.0 - (SKIRT_FRACTION * SKIRT_FRACTION);
-            peakHeight = std::max(peakHeight,
-                lobe.height * SKIRT_WEIGHT *
-                    SKIRT_WEIGHT);  // tangent to the edge at the skirt's foot, like the bar's concave flanks
+            peak_height = std::max(peak_height,
+                lobe.height * SKIRT_WEIGHT * SKIRT_WEIGHT);  // tangent to the edge at the skirt's
+                                                             // foot, like the bar's concave flanks
         }
-        return peakHeight;
+        return peak_height;
     }
 
     double EdgeTransition::meniscusLow() const noexcept {

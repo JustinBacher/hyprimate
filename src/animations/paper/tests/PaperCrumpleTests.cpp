@@ -143,32 +143,32 @@ namespace {
 
     // 5. Determinism and variation.
     void testDeterminismAndVariation() {
-        PaperCrumple sameSeedFirst;
-        PaperCrumple sameSeedSecond;
-        sameSeedFirst.begin(Transition::Close, closeParams(), 42);
-        sameSeedSecond.begin(Transition::Close, closeParams(), 42);
-        advanceFor(sameSeedFirst, 0.2);
-        advanceFor(sameSeedSecond, 0.2);
-        CHECK(maxPositionDelta(frameOf(sameSeedFirst), frameOf(sameSeedSecond)) == 0.0);
+        PaperCrumple same_seed_first;
+        PaperCrumple same_seed_second;
+        same_seed_first.begin(Transition::Close, closeParams(), 42);
+        same_seed_second.begin(Transition::Close, closeParams(), 42);
+        advanceFor(same_seed_first, 0.2);
+        advanceFor(same_seed_second, 0.2);
+        CHECK(maxPositionDelta(frameOf(same_seed_first), frameOf(same_seed_second)) == 0.0);
 
         PaperParams flat = closeParams();
         flat.variation = 0.0;
-        PaperCrumple flatSeedFirst;
-        PaperCrumple flatSeedSecond;
-        flatSeedFirst.begin(Transition::Close, flat, 1);
-        flatSeedSecond.begin(Transition::Close, flat, 2);
-        advanceFor(flatSeedFirst, 0.2);
-        advanceFor(flatSeedSecond, 0.2);
-        CHECK(maxPositionDelta(frameOf(flatSeedFirst), frameOf(flatSeedSecond)) == 0.0);
+        PaperCrumple flat_seed_first;
+        PaperCrumple flat_seed_second;
+        flat_seed_first.begin(Transition::Close, flat, 1);
+        flat_seed_second.begin(Transition::Close, flat, 2);
+        advanceFor(flat_seed_first, 0.2);
+        advanceFor(flat_seed_second, 0.2);
+        CHECK(maxPositionDelta(frameOf(flat_seed_first), frameOf(flat_seed_second)) == 0.0);
 
         // With variation, windows differ: some seed among a handful must pick another take or
         // mirroring.
         PaperParams varied = closeParams();
         varied.variation = 1.0;
-        PaperCrumple variedSeedFirst;
-        variedSeedFirst.begin(Transition::Close, varied, 1);
-        advanceFor(variedSeedFirst, 0.2);
-        const SheetFrame FIRST = frameOf(variedSeedFirst);
+        PaperCrumple varied_seed_first;
+        varied_seed_first.begin(Transition::Close, varied, 1);
+        advanceFor(varied_seed_first, 0.2);
+        const SheetFrame FIRST = frameOf(varied_seed_first);
         double spread = 0.0;
         for (std::uint64_t seed = 2; seed <= 8; ++seed) {
             PaperCrumple other;
@@ -238,14 +238,14 @@ namespace {
         PaperParams tight = loose;
         tight.crumpliness = 1.0;
 
-        PaperCrumple loosePaper;
-        PaperCrumple tightPaper;
-        loosePaper.begin(Transition::Close, loose, 11);
-        tightPaper.begin(Transition::Close, tight, 11);
-        advanceFor(loosePaper, 0.75);  // s ~ 0.75
-        advanceFor(tightPaper, 0.75);
-        const double LOOSE_RADIUS = maxRadiusPx(frameOf(loosePaper));
-        const double TIGHT_RADIUS = maxRadiusPx(frameOf(tightPaper));
+        PaperCrumple loose_paper;
+        PaperCrumple tight_paper;
+        loose_paper.begin(Transition::Close, loose, 11);
+        tight_paper.begin(Transition::Close, tight, 11);
+        advanceFor(loose_paper, 0.75);  // s ~ 0.75
+        advanceFor(tight_paper, 0.75);
+        const double LOOSE_RADIUS = maxRadiusPx(frameOf(loose_paper));
+        const double TIGHT_RADIUS = maxRadiusPx(frameOf(tight_paper));
         std::fprintf(stdout,
             "[measure] check 7: s=0.75 extents radius crumpliness 0 %.3f px, 1 %.3f px\n",
             LOOSE_RADIUS,
@@ -257,23 +257,23 @@ namespace {
     void testInvalidParams() {
         PaperParams nanShading = openParams();
         nanShading.shading = std::numeric_limits<double>::quiet_NaN();
-        PaperCrumple invalidShading;
-        invalidShading.begin(Transition::Open, nanShading, 1);
-        CHECK(!invalidShading.active());
-        CHECK(!invalidShading.closed());
+        PaperCrumple invalid_shading;
+        invalid_shading.begin(Transition::Open, nanShading, 1);
+        CHECK(!invalid_shading.active());
+        CHECK(!invalid_shading.closed());
 
-        PaperParams zeroDuration = closeParams();
-        zeroDuration.duration = 0.0;
-        PaperCrumple zeroDurationPaper;
-        zeroDurationPaper.begin(Transition::Close, zeroDuration, 1);
-        CHECK(!zeroDurationPaper.active());
-        CHECK(!zeroDurationPaper.closed());
+        PaperParams zero_duration = closeParams();
+        zero_duration.duration = 0.0;
+        PaperCrumple zero_duration_paper;
+        zero_duration_paper.begin(Transition::Close, zero_duration, 1);
+        CHECK(!zero_duration_paper.active());
+        CHECK(!zero_duration_paper.closed());
 
         PaperParams nanDuration = closeParams();
         nanDuration.duration = std::numeric_limits<double>::quiet_NaN();
-        PaperCrumple invalidDuration;
-        invalidDuration.begin(Transition::Close, nanDuration, 1);
-        CHECK(!invalidDuration.active());
+        PaperCrumple invalid_duration;
+        invalid_duration.begin(Transition::Close, nanDuration, 1);
+        CHECK(!invalid_duration.active());
     }
 
     // 9. A close starts from the window's own rest shape whatever its aspect: the baked take is
@@ -327,11 +327,11 @@ namespace {
         SheetFrame out{};
         for (int take = 0; take < hyprimate::paperTakeCount(); ++take) {
             std::vector<int> path;
-            for (int frameIndex = 0; frameIndex < FRAMES; ++frameIndex) {
-                path.push_back(frameIndex);
+            for (int frame_index = 0; frame_index < FRAMES; ++frame_index) {
+                path.push_back(frame_index);
             }
-            for (int reverseFrame = FRAMES - 1; reverseFrame >= 0; --reverseFrame) {
-                path.push_back(reverseFrame);
+            for (int reverse_frame = FRAMES - 1; reverse_frame >= 0; --reverse_frame) {
+                path.push_back(reverse_frame);
             }
             for (const int FRAME_INDEX : path) {
                 hyprimate::SheetGrid world{};
@@ -347,11 +347,12 @@ namespace {
                 // fresh sort of (z, t) pairs.
                 std::vector<std::pair<double, std::uint16_t>> keyed;
                 keyed.reserve(PAPER_TRIANGLES);
-                for (std::size_t triangleIndex = 0; triangleIndex < PAPER_TRIANGLES; ++triangleIndex) {
-                    const auto &corners = hyprimate::sheetTriangle(triangleIndex);
+                for (std::size_t triangle_index = 0; triangle_index < PAPER_TRIANGLES;
+                    ++triangle_index) {
+                    const auto &corners = hyprimate::sheetTriangle(triangle_index);
                     const double DEPTH =
                         (world[corners[0]].z + world[corners[1]].z + world[corners[2]].z) / 3.0;
-                    keyed.emplace_back(DEPTH, static_cast<std::uint16_t>(triangleIndex));
+                    keyed.emplace_back(DEPTH, static_cast<std::uint16_t>(triangle_index));
                 }
                 std::sort(keyed.begin(), keyed.end());
 

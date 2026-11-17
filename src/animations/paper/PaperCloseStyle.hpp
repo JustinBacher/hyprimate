@@ -17,11 +17,11 @@ namespace close_style {
         const std::function<std::span<const hyprimate::Box>()> &,
         const std::function<std::uint64_t()> &nextSeed,
         const std::function<hyprimate::EdgeSet()> &) {
-        const auto &paperConfig = config.close.paper;
-        pending.closeData = SPaperCloseData{.params = {.duration = paperConfig.duration,
-                                                .crumpliness = paperConfig.crumpliness,
-                                                .shading = paperConfig.shading,
-                                                .variation = paperConfig.variation},
+        const auto &paper_config = config.close.paper;
+        pending.closeData = SPaperCloseData{.params = {.duration = paper_config.duration,
+                                                .crumpliness = paper_config.crumpliness,
+                                                .shading = paper_config.shading,
+                                                .variation = paper_config.variation},
             .seed = nextSeed()};
         pending.style = std::move(style);
         return true;

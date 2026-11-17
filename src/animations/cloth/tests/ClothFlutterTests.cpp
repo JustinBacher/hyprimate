@@ -36,14 +36,14 @@ namespace {
         return result;
     }
     double delta(const SheetGrid &a, const SheetGrid &b) {
-        double maxDelta = 0;
+        double max_delta = 0;
         for (std::size_t k = 0; k < a.size(); ++k) {
-            maxDelta = std::max({maxDelta,
+            max_delta = std::max({max_delta,
                 std::abs(a[k].x - b[k].x),
                 std::abs(a[k].y - b[k].y),
                 std::abs(a[k].z - b[k].z)});
         }
-        return maxDelta;
+        return max_delta;
     }
     void advance(ClothFlutter &m, double seconds, double step = 1.0 / 144) {
         while (seconds > 1e-12 && m.active()) {
@@ -110,11 +110,11 @@ namespace {
             near = std::min(near, vertex.z);
             far = std::max(far, vertex.z);
             if (i != 0) {
-                const auto &previousVertex =
+                const auto &previous_vertex =
                     START.p[(static_cast<std::size_t>(ROW) * GRID) + i - 1];
-                contour += std::hypot(vertex.x - previousVertex.x,
-                    vertex.y - previousVertex.y,
-                    vertex.z - previousVertex.z);
+                contour += std::hypot(vertex.x - previous_vertex.x,
+                    vertex.y - previous_vertex.y,
+                    vertex.z - previous_vertex.z);
             }
         }
         CHECK(far - near > .03);
@@ -141,11 +141,11 @@ namespace {
                 frames.push_back(pose(cloth).p);
             }
             double worst = 0;
-            for (std::size_t frameIndex = 2; frameIndex < frames.size(); ++frameIndex) {
-                for (std::size_t k = 0; k < frames[frameIndex].size(); ++k) {
-                    const Vec3 EARLIER = frames[frameIndex - 2][k];
-                    const Vec3 PREVIOUS = frames[frameIndex - 1][k];
-                    const Vec3 CURRENT = frames[frameIndex][k];
+            for (std::size_t frame_index = 2; frame_index < frames.size(); ++frame_index) {
+                for (std::size_t k = 0; k < frames[frame_index].size(); ++k) {
+                    const Vec3 EARLIER = frames[frame_index - 2][k];
+                    const Vec3 PREVIOUS = frames[frame_index - 1][k];
+                    const Vec3 CURRENT = frames[frame_index][k];
                     worst = std::max(worst,
                         std::hypot((CURRENT.x - (2 * PREVIOUS.x) + EARLIER.x) * WINDOW.w,
                             (CURRENT.y - (2 * PREVIOUS.y) + EARLIER.y) * WINDOW.h,
@@ -173,8 +173,9 @@ namespace {
         CHECK(falling.opacity() == 1);  // visible sheet cannot fade prematurely
         advance(falling, 0.45);
         const auto LATE = pose(falling);
-        for (const auto &vertexPos : LATE.p) {
-            CHECK(WINDOW.y + WINDOW.h / 2 + (-vertexPos.y * WINDOW.h - WINDOW.h / 2) > SCREEN.y + SCREEN.h);
+        for (const auto &vertex_pos : LATE.p) {
+            CHECK(WINDOW.y + WINDOW.h / 2 + (-vertex_pos.y * WINDOW.h - WINDOW.h / 2) >
+                  SCREEN.y + SCREEN.h);
         }
         advance(falling, 1);
         CHECK(falling.closed() && falling.opacity() == 0);
@@ -312,9 +313,9 @@ namespace {
         auto irregular = SOURCE;
         double time = 0;
         const double STEPS[] = {.003, .027, .011, .007, .045, .016};
-        int stepIndex = 0;
+        int step_index = 0;
         while (time < .63 - 1e-12) {
-            const double STEP_SECONDS = std::min(STEPS[stepIndex++ % 6], .63 - time);
+            const double STEP_SECONDS = std::min(STEPS[step_index++ % 6], .63 - time);
             irregular.advance(STEP_SECONDS);
             time += STEP_SECONDS;
         }
@@ -781,10 +782,10 @@ namespace {
             const auto MOVED = pose(cloth);
             bool topAttached = true;
             for (int i = 0; i < GRID; ++i) {
-                const auto &vertexPos = MOVED.p[i];
-                topAttached &= vertexPos.x >= -.50001 && vertexPos.x <= .50001 &&
-                               (i == 0 || vertexPos.x >= MOVED.p[i - 1].x) && std::abs(vertexPos.y) < 1e-5 &&
-                               std::abs(vertexPos.z) < 1e-5;
+                const auto &vertex_pos = MOVED.p[i];
+                topAttached &= vertex_pos.x >= -.50001 && vertex_pos.x <= .50001 &&
+                               (i == 0 || vertex_pos.x >= MOVED.p[i - 1].x) &&
+                               std::abs(vertex_pos.y) < 1e-5 && std::abs(vertex_pos.z) < 1e-5;
             }
             CHECK(topAttached);
             if (DIRECTION.x != 0) {

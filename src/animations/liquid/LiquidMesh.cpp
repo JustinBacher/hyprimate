@@ -207,11 +207,11 @@ namespace hyprimate {
             constexpr double MAX_DISPLACEMENT2 = kQuietDisplacement * kQuietDisplacement;
             constexpr double MAX_VELOCITY2 = kQuietVelocity * kQuietVelocity;
             for (std::size_t i = 0; i < displacements.size(); ++i) {
-                const Vec2 &DISPLACEMENT = displacements[i];
-                const Vec2 &VELOCITY = velocities[i];
-                if ((DISPLACEMENT.x * DISPLACEMENT.x) + (DISPLACEMENT.y * DISPLACEMENT.y) >=
+                const Vec2 &displacement = displacements[i];
+                const Vec2 &velocity = velocities[i];
+                if ((displacement.x * displacement.x) + (displacement.y * displacement.y) >=
                         MAX_DISPLACEMENT2 ||
-                    (VELOCITY.x * VELOCITY.x) + (VELOCITY.y * VELOCITY.y) >= MAX_VELOCITY2) {
+                    (velocity.x * velocity.x) + (velocity.y * velocity.y) >= MAX_VELOCITY2) {
                     return false;
                 }
             }
@@ -293,8 +293,8 @@ namespace hyprimate {
             value = AMOUNT * drawUnit();
         }
 
-        const double OMEGA =
-            kLiquidBaseOmega * std::exp2(m_params.elasticity - 0.5 + (kVaryOmegaOctaves * draws[0]));
+        const double OMEGA = kLiquidBaseOmega *
+                             std::exp2(m_params.elasticity - 0.5 + (kVaryOmegaOctaves * draws[0]));
         double zeta = dampingRatio(m_params.momentum);
         if (zeta < 1.0) {
             zeta = std::clamp(zeta * (1.0 + (kVaryDamping * draws[1])), kMinDampingRatio, 1.0);
@@ -384,13 +384,13 @@ namespace hyprimate {
         const double WAVE_SPEED = kLiquidWaveSpeedScale * std::min(size.x, size.y);
         const double WAVE_SPEED2 = WAVE_SPEED * WAVE_SPEED;
 
-        for (unsigned divRow = 0; divRow < kSide; ++divRow) {
-            for (unsigned divCol = 0; divCol < kSide; ++divCol) {
-                const double SLOPE_X =
-                    lineSlope([&](unsigned k) { return field[gridIndex(k, divRow)].x; }, divCol, SPACING.x);
-                const double SLOPE_Y =
-                    lineSlope([&](unsigned k) { return field[gridIndex(divCol, k)].y; }, divRow, SPACING.y);
-                div[gridIndex(divCol, divRow)] = SLOPE_X + SLOPE_Y;
+        for (unsigned div_row = 0; div_row < kSide; ++div_row) {
+            for (unsigned div_col = 0; div_col < kSide; ++div_col) {
+                const double SLOPE_X = lineSlope(
+                    [&](unsigned k) { return field[gridIndex(k, div_row)].x; }, div_col, SPACING.x);
+                const double SLOPE_Y = lineSlope(
+                    [&](unsigned k) { return field[gridIndex(div_col, k)].y; }, div_row, SPACING.y);
+                div[gridIndex(div_col, div_row)] = SLOPE_X + SLOPE_Y;
             }
         }
 
@@ -423,13 +423,16 @@ namespace hyprimate {
                 const double LATTICE_X = (static_cast<double>(col) / kCells) - 0.5;
                 const double LATTICE_Y = (static_cast<double>(row) / kCells) - 0.5;
                 // q: -1 at the trailing edge, +1 at the leading face. s: -1..1 across the motion.
-                const double ALONG_MOTION = std::clamp(((LATTICE_X * DIR_X) + (LATTICE_Y * DIR_Y)) / NORMALIZER, -1.0, 1.0);
-                const double ACROSS_MOTION = std::clamp(((LATTICE_X * PERP_X) + (LATTICE_Y * PERP_Y)) / NORMALIZER, -1.0, 1.0);
+                const double ALONG_MOTION =
+                    std::clamp(((LATTICE_X * DIR_X) + (LATTICE_Y * DIR_Y)) / NORMALIZER, -1.0, 1.0);
+                const double ACROSS_MOTION = std::clamp(
+                    ((LATTICE_X * PERP_X) + (LATTICE_Y * PERP_Y)) / NORMALIZER, -1.0, 1.0);
                 // Grip relaxes toward head grip while moving and toward zero when still, so a stop
                 // releases the front.
-                m_grip[INDEX] += ((SPEED > kLiquidGripQuietSpeed && !LANDING ? headGrip(ALONG_MOTION) : 0.0) -
-                                     m_grip[INDEX]) *
-                                 GRIP_BLEND;
+                m_grip[INDEX] +=
+                    ((SPEED > kLiquidGripQuietSpeed && !LANDING ? headGrip(ALONG_MOTION) : 0.0) -
+                        m_grip[INDEX]) *
+                    GRIP_BLEND;
                 const double GRIP = m_grip[INDEX];
                 const double STIFFNESS =
                     (m_bodyStiffness * (1.0 - GRIP)) + (m_headStiffness * GRIP);
@@ -450,7 +453,8 @@ namespace hyprimate {
                 const double TAIL_BLEND_SQUARED = TAIL_BLEND * TAIL_BLEND;
                 const double OFFSET = (ACROSS_MOTION - m_skew) * SKEW_SCALE;
                 const double BOW = TAIL_BLEND_SQUARED * (1.0 - (m_bowDepth * OFFSET * OFFSET));
-                const double TAPER = LAG * TAIL_BLEND_SQUARED * ((m_taperRatio * ACROSS_MOTION) + m_lean);
+                const double TAPER =
+                    LAG * TAIL_BLEND_SQUARED * ((m_taperRatio * ACROSS_MOTION) + m_lean);
                 const Vec2 LAG_FIELD{.x = -((LAG * BOW * DIR_X) + (TAPER * PERP_X)),
                     .y = -((LAG * BOW * DIR_Y) + (TAPER * PERP_Y))};
 
@@ -460,12 +464,16 @@ namespace hyprimate {
                     lineSlope([&](unsigned k) { return div[gridIndex(col, k)]; }, row, SPACING.y);
 
                 const double COUPLED_X =
-                    (kLiquidShearStiffness * shearLaplacian(field, &Vec2::x, col, row, WEIGHT_X, WEIGHT_Y)) +
-                    (SHEAR_DAMPING * shearLaplacian(velocities, &Vec2::x, col, row, WEIGHT_X, WEIGHT_Y)) +
+                    (kLiquidShearStiffness *
+                        shearLaplacian(field, &Vec2::x, col, row, WEIGHT_X, WEIGHT_Y)) +
+                    (SHEAR_DAMPING *
+                        shearLaplacian(velocities, &Vec2::x, col, row, WEIGHT_X, WEIGHT_Y)) +
                     (WAVE_SPEED2 * GRAD_X);
                 const double COUPLED_Y =
-                    (kLiquidShearStiffness * shearLaplacian(field, &Vec2::y, col, row, WEIGHT_X, WEIGHT_Y)) +
-                    (SHEAR_DAMPING * shearLaplacian(velocities, &Vec2::y, col, row, WEIGHT_X, WEIGHT_Y)) +
+                    (kLiquidShearStiffness *
+                        shearLaplacian(field, &Vec2::y, col, row, WEIGHT_X, WEIGHT_Y)) +
+                    (SHEAR_DAMPING *
+                        shearLaplacian(velocities, &Vec2::y, col, row, WEIGHT_X, WEIGHT_Y)) +
                     (WAVE_SPEED2 * GRAD_Y);
 
                 accelerations[INDEX] = {.x = (-STIFFNESS * (field[INDEX].x - LAG_FIELD.x)) -
@@ -629,8 +637,11 @@ namespace hyprimate {
             const Vec2 SAMPLE_LEFT = NODE(COL, ROW_INDEX);
             const Vec2 SAMPLE_RIGHT = NODE(COL + 1, ROW_INDEX);
             const Vec2 SAMPLE_NEXT = NODE(COL + 2, ROW_INDEX);
-            column[k] = {.x = catmullRom(SAMPLE_BACK.x, SAMPLE_LEFT.x, SAMPLE_RIGHT.x, SAMPLE_NEXT.x, FRACTION_X),
-                .y = catmullRom(SAMPLE_BACK.y, SAMPLE_LEFT.y, SAMPLE_RIGHT.y, SAMPLE_NEXT.y, FRACTION_X)};
+            column[k] = {
+                .x = catmullRom(
+                    SAMPLE_BACK.x, SAMPLE_LEFT.x, SAMPLE_RIGHT.x, SAMPLE_NEXT.x, FRACTION_X),
+                .y = catmullRom(
+                    SAMPLE_BACK.y, SAMPLE_LEFT.y, SAMPLE_RIGHT.y, SAMPLE_NEXT.y, FRACTION_X)};
         }
         return {.x = catmullRom(column[0].x, column[1].x, column[2].x, column[3].x, FRACTION_Y),
             .y = catmullRom(column[0].y, column[1].y, column[2].y, column[3].y, FRACTION_Y)};

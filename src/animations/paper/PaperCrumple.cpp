@@ -55,14 +55,14 @@ namespace hyprimate {
 
     void PaperCrumple::begin(
         Transition kind, const PaperParams &params, std::uint64_t seed) noexcept {
-        PaperParams paperParams = params;
-        if (!sanitize(paperParams)) {
+        PaperParams paper_params = params;
+        if (!sanitize(paper_params)) {
             reset();
             return;
         }
         if (kind == Transition::Open) {
-            m_params = paperParams;
-            m_rate = 1.0 / paperParams.duration;
+            m_params = paper_params;
+            m_rate = 1.0 / paper_params.duration;
             m_phase = Phase::Opening;
             m_s = 1.0;
             rollShape(seed);
@@ -71,13 +71,13 @@ namespace hyprimate {
         if (m_phase == Phase::Opening) {
             // Keep the geometry continuous: same s, take and mirroring; only the rate follows the
             // new duration.
-            m_params.duration = paperParams.duration;
-            m_rate = 1.0 / paperParams.duration;
+            m_params.duration = paper_params.duration;
+            m_rate = 1.0 / paper_params.duration;
             m_phase = Phase::Closing;
             return;
         }
-        m_params = paperParams;
-        m_rate = 1.0 / paperParams.duration;
+        m_params = paper_params;
+        m_rate = 1.0 / paper_params.duration;
         m_phase = Phase::Closing;
         m_s = 0.0;
         rollShape(seed);
@@ -174,8 +174,8 @@ namespace hyprimate {
             }
         }
         int family = 0;
-        for (int familyTake = 0; familyTake < TAKES; ++familyTake) {
-            family += static_cast<int>(paperTakeAspect(familyTake) == nearest);
+        for (int family_take = 0; family_take < TAKES; ++family_take) {
+            family += static_cast<int>(paperTakeAspect(family_take) == nearest);
         }
         int wanted = static_cast<int>(m_takePick * family);
         for (int take = 0; take < TAKES; ++take) {
@@ -216,7 +216,8 @@ namespace hyprimate {
         // Catmull-Rom weights for the frames before, at, after and two after the playback position.
         const double WEIGHT_BACK = 0.5 * (-FRACTION + (2.0 * FRACTION_SQUARED) - FRACTION_CUBED);
         const double WEIGHT_START = 0.5 * (2.0 - (5.0 * FRACTION_SQUARED) + (3.0 * FRACTION_CUBED));
-        const double WEIGHT_END = 0.5 * (FRACTION + (4.0 * FRACTION_SQUARED) - (3.0 * FRACTION_CUBED));
+        const double WEIGHT_END =
+            0.5 * (FRACTION + (4.0 * FRACTION_SQUARED) - (3.0 * FRACTION_CUBED));
         const double WEIGHT_NEXT = 0.5 * (-FRACTION_SQUARED + FRACTION_CUBED);
 
         // The take's sheet has its own aspect; stretch it to the window's, keeping area, so rest
@@ -235,35 +236,36 @@ namespace hyprimate {
             for (int i = 0; i < GRID; ++i) {
                 // Window vertex (i, j) reads take vertex (si, sj): swapped for portrait windows,
                 // then mirrored.
-                int sourceCol = m_transpose ? j : i;
-                int sourceRow = m_transpose ? i : j;
+                int source_col = m_transpose ? j : i;
+                int source_row = m_transpose ? i : j;
                 if (m_mirrorX) {
-                    sourceCol = PAPER_CELLS - sourceCol;
+                    source_col = PAPER_CELLS - source_col;
                 }
                 if (m_mirrorY) {
-                    sourceRow = PAPER_CELLS - sourceRow;
+                    source_row = PAPER_CELLS - source_row;
                 }
-                const std::size_t TAKE = gridIndex(sourceCol, sourceRow);
-                double posBack[3];
-                double posStart[3];
-                double posEnd[3];
-                double posNext[3];
-                paperTakeVertex(m_take, F_BACK, TAKE, posBack);
-                paperTakeVertex(m_take, FRAME_START, TAKE, posStart);
-                paperTakeVertex(m_take, FRAME_START + 1, TAKE, posEnd);
-                paperTakeVertex(m_take, F_NEXT, TAKE, posNext);
-                double blendedPos[3];
+                const std::size_t TAKE = gridIndex(source_col, source_row);
+                double pos_back[3];
+                double pos_start[3];
+                double pos_end[3];
+                double pos_next[3];
+                paperTakeVertex(m_take, F_BACK, TAKE, pos_back);
+                paperTakeVertex(m_take, FRAME_START, TAKE, pos_start);
+                paperTakeVertex(m_take, FRAME_START + 1, TAKE, pos_end);
+                paperTakeVertex(m_take, F_NEXT, TAKE, pos_next);
+                double blended_pos[3];
                 for (int k = 0; k < 3; ++k) {
-                    blendedPos[k] = (WEIGHT_BACK * posBack[k]) + (WEIGHT_START * posStart[k]) + (WEIGHT_END * posEnd[k]) + (WEIGHT_NEXT * posNext[k]);
+                    blended_pos[k] = (WEIGHT_BACK * pos_back[k]) + (WEIGHT_START * pos_start[k]) +
+                                     (WEIGHT_END * pos_end[k]) + (WEIGHT_NEXT * pos_next[k]);
                 }
-                double posX = blendedPos[0] * STRETCH_X * (m_mirrorX ? -1.0 : 1.0);
-                double posY = blendedPos[1] * STRETCH_Y * (m_mirrorY ? -1.0 : 1.0);
+                double pos_x = blended_pos[0] * STRETCH_X * (m_mirrorX ? -1.0 : 1.0);
+                double pos_y = blended_pos[1] * STRETCH_Y * (m_mirrorY ? -1.0 : 1.0);
                 if (m_transpose) {
-                    std::swap(posX, posY);
+                    std::swap(pos_x, pos_y);
                 }
-                world[gridIndex(i, j)] = {.x = LENGTH_SCALE * SHRINK * posX,
-                    .y = LENGTH_SCALE * SHRINK * posY,
-                    .z = LENGTH_SCALE * SHRINK * blendedPos[2]};
+                world[gridIndex(i, j)] = {.x = LENGTH_SCALE * SHRINK * pos_x,
+                    .y = LENGTH_SCALE * SHRINK * pos_y,
+                    .z = LENGTH_SCALE * SHRINK * blended_pos[2]};
             }
         }
         projectSheet(

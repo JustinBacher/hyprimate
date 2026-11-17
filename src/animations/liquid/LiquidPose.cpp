@@ -144,13 +144,15 @@ namespace hyprimate {
                     const int P01 = P00 + K_SIDE;
                     const int P11 = P01 + 1;
                     const int TRIS[2][3] = {{P00, P10, P01}, {P10, P11, P01}};
-                    for (const auto &triIndices : TRIS) {
-                        const double BEFORE =
-                            triangleArea(mapOnly[triIndices[0]], mapOnly[triIndices[1]], mapOnly[triIndices[2]]);
+                    for (const auto &tri_indices : TRIS) {
+                        const double BEFORE = triangleArea(mapOnly[tri_indices[0]],
+                            mapOnly[tri_indices[1]],
+                            mapOnly[tri_indices[2]]);
                         if (!(BEFORE > 0.0)) {
                             continue;  // degenerate at rest: nothing to keep
                         }
-                        const double AFTER = triangleArea(field[triIndices[0]], field[triIndices[1]], field[triIndices[2]]);
+                        const double AFTER = triangleArea(
+                            field[tri_indices[0]], field[tri_indices[1]], field[tri_indices[2]]);
                         if (!(AFTER >= kMinAreaFraction * BEFORE)) {
                             return false;
                         }
@@ -258,11 +260,11 @@ namespace hyprimate {
         double minY = std::numeric_limits<double>::max();
         double maxX = std::numeric_limits<double>::lowest();
         double maxY = std::numeric_limits<double>::lowest();
-        for (const Vec2 offset : grid.offsets) {
-            minX = std::min(minX, CENTRE_X + offset.x);
-            minY = std::min(minY, CENTRE_Y + offset.y);
-            maxX = std::max(maxX, CENTRE_X + offset.x);
-            maxY = std::max(maxY, CENTRE_Y + offset.y);
+        for (const Vec2 OFFSET : grid.offsets) {
+            minX = std::min(minX, CENTRE_X + OFFSET.x);
+            minY = std::min(minY, CENTRE_Y + OFFSET.y);
+            maxX = std::max(maxX, CENTRE_X + OFFSET.x);
+            maxY = std::max(maxY, CENTRE_Y + OFFSET.y);
         }
 
         if (const auto MENISCUS = liquidMeniscusExtents(pose, logicalBox)) {

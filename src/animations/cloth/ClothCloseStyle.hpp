@@ -30,13 +30,13 @@ namespace close_style {
         if (!FRAME || !MONITOR) {
             return false;
         }
-        const auto &clothConfig = config.close.cloth;
+        const auto &cloth_config = config.close.cloth;
         SClothCloseData data;
-        data.params = {.duration = clothConfig.duration,
-            .flutter = clothConfig.flutter,
-            .shading = clothConfig.shading,
-            .variation = clothConfig.variation,
-            .shine = clothConfig.shine};
+        data.params = {.duration = cloth_config.duration,
+            .flutter = cloth_config.flutter,
+            .shading = cloth_config.shading,
+            .variation = cloth_config.variation,
+            .shine = cloth_config.shine};
         data.seed = SEED;
         data.capture = toBox(window->getFullWindowBoundingBox());
         data.obstacles.assign(BOXES.begin(), BOXES.end());

@@ -302,9 +302,10 @@ namespace {
 
     // Displayed n (into the screen) of the body near side at the body's tangential centre.
     double nearSide(const EdgeTransition &tr) {
-        const EdgeFrame &edgeFrame = tr.frame();
-        const Vec2 POINT = hyprimate::edgePoint(edgeFrame, 0.5 * (edgeFrame.bodyT0 + edgeFrame.bodyT1), edgeFrame.bodyNear);
-        return hyprimate::edgeNormal(edgeFrame, tr.map(POINT, kCapture));
+        const EdgeFrame &edge_frame = tr.frame();
+        const Vec2 POINT = hyprimate::edgePoint(
+            edge_frame, 0.5 * (edge_frame.bodyT0 + edge_frame.bodyT1), edge_frame.bodyNear);
+        return hyprimate::edgeNormal(edge_frame, tr.map(POINT, kCapture));
     }
     double centreT(const EdgeFrame &f) {
         return 0.5 * (f.bodyT0 + f.bodyT1);
@@ -476,19 +477,19 @@ namespace {
 
     // Refresh-rate agreement.
     void testOpenAgreesAcrossRefreshRates() {
-        EdgeTransition at240Hz;
-        EdgeTransition at144Hz;
-        at240Hz.begin(Transition::Open, kQuarter, TransitionParams{}, kStrength);
-        at144Hz.begin(Transition::Open, kQuarter, TransitionParams{}, kStrength);
+        EdgeTransition at240_hz;
+        EdgeTransition at144_hz;
+        at240_hz.begin(Transition::Open, kQuarter, TransitionParams{}, kStrength);
+        at144_hz.begin(Transition::Open, kQuarter, TransitionParams{}, kStrength);
         for (int k = 1; k <= 24; ++k) {  // compare every 1/48 s for 0.5 s
             for (int i = 0; i < 5; ++i) {
-                at240Hz.advance(1.0 / 240.0);  // 240 Hz-equivalent chunks (60 Hz = 4 of these)
+                at240_hz.advance(1.0 / 240.0);  // 240 Hz-equivalent chunks (60 Hz = 4 of these)
             }
             for (int i = 0; i < 3; ++i) {
-                at144Hz.advance(1.0 / 144.0);
+                at144_hz.advance(1.0 / 144.0);
             }
-            CHECK(std::abs(centreOf(at240Hz).y - centreOf(at144Hz).y) < 0.5);
-            CHECK(std::abs(at240Hz.meniscusPeak() - at144Hz.meniscusPeak()) < 0.5);
+            CHECK(std::abs(centreOf(at240_hz).y - centreOf(at144_hz).y) < 0.5);
+            CHECK(std::abs(at240_hz.meniscusPeak() - at144_hz.meniscusPeak()) < 0.5);
         }
     }
 
@@ -874,18 +875,18 @@ namespace {
 
     // The splash agrees between 60 Hz and 144 Hz frame clocks within 0.5 px, sampled every 1/12 s.
     void testCloseSplashAgreesAcrossRefreshRates() {
-        EdgeTransition at60Hz;
-        EdgeTransition at144Hz;
-        at60Hz.begin(Transition::Close, kQuarter, TransitionParams{}, kStrength);
-        at144Hz.begin(Transition::Close, kQuarter, TransitionParams{}, kStrength);
+        EdgeTransition at60_hz;
+        EdgeTransition at144_hz;
+        at60_hz.begin(Transition::Close, kQuarter, TransitionParams{}, kStrength);
+        at144_hz.begin(Transition::Close, kQuarter, TransitionParams{}, kStrength);
         for (int k = 1; k <= 12; ++k) {
             for (int i = 0; i < 5; ++i) {
-                at60Hz.advance(1.0 / 60.0);
+                at60_hz.advance(1.0 / 60.0);
             }
             for (int i = 0; i < 12; ++i) {
-                at144Hz.advance(1.0 / 144.0);
+                at144_hz.advance(1.0 / 144.0);
             }
-            CHECK(std::abs(at60Hz.meniscusPeak() - at144Hz.meniscusPeak()) < 0.5);
+            CHECK(std::abs(at60_hz.meniscusPeak() - at144_hz.meniscusPeak()) < 0.5);
         }
     }
 

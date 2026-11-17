@@ -149,11 +149,11 @@ namespace hyprimate {
         }
 
         constexpr int ORDER[6][2] = {{0, 0}, {0, 1}, {1, 0}, {1, 0}, {0, 1}, {1, 1}};
-        std::size_t vertexIndex = 0;
+        std::size_t vertex_index = 0;
         for (int cj = 0; cj < LIQUID_RENDER_CELLS; ++cj) {
             for (int ci = 0; ci < LIQUID_RENDER_CELLS; ++ci) {
                 for (const auto &corner : ORDER) {
-                    Vertex &vertex = out[vertexIndex++];
+                    Vertex &vertex = out[vertex_index++];
                     const LiquidVertex &sample =
                         samples[(static_cast<std::size_t>(cj + corner[1]) * LIQUID_POSE_SAMPLES) +
                                 ci + corner[0]];

@@ -159,10 +159,10 @@ namespace hyprimate {
         const double FOCAL_LENGTH = 3.0 * std::sqrt(WIDTH * HEIGHT);
 
         for (std::size_t vi = 0; vi < PAPER_GRID_VERTICES; ++vi) {
-            const Vec3 &worldPoint = world[vi];
-            const double DENOM = std::max(0.25 * FOCAL_LENGTH, FOCAL_LENGTH - worldPoint.z);
-            out.position[vi] = {
-                .x = worldPoint.x * FOCAL_LENGTH / DENOM / WIDTH, .y = worldPoint.y * FOCAL_LENGTH / DENOM / HEIGHT};
+            const Vec3 &world_point = world[vi];
+            const double DENOM = std::max(0.25 * FOCAL_LENGTH, FOCAL_LENGTH - world_point.z);
+            out.position[vi] = {.x = world_point.x * FOCAL_LENGTH / DENOM / WIDTH,
+                .y = world_point.y * FOCAL_LENGTH / DENOM / HEIGHT};
         }
 
         sortBackToFront(world, out.order);
@@ -192,14 +192,15 @@ namespace hyprimate {
         std::array<Vec3, PAPER_TRIANGLES> faceUnit{};
         std::array<Vec3, PAPER_GRID_VERTICES> vertexNormal{};
         for (std::size_t tri = 0; tri < PAPER_TRIANGLES; ++tri) {
-            const auto &triCorners = mesh.triangles[tri];
-            const Vec3 NORMAL = cross(world[triCorners[1]] - world[triCorners[0]], world[triCorners[2]] - world[triCorners[0]]);
+            const auto &tri_corners = mesh.triangles[tri];
+            const Vec3 NORMAL = cross(world[tri_corners[1]] - world[tri_corners[0]],
+                world[tri_corners[2]] - world[tri_corners[0]]);
             const double LEN = std::sqrt(dot(NORMAL, NORMAL));
             faceNormal[tri] = NORMAL;
             if (lighting == SheetLighting::PaperCreases) {
                 faceUnit[tri] = LEN >= 1e-12 ? NORMAL * (1.0 / LEN) : Vec3{};
             } else {
-                for (const std::size_t VERTEX : triCorners) {
+                for (const std::size_t VERTEX : tri_corners) {
                     Vec3 &sum = vertexNormal[VERTEX];
                     sum = {.x = sum.x + NORMAL.x, .y = sum.y + NORMAL.y, .z = sum.z + NORMAL.z};
                 }
@@ -218,8 +219,10 @@ namespace hyprimate {
                 if (dot(faceUnit[NEIGHBOR], faceUnit[tri]) < CREASE_COS) {
                     continue;
                 }
-                const Vec3 &neighborNormal = faceNormal[NEIGHBOR];
-                sum = {.x = sum.x + neighborNormal.x, .y = sum.y + neighborNormal.y, .z = sum.z + neighborNormal.z};
+                const Vec3 &neighbor_normal = faceNormal[NEIGHBOR];
+                sum = {.x = sum.x + neighbor_normal.x,
+                    .y = sum.y + neighbor_normal.y,
+                    .z = sum.z + neighbor_normal.z};
             }
             return sum;
         };
@@ -231,7 +234,8 @@ namespace hyprimate {
             }
             n = n * (facing / LEN);
             const double DIFF = dot(n, LIGHT_DIR) - LIGHT_DIR.z;
-            const double LIGHT_RESPONSE = DIFF >= 0.0 ? DIFF / (1.0 - LIGHT_DIR.z) : DIFF / (1.0 + LIGHT_DIR.z);
+            const double LIGHT_RESPONSE =
+                DIFF >= 0.0 ? DIFF / (1.0 - LIGHT_DIR.z) : DIFF / (1.0 + LIGHT_DIR.z);
             const double SHADE = std::clamp(LIGHT_RESPONSE * 1.8 * shading, -1.0, 1.0);
             return lighting == SheetLighting::ClothSmooth && SHADE > 0
                        ? SHADE * std::clamp(shine, 0.0, 1.0)
@@ -251,14 +255,15 @@ namespace hyprimate {
             const auto &corners = mesh.triangles[tri];
             // The side of the sheet this triangle shows decides which way its vertex normals point.
             const double FACING = faceNormal[tri].z < 0.0 ? -1.0 : 1.0;
-            for (std::size_t cornerIndex = 0; cornerIndex < 3; ++cornerIndex) {
-                double cornerShade = 0.0;
+            for (std::size_t corner_index = 0; corner_index < 3; ++corner_index) {
+                double corner_shade = 0.0;
                 if (lighting == SheetLighting::ClothSmooth) {
-                    cornerShade = FACING > 0.0 ? vertexShadeFront[corners[cornerIndex]] : vertexShadeBack[corners[cornerIndex]];
+                    corner_shade = FACING > 0.0 ? vertexShadeFront[corners[corner_index]]
+                                                : vertexShadeBack[corners[corner_index]];
                 } else {
-                    cornerShade = SHADE_OF(CORNER_NORMAL(tri, corners[cornerIndex]), FACING);
+                    corner_shade = SHADE_OF(CORNER_NORMAL(tri, corners[corner_index]), FACING);
                 }
-                out.shade[tri][cornerIndex] = static_cast<float>(cornerShade);
+                out.shade[tri][corner_index] = static_cast<float>(corner_shade);
             }
         }
     }
