@@ -75,19 +75,19 @@ namespace close_style {
             record.extentsDevice = CBox{};
             return;
         }
-        const double sx = record.sourceDevice.w / record.captureLogical.x;
-        const double sy = record.sourceDevice.h / record.captureLogical.y;
-        record.extentsDevice = CBox{record.sourceDevice.x + (BOUNDS.x * sx),
-            record.sourceDevice.y + (BOUNDS.y * sy),
-            BOUNDS.w * sx,
-            BOUNDS.h * sy}
+        const double SCALE_X = record.sourceDevice.w / record.captureLogical.x;
+        const double SCALE_Y = record.sourceDevice.h / record.captureLogical.y;
+        record.extentsDevice = CBox{record.sourceDevice.x + (BOUNDS.x * SCALE_X),
+            record.sourceDevice.y + (BOUNDS.y * SCALE_Y),
+            BOUNDS.w * SCALE_X,
+            BOUNDS.h * SCALE_Y}
                                    .expand(2.0);
-        const double x = std::floor(record.extentsDevice.x);
-        const double y = std::floor(record.extentsDevice.y);
-        record.extentsDevice = CBox{x,
-            y,
-            std::ceil(record.extentsDevice.x + record.extentsDevice.w) - x,
-            std::ceil(record.extentsDevice.y + record.extentsDevice.h) - y};
+        const double LEFT = std::floor(record.extentsDevice.x);
+        const double TOP = std::floor(record.extentsDevice.y);
+        record.extentsDevice = CBox{LEFT,
+            TOP,
+            std::ceil(record.extentsDevice.x + record.extentsDevice.w) - LEFT,
+            std::ceil(record.extentsDevice.y + record.extentsDevice.h) - TOP};
     }
     inline void render(SBubbleStyle &style,
         const Record &record,

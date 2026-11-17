@@ -62,10 +62,12 @@ namespace {
         if (CLIPPED.empty()) {
             return {};
         }
-        const double x = std::floor(CLIPPED.x);
-        const double y = std::floor(CLIPPED.y);
-        return CBox{
-            x, y, std::ceil(CLIPPED.x + CLIPPED.w) - x, std::ceil(CLIPPED.y + CLIPPED.h) - y}
+        const double LEFT = std::floor(CLIPPED.x);
+        const double TOP = std::floor(CLIPPED.y);
+        return CBox{LEFT,
+            TOP,
+            std::ceil(CLIPPED.x + CLIPPED.w) - LEFT,
+            std::ceil(CLIPPED.y + CLIPPED.h) - TOP}
             .intersection(SCREEN);
     }
 
@@ -186,11 +188,11 @@ CBubbleResidue::Wake &CBubbleResidue::beginWake(const PHLMONITOR &monitor, const
             m_wakes[i].film.hurry();
         }
     }
-    const auto id = m_nextWake++;
+    const auto WAKE_ID = m_nextWake++;
     m_wakes.push_back({.monitor = monitor,
         .owner = owner,
-        .id = id,
-        .film = hyprimate::BubbleWake{id * 0x9E3779B97F4A7C15ULL},
+        .id = WAKE_ID,
+        .film = hyprimate::BubbleWake{WAKE_ID * 0x9E3779B97F4A7C15ULL},
         .last = std::chrono::steady_clock::now()});
     return m_wakes.back();
 }

@@ -125,8 +125,8 @@ namespace hyprimate {
         }
         // Normalize each channel against a perfect reflector under an equal-energy spectrum.
         const auto PERFECT_MIRROR_RGB = linearSrgb(equalEnergyWhiteXyz);
-        for (int y = 0; y < cosineSamples; ++y) {
-            const double INCIDENCE_COSINE = static_cast<double>(y) / (cosineSamples - 1);
+        for (int row = 0; row < cosineSamples; ++row) {
+            const double INCIDENCE_COSINE = static_cast<double>(row) / (cosineSamples - 1);
             // Snell's law, with air's refractive index treated as one.
             const double TRANSMISSION_COSINE =
                 std::sqrt(1.0 - ((1.0 - (INCIDENCE_COSINE * INCIDENCE_COSINE)) /
@@ -138,8 +138,8 @@ namespace hyprimate {
                 ((kFilmRefractiveIndex * INCIDENCE_COSINE) - TRANSMISSION_COSINE) /
                 ((kFilmRefractiveIndex * INCIDENCE_COSINE) + TRANSMISSION_COSINE);
             // The zero-thickness column remains zero: the two interfaces cancel exactly.
-            for (int x = 1; x < thicknessSamples; ++x) {
-                const double THICKNESS_NM = maxThickness * x / (thicknessSamples - 1);
+            for (int col = 1; col < thicknessSamples; ++col) {
+                const double THICKNESS_NM = maxThickness * col / (thicknessSamples - 1);
                 Colour reflectedXyz{};
                 for (int i = 0; i < kWavelengthSamples; ++i) {
                     const double ROUND_TRIP_PHASE = kRoundTripPhaseFactor * kFilmRefractiveIndex *
@@ -169,7 +169,7 @@ namespace hyprimate {
                 const auto REFLECTED_RGB = linearSrgb(reflectedXyz);
                 for (int channel = 0; channel < kColourChannels; ++channel) {
                     table.rgb[(kColourChannels *
-                                  ((static_cast<std::size_t>(y) * thicknessSamples) + x)) +
+                                  ((static_cast<std::size_t>(row) * thicknessSamples) + col)) +
                               channel] =
                         static_cast<float>(std::clamp(
                             REFLECTED_RGB[channel] / PERFECT_MIRROR_RGB[channel], 0.0, 1.0));

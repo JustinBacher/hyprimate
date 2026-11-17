@@ -86,7 +86,7 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
             d.frame.size.x > 0 && d.frame.size.y > 0)) {
         return nullptr;
     }
-    auto &gl = *Render::GL::g_pHyprOpenGL;
+    auto &renderer = *Render::GL::g_pHyprOpenGL;
     const auto WALLPAPER = d.wallpaper && d.wallpaper->framebuffer && !ctx.readOnlyEffects() &&
                                    !ctx.m_renderingCapture && !ctx.m_renderingSnapshot
                                ? d.wallpaper->framebuffer->getTexture()
@@ -124,21 +124,22 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
     const bool STENCIL = glIsEnabled(GL_STENCIL_TEST) != 0u;
     const bool DEPTH_TEST = glIsEnabled(GL_DEPTH_TEST) != 0u;
     const bool CULL = glIsEnabled(GL_CULL_FACE) != 0u;
-    const bool BLEND = gl.blendEnabled();
+    const bool BLEND = renderer.blendEnabled();
     for (int i = 0; i < 4; ++i) {
-        gl.setActiveTexture(GL_TEXTURE0 + i);
+        renderer.setActiveTexture(GL_TEXTURE0 + i);
         glGetIntegerv(GL_TEXTURE_BINDING_2D, &textures[i][0]);
         glGetIntegerv(GL_TEXTURE_BINDING_3D, &textures[i][1]);
     }
     const bool READY = m_material.initialize();
     if (READY) {
         g_pHyprRenderer->bindFB(ctx, LAYER);
-        gl.setViewport(0, 0, static_cast<GLsizei>(d.canvas.x), static_cast<GLsizei>(d.canvas.y));
-        gl.setCapStatus(GL_SCISSOR_TEST, false);
-        gl.setCapStatus(GL_STENCIL_TEST, false);
+        renderer.setViewport(
+            0, 0, static_cast<GLsizei>(d.canvas.x), static_cast<GLsizei>(d.canvas.y));
+        renderer.setCapStatus(GL_SCISSOR_TEST, false);
+        renderer.setCapStatus(GL_STENCIL_TEST, false);
         glDisable(GL_DEPTH_TEST);
         glDisable(GL_CULL_FACE);
-        gl.blend(false);
+        renderer.blend(false);
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         const SBubbleTarget TARGET{.canvas = {.x = d.canvas.x, .y = d.canvas.y},
             .origin = d.outputOrigin,
@@ -157,8 +158,8 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
                 .x = 1.0 / WALLPAPER->m_size.x, .y = 1.0 / WALLPAPER->m_size.y};
         }
         m_material.drawMembranes(d.frame, TARGET, images);
-        gl.blend(true);
-        gl.blendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+        renderer.blend(true);
+        renderer.blendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
         // The wrapper skips the call when its cached RGB pair already matches; separate alpha
         // factors may differ.
         glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
@@ -187,11 +188,11 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
         }
     }
     for (int i = 0; i < 4; ++i) {
-        gl.setActiveTexture(GL_TEXTURE0 + i);
+        renderer.setActiveTexture(GL_TEXTURE0 + i);
         glBindTexture(GL_TEXTURE_2D, textures[i][0]);
         glBindTexture(GL_TEXTURE_3D, textures[i][1]);
     }
-    gl.setActiveTexture(static_cast<GLenum>(active));
+    renderer.setActiveTexture(static_cast<GLenum>(active));
     glBindVertexArray(static_cast<GLuint>(vao));
     glBindBuffer(GL_ARRAY_BUFFER, static_cast<GLuint>(arrayBuffer));
     glUseProgram(static_cast<GLuint>(program));
@@ -206,10 +207,10 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
     } else {
         glDisable(GL_CULL_FACE);
     }
-    gl.setCapStatus(GL_SCISSOR_TEST, SCISSOR);
-    gl.setCapStatus(GL_STENCIL_TEST, STENCIL);
-    gl.blend(BLEND);
-    gl.blendFunc(static_cast<GLenum>(src), static_cast<GLenum>(dst));
+    renderer.setCapStatus(GL_SCISSOR_TEST, SCISSOR);
+    renderer.setCapStatus(GL_STENCIL_TEST, STENCIL);
+    renderer.blend(BLEND);
+    renderer.blendFunc(static_cast<GLenum>(src), static_cast<GLenum>(dst));
     // Hyprland's cache tracks only the RGB pair; restore separate alpha factors underneath it.
     if (srcAlpha != src || dstAlpha != dst) {
         glBlendFuncSeparate(static_cast<GLenum>(src),
@@ -217,7 +218,7 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
             static_cast<GLenum>(srcAlpha),
             static_cast<GLenum>(dstAlpha));
     }
-    gl.setViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+    renderer.setViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
     return READY ? LAYER : nullptr;
 }
 
@@ -226,41 +227,48 @@ CBubblePassElement::CBubblePassElement(SData data) : m_data(std::move(data)) {
 std::vector<UP<IPassElement>> CBubblePassElement::draw(Render::CRenderContext &ctx) {
     const auto LAYER =
         m_data.renderer ? m_data.renderer->render(ctx, m_data.draw) : SP<Render::IFramebuffer>{};
-    Render::GL::CHyprOpenGLImpl::STextureRenderData td{};
-    td.damage = &m_data.damage;
-    td.a = m_data.alpha;
-    td.allowCustomUV = true;
-    td.allowDim = false;
+    Render::GL::CHyprOpenGLImpl::STextureRenderData textureData{};
+    textureData.damage = &m_data.damage;
+    textureData.a = m_data.alpha;
+    textureData.allowCustomUV = true;
+    textureData.allowDim = false;
     if (LAYER) {
         Render::GL::g_pHyprOpenGL->renderTextureMesh(
-            ctx, LAYER->getTexture(), m_data.box, paperCanvasQuad(), td);
+            ctx, LAYER->getTexture(), m_data.box, paperCanvasQuad(), textureData);
     } else {
         // Preserve the native snapshot when the material cannot run. The
         // capture may occupy only a sub-rectangle of a larger texture.
-        const auto &d = m_data.draw;
-        if (!d.window || !(d.canvas.x > 0 && d.canvas.y > 0 && d.source.w > 0 && d.source.h > 0 &&
-                             d.textureSize.x > 0 && d.textureSize.y > 0)) {
+        const auto &drawData = m_data.draw;
+        if (!drawData.window || !(drawData.canvas.x > 0 && drawData.canvas.y > 0 &&
+                                    drawData.source.w > 0 && drawData.source.h > 0 &&
+                                    drawData.textureSize.x > 0 && drawData.textureSize.y > 0)) {
             return {};
         }
-        const auto u0 = static_cast<float>((d.source.x - d.textureOrigin.x) / d.textureSize.x);
-        const auto v0 = static_cast<float>((d.source.y - d.textureOrigin.y) / d.textureSize.y);
-        const auto u1 =
-            static_cast<float>((d.source.x + d.source.w - d.textureOrigin.x) / d.textureSize.x);
-        const auto v1 =
-            static_cast<float>((d.source.y + d.source.h - d.textureOrigin.y) / d.textureSize.y);
-        const CBox BOX{m_data.box.x + ((d.source.x - d.outputOrigin.x) * m_data.box.w / d.canvas.x),
-            m_data.box.y + ((d.source.y - d.outputOrigin.y) * m_data.box.h / d.canvas.y),
-            d.source.w * m_data.box.w / d.canvas.x,
-            d.source.h * m_data.box.h / d.canvas.y};
+        const auto U_MIN = static_cast<float>(
+            (drawData.source.x - drawData.textureOrigin.x) / drawData.textureSize.x);
+        const auto V_MIN = static_cast<float>(
+            (drawData.source.y - drawData.textureOrigin.y) / drawData.textureSize.y);
+        const auto U_MAX =
+            static_cast<float>((drawData.source.x + drawData.source.w - drawData.textureOrigin.x) /
+                               drawData.textureSize.x);
+        const auto V_MAX =
+            static_cast<float>((drawData.source.y + drawData.source.h - drawData.textureOrigin.y) /
+                               drawData.textureSize.y);
+        const CBox BOX{m_data.box.x + ((drawData.source.x - drawData.outputOrigin.x) *
+                                          m_data.box.w / drawData.canvas.x),
+            m_data.box.y +
+                ((drawData.source.y - drawData.outputOrigin.y) * m_data.box.h / drawData.canvas.y),
+            drawData.source.w * m_data.box.w / drawData.canvas.x,
+            drawData.source.h * m_data.box.h / drawData.canvas.y};
         const std::vector<SMeshRenderVertex> QUAD{
-            {.x = 0.F, .y = 0.F, .u = u0, .v = v0},
-            {.x = 0.F, .y = 1.F, .u = u0, .v = v1},
-            {.x = 1.F, .y = 0.F, .u = u1, .v = v0},
-            {.x = 1.F, .y = 0.F, .u = u1, .v = v0},
-            {.x = 0.F, .y = 1.F, .u = u0, .v = v1},
-            {.x = 1.F, .y = 1.F, .u = u1, .v = v1},
+            {.x = 0.F, .y = 0.F, .u = U_MIN, .v = V_MIN},
+            {.x = 0.F, .y = 1.F, .u = U_MIN, .v = V_MAX},
+            {.x = 1.F, .y = 0.F, .u = U_MAX, .v = V_MIN},
+            {.x = 1.F, .y = 0.F, .u = U_MAX, .v = V_MIN},
+            {.x = 0.F, .y = 1.F, .u = U_MIN, .v = V_MAX},
+            {.x = 1.F, .y = 1.F, .u = U_MAX, .v = V_MAX},
         };
-        Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, d.window, BOX, QUAD, td);
+        Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, drawData.window, BOX, QUAD, textureData);
     }
     return {};
 }

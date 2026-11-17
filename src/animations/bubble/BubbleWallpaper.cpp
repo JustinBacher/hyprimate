@@ -51,9 +51,9 @@ namespace {
                     (0.5 + (0.5 * ((MATRIX[3] * u) + (MATRIX[4] * v) + MATRIX[5]))) *
                         SOURCE->m_size.y};
             };
-            const auto p0 = PROJECT(0, 0);
-            const auto px = PROJECT(1, 0);
-            const auto py = PROJECT(0, 1);
+            const auto ORIGIN = PROJECT(0, 0);
+            const auto AXIS_X = PROJECT(1, 0);
+            const auto AXIS_Y = PROJECT(0, 1);
             CBox bounds = m_bounds;
             ctx.m_data.renderModif.applyToBox(bounds);
             const auto BOUNDS_MATRIX = g_pHyprRenderer->projectBoxToTarget(ctx, bounds).getMatrix();
@@ -65,46 +65,48 @@ namespace {
                                       BOUNDS_MATRIX[5]))) *
                         SOURCE->m_size.y};
             };
-            const auto b0 = PROJECT_BOUNDS(0, 0);
-            const auto bx = PROJECT_BOUNDS(1, 0);
-            const auto by = PROJECT_BOUNDS(0, 1);
+            const auto BOUNDS_ORIGIN = PROJECT_BOUNDS(0, 0);
+            const auto BOUNDS_X = PROJECT_BOUNDS(1, 0);
+            const auto BOUNDS_Y = PROJECT_BOUNDS(0, 1);
             const auto BXY = PROJECT_BOUNDS(1, 1);
-            const double x = std::max(0.0, std::floor(std::min({b0.x, bx.x, by.x, BXY.x})) - 1.0);
-            const double y = std::max(0.0, std::floor(std::min({b0.y, bx.y, by.y, BXY.y})) - 1.0);
-            const double RIGHT =
-                std::min(SOURCE->m_size.x, std::ceil(std::max({b0.x, bx.x, by.x, BXY.x})) + 1.0);
-            const double TOP =
-                std::min(SOURCE->m_size.y, std::ceil(std::max({b0.y, bx.y, by.y, BXY.y})) + 1.0);
-            const Vector2D EXTENT{RIGHT - x, TOP - y};
+            const double LEFT = std::max(
+                0.0, std::floor(std::min({BOUNDS_ORIGIN.x, BOUNDS_X.x, BOUNDS_Y.x, BXY.x})) - 1.0);
+            const double CLIP_TOP = std::max(
+                0.0, std::floor(std::min({BOUNDS_ORIGIN.y, BOUNDS_X.y, BOUNDS_Y.y, BXY.y})) - 1.0);
+            const double RIGHT = std::min(SOURCE->m_size.x,
+                std::ceil(std::max({BOUNDS_ORIGIN.x, BOUNDS_X.x, BOUNDS_Y.x, BXY.x})) + 1.0);
+            const double TOP = std::min(SOURCE->m_size.y,
+                std::ceil(std::max({BOUNDS_ORIGIN.y, BOUNDS_X.y, BOUNDS_Y.y, BXY.y})) + 1.0);
+            const Vector2D EXTENT{RIGHT - LEFT, TOP - CLIP_TOP};
             if (!(EXTENT.x > 0 && EXTENT.y > 0) || !std::isfinite(EXTENT.x) ||
                 !std::isfinite(EXTENT.y)) {
                 return {};
             }
 
-            auto &gl = *Render::GL::g_pHyprOpenGL;
+            auto &renderer = *Render::GL::g_pHyprOpenGL;
             const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
             const auto STATE = ctx.saveDrawState();
             GLint active = 0;
             GLint texture = 0;
             glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
-            gl.setActiveTexture(GL_TEXTURE0);
+            renderer.setActiveTexture(GL_TEXTURE0);
             glGetIntegerv(GL_TEXTURE_BINDING_2D, &texture);
             const auto DESTINATION = g_pHyprRenderer->getWorkBuffer(ctx, EXTENT);
             glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(texture));
-            gl.setActiveTexture(static_cast<GLenum>(active));
+            renderer.setActiveTexture(static_cast<GLenum>(active));
             if (!DESTINATION || !DESTINATION->getTexture() ||
                 DESTINATION->getTexture()->m_texID == SOURCE->getTexture()->m_texID) {
                 return {};
             }
 
             const bool SCISSOR = glIsEnabled(GL_SCISSOR_TEST) != 0u;
-            gl.setCapStatus(GL_SCISSOR_TEST, false);
-            gl.bindFramebuffer(GL_READ_FRAMEBUFFER,
+            renderer.setCapStatus(GL_SCISSOR_TEST, false);
+            renderer.bindFramebuffer(GL_READ_FRAMEBUFFER,
                 static_cast<Render::GL::CGLFramebuffer *>(SOURCE.get())->getFBID());
-            gl.bindFramebuffer(GL_DRAW_FRAMEBUFFER,
+            renderer.bindFramebuffer(GL_DRAW_FRAMEBUFFER,
                 static_cast<Render::GL::CGLFramebuffer *>(DESTINATION.get())->getFBID());
-            glBlitFramebuffer(static_cast<GLint>(x),
-                static_cast<GLint>(y),
+            glBlitFramebuffer(static_cast<GLint>(LEFT),
+                static_cast<GLint>(CLIP_TOP),
                 static_cast<GLint>(RIGHT),
                 static_cast<GLint>(TOP),
                 0,
@@ -113,10 +115,10 @@ namespace {
                 static_cast<GLint>(EXTENT.y),
                 GL_COLOR_BUFFER_BIT,
                 GL_NEAREST);
-            gl.setCapStatus(GL_SCISSOR_TEST, SCISSOR);
-            m_wallpaper->origin = (p0 - Vector2D{x, y}) / EXTENT;
-            m_wallpaper->axisX = (px - p0) / EXTENT;
-            m_wallpaper->axisY = (py - p0) / EXTENT;
+            renderer.setCapStatus(GL_SCISSOR_TEST, SCISSOR);
+            m_wallpaper->origin = (ORIGIN - Vector2D{LEFT, CLIP_TOP}) / EXTENT;
+            m_wallpaper->axisX = (AXIS_X - ORIGIN) / EXTENT;
+            m_wallpaper->axisY = (AXIS_Y - ORIGIN) / EXTENT;
             m_wallpaper->framebuffer = DESTINATION;
             return {};
         }

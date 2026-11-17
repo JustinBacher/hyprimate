@@ -5,32 +5,33 @@
 #include "animations/bubble/BubbleOptics.hpp"
 
 int main() {
-    const auto t = hyprimate::bubbleThinFilmTable(301, 33, 1500);
-    CHECK(t.rgb.size() == 301 * 33 * 3);
+    const auto TABLE = hyprimate::bubbleThinFilmTable(301, 33, 1500);
+    CHECK(TABLE.rgb.size() == 301 * 33 * 3);
     const auto SAMPLE = [&](int d, int c, int channel) {
-        return t.rgb[(3 * ((c * 301) + (d / 5))) + channel];
+        return TABLE.rgb[(3 * ((c * 301) + (d / 5))) + channel];
     };
-    for (const float VALUE : t.rgb) {
+    for (const float VALUE : TABLE.rgb) {
         CHECK(std::isfinite(VALUE) && VALUE >= 0 && VALUE <= 1.05);
     }
-    for (int c = 0; c < 33; ++c) {
+    for (int cosineSample = 0; cosineSample < 33; ++cosineSample) {
         for (int k = 0; k < 3; ++k) {
-            CHECK(SAMPLE(0, c, k) == 0);
+            CHECK(SAMPLE(0, cosineSample, k) == 0);
         }
     }
     for (int k = 0; k < 3; ++k) {
         CHECK(SAMPLE(200, 0, k) > 0.98);
     }
     float maximum = 0;
-    for (int d = 50; d <= 200; d += 5) {
+    for (int thicknessIndex = 50; thicknessIndex <= 200; thicknessIndex += 5) {
         maximum = std::max(maximum,
-            (0.2126F * SAMPLE(d, 32, 0)) + (0.7152F * SAMPLE(d, 32, 1)) +
-                (0.0722F * SAMPLE(d, 32, 2)));
+            (0.2126F * SAMPLE(thicknessIndex, 32, 0)) + (0.7152F * SAMPLE(thicknessIndex, 32, 1)) +
+                (0.0722F * SAMPLE(thicknessIndex, 32, 2)));
     }
     CHECK(maximum > 0.06 && maximum < 0.09);
     const auto SPREAD = [&](int d) {
-        const auto [lo, hi] = std::minmax({SAMPLE(d, 32, 0), SAMPLE(d, 32, 1), SAMPLE(d, 32, 2)});
-        return hi - lo;
+        const auto [MINIMUM, MAXIMUM] =
+            std::minmax({SAMPLE(d, 32, 0), SAMPLE(d, 32, 1), SAMPLE(d, 32, 2)});
+        return MAXIMUM - MINIMUM;
     };
     CHECK(std::max(SPREAD(450), SPREAD(500)) > SPREAD(200));
     CHECK(hyprimate::bubbleThinFilmTable(1, 2, 100).rgb.empty());

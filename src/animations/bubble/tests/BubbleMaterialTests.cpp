@@ -18,16 +18,16 @@ namespace {
     using Image = std::vector<Pixel>;
 
     GLuint texture(const Image &pixels) {
-        GLuint id = 0;
-        glGenTextures(1, &id);
-        glBindTexture(GL_TEXTURE_2D, id);
+        GLuint textureId = 0;
+        glGenTextures(1, &textureId);
+        glBindTexture(GL_TEXTURE_2D, textureId);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTexImage2D(
             GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-        return id;
+        return textureId;
     }
 
     struct Fixture {
@@ -39,22 +39,22 @@ namespace {
             Image alternative(width * height);
             Image background(width * height);
             Image dark(width * height);
-            for (int y = 0; y < height; ++y) {
-                for (int x = 0; x < width; ++x) {
-                    const auto i = (y * width) + x;
+            for (int row = 0; row < height; ++row) {
+                for (int col = 0; col < width; ++col) {
+                    const auto PIXEL_INDEX = (row * width) + col;
                     // A recognizable, asymmetric client image, distinct from the desktop.
-                    content[i] = {static_cast<unsigned char>(40 + (x / 4)),
+                    content[PIXEL_INDEX] = {static_cast<unsigned char>(40 + (col / 4)),
                         30,
-                        static_cast<unsigned char>(110 + (y / 4)),
+                        static_cast<unsigned char>(110 + (row / 4)),
                         255};
-                    alternative[i] = {20, 120, 30, 255};
+                    alternative[PIXEL_INDEX] = {20, 120, 30, 255};
                     // Red increases to the right, green upwards, blue marks an off-centre window
                     // behind.
-                    background[i] = {static_cast<unsigned char>(25 + (x * 3 / 4)),
-                        static_cast<unsigned char>(25 + (y * 3 / 4)),
-                        static_cast<unsigned char>(x > 130 && y > 100 ? 210 : 20),
+                    background[PIXEL_INDEX] = {static_cast<unsigned char>(25 + (col * 3 / 4)),
+                        static_cast<unsigned char>(25 + (row * 3 / 4)),
+                        static_cast<unsigned char>(col > 130 && row > 100 ? 210 : 20),
                         255};
-                    dark[i] = {0, 0, 0, 255};
+                    dark[PIXEL_INDEX] = {0, 0, 0, 255};
                 }
             }
             window = texture(content);
@@ -114,13 +114,13 @@ namespace {
         frame.window.transparency = 1;
         const auto RESULT = f.render(frame, f.window, f.scene, {.x = 50, .y = 70}, frame.size);
         // Exact native pixels, including a location away from the centre and the outer clear area.
-        for (const auto [x, y] :
+        for (const auto [PIXEL_X, PIXEL_Y] :
             std::array<std::array<int, 2>, 3>{{{55, 75}, {100, 110}, {165, 145}}}) {
-            const Pixel EXPECTED{static_cast<unsigned char>(40 + (x / 4)),
+            const Pixel EXPECTED{static_cast<unsigned char>(40 + (PIXEL_X / 4)),
                 30,
-                static_cast<unsigned char>(110 + (y / 4)),
+                static_cast<unsigned char>(110 + (PIXEL_Y / 4)),
                 255};
-            CHECK(at(RESULT, x, y) == EXPECTED);
+            CHECK(at(RESULT, PIXEL_X, PIXEL_Y) == EXPECTED);
         }
         CHECK(at(RESULT, 40, 60)[3] == 0);
     }
@@ -139,10 +139,12 @@ namespace {
             frame.window.motion.round = ROUND;
             const auto SETTLING =
                 f.render(frame, f.window, f.scene, {.x = 48, .y = 78}, frame.size);
-            for (const auto [x, y] :
+            for (const auto [PIXEL_X, PIXEL_Y] :
                 std::array<std::array<int, 2>, 3>{{{90, 110}, {128, 128}, {170, 145}}}) {
                 for (int channel = 0; channel < 4; ++channel) {
-                    CHECK(std::abs(diff(at(SETTLING, x, y), at(SETTLED, x, y), channel)) <= 2);
+                    CHECK(std::abs(diff(at(SETTLING, PIXEL_X, PIXEL_Y),
+                              at(SETTLED, PIXEL_X, PIXEL_Y),
+                              channel)) <= 2);
                 }
             }
         }
@@ -193,41 +195,55 @@ namespace {
         const auto DESKTOP = f.render(frame, f.window, f.scene, POS, frame.size);
         const auto DARK = f.render(frame, f.window, f.black, POS, frame.size);
         const auto DIFFERENT_WINDOW = f.render(frame, f.otherWindow, f.scene, POS, frame.size);
-        const int cx = width / 2 + 3;
-        const int cy = height / 2 + 2;
+        const int CENTER_X = width / 2 + 3;
+        const int CENTER_Y = height / 2 + 2;
         // A changing desktop behind the same client must be visible in the moving film.
         int desktopResponse = 0;
         int windowResponse = 0;
-        for (int c = 0; c < 3; ++c) {
-            desktopResponse += std::abs(diff(at(DESKTOP, cx, cy), at(DARK, cx, cy), c));
-            windowResponse += std::abs(diff(at(DESKTOP, cx, cy), at(DIFFERENT_WINDOW, cx, cy), c));
+        for (int channel = 0; channel < 3; ++channel) {
+            desktopResponse += std::abs(
+                diff(at(DESKTOP, CENTER_X, CENTER_Y), at(DARK, CENTER_X, CENTER_Y), channel));
+            windowResponse += std::abs(diff(at(DESKTOP, CENTER_X, CENTER_Y),
+                at(DIFFERENT_WINDOW, CENTER_X, CENTER_Y),
+                channel));
         }
         CHECK(desktopResponse > 8);
         CHECK(windowResponse > 8);
         CHECK(desktopResponse > windowResponse);
         // Source orientation: compare the response to the scene, cancelling the unchanged window
         // and film.
-        const int dx = int(extent.x * .32);
-        const int dy = int(extent.y * .32);
+        const int SAMPLE_OFFSET_X = int(extent.x * .32);
+        const int SAMPLE_OFFSET_Y = int(extent.y * .32);
         const auto RESPONSE = [&](int x, int y, int c) {
             return diff(at(DESKTOP, x, y), at(DARK, x, y), c);
         };
-        CHECK(RESPONSE(cx + dx, cy, 0) > RESPONSE(cx - dx, cy, 0) + 2);
-        CHECK(RESPONSE(cx, cy + dy, 1) > RESPONSE(cx, cy - dy, 1) + 2);
+        CHECK(RESPONSE(CENTER_X + SAMPLE_OFFSET_X, CENTER_Y, 0) >
+              RESPONSE(CENTER_X - SAMPLE_OFFSET_X, CENTER_Y, 0) + 2);
+        CHECK(RESPONSE(CENTER_X, CENTER_Y + SAMPLE_OFFSET_Y, 1) >
+              RESPONSE(CENTER_X, CENTER_Y - SAMPLE_OFFSET_Y, 1) + 2);
         // A blue rectangle represents a second window behind the bubble, not wallpaper alone.
-        CHECK(RESPONSE(cx + dx, cy + dy, 2) > RESPONSE(cx - dx, cy + dy, 2) + 20);
+        CHECK(RESPONSE(CENTER_X + SAMPLE_OFFSET_X, CENTER_Y + SAMPLE_OFFSET_Y, 2) >
+              RESPONSE(CENTER_X - SAMPLE_OFFSET_X, CENTER_Y + SAMPLE_OFFSET_Y, 2) + 20);
         // Colour changes cannot alter the silhouette; interior and well outside remain distinct.
-        CHECK(at(DESKTOP, cx, cy)[3] > 128);
+        CHECK(at(DESKTOP, CENTER_X, CENTER_Y)[3] > 128);
         // Moving the same film over the screen changes the desktop under its centre.
         const hyprimate::Vec2 SHIFTED{.x = POS.x - 20, .y = POS.y - 20};
         const auto SHIFTED_SCENE = f.render(frame, f.otherWindow, f.scene, SHIFTED, frame.size);
         const auto SHIFTED_DARK = f.render(frame, f.otherWindow, f.black, SHIFTED, frame.size);
         const auto ORIGINAL_SCENE = f.render(frame, f.otherWindow, f.scene, POS, frame.size);
         const auto ORIGINAL_DARK = f.render(frame, f.otherWindow, f.black, POS, frame.size);
-        CHECK(diff(at(ORIGINAL_SCENE, cx, cy), at(ORIGINAL_DARK, cx, cy), 0) >
-              diff(at(SHIFTED_SCENE, cx - 20, cy - 20), at(SHIFTED_DARK, cx - 20, cy - 20), 0) + 2);
-        CHECK(diff(at(ORIGINAL_SCENE, cx, cy), at(ORIGINAL_DARK, cx, cy), 1) >
-              diff(at(SHIFTED_SCENE, cx - 20, cy - 20), at(SHIFTED_DARK, cx - 20, cy - 20), 1) + 2);
+        CHECK(
+            diff(at(ORIGINAL_SCENE, CENTER_X, CENTER_Y), at(ORIGINAL_DARK, CENTER_X, CENTER_Y), 0) >
+            diff(at(SHIFTED_SCENE, CENTER_X - 20, CENTER_Y - 20),
+                at(SHIFTED_DARK, CENTER_X - 20, CENTER_Y - 20),
+                0) +
+                2);
+        CHECK(
+            diff(at(ORIGINAL_SCENE, CENTER_X, CENTER_Y), at(ORIGINAL_DARK, CENTER_X, CENTER_Y), 1) >
+            diff(at(SHIFTED_SCENE, CENTER_X - 20, CENTER_Y - 20),
+                at(SHIFTED_DARK, CENTER_X - 20, CENTER_Y - 20),
+                1) +
+                2);
         CHECK(at(DESKTOP, 2, 2)[3] == 0);
         bool sameSilhouette = true;
         for (std::size_t i = 0; i < DESKTOP.size(); ++i) {
@@ -245,12 +261,12 @@ namespace {
                 }
                 const auto MAPPED =
                     hyprimate::bubbleMotionPoint(frame.window.halfSize, frame.window.motion, edge);
-                const int x = static_cast<int>(std::lround((width / 2.0) + MAPPED.x));
-                const int y = static_cast<int>(std::lround((height / 2.0) + MAPPED.y));
-                const int ox = axis == 0 ? SIGN * 8 : 0;
-                const int oy = axis == 1 ? SIGN * 8 : 0;
-                CHECK(at(DESKTOP, x - ox, y - oy)[3] > 128);
-                CHECK(at(DESKTOP, x + ox, y + oy)[3] < 8);
+                const int PIXEL_X = static_cast<int>(std::lround((width / 2.0) + MAPPED.x));
+                const int PIXEL_Y = static_cast<int>(std::lround((height / 2.0) + MAPPED.y));
+                const int OFFSET_X = axis == 0 ? SIGN * 8 : 0;
+                const int OFFSET_Y = axis == 1 ? SIGN * 8 : 0;
+                CHECK(at(DESKTOP, PIXEL_X - OFFSET_X, PIXEL_Y - OFFSET_Y)[3] > 128);
+                CHECK(at(DESKTOP, PIXEL_X + OFFSET_X, PIXEL_Y + OFFSET_Y)[3] < 8);
             }
         }
     }

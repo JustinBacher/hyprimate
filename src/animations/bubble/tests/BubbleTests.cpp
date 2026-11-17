@@ -18,97 +18,105 @@ namespace {
 
     void advanceFor(Bubble &b, double seconds, double step = 0.01) {
         while (seconds > 1e-12) {
-            const double dt = std::min(seconds, step);
-            b.advance(dt);
-            seconds -= dt;
+            const double DELTA_TIME = std::min(seconds, step);
+            b.advance(DELTA_TIME);
+            seconds -= DELTA_TIME;
         }
     }
 
     void separateSurfacesDuringOpening() {
         for (const Vec2 SIZE : {Vec2{.x = 1400, .y = 300}, Vec2{.x = 300, .y = 1400}, SIZE}) {
-            Bubble b;
-            b.begin(Transition::Open, 1, 42, SIZE);
-            advanceFor(b, 0.25);
-            auto f = b.frame(SIZE);
-            CHECK(f.shell.visibility > 0 && f.window.visibility == 0);
-            CHECK(f.shell.halfSize.x == f.shell.halfSize.y && f.shell.corner == f.shell.halfSize.x);
-            CHECK(f.shell.depth > 0 && f.shell.film > 0);
-            const double SHELL_RADIUS = f.shell.halfSize.x;
+            Bubble testBubble;
+            testBubble.begin(Transition::Open, 1, 42, SIZE);
+            advanceFor(testBubble, 0.25);
+            auto bubbleFrame = testBubble.frame(SIZE);
+            CHECK(bubbleFrame.shell.visibility > 0 && bubbleFrame.window.visibility == 0);
+            CHECK(bubbleFrame.shell.halfSize.x == bubbleFrame.shell.halfSize.y &&
+                  bubbleFrame.shell.corner == bubbleFrame.shell.halfSize.x);
+            CHECK(bubbleFrame.shell.depth > 0 && bubbleFrame.shell.film > 0);
+            const double SHELL_RADIUS = bubbleFrame.shell.halfSize.x;
 
-            advanceFor(b, 0.19);
-            f = b.frame(SIZE);
-            CHECK(f.shell.visibility > 0 && f.shell.holes[0].radius > 0);
-            CHECK(f.window.visibility > 0);
-            CHECK(f.window.halfSize.x == f.window.halfSize.y &&
-                  f.window.corner == f.window.halfSize.x);
-            CHECK(f.window.halfSize.x < f.shell.halfSize.x);
-            CHECK(f.shell.halfSize.x > SHELL_RADIUS);
+            advanceFor(testBubble, 0.19);
+            bubbleFrame = testBubble.frame(SIZE);
+            CHECK(bubbleFrame.shell.visibility > 0 && bubbleFrame.shell.holes[0].radius > 0);
+            CHECK(bubbleFrame.window.visibility > 0);
+            CHECK(bubbleFrame.window.halfSize.x == bubbleFrame.window.halfSize.y &&
+                  bubbleFrame.window.corner == bubbleFrame.window.halfSize.x);
+            CHECK(bubbleFrame.window.halfSize.x < bubbleFrame.shell.halfSize.x);
+            CHECK(bubbleFrame.shell.halfSize.x > SHELL_RADIUS);
 
             for (int i = 0; i < 20; ++i) {
-                f = b.frame(SIZE);
-                if (f.shell.visibility > 0) {
-                    CHECK(f.shell.halfSize.x == f.shell.halfSize.y);
-                    CHECK(f.shell.corner == f.shell.halfSize.x && f.shell.ripple == 0);
+                bubbleFrame = testBubble.frame(SIZE);
+                if (bubbleFrame.shell.visibility > 0) {
+                    CHECK(bubbleFrame.shell.halfSize.x == bubbleFrame.shell.halfSize.y);
+                    CHECK(bubbleFrame.shell.corner == bubbleFrame.shell.halfSize.x &&
+                          bubbleFrame.shell.ripple == 0);
                     // The inner film is still clear while the outer bubble bursts: no window image
                     // pops in with it.
-                    CHECK(f.window.content <= 0.1);
+                    CHECK(bubbleFrame.window.content <= 0.1);
                 }
-                b.advance(0.01);
+                testBubble.advance(0.01);
             }
-            advanceFor(b, 0.14);
-            f = b.frame(SIZE);
-            CHECK(f.shell.visibility == 0);
-            CHECK(f.window.halfSize.x == SIZE.x / 2 && f.window.halfSize.y == SIZE.y / 2);
-            CHECK(f.window.corner == 0);
+            advanceFor(testBubble, 0.14);
+            bubbleFrame = testBubble.frame(SIZE);
+            CHECK(bubbleFrame.shell.visibility == 0);
+            CHECK(bubbleFrame.window.halfSize.x == SIZE.x / 2 &&
+                  bubbleFrame.window.halfSize.y == SIZE.y / 2);
+            CHECK(bubbleFrame.window.corner == 0);
         }
     }
 
     void flatEndpointAndSplat() {
-        Bubble b;
-        b.begin(Transition::Open, 1, 3, SIZE);
+        Bubble bubble;
+        bubble.begin(Transition::Open, 1, 3, SIZE);
         bool overshoot = false;
         for (int i = 0; i < 100; ++i) {
-            b.advance(0.01);
-            const auto f = b.frame(SIZE);
-            overshoot |= f.window.halfSize.x > SIZE.x / 2 && f.window.halfSize.y > SIZE.y / 2;
-            CHECK(f.window.halfSize.x <= SIZE.x * 0.54 && f.window.halfSize.y <= SIZE.y * 0.54);
+            bubble.advance(0.01);
+            const auto SPLAT_FRAME = bubble.frame(SIZE);
+            overshoot |= SPLAT_FRAME.window.halfSize.x > SIZE.x / 2 &&
+                         SPLAT_FRAME.window.halfSize.y > SIZE.y / 2;
+            CHECK(SPLAT_FRAME.window.halfSize.x <= SIZE.x * 0.54 &&
+                  SPLAT_FRAME.window.halfSize.y <= SIZE.y * 0.54);
         }
-        const auto f = b.frame(SIZE);
+        const auto FRAME = bubble.frame(SIZE);
         CHECK(overshoot);
-        CHECK(!b.active() && !b.closed());
-        CHECK(f.window.halfSize.x == SIZE.x / 2 && f.window.halfSize.y == SIZE.y / 2);
-        CHECK(f.window.corner == 0 && f.window.depth == 0 && f.window.film == 0 &&
-              f.window.ripple == 0);
-        CHECK(f.window.content == 1 && f.window.visibility == 1 && f.shell.visibility == 0);
-        CHECK(f.window.core.x == 0 && f.window.core.y == 0);
+        CHECK(!bubble.active() && !bubble.closed());
+        CHECK(FRAME.window.halfSize.x == SIZE.x / 2 && FRAME.window.halfSize.y == SIZE.y / 2);
+        CHECK(FRAME.window.corner == 0 && FRAME.window.depth == 0 && FRAME.window.film == 0 &&
+              FRAME.window.ripple == 0);
+        CHECK(FRAME.window.content == 1 && FRAME.window.visibility == 1 &&
+              FRAME.shell.visibility == 0);
+        CHECK(FRAME.window.core.x == 0 && FRAME.window.core.y == 0);
     }
 
     void fluidCoreOutlivesTheLanding() {
         for (const Vec2 SIZE : {Vec2{.x = 1400, .y = 300}, Vec2{.x = 300, .y = 1400}, SIZE}) {
-            Bubble b;
-            b.begin(Transition::Open, 1, 3, SIZE);
-            advanceFor(b, 0.64);
-            const double IMPACT = b.frame(SIZE).window.core.x;
+            Bubble bubble;
+            bubble.begin(Transition::Open, 1, 3, SIZE);
+            advanceFor(bubble, 0.64);
+            const double IMPACT = bubble.frame(SIZE).window.core.x;
             CHECK(IMPACT > 0);
-            advanceFor(b, 0.12);
-            CHECK(b.frame(SIZE).window.core.x < 0);  // pressure recoils through the screen plane
-            advanceFor(b, 0.02);
-            const auto LANDED = b.frame(SIZE).window;
+            advanceFor(bubble, 0.12);
+            CHECK(
+                bubble.frame(SIZE).window.core.x < 0);  // pressure recoils through the screen plane
+            advanceFor(bubble, 0.02);
+            const auto LANDED = bubble.frame(SIZE).window;
             CHECK(LANDED.halfSize.x == SIZE.x / 2 && LANDED.halfSize.y == SIZE.y / 2);
             CHECK(LANDED.corner == 0 && LANDED.depth == 0 && LANDED.ripple == 0);
             CHECK(LANDED.content == 1);
             CHECK(std::abs(LANDED.core.x) + std::abs(LANDED.core.y) > 0);
-            advanceFor(b, 0.10);
-            CHECK(b.frame(SIZE).window.core.x >
+            advanceFor(bubble, 0.10);
+            CHECK(bubble.frame(SIZE).window.core.x >
                   0);  // a smaller rebound after the boundary has stopped
-            CHECK(b.frame(SIZE).window.core.x < IMPACT);
-            advanceFor(b, 0.10);
-            CHECK(std::abs(b.frame(SIZE).window.core.x) + std::abs(b.frame(SIZE).window.core.y) <
+            CHECK(bubble.frame(SIZE).window.core.x < IMPACT);
+            advanceFor(bubble, 0.10);
+            CHECK(std::abs(bubble.frame(SIZE).window.core.x) +
+                      std::abs(bubble.frame(SIZE).window.core.y) <
                   IMPACT * 0.1);
-            advanceFor(b, 0.02);
-            CHECK(b.frame(SIZE).window.core.x == 0 && b.frame(SIZE).window.core.y == 0);
-            b.begin(Transition::Close, 1, 9, SIZE);
-            CHECK(b.frame(SIZE).window.core.x == 0 && b.frame(SIZE).window.core.y == 0);
+            advanceFor(bubble, 0.02);
+            CHECK(bubble.frame(SIZE).window.core.x == 0 && bubble.frame(SIZE).window.core.y == 0);
+            bubble.begin(Transition::Close, 1, 9, SIZE);
+            CHECK(bubble.frame(SIZE).window.core.x == 0 && bubble.frame(SIZE).window.core.y == 0);
         }
     }
 
@@ -130,30 +138,32 @@ namespace {
 
     void interruptedCloseIsContinuous() {
         bool inheritedSheet = false;
-        for (const double t : {0.0, 0.2, 0.38, 0.44, 0.55, 0.62, 0.85}) {
-            Bubble b;
-            b.begin(Transition::Open, 1, 9, SIZE);
-            advanceFor(b, t);
-            const auto BEFORE = b.frame(SIZE);
-            b.begin(Transition::Close, .42, 11, SIZE);
-            const auto AFTER = b.frame(SIZE);
-            CHECK(b.active() && !b.opening());
+        for (const double TIME : {0.0, 0.2, 0.38, 0.44, 0.55, 0.62, 0.85}) {
+            Bubble bubble;
+            bubble.begin(Transition::Open, 1, 9, SIZE);
+            advanceFor(bubble, TIME);
+            const auto BEFORE = bubble.frame(SIZE);
+            bubble.begin(Transition::Close, .42, 11, SIZE);
+            const auto AFTER = bubble.frame(SIZE);
+            CHECK(bubble.active() && !bubble.opening());
             CHECK(BEFORE.seed == AFTER.seed);
             checkSurfaceContinuity(BEFORE.window, AFTER.window);
             checkSurfaceContinuity(BEFORE.shell, AFTER.shell);
             CHECK(AFTER.window.ruptureVisibility == BEFORE.window.visibility);
-            if (t == .38) {
+            if (TIME == .38) {
                 CHECK(AFTER.window.ruptureVisibility > 0 && AFTER.window.ruptureVisibility < 1);
             }
-            std::array<BubbleParticle, kBubbleMaxParticles> a{};
-            std::array<BubbleParticle, kBubbleMaxParticles> c{};
-            const auto n = bubbleParticles(BEFORE.shell, a);
-            const auto m = bubbleParticles(AFTER.shell, c);
-            CHECK(n == m);
-            for (std::size_t i = 0; i < std::min(n, m); ++i) {
-                CHECK(a[i].centre.x == c[i].centre.x && a[i].centre.y == c[i].centre.y);
-                CHECK(a[i].radius == c[i].radius && a[i].tail.x == c[i].tail.x &&
-                      a[i].tail.y == c[i].tail.y);
+            std::array<BubbleParticle, kBubbleMaxParticles> beforeParticles{};
+            std::array<BubbleParticle, kBubbleMaxParticles> afterParticles{};
+            const auto BEFORE_COUNT = bubbleParticles(BEFORE.shell, beforeParticles);
+            const auto AFTER_COUNT = bubbleParticles(AFTER.shell, afterParticles);
+            CHECK(BEFORE_COUNT == AFTER_COUNT);
+            for (std::size_t i = 0; i < std::min(BEFORE_COUNT, AFTER_COUNT); ++i) {
+                CHECK(beforeParticles[i].centre.x == afterParticles[i].centre.x &&
+                      beforeParticles[i].centre.y == afterParticles[i].centre.y);
+                CHECK(beforeParticles[i].radius == afterParticles[i].radius &&
+                      beforeParticles[i].tail.x == afterParticles[i].tail.x &&
+                      beforeParticles[i].tail.y == afterParticles[i].tail.y);
             }
             std::array<BubbleSheet, kBubbleMaxSheets> originalSheets{};
             std::array<BubbleSheet, kBubbleMaxSheets> inheritedSheets{};
@@ -164,13 +174,15 @@ namespace {
                 const auto &inherited = inheritedSheets[i];
                 CHECK(old.id == inherited.id && old.birth == inherited.birth);
                 CHECK(old.age == inherited.age && old.scale == inherited.scale);
-                const auto p = bubbleSheetSample(BEFORE.shell, old, old.phi, .5);
-                const auto q = bubbleSheetSample(AFTER.shell, inherited, inherited.phi, .5);
-                CHECK(p.position.x == q.position.x && p.position.y == q.position.y &&
-                      p.position.z == q.position.z);
+                const auto BEFORE_SAMPLE = bubbleSheetSample(BEFORE.shell, old, old.phi, .5);
+                const auto AFTER_SAMPLE =
+                    bubbleSheetSample(AFTER.shell, inherited, inherited.phi, .5);
+                CHECK(BEFORE_SAMPLE.position.x == AFTER_SAMPLE.position.x &&
+                      BEFORE_SAMPLE.position.y == AFTER_SAMPLE.position.y &&
+                      BEFORE_SAMPLE.position.z == AFTER_SAMPLE.position.z);
                 inheritedSheet |= old.scale > 0;
             }
-            Bubble progressingSheets = b;
+            Bubble progressingSheets = bubble;
             advanceFor(progressingSheets, .025);
             const auto PROGRESSED = progressingSheets.frame(SIZE).shell;
             const auto PROGRESSED_COUNT = bubbleSheets(PROGRESSED, inheritedSheets);
@@ -183,27 +195,27 @@ namespace {
                     }
                 }
             }
-            if (t == 0.44 || t == 0.55 || t == 0.62) {
+            if (TIME == 0.44 || TIME == 0.55 || TIME == 0.62) {
                 CHECK(BEFORE.window.visibility > 0 && BEFORE.shell.holes[0].radius > 0);
-                advanceFor(b, 0.05);
-                const auto PROGRESSING = b.frame(SIZE);
+                advanceFor(bubble, 0.05);
+                const auto PROGRESSING = bubble.frame(SIZE);
                 CHECK(PROGRESSING.shell.holes[0].radius >= BEFORE.shell.holes[0].radius);
-            } else if (t <= 0.2) {
+            } else if (TIME <= 0.2) {
                 CHECK(BEFORE.window.visibility == 0);
-                advanceFor(b, 0.1);
-                CHECK(b.frame(SIZE).window.visibility == 0);
+                advanceFor(bubble, 0.1);
+                CHECK(bubble.frame(SIZE).window.visibility == 0);
             }
         }
         CHECK(inheritedSheet);
     }
 
     void interruptedResizeKeepsShellCircular() {
-        Bubble b;
-        b.begin(Transition::Open, 1, 9, SIZE);
-        advanceFor(b, 0.44);
-        b.begin(Transition::Close, 1, 11, SIZE);
-        const auto ORIGINAL = b.frame(SIZE);
-        const auto RESIZED = b.frame({.x = SIZE.x * 1.5, .y = SIZE.y * 0.5});
+        Bubble bubble;
+        bubble.begin(Transition::Open, 1, 9, SIZE);
+        advanceFor(bubble, 0.44);
+        bubble.begin(Transition::Close, 1, 11, SIZE);
+        const auto ORIGINAL = bubble.frame(SIZE);
+        const auto RESIZED = bubble.frame({.x = SIZE.x * 1.5, .y = SIZE.y * 0.5});
         CHECK(ORIGINAL.shell.visibility > 0 && ORIGINAL.shell.holes[0].radius > 0);
         CHECK(RESIZED.shell.halfSize.x == ORIGINAL.shell.halfSize.x * 0.5);
         CHECK(RESIZED.shell.halfSize.y == ORIGINAL.shell.halfSize.y * 0.5);
@@ -215,27 +227,28 @@ namespace {
         CHECK(RESIZED.window.holes[0].centre.x == ORIGINAL.window.holes[0].centre.x * 1.5);
         CHECK(RESIZED.window.holes[0].centre.y == ORIGINAL.window.holes[0].centre.y * .5);
         CHECK(RESIZED.window.speed == ORIGINAL.window.speed * 1.5);
-        CHECK(b.frame(SIZE).window.holes[0].radius == ORIGINAL.window.holes[0].radius);
+        CHECK(bubble.frame(SIZE).window.holes[0].radius == ORIGINAL.window.holes[0].radius);
     }
 
     void ruptureCoversCorners() {
         for (const Vec2 SIZE : {Vec2{.x = 1800, .y = 200}, Vec2{.x = 200, .y = 1800}, SIZE}) {
-            Bubble b;
-            b.begin(Transition::Close, 1, 19, SIZE);
-            auto f = b.frame(SIZE).window;
-            CHECK(f.visibility == 1 && b.frame(SIZE).shell.visibility == 0);
-            CHECK(f.holes[0].centre.x != 0 && f.holes[0].centre.y != 0);
-            CHECK(f.holes[0].radius == 0);
-            advanceFor(b, 0.9);
-            f = b.frame(SIZE).window;
-            const auto &h = f.holes[0];
+            Bubble bubble;
+            bubble.begin(Transition::Close, 1, 19, SIZE);
+            auto film = bubble.frame(SIZE).window;
+            CHECK(film.visibility == 1 && bubble.frame(SIZE).shell.visibility == 0);
+            CHECK(film.holes[0].centre.x != 0 && film.holes[0].centre.y != 0);
+            CHECK(film.holes[0].radius == 0);
+            advanceFor(bubble, 0.9);
+            film = bubble.frame(SIZE).window;
+            const auto &hole = film.holes[0];
             const double FARTHEST = std::hypot(
-                (SIZE.x / 2) + std::abs(h.centre.x), (SIZE.y / 2) + std::abs(h.centre.y));
-            CHECK(h.radius * .95 >= FARTHEST);
-            advanceFor(b, 0.2);
-            CHECK(b.closed() && !b.active());
-            CHECK(b.frame(SIZE).window.visibility == 0 && b.frame(SIZE).shell.visibility == 0);
-            const Box BOUNDS = b.bounds(SIZE);
+                (SIZE.x / 2) + std::abs(hole.centre.x), (SIZE.y / 2) + std::abs(hole.centre.y));
+            CHECK(hole.radius * .95 >= FARTHEST);
+            advanceFor(bubble, 0.2);
+            CHECK(bubble.closed() && !bubble.active());
+            CHECK(bubble.frame(SIZE).window.visibility == 0 &&
+                  bubble.frame(SIZE).shell.visibility == 0);
+            const Box BOUNDS = bubble.bounds(SIZE);
             CHECK(BOUNDS.w == 0 && BOUNDS.h == 0);
         }
     }
@@ -253,34 +266,38 @@ namespace {
     void boundsContainTheSurfaces() {
         for (Vec2 size : {Vec2{.x = 1400, .y = 300}, Vec2{.x = 300, .y = 1400}, SIZE}) {
             const auto check = [&](Transition direction) {
-                Bubble b;
-                b.begin(direction, 1, 8, size);
-                const auto INITIAL = b.frame(size);
+                Bubble bubble;
+                bubble.begin(direction, 1, 8, size);
+                const auto INITIAL = bubble.frame(size);
                 if (direction == Transition::Open) {
                     CHECK(INITIAL.window.visibility == 0 && INITIAL.shell.visibility == 0);
                 }
-                CHECK(b.bounds(size).w > 0 && b.bounds(size).h > 0);
+                CHECK(bubble.bounds(size).w > 0 && bubble.bounds(size).h > 0);
                 for (int i = 0; i < 100; ++i) {
-                    const auto f = b.frame(size);
-                    const auto BOX = b.bounds(size);
-                    checkSurfaceBounds(BOX, size, f.window);
-                    checkSurfaceBounds(BOX, size, f.shell);
+                    const auto FRAME = bubble.frame(size);
+                    const auto BOX = bubble.bounds(size);
+                    checkSurfaceBounds(BOX, size, FRAME.window);
+                    checkSurfaceBounds(BOX, size, FRAME.shell);
                     std::array<BubbleParticle, kBubbleMaxParticles> particles{};
-                    for (const auto *surface : {&f.window, &f.shell}) {
+                    for (const auto *surface : {&FRAME.window, &FRAME.shell}) {
                         const auto COUNT = bubbleParticles(*surface, particles);
                         for (std::size_t j = 0; j < COUNT; ++j) {
-                            const auto &p = particles[j];
-                            CHECK(BOX.x <= size.x / 2 + p.centre.x - p.radius);
-                            CHECK(BOX.x + BOX.w >= size.x / 2 + p.centre.x + p.radius);
-                            CHECK(BOX.y <= size.y / 2 + p.centre.y - p.radius);
-                            CHECK(BOX.y + BOX.h >= size.y / 2 + p.centre.y + p.radius);
-                            CHECK(BOX.x <= size.x / 2 + p.tail.x - p.tailRadius);
-                            CHECK(BOX.x + BOX.w >= size.x / 2 + p.tail.x + p.tailRadius);
-                            CHECK(BOX.y <= size.y / 2 + p.tail.y - p.tailRadius);
-                            CHECK(BOX.y + BOX.h >= size.y / 2 + p.tail.y + p.tailRadius);
+                            const auto &particle = particles[j];
+                            CHECK(BOX.x <= size.x / 2 + particle.centre.x - particle.radius);
+                            CHECK(
+                                BOX.x + BOX.w >= size.x / 2 + particle.centre.x + particle.radius);
+                            CHECK(BOX.y <= size.y / 2 + particle.centre.y - particle.radius);
+                            CHECK(
+                                BOX.y + BOX.h >= size.y / 2 + particle.centre.y + particle.radius);
+                            CHECK(BOX.x <= size.x / 2 + particle.tail.x - particle.tailRadius);
+                            CHECK(BOX.x + BOX.w >=
+                                  size.x / 2 + particle.tail.x + particle.tailRadius);
+                            CHECK(BOX.y <= size.y / 2 + particle.tail.y - particle.tailRadius);
+                            CHECK(BOX.y + BOX.h >=
+                                  size.y / 2 + particle.tail.y + particle.tailRadius);
                         }
                     }
-                    b.advance(0.01);
+                    bubble.advance(0.01);
                 }
             };
             check(Transition::Open);
@@ -300,42 +317,43 @@ namespace {
 
     void localizedRuptureAndCoverage() {
         for (const Vec2 SIZE : {Vec2{.x = 1800, .y = 200}, Vec2{.x = 200, .y = 1800}, SIZE}) {
-            Bubble b;
-            b.begin(Transition::Close, .42, 19, SIZE);
-            advanceFor(b, .42 * .149);
-            auto s = b.frame(SIZE).window;
-            CHECK(s.holes[0].radius == 0);
-            CHECK(s.holes[0].precursor > .9);
-            CHECK(s.film == 0);
-            for (std::size_t i = 1; i < s.holeCount; ++i) {
+            Bubble bubble;
+            bubble.begin(Transition::Close, .42, 19, SIZE);
+            advanceFor(bubble, .42 * .149);
+            auto surface = bubble.frame(SIZE).window;
+            CHECK(surface.holes[0].radius == 0);
+            CHECK(surface.holes[0].precursor > .9);
+            CHECK(surface.film == 0);
+            for (std::size_t i = 1; i < surface.holeCount; ++i) {
                 Bubble probe;
                 probe.begin(Transition::Close, .42, 19, SIZE);
-                advanceFor(probe, .42 * s.holes[i].start);
+                advanceFor(probe, .42 * surface.holes[i].start);
                 const auto AT_BIRTH = probe.frame(SIZE).window;
                 CHECK(AT_BIRTH.holes[i].start > AT_BIRTH.holes[0].start);
                 for (std::size_t j = 0; j < i; ++j) {
-                    const auto &h = AT_BIRTH.holes[j];
-                    const auto p = AT_BIRTH.holes[i].centre;
-                    CHECK(std::hypot(p.x - h.centre.x, p.y - h.centre.y) >
-                          bubbleHoleBoundary(h, bubbleHoleAzimuth(h, p, false)));
+                    const auto &priorHole = AT_BIRTH.holes[j];
+                    const auto CENTRE = AT_BIRTH.holes[i].centre;
+                    CHECK(
+                        std::hypot(CENTRE.x - priorHole.centre.x, CENTRE.y - priorHole.centre.y) >
+                        bubbleHoleBoundary(priorHole, bubbleHoleAzimuth(priorHole, CENTRE, false)));
                 }
             }
-            advanceFor(b, .42 * .21);
-            const auto FIRST = b.frame(SIZE).window;
-            advanceFor(b, .42 * .10);
-            const auto SECOND = b.frame(SIZE).window;
+            advanceFor(bubble, .42 * .21);
+            const auto FIRST = bubble.frame(SIZE).window;
+            advanceFor(bubble, .42 * .10);
+            const auto SECOND = bubble.frame(SIZE).window;
             CHECK(std::abs((SECOND.holes[0].radius - FIRST.holes[0].radius) - SECOND.speed * .1) <
                   SECOND.speed * .006);
-            advanceFor(b, .42 * .151);
-            s = b.frame(SIZE).window;
-            for (int y = -5; y <= 5; ++y) {
-                for (int x = -5; x <= 5; ++x) {
-                    const Vec3 p{.x = SIZE.x * .1 * x, .y = SIZE.y * .1 * y, .z = 0};
+            advanceFor(bubble, .42 * .151);
+            surface = bubble.frame(SIZE).window;
+            for (int row = -5; row <= 5; ++row) {
+                for (int col = -5; col <= 5; ++col) {
+                    const Vec3 POINT{.x = SIZE.x * .1 * col, .y = SIZE.y * .1 * row, .z = 0};
                     bool covered = false;
-                    for (std::size_t i = 0; i < s.holeCount; ++i) {
-                        const auto &h = s.holes[i];
-                        covered |= std::hypot(p.x - h.centre.x, p.y - h.centre.y) <=
-                                   bubbleHoleBoundary(h, bubbleHoleAzimuth(h, p, false));
+                    for (std::size_t i = 0; i < surface.holeCount; ++i) {
+                        const auto &hole = surface.holes[i];
+                        covered |= std::hypot(POINT.x - hole.centre.x, POINT.y - hole.centre.y) <=
+                                   bubbleHoleBoundary(hole, bubbleHoleAzimuth(hole, POINT, false));
                     }
                     CHECK(covered);
                 }
@@ -344,57 +362,59 @@ namespace {
     }
 
     void precursorAndRemnants() {
-        Bubble b;
-        b.begin(Transition::Close, .42, 42, SIZE);
-        auto s = b.frame(SIZE).window;
-        CHECK(s.film == 0 && s.thickness >= 380 && s.thickness <= 650);
-        advanceFor(b, .42 * .02);
-        CHECK(b.frame(SIZE).window.holes[0].precursor > 0);
-        advanceFor(b, .42 * .13);
-        CHECK(b.frame(SIZE).window.holes[0].radius < 1e-8);
-        advanceFor(b, 1.0 / 60);
-        s = b.frame(SIZE).window;
-        CHECK(s.holes[0].radius < .05 * std::min(s.halfSize.x, s.halfSize.y));
-        advanceFor(b, .42 * .20);
-        s = b.frame(SIZE).window;
+        Bubble bubble;
+        bubble.begin(Transition::Close, .42, 42, SIZE);
+        auto surface = bubble.frame(SIZE).window;
+        CHECK(surface.film == 0 && surface.thickness >= 380 && surface.thickness <= 650);
+        advanceFor(bubble, .42 * .02);
+        CHECK(bubble.frame(SIZE).window.holes[0].precursor > 0);
+        advanceFor(bubble, .42 * .13);
+        CHECK(bubble.frame(SIZE).window.holes[0].radius < 1e-8);
+        advanceFor(bubble, 1.0 / 60);
+        surface = bubble.frame(SIZE).window;
+        CHECK(surface.holes[0].radius < .05 * std::min(surface.halfSize.x, surface.halfSize.y));
+        advanceFor(bubble, .42 * .20);
+        surface = bubble.frame(SIZE).window;
         std::array<BubbleParticle, kBubbleMaxParticles> particles{};
-        auto n = bubbleParticles(s, particles);
+        auto count = bubbleParticles(surface, particles);
         std::size_t ligaments = 0;
-        for (std::size_t i = 0; i < n; ++i) {
+        for (std::size_t i = 0; i < count; ++i) {
             ligaments += static_cast<std::size_t>(particles[i].tailRadius > 0);
         }
         CHECK(ligaments > 0);
-        advanceFor(b, .42 * .42);
-        s = b.frame(SIZE).window;
-        n = bubbleParticles(s, particles);
-        CHECK(n > 0);
-        advanceFor(b, .42 * .2);
-        CHECK(b.closed());
-        CHECK(bubbleParticles(b.frame(SIZE).window, particles) == 0);
+        advanceFor(bubble, .42 * .42);
+        surface = bubble.frame(SIZE).window;
+        count = bubbleParticles(surface, particles);
+        CHECK(count > 0);
+        advanceFor(bubble, .42 * .2);
+        CHECK(bubble.closed());
+        CHECK(bubbleParticles(bubble.frame(SIZE).window, particles) == 0);
     }
 
     void sphericalCoverage() {
-        constexpr double pi = 3.14159265358979323846;
+        constexpr double PI_VALUE = 3.14159265358979323846;
         for (std::uint64_t seed = 0; seed < 32; ++seed) {
-            Bubble b;
-            b.begin(Transition::Open, .62, seed, SIZE);
-            advanceFor(b, .62 * .55);
-            const auto s = b.frame(SIZE).shell;
-            for (int y = 0; y <= 20; ++y) {
-                const double z = 1 - (y * .1);
-                const double RADIAL = std::sqrt(std::max(0.0, 1 - (z * z)));
-                for (int x = 0; x < 40; ++x) {
-                    const double ANGLE = 2 * pi * x / 40;
-                    const Vec3 p{
-                        .x = RADIAL * std::cos(ANGLE), .y = RADIAL * std::sin(ANGLE), .z = z};
+            Bubble bubble;
+            bubble.begin(Transition::Open, .62, seed, SIZE);
+            advanceFor(bubble, .62 * .55);
+            const auto SHELL = bubble.frame(SIZE).shell;
+            for (int row = 0; row <= 20; ++row) {
+                const double HEIGHT = 1 - (row * .1);
+                const double RADIAL = std::sqrt(std::max(0.0, 1 - (HEIGHT * HEIGHT)));
+                for (int col = 0; col < 40; ++col) {
+                    const double ANGLE = 2 * PI_VALUE * col / 40;
+                    const Vec3 POINT{
+                        .x = RADIAL * std::cos(ANGLE), .y = RADIAL * std::sin(ANGLE), .z = HEIGHT};
                     bool covered = false;
-                    for (std::size_t i = 0; i < s.holeCount; ++i) {
-                        const auto &h = s.holes[i];
-                        const double d = std::acos(
-                            std::clamp((p.x * h.centre.x) + (p.y * h.centre.y) + (p.z * h.centre.z),
+                    for (std::size_t i = 0; i < SHELL.holeCount; ++i) {
+                        const auto &hole = SHELL.holes[i];
+                        const double DISTANCE = std::acos(
+                            std::clamp((POINT.x * hole.centre.x) + (POINT.y * hole.centre.y) +
+                                           (POINT.z * hole.centre.z),
                                 -1.0,
                                 1.0));
-                        covered |= d <= bubbleHoleBoundary(h, bubbleHoleAzimuth(h, p, true));
+                        covered |= DISTANCE <=
+                                   bubbleHoleBoundary(hole, bubbleHoleAzimuth(hole, POINT, true));
                     }
                     CHECK(covered);
                 }
@@ -405,18 +425,19 @@ namespace {
     void seededFlatCoverage() {
         for (const Vec2 SIZE : {Vec2{.x = 1800, .y = 200}, Vec2{.x = 200, .y = 1800}, SIZE}) {
             for (std::uint64_t seed = 0; seed < 16; ++seed) {
-                Bubble b;
-                b.begin(Transition::Close, .42, seed, SIZE);
-                advanceFor(b, .42 * .62);
-                const auto s = b.frame(SIZE).window;
-                for (int y = -3; y <= 3; ++y) {
-                    for (int x = -3; x <= 3; ++x) {
-                        const Vec3 p{.x = x * SIZE.x / 6, .y = y * SIZE.y / 6, .z = 0};
+                Bubble bubble;
+                bubble.begin(Transition::Close, .42, seed, SIZE);
+                advanceFor(bubble, .42 * .62);
+                const auto SURFACE = bubble.frame(SIZE).window;
+                for (int row = -3; row <= 3; ++row) {
+                    for (int col = -3; col <= 3; ++col) {
+                        const Vec3 POINT{.x = col * SIZE.x / 6, .y = row * SIZE.y / 6, .z = 0};
                         bool covered = false;
-                        for (std::size_t i = 0; i < s.holeCount; ++i) {
-                            const auto &h = s.holes[i];
-                            covered |= std::hypot(p.x - h.centre.x, p.y - h.centre.y) <=
-                                       bubbleHoleBoundary(h, bubbleHoleAzimuth(h, p, false));
+                        for (std::size_t i = 0; i < SURFACE.holeCount; ++i) {
+                            const auto &hole = SURFACE.holes[i];
+                            covered |=
+                                std::hypot(POINT.x - hole.centre.x, POINT.y - hole.centre.y) <=
+                                bubbleHoleBoundary(hole, bubbleHoleAzimuth(hole, POINT, false));
                         }
                         CHECK(covered);
                     }
@@ -426,19 +447,20 @@ namespace {
     }
 
     void impactsUseAnimationTime() {
-        Bubble b;
-        b.begin(Transition::Close, .42, 19, SIZE);
-        const auto FIRST = b.frame(SIZE).window;
-        std::array<BubbleImpact, kBubbleMaxImpacts> a{};
-        std::array<BubbleImpact, kBubbleMaxImpacts> c{};
-        const auto n = bubbleImpacts(FIRST, a);
-        CHECK(n <= kBubbleMaxImpacts);
-        advanceFor(b, .01);
-        const auto m = bubbleImpacts(b.frame(SIZE).window, c);
-        CHECK(n == m);
-        for (std::size_t i = 0; i < n; ++i) {
-            CHECK(std::abs((a[i].delay - c[i].delay) - .01) < 1e-10);
-            CHECK(a[i].position.x == c[i].position.x && a[i].position.y == c[i].position.y);
+        Bubble bubble;
+        bubble.begin(Transition::Close, .42, 19, SIZE);
+        const auto FIRST = bubble.frame(SIZE).window;
+        std::array<BubbleImpact, kBubbleMaxImpacts> firstImpacts{};
+        std::array<BubbleImpact, kBubbleMaxImpacts> laterImpacts{};
+        const auto FIRST_COUNT = bubbleImpacts(FIRST, firstImpacts);
+        CHECK(FIRST_COUNT <= kBubbleMaxImpacts);
+        advanceFor(bubble, .01);
+        const auto LATER_COUNT = bubbleImpacts(bubble.frame(SIZE).window, laterImpacts);
+        CHECK(FIRST_COUNT == LATER_COUNT);
+        for (std::size_t i = 0; i < FIRST_COUNT; ++i) {
+            CHECK(std::abs((firstImpacts[i].delay - laterImpacts[i].delay) - .01) < 1e-10);
+            CHECK(firstImpacts[i].position.x == laterImpacts[i].position.x &&
+                  firstImpacts[i].position.y == laterImpacts[i].position.y);
         }
     }
 
@@ -446,12 +468,12 @@ namespace {
         for (const auto SEED : {42ULL, 7ULL, 99ULL, 1234ULL}) {
             for (const auto DIRECTION : {Transition::Open, Transition::Close}) {
                 const bool OPENING = DIRECTION == Transition::Open;
-                Bubble b;
-                b.begin(DIRECTION, OPENING ? .62 : .42, SEED, {.x = 900, .y = 560});
+                Bubble bubble;
+                bubble.begin(DIRECTION, OPENING ? .62 : .42, SEED, {.x = 900, .y = 560});
                 if (OPENING) {
-                    advanceFor(b, .62 * .31);
+                    advanceFor(bubble, .62 * .31);
                 }
-                auto frame = b.frame({.x = 900, .y = 560});
+                auto frame = bubble.frame({.x = 900, .y = 560});
                 auto surface = OPENING ? frame.shell : frame.window;
                 std::array<BubbleImpact, kBubbleMaxImpacts> impacts{};
                 const auto COUNT = bubbleImpacts(surface, impacts);
@@ -466,26 +488,26 @@ namespace {
                     continue;
                 }
                 CHECK(impacts[0].delay > .00002);
-                advanceFor(b, impacts[0].delay - .00001);
-                frame = b.frame({.x = 900, .y = 560});
+                advanceFor(bubble, impacts[0].delay - .00001);
+                frame = bubble.frame({.x = 900, .y = 560});
                 surface = OPENING ? frame.shell : frame.window;
                 std::array<detail::IdentifiedParticle, kBubbleMaxParticles> particles{};
                 const auto BEFORE = detail::bubbleParticlesWithIds(surface, particles);
                 std::uint32_t source = 0;
                 bool found = false;
                 for (std::size_t i = 0; i < BEFORE; ++i) {
-                    const auto &p = particles[i];
-                    if (p.particle.blur > .95 &&
-                        std::hypot(p.particle.centre.x - impacts[0].position.x,
-                            p.particle.centre.y - impacts[0].position.y) < 1) {
-                        source = p.id;
+                    const auto &drop = particles[i];
+                    if (drop.particle.blur > .95 &&
+                        std::hypot(drop.particle.centre.x - impacts[0].position.x,
+                            drop.particle.centre.y - impacts[0].position.y) < 1) {
+                        source = drop.id;
                         found = true;
                         break;
                     }
                 }
                 CHECK(found);
-                advanceFor(b, .00002);
-                frame = b.frame({.x = 900, .y = 560});
+                advanceFor(bubble, .00002);
+                frame = bubble.frame({.x = 900, .y = 560});
                 surface = OPENING ? frame.shell : frame.window;
                 const auto AFTER = detail::bubbleParticlesWithIds(surface, particles);
                 for (std::size_t i = 0; found && i < AFTER; ++i) {
@@ -496,40 +518,41 @@ namespace {
     }
 
     void particleContinuityAndEvaporation() {
-        Bubble b;
-        b.begin(Transition::Close, .42, 19, SIZE);
+        Bubble bubble;
+        bubble.begin(Transition::Close, .42, 19, SIZE);
         std::array<detail::IdentifiedParticle, kBubbleMaxParticles> previous{};
         std::array<detail::IdentifiedParticle, kBubbleMaxParticles> current{};
         std::size_t oldCount = 0;
         std::size_t peak = 0;
         bool burst = false;
         for (int frame = 0; frame < 101; ++frame) {
-            const auto s = b.frame(SIZE).window;
-            const auto COUNT = detail::bubbleParticlesWithIds(s, current);
+            const auto SURFACE = bubble.frame(SIZE).window;
+            const auto COUNT = detail::bubbleParticlesWithIds(SURFACE, current);
             peak = std::max(peak, COUNT);
             for (std::size_t i = 0; i < COUNT; ++i) {
-                const auto &p = current[i];
-                burst |= p.id >= 1000 && p.id < 2000;
+                const auto &currentParticle = current[i];
+                burst |= currentParticle.id >= 1000 && currentParticle.id < 2000;
                 for (std::size_t j = 0; j < oldCount; ++j) {
-                    if (previous[j].id != p.id) {
+                    if (previous[j].id != currentParticle.id) {
                         continue;
                     }
-                    const auto &q = previous[j].particle;
-                    const bool ATTACHED = p.id >= 2000 && p.id < 3000;
+                    const auto &priorParticle = previous[j].particle;
+                    const bool ATTACHED = currentParticle.id >= 2000 && currentParticle.id < 3000;
                     // Attached ligaments follow the rolling film, not just the puncture front.
-                    const double SPEED_LIMIT = s.speed * (ATTACHED ? 2 : 1);
-                    CHECK(std::hypot(p.particle.centre.x - q.centre.x,
-                              p.particle.centre.y - q.centre.y) <= SPEED_LIMIT * .01 + 2);
+                    const double SPEED_LIMIT = SURFACE.speed * (ATTACHED ? 2 : 1);
+                    CHECK(std::hypot(currentParticle.particle.centre.x - priorParticle.centre.x,
+                              currentParticle.particle.centre.y - priorParticle.centre.y) <=
+                          SPEED_LIMIT * .01 + 2);
                     if (ATTACHED) {
-                        CHECK(p.particle.radius + 1e-9 >= q.radius);
-                    } else if (p.particle.blur == 0 && q.blur == 0) {
-                        CHECK(p.particle.radius <= q.radius + 1e-9);
+                        CHECK(currentParticle.particle.radius + 1e-9 >= priorParticle.radius);
+                    } else if (currentParticle.particle.blur == 0 && priorParticle.blur == 0) {
+                        CHECK(currentParticle.particle.radius <= priorParticle.radius + 1e-9);
                     }
                 }
             }
             previous = current;
             oldCount = COUNT;
-            b.advance(.0042);
+            bubble.advance(.0042);
         }
         CHECK(peak > 0 && peak <= kBubbleMaxParticles);
         CHECK(burst);
@@ -537,13 +560,13 @@ namespace {
     }
 
     void fingersStartGradually() {
-        Bubble b;
-        b.begin(Transition::Close, .42, 42, SIZE);
-        advanceFor(b, .42 * .17);
-        auto s = b.frame(SIZE).window;
-        CHECK(s.holes[0].radius < std::max(24.0, .08 * s.halfSize.y));
+        Bubble bubble;
+        bubble.begin(Transition::Close, .42, 42, SIZE);
+        advanceFor(bubble, .42 * .17);
+        auto surface = bubble.frame(SIZE).window;
+        CHECK(surface.holes[0].radius < std::max(24.0, .08 * surface.halfSize.y));
         std::array<detail::IdentifiedParticle, kBubbleMaxParticles> particles{};
-        CHECK(detail::bubbleParticlesWithIds(s, particles) == 0);
+        CHECK(detail::bubbleParticlesWithIds(surface, particles) == 0);
         Bubble shell;
         shell.begin(Transition::Open, .62, 42, SIZE);
         advanceFor(shell, .62 * .32);
@@ -554,9 +577,9 @@ namespace {
         bool varied = false;
         bool satellite = false;
         for (int frame = 0; frame < 20; ++frame) {
-            b.advance(.005);
-            s = b.frame(SIZE).window;
-            const auto COUNT = detail::bubbleParticlesWithIds(s, particles);
+            bubble.advance(.005);
+            surface = bubble.frame(SIZE).window;
+            const auto COUNT = detail::bubbleParticlesWithIds(surface, particles);
             double shortest = 1e9;
             double longest = 0;
             std::size_t forming = 0;
@@ -571,14 +594,14 @@ namespace {
                         CHECK(particles[i].particle.radius < particles[j].particle.radius);
                     }
                 }
-                const auto &p = particles[i];
-                if (p.id < 2000 || p.id >= 3000) {
+                const auto &drop = particles[i];
+                if (drop.id < 2000 || drop.id >= 3000) {
                     continue;
                 }
                 ++forming;
-                CHECK(p.particle.radius > p.particle.tailRadius);
-                const double LENGTH = std::hypot(p.particle.centre.x - p.particle.tail.x,
-                    p.particle.centre.y - p.particle.tail.y);
+                CHECK(drop.particle.radius > drop.particle.tailRadius);
+                const double LENGTH = std::hypot(drop.particle.centre.x - drop.particle.tail.x,
+                    drop.particle.centre.y - drop.particle.tail.y);
                 shortest = std::min(shortest, LENGTH);
                 longest = std::max(longest, LENGTH);
             }
@@ -606,35 +629,35 @@ namespace {
             CHECK(std::hypot(SAMPLE.position.x - BASE.x, SAMPLE.position.z - BASE.z) <=
                   SECTION.width + 1e-9);
         }
-        Bubble b;
-        b.begin(Transition::Close, .42, 42, SIZE);
+        Bubble bubble;
+        bubble.begin(Transition::Close, .42, 42, SIZE);
         std::array<detail::IdentifiedParticle, kBubbleMaxParticles> particles{};
         bool attached = false;
         for (int frame = 0; frame < 90; ++frame) {
-            const auto s = b.frame(SIZE).window;
-            const auto COUNT = detail::bubbleParticlesWithIds(s, particles);
+            const auto SURFACE = bubble.frame(SIZE).window;
+            const auto COUNT = detail::bubbleParticlesWithIds(SURFACE, particles);
             for (std::size_t i = 0; i < COUNT; ++i) {
-                const auto &p = particles[i];
-                if (p.id < 2000 || p.id >= 3000) {
+                const auto &drop = particles[i];
+                if (drop.id < 2000 || drop.id >= 3000) {
                     continue;
                 }
-                const std::size_t hi = (p.id - 2000) / 104;
-                const auto &h = s.holes[hi];
-                const double PHI =
-                    std::atan2(p.particle.tail.y - h.centre.y, p.particle.tail.x - h.centre.x);
-                const auto EXPECTED = bubblePeelSample(s, h, PHI, 1);
-                CHECK(std::hypot(EXPECTED.position.x - p.particle.tail.x,
-                          EXPECTED.position.y - p.particle.tail.y) < 1e-6);
+                const std::size_t HOLE_INDEX = (drop.id - 2000) / 104;
+                const auto &sourceHole = SURFACE.holes[HOLE_INDEX];
+                const double PHI = std::atan2(drop.particle.tail.y - sourceHole.centre.y,
+                    drop.particle.tail.x - sourceHole.centre.x);
+                const auto EXPECTED = bubblePeelSample(SURFACE, sourceHole, PHI, 1);
+                CHECK(std::hypot(EXPECTED.position.x - drop.particle.tail.x,
+                          EXPECTED.position.y - drop.particle.tail.y) < 1e-6);
                 attached = true;
             }
-            b.advance(.0042);
+            bubble.advance(.0042);
         }
         CHECK(attached);
     }
 
     void sheetsContract() {
-        Bubble b;
-        b.begin(Transition::Close, 2.0, 19, SIZE);
+        Bubble bubble;
+        bubble.begin(Transition::Close, 2.0, 19, SIZE);
         std::array<BubbleSheet, kBubbleMaxSheets> sheets{};
         std::array<BubbleSheet, kBubbleMaxSheets> again{};
         bool born = false;
@@ -643,10 +666,10 @@ namespace {
         std::array<std::uint32_t, kBubbleMaxSheets> retired{};
         std::size_t retiredCount = 0;
         for (int frame = 0; frame < 999; ++frame) {
-            const auto s = b.frame(SIZE).window;
-            const auto COUNT = bubbleSheets(s, sheets);
+            const auto SURFACE = bubble.frame(SIZE).window;
+            const auto COUNT = bubbleSheets(SURFACE, sheets);
             CHECK(COUNT <= kBubbleMaxSheets);
-            CHECK(bubbleSheets(s, again) == COUNT);
+            CHECK(bubbleSheets(SURFACE, again) == COUNT);
             for (std::size_t i = 0; i < COUNT; ++i) {
                 const auto &sheet = sheets[i];
                 CHECK(sheet.id == again[i].id && sheet.birth == again[i].birth);
@@ -662,7 +685,7 @@ namespace {
                 }
                 CHECK(sheet.halfAngle > 0 && sheet.halfAngle <= .35);
                 CHECK(sheet.scale >= 0 && sheet.scale <= 1);
-                auto birth = s;
+                auto birth = SURFACE;
                 birth.clock = sheet.birth;
                 std::array<BubbleSheet, kBubbleMaxSheets> atBirth{};
                 const auto BIRTH_COUNT = bubbleSheets(birth, atBirth);
@@ -670,12 +693,13 @@ namespace {
                     if (atBirth[j].id != sheet.id) {
                         continue;
                     }
-                    auto h = birth.holes[sheet.hole];
-                    h.radius = sheet.radii[sheet.hole];
-                    for (std::size_t m = 0; m < h.amplitude.size(); ++m) {
-                        h.amplitude[m] = sheet.onsets[sheet.hole] * (.014 - (.002 * m));
+                    auto birthHole = birth.holes[sheet.hole];
+                    birthHole.radius = sheet.radii[sheet.hole];
+                    for (std::size_t mode = 0; mode < birthHole.amplitude.size(); ++mode) {
+                        birthHole.amplitude[mode] =
+                            sheet.onsets[sheet.hole] * (.014 - (.002 * mode));
                     }
-                    const auto SOURCE = bubblePeelSample(birth, h, sheet.phi, .5);
+                    const auto SOURCE = bubblePeelSample(birth, birthHole, sheet.phi, .5);
                     const auto DETACHED = bubbleSheetSample(birth, atBirth[j], sheet.phi, .5);
                     CHECK(std::hypot(SOURCE.position.x - DETACHED.position.x,
                               SOURCE.position.y - DETACHED.position.y) < 1e-8);
@@ -683,11 +707,12 @@ namespace {
                     CHECK(std::abs(SOURCE.normal.x - DETACHED.normal.x) < 1e-8);
                     CHECK(std::abs(SOURCE.normal.y - DETACHED.normal.y) < 1e-8);
                     CHECK(std::abs(SOURCE.normal.z - DETACHED.normal.z) < 1e-8);
-                    const double BOUNDARY = bubbleHoleBoundary(h, sheet.phi);
-                    const double WIDTH = bubbleCurlSection(birth, h, BOUNDARY, sheet.phi).width;
+                    const double BOUNDARY = bubbleHoleBoundary(birthHole, sheet.phi);
+                    const double WIDTH =
+                        bubbleCurlSection(birth, birthHole, BOUNDARY, sheet.phi).width;
                     const Vec3 MATERIAL{
-                        .x = h.centre.x + ((BOUNDARY + (WIDTH * .5)) * std::cos(sheet.phi)),
-                        .y = h.centre.y + ((BOUNDARY + (WIDTH * .5)) * std::sin(sheet.phi)),
+                        .x = birthHole.centre.x + ((BOUNDARY + (WIDTH * .5)) * std::cos(sheet.phi)),
+                        .y = birthHole.centre.y + ((BOUNDARY + (WIDTH * .5)) * std::sin(sheet.phi)),
                         .z = 0};
                     CHECK(bubbleSheetContains(birth, sheet, MATERIAL));
                     born = true;
@@ -695,32 +720,34 @@ namespace {
                 moved |= sheet.age > 0 && sheet.scale < 1 && sheet.scale > 0 &&
                          std::hypot(sheet.translation.x, sheet.translation.y) > 0;
                 expired |= sheet.scale == 0;
-                const auto BOX = b.bounds(SIZE);
+                const auto BOX = bubble.bounds(SIZE);
                 for (const double OFFSET : {-1.0, 0.0, 1.0}) {
-                    for (const double u : {0.0, .5, 1.0}) {
-                        const auto p =
-                            bubbleSheetSample(s, sheet, sheet.phi + (OFFSET * sheet.halfAngle), u)
-                                .position;
-                        CHECK(p.x + SIZE.x * .5 >= BOX.x && p.x + SIZE.x * .5 <= BOX.x + BOX.w);
-                        CHECK(p.y + SIZE.y * .5 >= BOX.y && p.y + SIZE.y * .5 <= BOX.y + BOX.h);
+                    for (const double FRACTION : {0.0, .5, 1.0}) {
+                        const auto POINT = bubbleSheetSample(
+                            SURFACE, sheet, sheet.phi + (OFFSET * sheet.halfAngle), FRACTION)
+                                               .position;
+                        CHECK(POINT.x + SIZE.x * .5 >= BOX.x &&
+                              POINT.x + SIZE.x * .5 <= BOX.x + BOX.w);
+                        CHECK(POINT.y + SIZE.y * .5 >= BOX.y &&
+                              POINT.y + SIZE.y * .5 <= BOX.y + BOX.h);
                     }
                 }
             }
-            b.advance(.002);
+            bubble.advance(.002);
         }
         CHECK(born && moved && expired);
     }
 
     void pinchBirthIsContinuous() {
-        Bubble b;
-        b.begin(Transition::Close, .42, 42, SIZE);
+        Bubble bubble;
+        bubble.begin(Transition::Close, .42, 42, SIZE);
         std::array<detail::IdentifiedParticle, kBubbleMaxParticles> previous{};
         std::array<detail::IdentifiedParticle, kBubbleMaxParticles> current{};
         std::size_t oldCount = 0;
         bool observed = false;
         for (int frame = 0; frame < 2000; ++frame) {
-            const auto s = b.frame(SIZE).window;
-            const auto COUNT = detail::bubbleParticlesWithIds(s, current);
+            const auto SURFACE = bubble.frame(SIZE).window;
+            const auto COUNT = detail::bubbleParticlesWithIds(SURFACE, current);
             for (std::size_t i = 0; i < COUNT; ++i) {
                 if (current[i].id >= 2000) {
                     continue;
@@ -729,18 +756,20 @@ namespace {
                     if (previous[j].id != current[i].id + 2000) {
                         continue;
                     }
-                    const auto &a = previous[j].particle;
-                    const auto &p = current[i].particle;
-                    CHECK(std::hypot(a.centre.x - p.centre.x, a.centre.y - p.centre.y) <
-                          s.speed * s.rate * .00021 + 1);
-                    CHECK(std::hypot(a.tail.x - p.tail.x, a.tail.y - p.tail.y) <
-                          s.speed * s.rate * .00021 + 1);
+                    const auto &priorParticle = previous[j].particle;
+                    const auto &currentParticle = current[i].particle;
+                    CHECK(std::hypot(priorParticle.centre.x - currentParticle.centre.x,
+                              priorParticle.centre.y - currentParticle.centre.y) <
+                          SURFACE.speed * SURFACE.rate * .00021 + 1);
+                    CHECK(std::hypot(priorParticle.tail.x - currentParticle.tail.x,
+                              priorParticle.tail.y - currentParticle.tail.y) <
+                          SURFACE.speed * SURFACE.rate * .00021 + 1);
                     observed = true;
                 }
             }
             previous = current;
             oldCount = COUNT;
-            b.advance(.00021);
+            bubble.advance(.00021);
         }
         CHECK(observed);
     }
@@ -768,30 +797,32 @@ namespace {
     }
 
     void deterministicAndInvalidInput() {
-        Bubble a;
-        Bubble b;
-        a.begin(Transition::Open, 1, 55, SIZE);
-        b.begin(Transition::Open, 1, 55, SIZE);
-        advanceFor(a, 0.84, 0.01);
-        advanceFor(b, 0.84, 0.02);
-        const auto x = a.frame(SIZE);
-        const auto y = b.frame(SIZE);
-        CHECK(std::abs(x.window.halfSize.x - y.window.halfSize.x) < 1e-9);
-        CHECK(std::abs(x.window.depth - y.window.depth) < 1e-9 && x.seed == y.seed);
-        CHECK(std::abs(x.window.core.x - y.window.core.x) < 1e-9 &&
-              std::abs(x.window.core.y - y.window.core.y) < 1e-9);
-        a.advance(-1);
-        a.advance(std::numeric_limits<double>::quiet_NaN());
-        CHECK(a.frame(SIZE).window.halfSize.x == x.window.halfSize.x);
-        a.advance(30);
-        CHECK(std::isfinite(a.frame(SIZE).window.halfSize.x));
-        a.reset();
-        CHECK(!a.active() && !a.closed());
-        a.begin(Transition::Close, 0, 1, SIZE);
-        CHECK(!a.active() && !a.closed());
-        a.begin(Transition::Open, 1, 1, {.x = 0, .y = 100});
-        CHECK(!a.active());
-        const Box INVALID = a.bounds({.x = std::numeric_limits<double>::infinity(), .y = 2});
+        Bubble firstBubble;
+        Bubble bubble;
+        firstBubble.begin(Transition::Open, 1, 55, SIZE);
+        bubble.begin(Transition::Open, 1, 55, SIZE);
+        advanceFor(firstBubble, 0.84, 0.01);
+        advanceFor(bubble, 0.84, 0.02);
+        const auto FIRST_FRAME = firstBubble.frame(SIZE);
+        const auto SECOND_FRAME = bubble.frame(SIZE);
+        CHECK(std::abs(FIRST_FRAME.window.halfSize.x - SECOND_FRAME.window.halfSize.x) < 1e-9);
+        CHECK(std::abs(FIRST_FRAME.window.depth - SECOND_FRAME.window.depth) < 1e-9 &&
+              FIRST_FRAME.seed == SECOND_FRAME.seed);
+        CHECK(std::abs(FIRST_FRAME.window.core.x - SECOND_FRAME.window.core.x) < 1e-9 &&
+              std::abs(FIRST_FRAME.window.core.y - SECOND_FRAME.window.core.y) < 1e-9);
+        firstBubble.advance(-1);
+        firstBubble.advance(std::numeric_limits<double>::quiet_NaN());
+        CHECK(firstBubble.frame(SIZE).window.halfSize.x == FIRST_FRAME.window.halfSize.x);
+        firstBubble.advance(30);
+        CHECK(std::isfinite(firstBubble.frame(SIZE).window.halfSize.x));
+        firstBubble.reset();
+        CHECK(!firstBubble.active() && !firstBubble.closed());
+        firstBubble.begin(Transition::Close, 0, 1, SIZE);
+        CHECK(!firstBubble.active() && !firstBubble.closed());
+        firstBubble.begin(Transition::Open, 1, 1, {.x = 0, .y = 100});
+        CHECK(!firstBubble.active());
+        const Box INVALID =
+            firstBubble.bounds({.x = std::numeric_limits<double>::infinity(), .y = 2});
         CHECK(INVALID.w == 0 && INVALID.h == 0);
     }
 }  // namespace
