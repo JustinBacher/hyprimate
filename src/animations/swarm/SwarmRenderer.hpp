@@ -22,6 +22,7 @@ class CSwarmSprites {
         std::vector<hyprimate::SpriteFrame> frames;  // one per walk frame, in cycle order
         double forward = 0.0;  // heading the creature faces in the sheet
         double stride = 1.0;  // body lengths walked per cycle
+        double coreShare = 0.0;  // solid body radius / fit, shared by every animated frame
     };
 
     // The creature's measurements; null when its sheet cannot be decoded. Touches no GL state.
@@ -47,8 +48,8 @@ class CSwarmSprites {
 };
 
 // The layer has two halves: untouched walking creatures and the combined standing mass.
-// Smooth the mass's alpha before applying window contents, preserving sharp animated creatures
-// over it. The final mesh places the standing mass once and each walking tile independently.
+// Merge analytic body distance fields before applying window contents, preserving animated
+// creatures over them. The final mesh places the standing mass once and each walker independently.
 
 // The box either half of the layer covers: `source` grown to whole device pixels, so its texels are
 // the window texture's own.

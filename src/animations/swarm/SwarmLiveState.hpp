@@ -7,8 +7,9 @@
 
 #include "animations/swarm/Swarm.hpp"
 #include "animations/swarm/SwarmSprite.hpp"
+#include "animations/swarm/SwarmSurfaceBody.hpp"
 
-// Alpha masks, the preserved animated creatures, window contents and final pieces.
+// Walking masks, analytic merging bodies, preserved animated creatures and window contents.
 struct SSwarmMeshes {
     std::vector<SMeshRenderVertex>
         mask{};  // creature silhouettes and merged tiles, each over its own tile
@@ -18,8 +19,10 @@ struct SSwarmMeshes {
     std::vector<SMeshRenderVertex> content{};  // the window, once under each half of the layer
     std::vector<SMeshRenderVertex>
         pieces{};  // what stands in the window, then each walking tile where its agent is
+    std::vector<hyprimate::SwarmSurfaceBody> bodies{};  // continuous standing contours
     double standingAt = 0.0;  // start of the standing half, in layer pixels
-    double smoothingRadius = 0.0;  // combined-outline smoothing in device pixels
+    double smoothingRadius = 0.0;  // distance-field smooth-union length in device pixels
+    double cornerRadius = 0.0;  // outer rounding relaxes independently at native handoff
 };
 
 struct SSwarmStyle {

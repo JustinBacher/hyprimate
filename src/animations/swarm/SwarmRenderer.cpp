@@ -89,6 +89,7 @@ namespace {
 
             std::vector<std::uint8_t> alpha(static_cast<std::size_t>(FRAME_PX) * FRAME_PX);
             sheet.frames.clear();
+            sheet.coreShare = 1.0;
             for (int k = 0; k < frames; ++k) {
                 for (int y = 0; y < FRAME_PX; ++y) {
                     const std::uint8_t *row =
@@ -99,6 +100,9 @@ namespace {
                         alpha[static_cast<std::size_t>(y) * FRAME_PX + x] = row[x * 4 + 3];
                 }
                 sheet.frames.push_back(hyprimate::measureSprite(alpha, FRAME_PX));
+                const auto &frame = sheet.frames.back();
+                sheet.coreShare =
+                    std::min(sheet.coreShare, frame.reach > 0.0 ? frame.core / frame.reach : 0.0);
             }
             sheet.forward = -0.5 * std::numbers::pi;
             sheet.stride = 1.0;
@@ -240,8 +244,10 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
     meshes.walkingCut.clear();
     meshes.content.clear();
     meshes.pieces.clear();
+    meshes.bodies.clear();
     meshes.standingAt = 0.0;
     meshes.smoothingRadius = 0.0;
+    meshes.cornerRadius = 0.0;
 
     const auto agents = swarm.agents();
     const Vec2 size = swarm.size();
@@ -280,9 +286,14 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
     const auto standing = [](const hyprimate::SwarmAgent &a) { return a.docked && a.turn <= 0.0; };
     const bool hasStanding =
         std::ranges::any_of(agents, [&](const auto &a) { return a.visible && standing(a); });
-    if (hasStanding) {
+    if (hasStanding && swarm.rounding() > 0.0) {
         const auto smallest = std::ranges::min_element(agents, {}, &hyprimate::SwarmAgent::fit);
-        meshes.smoothingRadius = std::min(32.0, 0.65 * smallest->fit * unit) * swarm.rounding();
+        // Keep joins smooth from the first detachment. Only the outer rounding relaxes;
+        // shrinking the union length would briefly cut square holes around departing agents.
+        meshes.smoothingRadius = std::min(20.0, 0.4 * smallest->fit * unit);
+        meshes.cornerRadius =
+            hyprimate::kSwarmSurfaceCornerScale * meshes.smoothingRadius * swarm.rounding();
+        meshes.bodies.reserve(agents.size());
     }
     // What stands in the window is drawn first and in one piece, so it has no seams; the walkers go
     // over it.
@@ -350,13 +361,29 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
                 0.5,
                 solidU,
                 0.5);
-        else {
+        else if (stands)
+            silhouette(meshes.creatures, 0.0);
+        else
             silhouette(meshes.mask, a.lock);
-            // Preserve moving legs until the expanding mass consumes the creature. Only the
-            // combined growth mask is smoothed, never this original-size animated silhouette.
-            if (stands) silhouette(meshes.creatures, 0.0);
+
+        if (stands) {
+            if (a.lock > 0.0 && meshes.smoothingRadius > 0.0) {
+                // Grow a stable body, not the sprite's raster outline. Gait frames stay on top
+                // until engulfed, without changing the mass's contour as their limbs move.
+                const double t = a.lock * a.lock * (3.0 - 2.0 * a.lock);
+                const double core = sheet.coreShare * a.fit * unit;
+                const double halfW = (x1 - x0) * 0.5, halfH = (y1 - y0) * 0.5;
+                const double corner = std::min({halfW, halfH, meshes.cornerRadius});
+                meshes.bodies.push_back({
+                    static_cast<float>(std::lerp(hx, (x0 + x1) * 0.5, t) - box.x),
+                    static_cast<float>(std::lerp(hy, (y0 + y1) * 0.5, t) - box.y),
+                    static_cast<float>(std::lerp(core, halfW, t)),
+                    static_cast<float>(std::lerp(core, halfH, t)),
+                    static_cast<float>(std::lerp(core, corner, t)),
+                });
+            }
+            continue;
         }
-        if (stands) continue;
 
         // Detached pieces are rounded on their own; only the standing mass uses union smoothing.
         // This keeps a closing tile from briefly becoming a sharp rectangle before its sprite
@@ -451,7 +478,13 @@ SP<Render::IFramebuffer> renderSwarmLayer(Render::CRenderContext &ctx,
         Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, atlas, box, meshes.walkingCut, td);
     }
 
-    const auto smooth = surface.filter(ctx, layer, size, meshes.standingAt, meshes.smoothingRadius);
+    const auto smooth = surface.filter(ctx,
+        layer,
+        size,
+        meshes.standingAt,
+        meshes.smoothingRadius,
+        meshes.cornerRadius,
+        meshes.bodies);
     if (!smooth) {
         restoreBlend();
         return nullptr;

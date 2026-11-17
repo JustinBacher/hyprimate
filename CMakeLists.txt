@@ -93,7 +93,9 @@ add_custom_command(
             --source-dir ${SWARM_SHADER_DIR}
             --output ${CONFIG_GENERATED_DIR}/swarm_shaders_generated.hpp
             --namespace swarm_shader --shader SURFACE_VERTEX=surface.vert --shader SURFACE_FRAGMENT=surface.frag
+            --shader FIELD_VERTEX=field.vert --shader FIELD_FRAGMENT=field.frag
     DEPENDS ${SWARM_SHADER_DIR}/surface.vert ${SWARM_SHADER_DIR}/surface.frag
+            ${SWARM_SHADER_DIR}/field.vert ${SWARM_SHADER_DIR}/field.frag
             ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_bubble_shaders.py
     VERBATIM
 )
