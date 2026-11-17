@@ -38,7 +38,7 @@ namespace {
     }
 
     void damage(const PHLMONITOR &monitor, const hyprimate::Box &logical) {
-        if (!monitor || !g_pHyprRenderer || !hyprimate::isUsable(logical)) return;
+        if (!monitor || !g_pHyprRenderer || !hyprimate::is_usable(logical)) return;
         auto box = CBox{logical.x, logical.y, logical.w, logical.h}.expand(2.0).intersection(
             CBox{{}, monitor->m_size});
         if (box.empty()) return;
@@ -122,7 +122,7 @@ void CBubbleResidue::tick(std::chrono::steady_clock::time_point now, const PHLMO
         } else {
             deposit.age += std::clamp(std::chrono::duration<double>(now - deposit.last).count(),
                 0.0,
-                hyprimate::kStallSeconds);
+                hyprimate::STALL_SECONDS);
         }
         deposit.last = now;
         damage(monitor, deposit.position, deposit.radius);
@@ -135,7 +135,7 @@ void CBubbleResidue::tick(std::chrono::steady_clock::time_point now, const PHLMO
         if (wake.monitor.lock() != monitor) continue;
         wake.queued = false;  // a new frame of this monitor begins
         const double elapsed = std::clamp(
-            std::chrono::duration<double>(now - wake.last).count(), 0.0, hyprimate::kStallSeconds);
+            std::chrono::duration<double>(now - wake.last).count(), 0.0, hyprimate::STALL_SECONDS);
         wake.last = now;
         // Both the region it covered and the one it covers now: retracting film leaves no stale
         // pixels behind.
@@ -202,7 +202,7 @@ void CBubbleResidue::queueWake(Render::CRenderContext &ctx,
     const SP<CBubbleRenderer> &renderer) {
     wake.queued = true;
     const auto bounds = wake.film.bounds();
-    if (!hyprimate::isUsable(bounds)) return;
+    if (!hyprimate::is_usable(bounds)) return;
     const auto source = CBox{bounds.x, bounds.y, bounds.w, bounds.h}.scale(monitor->m_scale);
     const auto clipped = onScreen(monitor, source);
     if (clipped.empty()) return;

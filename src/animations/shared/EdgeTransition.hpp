@@ -101,7 +101,7 @@ namespace hyprimate {
             const TransitionParams &params,
             double strength,
             bool closeSplash = true) noexcept;
-        // Nonfinite, negative or > kStallSeconds steps abort: Open returns to idle, Close to
+        // Nonfinite, negative or > STALL_SECONDS steps abort: Open returns to idle, Close to
         // closed.
         bool advance(double elapsedSeconds) noexcept;
         void reset() noexcept;

@@ -357,9 +357,9 @@ namespace {
     void workspaceSlidesPreserveIndependentFlight() {
         for (const Vec2 travel :
             {Vec2{-SCREEN.w, 0}, Vec2{SCREEN.w, 0}, Vec2{0, -SCREEN.h}, Vec2{0, SCREEN.h}}) {
-            for (bool incoming : {false, true}) {
+            for (const bool INCOMING : {false, true}) {
                 Swarm m;
-                Vec2 offset = incoming ? Vec2{-travel.x, -travel.y} : Vec2{};
+                Vec2 offset = INCOMING ? Vec2{-travel.x, -travel.y} : Vec2{};
                 m.beginMovement({}, 2, placement(offset));
                 for (int frame = 0; frame < 40; ++frame) {
                     offset.x += travel.x / 40.0;
@@ -369,7 +369,7 @@ namespace {
                 }
                 // The native slide is over, but independently moving creatures are still flying.
                 CHECK(m.active());
-                if (!incoming) CHECK(m.bounds().w > 0.0 && m.bounds().h > 0.0);
+                if (!INCOMING) CHECK(m.bounds().w > 0.0 && m.bounds().h > 0.0);
                 std::vector<Vec2> before;
                 for (const auto &a : m.agents()) before.push_back(a.position);
                 run(m, 0.1);
@@ -380,7 +380,7 @@ namespace {
                 CHECK(flight / before.size() > 1.0);
                 run(m, 8.0);
                 CHECK(inFormation(m));
-                if (incoming)
+                if (INCOMING)
                     CHECK(m.bounds().w > 0.0 && m.bounds().h > 0.0);
                 else
                     CHECK(m.bounds().w == 0.0 && m.bounds().h == 0.0);

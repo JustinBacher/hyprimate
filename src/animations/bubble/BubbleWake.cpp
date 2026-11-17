@@ -20,7 +20,7 @@ namespace hyprimate {
     }  // namespace
 
     BubbleWake::BubbleWake(std::uint64_t seed) noexcept : random_(seed) {
-        seed_ = unitDraw(random_);
+        seed_ = unit_draw(random_);
     }
 
     bool BubbleWake::full() const noexcept {
@@ -46,7 +46,7 @@ namespace hyprimate {
                                           position.y - previous.point.position.y);
         }
         // Denser film lasts longer; every patch keeps its own time so it does not vanish in step.
-        node.life = (.45 + (.55 * node.point.density)) * (.8 + (.4 * unitDraw(random_)));
+        node.life = (.45 + (.55 * node.point.density)) * (.8 + (.4 * unit_draw(random_)));
         nodes_[first_ + count_++] = node;
         return true;
     }
@@ -81,7 +81,7 @@ namespace hyprimate {
         if (!std::isfinite(elapsed) || elapsed <= 0) {
             return;
         }
-        const double dt = std::min(elapsed, kStallSeconds) * pace_;
+        const double dt = std::min(elapsed, STALL_SECONDS) * pace_;
         for (std::size_t i = first_; i < first_ + count_; ++i) {
             nodes_[i].age += dt;
         }

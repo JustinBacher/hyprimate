@@ -105,7 +105,7 @@ bool SBubbleLiveStyle::open(
         .y = goal.y + capture.y - current.y,
         .w = goal.w + capture.w - current.w,
         .h = goal.h + capture.h - current.h};
-    if (!hyprimate::isUsable(toBox(goal)) || !hyprimate::isUsable(rest)) {
+    if (!hyprimate::is_usable(toBox(goal)) || !hyprimate::is_usable(rest)) {
         return false;
     }
     auto *transformer = runtime.acquireTransformer(window);
@@ -143,19 +143,19 @@ void SBubbleLiveStyle::movement(CPluginRuntime &,
     }
     // The fluid follows the body's centre: an edge dragged by a resize carries it by half as much.
     // A layout animating the window moves it faster than a bubble travels; the film follows.
-    const auto &current = decision.currentBox;
-    const auto &was = decision.previousBox;
+    const auto &current = decision.current_box;
+    const auto &was = decision.previous_box;
     std::get<SBubbleStyle>(transformer.m_style)
         .bubble.drive({.x = current.x + (current.w * .5) - (was.x + (was.w * .5)),
                           .y = current.y + (current.h * .5) - (was.y + (was.h * .5))},
-            !decision.workspaceMoving && window->positionAnimation()->isBeingAnimated());
+            !decision.workspace_moving && window->positionAnimation()->isBeingAnimated());
 }
 
 void SBubbleLiveStyle::snapshot(
     const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &s) {
     const auto *state = transformer ? std::get_if<SBubbleStyle>(&transformer->m_style) : nullptr;
     // A landed opening is already the window's film: movement acts on it while it settles.
-    s.transitionBusy = state && state->bubble.active() && !state->bubble.landed();
+    s.transition_busy = state && state->bubble.active() && !state->bubble.landed();
 }
 
 void SBubbleLiveStyle::step(CPluginRuntime &runtime,

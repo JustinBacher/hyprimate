@@ -53,7 +53,7 @@
 
 namespace {
 
-    using hyprimate::kStallSeconds;
+    using hyprimate::STALL_SECONDS;
     using hyprimate::Vec2;
 
     // Symbols are selected by these exact demangled signatures, verified against the installed
@@ -518,7 +518,7 @@ void CAnimationCloseRenderer::tick(
                 const double elapsed =
                     std::clamp(std::chrono::duration<double>(now - record->lastAdvance).count(),
                         0.0,
-                        kStallSeconds);
+                        STALL_SECONDS);
                 std::visit(
                     [&](auto &style) { close_style::advance(style, *record, elapsed, true); },
                     record->style);
@@ -552,7 +552,7 @@ void CAnimationCloseRenderer::tick(
         }
 
         const double elapsed = std::clamp(
-            std::chrono::duration<double>(now - record->lastAdvance).count(), 0.0, kStallSeconds);
+            std::chrono::duration<double>(now - record->lastAdvance).count(), 0.0, STALL_SECONDS);
         std::visit([&](auto &style) { close_style::advance(style, *record, elapsed, false); },
             record->style);
         record->lastAdvance = now;

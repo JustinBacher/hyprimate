@@ -11,20 +11,20 @@ namespace hyprimate {
         Box current;  // body box (GEOMETRIC_CURRENT), logical px
         Box capture;  // decorated + shadow box, logical px
         bool deformable = false;  // plugin enabled, not inert, mapped, not fullscreen
-        bool animatingIn = false;  // the host's open animation is running
+        bool animating_in = false;  // the host's open animation is running
         bool handoff =
             false;  // the style (cloth, swarm) draws its own open or movement at the goal box
-        bool transitionBusy = false;  // a liquid edge transition or sheet motion is running
-        bool materialChanged =
+        bool transition_busy = false;  // a liquid edge transition or sheet motion is running
+        bool material_changed =
             false;  // the style or material changed under an existing transformer
-        bool handoffMoving = false;  // that style's movement is running on the transformer
-        bool openEnabled = false;
-        bool movementEnabled = false;
+        bool handoff_moving = false;  // that style's movement is running on the transformer
+        bool open_enabled = false;
+        bool movement_enabled = false;
         std::uintptr_t monitor = 0;  // identity of the window's monitor
         double elapsed = 0.0;  // seconds since this window's previous update
-        Vec2 workspaceOffset{};  // presentation displacement, never client geometry
-        bool workspaceMoving = false;
-        bool workspaceMovement = true;  // global opt-in, independent of movementEnabled
+        Vec2 workspace_offset{};  // presentation displacement, never client geometry
+        bool workspace_moving = false;
+        bool workspace_movement = true;  // global opt-in, independent of movement_enabled
         std::uintptr_t workspace = 0;
     };
 
@@ -42,20 +42,20 @@ namespace hyprimate {
         TrackAction action = TrackAction::Idle;
         // Rebaseline only: begin the opening after detaching (the window became eligible while
         // opening).
-        bool beginOpen = false;
+        bool begin_open = false;
         // Cancel any opening in progress; the open setting is off.
-        bool cancelOpening = false;
+        bool cancel_opening = false;
         // A handoff style's movement is in progress while movement is off; cancel it.
-        bool cancelMovement = false;
+        bool cancel_movement = false;
         // Movement since the previous baseline. Move uses these to record the impulse.
         bool translated = false;
         bool resized = false;
-        bool captureChanged = false;
-        Box previousBox{};  // baseline body box the snapshot was compared against
-        Box previousCapture{};  // baseline capture box the snapshot was compared against
-        Box currentBox{};  // screen-space body and capture, including workspace displacement
-        Box currentCapture{};
-        bool workspaceMoving = false;
+        bool capture_changed = false;
+        Box previous_box{};  // baseline body box the snapshot was compared against
+        Box previous_capture{};  // baseline capture box the snapshot was compared against
+        Box current_box{};  // screen-space body and capture, including workspace displacement
+        Box current_capture{};
+        bool workspace_moving = false;
     };
 
     // Per-window tracking state. Eligibility is one rule: the window is deformable, its body and
@@ -76,7 +76,7 @@ namespace hyprimate {
 
         // True when the window is ineligible and its opening-edge state is clear: nothing can
         // change until its eligibility rises or it begins animating.
-        bool dormant(bool animatingIn) const noexcept;
+        bool dormant(bool animating_in) const noexcept;
 
         bool eligible() const noexcept {
             return m_eligible;
@@ -85,13 +85,13 @@ namespace hyprimate {
       private:
         void adopt(const WindowSnapshot &snapshot, bool eligible) noexcept;
 
-        Box m_lastBox{};
-        Box m_lastCapture{};
+        Box m_last_box{};
+        Box m_last_capture{};
         std::uintptr_t m_monitor = 0;
         bool m_eligible = false;
-        bool m_wasAnimatingIn = false;
-        Vec2 m_workspaceOffset{};
-        bool m_workspaceMovement = true;
+        bool m_was_animating_in = false;
+        Vec2 m_workspace_offset{};
+        bool m_workspace_movement = true;
         std::uintptr_t m_workspace = 0;
     };
 

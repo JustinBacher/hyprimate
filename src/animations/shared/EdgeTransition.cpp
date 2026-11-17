@@ -134,8 +134,8 @@ namespace hyprimate {
         void spring(S &s, double target, double omega, double zeta) {
             const double accel =
                 (-omega * omega * (s.value - target)) - (2.0 * zeta * omega * s.velocity);
-            s.velocity += accel * kSubstepSeconds;
-            s.value += s.velocity * kSubstepSeconds;
+            s.velocity += accel * SUBSTEP_SECONDS;
+            s.value += s.velocity * SUBSTEP_SECONDS;
         }
 
         bool validFrame(const EdgeFrame &f) {
@@ -215,7 +215,7 @@ namespace hyprimate {
     EdgeSet resolveEdgeSides(
         const Box &body, const Box &screen, std::span<const Box> neighbours) noexcept {
         EdgeSet sides;
-        if (!isUsable(body) || !isUsable(screen)) {
+        if (!is_usable(body) || !is_usable(screen)) {
             return sides;
         }
 
@@ -224,7 +224,7 @@ namespace hyprimate {
         const auto slot = [](Edge e) { return static_cast<std::size_t>(e); };
         std::array<double, 4> contact{};
         for (const Box &n : neighbours) {
-            if (!isUsable(n)) {
+            if (!is_usable(n)) {
                 continue;
             }
             for (const Edge side : kEdges) {
@@ -320,7 +320,7 @@ namespace hyprimate {
         std::span<const Box> neighbours,
         Edge fallback,
         bool preferFallback) noexcept {
-        if (!isUsable(body) || !isUsable(capture) || !isUsable(screen)) {
+        if (!is_usable(body) || !is_usable(capture) || !is_usable(screen)) {
             return std::nullopt;
         }
 
@@ -395,7 +395,7 @@ namespace hyprimate {
         // edges.
         std::array<double, 4> contact{};
         for (const Box &n : neighbours) {
-            if (!isUsable(n)) {
+            if (!is_usable(n)) {
                 continue;
             }
             for (const Edge side : kOrder) {
@@ -646,13 +646,13 @@ namespace hyprimate {
             return false;
         }
         if (!std::isfinite(elapsedSeconds) || elapsedSeconds < 0.0 ||
-            elapsedSeconds > kStallSeconds) {
+            elapsedSeconds > STALL_SECONDS) {
             abort();
             return false;
         }
         m_accumulator += elapsedSeconds;
-        while (active() && m_accumulator >= kSubstepSeconds - kAccumulatorTolerance) {
-            m_accumulator -= kSubstepSeconds;
+        while (active() && m_accumulator >= SUBSTEP_SECONDS - kAccumulatorTolerance) {
+            m_accumulator -= SUBSTEP_SECONDS;
             step();
             refreshProfile();  // per substep, so a snap always starts from the state one substep
                                // earlier
@@ -702,7 +702,7 @@ namespace hyprimate {
         }
 
         if (!m_drained) {
-            m_time += kSubstepSeconds;
+            m_time += SUBSTEP_SECONDS;
             const double p = std::min(m_time / m_duration, 1.0);
             // Shrink: the pill folds back into a circle, normal first, then tangential.
             m_spreadN.value = m_sN0 * (1.0 - easeInOutCubic(p / kShrinkEnd));
@@ -730,7 +730,7 @@ namespace hyprimate {
                 advanceRecoil();
             }
             if (m_splashing) {
-                m_splashTime += kSubstepSeconds;
+                m_splashTime += SUBSTEP_SECONDS;
                 m_splashing = m_splashTime < m_splashDuration - kAccumulatorTolerance;
             }
         }
@@ -805,7 +805,7 @@ namespace hyprimate {
     }
 
     void EdgeTransition::advanceRecoil() noexcept {
-        m_recoilTime += kSubstepSeconds;
+        m_recoilTime += SUBSTEP_SECONDS;
         spring(m_recoil, 0.0, m_recoilOmega, m_recoilZeta);
     }
 

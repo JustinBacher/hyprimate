@@ -12,29 +12,31 @@ using hyprimate::WindowTracker;
 
 namespace {
 
-    constexpr std::uintptr_t kMonitor = 1;
-    constexpr double kFrame = 1.0 / 60.0;
+    constexpr std::uintptr_t MONITOR = 1;
+    constexpr double FRAME_SECONDS = 1.0 / 60.0;
 
     // A deformable window whose capture is its body grown by a 10 px margin.
-    WindowSnapshot snap(double x, double y, double w, double h) {
-        WindowSnapshot s;
-        s.current = Box{.x = x, .y = y, .w = w, .h = h};
-        s.capture = Box{.x = x - 10, .y = y - 10, .w = w + 20, .h = h + 20};
-        s.deformable = true;
-        s.openEnabled = true;
-        s.movementEnabled = true;
-        s.monitor = kMonitor;
-        s.elapsed = kFrame;
-        return s;
+    WindowSnapshot snap(double position_x, double position_y, double width, double height) {
+        WindowSnapshot snapshot;
+        snapshot.current = Box{.x = position_x, .y = position_y, .w = width, .h = height};
+        snapshot.capture =
+            Box{.x = position_x - 10, .y = position_y - 10, .w = width + 20, .h = height + 20};
+        snapshot.deformable = true;
+        snapshot.open_enabled = true;
+        snapshot.movement_enabled = true;
+        snapshot.monitor = MONITOR;
+        snapshot.elapsed = FRAME_SECONDS;
+        return snapshot;
     }
 
     // A tracker that has observed the window once and is eligible.
-    WindowTracker eligibleAt(double x, double y, double w, double h) {
-        WindowTracker t;
-        const WindowSnapshot s = snap(x, y, w, h);
-        t.track(s.current, s.capture, kMonitor);
-        t.update(s);  // registers eligibility; the rebaseline decision is not under test here
-        return t;
+    WindowTracker eligible_at(double position_x, double position_y, double width, double height) {
+        WindowTracker tracker;
+        const WindowSnapshot SNAPSHOT = snap(position_x, position_y, width, height);
+        tracker.track(SNAPSHOT.current, SNAPSHOT.capture, MONITOR);
+        tracker.update(
+            SNAPSHOT);  // registers eligibility; the rebaseline decision is not under test here
+        return tracker;
     }
 
 }  // namespace
@@ -42,263 +44,264 @@ namespace {
 int main() {
     // A window that is not deformable stays idle, and is dormant so the runtime can skip it.
     {
-        WindowTracker t;
-        WindowSnapshot s = snap(0, 0, 400, 300);
-        s.deformable = false;
-        t.track(s.current, s.capture, kMonitor);
-        const TrackDecision d = t.update(s);
-        CHECK(d.action == TrackAction::Idle);
-        CHECK(!t.eligible());
-        CHECK(t.dormant(false));
+        WindowTracker tracker;
+        WindowSnapshot snapshot = snap(0, 0, 400, 300);
+        snapshot.deformable = false;
+        tracker.track(snapshot.current, snapshot.capture, MONITOR);
+        const TrackDecision DECISION = tracker.update(snapshot);
+        CHECK(DECISION.action == TrackAction::Idle);
+        CHECK(!tracker.eligible());
+        CHECK(tracker.dormant(false));
     }
 
     // A window that becomes eligible rebaselines, but does not open unless it was animating in.
     {
-        WindowTracker t;
-        const WindowSnapshot s = snap(0, 0, 400, 300);
-        t.track(s.current, s.capture, kMonitor);
-        const TrackDecision d = t.update(s);
-        CHECK(d.action == TrackAction::Rebaseline);
-        CHECK(!d.beginOpen);
-        CHECK(t.eligible());
-        CHECK(!t.dormant(false));
+        WindowTracker tracker;
+        const WindowSnapshot SNAPSHOT = snap(0, 0, 400, 300);
+        tracker.track(SNAPSHOT.current, SNAPSHOT.capture, MONITOR);
+        const TrackDecision DECISION = tracker.update(SNAPSHOT);
+        CHECK(DECISION.action == TrackAction::Rebaseline);
+        CHECK(!DECISION.begin_open);
+        CHECK(tracker.eligible());
+        CHECK(!tracker.dormant(false));
     }
 
     // A window already animating in when it becomes eligible begins the opening pop-out on its
     // first update.
     {
-        WindowTracker t;
-        WindowSnapshot s = snap(0, 0, 400, 300);
-        s.animatingIn = true;
-        t.track(s.current, s.capture, kMonitor);
-        const TrackDecision d = t.update(s);
-        CHECK(d.action == TrackAction::Rebaseline);
-        CHECK(d.beginOpen);
+        WindowTracker tracker;
+        WindowSnapshot snapshot = snap(0, 0, 400, 300);
+        snapshot.animating_in = true;
+        tracker.track(snapshot.current, snapshot.capture, MONITOR);
+        const TrackDecision DECISION = tracker.update(snapshot);
+        CHECK(DECISION.action == TrackAction::Rebaseline);
+        CHECK(DECISION.begin_open);
     }
 
     // A rising opening edge on an eligible window starts the opening without detaching.
     {
-        WindowTracker t = eligibleAt(0, 0, 400, 300);
-        WindowSnapshot s = snap(0, 0, 400, 300);
-        s.animatingIn = true;
-        const TrackDecision d = t.update(s);
-        CHECK(d.action == TrackAction::Opening);
+        WindowTracker tracker = eligible_at(0, 0, 400, 300);
+        WindowSnapshot snapshot = snap(0, 0, 400, 300);
+        snapshot.animating_in = true;
+        const TrackDecision DECISION = tracker.update(snapshot);
+        CHECK(DECISION.action == TrackAction::Opening);
     }
 
     // While the native open animation runs, geometry changes are not movement impulses.
     {
-        WindowTracker t = eligibleAt(0, 0, 400, 300);
+        WindowTracker tracker = eligible_at(0, 0, 400, 300);
         WindowSnapshot opening = snap(0, 0, 400, 300);
-        opening.animatingIn = true;
-        t.update(opening);
+        opening.animating_in = true;
+        tracker.update(opening);
         WindowSnapshot moved = snap(50, 0, 400, 300);
-        moved.animatingIn = true;
-        CHECK(t.update(moved).action == TrackAction::Busy);
+        moved.animating_in = true;
+        CHECK(tracker.update(moved).action == TrackAction::Busy);
     }
 
     // A transition running in the transformer makes geometry changes non-impulses too.
     {
-        WindowTracker t = eligibleAt(0, 0, 400, 300);
-        WindowSnapshot s = snap(50, 0, 400, 300);
-        s.transitionBusy = true;
-        CHECK(t.update(s).action == TrackAction::Busy);
+        WindowTracker tracker = eligible_at(0, 0, 400, 300);
+        WindowSnapshot snapshot = snap(50, 0, 400, 300);
+        snapshot.transition_busy = true;
+        CHECK(tracker.update(snapshot).action == TrackAction::Busy);
     }
 
     // Translation is recorded as movement with the baseline it was compared against.
     {
-        WindowTracker t = eligibleAt(0, 0, 400, 300);
-        const TrackDecision d = t.update(snap(30, 0, 400, 300));
-        CHECK(d.action == TrackAction::Move);
-        CHECK(d.translated);
-        CHECK(!d.resized);
-        CHECK(d.previousBox.x == 0.0);
+        WindowTracker tracker = eligible_at(0, 0, 400, 300);
+        const TrackDecision DECISION = tracker.update(snap(30, 0, 400, 300));
+        CHECK(DECISION.action == TrackAction::Move);
+        CHECK(DECISION.translated);
+        CHECK(!DECISION.resized);
+        CHECK(DECISION.previous_box.x == 0.0);
     }
 
     // A resize without translation is movement too, and reports the resize.
     {
-        WindowTracker t = eligibleAt(0, 0, 400, 300);
-        const TrackDecision d = t.update(snap(0, 0, 420, 300));
-        CHECK(d.action == TrackAction::Move);
-        CHECK(!d.translated);
-        CHECK(d.resized);
+        WindowTracker tracker = eligible_at(0, 0, 400, 300);
+        const TrackDecision DECISION = tracker.update(snap(0, 0, 420, 300));
+        CHECK(DECISION.action == TrackAction::Move);
+        CHECK(!DECISION.translated);
+        CHECK(DECISION.resized);
     }
 
     // Unchanged geometry is idle.
     {
-        WindowTracker t = eligibleAt(0, 0, 400, 300);
-        CHECK(t.update(snap(0, 0, 400, 300)).action == TrackAction::Idle);
+        WindowTracker tracker = eligible_at(0, 0, 400, 300);
+        CHECK(tracker.update(snap(0, 0, 400, 300)).action == TrackAction::Idle);
     }
 
     // A jump larger than 1.5 times the window's largest side is a teleport, so it rebaselines.
     {
-        WindowTracker t = eligibleAt(0, 0, 400, 300);
-        CHECK(t.update(snap(900, 0, 400, 300)).action == TrackAction::Rebaseline);
+        WindowTracker tracker = eligible_at(0, 0, 400, 300);
+        CHECK(tracker.update(snap(900, 0, 400, 300)).action == TrackAction::Rebaseline);
         // The new position is now the baseline, so a small step afterwards is a normal move.
-        CHECK(t.update(snap(930, 0, 400, 300)).action == TrackAction::Move);
+        CHECK(tracker.update(snap(930, 0, 400, 300)).action == TrackAction::Move);
     }
 
     // A stall (a frame gap beyond the stall limit) rebaselines and keeps the window eligible.
     {
-        WindowTracker t = eligibleAt(0, 0, 400, 300);
-        WindowSnapshot s = snap(30, 0, 400, 300);
-        s.elapsed = 1.0;
-        CHECK(t.update(s).action == TrackAction::Rebaseline);
-        CHECK(t.eligible());
+        WindowTracker tracker = eligible_at(0, 0, 400, 300);
+        WindowSnapshot snapshot = snap(30, 0, 400, 300);
+        snapshot.elapsed = 1.0;
+        CHECK(tracker.update(snapshot).action == TrackAction::Rebaseline);
+        CHECK(tracker.eligible());
     }
 
     // A window that moved to another monitor rebaselines.
     {
-        WindowTracker t = eligibleAt(0, 0, 400, 300);
-        WindowSnapshot s = snap(0, 0, 400, 300);
-        s.monitor = kMonitor + 1;
-        CHECK(t.update(s).action == TrackAction::Rebaseline);
+        WindowTracker tracker = eligible_at(0, 0, 400, 300);
+        WindowSnapshot snapshot = snap(0, 0, 400, 300);
+        snapshot.monitor = MONITOR + 1;
+        CHECK(tracker.update(snapshot).action == TrackAction::Rebaseline);
     }
 
     // Losing deformability (for example entering fullscreen) rebaselines once and turns the window
     // dormant.
     {
-        WindowTracker t = eligibleAt(0, 0, 400, 300);
+        WindowTracker tracker = eligible_at(0, 0, 400, 300);
         WindowSnapshot gone = snap(0, 0, 400, 300);
         gone.deformable = false;
-        CHECK(t.update(gone).action == TrackAction::Rebaseline);
-        CHECK(!t.eligible());
-        CHECK(t.dormant(false));
-        CHECK(t.update(gone).action == TrackAction::Idle);
+        CHECK(tracker.update(gone).action == TrackAction::Rebaseline);
+        CHECK(!tracker.eligible());
+        CHECK(tracker.dormant(false));
+        CHECK(tracker.update(gone).action == TrackAction::Idle);
     }
 
     // A material change rebaselines, and the window stays eligible.
     {
-        WindowTracker t = eligibleAt(0, 0, 400, 300);
-        WindowSnapshot s = snap(0, 0, 400, 300);
-        s.materialChanged = true;
-        CHECK(t.update(s).action == TrackAction::Rebaseline);
-        CHECK(t.eligible());
+        WindowTracker tracker = eligible_at(0, 0, 400, 300);
+        WindowSnapshot snapshot = snap(0, 0, 400, 300);
+        snapshot.material_changed = true;
+        CHECK(tracker.update(snapshot).action == TrackAction::Rebaseline);
+        CHECK(tracker.eligible());
     }
 
     // Disabling opening cancels an opening in progress.
     {
-        WindowTracker t = eligibleAt(0, 0, 400, 300);
-        WindowSnapshot s = snap(0, 0, 400, 300);
-        s.openEnabled = false;
-        CHECK(t.update(s).cancelOpening);
+        WindowTracker tracker = eligible_at(0, 0, 400, 300);
+        WindowSnapshot snapshot = snap(0, 0, 400, 300);
+        snapshot.open_enabled = false;
+        CHECK(tracker.update(snapshot).cancel_opening);
     }
 
     // Disabling movement cancels cloth movement in progress, and the change is still reported as
     // movement.
     {
-        WindowTracker t = eligibleAt(0, 0, 400, 300);
-        WindowSnapshot s = snap(0, 0, 400, 300);
-        s.movementEnabled = false;
-        s.handoffMoving = true;
-        const TrackDecision d = t.update(s);
-        CHECK(d.cancelMovement);
-        CHECK(d.action == TrackAction::Move);
+        WindowTracker tracker = eligible_at(0, 0, 400, 300);
+        WindowSnapshot snapshot = snap(0, 0, 400, 300);
+        snapshot.movement_enabled = false;
+        snapshot.handoff_moving = true;
+        const TrackDecision DECISION = tracker.update(snapshot);
+        CHECK(DECISION.cancel_movement);
+        CHECK(DECISION.action == TrackAction::Move);
     }
 
     // A window whose body box is unusable (zero width) is not eligible.
     {
-        WindowTracker t;
-        WindowSnapshot s = snap(0, 0, 0, 300);
-        t.track(s.current, s.capture, kMonitor);
-        CHECK(t.update(s).action == TrackAction::Idle);
-        CHECK(!t.eligible());
+        WindowTracker tracker;
+        WindowSnapshot snapshot = snap(0, 0, 0, 300);
+        tracker.track(snapshot.current, snapshot.capture, MONITOR);
+        CHECK(tracker.update(snapshot).action == TrackAction::Idle);
+        CHECK(!tracker.eligible());
     }
 
     // Workspace slides move the displayed window even when its layout box stays fixed.
     {
-        WindowTracker t = eligibleAt(100, 80, 400, 300);
-        auto s = snap(100, 80, 400, 300);
-        s.workspaceMoving = true;
-        s.workspaceOffset = {.x = 1600, .y = 0};
-        CHECK(t.update(s).action == TrackAction::Move);  // outgoing motion must not detach sprites
-        s.workspaceOffset = {.x = 1500, .y = 0};
-        const auto d = t.update(s);
-        CHECK(d.action == TrackAction::Move);
-        CHECK(d.translated);
-        CHECK(d.currentBox.x - d.previousBox.x == -100);
-        CHECK(d.currentCapture.x - d.previousCapture.x == -100);
+        WindowTracker tracker = eligible_at(100, 80, 400, 300);
+        auto snapshot = snap(100, 80, 400, 300);
+        snapshot.workspace_moving = true;
+        snapshot.workspace_offset = {.x = 1600, .y = 0};
+        CHECK(tracker.update(snapshot).action ==
+              TrackAction::Move);  // outgoing motion must not detach sprites
+        snapshot.workspace_offset = {.x = 1500, .y = 0};
+        const auto DECISION = tracker.update(snapshot);
+        CHECK(DECISION.action == TrackAction::Move);
+        CHECK(DECISION.translated);
+        CHECK(DECISION.current_box.x - DECISION.previous_box.x == -100);
+        CHECK(DECISION.current_capture.x - DECISION.previous_capture.x == -100);
         // Layout baselining after a simulation step must retain workspace history.
-        t.baseline(s.current, s.capture, kMonitor);
-        s.workspaceOffset = {.x = 1500, .y = 35};
-        const auto vertical = t.update(s);
-        CHECK(vertical.currentBox.y - vertical.previousBox.y == 35);
-        s.workspaceOffset = {.x = 1530, .y = 35};
-        const auto reversed = t.update(s);
-        CHECK(reversed.currentBox.x == 1630);  // interrupted/reversed slide
+        tracker.baseline(snapshot.current, snapshot.capture, MONITOR);
+        snapshot.workspace_offset = {.x = 1500, .y = 35};
+        const auto VERTICAL = tracker.update(snapshot);
+        CHECK(VERTICAL.current_box.y - VERTICAL.previous_box.y == 35);
+        snapshot.workspace_offset = {.x = 1530, .y = 35};
+        const auto REVERSED = tracker.update(snapshot);
+        CHECK(REVERSED.current_box.x == 1630);  // interrupted/reversed slide
     }
 
     // An incoming workspace was ineligible while hidden: its offscreen placement is a baseline,
     // not a screen-wide movement impulse.
     {
-        WindowTracker t = eligibleAt(100, 80, 400, 300);
-        auto s = snap(100, 80, 400, 300);
-        s.deformable = false;
-        t.update(s);
-        s.deformable = true;
-        s.workspaceMoving = true;
-        s.workspaceOffset = {.x = 1600, .y = 0};
-        CHECK(t.update(s).action == TrackAction::Rebaseline);
-        s.workspaceOffset = {.x = 1500, .y = 0};
-        CHECK(t.update(s).action == TrackAction::Move);
+        WindowTracker tracker = eligible_at(100, 80, 400, 300);
+        auto snapshot = snap(100, 80, 400, 300);
+        snapshot.deformable = false;
+        tracker.update(snapshot);
+        snapshot.deformable = true;
+        snapshot.workspace_moving = true;
+        snapshot.workspace_offset = {.x = 1600, .y = 0};
+        CHECK(tracker.update(snapshot).action == TrackAction::Rebaseline);
+        snapshot.workspace_offset = {.x = 1500, .y = 0};
+        CHECK(tracker.update(snapshot).action == TrackAction::Move);
     }
 
     // The global opt-out removes only workspace movement, not ordinary window motion.
     {
-        WindowTracker t = eligibleAt(100, 80, 400, 300);
-        auto s = snap(100, 80, 400, 300);
-        s.workspaceMovement = false;
-        s.workspaceMoving = true;
-        s.workspaceOffset = {.x = 1600, .y = 0};
-        t.update(s);  // live setting change rebaselines without an impulse
-        s.workspaceOffset = {.x = 1200, .y = 0};
-        CHECK(t.update(s).action == TrackAction::Idle);
-        s.current.x += 20;
-        s.capture.x += 20;
-        const auto d = t.update(s);
-        CHECK(d.action == TrackAction::Move);
-        CHECK(d.currentBox.x - d.previousBox.x == 20);
-        s.workspaceMovement = true;
-        CHECK(t.update(s).action == TrackAction::Rebaseline);
+        WindowTracker tracker = eligible_at(100, 80, 400, 300);
+        auto snapshot = snap(100, 80, 400, 300);
+        snapshot.workspace_movement = false;
+        snapshot.workspace_moving = true;
+        snapshot.workspace_offset = {.x = 1600, .y = 0};
+        tracker.update(snapshot);  // live setting change rebaselines without an impulse
+        snapshot.workspace_offset = {.x = 1200, .y = 0};
+        CHECK(tracker.update(snapshot).action == TrackAction::Idle);
+        snapshot.current.x += 20;
+        snapshot.capture.x += 20;
+        const auto DECISION = tracker.update(snapshot);
+        CHECK(DECISION.action == TrackAction::Move);
+        CHECK(DECISION.current_box.x - DECISION.previous_box.x == 20);
+        snapshot.workspace_movement = true;
+        CHECK(tracker.update(snapshot).action == TrackAction::Rebaseline);
     }
 
     // Arrival at zero offset retains settlement; fade-only transitions stay idle.
     {
-        WindowTracker t = eligibleAt(100, 80, 400, 300);
-        auto s = snap(100, 80, 400, 300);
-        s.workspaceMoving = true;
-        s.workspaceOffset = {.x = 10, .y = 0};
-        t.update(s);
-        s.workspaceOffset = {};
-        s.workspaceMoving = false;
-        const auto arrival = t.update(s);
-        CHECK(arrival.action == TrackAction::Move);
-        CHECK(arrival.currentBox.x - arrival.previousBox.x == -10);
-        CHECK(t.update(s).action == TrackAction::Idle);
+        WindowTracker tracker = eligible_at(100, 80, 400, 300);
+        auto snapshot = snap(100, 80, 400, 300);
+        snapshot.workspace_moving = true;
+        snapshot.workspace_offset = {.x = 10, .y = 0};
+        tracker.update(snapshot);
+        snapshot.workspace_offset = {};
+        snapshot.workspace_moving = false;
+        const auto ARRIVAL = tracker.update(snapshot);
+        CHECK(ARRIVAL.action == TrackAction::Move);
+        CHECK(ARRIVAL.current_box.x - ARRIVAL.previous_box.x == -10);
+        CHECK(tracker.update(snapshot).action == TrackAction::Idle);
     }
 
     // A fast compositor slide is not a client teleport, even for a small window.
     {
-        WindowTracker t = eligibleAt(100, 80, 120, 100);
-        auto s = snap(100, 80, 120, 100);
-        s.workspaceMoving = true;
-        s.workspaceOffset = {.x = 3000, .y = 0};
-        t.update(s);
-        s.workspaceOffset = {.x = 2300, .y = 0};
-        s.current.x += 20;
-        s.capture.x += 20;
-        const auto d = t.update(s);
-        CHECK(d.action == TrackAction::Move);
-        CHECK(d.currentBox.x - d.previousBox.x == -680);
+        WindowTracker tracker = eligible_at(100, 80, 120, 100);
+        auto snapshot = snap(100, 80, 120, 100);
+        snapshot.workspace_moving = true;
+        snapshot.workspace_offset = {.x = 3000, .y = 0};
+        tracker.update(snapshot);
+        snapshot.workspace_offset = {.x = 2300, .y = 0};
+        snapshot.current.x += 20;
+        snapshot.capture.x += 20;
+        const auto DECISION = tracker.update(snapshot);
+        CHECK(DECISION.action == TrackAction::Move);
+        CHECK(DECISION.current_box.x - DECISION.previous_box.x == -680);
         // Moving a window between workspaces is a discontinuity, not a slide.
-        s.workspace = 2;
-        CHECK(t.update(s).action == TrackAction::Rebaseline);
-        s.deformable = false;
-        CHECK(t.update(s).action == TrackAction::Rebaseline);
-        s.workspaceMoving = false;
-        s.workspaceOffset = {};
-        CHECK(t.update(s).action == TrackAction::Idle);
-        s.deformable = true;
-        CHECK(t.update(s).action == TrackAction::Rebaseline);
+        snapshot.workspace = 2;
+        CHECK(tracker.update(snapshot).action == TrackAction::Rebaseline);
+        snapshot.deformable = false;
+        CHECK(tracker.update(snapshot).action == TrackAction::Rebaseline);
+        snapshot.workspace_moving = false;
+        snapshot.workspace_offset = {};
+        CHECK(tracker.update(snapshot).action == TrackAction::Idle);
+        snapshot.deformable = true;
+        CHECK(tracker.update(snapshot).action == TrackAction::Rebaseline);
     }
 
     return g_failures == 0 ? 0 : 1;

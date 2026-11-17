@@ -35,7 +35,7 @@ class CBubbleImpactLease {
     }
     void advance(double elapsed) {
         if (m_clock && std::isfinite(elapsed) && elapsed > 0) {
-            m_clock->time += std::min(elapsed, hyprimate::kStallSeconds);
+            m_clock->time += std::min(elapsed, hyprimate::STALL_SECONDS);
         }
     }
     void cancel() {

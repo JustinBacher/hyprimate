@@ -177,18 +177,18 @@ void SSwarmLiveStyle::movement(CPluginRuntime &runtime,
     if (!placement) {
         return;
     }
-    placement->capture = decision.currentCapture;
-    placement->body = decision.currentBox;
-    state.workspaceCapture = decision.currentCapture;
-    state.captureWorkspaceFrame = decision.workspaceMoving;
+    placement->capture = decision.current_capture;
+    placement->body = decision.current_box;
+    state.workspaceCapture = decision.current_capture;
+    state.captureWorkspaceFrame = decision.workspace_moving;
     if (moving && !state.swarm.active()) {
         // Formed where the window was, so the first update carries this frame's movement.
         state.creature = swarmCreature(runtime.m_config.movement.swarm);
         state.swarm.reset();
         state.swarm.beginMovement(swarmParams(runtime.m_config.movement.swarm),
             runtime.m_nextSeed++,
-            {.capture = decision.previousCapture,
-                .body = decision.previousBox,
+            {.capture = decision.previous_capture,
+                .body = decision.previous_box,
                 .screen = placement->screen});
     }
     // An opening follows its window even with movement off; its agents are in flight either way.
@@ -201,8 +201,8 @@ void SSwarmLiveStyle::snapshot(
     const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &s) {
     const auto *state = transformer ? std::get_if<SSwarmStyle>(&transformer->m_style) : nullptr;
     s.handoff = state && state->swarm.active();
-    s.transitionBusy = false;
-    s.handoffMoving = state && state->swarm.moving();
+    s.transition_busy = false;
+    s.handoff_moving = state && state->swarm.moving();
 }
 
 void SSwarmLiveStyle::step(CPluginRuntime &,

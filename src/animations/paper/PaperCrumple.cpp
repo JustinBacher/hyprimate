@@ -85,7 +85,7 @@ namespace hyprimate {
 
     bool PaperCrumple::advance(double elapsedSeconds) noexcept {
         if (!std::isfinite(elapsedSeconds) || elapsedSeconds < 0.0 ||
-            elapsedSeconds > kStallSeconds) {
+            elapsedSeconds > STALL_SECONDS) {
             if (m_phase == Phase::Opening) {
                 reset();
             } else if (m_phase == Phase::Closing) {
@@ -144,8 +144,8 @@ namespace hyprimate {
         std::uint64_t random = seed;
         const double variation = m_params.variation;
         const auto draw = [&] {
-            const double b = unitDraw(base);
-            const double r = unitDraw(random);
+            const double b = unit_draw(base);
+            const double r = unit_draw(random);
             return b + (variation * (r - b));
         };
         m_takePick = std::min(draw(), 0x1.fffffffffffffp-1);

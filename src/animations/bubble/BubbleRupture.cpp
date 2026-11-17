@@ -527,7 +527,7 @@ namespace hyprimate {
             const double transient = s.spherical ? .05 : .075;
             const double unitsPerPixel = s.spherical ? 1 / s.halfSize.x : 1;
             std::uint64_t holeRng = s.debris ^ (hi * 0x9e3779b97f4a7c15ULL) ^ 0x94d049bb133111ebULL;
-            const int fingerCount = 14 + static_cast<int>(13 * unitDraw(holeRng));
+            const int fingerCount = 14 + static_cast<int>(13 * unit_draw(holeRng));
             Vec3 e1{};
             Vec3 e2{};
             if (s.spherical) {
@@ -539,11 +539,11 @@ namespace hyprimate {
                 }
                 std::uint64_t rng =
                     s.debris ^ (hi * 0x9e3779b97f4a7c15ULL) ^ (finger * 0xbf58476d1ce4e5b9ULL);
-                if (unitDraw(rng) < .27) {
+                if (unit_draw(rng) < .27) {
                     continue;
                 }
-                const double phi = 2 * pi * (finger + (.9 * (unitDraw(rng) - .5))) / fingerCount;
-                const int order = static_cast<int>(fingerCount * unitDraw(rng));
+                const double phi = 2 * pi * (finger + (.9 * (unit_draw(rng) - .5))) / fingerCount;
+                const int order = static_cast<int>(fingerCount * unit_draw(rng));
                 const double siteRadius =
                     std::max(threshold, (order + 1) * 50 / (2 * pi) * unitsPerPixel);
                 if (!impactMode && h.radius < siteRadius) {
@@ -556,11 +556,11 @@ namespace hyprimate {
                     onsetAge -= (onsetAge - (transient * (1 - expAge)) - target) / (1 - expAge);
                 }
                 const double fingerStart = h.start + onsetAge;
-                const double delay = .08 * s.rate * unitDraw(rng);
-                const double period = (.05 + (.04 * unitDraw(rng))) * s.rate;
-                const double length = 6 + (16 * unitDraw(rng));
-                const double threadRadius = .4 + (.5 * unitDraw(rng));
-                const double tilt = .7 * (unitDraw(rng) - .5);
+                const double delay = .08 * s.rate * unit_draw(rng);
+                const double period = (.05 + (.04 * unit_draw(rng))) * s.rate;
+                const double length = 6 + (16 * unit_draw(rng));
+                const double threadRadius = .4 + (.5 * unit_draw(rng));
+                const double tilt = .7 * (unit_draw(rng) - .5);
                 const double cp = std::cos(phi);
                 const double sp = std::sin(phi);
                 const Vec3 direction = s.spherical ? Vec3{(e1.x * cp) + (e2.x * sp),
@@ -602,14 +602,15 @@ namespace hyprimate {
                         .y = root.y + (dx * std::sin(tilt)) + (dy * std::cos(tilt)),
                         .z = root.z + tip.z - base.z};
                 };
-                const double factor = .55 + (.4 * unitDraw(rng));
-                const bool bead = unitDraw(rng) < .13;
-                const double size = bead ? 2.5 + (1.5 * unitDraw(rng)) : .8 + (1.7 * unitDraw(rng));
+                const double factor = .55 + (.4 * unit_draw(rng));
+                const bool bead = unit_draw(rng) < .13;
+                const double size =
+                    bead ? 2.5 + (1.5 * unit_draw(rng)) : .8 + (1.7 * unit_draw(rng));
                 const double maxLifetime =
-                    (bead ? .18 + (.12 * unitDraw(rng)) : .08 + (.07 * unitDraw(rng))) * s.rate;
-                const int satellites = 1 + (unitDraw(rng) < .85);
-                const double satelliteScale = .3 + (.2 * unitDraw(rng));
-                const double scatter = .04 + (.08 * unitDraw(rng));
+                    (bead ? .18 + (.12 * unit_draw(rng)) : .08 + (.07 * unit_draw(rng))) * s.rate;
+                const int satellites = 1 + (unit_draw(rng) < .85);
+                const double satelliteScale = .3 + (.2 * unit_draw(rng));
+                const double scatter = .04 + (.08 * unit_draw(rng));
                 for (int drop = 0; drop < 4; ++drop) {
                     const double firstDelay = std::max(delay, period * .35);
                     const double forming = std::min(period * .65, firstDelay + (drop * period));

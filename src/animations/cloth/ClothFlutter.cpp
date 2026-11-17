@@ -963,8 +963,8 @@ namespace hyprimate {
         }
         std::uint64_t fixed = BASE_SEED, random = seed;
         const double phase = 2 * std::numbers::pi *
-                             (unitDraw(fixed) * (1 - run->movement.variation) +
-                                 unitDraw(random) * run->movement.variation);
+                             (unit_draw(fixed) * (1 - run->movement.variation) +
+                                 unit_draw(random) * run->movement.variation);
         try {
             run->worker = std::thread([run, phase] {
                 try {
@@ -1000,7 +1000,7 @@ namespace hyprimate {
     void ClothFlutter::updateMovement(const Box &capture, double elapsed) noexcept {
         if (!moving() || !m_movement || !m_movement->producer) return;
         if (!validBox(capture) || !std::isfinite(elapsed) || elapsed < 0 ||
-            elapsed > kStallSeconds) {
+            elapsed > STALL_SECONDS) {
             reset();
             return;
         }
@@ -1074,8 +1074,8 @@ namespace hyprimate {
         }
         std::uint64_t base = BASE_SEED, random = seed;
         const auto draw = [&] {
-            const double b = unitDraw(base);
-            const double r = unitDraw(random);
+            const double b = unit_draw(base);
+            const double r = unit_draw(random);
             return b + p.variation * (r - b);
         };
         SimInput input;
@@ -1223,7 +1223,7 @@ namespace hyprimate {
                 std::min(wanted, playback.b.time);  // a starved worker holds the newest pose
             if (m_run->recorded.load(std::memory_order_acquire) < 2) {
                 m_startupWait += dt;
-                if (m_startupWait >= kStallSeconds ||
+                if (m_startupWait >= STALL_SECONDS ||
                     m_run->finished.load(std::memory_order_acquire))
                     startFallback();
             } else {
@@ -1231,7 +1231,7 @@ namespace hyprimate {
                     progressed || wanted <= playback.b.time + 1e-8 ? 0 : m_startupWait + dt;
                 playback.settling = m_t - playback.lastMotion >= 0.5;
                 if (m_run->overflow.load(std::memory_order_acquire) ||
-                    m_startupWait >= kStallSeconds ||
+                    m_startupWait >= STALL_SECONDS ||
                     m_run->finished.load(std::memory_order_acquire) || playback.settling)
                     startFallback();
             }
@@ -1251,7 +1251,7 @@ namespace hyprimate {
                 m_startupWait = 0;
             }
             m_startupWait += dt;
-            if (m_startupWait >= kStallSeconds) {
+            if (m_startupWait >= STALL_SECONDS) {
                 const bool finishedNow = m_run->finished.load(std::memory_order_acquire);
                 const int recordedNow = m_run->recorded.load(std::memory_order_acquire);
                 if (finishedNow && recordedNow < m_run->frames)
@@ -1278,7 +1278,7 @@ namespace hyprimate {
             m_startupWait = waiting ? dt - served : 0;
         } else if (waiting)
             m_startupWait += dt;
-        if (waiting && m_startupWait >= kStallSeconds) {
+        if (waiting && m_startupWait >= STALL_SECONDS) {
             const bool finishedNow = m_run->finished.load(std::memory_order_acquire);
             const int recordedNow = m_run->recorded.load(std::memory_order_acquire);
             if (finishedNow && recordedNow < m_run->frames)

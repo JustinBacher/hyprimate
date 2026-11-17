@@ -217,7 +217,7 @@ namespace hyprimate {
             std::clamp(placement.body.x + placement.body.w - capture.x, 0.0, capture.w);
         const double y1 =
             std::clamp(placement.body.y + placement.body.h - capture.y, 0.0, capture.h);
-        m_body = isUsable(placement.body) && x1 - x0 >= 1.0 && y1 - y0 >= 1.0
+        m_body = is_usable(placement.body) && x1 - x0 >= 1.0 && y1 - y0 >= 1.0
                      ? Box{.x = x0, .y = y0, .w = x1 - x0, .h = y1 - y0}
                      : Box{.x = 0.0, .y = 0.0, .w = capture.w, .h = capture.h};
 
@@ -267,16 +267,16 @@ namespace hyprimate {
             a.docked = true;
             a.lock = 1.0;
             a.visible = true;
-            a.pace = 1.0 + (m_params.variation * kPaceSpread * (unitDraw(m_rng) - 0.5));
+            a.pace = 1.0 + (m_params.variation * kPaceSpread * (unit_draw(m_rng) - 0.5));
             a.grip = lerp(kGripMin, kGripMax, m_params.responsiveness) *
-                     (1.0 + (m_params.variation * kGripSpread * (unitDraw(m_rng) - 0.5)));
-            a.rest = std::numbers::pi * ((2.0 * unitDraw(m_rng)) - 1.0);
-            a.reaction = kReactionShare * m_params.stagger * unitDraw(m_rng);
-            a.arc = kArcAngle * m_params.variation * ((2.0 * unitDraw(m_rng)) - 1.0);
-            a.weave = 2.0 * std::numbers::pi * unitDraw(m_rng);
-            a.weaveRate = lerp(kWeaveRateMin, kWeaveRateMax, unitDraw(m_rng));
-            a.gait = 2.0 * std::numbers::pi * unitDraw(m_rng);
-            a.gaitRate = lerp(kGaitRateMin, kGaitRateMax, unitDraw(m_rng));
+                     (1.0 + (m_params.variation * kGripSpread * (unit_draw(m_rng) - 0.5)));
+            a.rest = std::numbers::pi * ((2.0 * unit_draw(m_rng)) - 1.0);
+            a.reaction = kReactionShare * m_params.stagger * unit_draw(m_rng);
+            a.arc = kArcAngle * m_params.variation * ((2.0 * unit_draw(m_rng)) - 1.0);
+            a.weave = 2.0 * std::numbers::pi * unit_draw(m_rng);
+            a.weaveRate = lerp(kWeaveRateMin, kWeaveRateMax, unit_draw(m_rng));
+            a.gait = 2.0 * std::numbers::pi * unit_draw(m_rng);
+            a.gaitRate = lerp(kGaitRateMin, kGaitRateMax, unit_draw(m_rng));
         }
         layout(placement);
         m_shift = {};
@@ -292,7 +292,7 @@ namespace hyprimate {
         std::uint64_t seed,
         const SwarmPlacement &placement,
         EdgeSet sides) {
-        if (!isUsable(placement.capture) || !isUsable(placement.screen) || sides.empty() ||
+        if (!is_usable(placement.capture) || !is_usable(placement.screen) || sides.empty() ||
             !finite(params)) {
             return;
         }
@@ -330,10 +330,10 @@ namespace hyprimate {
             // A random point beyond a random one of the edges: where an agent comes from, or goes
             // to, says nothing about where its tile is.
             const Edge edge =
-                allowed[std::min(edges - 1, static_cast<std::size_t>(unitDraw(m_rng) * edges))];
+                allowed[std::min(edges - 1, static_cast<std::size_t>(unit_draw(m_rng) * edges))];
             const bool hz = horizontal(edge);
-            const double along =
-                (hz ? m_screen.x : m_screen.y) + ((hz ? m_screen.w : m_screen.h) * unitDraw(m_rng));
+            const double along = (hz ? m_screen.x : m_screen.y) +
+                                 ((hz ? m_screen.w : m_screen.h) * unit_draw(m_rng));
 
             if (closing) {
                 if (!a.visible) {
@@ -346,7 +346,7 @@ namespace hyprimate {
                 a.exit = beyond(m_screen, edge, along, (kExitDepth * a.fit) + a.reach);
                 // Agents let go in random order over the stagger; those already loose leave at
                 // once.
-                a.delay = a.docked ? m_params.stagger * unitDraw(m_rng) : 0.0;
+                a.delay = a.docked ? m_params.stagger * unit_draw(m_rng) : 0.0;
                 continue;
             }
 
@@ -374,7 +374,7 @@ namespace hyprimate {
             }
             if (!closing) {
                 const double walk = a.due;
-                a.due = (kLead * longest) + (m_params.stagger * unitDraw(m_rng));
+                a.due = (kLead * longest) + (m_params.stagger * unit_draw(m_rng));
                 a.delay = std::max(0.0, a.due - walk);
             }
             first = std::min(first, a.delay);
@@ -393,8 +393,8 @@ namespace hyprimate {
 
     void Swarm::beginMovement(
         const SwarmParams &params, std::uint64_t seed, const SwarmPlacement &placement) {
-        if (m_phase != Phase::Idle || !isUsable(placement.capture) || !isUsable(placement.screen) ||
-            !finite(params)) {
+        if (m_phase != Phase::Idle || !is_usable(placement.capture) ||
+            !is_usable(placement.screen) || !finite(params)) {
             return;
         }
         build(params, seed, placement);
@@ -403,7 +403,7 @@ namespace hyprimate {
 
     void Swarm::updateMovement(const SwarmPlacement &placement) {
         if ((m_phase != Phase::Opening && m_phase != Phase::Movement) ||
-            !isUsable(placement.capture) || !isUsable(placement.screen)) {
+            !is_usable(placement.capture) || !is_usable(placement.screen)) {
             return;
         }
         m_shift = m_shift + (Vec2{.x = placement.capture.x, .y = placement.capture.y} - m_origin);
@@ -448,7 +448,7 @@ namespace hyprimate {
             return false;
         }
         const double dt = std::isfinite(elapsedSeconds) && elapsedSeconds > 0.0
-                              ? std::min(elapsedSeconds, kStallSeconds)
+                              ? std::min(elapsedSeconds, STALL_SECONDS)
                               : 0.0;
         if (!(dt > 0.0)) {
             return true;
@@ -792,7 +792,7 @@ namespace hyprimate {
             if (!wandering && left < kDockDistance && speed < kDockSpeed &&
                 m_windowSpeed <= kDockWindowSpeed * a.grip) {
                 if (m_phase == Phase::Movement && a.settleWait < 0.0) {
-                    a.settleWait = m_params.stagger * unitDraw(m_rng);
+                    a.settleWait = m_params.stagger * unit_draw(m_rng);
                 }
                 if (m_phase != Phase::Movement || (a.settleWait -= kStep) <= 0.0) {
                     a.docked = true;

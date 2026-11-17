@@ -18,7 +18,7 @@ namespace hyprimate {
 
         // Tolerates floating-point drift so frame cadences that land exactly on a substep boundary
         // (for example 144 Hz frames summed to 0.5 s) take that substep rather than deferring it.
-        constexpr double kAccumulatorTolerance = kSubstepSeconds * 1e-9;
+        constexpr double kAccumulatorTolerance = SUBSTEP_SECONDS * 1e-9;
         constexpr double kMaxFrameSeconds = 0.05;
         constexpr unsigned kMaxSubstepsPerAdvance = 12;
 
@@ -279,7 +279,7 @@ namespace hyprimate {
 
     double LiquidMesh::drawUnit() noexcept {
         // Uniform in [-1, 1) from the top 53 bits of m_rng.
-        return (2.0 * unitDraw(m_rng)) - 1.0;
+        return (2.0 * unit_draw(m_rng)) - 1.0;
     }
 
     void LiquidMesh::rollCharacter() noexcept {
@@ -405,7 +405,7 @@ namespace hyprimate {
         const double perpY = dirX;
         // A unit direction has |dx| + |dy| >= 1, so this normalizer is always positive.
         const double normalizer = 0.5 * (std::abs(dirX) + std::abs(dirY));
-        const double gripBlend = 1.0 - std::exp(-kSubstepSeconds / kLiquidGripRelaxSeconds);
+        const double gripBlend = 1.0 - std::exp(-SUBSTEP_SECONDS / kLiquidGripRelaxSeconds);
         const double shearDamping = m_shearDamping;
         // The bow's deepest point sits at s = m_skew; dividing by 1 + |skew| keeps the far corner's
         // lag at (1 - bow depth) of the deepest point, so a skewed bow never turns a trailing
@@ -473,20 +473,20 @@ namespace hyprimate {
         }
         // The pseudo-force decays exponentially across each tick, so its shape does not depend on
         // the tick length.
-        const double inertiaDecay = std::exp(-kSubstepSeconds / kLiquidInertiaSeconds);
+        const double inertiaDecay = std::exp(-SUBSTEP_SECONDS / kLiquidInertiaSeconds);
         m_inertia = {.x = m_inertia.x * inertiaDecay, .y = m_inertia.y * inertiaDecay};
 
         for (std::size_t i = 0; i < d.size(); ++i) {
-            v[i].x += a[i].x * kSubstepSeconds;
-            v[i].y += a[i].y * kSubstepSeconds;
-            d[i].x += v[i].x * kSubstepSeconds;
-            d[i].y += v[i].y * kSubstepSeconds;
+            v[i].x += a[i].x * SUBSTEP_SECONDS;
+            v[i].y += a[i].y * SUBSTEP_SECONDS;
+            d[i].x += v[i].x * SUBSTEP_SECONDS;
+            d[i].y += v[i].y * SUBSTEP_SECONDS;
         }
     }
 
     bool LiquidMesh::advance(double elapsedSeconds, Vec2 size) noexcept {
         if (!isValidSize(size) || !std::isfinite(elapsedSeconds) ||
-            elapsedSeconds > kStallSeconds || !hasFiniteParams(m_params)) {
+            elapsedSeconds > STALL_SECONDS || !hasFiniteParams(m_params)) {
             reset();
             return false;
         }
@@ -562,12 +562,12 @@ namespace hyprimate {
         m_accumulator += std::max(0.0, std::min(elapsedSeconds, kMaxFrameSeconds));
 
         unsigned steps = 0;
-        while (m_accumulator >= kSubstepSeconds - kAccumulatorTolerance) {
+        while (m_accumulator >= SUBSTEP_SECONDS - kAccumulatorTolerance) {
             if (steps == kMaxSubstepsPerAdvance) {
                 m_accumulator = 0.0;
                 break;
             }
-            m_accumulator -= kSubstepSeconds;
+            m_accumulator -= SUBSTEP_SECONDS;
             ++steps;
 
             integrateLiquidSubstep(size);

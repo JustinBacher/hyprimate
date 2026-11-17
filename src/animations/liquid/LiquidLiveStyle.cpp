@@ -166,11 +166,11 @@ void SLiquidLiveStyle::movement(CPluginRuntime &runtime,
     bool enabled,
     bool moving) {
     const CBox capture = window->getFullWindowBoundingBox();
-    const auto &current = decision.currentBox;
+    const auto &current = decision.current_box;
     auto &state = std::get<SLiquidStyle>(transformer.m_style);
     if (moving) {
         state.mesh.recordTranslation(
-            {.x = current.x - decision.previousBox.x, .y = current.y - decision.previousBox.y},
+            {.x = current.x - decision.previous_box.x, .y = current.y - decision.previous_box.y},
             {.x = capture.w, .y = capture.h},
             runtime.movementStrength());
     } else if (enabled) {
@@ -184,7 +184,7 @@ void SLiquidLiveStyle::movement(CPluginRuntime &runtime,
 void SLiquidLiveStyle::snapshot(
     const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &s) {
     const auto *state = transformer ? std::get_if<SLiquidStyle>(&transformer->m_style) : nullptr;
-    s.transitionBusy = state && state->transition.active();
+    s.transition_busy = state && state->transition.active();
 }
 
 void SLiquidLiveStyle::step(CPluginRuntime &runtime,

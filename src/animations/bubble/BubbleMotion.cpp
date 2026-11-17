@@ -185,7 +185,7 @@ namespace hyprimate {
     }
 
     double BubbleMotion::draw01() noexcept {
-        return unitDraw(random_);
+        return unit_draw(random_);
     }
 
     double BubbleMotion::reference() const noexcept {
@@ -265,7 +265,7 @@ namespace hyprimate {
             return;
         }
         size_ = size;
-        body_ = isUsable(body)
+        body_ = is_usable(body)
                     ? body
                     : Box{.x = -size.x * .5, .y = -size.y * .5, .w = size.x, .h = size.y};
         params_ = {.strength = std::max(0.0, params.strength),
@@ -274,7 +274,7 @@ namespace hyprimate {
             .roundness = std::clamp(params.roundness, 0.0, 1.0),
             .shape = params.shape,
             .shapeSpeed = std::max(params.shapeSpeed, 100.0)};
-        const double dt = std::min(elapsed, kStallSeconds);
+        const double dt = std::min(elapsed, STALL_SECONDS);
         // The film behind a layout-animated window closes in on it; what the window is seen to do
         // is its own translation plus how far the film moved toward it.
         if (carry_.x != 0 || carry_.y != 0 || carryRate_.x != 0 || carryRate_.y != 0) {
@@ -328,9 +328,9 @@ namespace hyprimate {
         }
 
         substep_ += dt;
-        while (substep_ >= kSubstepSeconds) {
-            step(kSubstepSeconds, acceleration, speedRate);
-            substep_ -= kSubstepSeconds;
+        while (substep_ >= SUBSTEP_SECONDS) {
+            step(SUBSTEP_SECONDS, acceleration, speedRate);
+            substep_ -= SUBSTEP_SECONDS;
         }
         clock_ += dt;
 

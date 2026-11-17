@@ -100,13 +100,13 @@ void SClothLiveStyle::movement(CPluginRuntime &runtime,
     bool moving) {
     auto &state = std::get<SClothStyle>(transformer.m_style);
     if (moving && !state.cloth.moving()) {
-        state.cloth.beginMovement(state.movement, runtime.m_nextSeed++, decision.previousCapture);
+        state.cloth.beginMovement(state.movement, runtime.m_nextSeed++, decision.previous_capture);
         state.sheet.captureSize = {
-            .x = decision.previousCapture.w, .y = decision.previousCapture.h};
+            .x = decision.previous_capture.w, .y = decision.previous_capture.h};
         state.cloth.frame(state.sheet.captureSize, *state.sheet.frame);
     }
     if (enabled && state.cloth.moving()) {
-        const auto &capture = decision.currentCapture;
+        const auto &capture = decision.current_capture;
         state.cloth.updateMovement(capture, elapsed);
         state.sheet.captureSize = {.x = capture.w, .y = capture.h};
         state.cloth.frame(state.sheet.captureSize, *state.sheet.frame);
@@ -117,8 +117,8 @@ void SClothLiveStyle::snapshot(
     const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &s) {
     const auto *cloth = transformer ? std::get_if<SClothStyle>(&transformer->m_style) : nullptr;
     s.handoff = cloth && cloth->cloth.active();
-    s.transitionBusy = cloth && cloth->cloth.active() && !s.handoff;
-    s.handoffMoving = cloth && cloth->cloth.moving();
+    s.transition_busy = cloth && cloth->cloth.active() && !s.handoff;
+    s.handoff_moving = cloth && cloth->cloth.moving();
 }
 
 void SClothLiveStyle::step(CPluginRuntime &,

@@ -502,10 +502,10 @@ void CPluginRuntime::updateWindow(STracked &entry, const PHLWINDOW &window, cloc
         // Covers a material change, a stall, a movement jump, and a window that stopped being
         // deformable.
         detachWindow(entry, window);
-        if (decision.beginOpen) beginOpening(entry, window);
+        if (decision.begin_open) beginOpening(entry, window);
         return;
     }
-    if (decision.cancelOpening) {
+    if (decision.cancel_opening) {
         if (auto *transformer = transformerOf(window)) transformer->cancelOpening();
     }
     if (decision.action == hyprimate::TrackAction::Opening) {
@@ -528,30 +528,30 @@ hyprimate::WindowSnapshot CPluginRuntime::snapshotOf(
     s.current = toBox(window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT));
     s.capture = toBox(window->getFullWindowBoundingBox());
     s.deformable = eligible(window);
-    s.animatingIn = animating;
+    s.animating_in = animating;
     withLiveStyle(m_config.style, [&](auto style) { style.snapshot(transformer, s); });
-    s.materialChanged = transformer && materialChanged(*transformer);
-    s.openEnabled = openEnabled();
-    s.movementEnabled = movementEnabled();
+    s.material_changed = transformer && materialChanged(*transformer);
+    s.open_enabled = openEnabled();
+    s.movement_enabled = movementEnabled();
     s.monitor = monitorId(window);
     s.elapsed = elapsed;
-    s.workspaceMovement = m_config.movement.workspaceMovement;
+    s.workspace_movement = m_config.movement.workspaceMovement;
     if (const auto workspace = window->m_workspace;
         workspace && !(window->m_state & Desktop::View::WINDOW_STATE_PINNED)) {
         s.workspace = reinterpret_cast<std::uintptr_t>(workspace.get());
-        s.workspaceMoving = workspace->m_renderOffset->isBeingAnimated();
-        if (s.workspaceMoving) {
+        s.workspace_moving = workspace->m_renderOffset->isBeingAnimated();
+        if (s.workspace_moving) {
             const auto offset = workspace->m_renderOffset->value();
-            s.workspaceOffset = {offset.x, offset.y};
+            s.workspace_offset = {offset.x, offset.y};
         }
         // Native hiding ends the slide, not the swarm's flight. Preserve its last screen-space
         // placement while the retained window image supplies the remaining creatures.
         const auto *tail = workspaceSwarmTail(window);
         if (tail) {
-            s.workspaceOffset = {
+            s.workspace_offset = {
                 tail->workspaceCapture.x - s.capture.x, tail->workspaceCapture.y - s.capture.y};
         }
-        s.deformable = s.deformable && (workspace->visible() || s.workspaceMoving || tail);
+        s.deformable = s.deformable && (workspace->visible() || s.workspace_moving || tail);
     }
     return s;
 }
@@ -569,7 +569,7 @@ void CPluginRuntime::recordMovement(STracked &entry,
         entry.hasFootprint = false;
     }
     if (!transformer) transformer = acquireTransformer(window);
-    if (decision.cancelMovement) transformer->cancelMovement();
+    if (decision.cancel_movement) transformer->cancelMovement();
     withLiveStyle(m_config.style, [&](auto style) {
         style.movement(*this, *transformer, window, decision, elapsed, enabled, moving);
     });

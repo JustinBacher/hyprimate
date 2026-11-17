@@ -110,7 +110,7 @@ namespace hyprimate {
         // advance: loose agents keep their screen positions and chase their moving homes.
         // A new size re-cuts the tiles. Ignored unless opening or moving.
         void updateMovement(const SwarmPlacement &placement);
-        // Steps the simulation. Non-finite or negative time counts as zero; more than kStallSeconds
+        // Steps the simulation. Non-finite or negative time counts as zero; more than STALL_SECONDS
         // is clamped to it. While a movement gesture is held, wander keeps agents loose even when
         // the window is stationary; releasing it lets them regroup. Returns active().
         bool advance(double elapsedSeconds, bool movementHeld = false);

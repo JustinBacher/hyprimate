@@ -72,7 +72,7 @@ void SPaperLiveStyle::snapshot(
     const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &s) {
     if (transformer) {
         const auto *paper = std::get_if<SPaperStyle>(&transformer->m_style);
-        s.transitionBusy = paper && paper->crumple.active();
+        s.transition_busy = paper && paper->crumple.active();
     }
 }
 

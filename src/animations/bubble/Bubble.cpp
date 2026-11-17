@@ -65,14 +65,14 @@ namespace hyprimate {
             s.ruptureVisibility = s.visibility;
             s.holeCount = 3;
             if (!sphere && s.thickness <= 0) {
-                s.thickness = 380 + (270 * unitDraw(seed));
+                s.thickness = 380 + (270 * unit_draw(seed));
             }
             const double x = spot.x;
             const double y = spot.y;
             if (sphere) {
                 s.holes[0].centre = {
                     .x = x, .y = -.55, .z = std::sqrt(std::max(0.0, 1 - x * x - .55 * .55))};
-                const double turn = (unitDraw(seed) - .5) * .5;
+                const double turn = (unit_draw(seed) - .5) * .5;
                 s.holes[1].centre = {(-.5 * std::cos(turn)) - (.45 * std::sin(turn)),
                     (-.5 * std::sin(turn)) + (.45 * std::cos(turn)),
                     -.74};
@@ -91,10 +91,10 @@ namespace hyprimate {
             } else {
                 s.holes[0].centre = {
                     .x = x * s.halfSize.x, .y = -std::abs(y) * s.halfSize.y, .z = 0};
-                const double first = .72 + .04 * unitDraw(seed);
-                const double second = .72 + .04 * unitDraw(seed);
-                const double cross1 = .5 + .1 * unitDraw(seed);
-                const double cross2 = .5 + .1 * unitDraw(seed);
+                const double first = .72 + .04 * unit_draw(seed);
+                const double second = .72 + .04 * unit_draw(seed);
+                const double cross1 = .5 + .1 * unit_draw(seed);
+                const double cross2 = .5 + .1 * unit_draw(seed);
                 if (s.halfSize.x >= s.halfSize.y) {
                     s.holes[1].centre = {
                         .x = -s.halfSize.x * first, .y = s.halfSize.y * cross1, .z = 0};
@@ -115,7 +115,7 @@ namespace hyprimate {
             s.holes[2].start = sphere ? .42 : .31;
             for (std::size_t i = 0; i < s.holeCount; ++i) {
                 for (double &phase : s.holes[i].phase) {
-                    phase = 6.283185307179586 * unitDraw(seed);
+                    phase = 6.283185307179586 * unit_draw(seed);
                 }
             }
             updateRupture(s);
@@ -133,9 +133,9 @@ namespace hyprimate {
         // A close takes over the film as it is: mid-opening, or still deformed by movement.
         const bool inherit = fromOpening || (direction == Transition::Close && motion_.stirred());
         const auto start = inherit ? frame(size) : neutral(size);
-        const double materialSeed = fromOpening ? start.seed : unitDraw(seed);
-        const double x = (.16 + (.12 * unitDraw(seed))) * (unitDraw(seed) < .5 ? -1 : 1);
-        const double y = (.12 + (.12 * unitDraw(seed))) * (unitDraw(seed) < .5 ? -1 : 1);
+        const double materialSeed = fromOpening ? start.seed : unit_draw(seed);
+        const double x = (.16 + (.12 * unit_draw(seed))) * (unit_draw(seed) < .5 ? -1 : 1);
+        const double y = (.12 + (.12 * unit_draw(seed))) * (unit_draw(seed) < .5 ? -1 : 1);
         initial_ = start;
         size_ = size;
         duration_ = std::clamp(duration, .01, 60.0);
@@ -165,7 +165,7 @@ namespace hyprimate {
             return;
         }
         // A stalled compositor should not skip the animation in a single frame.
-        elapsed_ = std::min(duration_, elapsed_ + std::min(elapsed, kStallSeconds));
+        elapsed_ = std::min(duration_, elapsed_ + std::min(elapsed, STALL_SECONDS));
         if (opening_) {
             flow_ = elapsed_ * 2;
         }
@@ -188,7 +188,7 @@ namespace hyprimate {
         motion_.advance(elapsed, size, body, params);
         // Once landed, the film keeps flowing at the pace the movement stirs it.
         if (!settling) {
-            flow_ += std::min(elapsed, kStallSeconds) * (.6 + std::min(motion_.speed() / 800, 3.0));
+            flow_ += std::min(elapsed, STALL_SECONDS) * (.6 + std::min(motion_.speed() / 800, 3.0));
         }
     }
 
