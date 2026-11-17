@@ -66,7 +66,7 @@ class CBubbleMaterial {
            m_particleVao = 0, m_microVao = 0, m_instance = 0, m_microInstance = 0, m_lut = 0;
     // Per membrane: 13 fields, 4 holes of 6, then the movement's 8.
     static constexpr std::size_t kSurfaceUniforms = 13 + 4 * 6 + 8;
-    std::array<GLint, 14> m_membraneUniforms{};
+    std::array<GLint, 15> m_membraneUniforms{};
     std::array<std::array<GLint, kSurfaceUniforms>, 2> m_surfaceUniforms{};
     std::array<GLint, kSurfaceUniforms> m_curlSurfaceUniforms{};
     std::array<GLint, 15> m_curlUniforms{};

@@ -99,6 +99,14 @@ void testSettled(Fixture &f) {
         CHECK(at(result, x, y) == expected);
     }
     CHECK(at(result, 40, 60)[3] == 0);
+    // An absorbed companion must not punch its desktop image through the settled client.
+    auto &satellite = frame.formation[0];
+    frame.formationCount = 1;
+    satellite.halfSize = {20, 20};
+    satellite.corner = satellite.depth = 20;
+    satellite.visibility = satellite.content = satellite.film = 1;
+    satellite.thickness = 450;
+    CHECK(result == f.render(frame, f.window, f.scene, {50, 70}, frame.size));
 }
 
 void testSettling(Fixture &f) {
@@ -210,6 +218,32 @@ void testMoving(Fixture &f, int w, int h, double round, hyprimate::Vec2 extent) 
         CHECK(at(desktop, x + ox, y + oy)[3] < 8);
     }
 }
+
+void testFormation(Fixture &f) {
+    for (const hyprimate::Vec2 size : {hyprimate::Vec2{64, 180}, {200, 60}, {150, 150}, {180, 126}}) {
+        const hyprimate::Vec2 pos{(width - size.x) / 2, (height - size.y) / 2};
+        hyprimate::Bubble bubble;
+        bubble.begin(hyprimate::Transition::Open, 1, 42, size);
+        for (int step = 0; step < 100; ++step) {
+            bubble.advance(.01);
+            if (step != 24 && step != 69 && step != 89 && step != 99) continue;
+            const auto frame = bubble.frame(size);
+            const auto drawn = f.render(frame, f.window, f.scene, pos, size);
+            auto primary = frame;
+            primary.formationCount = 0;
+            const auto without = f.render(primary, f.window, f.scene, pos, size);
+            if (step < 99) CHECK(drawn != without); // includes satellites after landing
+            else CHECK(drawn == without);
+            // A satellite must refract its actual desktop location, never the client texture.
+            auto satellites = frame;
+            satellites.window.visibility = 0;
+            const auto scene = f.render(satellites, f.window, f.scene, pos, size);
+            CHECK(scene == f.render(satellites, f.otherWindow, f.scene, pos, size));
+            if (step == 24) CHECK(scene != f.render(satellites, f.window, f.black, pos, size));
+            CHECK(!glIsEnabled(GL_SCISSOR_TEST) && !glIsEnabled(GL_BLEND));
+        }
+    }
+}
 } // namespace
 
 int main() {
@@ -238,6 +272,7 @@ int main() {
         testSettled(fixture);
         testSettling(fixture);
         testTransparency(fixture);
+        testFormation(fixture);
         testMoving(fixture, 160, 100, .35, {76, 48}); // pillow, wide
         testMoving(fixture, 100, 160, .75, {46, 74}); // ellipse, tall
         testMoving(fixture, 150, 90, .85, {48, 48}); // disc

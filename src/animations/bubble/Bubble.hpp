@@ -72,6 +72,10 @@ namespace hyprimate {
         BubbleSurface window{};
         BubbleSurface shell{};
         double seed = 0;
+        // Opening satellites use the same optical membrane as their growing parent.
+        // Fixed capacity; no per-frame allocation or persistent particles after settling.
+        std::array<BubbleSurface, 8> formation{};
+        std::size_t formationCount = 0;
         // Microbubbles riding the window's film, in frame coordinates.
         std::array<BubbleMicro, kBubbleMicroCapacity> micro{};
         std::size_t microCount = 0;

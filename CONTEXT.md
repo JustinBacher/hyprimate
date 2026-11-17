@@ -16,9 +16,9 @@ _Avoid_: mode, material (as separate per-direction choices).
 
 **Take**: one baked paper crumple, a flat sheet crumpling into a ball. A paper transition plays a take forward (close) or backward (open).
 
-**Bubble**: a window's soap-film surface. Opening inflates a round outer bubble that ruptures while a clear inner film emerges and flattens into the window; closing ruptures the window's film where it is.
+**Bubble**: a window's soap-film surface. Opening grows one bubble continuously into the window among smaller companion bubbles that linger as it settles; closing ruptures the window's film where it is.
 
-**Transmission** (bubble): the desktop seen through a moving film, including wallpaper and windows behind it. The moving window's own image remains a secondary contribution; it returns continuously as the film settles.
+**Transmission** (bubble): the desktop seen through an opening or moving film, including wallpaper and windows behind it. The window's own image returns continuously as the film settles.
 
 **Interference** (bubble): the film's shifting colours, produced by its changing thickness and viewing angle. Curved edges reflect more strongly while the centre remains clear, independent of whether the outline is circular or window-shaped.
 
