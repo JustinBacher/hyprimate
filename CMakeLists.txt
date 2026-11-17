@@ -51,6 +51,13 @@ FetchContent_Declare(JoltPhysics
 )
 FetchContent_MakeAvailable(JoltPhysics)
 
+# Keep project warnings out of Jolt's already-configured subdirectory.
+add_compile_options(
+    -Wall -Wextra -Wpedantic
+    -Wunused-function -Wunused-variable
+    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wunused-private-field>
+)
+
 set(CONFIG_SCHEMA ${CMAKE_CURRENT_SOURCE_DIR}/config/settings.json)
 set(CONFIG_GENERATOR ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_config.py)
 set(CONFIG_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
@@ -129,7 +136,7 @@ set_source_files_properties(src/animations/paper/PaperTakes.cpp PROPERTIES OBJEC
 set_source_files_properties(src/animations/cloth/ClothFlutter.cpp PROPERTIES COMPILE_OPTIONS "-fvisibility=hidden;-fvisibility-inlines-hidden")
 target_include_directories(hyprimate-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(hyprimate-core PRIVATE Jolt)
-target_compile_options(hyprimate-core PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>:-fno-gnu-unique> -Wall -Wextra -Wpedantic)
+target_compile_options(hyprimate-core PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>:-fno-gnu-unique>)
 
 add_library(hyprimate SHARED
     src/main.cpp
@@ -161,7 +168,19 @@ target_link_libraries(hyprimate PRIVATE PkgConfig::HYPRLAND Jolt hyprimate-core)
 # Keep Jolt's symbols out of the plugin's dynamic symbol table, so they cannot bind to another copy in the process.
 target_link_options(hyprimate PRIVATE -Wl,--exclude-libs,ALL)
 # GNU-unique inline statics otherwise make dlclose retain stale plugin code.
-target_compile_options(hyprimate PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>:-fno-gnu-unique> -Wall -Wextra -Wpedantic)
+target_compile_options(hyprimate PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>:-fno-gnu-unique>)
+
+# Shared plugins may import host APIs, but every strong import must have a provider.
+find_program(HYPRLAND_EXECUTABLE NAMES Hyprland REQUIRED)
+set(PLUGIN_SYMBOL_CHECKER ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_plugin_symbols.py)
+set_property(TARGET hyprimate APPEND PROPERTY LINK_DEPENDS
+    ${PLUGIN_SYMBOL_CHECKER} ${HYPRLAND_EXECUTABLE})
+add_custom_command(TARGET hyprimate POST_BUILD
+    COMMAND ${Python3_EXECUTABLE} ${PLUGIN_SYMBOL_CHECKER}
+            $<TARGET_FILE:hyprimate> ${HYPRLAND_EXECUTABLE} --nm ${CMAKE_NM}
+    COMMENT "Checking plugin imports against Hyprland and shared dependencies"
+    VERBATIM
+)
 
 find_program(CLANG_FORMAT_EXECUTABLE clang-format)
 if(CLANG_FORMAT_EXECUTABLE)
@@ -189,6 +208,7 @@ include(CTest)
 if(BUILD_TESTING)
     add_test(NAME config-docs-check COMMAND ${Python3_EXECUTABLE} ${CONFIG_GENERATOR} --schema ${CONFIG_SCHEMA} --readme ${CMAKE_CURRENT_SOURCE_DIR}/README.md --lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/nested/hyprland.lua --check)
     add_test(NAME config-generator-tests COMMAND ${Python3_EXECUTABLE} -m unittest discover -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p test_config_generator.py)
+    add_test(NAME plugin-symbol-tests COMMAND ${Python3_EXECUTABLE} -m unittest discover -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p test_plugin_symbols.py)
     add_executable(liquid-mesh-tests src/animations/liquid/tests/LiquidMeshTests.cpp)
     target_link_libraries(liquid-mesh-tests PRIVATE hyprimate-core)
     target_include_directories(liquid-mesh-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
@@ -212,30 +232,25 @@ if(BUILD_TESTING)
     add_executable(swarm-tests src/animations/swarm/tests/SwarmTests.cpp)
     target_link_libraries(swarm-tests PRIVATE hyprimate-core)
     target_include_directories(swarm-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
-    target_compile_options(swarm-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME swarm-tests COMMAND swarm-tests)
 
     add_executable(bubble-tests src/animations/bubble/tests/BubbleTests.cpp)
     target_link_libraries(bubble-tests PRIVATE hyprimate-core)
     target_include_directories(bubble-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
-    target_compile_options(bubble-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME bubble-tests COMMAND bubble-tests)
 
     add_executable(bubble-optics-tests src/animations/bubble/tests/BubbleOpticsTests.cpp)
     target_link_libraries(bubble-optics-tests PRIVATE hyprimate-core)
     target_include_directories(bubble-optics-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
-    target_compile_options(bubble-optics-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME bubble-optics-tests COMMAND bubble-optics-tests)
 
     add_executable(bubble-motion-tests src/animations/bubble/tests/BubbleMotionTests.cpp)
     target_link_libraries(bubble-motion-tests PRIVATE hyprimate-core)
     target_include_directories(bubble-motion-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
-    target_compile_options(bubble-motion-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME bubble-motion-tests COMMAND bubble-motion-tests)
 
     add_executable(window-tracker-tests tests/WindowTrackerTests.cpp)
     target_link_libraries(window-tracker-tests PRIVATE hyprimate-core)
-    target_compile_options(window-tracker-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME window-tracker-tests COMMAND window-tracker-tests)
 
 endif()
