@@ -56,6 +56,7 @@ namespace hyprimate {
         Box currentBox{};  // screen-space body and capture, including workspace displacement
         Box currentCapture{};
         bool workspaceMoving = false;
+        Vec2 workspaceDelta{};  // carry attached effects with the workspace, including its last step
     };
 
     // Per-window tracking state. Eligibility is one rule: the window is deformable, its body and
@@ -91,7 +92,6 @@ namespace hyprimate {
         bool m_eligible = false;
         bool m_wasAnimatingIn = false;
         Vec2 m_workspaceOffset{};
-        bool m_workspaceMoving = false;
         bool m_workspaceMovement = true;
         std::uintptr_t m_workspace = 0;
     };

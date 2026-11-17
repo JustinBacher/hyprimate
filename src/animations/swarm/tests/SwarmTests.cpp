@@ -315,6 +315,72 @@ namespace {
         CHECK(inFormation(m));
     }
 
+    void workspaceSlidesCarrySprites() {
+        for (const Vec2 travel :
+            {Vec2{-SCREEN.w, 0}, Vec2{SCREEN.w, 0}, Vec2{0, -SCREEN.h}, Vec2{0, SCREEN.h}}) {
+            for (double duration : {40.0 * FRAME, 0.8, 2.0}) {
+                for (bool incoming : {false, true}) {
+                    Swarm m;
+                    Vec2 offset = incoming ? Vec2{-travel.x, -travel.y} : Vec2{};
+                    const Vec2 delta{travel.x / 40.0, travel.y / 40.0};
+                    m.beginMovement({}, 2, placement(offset));
+                    for (int frame = 0; frame < 40; ++frame) {
+                        offset.x += delta.x;
+                        offset.y += delta.y;
+                        m.updateMovement(placement(offset), delta);
+                        m.advance(duration / 40.0);
+                        // Both windows are still partly visible across the midpoint. Neither
+                        // swarm may vanish or hand off to an undeformed window there.
+                        if (frame >= 18 && frame <= 22) {
+                            CHECK(m.moving());
+                            CHECK(m.bounds().w > 0.0 && m.bounds().h > 0.0);
+                            CHECK(std::ranges::any_of(m.agents(),
+                                [](const SwarmAgent &a) { return a.visible && a.lock < 1.0; }));
+                        }
+                    }
+                    if (incoming) {
+                        // Arrivals must travel with their workspace, not wait offscreen until
+                        // the settlement deadline teleports them onto their tiles.
+                        CHECK(m.bounds().w > 0.0);
+                        double distance = 0.0;
+                        for (const auto &a : m.agents())
+                            distance +=
+                                std::hypot(a.position.x - a.home.x, a.position.y - a.home.y);
+                        CHECK(distance / m.agents().size() < 200.0);
+                        run(m, 8.0);
+                        CHECK(inFormation(m));
+                    } else {
+                        // No visible tail may be left for the compositor to abruptly cull.
+                        CHECK(m.bounds().w == 0.0);
+                    }
+                }
+            }
+        }
+    }
+
+    void workspaceReversalCarriesAnOpeningWithoutRestartingIt() {
+        Swarm stationary;
+        stationary.begin(Transition::Open, {}, 9, placement(), sides({Edge::Left}));
+        run(stationary, 0.25);
+        Swarm carried = stationary;
+        Vec2 offset{};
+        for (const Vec2 delta : {Vec2{-300, 40}, Vec2{500, -80}, Vec2{-200, 40}}) {
+            offset.x += delta.x;
+            offset.y += delta.y;
+            carried.updateMovement(placement(offset), delta);
+            stationary.advance(FRAME);
+            carried.advance(FRAME);
+            CHECK(carried.opening());
+            for (std::size_t i = 0; i < carried.agents().size(); ++i) {
+                const auto &a = carried.agents()[i];
+                const auto &b = stationary.agents()[i];
+                CHECK(std::abs(a.position.x - b.position.x) < 1e-8);
+                CHECK(std::abs(a.position.y - b.position.y) < 1e-8);
+                CHECK(a.visible == b.visible && a.lock == b.lock);
+            }
+        }
+    }
+
     void fastMovementScattersThenRegroups() {
         Swarm m;
         m.beginMovement({}, 2, placement());
@@ -758,6 +824,8 @@ int main() {
     closeInheritsAnInFlightHandoff();
     movementWithoutMotionFinishesImmediately();
     slowMovementKeepsTheWindowWhole();
+    workspaceSlidesCarrySprites();
+    workspaceReversalCarriesAnOpeningWithoutRestartingIt();
     fastMovementScattersThenRegroups();
     heldMovementWandersUntilRelease();
     heldMovementRespectsWander();
