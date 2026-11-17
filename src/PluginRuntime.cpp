@@ -379,9 +379,9 @@ hyprimate::EdgeInput CPluginRuntime::edgeInputFor(
         BODY.y + (CAPTURE.y - CURRENT.y),
         BODY.w + (CAPTURE.w - CURRENT.w),
         BODY.h + (CAPTURE.h - CURRENT.h)};
-    const auto BOX = [](const CBox &sourceBox) {
+    const auto BOX = [](const CBox &source_box) {
         return hyprimate::Box{
-            .x = sourceBox.x, .y = sourceBox.y, .w = sourceBox.w, .h = sourceBox.h};
+            .x = source_box.x, .y = source_box.y, .w = source_box.w, .h = source_box.h};
     };
 
     m_neighbours.clear();
@@ -599,40 +599,41 @@ void CPluginRuntime::updateWindow(STracked &entry, const PHLWINDOW &window, cloc
 hyprimate::WindowSnapshot CPluginRuntime::snapshotOf(
     const PHLWINDOW &window, bool animating, double elapsed) {
     const auto *transformer = transformerOf(window);
-    hyprimate::WindowSnapshot windowSnapshot;
-    windowSnapshot.current =
+    hyprimate::WindowSnapshot window_snapshot;
+    window_snapshot.current =
         toBox(window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT));
-    windowSnapshot.capture = toBox(window->getFullWindowBoundingBox());
-    windowSnapshot.deformable = eligible(window);
-    windowSnapshot.animating_in = animating;
-    withLiveStyle(m_config.style, [&](auto style) { style.snapshot(transformer, windowSnapshot); });
-    windowSnapshot.material_changed = (transformer != nullptr) && materialChanged(*transformer);
-    windowSnapshot.open_enabled = openEnabled();
-    windowSnapshot.movement_enabled = movementEnabled();
-    windowSnapshot.monitor = monitorId(window);
-    windowSnapshot.elapsed = elapsed;
-    windowSnapshot.workspace_movement = m_config.movement.workspaceMovement;
+    window_snapshot.capture = toBox(window->getFullWindowBoundingBox());
+    window_snapshot.deformable = eligible(window);
+    window_snapshot.animating_in = animating;
+    withLiveStyle(
+        m_config.style, [&](auto style) { style.snapshot(transformer, window_snapshot); });
+    window_snapshot.material_changed = (transformer != nullptr) && materialChanged(*transformer);
+    window_snapshot.open_enabled = openEnabled();
+    window_snapshot.movement_enabled = movementEnabled();
+    window_snapshot.monitor = monitorId(window);
+    window_snapshot.elapsed = elapsed;
+    window_snapshot.workspace_movement = m_config.movement.workspaceMovement;
     if (const auto WORKSPACE = window->m_workspace;
         WORKSPACE && !(window->m_state & Desktop::View::WINDOW_STATE_PINNED)) {
-        windowSnapshot.workspace = reinterpret_cast<std::uintptr_t>(WORKSPACE.get());
-        windowSnapshot.workspace_moving = WORKSPACE->m_renderOffset->isBeingAnimated();
-        if (windowSnapshot.workspace_moving) {
+        window_snapshot.workspace = reinterpret_cast<std::uintptr_t>(WORKSPACE.get());
+        window_snapshot.workspace_moving = WORKSPACE->m_renderOffset->isBeingAnimated();
+        if (window_snapshot.workspace_moving) {
             const auto OFFSET = WORKSPACE->m_renderOffset->value();
-            windowSnapshot.workspace_offset = {.x = OFFSET.x, .y = OFFSET.y};
+            window_snapshot.workspace_offset = {.x = OFFSET.x, .y = OFFSET.y};
         }
         // Native hiding ends the slide, not the swarm's flight. Preserve its last screen-space
         // placement while the retained window image supplies the remaining creatures.
         const auto *tail = workspaceSwarmTail(window);
         if (tail != nullptr) {
-            windowSnapshot.workspace_offset = {
-                .x = tail->workspaceCapture.x - windowSnapshot.capture.x,
-                .y = tail->workspaceCapture.y - windowSnapshot.capture.y};
+            window_snapshot.workspace_offset = {
+                .x = tail->workspaceCapture.x - window_snapshot.capture.x,
+                .y = tail->workspaceCapture.y - window_snapshot.capture.y};
         }
-        windowSnapshot.deformable =
-            windowSnapshot.deformable &&
-            (WORKSPACE->visible() || windowSnapshot.workspace_moving || (tail != nullptr));
+        window_snapshot.deformable =
+            window_snapshot.deformable &&
+            (WORKSPACE->visible() || window_snapshot.workspace_moving || (tail != nullptr));
     }
-    return windowSnapshot;
+    return window_snapshot;
 }
 
 void CPluginRuntime::recordMovement(STracked &entry,
