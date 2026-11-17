@@ -12,6 +12,8 @@ AllowShortFunctionsOnASingleLine: None
 BinPackArguments: false
 PointerAlignment: Right
 BinPackParameters: OnePerLine
+NumericLiteralCase:
+  Suffix: Upper
 BreakBeforeBraces: Attach
 SortIncludes:
   Enabled: true
