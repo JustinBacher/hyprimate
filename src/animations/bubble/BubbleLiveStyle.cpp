@@ -82,10 +82,13 @@ bool SBubbleLiveStyle::open(
     if (!hyprimate::isUsable(toBox(goal)) || !hyprimate::isUsable(rest)) return false;
     auto *transformer = runtime.acquireTransformer(window);
     auto &state = std::get<SBubbleStyle>(transformer->m_style);
+    const auto &options = runtime.m_config.open.bubble;
     state.bubble.begin(hyprimate::Transition::Open,
         runtime.m_config.open.bubble.duration,
         runtime.m_nextSeed++,
-        {rest.w, rest.h});
+        {rest.w, rest.h},
+        {options.count, options.birthRate, options.sizeVariation, options.growthVariation,
+            options.interaction, options.damping, options.buoyancy, options.linger});
     if (!state.bubble.active()) return false;
     state.wallpaper = makeShared<SBubbleWallpaper>();
     state.residue = runtime.m_bubbleResidue;

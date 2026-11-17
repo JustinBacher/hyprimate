@@ -8,12 +8,20 @@ float noise(vec3 p) {
     return mix(mix(mix(a.x,a.y,f.x),mix(a.z,a.w,f.x),f.y),
                mix(mix(b.x,b.y,f.x),mix(b.z,b.w,f.x),f.y),f.z);
 }
-// Broad, unstructured illumination: highlights, not invented reflected imagery.
-// Both intact and peeling film use the same lighting and interference response.
-vec3 soapLight(vec3 n) {
+// A Phong lobe widened by the variance of the normals one pixel covers (Toksvig), keeping its
+// energy: a highlight smaller than a pixel spreads into a fainter, stable one instead of flickering.
+float filteredLobe(float c, float exponent, float variance) {
+    float k=exponent/(1.0+exponent*variance);
+    return pow(max(c,0.0),k)*k/exponent;
+}
+// Broad, unstructured illumination: highlights, not invented reflected imagery. Both intact and
+// peeling film use the same lighting and interference response; variance is the pixel's spread
+// of normals (0 for large, smooth films).
+vec3 soapLightFiltered(vec3 n, float variance) {
     vec3 r=reflect(vec3(0,0,-1),n);
     float sky=mix(.12,.65,smoothstep(-.4,.7,-r.y));
-    float key=pow(max(dot(r,normalize(vec3(-.45,-.6,.65))),0.0),24.0);
-    float fill=pow(max(dot(r,normalize(vec3(.6,-.2,.75))),0.0),40.0);
+    float key=filteredLobe(dot(r,normalize(vec3(-.45,-.6,.65))),24.0,variance);
+    float fill=filteredLobe(dot(r,normalize(vec3(.6,-.2,.75))),40.0,variance);
     return vec3(sky+1.8*key+.6*fill);
 }
+vec3 soapLight(vec3 n) { return soapLightFiltered(n,0.0); }

@@ -125,6 +125,8 @@ add_library(hyprimate-core STATIC
     src/animations/swarm/Swarm.cpp
     src/animations/swarm/SwarmSprite.cpp
     src/animations/bubble/Bubble.cpp
+    src/animations/bubble/BubbleFoam.cpp
+    src/animations/bubble/BubbleFormation.cpp
     src/animations/bubble/BubbleRupture.cpp
     src/animations/bubble/BubbleOptics.cpp
     src/animations/bubble/BubbleMotion.cpp

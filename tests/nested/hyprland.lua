@@ -68,6 +68,18 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                 },
 --                 open = {
 --                     enabled = true,
+--                     options = {
+--                         bubble = {
+--                             count = 140,
+--                             birth_rate = 1,
+--                             size_variation = 0.75,
+--                             growth_variation = 0.6,
+--                             interaction = 1,
+--                             damping = 1,
+--                             buoyancy = 1,
+--                             linger = 0.5,
+--                         },
+--                     },
 --                 },
 --                 close = {
 --                     enabled = true,

@@ -103,11 +103,30 @@ namespace {
     struct Instance {
         float values[8];
     };
+    // One small soap bubble: shape, neck, film (thickness, seed, flow, visibility), outline.
     struct MicroInstance {
-        float values[12];
+        float values[16];
     };
-    constexpr std::size_t kMicroInstances =
-        std::max(hyprimate::kBubbleMicroCapacity, hyprimate::kBubbleWakeBubbles);
+    constexpr std::size_t kMicroInstances = std::max(
+        {hyprimate::kBubbleMicroCapacity, hyprimate::kBubbleWakeBubbles, hyprimate::kBubbleFormationCapacity});
+    MicroInstance microInstance(const hyprimate::BubbleMicro &b) {
+        return {{float(b.centre.x),
+            float(b.centre.y),
+            float(b.radius),
+            float(b.growth),
+            float(b.anchor.x),
+            float(b.anchor.y),
+            float(b.attach),
+            float(b.collapse),
+            float(b.thickness),
+            float(b.seed),
+            float(b.flow),
+            float(b.visibility),
+            float(b.squash.x),
+            float(b.squash.y),
+            0.f,
+            0.f}};
+    }
     // Movement uniforms follow the 13 fields and 4 holes of every membrane.
     constexpr const char *kMotionFields[] = {
         "drag", "waveCos", "waveSin", "sheen", "round", "extent", "carry", "transparency"};
@@ -141,8 +160,7 @@ bool CBubbleMaterial::initialize() {
         "wallpaperReady",
         "image",
         "wallpaperImage",
-        "filmLut",
-        "satelliteMode"};
+        "filmLut"};
     constexpr const char *particleNames[] = {
         "canvas", "origin", "sourcePos", "sourceSize", "size", "onGlass"};
     constexpr const char *curlNames[] = {"size",
@@ -270,7 +288,7 @@ bool CBubbleMaterial::initialize() {
     glBindVertexArray(m_microVao);
     glBindBuffer(GL_ARRAY_BUFFER, m_microInstance);
     glBufferData(GL_ARRAY_BUFFER, sizeof(MicroInstance) * kMicroInstances, nullptr, GL_STREAM_DRAW);
-    for (GLuint i = 0; i < 3; ++i) {
+    for (GLuint i = 0; i < 4; ++i) {
         glEnableVertexAttribArray(i);
         glVertexAttribPointer(i,
             4,
@@ -338,7 +356,6 @@ void CBubbleMaterial::drawMembranes(
     glUniform1i(u[11], 0);
     glUniform1i(u[12], 1);
     glUniform1i(u[13], 2);
-    glUniform1i(u[14], 0);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, images.window);
     glActiveTexture(GL_TEXTURE1);
@@ -348,56 +365,24 @@ void CBubbleMaterial::drawMembranes(
     surface(m_surfaceUniforms[0], frame.window);
     surface(m_surfaceUniforms[1], frame.shell);
     glDrawArrays(GL_TRIANGLES, 0, 3);
-    // Satellites use the same membrane optics, behind the parent so their scene transmission
-    // cannot cut holes in its client content. Scissor each draw to its deformed outline.
+    // Companions are the same small-bubble material as the movement's microbubbles, drawn behind
+    // the parent: a film in front of them is seen over them, and they cannot cover client content.
     if (frame.formationCount > 0) {
-        GLint scissorBox[4], srcRgb, dstRgb, srcAlpha, dstAlpha;
-        glGetIntegerv(GL_SCISSOR_BOX, scissorBox);
-        const GLboolean scissoring = glIsEnabled(GL_SCISSOR_TEST);
+        GLint srcRgb, dstRgb, srcAlpha, dstAlpha;
         const GLboolean blending = glIsEnabled(GL_BLEND);
         glGetIntegerv(GL_BLEND_SRC_RGB, &srcRgb);
         glGetIntegerv(GL_BLEND_DST_RGB, &dstRgb);
         glGetIntegerv(GL_BLEND_SRC_ALPHA, &srcAlpha);
         glGetIntegerv(GL_BLEND_DST_ALPHA, &dstAlpha);
-        glEnable(GL_SCISSOR_TEST);
         glEnable(GL_BLEND);
         glBlendFuncSeparate(GL_ONE_MINUS_DST_ALPHA, GL_ONE, GL_ONE_MINUS_DST_ALPHA, GL_ONE);
-        glUniform1i(u[14], 1);
-        for (std::size_t i = 0; i < std::min(frame.formationCount, frame.formation.size()); ++i) {
-            const auto &s = frame.formation[i];
-            if (s.visibility <= 0) continue;
-            double waves = 0;
-            for (std::size_t j = 0; j < s.motion.waveCos.size(); ++j)
-                waves += std::abs(s.motion.waveCos[j]) + std::abs(s.motion.waveSin[j]);
-            const double margin = 2.0 * waves +
-                2.0 * std::hypot(s.motion.drag.x, s.motion.drag.y) + 3.0;
-            const double hx = std::max(s.halfSize.x, s.motion.extent.x) + margin;
-            const double hy = std::max(s.halfSize.y, s.motion.extent.y) + margin;
-            const double cx = t.sourcePos.x - t.origin.x +
-                (frame.size.x * .5 + s.motion.carry.x) * t.sourceSize.x / frame.size.x;
-            const double cy = t.sourcePos.y - t.origin.y +
-                (frame.size.y * .5 + s.motion.carry.y) * t.sourceSize.y / frame.size.y;
-            const double rx = hx * t.sourceSize.x / frame.size.x + 2.0;
-            const double ry = hy * t.sourceSize.y / frame.size.y + 2.0;
-            int x0 = int(std::floor(std::clamp(cx - rx, 0.0, t.canvas.x)));
-            int y0 = int(std::floor(std::clamp(cy - ry, 0.0, t.canvas.y)));
-            int x1 = int(std::ceil(std::clamp(cx + rx, 0.0, t.canvas.x)));
-            int y1 = int(std::ceil(std::clamp(cy + ry, 0.0, t.canvas.y)));
-            if (scissoring) {
-                x0 = std::max(x0, scissorBox[0]);
-                y0 = std::max(y0, scissorBox[1]);
-                x1 = std::min(x1, scissorBox[0] + scissorBox[2]);
-                y1 = std::min(y1, scissorBox[1] + scissorBox[3]);
-            }
-            if (x1 <= x0 || y1 <= y0) continue;
-            glScissor(x0, y0, x1 - x0, y1 - y0);
-            surface(m_surfaceUniforms[1], s);
-            glDrawArrays(GL_TRIANGLES, 0, 3);
-        }
-        glScissor(scissorBox[0], scissorBox[1], scissorBox[2], scissorBox[3]);
-        if (!scissoring) glDisable(GL_SCISSOR_TEST);
+        drawMicrobubbles(std::span(frame.formation).first(std::min(frame.formationCount, frame.formation.size())),
+            frame.size,
+            t);
         glBlendFuncSeparate(srcRgb, dstRgb, srcAlpha, dstAlpha);
         if (!blending) glDisable(GL_BLEND);
+        glUseProgram(m_membrane);
+        glBindVertexArray(m_vao);
     }
     const auto active = [](const hyprimate::BubbleSurface &s) {
         if (s.visibility <= 0 || s.aureole <= 0) return false;
@@ -553,22 +538,12 @@ void CBubbleMaterial::drawMicrobubbles(
     std::span<const hyprimate::BubbleMicro> bubbles, hyprimate::Vec2 size, const SBubbleTarget &t) {
     if (!m_micro || bubbles.empty()) return;
     std::array<MicroInstance, kMicroInstances> data;
-    const auto count = std::min(bubbles.size(), data.size());
-    for (std::size_t i = 0; i < count; ++i) {
-        const auto &b = bubbles[i];
-        data[i] = {{float(b.centre.x),
-            float(b.centre.y),
-            float(b.radius),
-            float(b.growth),
-            float(b.anchor.x),
-            float(b.anchor.y),
-            float(b.attach),
-            float(b.collapse),
-            float(b.thickness),
-            float(b.seed),
-            0.f,
-            0.f}};
+    std::size_t count = 0;
+    for (const auto &b : bubbles) {
+        if (count == data.size()) break;
+        if (b.visibility > 0 && b.radius > 0) data[count++] = microInstance(b);
     }
+    if (count == 0) return;
     glUseProgram(m_micro);
     glBindVertexArray(m_microVao);
     glBindBuffer(GL_ARRAY_BUFFER, m_microInstance);

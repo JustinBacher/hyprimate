@@ -76,9 +76,36 @@ int main() {
     assert(near(c.close.paper.duration, 0.5));
     assert(near(c.open.cloth.duration, 1.0));
     assert(near(c.close.cloth.duration, 0.9));
-    assert(near(c.open.bubble.duration, 0.62));
+    assert(near(c.open.bubble.duration, 1.0));
     assert(near(c.close.bubble.duration, 0.42));
     assert(near(c.movement.liquid.strength, 0.65));
+    // Formation-only keys live in the existing opening table, never global/close/movement.
+    for (const char* leaf : {"count", "birth_rate", "size_variation", "growth_variation",
+             "interaction", "damping", "buoyancy", "linger"}) {
+        const std::string suffix = std::string(":options:bubble:") + leaf;
+        assert(Config::Values::entries.contains("plugin:hyprimate:window:open" + suffix));
+        assert(!Config::Values::entries.contains("plugin:hyprimate:window" + suffix));
+        assert(!Config::Values::entries.contains("plugin:hyprimate:window:close" + suffix));
+        assert(!Config::Values::entries.contains("plugin:hyprimate:window:movement" + suffix));
+    }
+    set("window:open:options:bubble:count", 12LL);
+    set("window:open:options:bubble:birth_rate", 1.7F);
+    set("window:open:options:bubble:size_variation", .9F);
+    set("window:open:options:bubble:growth_variation", .3F);
+    set("window:open:options:bubble:interaction", 1.4F);
+    set("window:open:options:bubble:damping", 1.8F);
+    set("window:open:options:bubble:buoyancy", 0.0F);
+    set("window:open:options:bubble:linger", .8F);
+    c = readConfig(values);
+    assert(c.open.bubble.count == 12 && near(c.open.bubble.birthRate, 1.7));
+    assert(near(c.open.bubble.sizeVariation, .9) && near(c.open.bubble.growthVariation, .3));
+    assert(near(c.open.bubble.interaction, 1.4) && near(c.open.bubble.damping, 1.8));
+    assert(near(c.open.bubble.buoyancy, 0) && near(c.open.bubble.linger, .8));
+    assert(c.close.bubble.count == 0 && near(c.close.bubble.duration, .42));
+    set("window:open:options:bubble:count", 999LL);
+    set("window:open:options:bubble:birth_rate", -1.0F);
+    c = readConfig(values);
+    assert(c.open.bubble.count == 160 && near(c.open.bubble.birthRate, .25));
 
     set("window:options:paper:duration", 1.7F);
     set("window:options:liquid:strength", 1.2F);
