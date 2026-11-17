@@ -2,11 +2,13 @@ Checks: >
   -*,
   bugprone-*,
   clang-analyzer-*,
+  clang-diagnostic-unused-*,
   cppcoreguidelines-*,
   modernize-*,
   performance-*,
   readability-*,
   misc-const-correctness,
+  misc-include-cleaner,
   misc-unused-*,
   -cppcoreguidelines-avoid-magic-numbers,
   -readability-magic-numbers,
@@ -20,6 +22,12 @@ WarningsAsErrors: >
   cppcoreguidelines-init-variables,
   cppcoreguidelines-pro-type-cstyle-cast,
   misc-const-correctness
+
+# Compiler diagnostics need their warning flags as well as a matching Checks entry.
+ExtraArgs:
+  - -Wunused-function
+  - -Wunused-variable
+  - -Wunused-private-field
 
 CheckOptions:
   - key: readability-identifier-naming.NamespaceCase
