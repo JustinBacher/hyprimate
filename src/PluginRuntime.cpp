@@ -149,27 +149,6 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     // after rendering while live animations, retained closes, or residue need them.
     m_listenRenderPost =
         Event::bus()->m_events.render.stage.listen([this](const Event::SRenderStageEvent &event) {
-            if (event.stage == RENDER_POST_WALLPAPER && event.context) {
-                for (const auto &entry : m_tracked) {
-                    const auto window = entry.window.lock();
-                    if (!window || window->m_monitor.lock() != event.monitor) continue;
-                    auto *transformer = transformerOf(window);
-                    auto *bubble = transformer
-                                       ? std::get_if<SBubbleStyle>(&transformer->styleState())
-                                       : nullptr;
-                    if (!bubble || !bubble->bubble.opening() || bubble->bubble.stirred() ||
-                        !bubble->wallpaper || bubble->wallpaper->queued)
-                        continue;
-                    const auto presentation = window->presentation().renderPresentation();
-                    const auto source =
-                        window->getFullWindowBoundingBox()
-                            .translate(presentation.workspaceOffset + presentation.floatingOffset -
-                                       event.monitor->m_position)
-                            .scale(event.monitor->m_scale);
-                    queueBubbleWallpaper(event.context->get(), bubble->wallpaper, source, false, source);
-                }
-                return;
-            }
             // A wake lies just under the window that left it; beads, and wakes whose window was
             // not drawn, lie over every window.
             if (event.stage == RENDER_PRE_WINDOW && event.context && event.monitor) {
@@ -181,7 +160,8 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                                    : nullptr;
                 // This must precede the window's transformed draw in the monitor pass: its
                 // framebuffer then contains lower windows but not this window itself.
-                if (bubble && transformer->active() && bubble->bubble.stirred()) {
+                if (bubble && transformer->active() &&
+                    (bubble->bubble.opening() || bubble->bubble.stirred())) {
                     if (!bubble->wallpaper) bubble->wallpaper = makeShared<SBubbleWallpaper>();
                     const auto presentation = window->presentation().renderPresentation();
                     const auto logical = window->getFullWindowBoundingBox().translate(

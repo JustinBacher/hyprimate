@@ -6,6 +6,7 @@ uniform int wallpaperReady;
 uniform vec2 sourcePos, sourceSize, textureOrigin, imageSize, outputOrigin, size;
 #include "membrane.glsl"
 uniform Membrane windowSurface, shellSurface;
+uniform int satelliteMode;
 out vec4 colour;
 vec4 over(vec4 a, vec4 b) { return a + b * (1.0 - a.a); }
 #include "soap.glsl"
@@ -57,7 +58,8 @@ vec4 layer(Membrane s, vec2 p, vec2 screenPoint, vec3 point, vec3 normal, float 
         stress=s.sheen*smoothstep(.55,1.0,sqrt(sqrt(dot(u2,u2))))*trailing;
     }
     // A rounded-up window is a bubble: film over all of it, its imagery seen through the film.
-    float rounded=s.spherical==0 ? smoothstep(0.0,.45,s.round) : 0.0;
+    float rounded=s.spherical==0 ? max(smoothstep(0.0,.45,s.round),
+        smoothstep(0.0,.45,s.depth/minHalf)) : 0.0;
     float local=max(max(max(s.film,precursor),stress),rounded);
     vec4 reflection=vec4(0);
     // The thickness field is only evaluated where film is visible: a closing window needs it near its holes only.
@@ -85,14 +87,15 @@ vec4 layer(Membrane s, vec2 p, vec2 screenPoint, vec3 point, vec3 normal, float 
         vec2 supportGradient=-4.0*corePoint*vec2(b.x*b.y*b.y,b.y*b.x*b.x);
         vec2 coreNormal=-(supportGradient*(s.core.x+s.core.y*dot(corePoint,corePoint)) +
                           b.x*b.x*b.y*b.y*s.core.y*2.0*corePoint)/max(s.halfSize,vec2(1.0));
-        vec2 unit=background ? (p+size*.5)/size :
+        vec2 unit=background ? ((satelliteMode!=0 ? screenPoint : p)+size*.5)/size :
             .5+.5*(p/max(s.halfSize,vec2(1.0)))*(1.0-.12*curve*(1.0-cap))-coreNormal*.15;
         if (background) {
             if (wallpaperReady!=0) {
-                vec2 offset=point.xy*(1.0-cosView)*.015*minHalf/size;
+                vec2 offset=satelliteMode!=0 ? -normal.xy*(8.0*(1.0-cosView))/size :
+                    point.xy*(1.0-cosView)*.015*minHalf/size;
                 vec2 uv=wallpaperOrigin+wallpaperX*(unit.x+offset.x)+wallpaperY*(unit.y+offset.y);
                 vec4 wall=texture(wallpaperImage,clamp(uv,wallpaperPixel*.5,vec2(1)-wallpaperPixel*.5));
-                imagery=wall*(.25*(1.0-cosView)*s.content);
+                imagery=wall*(satelliteMode!=0 ? s.content : .25*(1.0-cosView)*s.content);
             }
         } else {
             vec2 uv=(sourcePos+sourceSize*unit-textureOrigin)/imageSize;
@@ -120,7 +123,7 @@ vec4 membrane(Membrane s, vec2 logical, bool background) {
     if (s.visibility<=0.0) return vec4(0);
     vec2 p=logical-size*.5;
     vec2 base=(sourcePos+sourceSize*(logical/size)-textureOrigin)/imageSize;
-    bool deformed=!background && moving(s);
+    bool deformed=(!background || satelliteMode!=0) && moving(s);
     if (!background && !deformed && s.sheen==0.0 && s.holeCount==0 && s.film==0.0 && s.depth==0.0 &&
         all(equal(s.core,vec2(0))) && s.ripple==0.0 && s.content==1.0 && s.visibility==1.0) {
         if (any(lessThan(logical,vec2(0))) || any(greaterThanEqual(logical,size))) return vec4(0);
@@ -157,6 +160,11 @@ vec4 membrane(Membrane s, vec2 logical, bool background) {
     // The film leans the way movement carries it, so its reflections slide with the deformation.
     vec2 tilt=deformed ? motionOffset(s,roundPoint(s,p))/max(min(h.x,h.y),1.0)*1.5 : vec2(0);
     vec3 normal=normalize(vec3(gradient*radius*curve/max(.22,cap+.22)+coreNormal+tilt,1.0));
+    if (satelliteMode!=0) {
+        float height=s.depth*cap;
+        vec2 slope=-vec2(dFdx(height),dFdy(height))*sourceSize/size;
+        normal=normalize(vec3(slope+coreNormal,1.0));
+    }
     // Lift the same material coordinates into a smooth pillow. Under the square-to-disc
     // map, (1-x²)(1-y²) = 1-r², so this becomes a sphere without changing material.
     // Screen derivatives include the deformation Jacobian, unlike an ellipse normal
@@ -180,6 +188,7 @@ vec4 membrane(Membrane s, vec2 logical, bool background) {
 }
 void main() {
     vec2 logical=(outputOrigin+gl_FragCoord.xy-sourcePos)*size/sourceSize;
-    colour=over(membrane(shellSurface,logical,true),membrane(windowSurface,logical,false));
+    colour=satelliteMode!=0 ? membrane(shellSurface,logical,true) :
+        over(membrane(shellSurface,logical,true),membrane(windowSurface,logical,false));
     colour.rgb=min(colour.rgb,vec3(1.0));
 }

@@ -98,6 +98,113 @@ namespace hyprimate {
             updateRupture(s);
         }
 
+        // A ray meets the rounded box, not its bounding rectangle. Contact points move
+        // continuously from the initial sphere onto the window's sides and corners.
+        Vec2 contactPoint(const BubbleSurface &s, double angle) {
+            const Vec2 d{std::cos(angle), std::sin(angle)};
+            const Vec2 a{std::abs(d.x), std::abs(d.y)};
+            const double r = std::min({s.corner, s.halfSize.x, s.halfSize.y});
+            double distance = std::min(s.halfSize.x / std::max(a.x, 1e-12),
+                s.halfSize.y / std::max(a.y, 1e-12));
+            const Vec2 c{s.halfSize.x - r, s.halfSize.y - r};
+            if (a.x * distance > c.x && a.y * distance > c.y) {
+                const double dot = a.x * c.x + a.y * c.y;
+                distance = dot + std::sqrt(std::max(0.0,
+                                     dot * dot - c.x * c.x - c.y * c.y + r * r));
+            }
+            return bubbleMotionPoint(s.halfSize, s.motion, {d.x * distance, d.y * distance});
+        }
+
+        void formation(BubbleFrame &f, double t, double seed, double flow) {
+            constexpr double tau = 6.283185307179586;
+            const double shortSide = std::min(f.size.x, f.size.y);
+            // Geometry biases where air feeds the cluster, rather than stretching bubbles.
+            const double aspect = std::log(f.size.x / f.size.y);
+            const double bias = std::tanh(aspect);
+            std::uint64_t random = static_cast<std::uint64_t>(seed * 0x1p53);
+            std::array<double, 8> angles{}, radii{}, birth{}, life{}, phases{}, compression{};
+            std::array<Vec2, 8> centres{}, anchors{};
+            for (std::size_t i = 0; i < radii.size(); ++i) {
+                phases[i] = tau * unitDraw(random);
+                birth[i] = .008 + .11 * unitDraw(random);
+                const double age = std::max(0.0, t - birth[i]);
+                const double grow = smoothstep(0, .10 + .07 * unitDraw(random), age);
+                // Three late films stay attached while the fluid core is relaxing.
+                life[i] = i >= 5 ? .93 + .025 * (i - 5) : .43 + .24 * unitDraw(random);
+                const double drain = 1 - smoothstep(life[i] - .20, life[i], t);
+                radii[i] = shortSide * (.035 + .045 * unitDraw(random)) * grow * drain;
+                const double initial = phases[i] + .35 * std::sin(phases[i] * 2.3);
+                const double axis = std::atan2(std::sin(initial) * std::exp(-.55 * bias),
+                    std::cos(initial) * std::exp(.55 * bias));
+                // Low-frequency pressure disturbances and buoyant sliding, never frame noise.
+                angles[i] = axis + .28 * std::sin(age * (5 + unitDraw(random) * 4) + phases[i]) *
+                                             smoothstep(0, .12, age) -
+                            .65 * age * std::cos(axis);
+            }
+            const auto place = [&](std::size_t i) {
+                anchors[i] = contactPoint(f.window, angles[i]);
+                const double c = std::cos(angles[i]), s = std::sin(angles[i]);
+                const double merge = i < 3 ? smoothstep(life[i] - .16, life[i], t) : 0;
+                const double detach = i == 3 || i == 4 ?
+                                          shortSide * .10 * smoothstep(.35, life[i], t) :
+                                          0;
+                const double neck = radii[i] * (.72 - .9 * merge) + detach;
+                centres[i] = {anchors[i].x + c * neck, anchors[i].y + s * neck};
+            };
+            // Quasi-static overdamped contacts. A bounded angular relaxation lets neighbours
+            // slide along the growing parent instead of bouncing or passing through each other.
+            // Sampling from time makes resize, replay and missed frames history-independent.
+            for (int pass = 0; pass < 5; ++pass) {
+                for (std::size_t i = 0; i < radii.size(); ++i) place(i);
+                for (std::size_t i = 0; i < radii.size(); ++i) {
+                    if (radii[i] <= 0) continue;
+                    for (std::size_t j = i + 1; j < radii.size(); ++j) {
+                        if (radii[j] <= 0) continue;
+                        const Vec2 delta{centres[i].x - centres[j].x, centres[i].y - centres[j].y};
+                        const double distance = std::hypot(delta.x, delta.y);
+                        const double overlap = std::max(0.0, .92 * (radii[i] + radii[j]) - distance);
+                        if (overlap <= 0) continue;
+                        const double force = .22 * overlap / std::max(distance, shortSide * .001);
+                        const double reachI = std::hypot(anchors[i].x - f.window.motion.carry.x,
+                                                  anchors[i].y - f.window.motion.carry.y) +
+                                              radii[i];
+                        const double reachJ = std::hypot(anchors[j].x - f.window.motion.carry.x,
+                                                  anchors[j].y - f.window.motion.carry.y) +
+                                              radii[j];
+                        angles[i] += force * (-std::sin(angles[i]) * delta.x +
+                                                std::cos(angles[i]) * delta.y) /
+                                     std::max(reachI, shortSide * .01);
+                        angles[j] -= force * (-std::sin(angles[j]) * delta.x +
+                                                std::cos(angles[j]) * delta.y) /
+                                     std::max(reachJ, shortSide * .01);
+                        compression[i] = std::max(compression[i], overlap / (radii[i] + radii[j]));
+                        compression[j] = std::max(compression[j], overlap / (radii[i] + radii[j]));
+                    }
+                }
+            }
+            for (std::size_t i = 0; i < radii.size(); ++i) {
+                if (radii[i] <= 0) continue;
+                place(i);
+                auto &s = f.formation[f.formationCount++];
+                const double r = radii[i];
+                const double wobble = .035 * std::sin((t - birth[i]) * 19 + phases[i]);
+                s.halfSize = {r * (1 + wobble), r * (1 - wobble)};
+                s.corner = std::min(s.halfSize.x, s.halfSize.y);
+                s.depth = r;
+                s.motion.carry = centres[i];
+                // The contact stress excites the same capillary modes as the primary film.
+                const double strain = r * (.025 + .09 * std::min(compression[i], .6));
+                s.motion.waveCos[0] = -strain * std::cos(2 * angles[i]);
+                s.motion.waveSin[0] = -strain * std::sin(2 * angles[i]);
+                s.film = s.content = 1;
+                s.visibility = smoothstep(0, .035, t - birth[i]) *
+                               (1 - smoothstep(life[i] - .06, life[i], t));
+                s.thickness = 380 + 220 * (.5 + .5 * std::sin(phases[i])) +
+                              160 * (1 - smoothstep(birth[i], birth[i] + .18, t));
+                s.flow = flow * (1 + .2 * std::sin(phases[i])) + phases[i];
+            }
+        }
+
     }  // namespace
 
     void Bubble::begin(Transition direction, double duration, std::uint64_t seed, Vec2 size) {
@@ -230,31 +337,21 @@ namespace hyprimate {
         f.seed = seed_;
         if (opening_) {
             const double shortSide = std::min(size.x, size.y);
-            auto &shell = f.shell;
-            const double radius = shortSide * mix(.08, .46, smoothstep(0, .30, t));
-            shell.halfSize = {radius, radius};
-            shell.corner = shell.depth = radius;
-            shell.content = .55 * smoothstep(.04, .26, t);
-            shell.film = 1;
-            shell.visibility = smoothstep(0, .13, t);
-            shell.spherical = true;
-            shell.thickness = std::min(1500.0, 450 * std::pow(shortSide * .46 / radius, 2));
-            shell.flow = elapsed_ * 2;
-            startRupture(
-                shell, rupture_, static_cast<std::uint64_t>(seed_ * 0x1p53), duration_, true);
-            shell.clock = t;
-            updateRupture(shell);
-            if (t >= .55) shell.visibility = 0;
-
-            // The window is a second membrane behind the rupturing, still round shell.
+            // One membrane receives the air and becomes the window; no shell/window swap.
             auto &window = f.window;
-            const double windowRadius = shortSide * mix(.08, .40, smoothstep(.36, .52, t));
-            const double flatten = smoothstep(.52, .68, t);
+            const double inflation = smoothstep(.03, .52, t);
+            const double windowRadius = shortSide * mix(.012, .42, inflation);
+            const double flatten = smoothstep(.34, .68, t);
             const double splat = .045 * smoothstep(.55, .68, t) * (1 - smoothstep(.68, .76, t));
             window.halfSize = {mix(windowRadius, size.x * .5, flatten) + size.x * .5 * splat,
                 mix(windowRadius, size.y * .5, flatten) + size.y * .5 * splat};
-            window.corner = mix(windowRadius, 0, flatten);
-            window.depth = windowRadius * (1 - smoothstep(.52, .68, t));
+            window.corner = std::min(window.halfSize.x, window.halfSize.y) * (1 - flatten);
+            window.depth = windowRadius * (1 - smoothstep(.48, .68, t));
+            const double tension = windowRadius * .045 * (1 - smoothstep(.45, .68, t));
+            window.motion.waveCos[0] = tension * std::sin(t * 17 + seed_ * 6.28);
+            window.motion.waveSin[1] = tension * .45 * std::sin(t * 23 + seed_ * 11);
+            window.motion.carry = {shortSide * .035 * std::sin(seed_ * 17) * (1 - flatten),
+                shortSide * .08 * (1 - flatten)};
             const double settle = std::clamp((t - .64) / .36, 0.0, 1.0);
             const double envelope = shortSide * .20 * smoothstep(.48, .64, t) *
                                     std::exp(-2.0 * settle) * (1 - smoothstep(.92, 1.0, t));
@@ -263,16 +360,17 @@ namespace hyprimate {
                 envelope * (std::cos(3 * pi * settle) + 2 * std::sin(3 * pi * settle) / (3 * pi)),
                 envelope * .35 * std::sin(5 * pi * settle)};
             window.film = 1 - smoothstep(.56, 1.0, t);
-            // The inner film stays clear while the outer bubble bursts, so no image appears with
-            // the pop; the window's imagery develops as the film flattens and lands.
-            window.content = smoothstep(.50, .78, t);
-            window.thickness = 450;
+            // Imagery develops through the same curved film; scene transmission recedes as
+            // its dome flattens. The established core relaxation below remains uninterrupted.
+            window.content = smoothstep(.12, .78, t);
+            window.thickness = mix(720, 450, inflation);
             window.flow = elapsed_ * 2;
-            window.visibility = smoothstep(.36, .42, t);
+            window.visibility = smoothstep(0, .045, t);
             window.ripple =
                 shortSide * .012 * smoothstep(.56, .68, t) * (1 - smoothstep(.68, .76, t));
             window.time = t;
             applyMotion(f);
+            formation(f, t, seed_, elapsed_ * 2);
             return f;
         }
         f = initial_;
@@ -323,6 +421,14 @@ namespace hyprimate {
         };
         close(f.window, false);
         close(f.shell, true);
+        for (std::size_t i = 0; i < f.formationCount; ++i) {
+            auto &s = f.formation[i];
+            s.motion.carry = {s.motion.carry.x * sx, s.motion.carry.y * sy};
+            close(s, false);
+            // A close cancels the feed; small films drain without depositing screen debris.
+            s.visibility *= 1 - smoothstep(0, .30, t);
+            s.holeCount = 0;
+        }
         // Microbubbles on the window's film burst with it.
         for (std::size_t i = 0; i < f.microCount; ++i) {
             auto &m = f.micro[i];
@@ -360,6 +466,14 @@ namespace hyprimate {
         for (std::size_t i = 0; i < 2; ++i) {
             box[i] = std::min(box[i], shell[i]);
             box[i + 2] = std::max(box[i + 2], shell[i + 2]);
+        }
+        for (std::size_t i = 0; i < f.formationCount; ++i) {
+            if (f.formation[i].visibility <= 0) continue;
+            const auto satellite = extent(f.formation[i]);
+            for (std::size_t j = 0; j < 2; ++j) {
+                box[j] = std::min(box[j], satellite[j]);
+                box[j + 2] = std::max(box[j + 2], satellite[j + 2]);
+            }
         }
         for (std::size_t i = 0; i < f.microCount; ++i) {
             const auto &m = f.micro[i];
