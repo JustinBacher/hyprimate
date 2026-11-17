@@ -41,10 +41,12 @@ namespace hyprimate {
                 hole.radius =
                     surface.speed * (AGE - (TRANSIENT * (1 - std::exp(-AGE / TRANSIENT))));
                 hole.precursor = 1 - smoothstep(hole.start, hole.start + .018, surface.clock);
-                hole.precursor *= smoothstep(
-                    hole.start - (hole_index == 0 ? (surface.spherical ? .10 : .15) : .06),
-                    hole.start,
-                    surface.clock);
+                double precursor_offset = .06;
+                if (hole_index == 0) {
+                    precursor_offset = surface.spherical ? .10 : .15;
+                }
+                hole.precursor *=
+                    smoothstep(hole.start - precursor_offset, hole.start, surface.clock);
                 hole.rim = std::clamp(
                     1.2 + (.12 * std::sqrt(
                                      hole.radius * (surface.spherical ? surface.half_size.x : 1))),

@@ -699,7 +699,7 @@ namespace hyprimate {
             broad_phase.MapObjectToBroadPhaseLayer(CLOTH, BroadPhaseLayer(0));
             const ObjectVsBroadPhaseLayerFilterTable OBJECT_VS_BROAD_PHASE(
                 broad_phase, 1, PAIRS, 1);
-            TempAllocatorImpl temp(8U * 1024 * 1024);
+            TempAllocatorImpl temp(std::size_t{8} * 1024 * 1024);
             JobSystemSingleThreaded jobs(cMaxPhysicsJobs);
             PhysicsSystem system;
             system.Init(1, 0, 32, 32, broad_phase, OBJECT_VS_BROAD_PHASE, PAIRS);
@@ -945,7 +945,7 @@ namespace hyprimate {
             broad_phase.MapObjectToBroadPhaseLayer(CLOTH, BroadPhaseLayer(1));
             const ObjectVsBroadPhaseLayerFilterTable OBJECT_VS_BROAD_PHASE(
                 broad_phase, 2, pairs, LAYERS);
-            TempAllocatorImpl temp(8U * 1024 * 1024);
+            TempAllocatorImpl temp(std::size_t{8} * 1024 * 1024);
             JobSystemSingleThreaded jobs(cMaxPhysicsJobs);
             PhysicsSystem system;
             if (STOPPED()) {

@@ -245,7 +245,11 @@ namespace hyprimate {
         const VisibleSpan X_SPAN = visible_span({.edge = EDGE_X, .inward = INWARD.x});
         const VisibleSpan Y_SPAN = visible_span({.edge = EDGE_Y, .inward = INWARD.y});
         return Box{
-            .x = X_SPAN.lo, .y = Y_SPAN.lo, .w = X_SPAN.hi - X_SPAN.lo, .h = Y_SPAN.hi - Y_SPAN.lo};
+            .x = X_SPAN.lo,
+            .y = Y_SPAN.lo,
+            .w = X_SPAN.hi - X_SPAN.lo,
+            .h = Y_SPAN.hi - Y_SPAN.lo,
+        };
     }
 
     std::optional<Box> liquid_meniscus_extents(const LiquidPose &pose, const Box &logical_box) {

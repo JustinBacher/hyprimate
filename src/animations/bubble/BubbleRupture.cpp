@@ -464,9 +464,9 @@ namespace hyprimate {
             auto *cursor = std::next(candidates.begin(), static_cast<std::ptrdiff_t>(total++));
             while (cursor != candidates.begin()) {
                 auto *const PREVIOUS = std::prev(cursor);
-                if (!(PREVIOUS->birth > CANDIDATE.birth) &&
-                    !(PREVIOUS->birth == CANDIDATE.birth &&
-                        PREVIOUS->event->id > CANDIDATE.event->id)) {
+                if (!(PREVIOUS->birth > CANDIDATE.birth ||
+                        (PREVIOUS->birth == CANDIDATE.birth &&
+                            PREVIOUS->event->id > CANDIDATE.event->id))) {
                     break;
                 }
                 *cursor = *PREVIOUS;

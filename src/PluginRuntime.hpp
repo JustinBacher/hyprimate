@@ -100,7 +100,7 @@ class CPluginRuntime {
     CAnimationTransformer *acquire_transformer(const PHLWINDOW &window);
     CBox world_footprint(const PHLWINDOW &window) const;
     static void schedule_animation(const PHLWINDOW &window);
-    void detach_window(STracked &entry, const PHLWINDOW &window);
+    static void detach_window(STracked &entry, const PHLWINDOW &window);
     void detach_all();
     bool bubble_residue_enabled() const;
     void clear_bubble_residue();

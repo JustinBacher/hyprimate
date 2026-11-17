@@ -124,7 +124,7 @@ namespace {
                 for (int row_index = 0; row_index < FRAME_PX; ++row_index) {
                     const auto PIXEL_ROW = atlas_rows.subspan(
                         ((static_cast<std::size_t>(k) * CELL_PX) + GUTTER_PX) * 4,
-                        static_cast<std::size_t>(FRAME_PX * 4));
+                        static_cast<std::size_t>(FRAME_PX) * 4);
                     auto pixel = PIXEL_ROW.begin();
                     for (int col_index = 0; col_index < FRAME_PX; ++col_index) {
                         *target++ = *std::next(pixel, 3);
