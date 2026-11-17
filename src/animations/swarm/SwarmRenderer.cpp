@@ -102,9 +102,9 @@ namespace {
             const unsigned char *data = cairo_image_surface_get_data(atlas);
             const int STRIDE = cairo_image_surface_get_stride(atlas);
             pixels.resize(static_cast<std::size_t>(WIDTH) * CELL_PX * 4);
-            for (int atlasRow = 0; atlasRow < CELL_PX; ++atlasRow) {
-                std::memcpy(pixels.data() + (static_cast<std::size_t>(atlasRow) * WIDTH * 4),
-                    data + (static_cast<std::size_t>(atlasRow) * STRIDE),
+            for (int atlas_row = 0; atlas_row < CELL_PX; ++atlas_row) {
+                std::memcpy(pixels.data() + (static_cast<std::size_t>(atlas_row) * WIDTH * 4),
+                    data + (static_cast<std::size_t>(atlas_row) * STRIDE),
                     static_cast<std::size_t>(WIDTH) * 4);
             }
 
@@ -112,14 +112,15 @@ namespace {
             sheet.frames.clear();
             sheet.coreShare = 1.0;
             for (int k = 0; k < FRAMES; ++k) {
-                for (int rowIndex = 0; rowIndex < FRAME_PX; ++rowIndex) {
+                for (int row_index = 0; row_index < FRAME_PX; ++row_index) {
                     const std::uint8_t *row =
-                        pixels.data() + (((static_cast<std::size_t>(rowIndex + GUTTER_PX) * WIDTH) +
-                                             (k * CELL_PX) + GUTTER_PX) *
-                                            4);
-                    for (int colIndex = 0; colIndex < FRAME_PX; ++colIndex) {
-                        alpha[(static_cast<std::size_t>(rowIndex) * FRAME_PX) + colIndex] =
-                            row[(colIndex * 4) + 3];
+                        pixels.data() +
+                        (((static_cast<std::size_t>(row_index + GUTTER_PX) * WIDTH) +
+                             (k * CELL_PX) + GUTTER_PX) *
+                            4);
+                    for (int col_index = 0; col_index < FRAME_PX; ++col_index) {
+                        alpha[(static_cast<std::size_t>(row_index) * FRAME_PX) + col_index] =
+                            row[(col_index * 4) + 3];
                     }
                 }
                 sheet.frames.push_back(hyprimate::measureSprite(alpha, FRAME_PX));
@@ -186,29 +187,29 @@ namespace {
         // One pass keeps the points on one side of one of the box's edges.
         const auto PASS = [&](bool alongX, double limit, bool keepBelow) {
             std::array<SMaskPoint, 8> kept;
-            std::size_t keptCount = 0;
+            std::size_t kept_count = 0;
             const auto VALUE = [&](const SMaskPoint &p) { return alongX ? p.x : p.y; };
             const auto INSIDE = [&](const SMaskPoint &p) {
                 return keepBelow ? VALUE(p) <= limit : VALUE(p) >= limit;
             };
             for (std::size_t i = 0; i < count; ++i) {
-                const SMaskPoint &startPoint = polygon[i];
-                const SMaskPoint &endPoint = polygon[(i + 1) % count];
-                if (INSIDE(startPoint) && keptCount < kept.size()) {
-                    kept[keptCount++] = startPoint;
+                const SMaskPoint &start_point = polygon[i];
+                const SMaskPoint &end_point = polygon[(i + 1) % count];
+                if (INSIDE(start_point) && kept_count < kept.size()) {
+                    kept[kept_count++] = start_point;
                 }
-                if (INSIDE(startPoint) != INSIDE(endPoint) && keptCount < kept.size()) {
+                if (INSIDE(start_point) != INSIDE(end_point) && kept_count < kept.size()) {
                     const double FRACTION =
-                        (limit - VALUE(startPoint)) / (VALUE(endPoint) - VALUE(startPoint));
-                    kept[keptCount++] = {
-                        .x = startPoint.x + ((endPoint.x - startPoint.x) * FRACTION),
-                        .y = startPoint.y + ((endPoint.y - startPoint.y) * FRACTION),
-                        .u = startPoint.u + ((endPoint.u - startPoint.u) * FRACTION),
-                        .v = startPoint.v + ((endPoint.v - startPoint.v) * FRACTION)};
+                        (limit - VALUE(start_point)) / (VALUE(end_point) - VALUE(start_point));
+                    kept[kept_count++] = {
+                        .x = start_point.x + ((end_point.x - start_point.x) * FRACTION),
+                        .y = start_point.y + ((end_point.y - start_point.y) * FRACTION),
+                        .u = start_point.u + ((end_point.u - start_point.u) * FRACTION),
+                        .v = start_point.v + ((end_point.v - start_point.v) * FRACTION)};
                 }
             }
             polygon = kept;
-            count = keptCount;
+            count = kept_count;
         };
         PASS(true, x0, false);
         PASS(true, x1, true);
@@ -220,38 +221,38 @@ namespace {
 }  // namespace
 
 CSwarmSprites::SEntry &CSwarmSprites::entry(const std::string &creature) {
-    SEntry &spriteEntry = m_entries[creature];
-    if (!spriteEntry.tried) {
-        spriteEntry.tried = true;
-        if (!bake(creature, spriteEntry.sheet, spriteEntry.pixels)) {
-            spriteEntry.sheet.frames.clear();
-            spriteEntry.pixels.clear();
+    SEntry &sprite_entry = m_entries[creature];
+    if (!sprite_entry.tried) {
+        sprite_entry.tried = true;
+        if (!bake(creature, sprite_entry.sheet, sprite_entry.pixels)) {
+            sprite_entry.sheet.frames.clear();
+            sprite_entry.pixels.clear();
         }
     }
-    return spriteEntry;
+    return sprite_entry;
 }
 
 const CSwarmSprites::SSheet *CSwarmSprites::sheet(const std::string &creature) {
-    const SEntry &spriteEntry = entry(creature);
-    return spriteEntry.sheet.frames.empty() ? nullptr : &spriteEntry.sheet;
+    const SEntry &sprite_entry = entry(creature);
+    return sprite_entry.sheet.frames.empty() ? nullptr : &sprite_entry.sheet;
 }
 
 SP<Render::ITexture> CSwarmSprites::texture(const std::string &creature) {
-    SEntry &spriteEntry = entry(creature);
-    if (spriteEntry.texture || spriteEntry.pixels.empty() || !g_pHyprRenderer) {
-        return spriteEntry.texture;
+    SEntry &sprite_entry = entry(creature);
+    if (sprite_entry.texture || sprite_entry.pixels.empty() || !g_pHyprRenderer) {
+        return sprite_entry.texture;
     }
-    const int WIDTH = (static_cast<int>(spriteEntry.sheet.frames.size()) + SHAPE_CELLS) * CELL_PX;
-    spriteEntry.texture = g_pHyprRenderer->createTexture(DRM_FORMAT_ARGB8888,
-        spriteEntry.pixels.data(),
+    const int WIDTH = (static_cast<int>(sprite_entry.sheet.frames.size()) + SHAPE_CELLS) * CELL_PX;
+    sprite_entry.texture = g_pHyprRenderer->createTexture(DRM_FORMAT_ARGB8888,
+        sprite_entry.pixels.data(),
         WIDTH * 4,
         Vector2D{static_cast<double>(WIDTH), static_cast<double>(CELL_PX)},
         false,
         false);
-    if (spriteEntry.texture) {
-        spriteEntry.pixels = {};
+    if (sprite_entry.texture) {
+        sprite_entry.pixels = {};
     }
-    return spriteEntry.texture;
+    return sprite_entry.texture;
 }
 
 CBox swarmLayerBox(const CBox &source) {
@@ -349,18 +350,18 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
             1.0);
     }
 
-    for (const hyprimate::SwarmAgent &creatureAgent : AGENTS) {
-        const double TILE_LEFT = source.x + (creatureAgent.tile.x * SCALE_X);
+    for (const hyprimate::SwarmAgent &creature_agent : AGENTS) {
+        const double TILE_LEFT = source.x + (creature_agent.tile.x * SCALE_X);
         const double TILE_RIGHT =
-            source.x + ((creatureAgent.tile.x + creatureAgent.tile.w) * SCALE_X);
-        const double TILE_TOP = source.y + (creatureAgent.tile.y * SCALE_Y);
+            source.x + ((creature_agent.tile.x + creature_agent.tile.w) * SCALE_X);
+        const double TILE_TOP = source.y + (creature_agent.tile.y * SCALE_Y);
         const double TILE_BOTTOM =
-            source.y + ((creatureAgent.tile.y + creatureAgent.tile.h) * SCALE_Y);
-        const double HOME_X = source.x + (creatureAgent.home.x * SCALE_X);
-        const double HOME_Y = source.y + (creatureAgent.home.y * SCALE_Y);
-        const bool STANDS = STANDING(creatureAgent);
+            source.y + ((creature_agent.tile.y + creature_agent.tile.h) * SCALE_Y);
+        const double HOME_X = source.x + (creature_agent.home.x * SCALE_X);
+        const double HOME_Y = source.y + (creature_agent.home.y * SCALE_Y);
+        const bool STANDS = STANDING(creature_agent);
 
-        if (!creatureAgent.visible) {
+        if (!creature_agent.visible) {
             continue;
         }
 
@@ -368,16 +369,16 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
         // Counter-rotate the mask by the piece transform, including throughout docking.
         const auto SILHOUETTE = [&](std::vector<SMeshRenderVertex> &out, double lock) {
             const int FRAME_INDEX = hyprimate::walkFrame(
-                creatureAgent.walk, sheet.stride * 2.0 * creatureAgent.fit, FRAMES);
+                creature_agent.walk, sheet.stride * 2.0 * creature_agent.fit, FRAMES);
             const auto &frame = sheet.frames[static_cast<std::size_t>(FRAME_INDEX)];
             const double SIDE = hyprimate::spriteSize(frame,
-                creatureAgent.fit * UNIT,
-                creatureAgent.reach * std::max(SCALE_X, SCALE_Y),
+                creature_agent.fit * UNIT,
+                creature_agent.reach * std::max(SCALE_X, SCALE_Y),
                 lock);
             const double FACING =
-                hyprimate::spriteRotation(creatureAgent.heading, sheet.forward, 1.0) -
+                hyprimate::spriteRotation(creature_agent.heading, sheet.forward, 1.0) -
                 hyprimate::spriteRotation(
-                    creatureAgent.heading, creatureAgent.rest, creatureAgent.turn);
+                    creature_agent.heading, creature_agent.rest, creature_agent.turn);
             const double FACING_COS = std::cos(FACING);
             const double FACING_SIN = std::sin(FACING);
             // Where a point of the frame lands: the creature's body on the tile's home, turned
@@ -411,7 +412,7 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
                 out.push_back(VERTEX(polygon[i + 1]));
             }
         };
-        if (creatureAgent.lock >= 1.0) {
+        if (creature_agent.lock >= 1.0) {
             pushRect(meshes.mask,
                 LAYER_X(TILE_LEFT, STANDS),
                 LAYER_Y(TILE_TOP),
@@ -424,16 +425,16 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
         } else if (STANDS) {
             SILHOUETTE(meshes.creatures, 0.0);
         } else {
-            SILHOUETTE(meshes.mask, creatureAgent.lock);
+            SILHOUETTE(meshes.mask, creature_agent.lock);
         }
 
         if (STANDS) {
-            if (creatureAgent.lock > 0.0 && meshes.smoothingRadius > 0.0) {
+            if (creature_agent.lock > 0.0 && meshes.smoothingRadius > 0.0) {
                 // Grow a stable body, not the sprite's raster outline. Gait frames stay on top
                 // until engulfed, without changing the mass's contour as their limbs move.
                 const double LOCK_BLEND =
-                    creatureAgent.lock * creatureAgent.lock * (3.0 - (2.0 * creatureAgent.lock));
-                const double CORE = sheet.coreShare * creatureAgent.fit * UNIT;
+                    creature_agent.lock * creature_agent.lock * (3.0 - (2.0 * creature_agent.lock));
+                const double CORE = sheet.coreShare * creature_agent.fit * UNIT;
                 const double HALF_W = (TILE_RIGHT - TILE_LEFT) * 0.5;
                 const double HALF_H = (TILE_BOTTOM - TILE_TOP) * 0.5;
                 const double CORNER = std::min({HALF_W, HALF_H, meshes.cornerRadius});
@@ -453,8 +454,8 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
         // Detached pieces are rounded on their own; only the standing mass uses union smoothing.
         // This keeps a closing tile from briefly becoming a sharp rectangle before its sprite
         // shrinks away from the tile's boundaries.
-        if (creatureAgent.lock > 0.0) {
-            const double RADIUS = creatureAgent.fit * UNIT;
+        if (creature_agent.lock > 0.0) {
+            const double RADIUS = creature_agent.fit * UNIT;
             const double DISC_U = (FRAMES + 1.5) * CELL_PX / ATLAS_W;
             const double RADIUS_U = 0.5 * FRAME_PX / ATLAS_W;
             const double RADIUS_V = 0.5 * FRAME_PX / CELL_PX;
@@ -480,10 +481,10 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
         }
 
         // Piece: the tile, carried to where its agent is and turned about its home.
-        const double SHIFT_X = (creatureAgent.position.x - creatureAgent.home.x) * SCALE_X;
-        const double SHIFT_Y = (creatureAgent.position.y - creatureAgent.home.y) * SCALE_Y;
+        const double SHIFT_X = (creature_agent.position.x - creature_agent.home.x) * SCALE_X;
+        const double SHIFT_Y = (creature_agent.position.y - creature_agent.home.y) * SCALE_Y;
         const double ANGLE = hyprimate::spriteRotation(
-            creatureAgent.heading, creatureAgent.rest, creatureAgent.turn);
+            creature_agent.heading, creature_agent.rest, creature_agent.turn);
         const double ANGLE_COS = std::cos(ANGLE);
         const double ANGLE_SIN = std::sin(ANGLE);
         const auto PIECE = [&](double x, double y) {
@@ -546,23 +547,23 @@ SP<Render::IFramebuffer> renderSwarmLayer(Render::CRenderContext &ctx,
     g_pHyprRenderer->setProjectionType(ctx, Render::RPT_EXPORT);
     g_pHyprRenderer->draw(ctx, CClearPassElement::SClearData{CHyprColor(0, 0, 0, 0)});
 
-    Render::GL::CHyprOpenGLImpl::STextureRenderData textureData{};
-    textureData.damage = &data.damage;
-    textureData.allowCustomUV = true;
+    Render::GL::CHyprOpenGLImpl::STextureRenderData texture_data{};
+    texture_data.damage = &data.damage;
+    texture_data.allowCustomUV = true;
     const CBox BOX{0.0, 0.0, size.x, size.y};
 
     // Silhouettes, unblended: tiles never overlap in the layer, and only the alpha they leave is
     // used.
-    textureData.allowDim = false;
+    texture_data.allowDim = false;
     Render::GL::g_pHyprOpenGL->blend(false);
     if (!meshes.mask.empty()) {
-        Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, atlas, BOX, meshes.mask, textureData);
+        Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, atlas, BOX, meshes.mask, texture_data);
     }
     if (!meshes.walkingCut.empty()) {
         Render::GL::g_pHyprOpenGL->blend(true);
         Render::GL::g_pHyprOpenGL->blendFunc(GL_ZERO, GL_SRC_ALPHA);
         Render::GL::g_pHyprOpenGL->renderTextureMesh(
-            ctx, atlas, BOX, meshes.walkingCut, textureData);
+            ctx, atlas, BOX, meshes.walkingCut, texture_data);
     }
 
     auto smooth = surface.filter(ctx,
@@ -581,14 +582,14 @@ SP<Render::IFramebuffer> renderSwarmLayer(Render::CRenderContext &ctx,
     Render::GL::g_pHyprOpenGL->blendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     if (!meshes.creatures.empty()) {
         Render::GL::g_pHyprOpenGL->renderTextureMesh(
-            ctx, atlas, BOX, meshes.creatures, textureData);
+            ctx, atlas, BOX, meshes.creatures, texture_data);
     }
 
     // The window, weighted by that alpha: pixels outside every silhouette stay transparent.
-    textureData.allowDim = true;
+    texture_data.allowDim = true;
     Render::GL::g_pHyprOpenGL->blend(true);
     Render::GL::g_pHyprOpenGL->blendFunc(GL_DST_ALPHA, GL_ZERO);
-    Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, window, BOX, meshes.content, textureData);
+    Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, window, BOX, meshes.content, texture_data);
 
     // Restore the entry blend state through the wrapper so its cached factors stay in sync with GL.
     RESTORE_BLEND();
@@ -608,12 +609,12 @@ std::vector<UP<IPassElement>> CSwarmClosePassElement::draw(Render::CRenderContex
         return {};
     }
 
-    Render::GL::CHyprOpenGLImpl::STextureRenderData textureData{};
-    textureData.damage = &m_data.damage;
-    textureData.a = m_data.alpha;
-    textureData.allowCustomUV = true;
+    Render::GL::CHyprOpenGLImpl::STextureRenderData texture_data{};
+    texture_data.damage = &m_data.damage;
+    texture_data.a = m_data.alpha;
+    texture_data.allowCustomUV = true;
     Render::GL::g_pHyprOpenGL->renderTextureMesh(
-        ctx, LAYER->getTexture(), m_data.box, m_data.meshes->pieces, textureData);
+        ctx, LAYER->getTexture(), m_data.box, m_data.meshes->pieces, texture_data);
     return {};
 }
 

@@ -28,9 +28,9 @@ namespace {
         }
         glShaderSource(SHADER, 1, &source, nullptr);
         glCompileShader(SHADER);
-        GLint compileStatus = 0;
-        glGetShaderiv(SHADER, GL_COMPILE_STATUS, &compileStatus);
-        if (compileStatus == 0) {
+        GLint compile_status = 0;
+        glGetShaderiv(SHADER, GL_COMPILE_STATUS, &compile_status);
+        if (compile_status == 0) {
             char log[2048]{};
             glGetShaderInfoLog(SHADER, sizeof(log), nullptr, log);
             std::fprintf(stderr, "swarm surface shader: %s\n", log);
@@ -50,9 +50,9 @@ namespace {
                 glAttachShader(program, VERTEX_SHADER);
                 glAttachShader(program, FRAGMENT_SHADER);
                 glLinkProgram(program);
-                GLint linkStatus = 0;
-                glGetProgramiv(program, GL_LINK_STATUS, &linkStatus);
-                if (linkStatus == 0) {
+                GLint link_status = 0;
+                glGetProgramiv(program, GL_LINK_STATUS, &link_status);
+                if (link_status == 0) {
                     char log[2048]{};
                     glGetProgramInfoLog(program, sizeof(log), nullptr, log);
                     std::fprintf(stderr, "swarm surface program: %s\n", log);

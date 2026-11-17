@@ -31,11 +31,11 @@ namespace {
             .screen = SCREEN};
     }
     EdgeSet sides(std::initializer_list<Edge> edges) {
-        EdgeSet edgeSet;
+        EdgeSet edge_set;
         for (const Edge EDGE : edges) {
-            edgeSet.add(EDGE);
+            edge_set.add(EDGE);
         }
-        return edgeSet;
+        return edge_set;
     }
     // Runs until the model stops or `seconds` pass; returns the time used.
     double run(Swarm &m, double seconds, double step = FRAME) {
@@ -63,60 +63,61 @@ namespace {
         for (std::size_t i = 0; i < a.size(); ++i) {
             meanA += a[i] / a.size(), meanB += b[i] / b.size();
         }
-        double crossSum = 0.0;
-        double squareSumA = 0.0;
-        double squareSumB = 0.0;
+        double cross_sum = 0.0;
+        double square_sum_a = 0.0;
+        double square_sum_b = 0.0;
         for (std::size_t i = 0; i < a.size(); ++i) {
-            crossSum += (a[i] - meanA) * (b[i] - meanB);
-            squareSumA += (a[i] - meanA) * (a[i] - meanA);
-            squareSumB += (b[i] - meanB) * (b[i] - meanB);
+            cross_sum += (a[i] - meanA) * (b[i] - meanB);
+            square_sum_a += (a[i] - meanA) * (a[i] - meanA);
+            square_sum_b += (b[i] - meanB) * (b[i] - meanB);
         }
-        return crossSum / std::sqrt(squareSumA * squareSumB);
+        return cross_sum / std::sqrt(square_sum_a * square_sum_b);
     }
     // When each agent of an opening first docks, in seconds; the model is run to its end.
     std::vector<double> landings(Swarm &m) {
-        std::vector<double> landingTimes(m.agents().size(), -1.0);
+        std::vector<double> landing_times(m.agents().size(), -1.0);
         for (double elapsed = 0.0; m.active() && elapsed < 30.0; elapsed += FRAME) {
             m.advance(FRAME);
-            for (std::size_t i = 0; i < landingTimes.size(); ++i) {
-                if (landingTimes[i] < 0.0 && m.agents()[i].docked) {
-                    landingTimes[i] = elapsed;
+            for (std::size_t i = 0; i < landing_times.size(); ++i) {
+                if (landing_times[i] < 0.0 && m.agents()[i].docked) {
+                    landing_times[i] = elapsed;
                 }
             }
         }
-        return landingTimes;
+        return landing_times;
     }
 
     void tilesPartitionTheCapture() {
         for (const int COUNT : {1, 2, 7, 80, 400}) {
-            Swarm partitionSwarm;
-            SwarmParams partitionParams;
-            partitionParams.count = COUNT;
-            partitionSwarm.beginMovement(partitionParams, 1, placement());
-            CHECK(static_cast<int>(partitionSwarm.agents().size()) == COUNT);
+            Swarm partition_swarm;
+            SwarmParams partition_params;
+            partition_params.count = COUNT;
+            partition_swarm.beginMovement(partition_params, 1, placement());
+            CHECK(static_cast<int>(partition_swarm.agents().size()) == COUNT);
             double area = 0.0;
-            double minX = 1e9;
-            double minY = 1e9;
-            double maxX = -1e9;
-            double maxY = -1e9;
-            for (const SwarmAgent &tileAgent : partitionSwarm.agents()) {
-                area += tileAgent.tile.w * tileAgent.tile.h;
-                minX = std::min(minX, tileAgent.tile.x), minY = std::min(minY, tileAgent.tile.y);
-                maxX = std::max(maxX, tileAgent.tile.x + tileAgent.tile.w),
-                maxY = std::max(maxY, tileAgent.tile.y + tileAgent.tile.h);
+            double min_x = 1e9;
+            double min_y = 1e9;
+            double max_x = -1e9;
+            double max_y = -1e9;
+            for (const SwarmAgent &tile_agent : partition_swarm.agents()) {
+                area += tile_agent.tile.w * tile_agent.tile.h;
+                min_x = std::min(min_x, tile_agent.tile.x),
+                min_y = std::min(min_y, tile_agent.tile.y);
+                max_x = std::max(max_x, tile_agent.tile.x + tile_agent.tile.w),
+                max_y = std::max(max_y, tile_agent.tile.y + tile_agent.tile.h);
                 // The creature fits inside the body's share of its own tile.
-                CHECK(
-                    tileAgent.home.x - tileAgent.fit >= tileAgent.tile.x - 1e-9 &&
-                    tileAgent.home.x + tileAgent.fit <= tileAgent.tile.x + tileAgent.tile.w + 1e-9);
-                CHECK(
-                    tileAgent.home.y - tileAgent.fit >= tileAgent.tile.y - 1e-9 &&
-                    tileAgent.home.y + tileAgent.fit <= tileAgent.tile.y + tileAgent.tile.h + 1e-9);
-                CHECK(tileAgent.home.x >= 20.0 && tileAgent.home.x <= 920.0 &&
-                      tileAgent.home.y >= 20.0 && tileAgent.home.y <= 620.0);
+                CHECK(tile_agent.home.x - tile_agent.fit >= tile_agent.tile.x - 1e-9 &&
+                      tile_agent.home.x + tile_agent.fit <=
+                          tile_agent.tile.x + tile_agent.tile.w + 1e-9);
+                CHECK(tile_agent.home.y - tile_agent.fit >= tile_agent.tile.y - 1e-9 &&
+                      tile_agent.home.y + tile_agent.fit <=
+                          tile_agent.tile.y + tile_agent.tile.h + 1e-9);
+                CHECK(tile_agent.home.x >= 20.0 && tile_agent.home.x <= 920.0 &&
+                      tile_agent.home.y >= 20.0 && tile_agent.home.y <= 620.0);
             }
             // Same total area and same outline as the capture: the tiles cover it without overlap.
             CHECK(std::abs(area - CAPTURE.w * CAPTURE.h) < 1e-6);
-            CHECK(minX == 0.0 && minY == 0.0 && maxX == CAPTURE.w && maxY == CAPTURE.h);
+            CHECK(min_x == 0.0 && min_y == 0.0 && max_x == CAPTURE.w && max_y == CAPTURE.h);
         }
         // Near-square pieces: 80 agents on a 3:2 body.
         Swarm swarm;
@@ -190,10 +191,10 @@ namespace {
         std::vector<double> loose;
         std::vector<double> row;
         std::vector<double> column;
-        for (const SwarmAgent &departingAgent : swarm.agents()) {
-            loose.push_back(departingAgent.docked ? 0.0 : 1.0);
-            row.push_back(departingAgent.home.y);
-            column.push_back(departingAgent.home.x);
+        for (const SwarmAgent &departing_agent : swarm.agents()) {
+            loose.push_back(departing_agent.docked ? 0.0 : 1.0);
+            row.push_back(departing_agent.home.y);
+            column.push_back(departing_agent.home.x);
         }
         const auto GONE = std::ranges::count(loose, 1.0);
         CHECK(GONE > static_cast<long>(loose.size()) / 4 &&
@@ -225,10 +226,10 @@ namespace {
         std::vector<double> column;
         std::vector<double> row;
         std::vector<double> entry;
-        for (const SwarmAgent &enteringAgent : swarm.agents()) {
-            column.push_back(enteringAgent.home.x);
-            row.push_back(enteringAgent.home.y);
-            entry.push_back(enteringAgent.position.y);
+        for (const SwarmAgent &entering_agent : swarm.agents()) {
+            column.push_back(entering_agent.home.x);
+            row.push_back(entering_agent.home.y);
+            entry.push_back(entering_agent.position.y);
         }
         CHECK(std::abs(correlation(entry, row)) < 0.2);
         const double TOP = *std::ranges::min_element(entry);
@@ -416,12 +417,14 @@ namespace {
             moved.advance(1e-6);
             CHECK(moved.opening());
             for (std::size_t i = 0; i < moved.agents().size(); ++i) {
-                const auto &movedAgent = moved.agents()[i];
-                const auto &baselineAgent = baseline.agents()[i];
-                CHECK(std::abs(movedAgent.position.x + offset.x - baselineAgent.position.x) < 1e-8);
-                CHECK(std::abs(movedAgent.position.y + offset.y - baselineAgent.position.y) < 1e-8);
-                CHECK(movedAgent.visible == baselineAgent.visible &&
-                      movedAgent.lock == baselineAgent.lock);
+                const auto &moved_agent = moved.agents()[i];
+                const auto &baseline_agent = baseline.agents()[i];
+                CHECK(
+                    std::abs(moved_agent.position.x + offset.x - baseline_agent.position.x) < 1e-8);
+                CHECK(
+                    std::abs(moved_agent.position.y + offset.y - baseline_agent.position.y) < 1e-8);
+                CHECK(moved_agent.visible == baseline_agent.visible &&
+                      moved_agent.lock == baseline_agent.lock);
             }
         }
     }
@@ -504,28 +507,28 @@ namespace {
     void departuresAreStaggered() {
         // How long the middle four fifths of an opening's agents take to land.
         const auto LANDING_SPAN = [](double stagger) {
-            Swarm openingSwarm;
-            SwarmParams openingParams;
-            openingParams.stagger = stagger;
-            openingSwarm.begin(
-                Transition::Open, openingParams, 5, placement(), sides({Edge::Left}));
-            openingSwarm.advance(2.0 * FRAME);
+            Swarm opening_swarm;
+            SwarmParams opening_params;
+            opening_params.stagger = stagger;
+            opening_swarm.begin(
+                Transition::Open, opening_params, 5, placement(), sides({Edge::Left}));
+            opening_swarm.advance(2.0 * FRAME);
             // The first to go goes at once, so the animation never opens on a wait.
             CHECK(std::ranges::any_of(
-                openingSwarm.agents(), [](const SwarmAgent &a) { return a.visible; }));
-            std::vector<double> landingTimes = landings(openingSwarm);
-            std::ranges::sort(landingTimes);
-            return landingTimes[landingTimes.size() * 9 / 10] -
-                   landingTimes[landingTimes.size() / 10];
+                opening_swarm.agents(), [](const SwarmAgent &a) { return a.visible; }));
+            std::vector<double> landing_times = landings(opening_swarm);
+            std::ranges::sort(landing_times);
+            return landing_times[landing_times.size() * 9 / 10] -
+                   landing_times[landing_times.size() / 10];
         };
         const auto HOLDING = [](double stagger, double seconds) {
-            Swarm closingSwarm;
+            Swarm closing_swarm;
             SwarmParams params;
             params.stagger = stagger;
-            closingSwarm.begin(Transition::Close, params, 5, placement(), sides({Edge::Bottom}));
-            run(closingSwarm, seconds);
+            closing_swarm.begin(Transition::Close, params, 5, placement(), sides({Edge::Bottom}));
+            run(closing_swarm, seconds);
             return std::ranges::count_if(
-                closingSwarm.agents(), [](const SwarmAgent &a) { return a.docked; });
+                closing_swarm.agents(), [](const SwarmAgent &a) { return a.docked; });
         };
         const long ALL = SwarmParams{}.count;
         const double FIRST = 2.0 * FRAME;  // long enough for one simulation step
@@ -563,9 +566,9 @@ namespace {
             params.cohesion = 0.0;
             swarm.begin(Transition::Open, params, 31, placement(), sides({Edge::Left}));
             std::vector<double> straight;
-            for (const SwarmAgent &openingAgent : swarm.agents()) {
-                straight.push_back(std::hypot(openingAgent.position.x - openingAgent.home.x,
-                    openingAgent.position.y - openingAgent.home.y));
+            for (const SwarmAgent &opening_agent : swarm.agents()) {
+                straight.push_back(std::hypot(opening_agent.position.x - opening_agent.home.x,
+                    opening_agent.position.y - opening_agent.home.y));
             }
             run(swarm, 10.0);
             CHECK(inFormation(swarm));
@@ -803,8 +806,8 @@ namespace {
         bool observed = false;
         for (int step = 0; step < 60 && swarm.active(); ++step) {
             std::vector<double> before;
-            for (const auto &priorAgent : swarm.agents()) {
-                before.push_back(priorAgent.walk);
+            for (const auto &prior_agent : swarm.agents()) {
+                before.push_back(prior_agent.walk);
             }
             swarm.advance(1.0 / 60.0);
             for (std::size_t i = 0; i < before.size(); ++i) {

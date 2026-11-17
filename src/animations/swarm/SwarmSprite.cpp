@@ -41,43 +41,43 @@ namespace hyprimate {
             std::vector<double> &z,
             std::vector<double> &out) {
             const auto SAMPLE = [&](int i) { return f[static_cast<std::size_t>(i) * stride]; };
-            int envelopeIndex = 0;
+            int envelope_index = 0;
             v[0] = 0;
             z[0] = -kFar;
             z[1] = kFar;
-            for (int candidateIndex = 1; candidateIndex < n; ++candidateIndex) {
+            for (int candidate_index = 1; candidate_index < n; ++candidate_index) {
                 double intersection = 0.0;
                 while (true) {
-                    const int PREVIOUS_SITE = v[envelopeIndex];
-                    intersection = ((SAMPLE(candidateIndex) +
-                                        (static_cast<double>(candidateIndex) * candidateIndex)) -
+                    const int PREVIOUS_SITE = v[envelope_index];
+                    intersection = ((SAMPLE(candidate_index) +
+                                        (static_cast<double>(candidate_index) * candidate_index)) -
                                        (SAMPLE(PREVIOUS_SITE) +
                                            (static_cast<double>(PREVIOUS_SITE) * PREVIOUS_SITE))) /
-                                   (2.0 * (candidateIndex - PREVIOUS_SITE));
-                    if (intersection > z[envelopeIndex] || envelopeIndex == 0) {
+                                   (2.0 * (candidate_index - PREVIOUS_SITE));
+                    if (intersection > z[envelope_index] || envelope_index == 0) {
                         break;
                     }
-                    --envelopeIndex;
+                    --envelope_index;
                 }
-                if (intersection > z[envelopeIndex]) {
-                    ++envelopeIndex;
+                if (intersection > z[envelope_index]) {
+                    ++envelope_index;
                 }
-                v[envelopeIndex] = candidateIndex;
-                z[envelopeIndex] = intersection;
-                z[envelopeIndex + 1] = kFar;
+                v[envelope_index] = candidate_index;
+                z[envelope_index] = intersection;
+                z[envelope_index + 1] = kFar;
             }
-            envelopeIndex = 0;
-            for (int queryIndex = 0; queryIndex < n; ++queryIndex) {
-                while (z[envelopeIndex + 1] < queryIndex) {
-                    ++envelopeIndex;
+            envelope_index = 0;
+            for (int query_index = 0; query_index < n; ++query_index) {
+                while (z[envelope_index + 1] < query_index) {
+                    ++envelope_index;
                 }
-                const int SITE_INDEX = v[envelopeIndex];
-                out[queryIndex] =
-                    (static_cast<double>(queryIndex - SITE_INDEX) * (queryIndex - SITE_INDEX)) +
+                const int SITE_INDEX = v[envelope_index];
+                out[query_index] =
+                    (static_cast<double>(query_index - SITE_INDEX) * (query_index - SITE_INDEX)) +
                     SAMPLE(SITE_INDEX);
             }
-            for (int sampleIndex = 0; sampleIndex < n; ++sampleIndex) {
-                f[static_cast<std::size_t>(sampleIndex) * stride] = out[sampleIndex];
+            for (int sample_index = 0; sample_index < n; ++sample_index) {
+                f[static_cast<std::size_t>(sample_index) * stride] = out[sample_index];
             }
         }
 
@@ -94,10 +94,10 @@ namespace hyprimate {
         const int PADDED_SIDE = side + 2;
         std::vector<double> field(static_cast<std::size_t>(PADDED_SIDE) * PADDED_SIDE, 0.0);
         bool any = false;
-        for (int alphaRow = 0; alphaRow < side; ++alphaRow) {
-            for (int alphaCol = 0; alphaCol < side; ++alphaCol) {
-                if (alpha[(static_cast<std::size_t>(alphaRow) * side) + alphaCol] >= kSolid) {
-                    field[(static_cast<std::size_t>(alphaRow + 1) * PADDED_SIDE) + alphaCol + 1] =
+        for (int alpha_row = 0; alpha_row < side; ++alpha_row) {
+            for (int alpha_col = 0; alpha_col < side; ++alpha_col) {
+                if (alpha[(static_cast<std::size_t>(alpha_row) * side) + alpha_col] >= kSolid) {
+                    field[(static_cast<std::size_t>(alpha_row + 1) * PADDED_SIDE) + alpha_col + 1] =
                         kFar;
                     any = true;
                 }
@@ -110,16 +110,16 @@ namespace hyprimate {
         std::vector<int> sites(PADDED_SIDE);
         std::vector<double> boundaries(PADDED_SIDE + 1);
         std::vector<double> out(PADDED_SIDE);
-        for (int fieldRow = 0; fieldRow < PADDED_SIDE; ++fieldRow) {
-            distancePass(field.data() + (static_cast<std::size_t>(fieldRow) * PADDED_SIDE),
+        for (int field_row = 0; field_row < PADDED_SIDE; ++field_row) {
+            distancePass(field.data() + (static_cast<std::size_t>(field_row) * PADDED_SIDE),
                 1,
                 PADDED_SIDE,
                 sites,
                 boundaries,
                 out);
         }
-        for (int fieldCol = 0; fieldCol < PADDED_SIDE; ++fieldCol) {
-            distancePass(field.data() + fieldCol,
+        for (int field_col = 0; field_col < PADDED_SIDE; ++field_col) {
+            distancePass(field.data() + field_col,
                 static_cast<std::size_t>(PADDED_SIDE),
                 PADDED_SIDE,
                 sites,
@@ -128,16 +128,16 @@ namespace hyprimate {
         }
 
         double deepest = 0.0;
-        int coreX = 0;
-        int coreY = 0;
-        for (int coreRow = 0; coreRow < side; ++coreRow) {
-            for (int coreCol = 0; coreCol < side; ++coreCol) {
+        int core_x = 0;
+        int core_y = 0;
+        for (int core_row = 0; core_row < side; ++core_row) {
+            for (int core_col = 0; core_col < side; ++core_col) {
                 const double DISTANCE_SQUARED =
-                    field[(static_cast<std::size_t>(coreRow + 1) * PADDED_SIDE) + coreCol + 1];
+                    field[(static_cast<std::size_t>(core_row + 1) * PADDED_SIDE) + core_col + 1];
                 if (DISTANCE_SQUARED > deepest) {
                     deepest = DISTANCE_SQUARED;
-                    coreX = coreCol;
-                    coreY = coreRow;
+                    core_x = core_col;
+                    core_y = core_row;
                 }
             }
         }
@@ -145,14 +145,14 @@ namespace hyprimate {
         for (int row = 0; row < side; ++row) {
             for (int col = 0; col < side; ++col) {
                 if (alpha[(static_cast<std::size_t>(row) * side) + col] >= kSolid) {
-                    farthest = std::max(farthest, std::hypot(col - coreX, row - coreY));
+                    farthest = std::max(farthest, std::hypot(col - core_x, row - core_y));
                 }
             }
         }
 
         // Texel centres; the solid disc stops half a texel short of the nearest empty centre, and
         // the silhouette runs half a texel past its farthest solid centre.
-        frame.centre = {.x = (coreX + 0.5) / side, .y = (coreY + 0.5) / side};
+        frame.centre = {.x = (core_x + 0.5) / side, .y = (core_y + 0.5) / side};
         frame.core = std::max(0.0, std::sqrt(deepest) - 0.5) / side;
         frame.reach = (farthest + 0.5) / side;
         return frame;
