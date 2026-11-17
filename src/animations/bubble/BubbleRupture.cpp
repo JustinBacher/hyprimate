@@ -16,8 +16,9 @@ namespace hyprimate {
         constexpr double pi = 3.14159265358979323846;
 
         Vec3 cross(Vec3 a, Vec3 b) {
-            return {
-                (a.y * b.z) - (a.z * b.y), (a.z * b.x) - (a.x * b.z), (a.x * b.y) - (a.y * b.x)};
+            return {.x = (a.y * b.z) - (a.z * b.y),
+                .y = (a.z * b.x) - (a.x * b.z),
+                .z = (a.x * b.y) - (a.y * b.x)};
         }
         double dot(Vec3 a, Vec3 b) {
             return (a.x * b.x) + (a.y * b.y) + (a.z * b.z);
@@ -154,17 +155,17 @@ namespace hyprimate {
                         }
                     }
                     const double weight = distance > 0 ? radiusAt(s, a, hi) / distance : 0;
-                    Vec3 origin{(a.centre.x * (1 - weight)) + (b.centre.x * weight),
-                        (a.centre.y * (1 - weight)) + (b.centre.y * weight),
-                        (a.centre.z * (1 - weight)) + (b.centre.z * weight)};
+                    Vec3 origin{.x = (a.centre.x * (1 - weight)) + (b.centre.x * weight),
+                        .y = (a.centre.y * (1 - weight)) + (b.centre.y * weight),
+                        .z = (a.centre.z * (1 - weight)) + (b.centre.z * weight)};
                     if (s.spherical) {
                         const double denom = std::sin(distance);
                         if (std::abs(denom) > 1e-8) {
                             const double wa = std::sin((1 - weight) * distance) / denom;
                             const double wb = std::sin(weight * distance) / denom;
-                            origin = {(a.centre.x * wa) + (b.centre.x * wb),
-                                (a.centre.y * wa) + (b.centre.y * wb),
-                                (a.centre.z * wa) + (b.centre.z * wb)};
+                            origin = {.x = (a.centre.x * wa) + (b.centre.x * wb),
+                                .y = (a.centre.y * wa) + (b.centre.y * wb),
+                                .z = (a.centre.z * wa) + (b.centre.z * wb)};
                         } else {
                             origin = normalize(origin);
                         }
@@ -231,21 +232,21 @@ namespace hyprimate {
             Vec3 e1;
             Vec3 e2;
             basis(h.centre, e1, e2);
-            const Vec3 dir{(e1.x * std::cos(phi)) + (e2.x * std::sin(phi)),
-                (e1.y * std::cos(phi)) + (e2.y * std::sin(phi)),
-                (e1.z * std::cos(phi)) + (e2.z * std::sin(phi))};
-            return {(h.centre.x * std::cos(d)) + (dir.x * std::sin(d)),
-                (h.centre.y * std::cos(d)) + (dir.y * std::sin(d)),
-                (h.centre.z * std::cos(d)) + (dir.z * std::sin(d))};
+            const Vec3 dir{.x = (e1.x * std::cos(phi)) + (e2.x * std::sin(phi)),
+                .y = (e1.y * std::cos(phi)) + (e2.y * std::sin(phi)),
+                .z = (e1.z * std::cos(phi)) + (e2.z * std::sin(phi))};
+            return {.x = (h.centre.x * std::cos(d)) + (dir.x * std::sin(d)),
+                .y = (h.centre.y * std::cos(d)) + (dir.y * std::sin(d)),
+                .z = (h.centre.z * std::cos(d)) + (dir.z * std::sin(d))};
         }
         Vec3 rotate(Vec3 v, Vec3 axis, double angle) {
             const double c = std::cos(angle);
             const double sn = std::sin(angle);
             const double d = dot(axis, v);
             const Vec3 x = cross(axis, v);
-            return {(v.x * c) + (x.x * sn) + (axis.x * d * (1 - c)),
-                (v.y * c) + (x.y * sn) + (axis.y * d * (1 - c)),
-                (v.z * c) + (x.z * sn) + (axis.z * d * (1 - c))};
+            return {.x = (v.x * c) + (x.x * sn) + (axis.x * d * (1 - c)),
+                .y = (v.y * c) + (x.y * sn) + (axis.y * d * (1 - c)),
+                .z = (v.z * c) + (x.z * sn) + (axis.z * d * (1 - c))};
         }
     }  // namespace
 
@@ -478,9 +479,9 @@ namespace hyprimate {
                     .y = root.y - (s.spherical ? h.centre.y * r : h.centre.y),
                     .z = s.spherical ? root.z - (h.centre.z * r) : 0});
             const double travel = std::min(.16 * r, 80.0) * (1 - std::exp(-sheet.age / .08));
-            sheet.translation = {outward.x * travel,
-                (outward.y * travel) + (.04 * r * t * t),
-                (outward.z * travel) + (.05 * r * t)};
+            sheet.translation = {.x = outward.x * travel,
+                .y = (outward.y * travel) + (.04 * r * t * t),
+                .z = (outward.z * travel) + (.05 * r * t)};
             sheets[count++] = sheet;
         }
         return count;
@@ -563,9 +564,9 @@ namespace hyprimate {
                 const double tilt = .7 * (unit_draw(rng) - .5);
                 const double cp = std::cos(phi);
                 const double sp = std::sin(phi);
-                const Vec3 direction = s.spherical ? Vec3{(e1.x * cp) + (e2.x * sp),
-                                                         (e1.y * cp) + (e2.y * sp),
-                                                         (e1.z * cp) + (e2.z * sp)}
+                const Vec3 direction = s.spherical ? Vec3{.x = (e1.x * cp) + (e2.x * sp),
+                                                         .y = (e1.y * cp) + (e2.y * sp),
+                                                         .z = (e1.z * cp) + (e2.z * sp)}
                                                    : Vec3{.x = cp, .y = sp, .z = 0};
                 double corrugation = 0;
                 double currentCorrugation = 0;
@@ -608,7 +609,7 @@ namespace hyprimate {
                     bead ? 2.5 + (1.5 * unit_draw(rng)) : .8 + (1.7 * unit_draw(rng));
                 const double maxLifetime =
                     (bead ? .18 + (.12 * unit_draw(rng)) : .08 + (.07 * unit_draw(rng))) * s.rate;
-                const int satellites = 1 + (unit_draw(rng) < .85);
+                const int satellites = 1 + static_cast<int>(unit_draw(rng) < .85);
                 const double satelliteScale = .3 + (.2 * unit_draw(rng));
                 const double scatter = .04 + (.08 * unit_draw(rng));
                 for (int drop = 0; drop < 4; ++drop) {
@@ -778,7 +779,7 @@ namespace hyprimate {
                     const double plane =
                         (s.spherical ? minHalf * 1.01 : minHalf * .10) + (2 * maxWidth / 1.7);
                     const double distance = plane - p.z;
-                    const std::uint32_t sourceId =
+                    const auto sourceId =
                         static_cast<std::uint32_t>((hi * 104) + (finger * 4) + drop);
                     const bool candidate =
                         drop == 0 &&
@@ -891,7 +892,7 @@ namespace hyprimate {
                 }
             }
         }
-        if (!impactMode && s.holeCount) {
+        if (!impactMode && (s.holeCount != 0u)) {
             const auto burst = [&](Vec3 origin, double birth, std::uint32_t id) {
                 const double age = s.clock - birth;
                 const double life = std::min(.22 * s.rate, .995 - birth);
