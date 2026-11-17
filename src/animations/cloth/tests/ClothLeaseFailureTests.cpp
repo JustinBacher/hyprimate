@@ -53,6 +53,8 @@ namespace {
                 pointer = nullptr;
             }
         } else {
+            // Underlying allocation for the standalone new override; ownership passes to its
+            // caller. NOLINTNEXTLINE(cppcoreguidelines-owning-memory,cppcoreguidelines-no-malloc)
             pointer = std::malloc(size != 0 ? size : 1);
         }
         if (pointer == nullptr) {
@@ -71,6 +73,8 @@ namespace {
             if (empty == nullptr) {
                 OWNER->tracker_exhausted = true;
                 pthread_mutex_unlock(&state.mutex);
+                // Release caller-bound storage when the tracker cannot record the allocation.
+                // NOLINTNEXTLINE(cppcoreguidelines-owning-memory,cppcoreguidelines-no-malloc)
                 std::free(pointer);
                 throw std::bad_alloc();
             }
@@ -102,6 +106,8 @@ namespace {
             }
         }
         pthread_mutex_unlock(&state.mutex);
+        // Underlying release for the standalone delete override, after updating borrowed tracker
+        // slots. NOLINTNEXTLINE(cppcoreguidelines-owning-memory,cppcoreguidelines-no-malloc)
         std::free(pointer);
     }
 
