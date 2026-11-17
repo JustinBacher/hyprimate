@@ -56,7 +56,7 @@ namespace {
     }
 
     // The device-pixel box a monitor-local logical source box covers on screen, pixel aligned.
-    CBox onScreen(const PHLMONITOR &monitor, const CBox &source) {
+    CBox on_screen(const PHLMONITOR &monitor, const CBox &source) {
         const CBox SCREEN{{}, monitor->m_transformedSize};
         const auto CLIPPED = source.copy().intersection(SCREEN);
         if (CLIPPED.empty()) {
@@ -73,14 +73,14 @@ namespace {
 
     // Only the monitor's own normal frame draws residue: never captures, snapshots or read-only
     // passes.
-    bool drawsResidue(const Render::CRenderContext &ctx, const PHLMONITOR &monitor) {
+    bool draws_residue(const Render::CRenderContext &ctx, const PHLMONITOR &monitor) {
         return monitor && !ctx.readOnlyEffects() && !ctx.m_renderingCapture &&
                !ctx.m_renderingSnapshot && ctx.m_mode == Render::RENDER_MODE_NORMAL &&
                ctx.m_data.pMonitor.lock() == monitor;
     }
 
     // Wakes alive at once over every monitor; beyond this the oldest dissolve faster.
-    constexpr std::size_t kMaxWakes = 12;
+    constexpr std::size_t MAX_WAKES = 12;
 }  // namespace
 
 bool CBubbleResidue::deposit(const PHLMONITOR &monitor,
@@ -110,7 +110,8 @@ bool CBubbleResidue::deposit(const PHLMONITOR &monitor,
         // Delays are animation seconds on the source transition's clock; without one the bead keeps
         // wall time.
         const double CLOCK_NOW = clock ? clock->time : 0.0;
-        m_deposits.push_back({.monitor = monitor,
+        m_deposits.push_back({
+            .monitor = monitor,
             .position = POSITION,
             .radius = EXTENT,
             .impactRadius = impact.radius,
@@ -119,7 +120,8 @@ bool CBubbleResidue::deposit(const PHLMONITOR &monitor,
             .last = NOW,
             .age = -impact.delay,
             .clock = impact.delay > 0 ? clock : SP<SBubbleImpactClock>{},
-            .land = CLOCK_NOW + impact.delay});
+            .land = CLOCK_NOW + impact.delay,
+        });
         damage(monitor, POSITION, EXTENT);
         accepted = true;
     }
@@ -183,17 +185,19 @@ CBubbleResidue::Wake *CBubbleResidue::wakeFor(const PHLMONITOR &monitor, std::ui
 }
 
 CBubbleResidue::Wake &CBubbleResidue::beginWake(const PHLMONITOR &monitor, const PHLWINDOW &owner) {
-    if (m_wakes.size() >= kMaxWakes) {
-        for (std::size_t i = 0; i + kMaxWakes <= m_wakes.size(); ++i) {
+    if (m_wakes.size() >= MAX_WAKES) {
+        for (std::size_t i = 0; i + MAX_WAKES <= m_wakes.size(); ++i) {
             m_wakes[i].film.hurry();
         }
     }
     const auto WAKE_ID = m_nextWake++;
-    m_wakes.push_back({.monitor = monitor,
+    m_wakes.push_back({
+        .monitor = monitor,
         .owner = owner,
         .id = WAKE_ID,
         .film = hyprimate::BubbleWake{WAKE_ID * 0x9E3779B97F4A7C15ULL},
-        .last = std::chrono::steady_clock::now()});
+        .last = std::chrono::steady_clock::now(),
+    });
     return m_wakes.back();
 }
 
@@ -245,7 +249,7 @@ void CBubbleResidue::queueWake(Render::CRenderContext &ctx,
         return;
     }
     const auto SOURCE = CBox{BOUNDS.x, BOUNDS.y, BOUNDS.w, BOUNDS.h}.scale(monitor->m_scale);
-    const auto CLIPPED = onScreen(monitor, SOURCE);
+    const auto CLIPPED = on_screen(monitor, SOURCE);
     if (CLIPPED.empty()) {
         return;
     }
@@ -267,7 +271,7 @@ void CBubbleResidue::queueUnder(Render::CRenderContext &ctx,
     const PHLMONITOR &monitor,
     const PHLWINDOW &window,
     const SP<CBubbleRenderer> &renderer) {
-    if (!window || !renderer || !drawsResidue(ctx, monitor)) {
+    if (!window || !renderer || !draws_residue(ctx, monitor)) {
         return;
     }
     for (auto &wake : m_wakes) {
@@ -279,7 +283,7 @@ void CBubbleResidue::queueUnder(Render::CRenderContext &ctx,
 
 void CBubbleResidue::queue(
     Render::CRenderContext &ctx, const PHLMONITOR &monitor, const SP<CBubbleRenderer> &renderer) {
-    if (!renderer || !drawsResidue(ctx, monitor)) {
+    if (!renderer || !draws_residue(ctx, monitor)) {
         return;
     }
     for (const auto &deposit : m_deposits) {
@@ -287,7 +291,7 @@ void CBubbleResidue::queue(
             continue;
         }
         const auto SOURCE = footprint(deposit.position, deposit.radius).scale(monitor->m_scale);
-        const auto CLIPPED = onScreen(monitor, SOURCE);
+        const auto CLIPPED = on_screen(monitor, SOURCE);
         if (CLIPPED.empty()) {
             continue;
         }
