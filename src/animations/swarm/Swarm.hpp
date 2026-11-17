@@ -1,6 +1,5 @@
 #pragma once
 
-#include <array>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -41,9 +40,6 @@ namespace hyprimate {
         Box screen;
     };
 
-    // A tile's corners, in the order every per-corner array uses.
-    enum class TileCorner : std::uint8_t { TopLeft, TopRight, BottomLeft, BottomRight };
-
     // One member of the swarm. Positions are relative to the capture box's top-left corner.
     struct SwarmAgent {
         // What a renderer reads.
@@ -54,20 +50,12 @@ namespace hyprimate {
         double reach = 0.0;  // distance from `home` to the tile's farthest corner
         Vec2 position;  // where `home` is now
         double heading = 0.0;  // direction of travel, radians (atan2(y, x), y down)
-        double rest =
-            0.0;  // direction it faces once it has settled; its own, so no two settle alike
-        double turn = 0.0;  // 0 facing `rest`, its tile upright .. 1 facing `heading`, its tile
-                            // turned with it
+        double rest = 0.0;  // per-agent reference angle for the carried tile, not creature facing
+        double turn = 0.0;  // 0 tile upright .. 1 tile rotated by heading minus rest
         double lock = 0.0;  // 0 free creature .. 1 merged into the window as its whole tile
         double travel = 0.0;  // px walked so far
-        double walk = 0.0;  // gait distance, rate-limited so sprite frames remain visible
+        double walk = 0.0;  // readable gait phase, advancing until fully merged
         bool visible = false;  // false while waiting beyond the screen and after leaving
-        // The outline its tile takes while the window is incomplete, per TileCorner, so merged
-        // tiles amass into a blob rather than a stack of squares. `round` is how far a corner is
-        // rounded off: 0 square .. 1 by a radius of `fit`. `fillet` is how far the notch at a
-        // corner is filled in between two merged neighbours, on the same scale.
-        std::array<double, 4> round{};
-        std::array<double, 4> fillet{};
 
         // Simulation state.
         Vec2 velocity;  // px per second, in the screen's frame
@@ -90,10 +78,6 @@ namespace hyprimate {
         bool docked = false;  // resting on `home` and riding with the window
         bool leaving = false;  // closing: heading for `exit`
         bool gone = false;  // closing: has left the screen
-        // The agents whose tiles meet each corner: the one beside it in its row and the one across
-        // the row line; -1 where the window ends.
-        std::array<std::int32_t, 4> beside{};
-        std::array<std::int32_t, 4> across{};
     };
 
     // A flock of agents that carry a window between them. The window's capture box is cut into one
@@ -151,6 +135,10 @@ namespace hyprimate {
         std::span<const SwarmAgent> agents() const noexcept {
             return m_agents;
         }
+        // Global surface rounding: 1 while assembling, 0 at native-window handoff.
+        double rounding() const noexcept {
+            return m_rounding;
+        }
         // Size of the capture box the tiles are cut from.
         Vec2 size() const noexcept {
             return m_size;
@@ -165,7 +153,6 @@ namespace hyprimate {
         void build(const SwarmParams &params, std::uint64_t seed, const SwarmPlacement &placement);
         void layout(const SwarmPlacement &placement);
         void step(bool wandering);
-        void shape();
         void hash();
         // What the loose agents around one agent do to it.
         struct Crowd {
@@ -189,6 +176,7 @@ namespace hyprimate {
         double m_windowSpeed = 0.0;  // px/s, held briefly so docking waits for the window to slow
         double m_still = 0.0;  // seconds since the window last moved
         double m_time = 0.0;  // seconds since the phase began
+        double m_rounding = 0.0;
         double m_accumulator = 0.0;
         std::uint64_t m_rng = 0;
 

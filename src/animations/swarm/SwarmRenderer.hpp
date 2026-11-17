@@ -12,10 +12,10 @@
 #include <hyprland/src/render/pass/PassElement.hpp>
 
 #include "animations/swarm/SwarmLiveState.hpp"
+#include "animations/swarm/SwarmSurface.hpp"
 
-// The creature sheets, each resampled into a mask atlas: its walk frames in a row of square cells
-// with transparent gutters, then one solid cell for tiles that are merged into the window. Only the
-// atlas's alpha is used. A sheet is decoded and measured once, on first use.
+// Creature sheets resampled into an atlas of walking frames, a solid tile and a disc for
+// detached-piece rounding. Only alpha is used. Each sheet is decoded and measured once.
 class CSwarmSprites {
   public:
     struct SSheet {
@@ -29,6 +29,9 @@ class CSwarmSprites {
     // The creature's atlas; null when unavailable. Creates GL objects on first use, so call it only
     // while rendering.
     SP<Render::ITexture> texture(const std::string &creature);
+    CSwarmSurface &surface() {
+        return m_surface;
+    }
 
   private:
     struct SEntry {
@@ -40,15 +43,12 @@ class CSwarmSprites {
     SEntry &entry(const std::string &creature);
 
     std::map<std::string, SEntry, std::less<>> m_entries;
+    CSwarmSurface m_surface;
 };
 
-// Drawing a swarm takes two steps. The layer is the window cut into shape, in two halves side by
-// side, each a copy of the window's box: the left holds the walking creatures, each over its own
-// tile; the right holds everything standing in the window, which is the blob amassed so far: merged
-// tiles with their free corners rounded off, the notches between them filled in, and creatures
-// swelling into their tiles. Silhouettes and shapes are drawn from the atlas and the window is
-// multiplied into them. The pieces mesh then draws the right half where the window is, in one
-// piece, and over it every walking creature's tile where its agent is, turned to its heading.
+// The layer has two halves: untouched walking creatures and the combined standing mass.
+// Smooth the mass's alpha before applying window contents, preserving sharp animated creatures
+// over it. The final mesh places the standing mass once and each walking tile independently.
 
 // The box either half of the layer covers: `source` grown to whole device pixels, so its texels are
 // the window texture's own.
@@ -74,7 +74,8 @@ SP<Render::IFramebuffer> renderSwarmLayer(Render::CRenderContext &ctx,
     const SP<Render::ITexture> &window,
     const SP<Render::ITexture> &atlas,
     const Vector2D &size,
-    const SSwarmMeshes &meshes);
+    const SSwarmMeshes &meshes,
+    CSwarmSurface &surface);
 
 // Draws a swarm close, borrowing its meshes from the retained record.
 class CSwarmClosePassElement final : public IPassElement {
@@ -82,6 +83,7 @@ class CSwarmClosePassElement final : public IPassElement {
     struct SData {
         SP<Render::ITexture> tex;  // the closing window's snapshot
         SP<Render::ITexture> atlas;  // creature masks
+        SP<CSwarmSprites> sprites;  // retains the surface filter through the render pass
         Vector2D layerSize;
         CBox box;  // box the pieces mesh spans, monitor-local device px
         const SSwarmMeshes *meshes = nullptr;

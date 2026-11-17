@@ -75,8 +75,7 @@ namespace hyprimate {
         constexpr double kSplitTime = 0.14;  // s to shrink from tile to creature
         constexpr double kTurnTime = 0.16;  // s to swing between rest direction and heading
         constexpr double kHoldLock = 0.35;  // a leaving agent waits until its lock is below this
-        constexpr double kCornerTime =
-            0.18;  // s for a tile corner to round off, square up or fill in
+        constexpr double kCornerTime = 0.18;  // s for the global surface rounding to change
 
         // Per-agent spread.
         constexpr double kGripMin = 60.0, kGripMax = 900.0;  // px/s by responsiveness
@@ -230,29 +229,12 @@ namespace hyprimate {
         int index = 0;
         for (int r = 0; r < rows; ++r) {
             const int columns = columnsOf(r);
-            const int start = index;
             const double top = m_body.y + m_body.h * r / rows;
             const double bottom = m_body.y + m_body.h * (r + 1) / rows;
             for (int c = 0; c < columns; ++c) {
                 const double left = m_body.x + m_body.w * c / columns;
                 const double right = m_body.x + m_body.w * (c + 1) / columns;
                 SwarmAgent &a = m_agents[static_cast<std::size_t>(index++)];
-                // The tiles meeting each of its corners. Rows are cut independently, so across the
-                // row line it is the tile over the end of this one's edge: just inside its left
-                // end, or just inside its right end.
-                const auto over = [&](int row, int first, bool leftEnd) {
-                    const int n = columnsOf(row);
-                    return first + (leftEnd ? c * n / columns : ((c + 1) * n - 1) / columns);
-                };
-                const int before = c > 0 ? start + c - 1 : -1,
-                          after = c < columns - 1 ? start + c + 1 : -1;
-                const int above = r > 0 ? start - columnsOf(r - 1) : -1,
-                          below = r < rows - 1 ? start + columns : -1;
-                a.beside = {before, after, before, after};
-                a.across = {above < 0 ? -1 : over(r - 1, above, true),
-                    above < 0 ? -1 : over(r - 1, above, false),
-                    below < 0 ? -1 : over(r + 1, below, true),
-                    below < 0 ? -1 : over(r + 1, below, false)};
                 // Outermost tiles extend over the decoration margin to the capture's edge.
                 const double tx0 = c == 0 ? 0.0 : left, tx1 = c == columns - 1 ? m_size.x : right;
                 const double ty0 = r == 0 ? 0.0 : top, ty1 = r == rows - 1 ? m_size.y : bottom;
@@ -293,6 +275,7 @@ namespace hyprimate {
         m_still = 0.0;
         m_time = 0.0;
         m_accumulator = 0.0;
+        m_rounding = 0.0;
     }
 
     void Swarm::begin(Transition kind,
@@ -319,6 +302,7 @@ namespace hyprimate {
             m_time = 0.0;
         }
         m_phase = closing ? Phase::Closing : Phase::Opening;
+        if (!closing) m_rounding = 1.0;
 
         const double cruise = m_params.speed;
         std::array<Edge, 4> allowed{};
@@ -361,7 +345,6 @@ namespace hyprimate {
             a.lock = 0.0;
             a.docked = false;
             a.visible = false;
-            a.round.fill(1.0);
             // How long its walk takes, straight and at its cruise; turned into a departure below.
             a.due = d / (cruise * a.pace);
             longest = std::max(longest, a.due);
@@ -410,6 +393,7 @@ namespace hyprimate {
         m_agents.clear();
         m_shift = {};
         m_windowSpeed = 0.0;
+        m_rounding = 0.0;
         m_accumulator = 0.0;
     }
 
@@ -480,10 +464,9 @@ namespace hyprimate {
             if (m_time > m_params.stagger + kCloseDeadline ||
                 std::ranges::all_of(m_agents, [](const SwarmAgent &a) { return a.gone; }))
                 m_phase = Phase::Closed;
-        } else if (!wandering && std::ranges::all_of(m_agents, [](const SwarmAgent &a) {
-                       // Whole only once the last rounded corner has squared up.
-                       return a.docked && a.lock >= 1.0 && a.turn <= 0.0 &&
-                              std::ranges::all_of(a.round, [](double r) { return r <= 0.0; });
+        } else if (!wandering && m_rounding <= 0.0 &&
+                   std::ranges::all_of(m_agents, [](const SwarmAgent &a) {
+                       return a.docked && a.lock >= 1.0 && a.turn <= 0.0;
                    }))
             m_phase = Phase::Idle;
         return active();
@@ -629,11 +612,11 @@ namespace hyprimate {
                 a.velocity = {};
             }
             if (a.docked) {
-                // It swings round to its rest direction first, then swells into its tile.
-                if (a.turn > 0.0) {
-                    a.walk += 4.0 * a.fit * std::min(kStep, a.turn * kTurnTime);
+                // Keep the creature alive while its carried tile straightens and fills in.
+                if (a.lock < 1.0) a.walk += 4.0 * a.fit * kStep;
+                if (a.turn > 0.0)
                     a.turn = std::max(0.0, a.turn - kStep / kTurnTime);
-                } else
+                else
                     a.lock = std::min(1.0, a.lock + kStep / merge);
                 continue;
             }
@@ -711,7 +694,8 @@ namespace hyprimate {
             a.travel += speed * kStep;
             // Keep the gait readable even when small agents travel many body lengths per display
             // frame.
-            a.walk += std::min(speed, 4.0 * a.fit) * kStep;
+            const bool settling = !wandering && !a.leaving && distance < kRestRadius * m_spacing;
+            a.walk += (settling ? 4.0 * a.fit : std::min(speed, 4.0 * a.fit)) * kStep;
             if (speed > kHeadingSpeed * cruise) {
                 const double swing = wrapAngle(std::atan2(a.velocity.y, a.velocity.x) - a.heading);
                 a.heading =
@@ -746,30 +730,17 @@ namespace hyprimate {
                 }
             }
         }
-        shape();
-    }
-
-    // The outline of the window so far. Merged tiles standing together round their outer corners
-    // and keep the corners where they meet square, and the notch where two merged tiles meet at a
-    // corner of a third is filled in, so what has amassed reads as one blob. Beyond the window's
-    // own edges there is nothing to meet until every tile is in; then those edges count as met and
-    // the last corners square up into the window.
-    void Swarm::shape() {
-        const auto merged = [](const SwarmAgent &a) { return a.docked && a.lock >= 1.0; };
-        const bool whole = std::ranges::all_of(m_agents, merged);
-        const auto tile = [&](std::int32_t index) {
-            return index >= 0 && merged(m_agents[static_cast<std::size_t>(index)]);
-        };
-        const double step = kStep / kCornerTime;
-        for (SwarmAgent &a : m_agents) {
-            const bool own = merged(a);
-            for (std::size_t c = 0; c < a.round.size(); ++c) {
-                const bool beside = tile(a.beside[c]), across = tile(a.across[c]);
-                const bool met =
-                    beside || across || (whole && (a.beside[c] < 0 || a.across[c] < 0));
-                a.round[c] = approach(a.round[c], own && met ? 0.0 : 1.0, step);
-                a.fillet[c] = approach(a.fillet[c], beside && across ? 1.0 : 0.0, step);
-            }
+        const bool whole = std::ranges::all_of(m_agents,
+            [](const SwarmAgent &a) { return a.docked && a.lock >= 1.0 && a.turn <= 0.0; });
+        if (closing) {
+            // Preserve an interrupted opening's surface until the first piece leaves.
+            if (!whole) m_rounding = approach(m_rounding, 1.0, kStep / kCornerTime);
+        } else if (whole && !wandering) {
+            m_rounding = approach(m_rounding, 0.0, kStep / kCornerTime);
+        } else if (m_phase == Phase::Opening) {
+            m_rounding = 1.0;
+        } else {
+            m_rounding = approach(m_rounding, 1.0, kStep / kCornerTime);
         }
     }
 
