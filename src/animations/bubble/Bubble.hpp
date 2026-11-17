@@ -54,6 +54,7 @@ namespace hyprimate {
         // Movement's deformation of a flat surface (the window); the opening and rest leave it
         // still.
         BubbleDeformation motion{};
+        double transparency = .88;  // scene transmission when movement rounds the window
 
         // Rupture. Holes and debris are pure functions of these fields.
         double clock = 0;  // s on this surface's rupture clock
@@ -151,6 +152,7 @@ namespace hyprimate {
         double elapsed_ = 0;
         double seed_ = 0;
         double flow_ = 0;  // film-flow phase of the live window, s
+        double transparency_ = .88;
         Vec2 rupture_{};
         bool active_ = false;
         bool opening_ = false;

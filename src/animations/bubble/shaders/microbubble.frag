@@ -2,7 +2,7 @@
 precision highp float;
 // A small soap bubble: a clear, thin-walled sphere. Its colour is interference in the wall, which
 // drains toward the bottom and reflects most at grazing angles, so the rim carries the colour and
-// the middle stays see-through. The studio window shows as a highlight on the front wall and,
+// the middle stays see-through. Broad highlights appear on the front wall and,
 // fainter and inverted, on the back. A forming bubble is a swelling lens in the parent film; a neck
 // of film joins an attached one to it; a collapsing one tears open from a thin spot.
 uniform sampler2D filmLut;

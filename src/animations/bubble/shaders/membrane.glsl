@@ -9,6 +9,7 @@ struct Membrane {
     vec4 waveCos, waveSin;
     float sheen, round;
     vec2 extent, carry;
+    float transparency;
 };
 bool moving(Membrane s) {
     return s.spherical==0 &&

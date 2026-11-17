@@ -70,16 +70,7 @@ bool containsMask(Mask mask, vec3 material, float R) {
     }
     return true;
 }
-vec3 env(vec3 n) {
-    vec3 r=reflect(vec3(0,0,-1),n);
-    float sky=mix(.05,.5,smoothstep(-.3,.6,-r.y));
-    vec2 q=r.xy/max(.25,abs(r.z)+.4);
-    vec2 k=(q-vec2(-.36,-.40))/vec2(.17,.24);
-    float window=1.0-smoothstep(.78,1.0,max(abs(k.x),abs(k.y)));
-    window*=mix(.2,1.0,min(smoothstep(.035,.09,abs(k.x)),smoothstep(.035,.09,abs(k.y+.12))));
-    float fill=exp(-dot((q-vec2(.42,-.16))*7.0,(q-vec2(.42,-.16))*7.0));
-    return vec3(sky+4.0*window+1.2*fill);
-}
+#include "soap.glsl"
 void main() {
     if (boundaryRadius<=0.0 || (sheet.spherical!=0 && boundaryRadius>=3.14159265359)) discard;
     float R=min(sheet.halfSize.x,sheet.halfSize.y);
@@ -123,7 +114,7 @@ void main() {
     vec3 n=normalize(filmNormal);
     vec3 reflectance=texture(filmLut,vec2(clamp(sheet.thickness/1500.0,0.0,1.0),abs(n.z))).rgb;
     float lightAlpha=dot(reflectance,vec3(.2126,.7152,.0722));
-    vec3 light=reflectance*env(n.z<0.0 ? -n : n);
+    vec3 light=reflectance*soapLight(n.z<0.0 ? -n : n);
     vec4 imageColour=vec4(0);
     float imageMask=1.0;
     if (sheet.spherical==0) {
