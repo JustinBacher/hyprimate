@@ -103,6 +103,9 @@ class CPluginRuntime {
     bool bubbleResidueEnabled() const;
     void clearBubbleResidue();
     void restoreBubbleScanout(const PHLMONITOR &monitor);
+    SSwarmStyle *workspaceSwarmTail(const PHLWINDOW &window) const;
+    bool hasWorkspaceSwarmTail(const PHLMONITOR &monitor) const;
+    void queueWorkspaceSwarmTails(Render::CRenderContext &ctx, const PHLMONITOR &monitor);
 
     // Must outlive close records and every transformer detached during destruction.
     hyprimate::ClothPhysics m_clothPhysics;

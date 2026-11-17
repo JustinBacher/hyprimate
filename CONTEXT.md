@@ -48,6 +48,8 @@ _Avoid_: mode, material (as separate per-direction choices).
 
 **Creature**: what a loose agent is drawn as: its tile seen through a sprite sheet's silhouette. The simulation knows agents, never creatures.
 
+**Workspace tail** (swarm): the outgoing workspace's loose agents still flying across the screen after the workspace's own slide has finished. They follow their window off-screen independently rather than stopping with the slide.
+
 **Lock**: how far an agent's tile has merged into the window: 0 is a free creature, 1 the whole tile.
 
 **Grip**: the window speed a docked agent holds on through; faster movement shakes it loose.

@@ -59,6 +59,11 @@ Render::SWindowTransformBuffer renderLive(SSwarmStyle &state,
     const auto *sheet = sprites ? sprites->sheet(state.creature) : nullptr;
     const auto atlas = sheet ? sprites->texture(state.creature) : SP<Render::ITexture>{};
     if (!sheet || !atlas) return failed;
+    if (state.captureWorkspaceFrame) {
+        state.workspaceSnapshot = in.framebuffer;
+        state.snapshotOffset = {in.box.x - g.source.x, in.box.y - g.source.y};
+        state.captureWorkspaceFrame = false;
+    }
 
     fillSwarmMeshes(
         state.swarm, *sheet, g.source, g.output, {in.box.x, in.box.y}, g.textureSize, state.meshes);
@@ -129,6 +134,8 @@ void SSwarmLiveStyle::movement(CPluginRuntime &runtime,
     if (!placement) return;
     placement->capture = decision.currentCapture;
     placement->body = decision.currentBox;
+    state.workspaceCapture = decision.currentCapture;
+    state.captureWorkspaceFrame = decision.workspaceMoving;
     if (moving && !state.swarm.active()) {
         // Formed where the window was, so the first update carries this frame's movement.
         state.creature = swarmCreature(runtime.m_config.movement.swarm);
@@ -139,7 +146,7 @@ void SSwarmLiveStyle::movement(CPluginRuntime &runtime,
     }
     // An opening follows its window even with movement off; its agents are in flight either way.
     if (state.swarm.opening() || (enabled && state.swarm.moving()))
-        state.swarm.updateMovement(*placement, decision.workspaceDelta);
+        state.swarm.updateMovement(*placement);
 }
 
 void SSwarmLiveStyle::snapshot(

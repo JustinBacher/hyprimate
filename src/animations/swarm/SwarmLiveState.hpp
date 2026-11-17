@@ -4,6 +4,7 @@
 #include <vector>
 
 #include <hyprland/src/helpers/DeformableMesh.hpp>
+#include <hyprland/src/render/Framebuffer.hpp>
 
 #include "animations/swarm/Swarm.hpp"
 #include "animations/swarm/SwarmSprite.hpp"
@@ -29,4 +30,10 @@ struct SSwarmStyle {
     hyprimate::Swarm swarm{};
     std::string creature;  // what the running animation is drawn as
     SSwarmMeshes meshes{};
+    // The first transform of a frame is the window image; the later blur-matte transform must
+    // not replace it. Holding the pooled framebuffer keeps it alive through an outgoing tail.
+    SP<Render::IFramebuffer> workspaceSnapshot;
+    hyprimate::Vec2 snapshotOffset{};
+    hyprimate::Box workspaceCapture{};
+    bool captureWorkspaceFrame = false;
 };

@@ -69,7 +69,6 @@ namespace hyprimate {
         d.currentBox = translated(s.current, offset);
         d.currentCapture = translated(s.capture, offset);
         d.workspaceMoving = s.workspaceMovement && s.workspaceMoving;
-        d.workspaceDelta = {offset.x - m_workspaceOffset.x, offset.y - m_workspaceOffset.y};
 
         const bool reset = !eligibleNow || !m_eligible || !isUsable(m_lastBox) ||
                            !isUsable(m_lastCapture) || s.monitor != m_monitor ||

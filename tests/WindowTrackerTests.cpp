@@ -214,17 +214,14 @@ int main() {
         CHECK(d.translated);
         CHECK(d.currentBox.x - d.previousBox.x == -100);
         CHECK(d.currentCapture.x - d.previousCapture.x == -100);
-        CHECK(d.workspaceDelta.x == -100 && d.workspaceDelta.y == 0);
         // Layout baselining after a simulation step must retain workspace history.
         t.baseline(s.current, s.capture, kMonitor);
         s.workspaceOffset = {1500, 35};
         const auto vertical = t.update(s);
         CHECK(vertical.currentBox.y - vertical.previousBox.y == 35);
-        CHECK(vertical.workspaceDelta.x == 0 && vertical.workspaceDelta.y == 35);
         s.workspaceOffset = {1530, 35};
         const auto reversed = t.update(s);
         CHECK(reversed.currentBox.x == 1630); // interrupted/reversed slide
-        CHECK(reversed.workspaceDelta.x == 30 && reversed.workspaceDelta.y == 0);
     }
 
     // An incoming workspace was ineligible while hidden: its offscreen placement is a baseline,
