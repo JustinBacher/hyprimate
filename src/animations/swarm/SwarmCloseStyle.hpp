@@ -84,12 +84,12 @@ namespace close_style {
             record.extentsDevice = CBox{record.sourceDevice.x, record.sourceDevice.y, 1.0, 1.0};
             return;
         }
-        const double sx = record.sourceDevice.w / SIZE.x;
-        const double sy = record.sourceDevice.h / SIZE.y;
-        record.extentsDevice = CBox{record.sourceDevice.x + (BOUNDS.x * sx),
-            record.sourceDevice.y + (BOUNDS.y * sy),
-            BOUNDS.w * sx,
-            BOUNDS.h * sy}
+        const double SCALE_X = record.sourceDevice.w / SIZE.x;
+        const double SCALE_Y = record.sourceDevice.h / SIZE.y;
+        record.extentsDevice = CBox{record.sourceDevice.x + (BOUNDS.x * SCALE_X),
+            record.sourceDevice.y + (BOUNDS.y * SCALE_Y),
+            BOUNDS.w * SCALE_X,
+            BOUNDS.h * SCALE_Y}
                                    .expand(2.0);
     }
     inline void render(SSwarmStyle &style,

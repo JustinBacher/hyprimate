@@ -65,33 +65,34 @@ namespace {
         constexpr int FRAMES = COLUMNS * ROWS;
         const int WIDTH = (FRAMES + SHAPE_CELLS) * CELL_PX;
         cairo_surface_t *atlas = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, WIDTH, CELL_PX);
-        cairo_t *cr = cairo_create(atlas);
+        cairo_t *context = cairo_create(atlas);
         const double FRAME_W = static_cast<double>(cairo_image_surface_get_width(image)) / COLUMNS;
         const double FRAME_H = static_cast<double>(cairo_image_surface_get_height(image)) / ROWS;
         for (int k = 0; k < FRAMES; ++k) {
-            const double x = (k * CELL_PX) + GUTTER_PX;
-            cairo_save(cr);
-            cairo_rectangle(cr, x, GUTTER_PX, FRAME_PX, FRAME_PX);
-            cairo_clip(cr);
-            cairo_translate(cr, x, GUTTER_PX);
-            cairo_scale(cr, FRAME_PX / FRAME_W, FRAME_PX / FRAME_H);
-            cairo_set_source_surface(cr, image, -(k % COLUMNS) * FRAME_W, -(k / COLUMNS) * FRAME_H);
-            cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_BEST);
-            cairo_paint(cr);
-            cairo_restore(cr);
+            const double FRAME_X = (k * CELL_PX) + GUTTER_PX;
+            cairo_save(context);
+            cairo_rectangle(context, FRAME_X, GUTTER_PX, FRAME_PX, FRAME_PX);
+            cairo_clip(context);
+            cairo_translate(context, FRAME_X, GUTTER_PX);
+            cairo_scale(context, FRAME_PX / FRAME_W, FRAME_PX / FRAME_H);
+            cairo_set_source_surface(
+                context, image, -(k % COLUMNS) * FRAME_W, -(k / COLUMNS) * FRAME_H);
+            cairo_pattern_set_filter(cairo_get_source(context), CAIRO_FILTER_BEST);
+            cairo_paint(context);
+            cairo_restore(context);
         }
         const double SHAPES = FRAMES * CELL_PX;
-        cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 1.0);
-        cairo_rectangle(cr, SHAPES, 0.0, CELL_PX, CELL_PX);
-        cairo_fill(cr);
-        cairo_arc(cr,
+        cairo_set_source_rgba(context, 0.0, 0.0, 0.0, 1.0);
+        cairo_rectangle(context, SHAPES, 0.0, CELL_PX, CELL_PX);
+        cairo_fill(context);
+        cairo_arc(context,
             SHAPES + (CELL_PX * 1.5),
             CELL_PX * 0.5,
             0.5 * FRAME_PX,
             0.0,
             2.0 * std::numbers::pi);
-        cairo_fill(cr);
-        cairo_destroy(cr);
+        cairo_fill(context);
+        cairo_destroy(context);
         cairo_surface_flush(atlas);
         const bool DRAWN = cairo_surface_status(atlas) == CAIRO_STATUS_SUCCESS;
 
@@ -101,9 +102,9 @@ namespace {
             const unsigned char *data = cairo_image_surface_get_data(atlas);
             const int STRIDE = cairo_image_surface_get_stride(atlas);
             pixels.resize(static_cast<std::size_t>(WIDTH) * CELL_PX * 4);
-            for (int y = 0; y < CELL_PX; ++y) {
-                std::memcpy(pixels.data() + (static_cast<std::size_t>(y) * WIDTH * 4),
-                    data + (static_cast<std::size_t>(y) * STRIDE),
+            for (int atlasRow = 0; atlasRow < CELL_PX; ++atlasRow) {
+                std::memcpy(pixels.data() + (static_cast<std::size_t>(atlasRow) * WIDTH * 4),
+                    data + (static_cast<std::size_t>(atlasRow) * STRIDE),
                     static_cast<std::size_t>(WIDTH) * 4);
             }
 
@@ -111,13 +112,14 @@ namespace {
             sheet.frames.clear();
             sheet.coreShare = 1.0;
             for (int k = 0; k < FRAMES; ++k) {
-                for (int y = 0; y < FRAME_PX; ++y) {
+                for (int rowIndex = 0; rowIndex < FRAME_PX; ++rowIndex) {
                     const std::uint8_t *row =
-                        pixels.data() + (((static_cast<std::size_t>(y + GUTTER_PX) * WIDTH) +
+                        pixels.data() + (((static_cast<std::size_t>(rowIndex + GUTTER_PX) * WIDTH) +
                                              (k * CELL_PX) + GUTTER_PX) *
                                             4);
-                    for (int x = 0; x < FRAME_PX; ++x) {
-                        alpha[(static_cast<std::size_t>(y) * FRAME_PX) + x] = row[(x * 4) + 3];
+                    for (int colIndex = 0; colIndex < FRAME_PX; ++colIndex) {
+                        alpha[(static_cast<std::size_t>(rowIndex) * FRAME_PX) + colIndex] =
+                            row[(colIndex * 4) + 3];
                     }
                 }
                 sheet.frames.push_back(hyprimate::measureSprite(alpha, FRAME_PX));
@@ -184,27 +186,29 @@ namespace {
         // One pass keeps the points on one side of one of the box's edges.
         const auto PASS = [&](bool alongX, double limit, bool keepBelow) {
             std::array<SMaskPoint, 8> kept;
-            std::size_t n = 0;
+            std::size_t keptCount = 0;
             const auto VALUE = [&](const SMaskPoint &p) { return alongX ? p.x : p.y; };
             const auto INSIDE = [&](const SMaskPoint &p) {
                 return keepBelow ? VALUE(p) <= limit : VALUE(p) >= limit;
             };
             for (std::size_t i = 0; i < count; ++i) {
-                const SMaskPoint &a = polygon[i];
-                const SMaskPoint &b = polygon[(i + 1) % count];
-                if (INSIDE(a) && n < kept.size()) {
-                    kept[n++] = a;
+                const SMaskPoint &startPoint = polygon[i];
+                const SMaskPoint &endPoint = polygon[(i + 1) % count];
+                if (INSIDE(startPoint) && keptCount < kept.size()) {
+                    kept[keptCount++] = startPoint;
                 }
-                if (INSIDE(a) != INSIDE(b) && n < kept.size()) {
-                    const double t = (limit - VALUE(a)) / (VALUE(b) - VALUE(a));
-                    kept[n++] = {.x = a.x + ((b.x - a.x) * t),
-                        .y = a.y + ((b.y - a.y) * t),
-                        .u = a.u + ((b.u - a.u) * t),
-                        .v = a.v + ((b.v - a.v) * t)};
+                if (INSIDE(startPoint) != INSIDE(endPoint) && keptCount < kept.size()) {
+                    const double FRACTION =
+                        (limit - VALUE(startPoint)) / (VALUE(endPoint) - VALUE(startPoint));
+                    kept[keptCount++] = {
+                        .x = startPoint.x + ((endPoint.x - startPoint.x) * FRACTION),
+                        .y = startPoint.y + ((endPoint.y - startPoint.y) * FRACTION),
+                        .u = startPoint.u + ((endPoint.u - startPoint.u) * FRACTION),
+                        .v = startPoint.v + ((endPoint.v - startPoint.v) * FRACTION)};
                 }
             }
             polygon = kept;
-            count = n;
+            count = keptCount;
         };
         PASS(true, x0, false);
         PASS(true, x1, true);
@@ -216,44 +220,47 @@ namespace {
 }  // namespace
 
 CSwarmSprites::SEntry &CSwarmSprites::entry(const std::string &creature) {
-    SEntry &e = m_entries[creature];
-    if (!e.tried) {
-        e.tried = true;
-        if (!bake(creature, e.sheet, e.pixels)) {
-            e.sheet.frames.clear();
-            e.pixels.clear();
+    SEntry &spriteEntry = m_entries[creature];
+    if (!spriteEntry.tried) {
+        spriteEntry.tried = true;
+        if (!bake(creature, spriteEntry.sheet, spriteEntry.pixels)) {
+            spriteEntry.sheet.frames.clear();
+            spriteEntry.pixels.clear();
         }
     }
-    return e;
+    return spriteEntry;
 }
 
 const CSwarmSprites::SSheet *CSwarmSprites::sheet(const std::string &creature) {
-    const SEntry &e = entry(creature);
-    return e.sheet.frames.empty() ? nullptr : &e.sheet;
+    const SEntry &spriteEntry = entry(creature);
+    return spriteEntry.sheet.frames.empty() ? nullptr : &spriteEntry.sheet;
 }
 
 SP<Render::ITexture> CSwarmSprites::texture(const std::string &creature) {
-    SEntry &e = entry(creature);
-    if (e.texture || e.pixels.empty() || !g_pHyprRenderer) {
-        return e.texture;
+    SEntry &spriteEntry = entry(creature);
+    if (spriteEntry.texture || spriteEntry.pixels.empty() || !g_pHyprRenderer) {
+        return spriteEntry.texture;
     }
-    const int WIDTH = (static_cast<int>(e.sheet.frames.size()) + SHAPE_CELLS) * CELL_PX;
-    e.texture = g_pHyprRenderer->createTexture(DRM_FORMAT_ARGB8888,
-        e.pixels.data(),
+    const int WIDTH = (static_cast<int>(spriteEntry.sheet.frames.size()) + SHAPE_CELLS) * CELL_PX;
+    spriteEntry.texture = g_pHyprRenderer->createTexture(DRM_FORMAT_ARGB8888,
+        spriteEntry.pixels.data(),
         WIDTH * 4,
         Vector2D{static_cast<double>(WIDTH), static_cast<double>(CELL_PX)},
         false,
         false);
-    if (e.texture) {
-        e.pixels = {};
+    if (spriteEntry.texture) {
+        spriteEntry.pixels = {};
     }
-    return e.texture;
+    return spriteEntry.texture;
 }
 
 CBox swarmLayerBox(const CBox &source) {
-    const double x0 = std::floor(source.x);
-    const double y0 = std::floor(source.y);
-    return CBox{x0, y0, std::ceil(source.x + source.w) - x0, std::ceil(source.y + source.h) - y0};
+    const double LEFT_EDGE = std::floor(source.x);
+    const double TOP_EDGE = std::floor(source.y);
+    return CBox{LEFT_EDGE,
+        TOP_EDGE,
+        std::ceil(source.x + source.w) - LEFT_EDGE,
+        std::ceil(source.y + source.h) - TOP_EDGE};
 }
 
 Vector2D swarmLayerSize(const CBox &source) {
@@ -287,9 +294,9 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
     }
 
     const CBox BOX = swarmLayerBox(source);
-    const double sx = source.w / SIZE.x;
-    const double sy = source.h / SIZE.y;
-    const double UNIT = std::min(sx, sy);
+    const double SCALE_X = source.w / SIZE.x;
+    const double SCALE_Y = source.h / SIZE.y;
+    const double UNIT = std::min(SCALE_X, SCALE_Y);
     // The layer: walking creatures in its left half, everything standing in the window in its
     // right.
     const double WIDTH = (2.0 * BOX.w) + LAYER_GAP;
@@ -299,20 +306,20 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
     meshes.standingAt = STANDING_AT;
 
     // Layer and output coordinates of a device-px point.
-    const auto lx = [&](double x, bool standing) {
+    const auto LAYER_X = [&](double x, bool standing) {
         return (x - BOX.x + (standing ? STANDING_AT : 0.0)) / WIDTH;
     };
-    const auto ly = [&](double y) { return (y - BOX.y) / BOX.h; };
-    const auto ox = [&](double x) { return (x - output.x) / output.w; };
-    const auto oy = [&](double y) { return (y - output.y) / output.h; };
+    const auto LAYER_Y = [&](double y) { return (y - BOX.y) / BOX.h; };
+    const auto OUTPUT_X = [&](double x) { return (x - output.x) / output.w; };
+    const auto OUTPUT_Y = [&](double y) { return (y - output.y) / output.h; };
 
     // The window, once under each half.
-    const double u0 = (BOX.x - textureOrigin.x) / textureSize.x;
-    const double u1 = (BOX.x + BOX.w - textureOrigin.x) / textureSize.x;
-    const double v0 = (BOX.y - textureOrigin.y) / textureSize.y;
-    const double v1 = (BOX.y + BOX.h - textureOrigin.y) / textureSize.y;
-    pushRect(meshes.content, 0.0, 0.0, BOX.w / WIDTH, 1.0, u0, v0, u1, v1);
-    pushRect(meshes.content, STANDING_AT / WIDTH, 0.0, 1.0, 1.0, u0, v0, u1, v1);
+    const double LEFT_U = (BOX.x - textureOrigin.x) / textureSize.x;
+    const double RIGHT_U = (BOX.x + BOX.w - textureOrigin.x) / textureSize.x;
+    const double TOP_V = (BOX.y - textureOrigin.y) / textureSize.y;
+    const double BOTTOM_V = (BOX.y + BOX.h - textureOrigin.y) / textureSize.y;
+    pushRect(meshes.content, 0.0, 0.0, BOX.w / WIDTH, 1.0, LEFT_U, TOP_V, RIGHT_U, BOTTOM_V);
+    pushRect(meshes.content, STANDING_AT / WIDTH, 0.0, 1.0, 1.0, LEFT_U, TOP_V, RIGHT_U, BOTTOM_V);
 
     // An agent stands in the window once it is home and has swung round; until then it is a walking
     // piece.
@@ -332,58 +339,69 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
     // over it.
     if (HAS_STANDING) {
         pushRect(meshes.pieces,
-            ox(BOX.x),
-            oy(BOX.y),
-            ox(BOX.x + BOX.w),
-            oy(BOX.y + BOX.h),
+            OUTPUT_X(BOX.x),
+            OUTPUT_Y(BOX.y),
+            OUTPUT_X(BOX.x + BOX.w),
+            OUTPUT_Y(BOX.y + BOX.h),
             STANDING_AT / WIDTH,
             0.0,
             1.0,
             1.0);
     }
 
-    for (const hyprimate::SwarmAgent &a : AGENTS) {
-        const double x0 = source.x + (a.tile.x * sx);
-        const double x1 = source.x + ((a.tile.x + a.tile.w) * sx);
-        const double y0 = source.y + (a.tile.y * sy);
-        const double y1 = source.y + ((a.tile.y + a.tile.h) * sy);
-        const double hx = source.x + (a.home.x * sx);
-        const double hy = source.y + (a.home.y * sy);
-        const bool STANDS = STANDING(a);
+    for (const hyprimate::SwarmAgent &creatureAgent : AGENTS) {
+        const double TILE_LEFT = source.x + (creatureAgent.tile.x * SCALE_X);
+        const double TILE_RIGHT =
+            source.x + ((creatureAgent.tile.x + creatureAgent.tile.w) * SCALE_X);
+        const double TILE_TOP = source.y + (creatureAgent.tile.y * SCALE_Y);
+        const double TILE_BOTTOM =
+            source.y + ((creatureAgent.tile.y + creatureAgent.tile.h) * SCALE_Y);
+        const double HOME_X = source.x + (creatureAgent.home.x * SCALE_X);
+        const double HOME_Y = source.y + (creatureAgent.home.y * SCALE_Y);
+        const bool STANDS = STANDING(creatureAgent);
 
-        if (!a.visible) {
+        if (!creatureAgent.visible) {
             continue;
         }
 
         // The silhouette keeps its travel heading while the carried tile straightens beneath it.
         // Counter-rotate the mask by the piece transform, including throughout docking.
         const auto SILHOUETTE = [&](std::vector<SMeshRenderVertex> &out, double lock) {
-            const int k = hyprimate::walkFrame(a.walk, sheet.stride * 2.0 * a.fit, FRAMES);
-            const auto &frame = sheet.frames[static_cast<std::size_t>(k)];
-            const double SIDE =
-                hyprimate::spriteSize(frame, a.fit * UNIT, a.reach * std::max(sx, sy), lock);
-            const double FACING = hyprimate::spriteRotation(a.heading, sheet.forward, 1.0) -
-                                  hyprimate::spriteRotation(a.heading, a.rest, a.turn);
-            const double c = std::cos(FACING);
-            const double s = std::sin(FACING);
+            const int FRAME_INDEX = hyprimate::walkFrame(
+                creatureAgent.walk, sheet.stride * 2.0 * creatureAgent.fit, FRAMES);
+            const auto &frame = sheet.frames[static_cast<std::size_t>(FRAME_INDEX)];
+            const double SIDE = hyprimate::spriteSize(frame,
+                creatureAgent.fit * UNIT,
+                creatureAgent.reach * std::max(SCALE_X, SCALE_Y),
+                lock);
+            const double FACING =
+                hyprimate::spriteRotation(creatureAgent.heading, sheet.forward, 1.0) -
+                hyprimate::spriteRotation(
+                    creatureAgent.heading, creatureAgent.rest, creatureAgent.turn);
+            const double FACING_COS = std::cos(FACING);
+            const double FACING_SIN = std::sin(FACING);
             // Where a point of the frame lands: the creature's body on the tile's home, turned
             // about it.
-            const auto at = [&](double fx, double fy) {
-                const double dx = (fx - frame.centre.x) * SIDE;
-                const double dy = (fy - frame.centre.y) * SIDE;
-                return SMaskPoint{.x = hx + (dx * c) - (dy * s),
-                    .y = hy + (dx * s) + (dy * c),
-                    .u = ((k * CELL_PX) + GUTTER_PX + (fx * FRAME_PX)) / ATLAS_W,
+            const auto FRAME_POINT = [&](double fx, double fy) {
+                const double OFFSET_X = (fx - frame.centre.x) * SIDE;
+                const double OFFSET_Y = (fy - frame.centre.y) * SIDE;
+                return SMaskPoint{.x = HOME_X + (OFFSET_X * FACING_COS) - (OFFSET_Y * FACING_SIN),
+                    .y = HOME_Y + (OFFSET_X * FACING_SIN) + (OFFSET_Y * FACING_COS),
+                    .u = ((FRAME_INDEX * CELL_PX) + GUTTER_PX + (fx * FRAME_PX)) / ATLAS_W,
                     .v = (GUTTER_PX + (fy * FRAME_PX)) / CELL_PX};
             };
             const double LOW = -FRAME_MARGIN;
             const double HIGH = 1.0 + FRAME_MARGIN;
-            std::array<SMaskPoint, 8> polygon{
-                at(LOW, LOW), at(HIGH, LOW), at(HIGH, HIGH), at(LOW, HIGH)};
-            const std::size_t POINTS = SIDE > 0.0 ? clipToBox(polygon, 4, x0, y0, x1, y1) : 0;
+            std::array<SMaskPoint, 8> polygon{FRAME_POINT(LOW, LOW),
+                FRAME_POINT(HIGH, LOW),
+                FRAME_POINT(HIGH, HIGH),
+                FRAME_POINT(LOW, HIGH)};
+            const std::size_t POINTS =
+                SIDE > 0.0 ? clipToBox(polygon, 4, TILE_LEFT, TILE_TOP, TILE_RIGHT, TILE_BOTTOM)
+                           : 0;
             const auto VERTEX = [&](const SMaskPoint &p) {
-                return SMeshRenderVertex{.x = static_cast<float>(lx(p.x, STANDS)),
-                    .y = static_cast<float>(ly(p.y)),
+                return SMeshRenderVertex{.x = static_cast<float>(LAYER_X(p.x, STANDS)),
+                    .y = static_cast<float>(LAYER_Y(p.y)),
                     .u = static_cast<float>(p.u),
                     .v = static_cast<float>(p.v)};
             };
@@ -393,12 +411,12 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
                 out.push_back(VERTEX(polygon[i + 1]));
             }
         };
-        if (a.lock >= 1.0) {
+        if (creatureAgent.lock >= 1.0) {
             pushRect(meshes.mask,
-                lx(x0, STANDS),
-                ly(y0),
-                lx(x1, STANDS),
-                ly(y1),
+                LAYER_X(TILE_LEFT, STANDS),
+                LAYER_Y(TILE_TOP),
+                LAYER_X(TILE_RIGHT, STANDS),
+                LAYER_Y(TILE_BOTTOM),
                 SOLID_U,
                 0.5,
                 SOLID_U,
@@ -406,24 +424,27 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
         } else if (STANDS) {
             SILHOUETTE(meshes.creatures, 0.0);
         } else {
-            SILHOUETTE(meshes.mask, a.lock);
+            SILHOUETTE(meshes.mask, creatureAgent.lock);
         }
 
         if (STANDS) {
-            if (a.lock > 0.0 && meshes.smoothingRadius > 0.0) {
+            if (creatureAgent.lock > 0.0 && meshes.smoothingRadius > 0.0) {
                 // Grow a stable body, not the sprite's raster outline. Gait frames stay on top
                 // until engulfed, without changing the mass's contour as their limbs move.
-                const double t = a.lock * a.lock * (3.0 - (2.0 * a.lock));
-                const double CORE = sheet.coreShare * a.fit * UNIT;
-                const double HALF_W = (x1 - x0) * 0.5;
-                const double HALF_H = (y1 - y0) * 0.5;
+                const double LOCK_BLEND =
+                    creatureAgent.lock * creatureAgent.lock * (3.0 - (2.0 * creatureAgent.lock));
+                const double CORE = sheet.coreShare * creatureAgent.fit * UNIT;
+                const double HALF_W = (TILE_RIGHT - TILE_LEFT) * 0.5;
+                const double HALF_H = (TILE_BOTTOM - TILE_TOP) * 0.5;
                 const double CORNER = std::min({HALF_W, HALF_H, meshes.cornerRadius});
                 meshes.bodies.push_back({
-                    .centreX = static_cast<float>(std::lerp(hx, (x0 + x1) * 0.5, t) - BOX.x),
-                    .centreY = static_cast<float>(std::lerp(hy, (y0 + y1) * 0.5, t) - BOX.y),
-                    .halfWidth = static_cast<float>(std::lerp(CORE, HALF_W, t)),
-                    .halfHeight = static_cast<float>(std::lerp(CORE, HALF_H, t)),
-                    .cornerRadius = static_cast<float>(std::lerp(CORE, CORNER, t)),
+                    .centreX = static_cast<float>(
+                        std::lerp(HOME_X, (TILE_LEFT + TILE_RIGHT) * 0.5, LOCK_BLEND) - BOX.x),
+                    .centreY = static_cast<float>(
+                        std::lerp(HOME_Y, (TILE_TOP + TILE_BOTTOM) * 0.5, LOCK_BLEND) - BOX.y),
+                    .halfWidth = static_cast<float>(std::lerp(CORE, HALF_W, LOCK_BLEND)),
+                    .halfHeight = static_cast<float>(std::lerp(CORE, HALF_H, LOCK_BLEND)),
+                    .cornerRadius = static_cast<float>(std::lerp(CORE, CORNER, LOCK_BLEND)),
                 });
             }
             continue;
@@ -432,25 +453,25 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
         // Detached pieces are rounded on their own; only the standing mass uses union smoothing.
         // This keeps a closing tile from briefly becoming a sharp rectangle before its sprite
         // shrinks away from the tile's boundaries.
-        if (a.lock > 0.0) {
-            const double RADIUS = a.fit * UNIT;
+        if (creatureAgent.lock > 0.0) {
+            const double RADIUS = creatureAgent.fit * UNIT;
             const double DISC_U = (FRAMES + 1.5) * CELL_PX / ATLAS_W;
             const double RADIUS_U = 0.5 * FRAME_PX / ATLAS_W;
             const double RADIUS_V = 0.5 * FRAME_PX / CELL_PX;
             for (unsigned corner = 0; corner < 4; ++corner) {
                 const bool RIGHT = (corner & 1U) != 0u;
                 const bool BOTTOM = (corner & 2U) != 0u;
-                const double OUTER_X = RIGHT ? x1 : x0;
-                const double INNER_X = RIGHT ? x1 - RADIUS : x0 + RADIUS;
-                const double OUTER_Y = BOTTOM ? y1 : y0;
-                const double INNER_Y = BOTTOM ? y1 - RADIUS : y0 + RADIUS;
+                const double OUTER_X = RIGHT ? TILE_RIGHT : TILE_LEFT;
+                const double INNER_X = RIGHT ? TILE_RIGHT - RADIUS : TILE_LEFT + RADIUS;
+                const double OUTER_Y = BOTTOM ? TILE_BOTTOM : TILE_TOP;
+                const double INNER_Y = BOTTOM ? TILE_BOTTOM - RADIUS : TILE_TOP + RADIUS;
                 const double OUTER_U = DISC_U + (RIGHT ? RADIUS_U : -RADIUS_U);
                 const double OUTER_V = 0.5 + (BOTTOM ? RADIUS_V : -RADIUS_V);
                 pushRect(meshes.walkingCut,
-                    lx(std::min(OUTER_X, INNER_X), false),
-                    ly(std::min(OUTER_Y, INNER_Y)),
-                    lx(std::max(OUTER_X, INNER_X), false),
-                    ly(std::max(OUTER_Y, INNER_Y)),
+                    LAYER_X(std::min(OUTER_X, INNER_X), false),
+                    LAYER_Y(std::min(OUTER_Y, INNER_Y)),
+                    LAYER_X(std::max(OUTER_X, INNER_X), false),
+                    LAYER_Y(std::max(OUTER_Y, INNER_Y)),
                     RIGHT ? DISC_U : OUTER_U,
                     BOTTOM ? 0.5 : OUTER_V,
                     RIGHT ? OUTER_U : DISC_U,
@@ -459,19 +480,26 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
         }
 
         // Piece: the tile, carried to where its agent is and turned about its home.
-        const double dx = (a.position.x - a.home.x) * sx;
-        const double dy = (a.position.y - a.home.y) * sy;
-        const double ANGLE = hyprimate::spriteRotation(a.heading, a.rest, a.turn);
-        const double c = std::cos(ANGLE);
-        const double s = std::sin(ANGLE);
+        const double SHIFT_X = (creatureAgent.position.x - creatureAgent.home.x) * SCALE_X;
+        const double SHIFT_Y = (creatureAgent.position.y - creatureAgent.home.y) * SCALE_Y;
+        const double ANGLE = hyprimate::spriteRotation(
+            creatureAgent.heading, creatureAgent.rest, creatureAgent.turn);
+        const double ANGLE_COS = std::cos(ANGLE);
+        const double ANGLE_SIN = std::sin(ANGLE);
         const auto PIECE = [&](double x, double y) {
             return SMeshRenderVertex{
-                .x = static_cast<float>(ox(hx + dx + ((x - hx) * c) - ((y - hy) * s))),
-                .y = static_cast<float>(oy(hy + dy + ((x - hx) * s) + ((y - hy) * c))),
-                .u = static_cast<float>(lx(x, false)),
-                .v = static_cast<float>(ly(y))};
+                .x = static_cast<float>(OUTPUT_X(
+                    HOME_X + SHIFT_X + ((x - HOME_X) * ANGLE_COS) - ((y - HOME_Y) * ANGLE_SIN))),
+                .y = static_cast<float>(OUTPUT_Y(
+                    HOME_Y + SHIFT_Y + ((x - HOME_X) * ANGLE_SIN) + ((y - HOME_Y) * ANGLE_COS))),
+                .u = static_cast<float>(LAYER_X(x, false)),
+                .v = static_cast<float>(LAYER_Y(y))};
         };
-        pushQuad(meshes.pieces, PIECE(x0, y0), PIECE(x0, y1), PIECE(x1, y0), PIECE(x1, y1));
+        pushQuad(meshes.pieces,
+            PIECE(TILE_LEFT, TILE_TOP),
+            PIECE(TILE_LEFT, TILE_BOTTOM),
+            PIECE(TILE_RIGHT, TILE_TOP),
+            PIECE(TILE_RIGHT, TILE_BOTTOM));
     }
 }
 
@@ -518,22 +546,23 @@ SP<Render::IFramebuffer> renderSwarmLayer(Render::CRenderContext &ctx,
     g_pHyprRenderer->setProjectionType(ctx, Render::RPT_EXPORT);
     g_pHyprRenderer->draw(ctx, CClearPassElement::SClearData{CHyprColor(0, 0, 0, 0)});
 
-    Render::GL::CHyprOpenGLImpl::STextureRenderData td{};
-    td.damage = &data.damage;
-    td.allowCustomUV = true;
+    Render::GL::CHyprOpenGLImpl::STextureRenderData textureData{};
+    textureData.damage = &data.damage;
+    textureData.allowCustomUV = true;
     const CBox BOX{0.0, 0.0, size.x, size.y};
 
     // Silhouettes, unblended: tiles never overlap in the layer, and only the alpha they leave is
     // used.
-    td.allowDim = false;
+    textureData.allowDim = false;
     Render::GL::g_pHyprOpenGL->blend(false);
     if (!meshes.mask.empty()) {
-        Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, atlas, BOX, meshes.mask, td);
+        Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, atlas, BOX, meshes.mask, textureData);
     }
     if (!meshes.walkingCut.empty()) {
         Render::GL::g_pHyprOpenGL->blend(true);
         Render::GL::g_pHyprOpenGL->blendFunc(GL_ZERO, GL_SRC_ALPHA);
-        Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, atlas, BOX, meshes.walkingCut, td);
+        Render::GL::g_pHyprOpenGL->renderTextureMesh(
+            ctx, atlas, BOX, meshes.walkingCut, textureData);
     }
 
     auto smooth = surface.filter(ctx,
@@ -551,14 +580,15 @@ SP<Render::IFramebuffer> renderSwarmLayer(Render::CRenderContext &ctx,
     Render::GL::g_pHyprOpenGL->blend(true);
     Render::GL::g_pHyprOpenGL->blendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     if (!meshes.creatures.empty()) {
-        Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, atlas, BOX, meshes.creatures, td);
+        Render::GL::g_pHyprOpenGL->renderTextureMesh(
+            ctx, atlas, BOX, meshes.creatures, textureData);
     }
 
     // The window, weighted by that alpha: pixels outside every silhouette stay transparent.
-    td.allowDim = true;
+    textureData.allowDim = true;
     Render::GL::g_pHyprOpenGL->blend(true);
     Render::GL::g_pHyprOpenGL->blendFunc(GL_DST_ALPHA, GL_ZERO);
-    Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, window, BOX, meshes.content, td);
+    Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, window, BOX, meshes.content, textureData);
 
     // Restore the entry blend state through the wrapper so its cached factors stay in sync with GL.
     RESTORE_BLEND();
