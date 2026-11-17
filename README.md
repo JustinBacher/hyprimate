@@ -94,6 +94,7 @@ hl.config({
                         shape = "pillow",
                         roundness = 1,
                         shape_speed = 1200,
+                        transparency = 0.88,
                         -- duration = 0.62,
                     },
                     paper = {
@@ -158,6 +159,7 @@ Style settings under `window.options.<style>` are shared; set `window.<animation
 | `window:options:bubble:shape` | string / animation defaults: `"pillow"` | — | Shape surface tension pulls a moving bubble toward. Pillow rounds the corners and gently bulges the sides; ellipse keeps the window's proportions; circle makes a disc regardless of its proportions. Invalid names are rejected. Allowed: `pillow`, `ellipse`, `circle`. |
 | `window:options:bubble:roundness` | float / animation defaults: `1` | 0–1 | How far a window moving at shape_speed contracts toward its bubble shape before returning to a rectangle when stopped. Zero keeps it rectangular. |
 | `window:options:bubble:shape_speed` | float / animation defaults: `1200` | 100–6000 | Window speed in logical pixels per second at which bubble shape contraction reaches its full amount. Slower windows contract proportionally less. |
+| `window:options:bubble:transparency` | float / animation defaults: `0.88` | 0–1 | Window transparency while in bubble form. Zero keeps the window imagery opaque; one shows only the refracted desktop through the film. Highlights and iridescence remain visible. The normal window is unchanged when movement settles. |
 | `window:options:liquid:color` | color / animation defaults: `0xff000000` | — | Open: Colour of the liquid at the opening edge, in ARGB. Zero alpha draws no liquid. Close: Colour of the liquid at the closing edge, in ARGB. Zero alpha draws no liquid. |
 | `window:options:liquid:default_animation_edge` | string / animation defaults: `"bottom"` | — | Open: Preferred opening edge for the first window on a workspace. Later windows use their placement. Invalid edges fall back to a valid edge. Close: Preferred closing edge for the last window on a workspace when side is auto. Other windows use their placement. Invalid edges fall back to a valid edge. Allowed: `bottom`, `top`, `left`, `right`. |
 | `window:options:liquid:edge_bounds` | string / animation defaults: `"screen"` | — | Open: Choose monitor edges (screen) or edges inside reserved areas (work_area) for the liquid pop-out. Close: Choose monitor edges (screen) or edges inside reserved areas (work_area) for the liquid exit. Allowed: `screen`, `work_area`. |

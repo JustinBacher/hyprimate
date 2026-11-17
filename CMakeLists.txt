@@ -258,6 +258,16 @@ if(BUILD_TESTING)
     target_include_directories(bubble-motion-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME bubble-motion-tests COMMAND bubble-motion-tests)
 
+    pkg_check_modules(BUBBLE_TEST_EGL REQUIRED IMPORTED_TARGET egl glesv2)
+    add_executable(bubble-material-tests
+        src/animations/bubble/tests/BubbleMaterialTests.cpp
+        src/animations/bubble/BubbleMaterial.cpp)
+    add_dependencies(bubble-material-tests generate-bubble-shaders)
+    target_include_directories(bubble-material-tests PRIVATE ${CONFIG_GENERATED_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_link_libraries(bubble-material-tests PRIVATE hyprimate-core PkgConfig::BUBBLE_TEST_EGL)
+    add_test(NAME bubble-material-tests COMMAND bubble-material-tests)
+    set_tests_properties(bubble-material-tests PROPERTIES ENVIRONMENT "EGL_PLATFORM=surfaceless")
+
     add_executable(window-tracker-tests tests/WindowTrackerTests.cpp)
     target_link_libraries(window-tracker-tests PRIVATE hyprimate-core)
     add_test(NAME window-tracker-tests COMMAND window-tracker-tests)

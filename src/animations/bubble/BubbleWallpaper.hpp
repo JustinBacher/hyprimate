@@ -3,7 +3,7 @@
 #include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/Framebuffer.hpp>
 
-// A single background-only GPU capture, shared with the close record if opening is interrupted.
+// A GPU scene capture, shared with the close record if opening is interrupted.
 struct SBubbleWallpaper {
     SP<Render::IFramebuffer> framebuffer;
     Vector2D origin;
@@ -12,5 +12,8 @@ struct SBubbleWallpaper {
     bool queued = false;
 };
 
-void queueBubbleWallpaper(
-    Render::CRenderContext &, const SP<SBubbleWallpaper> &, const CBox &source);
+void queueBubbleWallpaper(Render::CRenderContext &,
+    const SP<SBubbleWallpaper> &,
+    const CBox &source,
+    bool live,
+    const CBox &bounds);

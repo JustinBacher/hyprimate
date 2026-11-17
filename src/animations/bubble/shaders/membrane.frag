@@ -13,19 +13,7 @@ float boxDistance(vec2 p, vec2 h, float r) {
     vec2 q = abs(p) - h + r;
     return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
 }
-// White studio seen in reflection (y down, z toward the viewer): dim ground, brighter sky, a mullioned window
-// softbox at the upper left and a small fill light. All colour comes from interference in the film.
-vec3 env(vec3 n) {
-    vec3 r = reflect(vec3(0,0,-1), n);
-    float sky = mix(.05,.5,smoothstep(-.3,.6,-r.y));
-    vec2 q = r.xy / max(.25, abs(r.z)+.4);
-    vec2 k = (q-vec2(-.36,-.40))/vec2(.17,.24);
-    float window = 1.0-smoothstep(.78,1.0,max(abs(k.x),abs(k.y)));
-    window *= mix(.2,1.0,min(smoothstep(.035,.09,abs(k.x)),smoothstep(.035,.09,abs(k.y+.12))));
-    float fill = exp(-dot((q-vec2(.42,-.16))*7.0,(q-vec2(.42,-.16))*7.0));
-    return vec3(sky + 4.0*window + 1.2*fill);
-}
-vec4 layer(Membrane s, vec2 p, vec3 point, vec3 normal, float cosView, float curve, float cap, bool back, bool background) {
+vec4 layer(Membrane s, vec2 p, vec2 screenPoint, vec3 point, vec3 normal, float cosView, float curve, float cap, bool back, bool background) {
     float minHalf = max(min(s.halfSize.x,s.halfSize.y),1.0);
     float edge = 1e6, precursor = 0.0, blackFilm = 0.0;
     float domain=1.0;
@@ -87,7 +75,7 @@ vec4 layer(Membrane s, vec2 p, vec3 point, vec3 normal, float cosView, float cur
         float curledView=clamp(curled.z,0.0,1.0);
         vec3 R=texture(filmLut,vec2(clamp(thick/1500.0,0.0,1.0),curledView)).rgb;
         vec3 reflectedNormal=back ? vec3(-curled.xy,curled.z) : curled;
-        vec3 illumination=env(reflectedNormal)+vec3(precursor);
+        vec3 illumination=soapLight(reflectedNormal)+vec3(precursor);
         reflection=vec4(R*illumination*(back ? .45 : 1.0), luminance(R))*local*intact;
     }
     vec4 imagery=vec4(0);
@@ -110,9 +98,19 @@ vec4 layer(Membrane s, vec2 p, vec3 point, vec3 normal, float cosView, float cur
             vec2 uv=(sourcePos+sourceSize*unit-textureOrigin)/imageSize;
             vec2 lo=max((sourcePos-textureOrigin+.5)/imageSize,vec2(.5)/imageSize);
             vec2 hi=min((sourcePos+sourceSize-textureOrigin-.5)/imageSize,vec2(1)-.5/imageSize);
-            // A contracted window becomes part of the translucent soap film: its premultiplied
-            // colour and opacity fade together while the dome lensing and reflections remain.
-            imagery=texture(image,clamp(uv,lo,hi))*s.content*(1.0-blackFilm)*(1.0-.4*rounded);
+            vec4 windowImage=texture(image,clamp(uv,lo,hi));
+            if (rounded>0.0 && wallpaperReady!=0) {
+                // The desktop stays in output space; only client imagery follows the inverse
+                // deformation. Mix transmission sources once, not two translucent overlays.
+                vec2 sceneUnit=(screenPoint+size*.5-normal.xy*(8.0*(1.0-cosView)*rounded))/size;
+                vec2 sceneUV=wallpaperOrigin+wallpaperX*sceneUnit.x+wallpaperY*sceneUnit.y;
+                vec4 scene=texture(wallpaperImage,clamp(sceneUV,wallpaperPixel*.5,vec2(1)-wallpaperPixel*.5));
+                windowImage=mix(windowImage,scene,s.transparency*rounded);
+            } else {
+                // Captures without a desktop must not reuse an earlier frame's scene.
+                windowImage*=1.0-s.transparency*rounded;
+            }
+            imagery=windowImage*s.content*(1.0-blackFilm);
         }
     }
     vec4 result=over(reflection,imagery*intact);
@@ -159,21 +157,25 @@ vec4 membrane(Membrane s, vec2 logical, bool background) {
     // The film leans the way movement carries it, so its reflections slide with the deformation.
     vec2 tilt=deformed ? motionOffset(s,roundPoint(s,p))/max(min(h.x,h.y),1.0)*1.5 : vec2(0);
     vec3 normal=normalize(vec3(gradient*radius*curve/max(.22,cap+.22)+coreNormal+tilt,1.0));
-    // Contracted, the film bulges like a dome over its outline: its reflections, rim and lensing follow it.
-    // Optical depth reaches full strength for a pillow too; geometry keeps its own roundness.
+    // Lift the same material coordinates into a smooth pillow. Under the square-to-disc
+    // map, (1-x²)(1-y²) = 1-r², so this becomes a sphere without changing material.
+    // Screen derivatives include the deformation Jacobian, unlike an ellipse normal
+    // pasted onto a still-rectangular outline (which grazes across its corners).
     float rounded=deformed ? smoothstep(0.0,.45,s.round) : 0.0;
     if (rounded>0.0) {
-        vec2 ps=roundPoint(s,p)/max(s.extent,vec2(1.0));
-        float zs=sqrt(max(0.0,1.0-min(dot(ps,ps),1.0)));
-        normal=normalize(mix(normal,normalize(vec3(ps,max(zs,.05))),.85*rounded));
-        cap=mix(cap,zs,rounded);
+        float domeCap=sqrt(max(0.0,(1.0-min(xy.x*xy.x,1.0))*(1.0-min(xy.y*xy.y,1.0))));
+        float height=domeCap*min(roundHalf(s).x,roundHalf(s).y);
+        vec2 slope=-vec2(dFdx(height),dFdy(height))*sourceSize/size;
+        normal=normalize(vec3(mix(normal.xy/max(normal.z,.001),slope,rounded),1.0));
+        cap=mix(cap,domeCap,rounded);
         curve=max(curve,rounded);
+        z=mix(z,domeCap,rounded);
     }
     vec3 front=vec3(xy,max(z,.001)), back=vec3(xy,-max(z,.001));
     if (s.spherical!=0) { normal=normalize(front); cap=z; }
     float cv=clamp(normal.z,0.0,1.0);
-    vec4 a=layer(s,p,front,normal,cv,curve,cap,false,background);
-    if (s.spherical!=0) a=over(a,layer(s,p,back,normal,cv,curve,cap,true,background));
+    vec4 a=layer(s,p,drawn,front,normal,cv,curve,cap,false,background);
+    if (s.spherical!=0) a=over(a,layer(s,p,drawn,back,normal,cv,curve,cap,true,background));
     return a*shape*s.visibility*valid;
 }
 void main() {

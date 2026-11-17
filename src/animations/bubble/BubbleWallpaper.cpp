@@ -18,13 +18,13 @@
 namespace {
     class CBubbleWallpaperPass final : public IPassElement {
       public:
-        CBubbleWallpaperPass(SP<SBubbleWallpaper> wallpaper, CBox source)
-            : m_wallpaper(std::move(wallpaper)), m_source(source) {
+        CBubbleWallpaperPass(SP<SBubbleWallpaper> wallpaper, CBox source, CBox bounds, bool live)
+            : m_wallpaper(std::move(wallpaper)), m_source(source), m_bounds(bounds), m_live(live) {
         }
 
         ~CBubbleWallpaperPass() override {
-            // A discarded pass or an unavailable target is not a completed capture.
-            if (!m_wallpaper->framebuffer) {
+            // A live capture must be refreshed; a discarded capture is not completed.
+            if (m_live || !m_wallpaper->framebuffer) {
                 m_wallpaper->queued = false;
             }
         }
@@ -54,13 +54,27 @@ namespace {
             const auto p0 = project(0, 0);
             const auto px = project(1, 0);
             const auto py = project(0, 1);
-            const auto pxy = project(1, 1);
-            const double x = std::max(0.0, std::floor(std::min({p0.x, px.x, py.x, pxy.x})) - 1.0);
-            const double y = std::max(0.0, std::floor(std::min({p0.y, px.y, py.y, pxy.y})) - 1.0);
+            CBox bounds = m_bounds;
+            ctx.m_data.renderModif.applyToBox(bounds);
+            const auto boundsMatrix = g_pHyprRenderer->projectBoxToTarget(ctx, bounds).getMatrix();
+            const auto projectBounds = [&](double u, double v) {
+                return Vector2D{(0.5 + (0.5 * ((boundsMatrix[0] * u) + (boundsMatrix[1] * v) +
+                                                  boundsMatrix[2]))) *
+                                    source->m_size.x,
+                    (0.5 +
+                        (0.5 * ((boundsMatrix[3] * u) + (boundsMatrix[4] * v) + boundsMatrix[5]))) *
+                        source->m_size.y};
+            };
+            const auto b0 = projectBounds(0, 0);
+            const auto bx = projectBounds(1, 0);
+            const auto by = projectBounds(0, 1);
+            const auto bxy = projectBounds(1, 1);
+            const double x = std::max(0.0, std::floor(std::min({b0.x, bx.x, by.x, bxy.x})) - 1.0);
+            const double y = std::max(0.0, std::floor(std::min({b0.y, bx.y, by.y, bxy.y})) - 1.0);
             const double right =
-                std::min(source->m_size.x, std::ceil(std::max({p0.x, px.x, py.x, pxy.x})) + 1.0);
+                std::min(source->m_size.x, std::ceil(std::max({b0.x, bx.x, by.x, bxy.x})) + 1.0);
             const double top =
-                std::min(source->m_size.y, std::ceil(std::max({p0.y, px.y, py.y, pxy.y})) + 1.0);
+                std::min(source->m_size.y, std::ceil(std::max({b0.y, bx.y, by.y, bxy.y})) + 1.0);
             const Vector2D extent{right - x, top - y};
             if (!(extent.x > 0 && extent.y > 0) || !std::isfinite(extent.x) ||
                 !std::isfinite(extent.y)) {
@@ -119,8 +133,7 @@ namespace {
         ePassElementType type() override {
             return EK_CUSTOM;
         }
-        // Exactly one capture frame: redraw even wallpaper hidden by opaque windows, rather than
-        // copying stale pixels.
+        // Reconstruct the entire lower scene, including pixels hidden by opaque windows.
         bool disableSimplification(Render::CRenderContext &) override {
             return true;
         }
@@ -131,19 +144,36 @@ namespace {
       private:
         SP<SBubbleWallpaper> m_wallpaper;
         CBox m_source;
+        CBox m_bounds;
+        bool m_live;
     };
 }  // namespace
 
-void queueBubbleWallpaper(
-    Render::CRenderContext &ctx, const SP<SBubbleWallpaper> &wallpaper, const CBox &source) {
-    if (!wallpaper || wallpaper->queued || ctx.readOnlyEffects() || ctx.m_renderingCapture ||
+void queueBubbleWallpaper(Render::CRenderContext &ctx,
+    const SP<SBubbleWallpaper> &wallpaper,
+    const CBox &source,
+    bool live,
+    const CBox &bounds) {
+    if (!wallpaper || !g_pHyprRenderer || ctx.readOnlyEffects() || ctx.m_renderingCapture ||
         ctx.m_renderingSnapshot || ctx.m_mode != Render::RENDER_MODE_NORMAL) {
         return;
     }
+    // A completed opening snapshot keeps queued set; a live request replaces it. A live pass
+    // waiting in this frame has no framebuffer yet and must not be queued a second time.
+    if (live && wallpaper->queued && wallpaper->framebuffer) {
+        wallpaper->queued = false;
+    }
+    if (wallpaper->queued) {
+        return;
+    }
+    if (live) {
+        wallpaper->framebuffer.reset();
+    }
     if (!ctx.m_data.pMonitor ||
-        source.copy().intersection(CBox{{}, ctx.m_data.pMonitor->m_transformedSize}).empty()) {
+        bounds.copy().intersection(CBox{{}, ctx.m_data.pMonitor->m_transformedSize}).empty()) {
         return;
     }
     wallpaper->queued = true;
-    Render::IHyprRenderer::addPassElement(ctx, makeUnique<CBubbleWallpaperPass>(wallpaper, source));
+    Render::IHyprRenderer::addPassElement(
+        ctx, makeUnique<CBubbleWallpaperPass>(wallpaper, source, bounds, live));
 }
