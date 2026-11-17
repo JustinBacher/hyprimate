@@ -82,10 +82,10 @@ namespace hyprimate {
         void silentTrace(const char *, ...) {
         }
         Vec3 add(Vec3 a, Vec3 b) noexcept {
-            return {a.x + b.x, a.y + b.y, a.z + b.z};
+            return {.x = a.x + b.x, .y = a.y + b.y, .z = a.z + b.z};
         }
         Vec3 mul(Vec3 a, double b) noexcept {
-            return {a.x * b, a.y * b, a.z * b};
+            return {.x = a.x * b, .y = a.y * b, .z = a.z * b};
         }
         Vec3 sub(Vec3 a, Vec3 b) noexcept {
             return add(a, mul(b, -1));
@@ -94,7 +94,7 @@ namespace hyprimate {
             return add(mul(a, 1 - t), mul(b, t));
         }
         std::size_t index(int i, int j) noexcept {
-            return std::size_t(j) * GRID + i;
+            return (std::size_t(j) * GRID) + i;
         }
         double smoothDerivative(double a, double b, double x) noexcept {
             const double t = std::clamp((x - a) / (b - a), 0.0, 1.0);
@@ -102,9 +102,12 @@ namespace hyprimate {
         }
         SheetGrid restGrid() noexcept {
             SheetGrid out{};
-            for (int j = 0; j < GRID; ++j)
-                for (int i = 0; i < GRID; ++i)
-                    out[index(i, j)] = {double(i) / PAPER_CELLS - 0.5, -double(j) / PAPER_CELLS, 0};
+            for (int j = 0; j < GRID; ++j) {
+                for (int i = 0; i < GRID; ++i) {
+                    out[index(i, j)] = {
+                        (double(i) / PAPER_CELLS) - 0.5, -static_cast<double>(j) / PAPER_CELLS, 0};
+                }
+            }
             return out;
         }
         // A curtain has enough material across its width to form vertical folds. Integrate
@@ -114,23 +117,26 @@ namespace hyprimate {
             std::array<Vec2, GRID> header{};
             for (int i = 1; i < GRID; ++i) {
                 const double angle = 1.1 * std::sin(10 * std::numbers::pi * (i - .5) / PAPER_CELLS);
-                header[i] = {header[i - 1].x + std::cos(angle) / PAPER_CELLS,
-                    header[i - 1].y + std::sin(angle) / PAPER_CELLS};
+                header[i] = {.x = header[i - 1].x + (std::cos(angle) / PAPER_CELLS),
+                    .y = header[i - 1].y + (std::sin(angle) / PAPER_CELLS)};
             }
             SheetGrid out{};
-            for (int j = 0; j < GRID; ++j)
+            for (int j = 0; j < GRID; ++j) {
                 for (int i = 0; i < GRID; ++i) {
-                    const double down = double(j) / PAPER_CELLS;
-                    out[index(i, j)] = {header[i].x - header.back().x / 2,
-                        -down,
-                        header[i].y * smoothstep(0, .18, down)};
+                    const double down = static_cast<double>(j) / PAPER_CELLS;
+                    out[index(i, j)] = {.x = header[i].x - (header.back().x / 2),
+                        .y = -down,
+                        .z = header[i].y * smoothstep(0, .18, down)};
                 }
+            }
             return out;
         }
         float clothInverseMass(int row) noexcept {
             // A sewn hem carries extra inertia without turning the whole panel into a heavy rubber
             // membrane.
-            return CLOTH_INV_MASS / float(1 + 2 * smoothstep(.92, 1, double(row) / PAPER_CELLS));
+            return CLOTH_INV_MASS /
+                   static_cast<float>(
+                       1 + (2 * smoothstep(.92, 1, static_cast<double>(row) / PAPER_CELLS)));
         }
         bool validBox(const Box &b) noexcept {
             // Logical desktop geometry is far smaller than these bounds. Reject values that cannot
@@ -142,8 +148,10 @@ namespace hyprimate {
         }
         bool sanitize(ClothParams &p) noexcept {
             if (!std::isfinite(p.duration) || p.duration <= 0 || !std::isfinite(p.flutter) ||
-                !std::isfinite(p.shading) || !std::isfinite(p.variation) || !std::isfinite(p.shine))
+                !std::isfinite(p.shading) || !std::isfinite(p.variation) ||
+                !std::isfinite(p.shine)) {
                 return false;
+            }
             p.duration = std::clamp(p.duration, 0.1, 4.0);
             p.flutter = std::clamp(p.flutter, 0.0, 1.0);
             p.shading = std::clamp(p.shading, 0.0, 1.0);
@@ -201,18 +209,27 @@ namespace hyprimate {
                 v = velocity;
                 return;
             }
-            const double at = std::clamp(t / DT, 0.0, double(count - 1));
-            const int a = std::min(int(at), count - 2), b = a + 1;
-            const double u = at - a, u2 = u * u, u3 = u2 * u;
-            const double h00 = 2 * u3 - 3 * u2 + 1, h10 = u3 - 2 * u2 + u;
-            const double h01 = -2 * u3 + 3 * u2, h11 = u3 - u2;
-            const double d00 = (6 * u2 - 6 * u) / DT, d10 = 3 * u2 - 4 * u + 1;
-            const double d01 = (-6 * u2 + 6 * u) / DT, d11 = 3 * u2 - 2 * u;
+            const double at = std::clamp(t / DT, 0.0, static_cast<double>(count - 1));
+            const int a = std::min(int(at), count - 2);
+            const int b = a + 1;
+            const double u = at - a;
+            const double u2 = u * u;
+            const double u3 = u2 * u;
+            const double h00 = 2 * u3 - 3 * u2 + 1;
+            const double h10 = u3 - 2 * u2 + u;
+            const double h01 = -2 * u3 + 3 * u2;
+            const double h11 = u3 - u2;
+            const double d00 = (6 * u2 - 6 * u) / DT;
+            const double d10 = 3 * u2 - 4 * u + 1;
+            const double d01 = (-6 * u2 + 6 * u) / DT;
+            const double d11 = 3 * u2 - 2 * u;
             for (std::size_t k = 0; k < p.size(); ++k) {
-                const float *s0 = samples.data() + (std::size_t(a) * p.size() + k) * 6;
-                const float *s1 = samples.data() + (std::size_t(b) * p.size() + k) * 6;
-                const Vec3 p0{s0[0], s0[1], s0[2]}, v0{s0[3], s0[4], s0[5]};
-                const Vec3 p1{s1[0], s1[1], s1[2]}, v1{s1[3], s1[4], s1[5]};
+                const float *s0 = samples.data() + (((std::size_t(a) * p.size()) + k) * 6);
+                const float *s1 = samples.data() + (((std::size_t(b) * p.size()) + k) * 6);
+                const Vec3 p0{s0[0], s0[1], s0[2]};
+                const Vec3 v0{s0[3], s0[4], s0[5]};
+                const Vec3 p1{s1[0], s1[1], s1[2]};
+                const Vec3 v1{s1[3], s1[4], s1[5]};
                 if (k < GRID) {
                     // Interpolation between solved pocket positions cannot overshoot an end stop or
                     // reorder samples.
@@ -223,7 +240,7 @@ namespace hyprimate {
                 p[k] =
                     add(add(mul(p0, h00), mul(v0, h10 * DT)), add(mul(p1, h01), mul(v1, h11 * DT)));
                 v[k] = add(add(mul(p0, d00), mul(v0, d10)), add(mul(p1, d01), mul(v1, d11)));
-                const double extra = std::clamp(t - (count - 1) * DT, 0.0, DT);
+                const double extra = std::clamp(t - ((count - 1) * DT), 0.0, DT);
                 p[k] = add(p[k], mul(v[k], extra));
             }
         }
@@ -293,9 +310,14 @@ namespace hyprimate {
                 reaper.request_stop();
                 changed.notify_all();
                 reaper.join();
-                for (const auto &run : runs) run->stop.request_stop();
-                for (const auto &run : runs)
-                    if (run->worker.joinable()) run->worker.join();
+                for (const auto &run : runs) {
+                    run->stop.request_stop();
+                }
+                for (const auto &run : runs) {
+                    if (run->worker.joinable()) {
+                        run->worker.join();
+                    }
+                }
                 runs.clear();
             }
             void add(const std::shared_ptr<Run> &run) {
@@ -318,7 +340,9 @@ namespace hyprimate {
                         auto done = std::move(*it);
                         it = runs.erase(it);
                         lock.unlock();
-                        if (done->worker.joinable()) done->worker.join();
+                        if (done->worker.joinable()) {
+                            done->worker.join();
+                        }
                         done.reset();  // potentially large recording is freed here, never on
                                        // playback's last-reference path
                         lock.lock();
@@ -335,25 +359,30 @@ namespace hyprimate {
         std::unique_ptr<Registry> s_registry;
 
         bool outside(const Run &run, const JPH::Array<JPH::SoftBodyVertex> &vertices) noexcept {
-            const double W = run.window.w, H = run.window.h, L = std::sqrt(W * H), f = 3 * L;
+            const double W = run.window.w;
+            const double H = run.window.h;
+            const double L = std::sqrt(W * H);
+            const double f = 3 * L;
             for (const auto &v : vertices) {
-                const double scale = f / std::max(0.25 * f, f - v.mPosition.GetZ() * L);
-                const double x = run.window.x + W / 2 + v.mPosition.GetX() * W * scale;
-                const double y = run.window.y + H / 2 + (-v.mPosition.GetY() * H - H / 2) * scale;
+                const double scale = f / std::max(0.25 * f, f - (v.mPosition.GetZ() * L));
+                const double x = run.window.x + (W / 2) + (v.mPosition.GetX() * W * scale);
+                const double y =
+                    run.window.y + (H / 2) + (((-v.mPosition.GetY() * H) - (H / 2)) * scale);
                 if ((run.edge == Edge::Bottom && y <= run.screen.y + run.screen.h) ||
                     (run.edge == Edge::Top && y >= run.screen.y) ||
                     (run.edge == Edge::Left && x >= run.screen.x) ||
-                    (run.edge == Edge::Right && x <= run.screen.x + run.screen.w))
+                    (run.edge == Edge::Right && x <= run.screen.x + run.screen.w)) {
                     return false;
+                }
             }
             return true;
         }
         bool record(Run &run, int frame, const JPH::Array<JPH::SoftBodyVertex> &vertices) noexcept {
             const double travel = std::hypot(run.travel.x, run.travel.y);
-            const double positionLimit =
-                16 + travel + GRAVITY * run.length * run.length + run.maxInitialSpeed * run.length;
-            const double velocityLimit =
-                50 + 8 * travel / run.length + 3 * GRAVITY * run.length + 1.5 * run.maxInitialSpeed;
+            const double positionLimit = 16 + travel + (GRAVITY * run.length * run.length) +
+                                         (run.maxInitialSpeed * run.length);
+            const double velocityLimit = 50 + (8 * travel / run.length) +
+                                         (3 * GRAVITY * run.length) + (1.5 * run.maxInitialSpeed);
             for (const auto &v : vertices) {
                 if (!std::isfinite(v.mPosition.GetX()) || !std::isfinite(v.mPosition.GetY()) ||
                     !std::isfinite(v.mPosition.GetZ()) || !std::isfinite(v.mVelocity.GetX()) ||
@@ -363,10 +392,11 @@ namespace hyprimate {
                         std::abs(v.mPosition.GetZ())}) > positionLimit ||
                     std::max({std::abs(v.mVelocity.GetX()),
                         std::abs(v.mVelocity.GetY()),
-                        std::abs(v.mVelocity.GetZ())}) > velocityLimit)
+                        std::abs(v.mVelocity.GetZ())}) > velocityLimit) {
                     return false;
+                }
             }
-            float *p = run.samples.data() + std::size_t(frame) * PAPER_GRID_VERTICES * 6;
+            float *p = run.samples.data() + (std::size_t(frame) * PAPER_GRID_VERTICES * 6);
             for (const auto &v : vertices) {
                 *p++ = v.mPosition.GetX();
                 *p++ = v.mPosition.GetY();
@@ -377,8 +407,9 @@ namespace hyprimate {
             }
             if (run.kind == Transition::Close &&
                 run.outsideFrame.load(std::memory_order_relaxed) == run.frames &&
-                outside(run, vertices))
+                outside(run, vertices)) {
                 run.outsideFrame.store(frame, std::memory_order_release);
+            }
             run.recorded.store(frame + 1, std::memory_order_release);
             return true;
         }
@@ -399,7 +430,7 @@ namespace hyprimate {
 
           public:
             explicit Pocket(const SheetGrid &start, const SheetGrid &velocity, double amount)
-                : springiness(float(amount)), pairs(1), broadPhase(1, 1) {
+                : springiness(static_cast<float>(amount)), pairs(1), broadPhase(1, 1) {
                 using namespace JPH;
                 broadPhase.MapObjectToBroadPhaseLayer(0, BroadPhaseLayer(0));
                 system.Init(GRID, 0, 1, 1, broadPhase, objectVsBroadPhase, pairs);
@@ -416,7 +447,7 @@ namespace hyprimate {
                 // exclusion.
                 const RefConst<Shape> shape = new BoxShape(JPH::Vec3(HALF_WIDTH, .01F, .01F), 0.0F);
                 for (int i = 0; i < GRID; ++i) {
-                    const float x = std::clamp(float(start[i].x), -LIMIT, LIMIT);
+                    const float x = std::clamp(static_cast<float>(start[i].x), -LIMIT, LIMIT);
                     BodyCreationSettings creation(
                         shape, RVec3(x, 0, 0), Quat::sIdentity(), EMotionType::Dynamic, 0);
                     creation.mOverrideMassProperties = EOverrideMassProperties::CalculateInertia;
@@ -427,15 +458,19 @@ namespace hyprimate {
                     creation.mAllowSleeping = false;
                     creation.mMaxLinearVelocity = 8;
                     ids[i] = bodies.CreateAndAddBody(creation, EActivation::Activate);
-                    if (ids[i].IsInvalid()) return;
+                    if (ids[i].IsInvalid()) {
+                        return;
+                    }
                     bodies.SetLinearVelocity(
-                        ids[i], JPH::Vec3(float(velocity[i].x) * springiness, 0, 0));
+                        ids[i], JPH::Vec3(static_cast<float>(velocity[i].x) * springiness, 0, 0));
                     SliderConstraintSettings slider;
                     slider.mPoint1 = slider.mPoint2 = RVec3(x, 0, 0);
                     slider.mLimitsMin = -LIMIT - x;
                     slider.mLimitsMax = LIMIT - x;
                     constraints[i] = bodies.CreateConstraint(&slider, BodyID(), ids[i]);
-                    if (!constraints[i]) return;
+                    if (!constraints[i]) {
+                        return;
+                    }
                     system.AddConstraint(constraints[i]);
                     if (i > 0) {
                         SliderConstraintSettings spacing;
@@ -445,7 +480,9 @@ namespace hyprimate {
                         spacing.mLimitsMin = 0;
                         spacing.mLimitsMax = 1;
                         neighbours[i - 1] = bodies.CreateConstraint(&spacing, ids[i - 1], ids[i]);
-                        if (!neighbours[i - 1]) return;
+                        if (!neighbours[i - 1]) {
+                            return;
+                        }
                         system.AddConstraint(neighbours[i - 1]);
                     }
                 }
@@ -458,15 +495,22 @@ namespace hyprimate {
 
             ~Pocket() {
                 auto &bodies = system.GetBodyInterfaceNoLock();
-                for (const auto &constraint : neighbours)
-                    if (constraint) system.RemoveConstraint(constraint);
-                for (const auto &constraint : constraints)
-                    if (constraint) system.RemoveConstraint(constraint);
-                for (const auto &id : ids)
+                for (const auto &constraint : neighbours) {
+                    if (constraint) {
+                        system.RemoveConstraint(constraint);
+                    }
+                }
+                for (const auto &constraint : constraints) {
+                    if (constraint) {
+                        system.RemoveConstraint(constraint);
+                    }
+                }
+                for (const auto &id : ids) {
                     if (!id.IsInvalid()) {
                         bodies.RemoveBody(id);
                         bodies.DestroyBody(id);
                     }
+                }
             }
 
             bool update(double acceleration,
@@ -477,24 +521,26 @@ namespace hyprimate {
                 auto &bodies = system.GetBodyInterfaceNoLock();
                 // Reinforce the trailing end by up to 4x; blend through zero speed when stopping or
                 // reversing.
-                const float direction = float(std::clamp(rodVelocity / .05, -1.0, 1.0));
+                const float direction =
+                    static_cast<float>(std::clamp(rodVelocity / .05, -1.0, 1.0));
                 const float trailing = .5F * std::abs(direction);
                 for (int i = 0; i < GRID; ++i) {
                     const float x = float(bodies.GetPosition(ids[i]).GetX());
-                    const float rest = float(double(i) / PAPER_CELLS - .5);
+                    const auto rest = static_cast<float>((double(i) / PAPER_CELLS) - .5);
                     const float velocity = bodies.GetLinearVelocity(ids[i]).GetX();
                     // A distributed lengthwise spring restores the sleeve during travel, not only
                     // after it stops. Jolt integrates the spring force; spring damping controls the
                     // rebound without sliding friction.
-                    const float spring =
-                        SPRING * (4 - 3 * springiness) * (1 + 3 * (trailing - direction * rest));
+                    const float spring = SPRING * (4 - (3 * springiness)) *
+                                         (1 + (3 * (trailing - (direction * rest))));
                     const float damping = DAMPING * std::sqrt(spring / SPRING);
-                    const float force =
-                        float(-MASS * acceleration * springiness +
-                              (spring + quiet * 8) * (rest - x) - damping * velocity);
+                    const auto force = static_cast<float>((-MASS * acceleration * springiness) +
+                                                          ((spring + (quiet * 8)) * (rest - x)) -
+                                                          (damping * velocity));
                     bodies.AddForce(ids[i], JPH::Vec3(force, 0, 0));
                 }
-                return system.Update(float(DT), 1, &temp, &jobs) == JPH::EPhysicsUpdateError::None;
+                return system.Update(static_cast<float>(DT), 1, &temp, &jobs) ==
+                       JPH::EPhysicsUpdateError::None;
             }
 
             float position(int i) {
@@ -531,21 +577,23 @@ namespace hyprimate {
             float *out = snapshot.values.data();
             for (std::size_t k = 0; k < vertices.size(); ++k) {
                 const auto &vertex = vertices[k];
-                const auto p = vertex.mPosition, v = vertex.mVelocity;
+                const auto p = vertex.mPosition;
+                const auto v = vertex.mVelocity;
                 // Header vertices follow the rod directly; only the free panel uses the partial
                 // inertial rebase.
                 const auto &frameVelocity =
                     k < GRID ? run.snapshotRigidVelocity : run.publishVelocity;
                 if (!std::isfinite(p.GetX()) || !std::isfinite(p.GetY()) ||
                     !std::isfinite(p.GetZ()) || !std::isfinite(v.GetX()) ||
-                    !std::isfinite(v.GetY()) || !std::isfinite(v.GetZ()))
+                    !std::isfinite(v.GetY()) || !std::isfinite(v.GetZ())) {
                     return false;
+                }
                 *out++ = p.GetX();
                 *out++ = p.GetY();
                 *out++ = p.GetZ();
-                *out++ = float(v.GetX() + frameVelocity.x);
-                *out++ = float(v.GetY() + frameVelocity.y);
-                *out++ = float(v.GetZ() + frameVelocity.z);
+                *out++ = static_cast<float>(v.GetX() + frameVelocity.x);
+                *out++ = static_cast<float>(v.GetY() + frameVelocity.y);
+                *out++ = static_cast<float>(v.GetZ() + frameVelocity.z);
             }
             run.outputHead.store(head + 1, std::memory_order_release);
             run.recorded.fetch_add(1, std::memory_order_release);
@@ -563,27 +611,34 @@ namespace hyprimate {
             JobSystemSingleThreaded jobs(cMaxPhysicsJobs);
             PhysicsSystem system;
             system.Init(1, 0, 32, 32, broadPhase, objectVsBroadPhase, pairs);
-            system.SetGravity(JPH::Vec3(0, float(-GRAVITY * run.movement.gravity), 0));
+            system.SetGravity(JPH::Vec3(0, static_cast<float>(-GRAVITY * run.movement.gravity), 0));
             const auto stopped = [&] { return run.stop.stop_requested(); };
-            if (stopped()) return;
+            if (stopped()) {
+                return;
+            }
             const SheetGrid rest = restGrid();
             std::array<double, GRID> pleats{};
-            for (int i = 0; i < GRID; ++i)
-                pleats[i] = std::sin(8 * std::numbers::pi * i / PAPER_CELLS + phase);
+            for (int i = 0; i < GRID; ++i) {
+                pleats[i] = std::sin((8 * std::numbers::pi * i / PAPER_CELLS) + phase);
+            }
             const Ref<SoftBodySharedSettings> settings = new SoftBodySharedSettings;
             for (std::size_t k = 0; k < rest.size(); ++k) {
                 const auto p = rest[k];
-                settings->mVertices.emplace_back(Float3(float(p.x), float(p.y), 0),
+                settings->mVertices.emplace_back(
+                    Float3(static_cast<float>(p.x), static_cast<float>(p.y), 0),
                     Float3(0, 0, 0),
-                    k < GRID ? 0.0F : clothInverseMass(int(k / GRID)));
+                    k < GRID ? 0.0F : clothInverseMass(static_cast<int>(k / GRID)));
             }
-            for (int j = 0; j < PAPER_CELLS; ++j)
+            for (int j = 0; j < PAPER_CELLS; ++j) {
                 for (int i = 0; i < PAPER_CELLS; ++i) {
-                    const auto a = uint32(index(i, j)), b = uint32(index(i + 1, j)),
-                               c = uint32(index(i, j + 1)), d = uint32(index(i + 1, j + 1));
+                    const auto a = uint32(index(i, j));
+                    const auto b = uint32(index(i + 1, j));
+                    const auto c = uint32(index(i, j + 1));
+                    const auto d = uint32(index(i + 1, j + 1));
                     settings->AddFace(SoftBodySharedSettings::Face(a, c, b));
                     settings->AddFace(SoftBodySharedSettings::Face(b, c, d));
                 }
+            }
             const SoftBodySharedSettings::VertexAttributes attributes(STRETCH_COMPLIANCE,
                 STRETCH_COMPLIANCE,
                 BEND_COMPLIANCE,
@@ -591,7 +646,9 @@ namespace hyprimate {
             settings->CreateConstraints(
                 &attributes, 1, SoftBodySharedSettings::EBendType::Dihedral);
             settings->Optimize();
-            if (stopped()) return;
+            if (stopped()) {
+                return;
+            }
             SoftBodyCreationSettings creation(settings, RVec3::sZero(), Quat::sIdentity(), CLOTH);
             creation.mUpdatePosition = false;
             creation.mAllowSleeping = false;
@@ -600,27 +657,35 @@ namespace hyprimate {
             creation.mMaxLinearVelocity = 20;
             auto &bodies = system.GetBodyInterfaceNoLock();
             const BodyID id = bodies.CreateAndAddSoftBody(creation, EActivation::Activate);
-            if (id.IsInvalid()) return;
+            if (id.IsInvalid()) {
+                return;
+            }
             auto *motion = static_cast<SoftBodyMotionProperties *>(
                 system.GetBodyLockInterfaceNoLock().TryGetBody(id)->GetMotionProperties());
             auto &vertices = motion->GetVertices();
             for (std::size_t k = 0; k < rest.size(); ++k) {
-                const auto p = run.start[k], v = run.velocity[k];
-                vertices[k].mPosition = JPH::Vec3(float(p.x), float(p.y), float(p.z));
-                vertices[k].mVelocity = JPH::Vec3(float(v.x), float(v.y), float(v.z));
+                const auto p = run.start[k];
+                const auto v = run.velocity[k];
+                vertices[k].mPosition = JPH::Vec3(
+                    static_cast<float>(p.x), static_cast<float>(p.y), static_cast<float>(p.z));
+                vertices[k].mVelocity = JPH::Vec3(
+                    static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z));
             }
             std::optional<Pocket> pocket;
-            if (run.movement.springiness > 0)
+            if (run.movement.springiness > 0) {
                 pocket.emplace(run.start, run.velocity, run.movement.springiness);
+            }
             if (pocket && !pocket->valid()) {
                 bodies.RemoveBody(id);
                 bodies.DestroyBody(id);
                 return;
             }
             bool good = publishMovement(run, -DT, vertices) && publishMovement(run, 0, vertices);
-            Run::Target previous{0, run.window};
+            Run::Target previous{.time = 0, .box = run.window};
             Box box = run.window;
-            double time = 0, lastMotion = 0, previousRodVelocity = 0;
+            double time = 0;
+            double lastMotion = 0;
+            double previousRodVelocity = 0;
             while (good && !stopped()) {
                 if (s_pause.load(std::memory_order_acquire) &&
                     run.recorded.load(std::memory_order_relaxed) >=
@@ -639,18 +704,23 @@ namespace hyprimate {
                     const double nextTime = time + DT;
                     const double u = std::clamp(
                         (nextTime - previous.time) / (target.time - previous.time), 0.0, 1.0);
-                    const Box next{previous.box.x + u * (target.box.x - previous.box.x),
-                        previous.box.y + u * (target.box.y - previous.box.y),
-                        previous.box.w + u * (target.box.w - previous.box.w),
-                        previous.box.h + u * (target.box.h - previous.box.h)};
-                    const double dx = next.x - box.x, dy = next.y - box.y;
-                    run.snapshotRigidVelocity = {dx / DT / next.w, -dy / DT / next.h, 0};
+                    const Box next{.x = previous.box.x + (u * (target.box.x - previous.box.x)),
+                        .y = previous.box.y + (u * (target.box.y - previous.box.y)),
+                        .w = previous.box.w + (u * (target.box.w - previous.box.w)),
+                        .h = previous.box.h + (u * (target.box.h - previous.box.h))};
+                    const double dx = next.x - box.x;
+                    const double dy = next.y - box.y;
+                    run.snapshotRigidVelocity = {
+                        .x = dx / DT / next.w, .y = -dy / DT / next.h, .z = 0};
                     const double gain = std::min(run.movement.strength, 1.5);
-                    run.publishVelocity = {
-                        (1 - gain) * dx / DT / next.w, -(1 - gain) * dy / DT / next.h, 0};
+                    run.publishVelocity = {.x = (1 - gain) * dx / DT / next.w,
+                        .y = -(1 - gain) * dy / DT / next.h,
+                        .z = 0};
                     const double speed = std::hypot(dx, dy) / DT / std::min(next.w, next.h);
-                    if (speed > 1e-5 || std::abs(next.w - box.w) + std::abs(next.h - box.h) > 1e-5)
+                    if (speed > 1e-5 ||
+                        std::abs(next.w - box.w) + std::abs(next.h - box.h) > 1e-5) {
                         lastMotion = nextTime;
+                    }
                     const double quiet = nextTime - lastMotion;
                     const double settle = smoothstep(0.05, 0.5, quiet);
                     const double inherited = std::exp(-6 * nextTime);
@@ -662,49 +732,55 @@ namespace hyprimate {
                         break;
                     }
                     const double L = std::sqrt(next.w * next.h);
-                    motion->SetLinearDamping(float(2 + 9 * settle));
-                    const double gust = std::sin(phase + nextTime * 7);
-                    for (int j = 0; j < GRID; ++j)
+                    motion->SetLinearDamping(static_cast<float>(2 + (9 * settle)));
+                    const double gust = std::sin(phase + (nextTime * 7));
+                    for (int j = 0; j < GRID; ++j) {
                         for (int i = 0; i < GRID; ++i) {
                             const auto k = index(i, j);
                             auto &vertex = vertices[k];
                             auto p = vertex.mPosition;
-                            if (j != 0)
-                                p = JPH::Vec3(float((box.x + box.w / 2 + p.GetX() * box.w - next.x -
-                                                        next.w / 2 + (1 - gain) * dx) /
-                                                    next.w),
-                                    float((gain * dy + p.GetY() * box.h) / next.h),
-                                    float(p.GetZ() * std::sqrt(box.w * box.h) / L));
+                            if (j != 0) {
+                                p = JPH::Vec3(static_cast<float>(
+                                                  (box.x + (box.w / 2) + (p.GetX() * box.w) -
+                                                      next.x - (next.w / 2) + ((1 - gain) * dx)) /
+                                                  next.w),
+                                    static_cast<float>(((gain * dy) + (p.GetY() * box.h)) / next.h),
+                                    static_cast<float>(p.GetZ() * std::sqrt(box.w * box.h) / L));
+                            }
                             auto v = vertex.mVelocity;
-                            v = JPH::Vec3(float(v.GetX() * box.w / next.w),
-                                float(v.GetY() * box.h / next.h),
-                                float(v.GetZ() * std::sqrt(box.w * box.h) / L));
+                            v = JPH::Vec3(static_cast<float>(v.GetX() * box.w / next.w),
+                                static_cast<float>(v.GetY() * box.h / next.h),
+                                static_cast<float>(v.GetZ() * std::sqrt(box.w * box.h) / L));
                             const auto r = rest[k];
                             const Vec3 oldOffset = sub(run.start[k], r);
-                            const JPH::Vec3 desired(float(r.x + oldOffset.x * inherited),
-                                float(r.y + oldOffset.y * inherited),
-                                float(oldOffset.z * inherited));
+                            const JPH::Vec3 desired(
+                                static_cast<float>(r.x + (oldOffset.x * inherited)),
+                                static_cast<float>(r.y + (oldOffset.y * inherited)),
+                                static_cast<float>(oldOffset.z * inherited));
                             if (j == 0) {
                                 const float x = pocket ? pocket->position(i) : desired.GetX();
-                                v = (JPH::Vec3(x, 0, 0) - p) / float(DT);
+                                v = (JPH::Vec3(x, 0, 0) - p) / static_cast<float>(DT);
                             } else {
-                                const double down = double(j) / PAPER_CELLS;
+                                const double down = static_cast<double>(j) / PAPER_CELLS;
                                 const double response = vertex.mInvMass / CLOTH_INV_MASS;
                                 const double spring =
-                                    4 + 30 * (1 - down) * (1 - down) + 120 * settle;
-                                v += (desired - p) * float(spring * response * DT);
+                                    4 + (30 * (1 - down) * (1 - down)) + (120 * settle);
+                                v += (desired - p) * static_cast<float>(spring * response * DT);
                                 const double drive = std::min(speed, 3.0) * run.movement.strength;
                                 // Alternating pressure excites long folds instead of inflating the
                                 // entire sheet forward.
                                 const double pressure = pleats[i] *
-                                                        (16 + 8 * run.movement.flutter * gust) *
-                                                        (.3 + .7 * down);
-                                v += JPH::Vec3(0, 0, float(response * drive * pressure * DT));
+                                                        (16 + (8 * run.movement.flutter * gust)) *
+                                                        (.3 + (.7 * down));
+                                v += JPH::Vec3(
+                                    0, 0, static_cast<float>(response * drive * pressure * DT));
                             }
                             vertex.mPosition = p;
                             vertex.mVelocity = v;
                         }
-                    if (system.Update(float(DT), 1, &temp, &jobs) != EPhysicsUpdateError::None) {
+                    }
+                    if (system.Update(static_cast<float>(DT), 1, &temp, &jobs) !=
+                        EPhysicsUpdateError::None) {
                         good = false;
                         break;
                     }
@@ -727,12 +803,15 @@ namespace hyprimate {
                 while (s_pause.load(std::memory_order_acquire) &&
                        run.recorded.load(std::memory_order_acquire) >=
                            s_pauseAfter.load(std::memory_order_relaxed) &&
-                       !stopped())
+                       !stopped()) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
                 return !stopped();
             };
-            if (!waitPublication()) return;
-            run.samples.resize(std::size_t(run.frames) * PAPER_GRID_VERTICES * 6);
+            if (!waitPublication()) {
+                return;
+            }
+            run.samples.resize(static_cast<std::size_t>(run.frames) * PAPER_GRID_VERTICES * 6);
             enum : ObjectLayer { STATIC = 0, CLOTH = 1, LAYERS = 2 };
             ObjectLayerPairFilterTable pairs(LAYERS);
             pairs.EnableCollision(STATIC, CLOTH);
@@ -744,9 +823,11 @@ namespace hyprimate {
             TempAllocatorImpl temp(8 << 20);
             JobSystemSingleThreaded jobs(cMaxPhysicsJobs);
             PhysicsSystem system;
-            if (stopped()) return;
+            if (stopped()) {
+                return;
+            }
             system.Init(MAX_OBSTACLES + 4, 0, 1024, 1024, broadPhase, objectVsBroadPhase, pairs);
-            system.SetGravity(JPH::Vec3(0, float(-GRAVITY), 0));
+            system.SetGravity(JPH::Vec3(0, static_cast<float>(-GRAVITY), 0));
             BodyInterface &bodies = system.GetBodyInterfaceNoLock();
             const auto addBox = [&](JPH::Vec3 half, JPH::Vec3 centre) {
                 bodies.CreateAndAddBody(BodyCreationSettings(new BoxShape(half, 0.0F),
@@ -756,33 +837,46 @@ namespace hyprimate {
                                             STATIC),
                     EActivation::DontActivate);
             };
-            addBox(JPH::Vec3(100, 100, 1), JPH::Vec3(0, 0, float(-1 - 2 * RADIUS)));
-            for (const Box &o : in.obstacles)
-                addBox(JPH::Vec3(float(o.w / 2), float(o.h / 2), 0.515F),
-                    JPH::Vec3(float(o.x + o.w / 2), float(o.y + o.h / 2), -0.485F));
-            if (stopped()) return;
+            addBox(JPH::Vec3(100, 100, 1), JPH::Vec3(0, 0, static_cast<float>(-1 - (2 * RADIUS))));
+            for (const Box &o : in.obstacles) {
+                addBox(JPH::Vec3(static_cast<float>(o.w / 2), static_cast<float>(o.h / 2), 0.515F),
+                    JPH::Vec3(static_cast<float>(o.x + (o.w / 2)),
+                        static_cast<float>(o.y + (o.h / 2)),
+                        -0.485F));
+            }
+            if (stopped()) {
+                return;
+            }
             const Ref<SoftBodySharedSettings> settings = new SoftBodySharedSettings;
             const SheetGrid rest = restGrid();
             std::array<double, GRID> gustColumns{};
-            if (in.flutter > 0)
-                for (int i = 0; i < GRID; ++i)
-                    gustColumns[i] = std::sin(8 * std::numbers::pi * i / PAPER_CELLS + in.phaseA);
+            if (in.flutter > 0) {
+                for (int i = 0; i < GRID; ++i) {
+                    gustColumns[i] = std::sin((8 * std::numbers::pi * i / PAPER_CELLS) + in.phaseA);
+                }
+            }
             // Keep the wall behind the exact display plane: a flat, fully free sheet must not start
             // embedded by its radius.
-            for (int j = 0; j < GRID; ++j)
+            for (int j = 0; j < GRID; ++j) {
                 for (int i = 0; i < GRID; ++i) {
                     const Vec3 &p = rest[index(i, j)];
-                    settings->mVertices.emplace_back(Float3(float(p.x), float(p.y), float(p.z)),
+                    settings->mVertices.emplace_back(Float3(static_cast<float>(p.x),
+                                                         static_cast<float>(p.y),
+                                                         static_cast<float>(p.z)),
                         Float3(0, 0, 0),
                         run.pinned(j) ? 0.0F : clothInverseMass(j));
                 }
-            for (int j = 0; j < PAPER_CELLS; ++j)
+            }
+            for (int j = 0; j < PAPER_CELLS; ++j) {
                 for (int i = 0; i < PAPER_CELLS; ++i) {
-                    const auto a = uint32(index(i, j)), b = uint32(index(i + 1, j)),
-                               c = uint32(index(i, j + 1)), d = uint32(index(i + 1, j + 1));
+                    const auto a = uint32(index(i, j));
+                    const auto b = uint32(index(i + 1, j));
+                    const auto c = uint32(index(i, j + 1));
+                    const auto d = uint32(index(i + 1, j + 1));
                     settings->AddFace(SoftBodySharedSettings::Face(a, c, b));
                     settings->AddFace(SoftBodySharedSettings::Face(b, c, d));
                 }
+            }
             const SoftBodySharedSettings::VertexAttributes attributes(STRETCH_COMPLIANCE,
                 STRETCH_COMPLIANCE,
                 BEND_COMPLIANCE,
@@ -790,27 +884,34 @@ namespace hyprimate {
             settings->CreateConstraints(
                 &attributes, 1, SoftBodySharedSettings::EBendType::Dihedral);
             settings->Optimize();
-            if (stopped()) return;
+            if (stopped()) {
+                return;
+            }
             SoftBodyCreationSettings creation(settings, RVec3::sZero(), Quat::sIdentity(), CLOTH);
             creation.mUpdatePosition = false;
             creation.mAllowSleeping = false;
             creation.mNumIterations = 8;
-            creation.mVertexRadius = float(RADIUS);
+            creation.mVertexRadius = static_cast<float>(RADIUS);
             creation.mLinearDamping = 1.5F;
             creation.mFriction = 0.3F;
-            creation.mMaxLinearVelocity = float(std::max(500.0,
-                1.5 * run.maxInitialSpeed +
-                    8 * std::hypot(run.travel.x, run.travel.y) / run.length));
+            creation.mMaxLinearVelocity = static_cast<float>(std::max(500.0,
+                (1.5 * run.maxInitialSpeed) +
+                    (8 * std::hypot(run.travel.x, run.travel.y) / run.length)));
             creation.mFacesDoubleSided = true;
             const BodyID id = bodies.CreateAndAddSoftBody(creation, EActivation::Activate);
-            if (id.IsInvalid()) return;
+            if (id.IsInvalid()) {
+                return;
+            }
             auto *motion = static_cast<SoftBodyMotionProperties *>(
                 system.GetBodyLockInterfaceNoLock().TryGetBody(id)->GetMotionProperties());
             auto &vertices = motion->GetVertices();
             for (std::size_t k = 0; k < rest.size(); ++k) {
-                const auto p = run.start[k], v = run.velocity[k];
-                vertices[k].mPosition = JPH::Vec3(float(p.x), float(p.y), float(p.z));
-                vertices[k].mVelocity = JPH::Vec3(float(v.x), float(v.y), float(v.z));
+                const auto p = run.start[k];
+                const auto v = run.velocity[k];
+                vertices[k].mPosition = JPH::Vec3(
+                    static_cast<float>(p.x), static_cast<float>(p.y), static_cast<float>(p.z));
+                vertices[k].mVelocity = JPH::Vec3(
+                    static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z));
             }
             if (run.kind == Transition::Open) {
                 // A level, gathered sleeve compresses the first material rows. Relax that sewn
@@ -819,13 +920,16 @@ namespace hyprimate {
                 motion->SetLinearDamping(8);
                 for (int step = 0; step < 24; ++step) {
                     if (!waitPublication() ||
-                        system.Update(float(DT), 1, &temp, &jobs) != EPhysicsUpdateError::None) {
+                        system.Update(static_cast<float>(DT), 1, &temp, &jobs) !=
+                            EPhysicsUpdateError::None) {
                         bodies.RemoveBody(id);
                         bodies.DestroyBody(id);
                         return;
                     }
                 }
-                for (auto &vertex : vertices) vertex.mVelocity = JPH::Vec3::sZero();
+                for (auto &vertex : vertices) {
+                    vertex.mVelocity = JPH::Vec3::sZero();
+                }
                 motion->SetLinearDamping(1.5F);
             }
             std::optional<Pocket> pocket;
@@ -842,44 +946,51 @@ namespace hyprimate {
                 bodies.DestroyBody(id);
                 return;
             }
-            const float openAirDrag = float(1 - std::exp(-OPEN_AIR_DRAG * DT));
+            const auto openAirDrag = static_cast<float>(1 - std::exp(-OPEN_AIR_DRAG * DT));
             for (int step = 1; step < run.frames && waitPublication(); ++step) {
                 const double time = (step - 1) * DT;
                 if (pocket) {
                     const double t = std::clamp((time + DT) / run.length, 0.0, 1.0);
                     const double rodVelocity =
                         run.travel.x * 30 * t * t * (1 - t) * (1 - t) / run.length;
-                    if (!pocket->update(0, rodVelocity, 0, temp, jobs)) break;
+                    if (!pocket->update(0, rodVelocity, 0, temp, jobs)) {
+                        break;
+                    }
                 }
-                if (run.kind == Transition::Open)
+                if (run.kind == Transition::Open) {
                     motion->SetLinearDamping(
-                        float(1.5 + 8 * smoothstep(0.65, 0.95, time / run.length)));
+                        static_cast<float>(1.5 + (8 * smoothstep(0.65, 0.95, time / run.length))));
+                }
                 const double headerSpread =
                     run.kind == Transition::Open ? smoothstep(0, .72, (time + DT) / run.length) : 0;
                 for (int j = 0; j < GRID; ++j) {
                     const double rowGust =
                         in.flutter > 0
-                            ? std::sin(in.freqA * time + .8 * double(j) / PAPER_CELLS + in.phaseB)
+                            ? std::sin((in.freqA * time) +
+                                       (.8 * static_cast<double>(j) / PAPER_CELLS) + in.phaseB)
                             : 0;
                     for (int i = 0; i < GRID; ++i) {
                         const auto k = index(i, j);
                         auto &v = vertices[k];
                         if (run.pinned(j)) {
                             Vec3 target = run.start[k];
-                            if (run.kind == Transition::Open)
+                            if (run.kind == Transition::Open) {
                                 target = lerp(target, rest[k], headerSpread);
+                            }
                             if (run.kind == Transition::Close) {
                                 const double t = std::clamp((time + DT) / run.length, 0.0, 1.0);
-                                const double distance = t * t * t * (10 + t * (-15 + 6 * t));
+                                const double distance = t * t * t * (10 + (t * (-15 + (6 * t))));
                                 const double inheritedTime = (time + DT) * (1 - t) * (1 - t);
                                 target.x = (pocket ? pocket->position(i) : target.x) +
-                                           run.travel.x * distance;
+                                           (run.travel.x * distance);
                                 target.y +=
-                                    run.travel.y * distance + run.velocity[0].y * inheritedTime;
+                                    (run.travel.y * distance) + (run.velocity[0].y * inheritedTime);
                                 target.z = 0;
                             }
-                            const JPH::Vec3 p(float(target.x), float(target.y), float(target.z));
-                            v.mVelocity = (p - v.mPosition) / float(DT);
+                            const JPH::Vec3 p(static_cast<float>(target.x),
+                                static_cast<float>(target.y),
+                                static_cast<float>(target.z));
+                            v.mVelocity = (p - v.mPosition) / static_cast<float>(DT);
                         } else if (run.kind == Transition::Open || in.flutter > 0) {
                             const auto at = [&](int x, int y) {
                                 return vertices[index(x, y)].mPosition;
@@ -889,18 +1000,25 @@ namespace hyprimate {
                             const auto dy =
                                 at(i, std::min(j + 1, PAPER_CELLS)) - at(i, std::max(j - 1, 0));
                             const auto n = dx.Cross(dy).NormalizedOr(JPH::Vec3::sAxisZ());
-                            if (run.kind == Transition::Open)
+                            if (run.kind == Transition::Open) {
                                 v.mVelocity -= n * (v.mVelocity.Dot(n) * openAirDrag);
+                            }
                             if (in.flutter > 0) {
                                 const double wave = gustColumns[i] * rowGust;
-                                v.mVelocity += n * float(5 * in.flutter * wave * DT * n.GetZ() *
-                                                         (v.mInvMass / CLOTH_INV_MASS));
+                                v.mVelocity +=
+                                    n * static_cast<float>(5 * in.flutter * wave * DT * n.GetZ() *
+                                                           (v.mInvMass / CLOTH_INV_MASS));
                             }
                         }
                     }
                 }
-                if (system.Update(float(DT), 1, &temp, &jobs) != EPhysicsUpdateError::None) break;
-                if (!record(run, step, vertices)) break;
+                if (system.Update(static_cast<float>(DT), 1, &temp, &jobs) !=
+                    EPhysicsUpdateError::None) {
+                    break;
+                }
+                if (!record(run, step, vertices)) {
+                    break;
+                }
             }
             bodies.RemoveBody(id);
             bodies.DestroyBody(id);
@@ -941,13 +1059,13 @@ namespace hyprimate {
         const auto run = std::make_shared<Run>();
         run->live = true;
         run->window = capture;
-        run->movement = {std::clamp(params.strength, 0.0, 1.5),
-            std::clamp(params.flutter, 0.0, 1.0),
-            std::clamp(params.shading, 0.0, 1.0),
-            std::clamp(params.variation, 0.0, 1.0),
-            std::clamp(params.shine, 0.0, 1.0),
-            std::clamp(params.springiness, 0.0, 1.0),
-            std::clamp(params.gravity, 0.0, 3.0)};
+        run->movement = {.strength = std::clamp(params.strength, 0.0, 1.5),
+            .flutter = std::clamp(params.flutter, 0.0, 1.0),
+            .shading = std::clamp(params.shading, 0.0, 1.0),
+            .variation = std::clamp(params.variation, 0.0, 1.0),
+            .shine = std::clamp(params.shine, 0.0, 1.0),
+            .springiness = std::clamp(params.springiness, 0.0, 1.0),
+            .gravity = std::clamp(params.gravity, 0.0, 3.0)};
         const double alpha = opacity();
         sampleVertices(run->start, run->velocity);
         auto playback = std::make_unique<MovementPlayback>();
@@ -955,16 +1073,22 @@ namespace hyprimate {
         playback->a.time = -DT;
         playback->b.time = 0;
         for (std::size_t k = 0; k < run->start.size(); ++k) {
-            const auto p = run->start[k], v = run->velocity[k];
-            const std::array<float, 6> value{
-                float(p.x), float(p.y), float(p.z), float(v.x), float(v.y), float(v.z)};
-            std::copy(value.begin(), value.end(), playback->a.values.begin() + k * 6);
-            std::copy(value.begin(), value.end(), playback->b.values.begin() + k * 6);
+            const auto p = run->start[k];
+            const auto v = run->velocity[k];
+            const std::array<float, 6> value{static_cast<float>(p.x),
+                static_cast<float>(p.y),
+                static_cast<float>(p.z),
+                static_cast<float>(v.x),
+                static_cast<float>(v.y),
+                static_cast<float>(v.z)};
+            std::copy(value.begin(), value.end(), playback->a.values.begin() + (k * 6));
+            std::copy(value.begin(), value.end(), playback->b.values.begin() + (k * 6));
         }
-        std::uint64_t fixed = BASE_SEED, random = seed;
+        std::uint64_t fixed = BASE_SEED;
+        std::uint64_t random = seed;
         const double phase = 2 * std::numbers::pi *
-                             (unit_draw(fixed) * (1 - run->movement.variation) +
-                                 unit_draw(random) * run->movement.variation);
+                             ((unit_draw(fixed) * (1 - run->movement.variation)) +
+                                 (unit_draw(random) * run->movement.variation));
         try {
             run->worker = std::thread([run, phase] {
                 try {
@@ -979,16 +1103,18 @@ namespace hyprimate {
             m_run = std::shared_ptr<Run>(lease, run.get());
         } catch (...) {
             run->stop.request_stop();
-            if (run->worker.joinable()) run->worker.join();
+            if (run->worker.joinable()) {
+                run->worker.join();
+            }
             reset();
             return;
         }
         m_movement = std::move(playback);
-        m_params = {1,
-            run->movement.flutter,
-            run->movement.shading,
-            run->movement.variation,
-            run->movement.shine};
+        m_params = {.duration = 1,
+            .flutter = run->movement.flutter,
+            .shading = run->movement.shading,
+            .variation = run->movement.variation,
+            .shine = run->movement.shine};
         m_initialOpacity = alpha;
         m_t = 0;
         m_rate = 1;
@@ -998,7 +1124,9 @@ namespace hyprimate {
     }
 
     void ClothFlutter::updateMovement(const Box &capture, double elapsed) noexcept {
-        if (!moving() || !m_movement || !m_movement->producer) return;
+        if (!moving() || !m_movement || !m_movement->producer) {
+            return;
+        }
         if (!validBox(capture) || !std::isfinite(elapsed) || elapsed < 0 ||
             elapsed > STALL_SECONDS) {
             reset();
@@ -1011,7 +1139,9 @@ namespace hyprimate {
                 const auto params = m_run->movement;
                 beginMovement(params, BASE_SEED, old);
             }
-            if (!m_movement) return;
+            if (!m_movement) {
+                return;
+            }
             m_movement->lastMotion = m_t;
             m_movement->target = capture;
         }
@@ -1039,55 +1169,64 @@ namespace hyprimate {
         const auto run = std::make_shared<Run>();
         run->kind = kind;
         run->window = window;
-        run->screen = geometry ? geometry->screen : Box{window.x, window.y, window.w, window.h};
+        run->screen = geometry ? geometry->screen
+                               : Box{.x = window.x, .y = window.y, .w = window.w, .h = window.h};
         run->edge = geometry ? geometry->edge : Edge::Bottom;
         const double oldOpacity = opacity();
         if (kind == Transition::Close &&
             (m_phase == Phase::Opening || m_phase == Phase::Movement) && m_run) {
             run->movement.springiness = m_run->movement.springiness;
             sampleVertices(run->start, run->velocity);
-        } else
+        } else {
             run->start = restGrid();
+        }
         if (kind == Transition::Open) {
             run->start = curtainGrid();
         } else {
-            const double W = window.w, H = window.h;
+            const double W = window.w;
+            const double H = window.h;
             run->length = 1.4;
-            if (run->edge == Edge::Bottom)
+            if (run->edge == Edge::Bottom) {
                 run->travel.y =
                     -(std::max(0.0, (run->screen.y + run->screen.h - window.y) / H) + 2.5);
-            if (run->edge == Edge::Top)
+            }
+            if (run->edge == Edge::Top) {
                 run->travel.y = std::max(0.0, (window.y - run->screen.y) / H) + 2.5;
-            if (run->edge == Edge::Left)
+            }
+            if (run->edge == Edge::Left) {
                 run->travel.x = -(std::max(0.0, (window.x - run->screen.x) / W) + 2.5);
-            if (run->edge == Edge::Right)
+            }
+            if (run->edge == Edge::Right) {
                 run->travel.x =
                     std::max(0.0, (run->screen.x + run->screen.w - window.x - W) / W) + 2.5;
+            }
         }
-        run->frames = int(std::ceil(run->length / DT)) + 1;
+        run->frames = static_cast<int>(std::ceil(run->length / DT)) + 1;
         run->length = (run->frames - 1) * DT;
         const double rate = run->length / p.duration;
         for (auto &v : run->velocity) {
             v = mul(v, 1 / rate);  // displayed real-time velocity -> new simulation clock
             run->maxInitialSpeed =
-                std::max(run->maxInitialSpeed, std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z));
+                std::max(run->maxInitialSpeed, std::sqrt((v.x * v.x) + (v.y * v.y) + (v.z * v.z)));
         }
-        std::uint64_t base = BASE_SEED, random = seed;
+        std::uint64_t base = BASE_SEED;
+        std::uint64_t random = seed;
         const auto draw = [&] {
             const double b = unit_draw(base);
             const double r = unit_draw(random);
-            return b + p.variation * (r - b);
+            return b + (p.variation * (r - b));
         };
         SimInput input;
         input.flutter = p.flutter;
         input.phaseA = 2 * std::numbers::pi * draw();
         input.phaseB = 2 * std::numbers::pi * draw();
-        input.freqA = 9 + 4 * draw();
+        input.freqA = 9 + (4 * draw());
         std::vector<std::pair<double, Box>> nearest;
         for (const Box &o : obstacles) {
             if (!validBox(o) || (o.x < window.x + window.w && o.x + o.w > window.x &&
-                                    o.y < window.y + window.h && o.y + o.h > window.y))
+                                    o.y < window.y + window.h && o.y + o.h > window.y)) {
                 continue;
+            }
             // A closing sheet must clear the screen. Slabs directly across its exit corridor would
             // trap a zero-flutter sheet in the desktop plane; omit those while retaining obstacles
             // beside that corridor.
@@ -1097,22 +1236,26 @@ namespace hyprimate {
                 if ((run->edge == Edge::Bottom && overlapX && o.y >= window.y + window.h) ||
                     (run->edge == Edge::Top && overlapX && o.y + o.h <= window.y) ||
                     (run->edge == Edge::Left && overlapY && o.x + o.w <= window.x) ||
-                    (run->edge == Edge::Right && overlapY && o.x >= window.x + window.w))
+                    (run->edge == Edge::Right && overlapY && o.x >= window.x + window.w)) {
                     continue;
+                }
             }
             const double dx = std::max({window.x - o.x - o.w, o.x - window.x - window.w, 0.0});
             const double dy = std::max({window.y - o.y - o.h, o.y - window.y - window.h, 0.0});
             nearest.push_back({std::hypot(dx, dy),
-                {(o.x - window.x - window.w / 2) / window.w,
-                    -(o.y + o.h - window.y) / window.h,
-                    o.w / window.w,
-                    o.h / window.h}});
+                {.x = (o.x - window.x - (window.w / 2)) / window.w,
+                    .y = -(o.y + o.h - window.y) / window.h,
+                    .w = o.w / window.w,
+                    .h = o.h / window.h}});
         }
         std::stable_sort(nearest.begin(), nearest.end(), [](const auto &a, const auto &b) {
             return a.first < b.first;
         });
-        for (std::size_t k = 0; k < std::min(nearest.size(), std::size_t(MAX_OBSTACLES)); ++k)
+        for (std::size_t k = 0;
+            k < std::min(nearest.size(), static_cast<std::size_t>(MAX_OBSTACLES));
+            ++k) {
             input.obstacles.push_back(nearest[k].second);
+        }
         run->outsideFrame.store(run->frames, std::memory_order_relaxed);
         try {
             run->worker = std::thread([run, input = std::move(input)] {
@@ -1128,7 +1271,9 @@ namespace hyprimate {
             m_run = std::shared_ptr<Run>(lease, run.get());
         } catch (...) {
             run->stop.request_stop();
-            if (run->worker.joinable()) run->worker.join();
+            if (run->worker.joinable()) {
+                run->worker.join();
+            }
             reset();
             return;
         }
@@ -1149,42 +1294,49 @@ namespace hyprimate {
         try {
             auto fallback = std::make_shared<Fallback>();
             sampleVertices(fallback->positions, fallback->velocities);
-            if (m_phase == Phase::Movement && m_movement)
-                for (auto &v : fallback->velocities) v = sub(v, m_movement->rigidVelocity);
+            if (m_phase == Phase::Movement && m_movement) {
+                for (auto &v : fallback->velocities) {
+                    v = sub(v, m_movement->rigidVelocity);
+                }
+            }
             fallback->alpha = opacity();
             m_fallback = std::move(fallback);
             m_fallbackTime = 0;
             m_run->stop.request_stop();
         } catch (...) {
-            if (m_phase != Phase::Closing)
+            if (m_phase != Phase::Closing) {
                 reset();
-            else
+            } else {
                 m_phase = Phase::Closed;
+            }
         }
     }
     bool ClothFlutter::advance(double dt) noexcept {
-        if (!active()) return false;
+        if (!active()) {
+            return false;
+        }
         if (!std::isfinite(dt) || dt < 0 || dt > 0.25) {
-            if (m_phase != Phase::Closing)
+            if (m_phase != Phase::Closing) {
                 reset();
-            else {
+            } else {
                 m_phase = Phase::Closed;
                 m_run.reset();
             }
             return false;
         }
         if (moving() && m_movement && dt > 0) {
-            const Box old = m_movement->previous, now = m_movement->target;
+            const Box old = m_movement->previous;
+            const Box now = m_movement->target;
             m_movement->rigidVelocity = {
-                (now.x - old.x) / dt / now.w, -(now.y - old.y) / dt / now.h, 0};
+                .x = (now.x - old.x) / dt / now.w, .y = -(now.y - old.y) / dt / now.h, .z = 0};
             m_movement->previous = now;
         }
         if (m_fallback) {
             m_fallbackTime += dt;
             if (m_fallbackTime >= FALLBACK_LENGTH) {
-                if (m_phase != Phase::Closing)
+                if (m_phase != Phase::Closing) {
                     reset();
-                else {
+                } else {
                     m_phase = Phase::Closed;
                     m_run.reset();
                     m_fallback.reset();
@@ -1201,10 +1353,12 @@ namespace hyprimate {
             if (dt > 0) {
                 m_t += dt;
                 const unsigned head = m_run->inputHead.load(std::memory_order_relaxed);
-                if (head - m_run->inputTail.load(std::memory_order_acquire) == Run::INPUT_CAPACITY)
+                if (head - m_run->inputTail.load(std::memory_order_acquire) ==
+                    Run::INPUT_CAPACITY) {
                     m_run->overflow.store(true, std::memory_order_release);
-                else {
-                    m_run->targets[head % Run::INPUT_CAPACITY] = {m_t, playback.target};
+                } else {
+                    m_run->targets[head % Run::INPUT_CAPACITY] = {
+                        .time = m_t, .box = playback.target};
                     m_run->inputHead.store(head + 1, std::memory_order_release);
                 }
             }
@@ -1224,16 +1378,18 @@ namespace hyprimate {
             if (m_run->recorded.load(std::memory_order_acquire) < 2) {
                 m_startupWait += dt;
                 if (m_startupWait >= STALL_SECONDS ||
-                    m_run->finished.load(std::memory_order_acquire))
+                    m_run->finished.load(std::memory_order_acquire)) {
                     startFallback();
+                }
             } else {
                 m_startupWait =
                     progressed || wanted <= playback.b.time + 1e-8 ? 0 : m_startupWait + dt;
                 playback.settling = m_t - playback.lastMotion >= 0.5;
                 if (m_run->overflow.load(std::memory_order_acquire) ||
                     m_startupWait >= STALL_SECONDS ||
-                    m_run->finished.load(std::memory_order_acquire) || playback.settling)
+                    m_run->finished.load(std::memory_order_acquire) || playback.settling) {
                     startFallback();
+                }
             }
             return active();
         }
@@ -1245,7 +1401,9 @@ namespace hyprimate {
             return active();
         }
         if (recorded < 2) {
-            if (dt > 0) m_transitionHeld = true;
+            if (dt > 0) {
+                m_transitionHeld = true;
+            }
             if (recorded > m_startupRecorded) {
                 m_startupRecorded = recorded;
                 m_startupWait = 0;
@@ -1254,45 +1412,50 @@ namespace hyprimate {
             if (m_startupWait >= STALL_SECONDS) {
                 const bool finishedNow = m_run->finished.load(std::memory_order_acquire);
                 const int recordedNow = m_run->recorded.load(std::memory_order_acquire);
-                if (finishedNow && recordedNow < m_run->frames)
+                if (finishedNow && recordedNow < m_run->frames) {
                     startFallback();
-                else if (recordedNow > m_startupRecorded) {
+                } else if (recordedNow > m_startupRecorded) {
                     m_startupRecorded = recordedNow;
                     m_startupWait = 0;
-                } else
+                } else {
                     startFallback();
+                }
             }
             return active();
         }
         const double oldTime = m_t;
-        const double wanted = std::min(oldTime + dt * m_rate, m_run->length);
-        const double frontier = std::min(m_run->length, (recorded - 1) * DT + DT);
+        const double wanted = std::min(oldTime + (dt * m_rate), m_run->length);
+        const double frontier = std::min(m_run->length, ((recorded - 1) * DT) + DT);
         m_t = std::min(wanted, frontier);
         const bool waiting =
             !complete && (wanted > frontier + 1e-10 || wanted >= m_run->length - 1e-10);
-        if (dt > 0) m_transitionHeld = m_t <= oldTime + 1e-10;
-        if (complete)
+        if (dt > 0) {
+            m_transitionHeld = m_t <= oldTime + 1e-10;
+        }
+        if (complete) {
             m_startupWait = 0;
-        else if (frontier > oldTime + 1e-10) {
+        } else if (frontier > oldTime + 1e-10) {
             const double served = std::clamp((frontier - oldTime) / m_rate, 0.0, dt);
             m_startupWait = waiting ? dt - served : 0;
-        } else if (waiting)
+        } else if (waiting) {
             m_startupWait += dt;
+        }
         if (waiting && m_startupWait >= STALL_SECONDS) {
             const bool finishedNow = m_run->finished.load(std::memory_order_acquire);
             const int recordedNow = m_run->recorded.load(std::memory_order_acquire);
-            if (finishedNow && recordedNow < m_run->frames)
+            if (finishedNow && recordedNow < m_run->frames) {
                 startFallback();
-            else if (recordedNow > recorded)
+            } else if (recordedNow > recorded) {
                 m_startupWait = 0;
-            else
+            } else {
                 startFallback();
+            }
             return active();
         }
         if (complete && m_t >= m_run->length - 1e-10) {
-            if (m_phase == Phase::Opening)
+            if (m_phase == Phase::Opening) {
                 reset();
-            else {
+            } else {
                 m_phase = Phase::Closed;
                 m_run.reset();
             }
@@ -1318,16 +1481,24 @@ namespace hyprimate {
         return m_params.shading > 0;
     }
     double ClothFlutter::opacity() const noexcept {
-        if (m_phase == Phase::Idle) return 1;
-        if (m_phase == Phase::Closed) return 0;
-        if (m_fallback)
+        if (m_phase == Phase::Idle) {
+            return 1;
+        }
+        if (m_phase == Phase::Closed) {
+            return 0;
+        }
+        if (m_fallback) {
             return m_phase != Phase::Closing
-                       ? m_fallback->alpha + (1 - m_fallback->alpha) *
-                                                 smoothstep(0, FALLBACK_LENGTH, m_fallbackTime)
+                       ? m_fallback->alpha + ((1 - m_fallback->alpha) *
+                                                 smoothstep(0, FALLBACK_LENGTH, m_fallbackTime))
                        : m_fallback->alpha * (1 - smoothstep(0, FALLBACK_LENGTH, m_fallbackTime));
-        if (m_phase == Phase::Opening) return smoothstep(0, 0.08, m_t / m_run->length);
-        if (m_phase == Phase::Movement)
-            return m_initialOpacity + (1 - m_initialOpacity) * smoothstep(0, 0.08, m_t);
+        }
+        if (m_phase == Phase::Opening) {
+            return smoothstep(0, 0.08, m_t / m_run->length);
+        }
+        if (m_phase == Phase::Movement) {
+            return m_initialOpacity + ((1 - m_initialOpacity) * smoothstep(0, 0.08, m_t));
+        }
         const double outsideTime = m_run->outsideFrame.load(std::memory_order_acquire) * DT;
         return m_initialOpacity *
                (1 - smoothstep(outsideTime, std::max(outsideTime + DT, m_run->length), m_t));
@@ -1339,43 +1510,50 @@ namespace hyprimate {
             return;
         }
         if (m_fallback) {
-            const double t = std::clamp(m_fallbackTime / FALLBACK_LENGTH, 0.0, 1.0), t2 = t * t,
-                         t3 = t2 * t;
+            const double t = std::clamp(m_fallbackTime / FALLBACK_LENGTH, 0.0, 1.0);
+            const double t2 = t * t;
+            const double t3 = t2 * t;
             const SheetGrid rest = restGrid();
             for (std::size_t k = 0; k < p.size(); ++k) {
-                const Vec3 a = m_fallback->positions[k], speed = m_fallback->velocities[k];
+                const Vec3 a = m_fallback->positions[k];
+                const Vec3 speed = m_fallback->velocities[k];
                 if (m_phase != Phase::Closing) {
                     if (k < GRID) {
                         // A common convex return keeps the sleeve ordered and inside the rod even
                         // without a worker.
-                        p[k] = lerp(a, rest[k], t2 * (3 - 2 * t));
+                        p[k] = lerp(a, rest[k], t2 * (3 - (2 * t)));
                         v[k] = mul(sub(rest[k], a), 6 * t * (1 - t) / FALLBACK_LENGTH);
                     } else {
-                        p[k] = add(add(mul(a, 2 * t3 - 3 * t2 + 1),
-                                       mul(speed, (t3 - 2 * t2 + t) * FALLBACK_LENGTH)),
-                            mul(rest[k], -2 * t3 + 3 * t2));
-                        v[k] = add(add(mul(a, (6 * t2 - 6 * t) / FALLBACK_LENGTH),
-                                       mul(speed, 3 * t2 - 4 * t + 1)),
-                            mul(rest[k], (-6 * t2 + 6 * t) / FALLBACK_LENGTH));
+                        p[k] = add(add(mul(a, (2 * t3) - (3 * t2) + 1),
+                                       mul(speed, (t3 - (2 * t2) + t) * FALLBACK_LENGTH)),
+                            mul(rest[k], (-2 * t3) + (3 * t2)));
+                        v[k] = add(add(mul(a, ((6 * t2) - (6 * t)) / FALLBACK_LENGTH),
+                                       mul(speed, (3 * t2) - (4 * t) + 1)),
+                            mul(rest[k], ((-6 * t2) + (6 * t)) / FALLBACK_LENGTH));
                     }
-                    if (m_phase == Phase::Movement && m_movement)
+                    if (m_phase == Phase::Movement && m_movement) {
                         v[k] = add(v[k], m_movement->rigidVelocity);
+                    }
                 } else {
-                    p[k] = add(a, mul(speed, FALLBACK_LENGTH * (t - 0.5 * t2)));
+                    p[k] = add(a, mul(speed, FALLBACK_LENGTH * (t - (0.5 * t2))));
                     v[k] = mul(speed, 1 - t);
                 }
             }
             return;
         }
         if (m_phase == Phase::Movement && m_movement) {
-            const auto &a = m_movement->a, &b = m_movement->b;
+            const auto &a = m_movement->a;
+            const auto &b = m_movement->b;
             const double interval = std::max(DT, b.time - a.time);
             const double at = std::clamp((m_movement->time - a.time) / interval, 0.0, 1.0);
             const Vec3 snapshotRigid = lerp(a.rigidVelocity, b.rigidVelocity, at);
             for (std::size_t k = 0; k < p.size(); ++k) {
-                const float *x = a.values.data() + k * 6, *y = b.values.data() + k * 6;
-                const Vec3 p0{x[0], x[1], x[2]}, p1{y[0], y[1], y[2]};
-                const Vec3 v0{x[3], x[4], x[5]}, v1{y[3], y[4], y[5]};
+                const float *x = a.values.data() + k * 6;
+                const float *y = b.values.data() + k * 6;
+                const Vec3 p0{x[0], x[1], x[2]};
+                const Vec3 p1{y[0], y[1], y[2]};
+                const Vec3 v0{x[3], x[4], x[5]};
+                const Vec3 v1{y[3], y[4], y[5]};
                 // Snapshot velocities carry the rigid motion of their own steps; the displayed
                 // sheet moves with the latest capture, which can already have started or stopped.
                 v[k] = add(sub(lerp(v0, v1, at), snapshotRigid), m_movement->rigidVelocity);
@@ -1393,27 +1571,34 @@ namespace hyprimate {
                 p[k] = lerp(p[k], rest[k], s);
             }
         }
-        for (auto &speed : v) speed = m_transitionHeld ? Vec3{} : mul(speed, m_rate);
+        for (auto &speed : v) {
+            speed = m_transitionHeld ? Vec3{} : mul(speed, m_rate);
+        }
     }
     bool ClothFlutter::waitForRecording(double timeout) const noexcept {
-        if (!m_run || !std::isfinite(timeout) || timeout < 0) return false;
+        if (!m_run || !std::isfinite(timeout) || timeout < 0) {
+            return false;
+        }
         const auto deadline =
             std::chrono::steady_clock::now() + std::chrono::duration<double>(timeout);
         while (!m_run->finished.load(std::memory_order_acquire) &&
-               std::chrono::steady_clock::now() < deadline)
+               std::chrono::steady_clock::now() < deadline) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
         return m_run->recorded.load(std::memory_order_acquire) == m_run->frames;
     }
     bool ClothFlutter::waitForSnapshots(int count, double timeout) const noexcept {
         if (!m_run || count < 0 || (!m_run->live && count > m_run->frames) ||
-            !std::isfinite(timeout) || timeout < 0)
+            !std::isfinite(timeout) || timeout < 0) {
             return false;
+        }
         const auto deadline =
             std::chrono::steady_clock::now() + std::chrono::duration<double>(timeout);
         while (m_run->recorded.load(std::memory_order_acquire) < count &&
                !m_run->finished.load(std::memory_order_acquire) &&
-               std::chrono::steady_clock::now() < deadline)
+               std::chrono::steady_clock::now() < deadline) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
         return m_run->recorded.load(std::memory_order_acquire) >= count;
     }
     void ClothFlutter::frame(Vec2 size, SheetFrame &out) const noexcept {
@@ -1421,13 +1606,20 @@ namespace hyprimate {
             flatSheet(out);
             return;
         }
-        SheetGrid world, velocity;  // sampleVertices writes both
+        SheetGrid world;
+        SheetGrid velocity;  // sampleVertices writes both
         sampleVertices(world, velocity);
-        const double W = std::isfinite(size.x) && size.x > 0 ? size.x : 1,
-                     H = std::isfinite(size.y) && size.y > 0 ? size.y : 1;
+        const double W = std::isfinite(size.x) && size.x > 0 ? size.x : 1;
+        const double H = std::isfinite(size.y) && size.y > 0 ? size.y : 1;
         const double L = std::sqrt(W * H);
-        for (auto &p : world) p = {p.x * W, -p.y * H - H / 2, p.z * L};
-        projectSheet(
-            world, {W, H}, m_params.shading, SheetLighting::ClothSmooth, out, m_params.shine);
+        for (auto &p : world) {
+            p = {p.x * W, (-p.y * H) - (H / 2), p.z * L};
+        }
+        projectSheet(world,
+            {.x = W, .y = H},
+            m_params.shading,
+            SheetLighting::ClothSmooth,
+            out,
+            m_params.shine);
     }
 }  // namespace hyprimate
