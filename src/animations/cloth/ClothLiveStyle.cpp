@@ -66,7 +66,7 @@ bool SClothLiveStyle::open(
 
 void SClothLiveStyle::movement(CPluginRuntime &runtime,
     CAnimationTransformer &transformer,
-    const PHLWINDOW &window,
+    const PHLWINDOW &,
     const hyprimate::TrackDecision &decision,
     double elapsed,
     bool enabled,
@@ -78,7 +78,7 @@ void SClothLiveStyle::movement(CPluginRuntime &runtime,
         state.cloth.frame(state.sheet.captureSize, *state.sheet.frame);
     }
     if (enabled && state.cloth.moving()) {
-        const auto capture = toBox(window->getFullWindowBoundingBox());
+        const auto &capture = decision.currentCapture;
         state.cloth.updateMovement(capture, elapsed);
         state.sheet.captureSize = {capture.w, capture.h};
         state.cloth.frame(state.sheet.captureSize, *state.sheet.frame);

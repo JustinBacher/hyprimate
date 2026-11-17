@@ -121,7 +121,7 @@ void SLiquidLiveStyle::movement(CPluginRuntime &runtime,
     bool enabled,
     bool moving) {
     const CBox capture = window->getFullWindowBoundingBox();
-    const CBox current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+    const auto &current = decision.currentBox;
     auto &state = std::get<SLiquidStyle>(transformer.m_style);
     if (moving)
         state.mesh.recordTranslation(

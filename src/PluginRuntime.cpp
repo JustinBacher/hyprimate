@@ -559,6 +559,19 @@ hyprimate::WindowSnapshot CPluginRuntime::snapshotOf(
     s.movementEnabled = movementEnabled();
     s.monitor = monitorId(window);
     s.elapsed = elapsed;
+    s.workspaceMovement = m_config.movement.workspaceMovement;
+    if (const auto workspace = window->m_workspace;
+        workspace && !(window->m_state & Desktop::View::WINDOW_STATE_PINNED)) {
+        s.workspace = reinterpret_cast<std::uintptr_t>(workspace.get());
+        s.workspaceMoving = workspace->m_renderOffset->isBeingAnimated();
+        if (s.workspaceMoving) {
+            const auto offset = workspace->m_renderOffset->value();
+            s.workspaceOffset = {offset.x, offset.y};
+        }
+        // Hidden workspaces may reset their offsets offscreen. Neither that reset nor hidden
+        // layout changes are visible motion; eligibility rebaselines their next appearance.
+        s.deformable = s.deformable && (workspace->visible() || s.workspaceMoving);
+    }
     return s;
 }
 

@@ -14,6 +14,12 @@ namespace hyprimate {
             return a.w == b.w && a.h == b.h;
         }
 
+        Box translated(Box box, Vec2 offset) noexcept {
+            box.x += offset.x;
+            box.y += offset.y;
+            return box;
+        }
+
     }  // namespace
 
     void WindowTracker::track(Box current, Box capture, std::uintptr_t monitor) noexcept {
@@ -22,6 +28,10 @@ namespace hyprimate {
         m_monitor = monitor;
         m_eligible = false;
         m_wasAnimatingIn = false;
+        m_workspaceOffset = {};
+        m_workspaceMoving = false;
+        m_workspaceMovement = true;
+        m_workspace = 0;
     }
 
     void WindowTracker::baseline(Box current, Box capture, std::uintptr_t monitor) noexcept {
@@ -35,6 +45,10 @@ namespace hyprimate {
         m_lastCapture = snapshot.capture;
         m_monitor = snapshot.monitor;
         m_eligible = eligible;
+        m_workspaceOffset = snapshot.workspaceMovement ? snapshot.workspaceOffset : Vec2{};
+        m_workspaceMoving = snapshot.workspaceMovement && snapshot.workspaceMoving;
+        m_workspaceMovement = snapshot.workspaceMovement;
+        m_workspace = snapshot.workspace;
     }
 
     bool WindowTracker::dormant(bool animatingIn) const noexcept {
@@ -51,12 +65,19 @@ namespace hyprimate {
         TrackDecision d;
         if (!eligibleNow && !m_eligible) return d;
 
-        d.previousBox = m_lastBox;
-        d.previousCapture = m_lastCapture;
+        const Vec2 offset = s.workspaceMovement ? s.workspaceOffset : Vec2{};
+        d.previousBox = translated(m_lastBox, m_workspaceOffset);
+        d.previousCapture = translated(m_lastCapture, m_workspaceOffset);
+        d.currentBox = translated(s.current, offset);
+        d.currentCapture = translated(s.capture, offset);
+        d.workspaceMoving = s.workspaceMovement && s.workspaceMoving;
 
         const bool reset = !eligibleNow || !m_eligible || !isUsable(m_lastBox) ||
                            !isUsable(m_lastCapture) || s.monitor != m_monitor ||
-                           s.elapsed > kStallSeconds;
+                           s.elapsed > kStallSeconds || s.workspace != m_workspace ||
+                           s.workspaceMovement != m_workspaceMovement ||
+                           (d.workspaceMoving && !m_workspaceMoving &&
+                               (offset.x != 0.0 || offset.y != 0.0));
         if (reset) {
             d.action = TrackAction::Rebaseline;
             d.beginOpen = openingEdge && eligibleNow;
@@ -87,17 +108,21 @@ namespace hyprimate {
             return d;
         }
 
-        const Vec2 delta{s.current.x - d.previousBox.x, s.current.y - d.previousBox.y};
+        const Vec2 delta{
+            d.currentBox.x - d.previousBox.x, d.currentBox.y - d.previousBox.y};
         d.translated = delta.x != 0.0 || delta.y != 0.0;
         d.resized = !sameSize(s.current, d.previousBox);
-        d.captureChanged = s.capture.x != d.previousCapture.x ||
-                           s.capture.y != d.previousCapture.y ||
+        d.captureChanged = d.currentCapture.x != d.previousCapture.x ||
+                           d.currentCapture.y != d.previousCapture.y ||
                            !sameSize(s.capture, d.previousCapture);
         const double largest =
             std::max({s.current.w, s.current.h, d.previousBox.w, d.previousBox.h});
+        // Only client geometry can teleport. A legitimate workspace slide may travel several
+        // window widths between frames, particularly for small windows on a large monitor.
+        const Vec2 layoutDelta{s.current.x - m_lastBox.x, s.current.y - m_lastBox.y};
         adopt(s, true);
 
-        if (std::hypot(delta.x, delta.y) > kMaxJumpFactor * largest) {
+        if (std::hypot(layoutDelta.x, layoutDelta.y) > kMaxJumpFactor * largest) {
             d.action = TrackAction::Rebaseline;
             return d;
         }

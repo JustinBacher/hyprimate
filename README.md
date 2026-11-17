@@ -78,6 +78,7 @@ hl.config({
                 },
                 movement = {
                     enabled = true,
+                    workspace_movement = true,
                 },
                 open = {
                     enabled = true,
@@ -141,6 +142,7 @@ Style settings under `window.options.<style>` apply to each animation unless its
 | `plugin:hyprimate:window:options:swarm:wander` | float / `0.5` | Swarm-only meander and hesitation while travelling; zero walks steadily along its route. Finite values clamped to 0–1. |
 | `plugin:hyprimate:window:options:swarm:variation` | float / `0.5` | Swarm-only per-creature difference in speed, grip and how far its route curves; zero sends every creature straight and alike. Finite values clamped to 0–1. |
 | `plugin:hyprimate:window:movement:enabled` | boolean / `true` | Deform windows while they move. Does not enable or disable open or close. |
+| `plugin:hyprimate:window:movement:workspace_movement` | boolean / `true` | Let workspace slides drive movement effects. False disables only workspace-driven movement; ordinary movement, opening and closing are unaffected. |
 | `plugin:hyprimate:window:movement:options:liquid:strength` | float / unset (fallback `0.65`) | Liquid-only movement deformation intensity; zero moves windows undeformed. Overrides the shared setting when explicitly set; otherwise inherits it, or uses this animation’s default if the shared setting is unset. Finite values clamped to 0–1.5. |
 | `plugin:hyprimate:window:movement:options:liquid:viscosity` | float / unset (fallback `0.75`) | Liquid-only internal flow resistance; higher is thicker and more cohesive. Overrides the shared setting when explicitly set; otherwise inherits it, or uses this animation’s default if the shared setting is unset. Finite values clamped to 0–1. |
 | `plugin:hyprimate:window:movement:options:liquid:elasticity` | float / unset (fallback `0.5`) | Liquid-only movement stiffness and recovery speed; higher snaps back faster. Overrides the shared setting when explicitly set; otherwise inherits it, or uses this animation’s default if the shared setting is unset. Finite values clamped to 0–1. |
