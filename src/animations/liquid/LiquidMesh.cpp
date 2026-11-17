@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <mdspan>
 
 #include "animations/liquid/LiquidMesh.hpp"
 #include "animations/shared/Core.hpp"
@@ -11,10 +12,14 @@ namespace hyprimate {
     namespace {
 
         using Field = std::array<Vec2, 81>;
-        using Scalars = std::array<double, 81>;
 
         constexpr unsigned SIDE = 9;  // nodes per lattice side
         constexpr unsigned CELLS = 8;  // cells per lattice side
+        using GridExtents = std::extents<std::size_t, SIDE, SIDE>;
+        using ConstFieldView = std::mdspan<const Vec2, GridExtents, std::layout_left>;
+        using FieldView = std::mdspan<Vec2, GridExtents, std::layout_left>;
+        using ScalarView = std::mdspan<double, GridExtents, std::layout_left>;
+        using ConstScalarView = std::mdspan<const double, GridExtents, std::layout_left>;
 
         // Tolerates floating-point drift so frame cadences that land exactly on a substep boundary
         // (for example 144 Hz frames summed to 0.5 s) take that substep rather than deferring it.
@@ -100,10 +105,6 @@ namespace hyprimate {
             unsigned x;
             unsigned y;
         };
-
-        constexpr std::size_t grid_index(unsigned col, unsigned row) noexcept {
-            return (static_cast<std::size_t>(row) * SIDE) + col;
-        }
 
         bool is_finite(Vec2 value) noexcept {
             return std::isfinite(value.x) && std::isfinite(value.y);
@@ -254,16 +255,16 @@ namespace hyprimate {
         }
 
         // Anisotropic index-space Laplacian of one Vec2 component; weights scale each axis.
-        double shear_laplacian(const Field &field,
+        double shear_laplacian(ConstFieldView field,
             double Vec2::*component,
             unsigned column,
             unsigned row,
             double weight_x,
             double weight_y) noexcept {
             const double LAPLACE_X = line_laplacian(
-                [&](unsigned index) { return field[grid_index(index, row)].*component; }, column);
+                [&](unsigned index) { return field[index, row].*component; }, column);
             const double LAPLACE_Y = line_laplacian(
-                [&](unsigned index) { return field[grid_index(column, index)].*component; }, row);
+                [&](unsigned index) { return field[column, index].*component; }, row);
             return (weight_x * LAPLACE_X) + (weight_y * LAPLACE_Y);
         }
 
@@ -382,8 +383,12 @@ namespace hyprimate {
         Field &displacements = m_displacements;
         Field &velocities = m_velocities;
         Field &accelerations = m_accelerations;
-        const Field &field = displacements;
-        Scalars &divergence = m_divergence;
+        const ConstFieldView field{displacements.data()};
+        const ConstFieldView velocity_field{velocities.data()};
+        const FieldView acceleration_field{accelerations.data()};
+        const ScalarView divergence{m_divergence.data()};
+        const ConstScalarView divergence_field{m_divergence.data()};
+        const ScalarView grip{m_grip.data()};
 
         const Vec2 SPACING{.x = size.x / CELLS, .y = size.y / CELLS};
         // Scale each axis's shear so the tighter axis keeps the index-space stiffness and
@@ -397,14 +402,10 @@ namespace hyprimate {
         for (unsigned div_row = 0; div_row < SIDE; ++div_row) {
             for (unsigned div_col = 0; div_col < SIDE; ++div_col) {
                 const double SLOPE_X = line_slope(
-                    [&](unsigned column) { return field[grid_index(column, div_row)].x; },
-                    div_col,
-                    SPACING.x);
-                const double SLOPE_Y =
-                    line_slope([&](unsigned row) { return field[grid_index(div_col, row)].y; },
-                        div_row,
-                        SPACING.y);
-                divergence[grid_index(div_col, div_row)] = SLOPE_X + SLOPE_Y;
+                    [&](unsigned column) { return field[column, div_row].x; }, div_col, SPACING.x);
+                const double SLOPE_Y = line_slope(
+                    [&](unsigned row) { return field[div_col, row].y; }, div_row, SPACING.y);
+                divergence[div_col, div_row] = SLOPE_X + SLOPE_Y;
             }
         }
 
@@ -433,7 +434,6 @@ namespace hyprimate {
 
         for (unsigned row = 0; row < SIDE; ++row) {
             for (unsigned col = 0; col < SIDE; ++col) {
-                const std::size_t INDEX = grid_index(col, row);
                 // Lattice position relative to the centre, in [-0.5, 0.5].
                 const double LATTICE_X = (static_cast<double>(col) / CELLS) - 0.5;
                 const double LATTICE_Y = (static_cast<double>(row) / CELLS) - 0.5;
@@ -444,11 +444,11 @@ namespace hyprimate {
                     ((LATTICE_X * PERP_X) + (LATTICE_Y * PERP_Y)) / NORMALIZER, -1.0, 1.0);
                 // Grip relaxes toward head grip while moving and toward zero when still, so a stop
                 // releases the front.
-                m_grip[INDEX] +=
+                grip[col, row] +=
                     ((SPEED > LIQUID_GRIP_QUIET_SPEED && !LANDING ? head_grip(ALONG_MOTION) : 0.0) -
-                        m_grip[INDEX]) *
+                        grip[col, row]) *
                     GRIP_BLEND;
-                const double GRIP = m_grip[INDEX];
+                const double GRIP = grip[col, row];
                 const double STIFFNESS =
                     (m_bodyStiffness * (1.0 - GRIP)) + (m_headStiffness * GRIP);
                 const double LEAD = std::max(ALONG_MOTION, 0.0);
@@ -475,33 +475,31 @@ namespace hyprimate {
                     .y = -((LAG * BOW * DIR_Y) + (TAPER * PERP_Y)),
                 };
 
-                const double GRAD_X =
-                    line_slope([&](unsigned column) { return divergence[grid_index(column, row)]; },
-                        col,
-                        SPACING.x);
-                const double GRAD_Y =
-                    line_slope([&](unsigned index) { return divergence[grid_index(col, index)]; },
-                        row,
-                        SPACING.y);
+                const double GRAD_X = line_slope(
+                    [&](unsigned column) { return divergence_field[column, row]; }, col, SPACING.x);
+                const double GRAD_Y = line_slope(
+                    [&](unsigned index) { return divergence_field[col, index]; }, row, SPACING.y);
 
                 const double COUPLED_X =
                     (LIQUID_SHEAR_STIFFNESS *
                         shear_laplacian(field, &Vec2::x, col, row, WEIGHT_X, WEIGHT_Y)) +
                     (SHEAR_DAMPING *
-                        shear_laplacian(velocities, &Vec2::x, col, row, WEIGHT_X, WEIGHT_Y)) +
+                        shear_laplacian(velocity_field, &Vec2::x, col, row, WEIGHT_X, WEIGHT_Y)) +
                     (WAVE_SPEED2 * GRAD_X);
                 const double COUPLED_Y =
                     (LIQUID_SHEAR_STIFFNESS *
                         shear_laplacian(field, &Vec2::y, col, row, WEIGHT_X, WEIGHT_Y)) +
                     (SHEAR_DAMPING *
-                        shear_laplacian(velocities, &Vec2::y, col, row, WEIGHT_X, WEIGHT_Y)) +
+                        shear_laplacian(velocity_field, &Vec2::y, col, row, WEIGHT_X, WEIGHT_Y)) +
                     (WAVE_SPEED2 * GRAD_Y);
 
-                accelerations[INDEX] = {
-                    .x = (-STIFFNESS * (field[INDEX].x - LAG_FIELD.x)) -
-                         (DAMPING * velocities[INDEX].x) + COUPLED_X + (m_inertia.x * KICK_WEIGHT),
-                    .y = (-STIFFNESS * (field[INDEX].y - LAG_FIELD.y)) -
-                         (DAMPING * velocities[INDEX].y) + COUPLED_Y + (m_inertia.y * KICK_WEIGHT),
+                acceleration_field[col, row] = {
+                    .x = (-STIFFNESS * (field[col, row].x - LAG_FIELD.x)) -
+                         (DAMPING * velocity_field[col, row].x) + COUPLED_X +
+                         (m_inertia.x * KICK_WEIGHT),
+                    .y = (-STIFFNESS * (field[col, row].y - LAG_FIELD.y)) -
+                         (DAMPING * velocity_field[col, row].y) + COUPLED_Y +
+                         (m_inertia.y * KICK_WEIGHT),
                 };
             }
         }
@@ -651,11 +649,12 @@ namespace hyprimate {
         const double FRACTION_X = GRID_X - COL;
         const double FRACTION_Y = GRID_Y - ROW;
 
+        const ConstFieldView field{m_displacements.data()};
         // Node values with edge clamping, so the spline reproduces the boundary field.
         const auto NODE = [&](int column, int row) -> Vec2 {
             const unsigned CLAMPED_COL = static_cast<unsigned>(std::clamp(column, 0, CELL_COUNT));
             const unsigned CLAMPED_ROW = static_cast<unsigned>(std::clamp(row, 0, CELL_COUNT));
-            return m_displacements[grid_index(CLAMPED_COL, CLAMPED_ROW)];
+            return field[CLAMPED_COL, CLAMPED_ROW];
         };
 
         // Interpolate along x for the four rows around the sample, then along y.
@@ -718,6 +717,7 @@ namespace hyprimate {
     }
 
     bool LiquidMesh::validTriangles(Vec2 size) const noexcept {
+        const ConstFieldView field{m_displacements.data()};
         for (unsigned cell_row = 0; cell_row < CELLS; ++cell_row) {
             for (unsigned cell_column = 0; cell_column < CELLS; ++cell_column) {
                 for (unsigned triangle = 0; triangle < 2; ++triangle) {
@@ -726,8 +726,7 @@ namespace hyprimate {
                     std::array<Vec2, 3> deformed{};
                     for (std::size_t k = 0; k < 3; ++k) {
                         rest[k] = rest_position(CORNERS[k], size);
-                        const Vec2 DISPLACEMENT =
-                            m_displacements[grid_index(CORNERS[k].x, CORNERS[k].y)];
+                        const Vec2 DISPLACEMENT = field[CORNERS[k].x, CORNERS[k].y];
                         deformed[k] = {
                             .x = rest[k].x + DISPLACEMENT.x,
                             .y = rest[k].y + DISPLACEMENT.y,

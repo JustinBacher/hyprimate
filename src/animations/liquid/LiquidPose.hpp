@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <mdspan>
 #include <optional>
 #include <vector>
 
@@ -127,13 +128,17 @@ namespace hyprimate {
         std::array<LiquidVertex,
             static_cast<std::size_t>(LIQUID_POSE_SAMPLES) * LIQUID_POSE_SAMPLES>
             samples;
+        using PoseExtents = std::extents<std::size_t, LIQUID_POSE_SAMPLES, LIQUID_POSE_SAMPLES>;
+        const std::mdspan<const Vec2, PoseExtents, std::layout_left> offsets{grid.offsets.data()};
+        const std::mdspan<LiquidVertex, PoseExtents, std::layout_left> sample_grid{samples.data()};
+        const std::mdspan<const LiquidVertex, PoseExtents, std::layout_left> const_samples{
+            samples.data()};
         for (int j = 0; j < LIQUID_POSE_SAMPLES; ++j) {
             for (int i = 0; i < LIQUID_POSE_SAMPLES; ++i) {
                 const double TEX_U = static_cast<double>(i) / LIQUID_RENDER_CELLS;
                 const double TEX_V = static_cast<double>(j) / LIQUID_RENDER_CELLS;
-                const std::size_t INDEX = (static_cast<std::size_t>(j) * LIQUID_POSE_SAMPLES) + i;
-                const Vec2 OFFSET = grid.offsets[INDEX];
-                samples[INDEX] = {
+                const Vec2 OFFSET = offsets[i, j];
+                sample_grid[i, j] = {
                     .x = static_cast<float>(
                         (CENTRE_X + (OFFSET.x * scale) - outputDevice.x) / outputDevice.w),
                     .y = static_cast<float>(
@@ -152,11 +157,9 @@ namespace hyprimate {
         std::size_t vertex_index = 0;
         for (int cj = 0; cj < LIQUID_RENDER_CELLS; ++cj) {
             for (int ci = 0; ci < LIQUID_RENDER_CELLS; ++ci) {
-                for (const auto &corner : ORDER) {
+                for (const auto &[corner_x, corner_y] : ORDER) {
                     Vertex &vertex = out[vertex_index++];
-                    const LiquidVertex &sample =
-                        samples[(static_cast<std::size_t>(cj + corner[1]) * LIQUID_POSE_SAMPLES) +
-                                ci + corner[0]];
+                    const LiquidVertex &sample = const_samples[ci + corner_x, cj + corner_y];
                     vertex.x = sample.x;
                     vertex.y = sample.y;
                     vertex.u = sample.u;

@@ -3,7 +3,9 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <mdspan>
 #include <optional>
+#include <span>
 
 #include "animations/liquid/LiquidPose.hpp"
 #include "animations/shared/Core.hpp"
@@ -12,6 +14,10 @@
 namespace hyprimate {
 
     namespace {
+
+        using PoseExtents = std::extents<std::size_t, LIQUID_POSE_SAMPLES, LIQUID_POSE_SAMPLES>;
+        using PoseView = std::mdspan<Vec2, PoseExtents, std::layout_left>;
+        using ConstPoseView = std::mdspan<const Vec2, PoseExtents, std::layout_left>;
 
         // Half-plane extent in logical px; far larger than any monitor.
         constexpr double HUGE_SPAN = 1.0e6;
@@ -78,16 +84,17 @@ namespace hyprimate {
         const EdgeTransition::RestMap MAP =
             pose.transition.restMap({.x = size.x * COMPENSATION.x, .y = size.y * COMPENSATION.y});
         for (int j = 0; j < LIQUID_POSE_SAMPLES; ++j) {
+            const auto row = std::span{grid.offsets}.subspan(
+                static_cast<std::size_t>(j) * LIQUID_POSE_SAMPLES, LIQUID_POSE_SAMPLES);
             for (int i = 0; i < LIQUID_POSE_SAMPLES; ++i) {
                 const double TEX_U = static_cast<double>(i) / LIQUID_RENDER_CELLS;
                 const double TEX_V = static_cast<double>(j) / LIQUID_RENDER_CELLS;
                 const Vec2 BASE{.x = (TEX_U - 0.5) * size.x, .y = (TEX_V - 0.5) * size.y};
-                grid.offsets[(static_cast<std::size_t>(j) * LIQUID_POSE_SAMPLES) + i] =
-                    sampleOffset(pose,
-                        MAP,
-                        BASE,
-                        pose.mesh.sampleDisplacement(TEX_U, TEX_V),
-                        pose.displacementGain);
+                row[static_cast<std::size_t>(i)] = sampleOffset(pose,
+                    MAP,
+                    BASE,
+                    pose.mesh.sampleDisplacement(TEX_U, TEX_V),
+                    pose.displacementGain);
             }
         }
         grid.size = size;
@@ -124,14 +131,20 @@ namespace hyprimate {
         std::array<Vec2, K_VERTICES> flow{};
         std::array<Vec2, K_VERTICES> mapOnly{};
         std::array<Vec2, K_VERTICES> moved{};
+        const PoseView base_grid{base.data()};
+        const PoseView flow_grid{flow.data()};
+        const PoseView map_only_grid{mapOnly.data()};
+        const ConstPoseView base_values{base.data()};
+        const ConstPoseView flow_values{flow.data()};
         for (int j = 0; j < K_SIDE; ++j) {
             for (int i = 0; i < K_SIDE; ++i) {
                 const double TEX_U = static_cast<double>(i) / LIQUID_RENDER_CELLS;
                 const double TEX_V = static_cast<double>(j) / LIQUID_RENDER_CELLS;
-                const int INDEX = (j * K_SIDE) + i;
-                base[INDEX] = {.x = (TEX_U - 0.5) * restSize.x, .y = (TEX_V - 0.5) * restSize.y};
-                flow[INDEX] = pose.mesh.sampleDisplacement(TEX_U, TEX_V);
-                mapOnly[INDEX] = sampleOffset(pose, MAP, base[INDEX], flow[INDEX], 0.0);
+                base_grid[i, j] = {
+                    .x = (TEX_U - 0.5) * restSize.x, .y = (TEX_V - 0.5) * restSize.y};
+                flow_grid[i, j] = pose.mesh.sampleDisplacement(TEX_U, TEX_V);
+                map_only_grid[i, j] =
+                    sampleOffset(pose, MAP, base_values[i, j], flow_values[i, j], 0.0);
             }
         }
 
