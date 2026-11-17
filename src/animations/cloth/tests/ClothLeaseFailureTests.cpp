@@ -6,8 +6,6 @@
 #include <new>
 
 #include <pthread.h>
-#include <stdlib.h>
-#include <time.h>
 
 #include "animations/cloth/ClothFlutter.hpp"
 #include "animations/shared/Core.hpp"
