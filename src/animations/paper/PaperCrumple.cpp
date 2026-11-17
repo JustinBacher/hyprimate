@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <mdspan>
 #include <utility>
 
 #include "animations/paper/PaperCrumple.hpp"
@@ -65,7 +66,7 @@ namespace hyprimate {
             m_rate = 1.0 / paper_params.duration;
             m_phase = Phase::Opening;
             m_s = 1.0;
-            rollShape(seed);
+            roll_shape(seed);
             return;
         }
         if (m_phase == Phase::Opening) {
@@ -80,7 +81,7 @@ namespace hyprimate {
         m_rate = 1.0 / paper_params.duration;
         m_phase = Phase::Closing;
         m_s = 0.0;
-        rollShape(seed);
+        roll_shape(seed);
     }
 
     bool PaperCrumple::advance(double elapsed_seconds) noexcept {
@@ -137,7 +138,7 @@ namespace hyprimate {
         return m_params.shading > 0.0;
     }
 
-    void PaperCrumple::rollShape(std::uint64_t seed) noexcept {
+    void PaperCrumple::roll_shape(std::uint64_t seed) noexcept {
         // Base stream is fixed; random stream follows the seed. variation blends between them, so
         // variation 0 ignores the seed and every window plays the same take the same way.
         std::uint64_t base = BASE_SEED;
@@ -148,13 +149,13 @@ namespace hyprimate {
             const double RANDOM_DRAW = unit_draw(random);
             return BASE_DRAW + (VARIATION * (RANDOM_DRAW - BASE_DRAW));
         };
-        m_takePick = std::min(DRAW(), 0x1.fffffffffffffp-1);
-        m_mirrorX = DRAW() < 0.5;
-        m_mirrorY = DRAW() < 0.5;
+        m_take_pick = std::min(DRAW(), 0x1.fffffffffffffp-1);
+        m_mirror_x = DRAW() < 0.5;
+        m_mirror_y = DRAW() < 0.5;
         m_take = -1;
     }
 
-    void PaperCrumple::chooseTake(double aspect) const noexcept {
+    void PaperCrumple::choose_take(double aspect) const noexcept {
         if (m_take >= 0) {
             return;
         }
@@ -177,7 +178,7 @@ namespace hyprimate {
         for (int family_take = 0; family_take < TAKES; ++family_take) {
             family += static_cast<int>(paperTakeAspect(family_take) == nearest);
         }
-        int wanted = static_cast<int>(m_takePick * family);
+        int wanted = static_cast<int>(m_take_pick * family);
         for (int take = 0; take < TAKES; ++take) {
             if (paperTakeAspect(take) != nearest) {
                 continue;
@@ -198,7 +199,7 @@ namespace hyprimate {
         const double WIDTH = std::isfinite(size.x) && size.x > 0.0 ? size.x : 1.0;
         const double HEIGHT = std::isfinite(size.y) && size.y > 0.0 ? size.y : 1.0;
         const double LENGTH_SCALE = std::sqrt(WIDTH * HEIGHT);
-        chooseTake(WIDTH / HEIGHT);
+        choose_take(WIDTH / HEIGHT);
 
         // Playback position in the take: crumpliness sets how far toward the tight ball the crumple
         // goes. Frames are joined by a Catmull-Rom spline, so vertex velocities stay continuous
@@ -232,16 +233,18 @@ namespace hyprimate {
         const double SHRINK = 1.0 - (0.35 * smoothstep(0.86, 1.0, m_s));
 
         SheetGrid world;  // every vertex is written below
+        const std::mdspan<Vec3, std::extents<std::size_t, GRID, GRID>, std::layout_left> WORLD_GRID{
+            world.data()};
         for (int j = 0; j < GRID; ++j) {
             for (int i = 0; i < GRID; ++i) {
                 // Window vertex (i, j) reads take vertex (si, sj): swapped for portrait windows,
                 // then mirrored.
                 int source_col = m_transpose ? j : i;
                 int source_row = m_transpose ? i : j;
-                if (m_mirrorX) {
+                if (m_mirror_x) {
                     source_col = PAPER_CELLS - source_col;
                 }
-                if (m_mirrorY) {
+                if (m_mirror_y) {
                     source_row = PAPER_CELLS - source_row;
                 }
                 const std::size_t TAKE = grid_index(source_col, source_row);
@@ -258,12 +261,12 @@ namespace hyprimate {
                     blended_pos[k] = (WEIGHT_BACK * pos_back[k]) + (WEIGHT_START * pos_start[k]) +
                                      (WEIGHT_END * pos_end[k]) + (WEIGHT_NEXT * pos_next[k]);
                 }
-                double pos_x = blended_pos[0] * STRETCH_X * (m_mirrorX ? -1.0 : 1.0);
-                double pos_y = blended_pos[1] * STRETCH_Y * (m_mirrorY ? -1.0 : 1.0);
+                double pos_x = blended_pos[0] * STRETCH_X * (m_mirror_x ? -1.0 : 1.0);
+                double pos_y = blended_pos[1] * STRETCH_Y * (m_mirror_y ? -1.0 : 1.0);
                 if (m_transpose) {
                     std::swap(pos_x, pos_y);
                 }
-                world[grid_index(i, j)] = {
+                WORLD_GRID[i, j] = {
                     .x = LENGTH_SCALE * SHRINK * pos_x,
                     .y = LENGTH_SCALE * SHRINK * pos_y,
                     .z = LENGTH_SCALE * SHRINK * blended_pos[2],

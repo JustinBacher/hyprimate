@@ -112,90 +112,93 @@ namespace hyprimate {
 
         constexpr std::array<Edge, 4> EDGES{Edge::Left, Edge::Right, Edge::Top, Edge::Bottom};
 
-        Vec2 operator+(Vec2 a, Vec2 b) noexcept {
-            return {.x = a.x + b.x, .y = a.y + b.y};
+        Vec2 operator+(Vec2 lhs, Vec2 rhs) noexcept {
+            return {.x = lhs.x + rhs.x, .y = lhs.y + rhs.y};
         }
-        Vec2 operator-(Vec2 a, Vec2 b) noexcept {
-            return {.x = a.x - b.x, .y = a.y - b.y};
+        Vec2 operator-(Vec2 lhs, Vec2 rhs) noexcept {
+            return {.x = lhs.x - rhs.x, .y = lhs.y - rhs.y};
         }
-        Vec2 operator*(Vec2 a, double s) noexcept {
-            return {.x = a.x * s, .y = a.y * s};
+        Vec2 operator*(Vec2 vector, double scale) noexcept {
+            return {.x = vector.x * scale, .y = vector.y * scale};
         }
-        double dot(Vec2 a, Vec2 b) noexcept {
-            return (a.x * b.x) + (a.y * b.y);
+        double dot(Vec2 lhs, Vec2 rhs) noexcept {
+            return (lhs.x * rhs.x) + (lhs.y * rhs.y);
         }
-        double length(Vec2 a) noexcept {
-            return std::hypot(a.x, a.y);
+        double length(Vec2 vector) noexcept {
+            return std::hypot(vector.x, vector.y);
         }
-        double lerp(double a, double b, double t) noexcept {
-            return a + ((b - a) * t);
+        double lerp(double start, double end, double fraction) noexcept {
+            return start + ((end - start) * fraction);
         }
-        double unit(double v) noexcept {
-            return std::clamp(v, 0.0, 1.0);
-        }
-
-        Vec2 clamp_length(Vec2 a, double limit) noexcept {
-            const double LENGTH = length(a);
-            return LENGTH > limit && LENGTH > 0.0 ? a * (limit / LENGTH) : a;
+        double unit(double value) noexcept {
+            return std::clamp(value, 0.0, 1.0);
         }
 
-        // `a` turned clockwise on screen (y down) by `angle`.
-        Vec2 turned(Vec2 a, double angle) noexcept {
+        Vec2 clamp_length(Vec2 vector, double limit) noexcept {
+            const double LENGTH = length(vector);
+            return LENGTH > limit && LENGTH > 0.0 ? vector * (limit / LENGTH) : vector;
+        }
+
+        // `vector` turned clockwise on screen (y down) by `angle`.
+        Vec2 turned(Vec2 vector, double angle) noexcept {
             const double COSINE = std::cos(angle);
             const double SINE = std::sin(angle);
-            return {.x = (a.x * COSINE) - (a.y * SINE), .y = (a.x * SINE) + (a.y * COSINE)};
+            return {.x = (vector.x * COSINE) - (vector.y * SINE),
+                .y = (vector.x * SINE) + (vector.y * COSINE)};
         }
 
-        double wrap_angle(double a) noexcept {
-            return std::remainder(a, 2.0 * std::numbers::pi);
+        double wrap_angle(double angle) noexcept {
+            return std::remainder(angle, 2.0 * std::numbers::pi);
         }
 
         double approach(double value, double target, double step) noexcept {
             return value < target ? std::min(target, value + step) : std::max(target, value - step);
         }
 
-        bool finite(const SwarmParams &p) noexcept {
-            return std::isfinite(p.speed) && std::isfinite(p.stagger) &&
-                   std::isfinite(p.cohesion) && std::isfinite(p.separation) &&
-                   std::isfinite(p.responsiveness) && std::isfinite(p.settling) &&
-                   std::isfinite(p.wander) && std::isfinite(p.variation);
+        bool finite(const SwarmParams &params) noexcept {
+            return std::isfinite(params.speed) && std::isfinite(params.stagger) &&
+                   std::isfinite(params.cohesion) && std::isfinite(params.separation) &&
+                   std::isfinite(params.responsiveness) && std::isfinite(params.settling) &&
+                   std::isfinite(params.wander) && std::isfinite(params.variation);
         }
 
-        SwarmParams sane(SwarmParams p) noexcept {
-            p.count = std::clamp(p.count, 1, kSwarmMaxAgents);
-            p.speed = std::max(p.speed, 1.0);
-            p.stagger = std::clamp(p.stagger, 0.0, STAGGER_MAX);
-            p.cohesion = unit(p.cohesion);
-            p.separation = unit(p.separation);
-            p.responsiveness = unit(p.responsiveness);
-            p.settling = unit(p.settling);
-            p.wander = unit(p.wander);
-            p.variation = unit(p.variation);
-            return p;
+        SwarmParams sane(SwarmParams params) noexcept {
+            params.count = std::clamp(params.count, 1, SWARM_MAX_AGENTS);
+            params.speed = std::max(params.speed, 1.0);
+            params.stagger = std::clamp(params.stagger, 0.0, STAGGER_MAX);
+            params.cohesion = unit(params.cohesion);
+            params.separation = unit(params.separation);
+            params.responsiveness = unit(params.responsiveness);
+            params.settling = unit(params.settling);
+            params.wander = unit(params.wander);
+            params.variation = unit(params.variation);
+            return params;
         }
 
-        bool horizontal(Edge e) noexcept {
-            return e == Edge::Top || e == Edge::Bottom;
+        bool horizontal(Edge edge) noexcept {
+            return edge == Edge::Top || edge == Edge::Bottom;
         }
 
         // The point `depth` beyond the edge at coordinate `along` on it.
-        Vec2 beyond(const Box &s, Edge e, double along, double depth) noexcept {
-            switch (e) {
+        Vec2 beyond(const Box &screen, Edge edge, double along, double depth) noexcept {
+            switch (edge) {
                 case Edge::Left:
-                    return {.x = s.x - depth, .y = along};
+                    return {.x = screen.x - depth, .y = along};
                 case Edge::Right:
-                    return {.x = s.x + s.w + depth, .y = along};
+                    return {.x = screen.x + screen.w + depth, .y = along};
                 case Edge::Top:
-                    return {.x = along, .y = s.y - depth};
+                    return {.x = along, .y = screen.y - depth};
                 case Edge::Bottom:
-                    return {.x = along, .y = s.y + s.h + depth};
+                    return {.x = along, .y = screen.y + screen.h + depth};
             }
             return {};
         }
 
-        std::uint32_t bucket(Vec2 p, double cell) noexcept {
-            const auto CELL_X = static_cast<std::int64_t>(std::floor(p.x / cell)) & (HASH_SIDE - 1);
-            const auto CELL_Y = static_cast<std::int64_t>(std::floor(p.y / cell)) & (HASH_SIDE - 1);
+        std::uint32_t bucket(Vec2 position, double cell) noexcept {
+            const auto CELL_X =
+                static_cast<std::int64_t>(std::floor(position.x / cell)) & (HASH_SIDE - 1);
+            const auto CELL_Y =
+                static_cast<std::int64_t>(std::floor(position.y / cell)) & (HASH_SIDE - 1);
             return static_cast<std::uint32_t>((CELL_Y * HASH_SIDE) + CELL_X);
         }
 
@@ -237,8 +240,8 @@ namespace hyprimate {
         m_spacing = std::sqrt(m_body.w * m_body.h / COUNT);
 
         // Rows share the agents as evenly as integers allow, so every row's tiles are near square.
-        const auto COLUMNS_OF = [&](int r) {
-            return ((r + 1) * COUNT / ROWS) - (r * COUNT / ROWS);
+        const auto COLUMNS_OF = [&](int row) {
+            return ((row + 1) * COUNT / ROWS) - (row * COUNT / ROWS);
         };
         int index = 0;
         for (int tile_row = 0; tile_row < ROWS; ++tile_row) {
@@ -283,13 +286,13 @@ namespace hyprimate {
             agent.reaction = REACTION_SHARE * m_params.stagger * unit_draw(m_rng);
             agent.arc = ARC_ANGLE * m_params.variation * ((2.0 * unit_draw(m_rng)) - 1.0);
             agent.weave = 2.0 * std::numbers::pi * unit_draw(m_rng);
-            agent.weaveRate = lerp(WEAVE_RATE_MIN, WEAVE_RATE_MAX, unit_draw(m_rng));
+            agent.weave_rate = lerp(WEAVE_RATE_MIN, WEAVE_RATE_MAX, unit_draw(m_rng));
             agent.gait = 2.0 * std::numbers::pi * unit_draw(m_rng);
-            agent.gaitRate = lerp(GAIT_RATE_MIN, GAIT_RATE_MAX, unit_draw(m_rng));
+            agent.gait_rate = lerp(GAIT_RATE_MIN, GAIT_RATE_MAX, unit_draw(m_rng));
         }
         layout(placement);
         m_shift = {};
-        m_windowSpeed = 0.0;
+        m_window_speed = 0.0;
         m_still = 0.0;
         m_time = 0.0;
         m_accumulator = 0.0;
@@ -433,7 +436,7 @@ namespace hyprimate {
         m_phase = Phase::Idle;
         m_agents.clear();
         m_shift = {};
-        m_windowSpeed = 0.0;
+        m_window_speed = 0.0;
         m_rounding = 0.0;
         m_accumulator = 0.0;
     }
@@ -462,22 +465,22 @@ namespace hyprimate {
         return {.x = min_x, .y = min_y, .w = max_x - min_x, .h = max_y - min_y};
     }
 
-    bool Swarm::advance(double elapsedSeconds, bool movementHeld) {
+    bool Swarm::advance(double elapsed_seconds, bool movement_held) {
         if (!active()) {
             return false;
         }
-        const double DELTA_TIME = std::isfinite(elapsedSeconds) && elapsedSeconds > 0.0
-                                      ? std::min(elapsedSeconds, STALL_SECONDS)
+        const double DELTA_TIME = std::isfinite(elapsed_seconds) && elapsed_seconds > 0.0
+                                      ? std::min(elapsed_seconds, STALL_SECONDS)
                                       : 0.0;
         if (!(DELTA_TIME > 0.0)) {
             return true;
         }
-        const bool WANDERING = moving() && movementHeld && m_params.wander > 0.0;
+        const bool WANDERING = moving() && movement_held && m_params.wander > 0.0;
         if (WANDERING) {
             for (SwarmAgent &wandering_agent : m_agents) {
                 wandering_agent.docked = false;
                 wandering_agent.pause = 0.0;
-                wandering_agent.settleWait = -1.0;
+                wandering_agent.settle_wait = -1.0;
             }
         }
 
@@ -497,7 +500,7 @@ namespace hyprimate {
                     agent.velocity = {};
                     agent.heading = std::atan2(m_shift.y, m_shift.x);
                     agent.pause = agent.reaction;
-                    agent.settleWait = -1.0;
+                    agent.settle_wait = -1.0;
                 }
             }
             m_still = 0.0;
@@ -507,7 +510,8 @@ namespace hyprimate {
         if (WANDERING) {
             m_still = 0.0;
         }
-        m_windowSpeed = std::max(SPEED, m_windowSpeed * std::exp(-DELTA_TIME / WINDOW_SPEED_HOLD));
+        m_window_speed =
+            std::max(SPEED, m_window_speed * std::exp(-DELTA_TIME / WINDOW_SPEED_HOLD));
         m_shift = {};
 
         m_accumulator += DELTA_TIME;
@@ -518,12 +522,12 @@ namespace hyprimate {
 
         if (m_phase == Phase::Closing) {
             if (m_time > m_params.stagger + CLOSE_DEADLINE ||
-                std::ranges::all_of(m_agents, [](const SwarmAgent &a) { return a.gone; })) {
+                std::ranges::all_of(m_agents, [](const SwarmAgent &agent) { return agent.gone; })) {
                 m_phase = Phase::Closed;
             }
         } else if (!WANDERING && m_rounding <= 0.0 &&
-                   std::ranges::all_of(m_agents, [](const SwarmAgent &a) {
-                       return a.docked && a.lock >= 1.0 && a.turn <= 0.0;
+                   std::ranges::all_of(m_agents, [](const SwarmAgent &agent) {
+                       return agent.docked && agent.lock >= 1.0 && agent.turn <= 0.0;
                    })) {
             m_phase = Phase::Idle;
         }
@@ -532,31 +536,31 @@ namespace hyprimate {
 
     void Swarm::hash() {
         const double CELL = NEIGHBOUR_RADIUS * m_spacing;
-        m_cellStart.assign(HASH_CELLS + 1, 0);
-        m_cellOf.assign(m_agents.size(), NO_CELL);
+        m_cell_start.assign(HASH_CELLS + 1, 0);
+        m_cell_of.assign(m_agents.size(), NO_CELL);
         for (std::size_t i = 0; i < m_agents.size(); ++i) {
             const SwarmAgent &agent = m_agents[i];
             if (agent.docked || agent.gone || !agent.visible) {
                 continue;
             }
-            m_cellOf[i] = bucket(agent.position, CELL);
-            ++m_cellStart[m_cellOf[i] + 1];
+            m_cell_of[i] = bucket(agent.position, CELL);
+            ++m_cell_start[m_cell_of[i] + 1];
         }
         for (int bucket_index = 0; bucket_index < HASH_CELLS; ++bucket_index) {
-            m_cellStart[bucket_index + 1] += m_cellStart[bucket_index];
+            m_cell_start[bucket_index + 1] += m_cell_start[bucket_index];
         }
-        m_cellItems.resize(m_cellStart.back());
-        // Filling from each bucket's end leaves m_cellStart pointing at the bucket starts again.
+        m_cell_items.resize(m_cell_start.back());
+        // Filling from each bucket's end leaves m_cell_start pointing at the bucket starts again.
         for (std::size_t i = m_agents.size(); i-- > 0;) {
-            if (m_cellOf[i] != NO_CELL) {
-                m_cellItems[--m_cellStart[m_cellOf[i] + 1]] = static_cast<std::uint32_t>(i);
+            if (m_cell_of[i] != NO_CELL) {
+                m_cell_items[--m_cell_start[m_cell_of[i] + 1]] = static_cast<std::uint32_t>(i);
             }
         }
         // Each start slid down one bucket; shift them back.
         for (int cell_index = 0; cell_index < HASH_CELLS; ++cell_index) {
-            m_cellStart[cell_index] = m_cellStart[cell_index + 1];
+            m_cell_start[cell_index] = m_cell_start[cell_index + 1];
         }
-        m_cellStart.back() = static_cast<std::uint32_t>(m_cellItems.size());
+        m_cell_start.back() = static_cast<std::uint32_t>(m_cell_items.size());
     }
 
     Swarm::Crowd Swarm::crowd(std::size_t index, Vec2 forward, double force) const {
@@ -589,10 +593,10 @@ namespace hyprimate {
                 const auto BUCKET_INDEX =
                     static_cast<std::size_t>((((CELL_Y + dy) & (HASH_SIDE - 1)) * HASH_SIDE) +
                                              ((CELL_X + dx) & (HASH_SIDE - 1)));
-                const std::uint32_t BEGIN = m_cellStart[BUCKET_INDEX];
-                const std::uint32_t END = m_cellStart[BUCKET_INDEX + 1];
+                const std::uint32_t BEGIN = m_cell_start[BUCKET_INDEX];
+                const std::uint32_t END = m_cell_start[BUCKET_INDEX + 1];
                 for (const std::uint32_t NEIGHBOUR_INDEX :
-                    std::span(m_cellItems).subspan(BEGIN, END - BEGIN)) {
+                    std::span(m_cell_items).subspan(BEGIN, END - BEGIN)) {
                     if (NEIGHBOUR_INDEX == index) {
                         continue;
                     }
@@ -733,8 +737,8 @@ namespace hyprimate {
             }
             moving_agent.velocity = moving_agent.velocity + CROWD.check * SOLID;
 
-            moving_agent.weave += moving_agent.weaveRate * STEP;
-            moving_agent.gait += moving_agent.gaitRate * STEP;
+            moving_agent.weave += moving_agent.weave_rate * STEP;
+            moving_agent.gait += moving_agent.gait_rate * STEP;
             // A moving home keeps the spring walking around the tile throughout a held drag.
             // Its radius scales with wander; the real home is restored immediately on release.
             const double RADIUS = wandering ? m_params.wander * m_spacing : 0.0;
@@ -833,19 +837,20 @@ namespace hyprimate {
                 !wandering && LEFT < REST_RADIUS * m_spacing ? 0.0 : 1.0,
                 STEP / TURN_TIME);
             if (!wandering && LEFT < DOCK_DISTANCE && SPEED < DOCK_SPEED &&
-                m_windowSpeed <= DOCK_WINDOW_SPEED * moving_agent.grip) {
-                if (m_phase == Phase::Movement && moving_agent.settleWait < 0.0) {
-                    moving_agent.settleWait = m_params.stagger * unit_draw(m_rng);
+                m_window_speed <= DOCK_WINDOW_SPEED * moving_agent.grip) {
+                if (m_phase == Phase::Movement && moving_agent.settle_wait < 0.0) {
+                    moving_agent.settle_wait = m_params.stagger * unit_draw(m_rng);
                 }
-                if (m_phase != Phase::Movement || (moving_agent.settleWait -= STEP) <= 0.0) {
+                if (m_phase != Phase::Movement || (moving_agent.settle_wait -= STEP) <= 0.0) {
                     moving_agent.docked = true;
                     moving_agent.position = moving_agent.home;
                     moving_agent.velocity = {};
                 }
             }
         }
-        const bool WHOLE = std::ranges::all_of(m_agents,
-            [](const SwarmAgent &a) { return a.docked && a.lock >= 1.0 && a.turn <= 0.0; });
+        const bool WHOLE = std::ranges::all_of(m_agents, [](const SwarmAgent &agent) {
+            return agent.docked && agent.lock >= 1.0 && agent.turn <= 0.0;
+        });
         if (CLOSING) {
             // Preserve an interrupted opening's surface until the first piece leaves.
             if (!WHOLE) {

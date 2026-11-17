@@ -24,7 +24,7 @@ namespace hyprimate {
         bool operator==(const SwarmParams &) const = default;
     };
 
-    inline constexpr int kSwarmMaxAgents = 400;
+    inline constexpr int SWARM_MAX_AGENTS = 400;
 
     // An agent's body, which other agents cannot walk through: a disc of this share of its `fit`.
     // Smaller than the creature drawn, so legs may cross, and small enough that neighbours in
@@ -67,14 +67,14 @@ namespace hyprimate {
         double grip = 0.0;  // window speed (px/s) it stays locked through
         double reaction = 0.0;  // seconds it stays put after the window shakes it loose
         double pause = 0.0;  // what is left of that
-        double settleWait =
+        double settle_wait =
             -1.0;  // movement: randomized wait at home before docking; negative until arrival
         double arc =
             0.0;  // radians its approach is turned off the straight line; it comes in on a curve
         double weave = 0.0;  // meander phase
-        double weaveRate = 0.0;  // meander phase speed, rad/s
+        double weave_rate = 0.0;  // meander phase speed, rad/s
         double gait = 0.0;  // hesitation phase
-        double gaitRate = 0.0;  // hesitation phase speed, rad/s
+        double gait_rate = 0.0;  // hesitation phase speed, rad/s
         bool docked = false;  // resting on `home` and riding with the window
         bool leaving = false;  // closing: heading for `exit`
         bool gone = false;  // closing: has left the screen
@@ -113,7 +113,7 @@ namespace hyprimate {
         // Steps the simulation. Non-finite or negative time counts as zero; more than STALL_SECONDS
         // is clamped to it. While a movement gesture is held, wander keeps agents loose even when
         // the window is stationary; releasing it lets them regroup. Returns active().
-        bool advance(double elapsedSeconds, bool movementHeld = false);
+        bool advance(double elapsed_seconds, bool movement_held = false);
         // Back to idle, in formation.
         void reset() noexcept;
 
@@ -174,7 +174,7 @@ namespace hyprimate {
         Box m_screen{};  // screen, relative to the capture's top-left
         double m_spacing = 1.0;  // mean tile side; scales every neighbourhood radius
         Vec2 m_shift{};  // window translation not yet applied
-        double m_windowSpeed = 0.0;  // px/s, held briefly so docking waits for the window to slow
+        double m_window_speed = 0.0;  // px/s, held briefly so docking waits for the window to slow
         double m_still = 0.0;  // seconds since the window last moved
         double m_time = 0.0;  // seconds since the phase began
         double m_rounding = 0.0;
@@ -182,9 +182,9 @@ namespace hyprimate {
         std::uint64_t m_rng = 0;
 
         // Spatial hash of the loose agents, rebuilt each step; buffers are reused.
-        std::vector<std::uint32_t> m_cellStart;
-        std::vector<std::uint32_t> m_cellItems;
-        std::vector<std::uint32_t> m_cellOf;
+        std::vector<std::uint32_t> m_cell_start;
+        std::vector<std::uint32_t> m_cell_items;
+        std::vector<std::uint32_t> m_cell_of;
     };
 
 }  // namespace hyprimate
