@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <cstddef>
@@ -120,10 +121,12 @@ bool CSwarmSurface::initialize() {
         return true;
     }
     if (m_program == 0U) {
-        m_program = link_program(swarm_shader::SURFACE_VERTEX, swarm_shader::SURFACE_FRAGMENT);
+        m_program = link_program(
+            swarm_shader::SURFACE_VERTEX.data(), swarm_shader::SURFACE_FRAGMENT.data());
     }
     if (m_fieldProgram == 0U) {
-        m_fieldProgram = link_program(swarm_shader::FIELD_VERTEX, swarm_shader::FIELD_FRAGMENT);
+        m_fieldProgram =
+            link_program(swarm_shader::FIELD_VERTEX.data(), swarm_shader::FIELD_FRAGMENT.data());
     }
     if (m_vao == 0U) {
         glGenVertexArrays(1, &m_vao);

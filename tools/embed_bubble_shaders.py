@@ -63,7 +63,7 @@ def main() -> None:
         source = expand(args.source_dir, filename)
         if ')SHADER"' in source:
             raise ValueError(f"{filename} contains the raw string terminator")
-        parts.append(f'inline constexpr char {name}[] = R"SHADER({source})SHADER";\n')
+        parts.append(f'inline constexpr auto {name} = ::std::to_array(R"SHADER({source})SHADER");\n')
     parts.append(f"}} // namespace {args.namespace}\n")
 
     output = "".join(parts)

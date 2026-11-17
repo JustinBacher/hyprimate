@@ -149,11 +149,13 @@ bool CBubbleMaterial::initialize() {
                (m_instance != 0U) && (m_microInstance != 0U) && (m_lut != 0U);
     }
     m_tried = true;
-    m_membrane = program(bubble_shader::VERTEX, bubble_shader::FRAGMENT);
-    m_curl = program(bubble_shader::CURL_VERTEX, bubble_shader::CURL_FRAGMENT);
-    m_particles = program(bubble_shader::PARTICLE_VERTEX, bubble_shader::PARTICLE_FRAGMENT);
-    m_film = program(bubble_shader::FILM_VERTEX, bubble_shader::FILM_FRAGMENT);
-    m_micro = program(bubble_shader::MICROBUBBLE_VERTEX, bubble_shader::MICROBUBBLE_FRAGMENT);
+    m_membrane = program(bubble_shader::VERTEX.data(), bubble_shader::FRAGMENT.data());
+    m_curl = program(bubble_shader::CURL_VERTEX.data(), bubble_shader::CURL_FRAGMENT.data());
+    m_particles =
+        program(bubble_shader::PARTICLE_VERTEX.data(), bubble_shader::PARTICLE_FRAGMENT.data());
+    m_film = program(bubble_shader::FILM_VERTEX.data(), bubble_shader::FILM_FRAGMENT.data());
+    m_micro = program(
+        bubble_shader::MICROBUBBLE_VERTEX.data(), bubble_shader::MICROBUBBLE_FRAGMENT.data());
     if ((m_membrane == 0U) || (m_curl == 0U) || (m_particles == 0U) || (m_film == 0U) ||
         (m_micro == 0U)) {
         release();
