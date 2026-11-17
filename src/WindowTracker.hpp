@@ -91,7 +91,6 @@ namespace hyprimate {
         bool m_eligible = false;
         bool m_wasAnimatingIn = false;
         Vec2 m_workspaceOffset{};
-        bool m_workspaceMoving = false;
         bool m_workspaceMovement = true;
         std::uintptr_t m_workspace = 0;
     };

@@ -354,6 +354,63 @@ namespace {
         CHECK(inFormation(m));
     }
 
+    void workspaceSlidesPreserveIndependentFlight() {
+        for (const Vec2 travel :
+            {Vec2{-SCREEN.w, 0}, Vec2{SCREEN.w, 0}, Vec2{0, -SCREEN.h}, Vec2{0, SCREEN.h}}) {
+            for (bool incoming : {false, true}) {
+                Swarm m;
+                Vec2 offset = incoming ? Vec2{-travel.x, -travel.y} : Vec2{};
+                m.beginMovement({}, 2, placement(offset));
+                for (int frame = 0; frame < 40; ++frame) {
+                    offset.x += travel.x / 40.0;
+                    offset.y += travel.y / 40.0;
+                    m.updateMovement(placement(offset));
+                    m.advance(FRAME);
+                }
+                // The native slide is over, but independently moving creatures are still flying.
+                CHECK(m.active());
+                if (!incoming) CHECK(m.bounds().w > 0.0 && m.bounds().h > 0.0);
+                std::vector<Vec2> before;
+                for (const auto &a : m.agents()) before.push_back(a.position);
+                run(m, 0.1);
+                double flight = 0.0;
+                for (std::size_t i = 0; i < before.size(); ++i)
+                    flight += std::hypot(m.agents()[i].position.x - before[i].x,
+                        m.agents()[i].position.y - before[i].y);
+                CHECK(flight / before.size() > 1.0);
+                run(m, 8.0);
+                CHECK(inFormation(m));
+                if (incoming)
+                    CHECK(m.bounds().w > 0.0 && m.bounds().h > 0.0);
+                else
+                    CHECK(m.bounds().w == 0.0 && m.bounds().h == 0.0);
+            }
+        }
+    }
+
+    void workspaceReversalPreservesScreenPositions() {
+        Swarm baseline;
+        baseline.begin(Transition::Open, {}, 9, placement(), sides({Edge::Left}));
+        run(baseline, 0.25);
+        Swarm moved = baseline;
+        Vec2 offset{};
+        for (const Vec2 delta : {Vec2{-300, 40}, Vec2{500, -80}, Vec2{-200, 40}}) {
+            offset.x += delta.x;
+            offset.y += delta.y;
+            moved.updateMovement(placement(offset));
+            // Apply the coordinate change without consuming a physics substep.
+            moved.advance(1e-6);
+            CHECK(moved.opening());
+            for (std::size_t i = 0; i < moved.agents().size(); ++i) {
+                const auto &a = moved.agents()[i];
+                const auto &b = baseline.agents()[i];
+                CHECK(std::abs(a.position.x + offset.x - b.position.x) < 1e-8);
+                CHECK(std::abs(a.position.y + offset.y - b.position.y) < 1e-8);
+                CHECK(a.visible == b.visible && a.lock == b.lock);
+            }
+        }
+    }
+
     void fastMovementScattersThenRegroups() {
         Swarm m;
         m.beginMovement({}, 2, placement());
@@ -837,6 +894,8 @@ int main() {
     closeInheritsAnInFlightHandoff();
     movementWithoutMotionFinishesImmediately();
     slowMovementKeepsTheWindowWhole();
+    workspaceSlidesPreserveIndependentFlight();
+    workspaceReversalPreservesScreenPositions();
     fastMovementScattersThenRegroups();
     heldMovementWandersUntilRelease();
     heldMovementRespectsWander();

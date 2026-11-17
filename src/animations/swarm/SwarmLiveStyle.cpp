@@ -88,6 +88,11 @@ Render::SWindowTransformBuffer renderLive(SSwarmStyle &state,
     if (!sheet || !atlas) {
         return {.framebuffer = in.framebuffer, .box = in.box, .success = false};
     }
+    if (state.captureWorkspaceFrame) {
+        state.workspaceSnapshot = in.framebuffer;
+        state.snapshotOffset = {.x = in.box.x - g.source.x, .y = in.box.y - g.source.y};
+        state.captureWorkspaceFrame = false;
+    }
 
     fillSwarmMeshes(state.swarm,
         *sheet,
@@ -172,10 +177,10 @@ void SSwarmLiveStyle::movement(CPluginRuntime &runtime,
     if (!placement) {
         return;
     }
-    if (!state.swarm.opening()) {
-        placement->capture = decision.currentCapture;
-        placement->body = decision.currentBox;
-    }
+    placement->capture = decision.currentCapture;
+    placement->body = decision.currentBox;
+    state.workspaceCapture = decision.currentCapture;
+    state.captureWorkspaceFrame = decision.workspaceMoving;
     if (moving && !state.swarm.active()) {
         // Formed where the window was, so the first update carries this frame's movement.
         state.creature = swarmCreature(runtime.m_config.movement.swarm);

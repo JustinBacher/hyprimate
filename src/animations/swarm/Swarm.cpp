@@ -464,8 +464,8 @@ namespace hyprimate {
 
         const double speed = length(m_shift) / dt;
         if (speed > 0.0) {
-            // Agents live in the window's frame. One that lets go stays where it is on screen, so
-            // it shifts back here.
+            // Agents live in the window's frame. Loose agents remain in screen space when their
+            // home moves, whether that motion comes from a drag or a workspace slide.
             for (SwarmAgent &a : m_agents) {
                 if (a.gone || (a.docked && speed <= a.grip)) {
                     continue;

@@ -210,7 +210,7 @@ int main() {
         auto s = snap(100, 80, 400, 300);
         s.workspaceMoving = true;
         s.workspaceOffset = {.x = 1600, .y = 0};
-        CHECK(t.update(s).action == TrackAction::Rebaseline);  // incoming workspace placement
+        CHECK(t.update(s).action == TrackAction::Move);  // outgoing motion must not detach sprites
         s.workspaceOffset = {.x = 1500, .y = 0};
         const auto d = t.update(s);
         CHECK(d.action == TrackAction::Move);
@@ -223,7 +223,23 @@ int main() {
         const auto vertical = t.update(s);
         CHECK(vertical.currentBox.y - vertical.previousBox.y == 35);
         s.workspaceOffset = {.x = 1530, .y = 35};
-        CHECK(t.update(s).currentBox.x == 1630);  // interrupted/reversed slide
+        const auto reversed = t.update(s);
+        CHECK(reversed.currentBox.x == 1630);  // interrupted/reversed slide
+    }
+
+    // An incoming workspace was ineligible while hidden: its offscreen placement is a baseline,
+    // not a screen-wide movement impulse.
+    {
+        WindowTracker t = eligibleAt(100, 80, 400, 300);
+        auto s = snap(100, 80, 400, 300);
+        s.deformable = false;
+        t.update(s);
+        s.deformable = true;
+        s.workspaceMoving = true;
+        s.workspaceOffset = {.x = 1600, .y = 0};
+        CHECK(t.update(s).action == TrackAction::Rebaseline);
+        s.workspaceOffset = {.x = 1500, .y = 0};
+        CHECK(t.update(s).action == TrackAction::Move);
     }
 
     // The global opt-out removes only workspace movement, not ordinary window motion.

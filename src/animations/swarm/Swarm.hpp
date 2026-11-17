@@ -106,8 +106,9 @@ namespace hyprimate {
         // Starts in formation, ready to follow the window. Ignored unless idle.
         void beginMovement(
             const SwarmParams &params, std::uint64_t seed, const SwarmPlacement &placement);
-        // The window is now at `placement`. Its translation since the previous placement is applied
-        // on the next advance; a new size re-cuts the tiles. Ignored unless opening or moving.
+        // The window is now at `placement` in screen space. Translation is applied on the next
+        // advance: loose agents keep their screen positions and chase their moving homes.
+        // A new size re-cuts the tiles. Ignored unless opening or moving.
         void updateMovement(const SwarmPlacement &placement);
         // Steps the simulation. Non-finite or negative time counts as zero; more than kStallSeconds
         // is clamped to it. While a movement gesture is held, wander keeps agents loose even when
