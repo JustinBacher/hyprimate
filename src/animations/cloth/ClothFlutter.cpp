@@ -4,9 +4,16 @@
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
 #include <mutex>
 #include <numbers>
+#include <optional>
+#include <span>
+#include <stop_token>
 #include <thread>
+#include <utility>
 #include <vector>
 
 // Jolt's base header must precede its dependent headers.
@@ -14,22 +21,38 @@
 #include <Jolt/Jolt.h>
 // clang-format on
 
+#include <Jolt/Core/Array.h>
+#include <Jolt/Core/Core.h>
 #include <Jolt/Core/Factory.h>
+#include <Jolt/Core/IssueReporting.h>
 #include <Jolt/Core/JobSystemSingleThreaded.h>
+#include <Jolt/Core/Memory.h>
+#include <Jolt/Core/Reference.h>
 #include <Jolt/Core/TempAllocator.h>
+#include <Jolt/Math/Quat.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Body/MotionType.h>
+#include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayerInterfaceTable.h>
 #include <Jolt/Physics/Collision/BroadPhase/ObjectVsBroadPhaseLayerFilterTable.h>
+#include <Jolt/Physics/Collision/ObjectLayer.h>
 #include <Jolt/Physics/Collision/ObjectLayerPairFilterTable.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Constraints/SliderConstraint.h>
+#include <Jolt/Physics/Constraints/TwoBodyConstraint.h>
+#include <Jolt/Physics/EActivation.h>
+#include <Jolt/Physics/EPhysicsUpdateError.h>
+#include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/SoftBody/SoftBodyCreationSettings.h>
 #include <Jolt/Physics/SoftBody/SoftBodyMotionProperties.h>
 #include <Jolt/Physics/SoftBody/SoftBodySharedSettings.h>
+#include <Jolt/Physics/SoftBody/SoftBodyVertex.h>
 #include <Jolt/RegisterTypes.h>
 
 #include "animations/cloth/ClothFlutter.hpp"
+#include "animations/shared/Core.hpp"
+#include "animations/shared/SheetFrame.hpp"
 
 namespace hyprimate {
     namespace {
@@ -262,17 +285,21 @@ namespace hyprimate {
           public:
             Registry() : reaper([this](std::stop_token stop) { reap(stop); }) {
             }
+            Registry(const Registry &) = delete;
+            Registry &operator=(const Registry &) = delete;
+            Registry(Registry &&) = delete;
+            Registry &operator=(Registry &&) = delete;
             ~Registry() {
                 reaper.request_stop();
                 changed.notify_all();
                 reaper.join();
-                for (auto &run : runs) run->stop.request_stop();
-                for (auto &run : runs)
+                for (const auto &run : runs) run->stop.request_stop();
+                for (const auto &run : runs)
                     if (run->worker.joinable()) run->worker.join();
                 runs.clear();
             }
             void add(const std::shared_ptr<Run> &run) {
-                std::lock_guard lock(mutex);
+                const std::lock_guard lock(mutex);
                 runs.push_back(run);
                 changed.notify_one();
             }
@@ -387,7 +414,7 @@ namespace hyprimate {
                 auto &bodies = system.GetBodyInterfaceNoLock();
                 // Shapes provide effective header masses, not rendered hardware or collision-based
                 // exclusion.
-                RefConst<Shape> shape = new BoxShape(JPH::Vec3(HALF_WIDTH, .01F, .01F), 0.0F);
+                const RefConst<Shape> shape = new BoxShape(JPH::Vec3(HALF_WIDTH, .01F, .01F), 0.0F);
                 for (int i = 0; i < GRID; ++i) {
                     const float x = std::clamp(float(start[i].x), -LIMIT, LIMIT);
                     BodyCreationSettings creation(
@@ -424,12 +451,16 @@ namespace hyprimate {
                 }
                 ready = true;
             }
+            Pocket(const Pocket &) = delete;
+            Pocket &operator=(const Pocket &) = delete;
+            Pocket(Pocket &&) = delete;
+            Pocket &operator=(Pocket &&) = delete;
 
             ~Pocket() {
                 auto &bodies = system.GetBodyInterfaceNoLock();
-                for (auto &constraint : neighbours)
+                for (const auto &constraint : neighbours)
                     if (constraint) system.RemoveConstraint(constraint);
-                for (auto &constraint : constraints)
+                for (const auto &constraint : constraints)
                     if (constraint) system.RemoveConstraint(constraint);
                 for (const auto &id : ids)
                     if (!id.IsInvalid()) {
@@ -524,10 +555,10 @@ namespace hyprimate {
         void simulateMovement(Run &run, double phase) {
             using namespace JPH;
             enum : ObjectLayer { CLOTH = 0 };
-            ObjectLayerPairFilterTable pairs(1);
+            const ObjectLayerPairFilterTable pairs(1);
             BroadPhaseLayerInterfaceTable broadPhase(1, 1);
             broadPhase.MapObjectToBroadPhaseLayer(CLOTH, BroadPhaseLayer(0));
-            ObjectVsBroadPhaseLayerFilterTable objectVsBroadPhase(broadPhase, 1, pairs, 1);
+            const ObjectVsBroadPhaseLayerFilterTable objectVsBroadPhase(broadPhase, 1, pairs, 1);
             TempAllocatorImpl temp(8 << 20);
             JobSystemSingleThreaded jobs(cMaxPhysicsJobs);
             PhysicsSystem system;
@@ -539,7 +570,7 @@ namespace hyprimate {
             std::array<double, GRID> pleats{};
             for (int i = 0; i < GRID; ++i)
                 pleats[i] = std::sin(8 * std::numbers::pi * i / PAPER_CELLS + phase);
-            Ref<SoftBodySharedSettings> settings = new SoftBodySharedSettings;
+            const Ref<SoftBodySharedSettings> settings = new SoftBodySharedSettings;
             for (std::size_t k = 0; k < rest.size(); ++k) {
                 const auto p = rest[k];
                 settings->mVertices.emplace_back(Float3(float(p.x), float(p.y), 0),
@@ -708,7 +739,8 @@ namespace hyprimate {
             BroadPhaseLayerInterfaceTable broadPhase(LAYERS, 2);
             broadPhase.MapObjectToBroadPhaseLayer(STATIC, BroadPhaseLayer(0));
             broadPhase.MapObjectToBroadPhaseLayer(CLOTH, BroadPhaseLayer(1));
-            ObjectVsBroadPhaseLayerFilterTable objectVsBroadPhase(broadPhase, 2, pairs, LAYERS);
+            const ObjectVsBroadPhaseLayerFilterTable objectVsBroadPhase(
+                broadPhase, 2, pairs, LAYERS);
             TempAllocatorImpl temp(8 << 20);
             JobSystemSingleThreaded jobs(cMaxPhysicsJobs);
             PhysicsSystem system;
@@ -729,7 +761,7 @@ namespace hyprimate {
                 addBox(JPH::Vec3(float(o.w / 2), float(o.h / 2), 0.515F),
                     JPH::Vec3(float(o.x + o.w / 2), float(o.y + o.h / 2), -0.485F));
             if (stopped()) return;
-            Ref<SoftBodySharedSettings> settings = new SoftBodySharedSettings;
+            const Ref<SoftBodySharedSettings> settings = new SoftBodySharedSettings;
             const SheetGrid rest = restGrid();
             std::array<double, GRID> gustColumns{};
             if (in.flutter > 0)
@@ -906,7 +938,7 @@ namespace hyprimate {
             reset();
             return;
         }
-        auto run = std::make_shared<Run>();
+        const auto run = std::make_shared<Run>();
         run->live = true;
         run->window = capture;
         run->movement = {std::clamp(params.strength, 0.0, 1.5),
@@ -942,7 +974,7 @@ namespace hyprimate {
                 run->finished.store(true, std::memory_order_release);
             });
             s_registry->add(run);
-            auto lease = std::make_shared<Lease>();
+            const auto lease = std::make_shared<Lease>();
             lease->run = run;
             m_run = std::shared_ptr<Run>(lease, run.get());
         } catch (...) {
@@ -1004,7 +1036,7 @@ namespace hyprimate {
             reset();
             return;
         }
-        auto run = std::make_shared<Run>();
+        const auto run = std::make_shared<Run>();
         run->kind = kind;
         run->window = window;
         run->screen = geometry ? geometry->screen : Box{window.x, window.y, window.w, window.h};
@@ -1091,7 +1123,7 @@ namespace hyprimate {
                 run->finished.store(true, std::memory_order_release);
             });
             s_registry->add(run);
-            auto lease = std::make_shared<Lease>();
+            const auto lease = std::make_shared<Lease>();
             lease->run = run;
             m_run = std::shared_ptr<Run>(lease, run.get());
         } catch (...) {

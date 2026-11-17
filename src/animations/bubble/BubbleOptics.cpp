@@ -1,7 +1,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <numbers>
+#include <vector>
 
 #include "animations/bubble/BubbleOptics.hpp"
 
@@ -14,7 +16,7 @@ namespace hyprimate {
         constexpr int kLastWavelengthNm = 780;
         constexpr int kWavelengthStepNm = 5;
         constexpr int kWavelengthSamples =
-            (kLastWavelengthNm - kFirstWavelengthNm) / kWavelengthStepNm + 1;
+            ((kLastWavelengthNm - kFirstWavelengthNm) / kWavelengthStepNm) + 1;
         constexpr double kFilmRefractiveIndex =
             1.33;  // Water-like soap film; surrounding air is 1.
         constexpr double kUnpolarizedWeight =
@@ -31,13 +33,34 @@ namespace hyprimate {
             double leftInverseWidthPerNm;
             double rightInverseWidthPerNm;
         };
-        constexpr MatchingLobe kXLongWavelengthLobe{1.056, 599.8, 0.0264, 0.0323};
-        constexpr MatchingLobe kXShortWavelengthLobe{0.362, 442.0, 0.0624, 0.0374};
-        constexpr MatchingLobe kXSubtractiveLobe{0.065, 501.1, 0.0490, 0.0382};
-        constexpr MatchingLobe kYLongWavelengthLobe{0.821, 568.8, 0.0213, 0.0247};
-        constexpr MatchingLobe kYShortWavelengthLobe{0.286, 530.9, 0.0613, 0.0322};
-        constexpr MatchingLobe kZShortWavelengthLobe{1.217, 437.0, 0.0845, 0.0278};
-        constexpr MatchingLobe kZLongWavelengthLobe{0.681, 459.0, 0.0385, 0.0725};
+        constexpr MatchingLobe kXLongWavelengthLobe{.amplitude = 1.056,
+            .centreNm = 599.8,
+            .leftInverseWidthPerNm = 0.0264,
+            .rightInverseWidthPerNm = 0.0323};
+        constexpr MatchingLobe kXShortWavelengthLobe{.amplitude = 0.362,
+            .centreNm = 442.0,
+            .leftInverseWidthPerNm = 0.0624,
+            .rightInverseWidthPerNm = 0.0374};
+        constexpr MatchingLobe kXSubtractiveLobe{.amplitude = 0.065,
+            .centreNm = 501.1,
+            .leftInverseWidthPerNm = 0.0490,
+            .rightInverseWidthPerNm = 0.0382};
+        constexpr MatchingLobe kYLongWavelengthLobe{.amplitude = 0.821,
+            .centreNm = 568.8,
+            .leftInverseWidthPerNm = 0.0213,
+            .rightInverseWidthPerNm = 0.0247};
+        constexpr MatchingLobe kYShortWavelengthLobe{.amplitude = 0.286,
+            .centreNm = 530.9,
+            .leftInverseWidthPerNm = 0.0613,
+            .rightInverseWidthPerNm = 0.0322};
+        constexpr MatchingLobe kZShortWavelengthLobe{.amplitude = 1.217,
+            .centreNm = 437.0,
+            .leftInverseWidthPerNm = 0.0845,
+            .rightInverseWidthPerNm = 0.0278};
+        constexpr MatchingLobe kZLongWavelengthLobe{.amplitude = 0.681,
+            .centreNm = 459.0,
+            .leftInverseWidthPerNm = 0.0385,
+            .rightInverseWidthPerNm = 0.0725};
 
         double matchingLobe(double wavelengthNm, const MatchingLobe &lobe) {
             const double inverseWidth = wavelengthNm < lobe.centreNm ? lobe.leftInverseWidthPerNm
@@ -69,13 +92,13 @@ namespace hyprimate {
             Colour result{};
             for (int channel = 0; channel < kColourChannels; ++channel) {
                 const auto &row = kXyzToLinearSrgb[channel];
-                result[channel] = row[0] * xyz[0] + row[1] * xyz[1] + row[2] * xyz[2];
+                result[channel] = (row[0] * xyz[0]) + (row[1] * xyz[1]) + (row[2] * xyz[2]);
             }
             return result;
         }
 
         constexpr double wavelengthNm(int index) {
-            return kFirstWavelengthNm + kWavelengthStepNm * index;
+            return kFirstWavelengthNm + (kWavelengthStepNm * index);
         }
     }  // namespace
 
@@ -83,19 +106,22 @@ namespace hyprimate {
         int thicknessSamples, int cosineSamples, double maxThickness) {
         constexpr int kMinimumGridSamples = 2;  // Both endpoints must be represented.
         if (thicknessSamples < kMinimumGridSamples || cosineSamples < kMinimumGridSamples ||
-            !std::isfinite(maxThickness) || maxThickness <= 0)
+            !std::isfinite(maxThickness) || maxThickness <= 0) {
             return {};
-        BubbleThinFilmTable table{thicknessSamples,
-            cosineSamples,
-            maxThickness,
-            std::vector<float>(std::size_t(thicknessSamples) * cosineSamples * kColourChannels)};
+        }
+        BubbleThinFilmTable table{.thicknessSamples = thicknessSamples,
+            .cosineSamples = cosineSamples,
+            .maxThickness = maxThickness,
+            .rgb = std::vector<float>(
+                std::size_t(thicknessSamples) * cosineSamples * kColourChannels)};
         // Colour matching is evaluated once per wavelength, not once per table cell.
         std::array<Colour, kWavelengthSamples> matchingByWavelength{};
         Colour equalEnergyWhiteXyz{};
         for (int i = 0; i < kWavelengthSamples; ++i) {
             matchingByWavelength[i] = colourMatching(wavelengthNm(i));
-            for (int channel = 0; channel < kColourChannels; ++channel)
+            for (int channel = 0; channel < kColourChannels; ++channel) {
                 equalEnergyWhiteXyz[channel] += matchingByWavelength[i][channel];
+            }
         }
         // Normalize each channel against a perfect reflector under an equal-energy spectrum.
         const auto perfectMirrorRgb = linearSrgb(equalEnergyWhiteXyz);
@@ -103,14 +129,14 @@ namespace hyprimate {
             const double incidenceCosine = double(y) / (cosineSamples - 1);
             // Snell's law, with air's refractive index treated as one.
             const double transmissionCosine =
-                std::sqrt(1.0 - (1.0 - incidenceCosine * incidenceCosine) /
-                                    (kFilmRefractiveIndex * kFilmRefractiveIndex));
+                std::sqrt(1.0 - ((1.0 - (incidenceCosine * incidenceCosine)) /
+                                    (kFilmRefractiveIndex * kFilmRefractiveIndex)));
             const double sReflectionAmplitude =
-                (incidenceCosine - kFilmRefractiveIndex * transmissionCosine) /
-                (incidenceCosine + kFilmRefractiveIndex * transmissionCosine);
+                (incidenceCosine - (kFilmRefractiveIndex * transmissionCosine)) /
+                (incidenceCosine + (kFilmRefractiveIndex * transmissionCosine));
             const double pReflectionAmplitude =
-                (kFilmRefractiveIndex * incidenceCosine - transmissionCosine) /
-                (kFilmRefractiveIndex * incidenceCosine + transmissionCosine);
+                ((kFilmRefractiveIndex * incidenceCosine) - transmissionCosine) /
+                ((kFilmRefractiveIndex * incidenceCosine) + transmissionCosine);
             // The zero-thickness column remains zero: the two interfaces cancel exactly.
             for (int x = 1; x < thicknessSamples; ++x) {
                 const double thicknessNm = maxThickness * x / (thicknessSamples - 1);
@@ -125,20 +151,23 @@ namespace hyprimate {
                                                  halfPhaseSine * halfPhaseSine;
                     const double pInterference = 4 * pReflectionAmplitude * pReflectionAmplitude *
                                                  halfPhaseSine * halfPhaseSine;
-                    const double sTransmission = 1 - sReflectionAmplitude * sReflectionAmplitude;
-                    const double pTransmission = 1 - pReflectionAmplitude * pReflectionAmplitude;
+                    const double sTransmission = 1 - (sReflectionAmplitude * sReflectionAmplitude);
+                    const double pTransmission = 1 - (pReflectionAmplitude * pReflectionAmplitude);
                     const double reflectance =
                         kUnpolarizedWeight *
-                        (sInterference / (sTransmission * sTransmission + sInterference) +
-                            pInterference / (pTransmission * pTransmission + pInterference));
-                    for (int channel = 0; channel < kColourChannels; ++channel)
+                        ((sInterference / ((sTransmission * sTransmission) + sInterference)) +
+                            (pInterference / ((pTransmission * pTransmission) + pInterference)));
+                    for (int channel = 0; channel < kColourChannels; ++channel) {
                         reflectedXyz[channel] += matchingByWavelength[i][channel] * reflectance;
+                    }
                 }
                 const auto reflectedRgb = linearSrgb(reflectedXyz);
-                for (int channel = 0; channel < kColourChannels; ++channel)
-                    table.rgb[kColourChannels * (std::size_t(y) * thicknessSamples + x) + channel] =
+                for (int channel = 0; channel < kColourChannels; ++channel) {
+                    table.rgb[(kColourChannels * ((std::size_t(y) * thicknessSamples) + x)) +
+                              channel] =
                         float(std::clamp(
                             reflectedRgb[channel] / perfectMirrorRgb[channel], 0.0, 1.0));
+                }
             }
         }
         return table;

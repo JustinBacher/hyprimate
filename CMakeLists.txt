@@ -182,6 +182,15 @@ add_custom_command(TARGET hyprimate POST_BUILD
     VERBATIM
 )
 
+add_custom_target(clang-tidy-check
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_clang_tidy.py
+            --build-dir ${CMAKE_BINARY_DIR}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMENT "Checking project translation units with clang-tidy"
+    DEPENDS generate-config generate-bubble-shaders generate-swarm-shaders
+    VERBATIM
+)
+
 find_program(CLANG_FORMAT_EXECUTABLE clang-format)
 if(CLANG_FORMAT_EXECUTABLE)
     file(GLOB_RECURSE FORMAT_FILES CONFIGURE_DEPENDS

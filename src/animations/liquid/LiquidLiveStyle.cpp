@@ -1,14 +1,36 @@
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <variant>
 
+#include <hyprland/src/desktop/DesktopTypes.hpp>
+#include <hyprland/src/desktop/view/types/Geometric.hpp>
 #include <hyprland/src/desktop/view/window/Window.hpp>
+#include <hyprland/src/helpers/memory/Memory.hpp>
+#include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Renderer.hpp>
+#include <hyprland/src/render/Texture.hpp>
 #include <hyprland/src/render/pass/ClearPassElement.hpp>
+#include <hyprland/src/render/transformer/Transformer.hpp>
+#include <hyprland/src/render/types.hpp>
+#include <hyprutils/math/Box.hpp>
 
+#include "AnimationTransformer.hpp"
 #include "LiveRender.hpp"
 #include "LiveStyle.hpp"
+#include "PluginRuntime.hpp"
+#include "WindowTracker.hpp"
+#include "animations/cloth/ClothFlutter.hpp"
+#include "animations/liquid/LiquidLiveState.hpp"
+#include "animations/liquid/LiquidMesh.hpp"
+#include "animations/liquid/LiquidPose.hpp"
+#include "animations/liquid/SolidFill.hpp"
+#include "animations/shared/Core.hpp"
 #include "animations/shared/EdgeStyleConfig.hpp"
+#include "animations/shared/PaperRenderer.hpp"
+#include "animations/swarm/SwarmRenderer.hpp"
+#include "config_generated.hpp"
 
 using namespace Render;
 using hyprimate::Vec2;
@@ -19,12 +41,21 @@ namespace {
 }  // namespace
 
 hyprimate::LiquidPose livePose(const SLiquidStyle &state) {
-    if (!state.boxDriven)
-        return {
-            state.mesh, state.transition, {1.0, 1.0}, {0.0, 0.0}, state.displacementGain, false};
+    if (!state.boxDriven) {
+        return {.mesh = state.mesh,
+            .transition = state.transition,
+            .compensation = {.x = 1.0, .y = 1.0},
+            .openOffset = {.x = 0.0, .y = 0.0},
+            .displacementGain = state.displacementGain,
+            .boxPose = false};
+    }
     const Vec2 bead = state.transition.beadCentre();
-    return {
-        state.mesh, state.transition, {1.0, 1.0}, {-bead.x, -bead.y}, state.displacementGain, true};
+    return {.mesh = state.mesh,
+        .transition = state.transition,
+        .compensation = {.x = 1.0, .y = 1.0},
+        .openOffset = {.x = -bead.x, .y = -bead.y},
+        .displacementGain = state.displacementGain,
+        .boxPose = true};
 }
 
 CBox liveExtents(const SLiquidStyle &state, const CBox &box) {
@@ -32,8 +63,9 @@ CBox liveExtents(const SLiquidStyle &state, const CBox &box) {
     const auto logical = toBox(box);
     auto extents = hyprimate::liquidRenderExtents(pose, logical, state.grid);
     hyprimate::expandBox(extents, 4.0);
-    if (const auto visible = hyprimate::liquidVisibleBox(pose, logical))
+    if (const auto visible = hyprimate::liquidVisibleBox(pose, logical)) {
         extents = hyprimate::intersectBoxes(extents, *visible);
+    }
     return toCBox(extents);
 }
 
@@ -46,7 +78,9 @@ SWindowTransformBuffer renderLive(SLiquidStyle &state,
     const SP<CPaperShade> &,
     const SP<CSwarmSprites> &) {
     const auto out = g_pHyprRenderer->getWorkBuffer(ctx, g.canvas.size());
-    if (!out) return {.framebuffer = in.framebuffer, .box = in.box, .success = false};
+    if (!out) {
+        return {.framebuffer = in.framebuffer, .box = in.box, .success = false};
+    }
 
     const auto pose = livePose(state);
     const auto logical = toBox(context.currentBox);
@@ -58,16 +92,17 @@ SWindowTransformBuffer renderLive(SLiquidStyle &state,
         toBox(g.source),
         g.scale,
         toBox(g.output),
-        Vec2{in.box.x, in.box.y},
+        Vec2{.x = in.box.x, .y = in.box.y},
         g.textureSize,
         state.grid,
         state.vertices);
-    if (solid)
+    if (solid) {
         hyprimate::fillLiquidMeniscusMesh(
             pose, toBox(g.source), g.scale, toBox(liquidBox), state.meniscusVertices);
+    }
 
-    GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
-    auto drawState = ctx.saveDrawState();
+    const GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
+    const auto drawState = ctx.saveDrawState();
     auto &renderData = ctx.m_data;
     g_pHyprRenderer->bindFB(ctx, out);
     renderData.damage = CRegion{0.0, 0.0, g.canvas.w, g.canvas.h};
@@ -83,12 +118,13 @@ SWindowTransformBuffer renderLive(SLiquidStyle &state,
     textureData.damage = &renderData.damage;
     textureData.a = 1.F;
     textureData.allowCustomUV = true;
-    if (solid)
+    if (solid) {
         GL::g_pHyprOpenGL->renderTextureMesh(ctx,
             solid,
             liquidBox.copy().translate(-g.canvas.pos()),
             state.meniscusVertices,
             textureData);
+    }
     GL::g_pHyprOpenGL->renderTextureMesh(
         ctx, in.framebuffer->getTexture(), g.localOutput, state.vertices, textureData);
     return {.framebuffer = out, .box = g.canvas};
@@ -98,20 +134,27 @@ bool SLiquidLiveStyle::open(
     CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window) {
     const auto frame = hyprimate::resolveStyleOpenEdge(
         runtime.edgeInputFor(window, true), runtime.m_config.open.liquid);
-    if (!frame) return false;
+    if (!frame) {
+        return false;
+    }
     entry.openEdge = frame->edge;
     const auto &open = runtime.m_config.open.liquid;
-    if (open.strength <= 0.0) return false;
+    if (open.strength <= 0.0) {
+        return false;
+    }
     auto *transformer = runtime.acquireTransformer(window);
     const CBox capture = window->getFullWindowBoundingBox();
     auto &state = std::get<SLiquidStyle>(transformer->m_style);
-    state.transition.begin(
-        hyprimate::Transition::Open, *frame, {open.elasticity, open.momentum}, open.strength);
+    state.transition.begin(hyprimate::Transition::Open,
+        *frame,
+        {.elasticity = open.elasticity, .momentum = open.momentum},
+        open.strength);
     state.boxDriven = state.transition.active();
     state.warped = false;
-    if (state.boxDriven)
+    if (state.boxDriven) {
         state.goalBody = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
-    refreshPose(state, {capture.w, capture.h});
+    }
+    refreshPose(state, {.x = capture.w, .y = capture.h});
     return true;
 }
 
@@ -125,16 +168,17 @@ void SLiquidLiveStyle::movement(CPluginRuntime &runtime,
     const CBox capture = window->getFullWindowBoundingBox();
     const auto &current = decision.currentBox;
     auto &state = std::get<SLiquidStyle>(transformer.m_style);
-    if (moving)
+    if (moving) {
         state.mesh.recordTranslation(
-            {current.x - decision.previousBox.x, current.y - decision.previousBox.y},
-            {capture.w, capture.h},
+            {.x = current.x - decision.previousBox.x, .y = current.y - decision.previousBox.y},
+            {.x = capture.w, .y = capture.h},
             runtime.movementStrength());
-    else if (enabled)
-        state.mesh.advance(0.0, {capture.w, capture.h});
-    else
+    } else if (enabled) {
+        state.mesh.advance(0.0, {.x = capture.w, .y = capture.h});
+    } else {
         state.mesh.reset();
-    refreshPose(state, {capture.w, capture.h});
+    }
+    refreshPose(state, {.x = capture.w, .y = capture.h});
 }
 
 void SLiquidLiveStyle::snapshot(
@@ -149,7 +193,9 @@ void SLiquidLiveStyle::step(CPluginRuntime &runtime,
     hyprimate::Vec2 size,
     bool enabled) {
     auto &state = std::get<SLiquidStyle>(transformer.m_style);
-    if (!enabled) state.mesh.reset();
+    if (!enabled) {
+        state.mesh.reset();
+    }
     hyprimate::advanceLiquidPose(state.mesh,
         state.transition,
         state.grid,
@@ -162,32 +208,43 @@ void SLiquidLiveStyle::step(CPluginRuntime &runtime,
 }
 namespace {
     void restoreBox(SLiquidStyle &state, const PHLWINDOWREF &windowRef) {
-        if (!state.boxDriven || !state.warped) return;
+        if (!state.boxDriven || !state.warped) {
+            return;
+        }
         state.warped = false;
         const auto window = windowRef.lock();
-        if (!window || !(state.goalBody.w > 0.0 && state.goalBody.h > 0.0)) return;
+        if (!window || !(state.goalBody.w > 0.0 && state.goalBody.h > 0.0)) {
+            return;
+        }
         window->positionAnimation()->setValueAndWarp(state.goalBody.pos());
         window->sizeAnimation()->setValueAndWarp(state.goalBody.size());
     }
 
     void driveBox(SLiquidStyle &state, const PHLWINDOWREF &windowRef) {
-        if (!state.boxDriven) return;
+        if (!state.boxDriven) {
+            return;
+        }
         if (!state.transition.active()) {
             restoreBox(state, windowRef);
             state.boxDriven = false;
             return;
         }
         const auto window = windowRef.lock();
-        if (!window) return;
+        if (!window) {
+            return;
+        }
 
         auto &positionVar = window->positionAnimation();
         auto &sizeVar = window->sizeAnimation();
         // The layout retargets the real box through the same variables. A goal other than the one
         // this wrote is the layout's.
         if (state.warped &&
-            (positionVar->goal() != state.warpPosition || sizeVar->goal() != state.warpSize))
+            (positionVar->goal() != state.warpPosition || sizeVar->goal() != state.warpSize)) {
             state.goalBody = CBox{positionVar->goal(), sizeVar->goal()};
-        if (!(state.goalBody.w > 0.0 && state.goalBody.h > 0.0)) return;
+        }
+        if (!(state.goalBody.w > 0.0 && state.goalBody.h > 0.0)) {
+            return;
+        }
 
         // Decorations (border, shadow) do not scale with the box, so the live margins hold at any
         // size.
@@ -198,20 +255,21 @@ namespace {
         const double right = (capture.x + capture.w) - (current.x + current.w);
         const double bottom = (capture.y + capture.h) - (current.y + current.h);
         if (!(std::isfinite(left) && std::isfinite(top) && std::isfinite(right) &&
-                std::isfinite(bottom)))
+                std::isfinite(bottom))) {
             return;
+        }
 
         const CBox rest = {state.goalBody.x - left,
             state.goalBody.y - top,
             state.goalBody.w + left + right,
             state.goalBody.h + top + bottom};
-        const Vec2 half = state.transition.beadHalf({rest.w, rest.h});
+        const Vec2 half = state.transition.beadHalf({.x = rest.w, .y = rest.h});
         const Vec2 centre = state.transition.beadCentre();
-        const double cx = rest.x + 0.5 * rest.w + centre.x;
-        const double cy = rest.y + 0.5 * rest.h + centre.y;
+        const double cx = rest.x + (0.5 * rest.w) + centre.x;
+        const double cy = rest.y + (0.5 * rest.h) + centre.y;
         constexpr double MIN_SIDE = 2.0;
-        const double w = std::max(MIN_SIDE, 2.0 * half.x - left - right);
-        const double h = std::max(MIN_SIDE, 2.0 * half.y - top - bottom);
+        const double w = std::max(MIN_SIDE, (2.0 * half.x) - left - right);
+        const double h = std::max(MIN_SIDE, (2.0 * half.y) - top - bottom);
         const Vector2D position{cx - half.x + left, cy - half.y + top};
         const Vector2D size{w, h};
 
@@ -224,8 +282,12 @@ namespace {
     void refreshPose(SLiquidStyle &state, Vec2 captureSize) {
         // Gain only: the shared grid is built by the pose that draws it, so nothing is pre-filled
         // here.
-        const hyprimate::LiquidPose fit{
-            state.mesh, state.transition, {1.0, 1.0}, {0.0, 0.0}, 1.0, state.boxDriven};
+        const hyprimate::LiquidPose fit{.mesh = state.mesh,
+            .transition = state.transition,
+            .compensation = {.x = 1.0, .y = 1.0},
+            .openOffset = {.x = 0.0, .y = 0.0},
+            .displacementGain = 1.0,
+            .boxPose = state.boxDriven};
         state.displacementGain = hyprimate::fitLiquidPoseGain(fit, captureSize, nullptr);
         state.grid.invalidate();
     }

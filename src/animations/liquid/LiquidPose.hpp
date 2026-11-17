@@ -34,8 +34,8 @@ namespace hyprimate {
     struct LiquidPose {
         const LiquidMesh &mesh;
         const EdgeTransition &transition;
-        Vec2 compensation{1.0, 1.0};
-        Vec2 openOffset{0.0, 0.0};
+        Vec2 compensation{.x = 1.0, .y = 1.0};
+        Vec2 openOffset{.x = 0.0, .y = 0.0};
         double displacementGain = 1.0;
         bool boxPose = false;
     };
@@ -113,12 +113,15 @@ namespace hyprimate {
         Vec2 textureSize,
         LiquidPoseGrid &grid,
         std::vector<Vertex> &out) {
-        if (out.size() != LIQUID_RENDER_VERTEX_COUNT) out.resize(LIQUID_RENDER_VERTEX_COUNT);
+        if (out.size() != LIQUID_RENDER_VERTEX_COUNT) {
+            out.resize(LIQUID_RENDER_VERTEX_COUNT);
+        }
 
-        refreshLiquidPoseGrid(pose, Vec2{sourceDevice.w / scale, sourceDevice.h / scale}, grid);
+        refreshLiquidPoseGrid(
+            pose, Vec2{.x = sourceDevice.w / scale, .y = sourceDevice.h / scale}, grid);
 
-        const double centreX = sourceDevice.x + 0.5 * sourceDevice.w;
-        const double centreY = sourceDevice.y + 0.5 * sourceDevice.h;
+        const double centreX = sourceDevice.x + (0.5 * sourceDevice.w);
+        const double centreY = sourceDevice.y + (0.5 * sourceDevice.h);
 
         // Each grid sample is placed once, then reused by its neighbouring triangles.
         std::array<LiquidVertex,
@@ -128,15 +131,17 @@ namespace hyprimate {
             for (int i = 0; i < LIQUID_POSE_SAMPLES; ++i) {
                 const double u = static_cast<double>(i) / LIQUID_RENDER_CELLS;
                 const double v = static_cast<double>(j) / LIQUID_RENDER_CELLS;
-                const std::size_t index = static_cast<std::size_t>(j) * LIQUID_POSE_SAMPLES + i;
+                const std::size_t index = (static_cast<std::size_t>(j) * LIQUID_POSE_SAMPLES) + i;
                 const Vec2 p = grid.offsets[index];
                 samples[index] = {
-                    static_cast<float>((centreX + p.x * scale - outputDevice.x) / outputDevice.w),
-                    static_cast<float>((centreY + p.y * scale - outputDevice.y) / outputDevice.h),
-                    static_cast<float>(
-                        (sourceDevice.x + sourceDevice.w * u - textureOrigin.x) / textureSize.x),
-                    static_cast<float>(
-                        (sourceDevice.y + sourceDevice.h * v - textureOrigin.y) / textureSize.y),
+                    .x = static_cast<float>(
+                        (centreX + (p.x * scale) - outputDevice.x) / outputDevice.w),
+                    .y = static_cast<float>(
+                        (centreY + (p.y * scale) - outputDevice.y) / outputDevice.h),
+                    .u = static_cast<float>(
+                        (sourceDevice.x + (sourceDevice.w * u) - textureOrigin.x) / textureSize.x),
+                    .v = static_cast<float>(
+                        (sourceDevice.y + (sourceDevice.h * v) - textureOrigin.y) / textureSize.y),
                 };
             }
         }
@@ -148,7 +153,7 @@ namespace hyprimate {
                 for (const auto &corner : ORDER) {
                     Vertex &vertex = out[k++];
                     const LiquidVertex &sample =
-                        samples[static_cast<std::size_t>(cj + corner[1]) * LIQUID_POSE_SAMPLES +
+                        samples[(static_cast<std::size_t>(cj + corner[1]) * LIQUID_POSE_SAMPLES) +
                                 ci + corner[0]];
                     vertex.x = sample.x;
                     vertex.y = sample.y;
@@ -166,26 +171,28 @@ namespace hyprimate {
         double scale,
         const Box &outputDevice,
         std::vector<Vertex> &out) {
-        if (out.size() != LIQUID_MENISCUS_VERTEX_COUNT) out.resize(LIQUID_MENISCUS_VERTEX_COUNT);
+        if (out.size() != LIQUID_MENISCUS_VERTEX_COUNT) {
+            out.resize(LIQUID_MENISCUS_VERTEX_COUNT);
+        }
 
-        const double centreX = sourceDevice.x + 0.5 * sourceDevice.w;
-        const double centreY = sourceDevice.y + 0.5 * sourceDevice.h;
+        const double centreX = sourceDevice.x + (0.5 * sourceDevice.w);
+        const double centreY = sourceDevice.y + (0.5 * sourceDevice.h);
         const double low = pose.transition.meniscusLow();
         const double span = pose.transition.meniscusHigh() - low;
 
         const auto place = [&](Vertex &vertex, double t, double n) {
             const Vec2 p = liquidEdgePoint(pose, t, n);
             vertex.x =
-                static_cast<float>((centreX + p.x * scale - outputDevice.x) / outputDevice.w);
+                static_cast<float>((centreX + (p.x * scale) - outputDevice.x) / outputDevice.w);
             vertex.y =
-                static_cast<float>((centreY + p.y * scale - outputDevice.y) / outputDevice.h);
+                static_cast<float>((centreY + (p.y * scale) - outputDevice.y) / outputDevice.h);
             vertex.u = 0.5F;
             vertex.v = 0.5F;
         };
 
         for (int i = 0; i < LIQUID_MENISCUS_COLUMNS; ++i) {
-            const double t0 = low + span * static_cast<double>(i) / LIQUID_MENISCUS_COLUMNS;
-            const double t1 = low + span * static_cast<double>(i + 1) / LIQUID_MENISCUS_COLUMNS;
+            const double t0 = low + (span * static_cast<double>(i) / LIQUID_MENISCUS_COLUMNS);
+            const double t1 = low + (span * static_cast<double>(i + 1) / LIQUID_MENISCUS_COLUMNS);
             const double h0 = pose.transition.meniscus(t0);
             const double h1 = pose.transition.meniscus(t1);
 

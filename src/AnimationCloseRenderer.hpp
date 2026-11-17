@@ -75,6 +75,8 @@ class CAnimationCloseRenderer {
 
     CAnimationCloseRenderer(const CAnimationCloseRenderer &) = delete;
     CAnimationCloseRenderer &operator=(const CAnimationCloseRenderer &) = delete;
+    CAnimationCloseRenderer(CAnimationCloseRenderer &&) = delete;
+    CAnimationCloseRenderer &operator=(CAnimationCloseRenderer &&) = delete;
 
     // Installs both hooks. On failure every hook installed so far is removed and `error` is set.
     bool install(std::string &error);
@@ -123,7 +125,6 @@ class CAnimationCloseRenderer {
         return m_renderHook ? m_renderHook->m_original : nullptr;
     }
 
-  public:
     struct SPending {
         PHLWINDOWREF window;
         SStyleState style;

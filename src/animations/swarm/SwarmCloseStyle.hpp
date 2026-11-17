@@ -27,12 +27,14 @@ namespace close_style {
         const auto monitor = window->m_monitor.lock();
         const auto sides = swarmSides();
         const auto seed = nextSeed();
-        if (!monitor || sides.empty()) return false;
+        if (!monitor || sides.empty()) {
+            return false;
+        }
         pending.closeData = SSwarmCloseData{.params = swarmParams(config.close.swarm),
             .seed = seed,
-            .placement = {toBox(window->getFullWindowBoundingBox()),
-                toBox(window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT)),
-                toBox(monitor->logicalBox())},
+            .placement = {.capture = toBox(window->getFullWindowBoundingBox()),
+                .body = toBox(window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT)),
+                .screen = toBox(monitor->logicalBox())},
             .sides = sides,
             .creature = swarmCreature(config.close.swarm)};
         pending.style = std::move(style);
@@ -44,7 +46,9 @@ namespace close_style {
     inline void begin(SSwarmStyle &style, const Pending &pending, bool) {
         const auto &data = std::get<SSwarmCloseData>(pending.closeData);
         // A swarm already in flight keeps the creature it is drawn as.
-        if (!style.swarm.active()) style.creature = data.creature;
+        if (!style.swarm.active()) {
+            style.creature = data.creature;
+        }
         style.swarm.begin(
             hyprimate::Transition::Close, data.params, data.seed, data.placement, data.sides);
     }
@@ -73,22 +77,23 @@ namespace close_style {
     }
     // Extents only: the meshes need the creature's sheet, which the renderer supplies when it
     // draws.
-    inline void fill(SSwarmStyle &style, Record &record) {
+    inline void fill(const SSwarmStyle &style, Record &record) {
         const hyprimate::Box bounds = style.swarm.bounds();
         const hyprimate::Vec2 size = style.swarm.size();
         if (!(bounds.w > 0.0 && bounds.h > 0.0 && size.x > 0.0 && size.y > 0.0)) {
             record.extentsDevice = CBox{record.sourceDevice.x, record.sourceDevice.y, 1.0, 1.0};
             return;
         }
-        const double sx = record.sourceDevice.w / size.x, sy = record.sourceDevice.h / size.y;
-        record.extentsDevice = CBox{record.sourceDevice.x + bounds.x * sx,
-            record.sourceDevice.y + bounds.y * sy,
+        const double sx = record.sourceDevice.w / size.x;
+        const double sy = record.sourceDevice.h / size.y;
+        record.extentsDevice = CBox{record.sourceDevice.x + (bounds.x * sx),
+            record.sourceDevice.y + (bounds.y * sy),
             bounds.w * sx,
             bounds.h * sy}
                                    .expand(2.0);
     }
     inline void render(SSwarmStyle &style,
-        Record &record,
+        const Record &record,
         Render::CRenderContext &ctx,
         const PHLMONITOR &monitor,
         const SP<Render::ITexture> &tex,
@@ -97,13 +102,15 @@ namespace close_style {
         const SP<CSwarmSprites> &sprites) {
         const auto *sheet = sprites ? sprites->sheet(style.creature) : nullptr;
         const auto atlas = sheet ? sprites->texture(style.creature) : SP<Render::ITexture>{};
-        if (!sheet || !atlas || record.sourceAlpha <= 0.F) return;
+        if (!sheet || !atlas || record.sourceAlpha <= 0.F) {
+            return;
+        }
         fillSwarmMeshes(style.swarm,
             *sheet,
             record.sourceDevice,
             record.extentsDevice,
-            hyprimate::Vec2{0.0, 0.0},
-            hyprimate::Vec2{record.snapshotSize.x, record.snapshotSize.y},
+            hyprimate::Vec2{.x = 0.0, .y = 0.0},
+            hyprimate::Vec2{.x = record.snapshotSize.x, .y = record.snapshotSize.y},
             style.meshes);
         CSwarmClosePassElement::SData data;
         data.tex = tex;

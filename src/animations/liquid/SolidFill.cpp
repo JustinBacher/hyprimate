@@ -1,10 +1,14 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 
 #include <drm_fourcc.h>
+#include <hyprland/src/helpers/Color.hpp>
+#include <hyprland/src/helpers/memory/Memory.hpp>
 #include <hyprland/src/render/Renderer.hpp>
+#include <hyprland/src/render/Texture.hpp>
 
 #include "animations/liquid/SolidFill.hpp"
 
@@ -22,8 +26,12 @@ namespace {
 
 SP<Render::ITexture> CSolidFill::texture() {
     const uint8_t alpha = toByte(m_color.a);
-    if (alpha == 0 || !g_pHyprRenderer) return nullptr;
-    if (m_texture && sameColor(m_built, m_color)) return m_texture;
+    if (alpha == 0 || !g_pHyprRenderer) {
+        return nullptr;
+    }
+    if (m_texture && sameColor(m_built, m_color)) {
+        return m_texture;
+    }
 
     // Premultiplied; memory order is B, G, R, A for DRM_FORMAT_ARGB8888.
     const uint8_t red = static_cast<uint8_t>(toByte(m_color.r) * alpha / 255U);

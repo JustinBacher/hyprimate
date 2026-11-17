@@ -1,25 +1,47 @@
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
-#include <limits>
+#include <memory>
+#include <optional>
 #include <random>
+#include <span>
 #include <stdexcept>
-#include <string_view>
+#include <utility>
+#include <variant>
+#include <vector>
 
+#include <aquamarine/output/Output.hpp>
+#include <hyprland/src/SharedDefs.hpp>
+#include <hyprland/src/desktop/DesktopTypes.hpp>
 #include <hyprland/src/desktop/state/WindowState.hpp>
+#include <hyprland/src/desktop/view/types/Geometric.hpp>
 #include <hyprland/src/desktop/view/window/Window.hpp>
 #include <hyprland/src/desktop/view/window/WindowEffectsController.hpp>
 #include <hyprland/src/desktop/view/window/WindowPresentation.hpp>
+#include <hyprland/src/event/EventBus.hpp>
+#include <hyprland/src/helpers/Color.hpp>
 #include <hyprland/src/managers/fullscreen/FullscreenController.hpp>
 #include <hyprland/src/output/Monitor.hpp>
+#include <hyprland/src/plugins/PluginAPI.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/render/transformer/TransformerList.hpp>
 #include <hyprland/src/state/MonitorState.hpp>
+#include <hyprutils/math/Box.hpp>
 
+#include "AnimationCloseRenderer.hpp"
+#include "AnimationTransformer.hpp"
 #include "LiveStyle.hpp"
 #include "PluginRuntime.hpp"
+#include "WindowTracker.hpp"
+#include "animations/bubble/BubbleLiveState.hpp"
+#include "animations/bubble/BubbleWallpaper.hpp"
+#include "animations/cloth/ClothFlutter.hpp"
 #include "animations/liquid/LiquidMesh.hpp"
+#include "animations/shared/Core.hpp"
+#include "animations/shared/EdgeTransition.hpp"
 #include "animations/swarm/SwarmConfig.hpp"
+#include "config_generated.hpp"
 
 namespace {
 
@@ -45,8 +67,6 @@ namespace {
         return CHyprColor(channel(16), channel(8), channel(0), channel(24));
     }
 
-    namespace cfg = hyprimate::config;
-
 }  // namespace
 
 CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
@@ -70,10 +90,10 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
 
     // Listeners are registered last so a failed constructor never leaves callbacks pointing at a
     // half-built runtime.
-    m_listenOpenLate =
-        Event::bus()->m_events.window.openLate.listen([this](PHLWINDOW window) { track(window); });
+    m_listenOpenLate = Event::bus()->m_events.window.openLate.listen(
+        [this](const PHLWINDOW &window) { track(window); });
 
-    m_listenClose = Event::bus()->m_events.window.close.listen([this](PHLWINDOW window) {
+    m_listenClose = Event::bus()->m_events.window.close.listen([this](const PHLWINDOW &window) {
         if (auto *entry = find(window)) {
             // Stage before detaching so a matching animation can continue into the close.
             if (closeEnabled() && eligible(window)) {
@@ -121,7 +141,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     // render.pre. Remove it for this frame while residue exists; restore native selection when the
     // last deposit expires.
     m_listenRenderPreChecks =
-        Event::bus()->m_events.render.preChecks.listen([this](PHLMONITOR monitor) {
+        Event::bus()->m_events.render.preChecks.listen([this](const PHLMONITOR &monitor) {
             if (!monitor || !m_bubbleResidue->active(monitor) ||
                 monitor->m_solitaryClient.expired())
                 return;
@@ -133,13 +153,13 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     m_listenMonitorLayout =
         Event::bus()->m_events.monitor.layoutChanged.listen([this]() { clearBubbleResidue(); });
     m_listenMonitorRemoved = Event::bus()->m_events.monitor.preRemoved.listen(
-        [this](PHLMONITOR) { clearBubbleResidue(); });
+        [this](const PHLMONITOR &) { clearBubbleResidue(); });
 
     // Everything advances once per rendered frame of its monitor, after native animations have
     // ticked and before the frame collects damage. Animation ticks are not used: a self-requested
     // tick re-fires every millisecond.
     m_listenRenderPre = Event::bus()->m_events.render.pre.listen(
-        [this](PHLMONITOR monitor) { onRenderPre(monitor); });
+        [this](const PHLMONITOR &monitor) { onRenderPre(monitor); });
     // Requests made in render.pre can be consumed by the current commit. Request the next frame
     // while rendering is active so Hyprland retains it; stop as soon as the last transformer on
     // this monitor settles.
@@ -150,9 +170,9 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                     const auto window = entry.window.lock();
                     if (!window || window->m_monitor.lock() != event.monitor) continue;
                     auto *transformer = transformerOf(window);
-                    auto *bubble = transformer
-                                       ? std::get_if<SBubbleStyle>(&transformer->styleState())
-                                       : nullptr;
+                    const auto *bubble = transformer
+                                             ? std::get_if<SBubbleStyle>(&transformer->styleState())
+                                             : nullptr;
                     if (!bubble || !bubble->bubble.opening() || !bubble->wallpaper ||
                         bubble->wallpaper->queued)
                         continue;

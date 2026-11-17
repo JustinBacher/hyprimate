@@ -1,6 +1,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 #include <hyprland/src/plugins/PluginAPI.hpp>
 

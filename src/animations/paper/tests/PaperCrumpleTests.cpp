@@ -9,6 +9,7 @@
 #include "Check.hpp"
 #include "animations/paper/PaperCrumple.hpp"
 #include "animations/paper/PaperTakes.hpp"
+#include "animations/shared/Core.hpp"
 #include "animations/shared/SheetFrame.hpp"
 
 namespace {
@@ -19,7 +20,7 @@ namespace {
     using hyprimate::Transition;
     using hyprimate::Vec2;
 
-    constexpr Vec2 SIZE{1000.0, 700.0};
+    constexpr Vec2 SIZE{.x = 1000.0, .y = 700.0};
 
     PaperParams openParams() {
         return {.duration = 0.6, .crumpliness = 0.6, .shading = 0.7, .variation = 0.5};
@@ -30,8 +31,9 @@ namespace {
 
     void advanceFor(PaperCrumple &model, double seconds) {
         const double step = 0.01;
-        for (double t = 0.0; t + 1e-12 < seconds; t += step)
+        for (double t = 0.0; t + 1e-12 < seconds; t += step) {
             model.advance(std::min(step, seconds - t));
+        }
     }
 
     SheetFrame frameOf(const PaperCrumple &model, Vec2 size = SIZE) {
@@ -43,8 +45,9 @@ namespace {
     // Largest displayed distance from the centre, in logical px.
     double maxRadiusPx(const SheetFrame &frame, Vec2 size = SIZE) {
         double best = 0.0;
-        for (const Vec2 &p : frame.position)
+        for (const Vec2 &p : frame.position) {
             best = std::max(best, std::hypot(p.x * size.x, p.y * size.y));
+        }
         return best;
     }
 
@@ -61,12 +64,17 @@ namespace {
         for (std::size_t v = 0; v < hyprimate::PAPER_GRID_VERTICES; ++v) {
             const Vec2 uv = hyprimate::sheetUv(v);
             if (std::abs(frame.position[v].x - (uv.x - 0.5)) > tolerance ||
-                std::abs(frame.position[v].y - (uv.y - 0.5)) > tolerance)
+                std::abs(frame.position[v].y - (uv.y - 0.5)) > tolerance) {
                 return false;
+            }
         }
-        for (const auto &shade : frame.shade)
-            for (const float s : shade)
-                if (s != 0.0F) return false;
+        for (const auto &shade : frame.shade) {
+            for (const float s : shade) {
+                if (s != 0.0F) {
+                    return false;
+                }
+            }
+        }
         return true;
     }
 
@@ -135,7 +143,8 @@ namespace {
 
     // 5. Determinism and variation.
     void testDeterminismAndVariation() {
-        PaperCrumple a, b;
+        PaperCrumple a;
+        PaperCrumple b;
         a.begin(Transition::Close, closeParams(), 42);
         b.begin(Transition::Close, closeParams(), 42);
         advanceFor(a, 0.2);
@@ -144,7 +153,8 @@ namespace {
 
         PaperParams flat = closeParams();
         flat.variation = 0.0;
-        PaperCrumple s1, s2;
+        PaperCrumple s1;
+        PaperCrumple s2;
         s1.begin(Transition::Close, flat, 1);
         s2.begin(Transition::Close, flat, 2);
         advanceFor(s1, 0.2);
@@ -180,20 +190,25 @@ namespace {
         CHECK(!dark.shaded());
         bool allZero = true;
         const SheetFrame darkFrame = frameOf(dark);
-        for (const auto &tri : darkFrame.shade)
-            for (const float s : tri) allZero = allZero && s == 0.0F;
+        for (const auto &tri : darkFrame.shade) {
+            for (const float s : tri) {
+                allZero = allZero && s == 0.0F;
+            }
+        }
         CHECK(allZero);
 
         PaperCrumple lit;
         lit.begin(Transition::Close, closeParams(), 5);  // shading 0.7
         advanceFor(lit, 0.25);
-        bool anyNonZero = false, inRange = true;
+        bool anyNonZero = false;
+        bool inRange = true;
         const SheetFrame litFrame = frameOf(lit);
-        for (const auto &tri : litFrame.shade)
+        for (const auto &tri : litFrame.shade) {
             for (const float s : tri) {
                 anyNonZero = anyNonZero || s != 0.0F;
                 inRange = inRange && s >= -1.0F && s <= 1.0F;
             }
+        }
         CHECK(anyNonZero);
         CHECK(inRange);
 
@@ -205,11 +220,12 @@ namespace {
         bool fullInRange = true;
         bool fullAny = false;
         const SheetFrame fullFrame = frameOf(fullLit);
-        for (const auto &tri : fullFrame.shade)
+        for (const auto &tri : fullFrame.shade) {
             for (const float s : tri) {
                 fullInRange = fullInRange && s >= -1.0F && s <= 1.0F;
                 fullAny = fullAny || s != 0.0F;
             }
+        }
         CHECK(fullAny);
         CHECK(fullInRange);
     }
@@ -222,7 +238,8 @@ namespace {
         PaperParams tight = loose;
         tight.crumpliness = 1.0;
 
-        PaperCrumple a, b;
+        PaperCrumple a;
+        PaperCrumple b;
         a.begin(Transition::Close, loose, 11);
         b.begin(Transition::Close, tight, 11);
         advanceFor(a, 0.75);  // s ~ 0.75
@@ -263,8 +280,10 @@ namespace {
     // stretched (and swapped for portrait windows) so its flat sheet lands exactly on the window,
     // with no jump on the first frame.
     void testCloseStartsAtRestForAnyAspect() {
-        for (const Vec2 size :
-            {Vec2{1000.0, 700.0}, Vec2{600.0, 1000.0}, Vec2{3000.0, 800.0}, Vec2{900.0, 900.0}}) {
+        for (const Vec2 size : {Vec2{.x = 1000.0, .y = 700.0},
+                 Vec2{.x = 600.0, .y = 1000.0},
+                 Vec2{.x = 3000.0, .y = 800.0},
+                 Vec2{.x = 900.0, .y = 900.0}}) {
             for (std::uint64_t seed : {1ULL, 2ULL, 3ULL, 4ULL}) {
                 PaperParams params = closeParams();
                 params.variation = 1.0;  // exercise mirroring and every take
@@ -287,7 +306,8 @@ namespace {
     // 10. A compositor stall (a long but not aborting step) delays the crumple rather than skipping
     // part of it: a 0.2 s step plays like a single 1/30 s frame.
     void testStallDelaysInsteadOfSkipping() {
-        PaperCrumple stalled, smooth;
+        PaperCrumple stalled;
+        PaperCrumple smooth;
         stalled.begin(Transition::Close, closeParams(), 7);
         smooth.begin(Transition::Close, closeParams(), 7);
         stalled.advance(0.2);
@@ -307,14 +327,18 @@ namespace {
         SheetFrame out{};
         for (int take = 0; take < hyprimate::paperTakeCount(); ++take) {
             std::vector<int> path;
-            for (int f = 0; f < frames; ++f) path.push_back(f);
-            for (int f = frames - 1; f >= 0; --f) path.push_back(f);
+            for (int f = 0; f < frames; ++f) {
+                path.push_back(f);
+            }
+            for (int f = frames - 1; f >= 0; --f) {
+                path.push_back(f);
+            }
             for (const int f : path) {
                 hyprimate::SheetGrid world{};
                 for (std::size_t v = 0; v < PAPER_GRID_VERTICES; ++v) {
                     double p[3];
                     hyprimate::paperTakeVertex(take, f, v, p);
-                    world[v] = {p[0], p[1], p[2]};
+                    world[v] = {.x = p[0], .y = p[1], .z = p[2]};
                 }
                 hyprimate::projectSheet(
                     world, SIZE, 0.7, hyprimate::SheetLighting::PaperCreases, out);
@@ -331,8 +355,9 @@ namespace {
                 std::sort(keyed.begin(), keyed.end());
 
                 bool same = true;
-                for (std::size_t i = 0; i < PAPER_TRIANGLES; ++i)
+                for (std::size_t i = 0; i < PAPER_TRIANGLES; ++i) {
                     same = same && out.order[i] == keyed[i].second;
+                }
                 CHECK(same);
                 if (!same) {
                     std::printf("order mismatch: take %d frame %d\n", take, f);

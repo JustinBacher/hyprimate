@@ -1,7 +1,12 @@
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <span>
 
 #include "animations/bubble/BubbleMotion.hpp"
+#include "animations/shared/Core.hpp"
 
 namespace hyprimate {
     namespace {
@@ -31,16 +36,16 @@ namespace hyprimate {
         constexpr double kMaxCarry = 2400;
 
         Vec2 add(Vec2 a, Vec2 b) {
-            return {a.x + b.x, a.y + b.y};
+            return {.x = a.x + b.x, .y = a.y + b.y};
         }
         Vec2 sub(Vec2 a, Vec2 b) {
-            return {a.x - b.x, a.y - b.y};
+            return {.x = a.x - b.x, .y = a.y - b.y};
         }
         Vec2 mul(Vec2 a, double s) {
-            return {a.x * s, a.y * s};
+            return {.x = a.x * s, .y = a.y * s};
         }
         double dot(Vec2 a, Vec2 b) {
-            return a.x * b.x + a.y * b.y;
+            return (a.x * b.x) + (a.y * b.y);
         }
         double length(Vec2 a) {
             return std::hypot(a.x, a.y);
@@ -51,22 +56,26 @@ namespace hyprimate {
         // Magnitude-preserving soft limit: linear for small values, never beyond limit.
         Vec2 soften(Vec2 v, double limit) {
             const double m = length(v);
-            if (!(limit > 0) || !(m > 1e-12)) return {};
+            if (!(limit > 0) || !(m > 1e-12)) {
+                return {};
+            }
             return mul(v, limit * std::tanh(m / limit) / m);
         }
         double modeFrequency(std::size_t i) {
             const double n = kModes[i];
-            return kWaveFrequency * std::sqrt((n * n * n - n) / 6.0);
+            return kWaveFrequency * std::sqrt(((n * n * n) - n) / 6.0);
         }
         double modeDecay(std::size_t i) {
-            return 3.5 + 1.6 * double(i);
+            return 3.5 + (1.6 * double(i));
         }
         // 0..1 how sharply the window is turning: acceleration across its direction of travel.
         double turning(Vec2 velocity, double speed, Vec2 acceleration) {
-            if (!(speed > 1e-6)) return 0;
+            if (!(speed > 1e-6)) {
+                return 0;
+            }
             const Vec2 dir = mul(velocity, 1 / speed);
             return std::clamp(
-                std::abs(dir.x * acceleration.y - dir.y * acceleration.x) / 12000, 0.0, 1.0);
+                std::abs((dir.x * acceleration.y) - (dir.y * acceleration.x)) / 12000, 0.0, 1.0);
         }
 
     }  // namespace
@@ -78,17 +87,20 @@ namespace hyprimate {
     }
 
     Vec2 bubbleRoundHalf(Vec2 halfSize, const BubbleDeformation &m) {
-        const Vec2 h{std::max(halfSize.x, 1.0), std::max(halfSize.y, 1.0)};
-        const Vec2 e{std::max(m.extent.x, 1.0), std::max(m.extent.y, 1.0)};
-        return {h.x + (e.x - h.x) * m.round, h.y + (e.y - h.y) * m.round};
+        const Vec2 h{.x = std::max(halfSize.x, 1.0), .y = std::max(halfSize.y, 1.0)};
+        const Vec2 e{.x = std::max(m.extent.x, 1.0), .y = std::max(m.extent.y, 1.0)};
+        return {.x = h.x + ((e.x - h.x) * m.round), .y = h.y + ((e.y - h.y) * m.round)};
     }
 
     Vec2 bubbleRoundPoint(Vec2 halfSize, const BubbleDeformation &m, Vec2 q) {
-        if (m.round == 0) return q;
-        const Vec2 h{std::max(halfSize.x, 1.0), std::max(halfSize.y, 1.0)};
-        const double x = std::clamp(q.x / h.x, -1.5, 1.5), y = std::clamp(q.y / h.y, -1.5, 1.5);
-        const Vec2 disc{m.extent.x * x * std::sqrt(std::max(0.0, 1 - y * y * .5)),
-            m.extent.y * y * std::sqrt(std::max(0.0, 1 - x * x * .5))};
+        if (m.round == 0) {
+            return q;
+        }
+        const Vec2 h{.x = std::max(halfSize.x, 1.0), .y = std::max(halfSize.y, 1.0)};
+        const double x = std::clamp(q.x / h.x, -1.5, 1.5);
+        const double y = std::clamp(q.y / h.y, -1.5, 1.5);
+        const Vec2 disc{.x = m.extent.x * x * std::sqrt(std::max(0.0, 1 - y * y * .5)),
+            .y = m.extent.y * y * std::sqrt(std::max(0.0, 1 - x * x * .5))};
         return add(q, mul(sub(disc, q), m.round));
     }
 
@@ -98,55 +110,67 @@ namespace hyprimate {
     }
 
     Vec2 bubbleMotionOffset(Vec2 halfSize, const BubbleDeformation &m, Vec2 p) {
-        const Vec2 h{std::max(halfSize.x, 1.0), std::max(halfSize.y, 1.0)};
+        const Vec2 h{.x = std::max(halfSize.x, 1.0), .y = std::max(halfSize.y, 1.0)};
         Vec2 offset{};
         const double drag = length(m.drag);
         if (drag > 1e-6) {
             const Vec2 dir = mul(m.drag, 1 / drag);
-            const double reach = std::abs(dir.x) * h.x + std::abs(dir.y) * h.y;
-            const double breadth = std::abs(dir.y) * h.x + std::abs(dir.x) * h.y;
+            const double reach = (std::abs(dir.x) * h.x) + (std::abs(dir.y) * h.y);
+            const double breadth = (std::abs(dir.y) * h.x) + (std::abs(dir.x) * h.y);
             const double along = dot(p, dir);
             const double w = smoothstep(-1.0, 1.0, std::clamp(along / reach, -1.0, 1.0));
             const Vec2 across = sub(p, mul(dir, along));
             // The middle of the trailing side lags most, so it bows out like a drop's tail while
             // the corners stay closer to the frame.
             const double side = std::min(1.0, dot(across, across) / (breadth * breadth));
-            offset = sub(mul(m.drag, w * (1 - .55 * side)), mul(across, .35 * drag / reach * w));
+            offset = sub(mul(m.drag, w * (1 - (.55 * side))), mul(across, .35 * drag / reach * w));
         }
         // Ripples run normal to the outline: a rounded rectangle's, turning into a circle's.
         const double round = std::clamp(m.round, 0.0, 1.0);
-        const Vec2 u{p.x / h.x, p.y / h.y};
-        const Vec2 u2{u.x * u.x, u.y * u.y};
+        const Vec2 u{.x = p.x / h.x, .y = p.y / h.y};
+        const Vec2 u2{.x = u.x * u.x, .y = u.y * u.y};
         const double rho4 = dot(u2, u2);
         if (rho4 > 1e-12) {
             const double rho = std::min(
-                std::sqrt(std::sqrt(rho4)) * (1 - round) + std::sqrt(dot(u, u)) * round, 1.25);
+                (std::sqrt(std::sqrt(rho4)) * (1 - round)) + (std::sqrt(dot(u, u)) * round), 1.25);
             const double phi = std::atan2(u.y, u.x);
             double radial = 0;
-            for (std::size_t i = 0; i < kModes.size(); ++i)
-                radial += m.waveCos[i] * std::cos(kModes[i] * phi) +
-                          m.waveSin[i] * std::sin(kModes[i] * phi);
-            const Vec2 square{u2.x * u.x / h.x, u2.y * u.y / h.y}, circle{u.x / h.x, u.y / h.y};
+            for (std::size_t i = 0; i < kModes.size(); ++i) {
+                radial += (m.waveCos[i] * std::cos(kModes[i] * phi)) +
+                          (m.waveSin[i] * std::sin(kModes[i] * phi));
+            }
+            const Vec2 square{u2.x * u.x / h.x, u2.y * u.y / h.y};
+            const Vec2 circle{u.x / h.x, u.y / h.y};
             const Vec2 g = add(mul(square, (1 - round) / std::max(length(square), 1e-12)),
                 mul(circle, round / std::max(length(circle), 1e-12)));
             const double gl = length(g);
-            if (gl > 0) offset = add(offset, mul(g, radial * rho * rho * rho / gl));
+            if (gl > 0) {
+                offset = add(offset, mul(g, radial * rho * rho * rho / gl));
+            }
         }
         return offset;
     }
 
     void BubbleMotion::drive(Vec2 displacement, bool carried) noexcept {
-        if (!finite(displacement)) return;
+        if (!finite(displacement)) {
+            return;
+        }
         pending_ = add(pending_, displacement);
-        if (!carried) return;
+        if (!carried) {
+            return;
+        }
         carry_ = sub(carry_, displacement);
         const double c = length(carry_);
-        if (c > kMaxCarry) carry_ = mul(carry_, kMaxCarry / c);
+        if (c > kMaxCarry) {
+            carry_ = mul(carry_, kMaxCarry / c);
+        }
     }
 
     void BubbleMotion::seed(std::uint64_t seed) noexcept {
         random_ = seed;
-        for (double &phase : phase_) phase = kTau * draw01();
+        for (double &phase : phase_) {
+            phase = kTau * draw01();
+        }
         threshold_ = -std::log(1 - draw01());
     }
 
@@ -186,14 +210,18 @@ namespace hyprimate {
     }
 
     Vec2 BubbleMotion::core() const noexcept {
-        if (!stirred_) return {};
+        if (!stirred_) {
+            return {};
+        }
         const double amount = .035 * reference() * params_.strength;
-        return {amount * std::tanh(pressure_.x), .5 * amount * std::tanh(pressure_.y)};
+        return {.x = amount * std::tanh(pressure_.x), .y = .5 * amount * std::tanh(pressure_.y)};
     }
 
     void BubbleMotion::reshape() noexcept {
         shape_ = {};
-        if (!stirred_) return;
+        if (!stirred_) {
+            return;
+        }
         shape_.drag = soften(lag_, dragLimit());
         const double cap = std::clamp(.035 * reference(), 1.0, 24.0);
         for (std::size_t i = 0; i < wave_.size(); ++i) {
@@ -208,7 +236,7 @@ namespace hyprimate {
         // lose it. A spring overshooting back past the rectangle is softened to a small outward
         // swell.
         const double r = round_ < 0 ? -.1 * std::tanh(-round_ / .1) : std::min(round_, 1.06);
-        const Vec2 half{size_.x * .5, size_.y * .5};
+        const Vec2 half{.x = size_.x * .5, .y = size_.y * .5};
         switch (params_.shape) {
             case BubbleShape::Pillow:
                 shape_.round = .55 * r;
@@ -221,7 +249,7 @@ namespace hyprimate {
             case BubbleShape::Circle: {
                 shape_.round = .92 * r;
                 const double radius = .37 * std::sqrt(size_.x * size_.y);
-                shape_.extent = {radius, radius};
+                shape_.extent = {.x = radius, .y = radius};
                 break;
             }
         }
@@ -229,24 +257,29 @@ namespace hyprimate {
 
     void BubbleMotion::advance(
         double elapsed, Vec2 size, Box body, const BubbleMotionParams &params) {
-        if (!std::isfinite(elapsed) || elapsed <= 0) return;
+        if (!std::isfinite(elapsed) || elapsed <= 0) {
+            return;
+        }
         if (!(std::isfinite(size.x) && std::isfinite(size.y) && size.x > 0 && size.y > 0)) {
             reset();
             return;
         }
         size_ = size;
-        body_ = isUsable(body) ? body : Box{-size.x * .5, -size.y * .5, size.x, size.y};
-        params_ = {std::max(0.0, params.strength),
-            std::clamp(params.microbubbles, 0.0, 1.0),
-            std::clamp(params.trail, 0.0, 1.0),
-            std::clamp(params.roundness, 0.0, 1.0),
-            params.shape,
-            std::max(params.shapeSpeed, 100.0)};
+        body_ = isUsable(body)
+                    ? body
+                    : Box{.x = -size.x * .5, .y = -size.y * .5, .w = size.x, .h = size.y};
+        params_ = {.strength = std::max(0.0, params.strength),
+            .microbubbles = std::clamp(params.microbubbles, 0.0, 1.0),
+            .trail = std::clamp(params.trail, 0.0, 1.0),
+            .roundness = std::clamp(params.roundness, 0.0, 1.0),
+            .shape = params.shape,
+            .shapeSpeed = std::max(params.shapeSpeed, 100.0)};
         const double dt = std::min(elapsed, kStallSeconds);
         // The film behind a layout-animated window closes in on it; what the window is seen to do
         // is its own translation plus how far the film moved toward it.
         if (carry_.x != 0 || carry_.y != 0 || carryRate_.x != 0 || carryRate_.y != 0) {
-            const double w = kCarryFrequency, e = std::exp(-w * dt);
+            const double w = kCarryFrequency;
+            const double e = std::exp(-w * dt);
             const Vec2 c = add(carryRate_, mul(carry_, w));
             carry_ = mul(add(carry_, mul(c, dt)), e);
             carryRate_ = mul(sub(carryRate_, mul(c, w * dt)), e);
@@ -254,9 +287,15 @@ namespace hyprimate {
         Vec2 observed = mul(add(pending_, sub(carry_, carryMark_)), 1 / dt);
         carryMark_ = carry_;
         pending_ = {};
-        if (!finite(observed)) observed = {};
-        if (length(observed) > kMaxSpeed) observed = mul(observed, kMaxSpeed / length(observed));
-        if (!stirred_ && length(observed) == 0 && carry_.x == 0 && carry_.y == 0) return;
+        if (!finite(observed)) {
+            observed = {};
+        }
+        if (length(observed) > kMaxSpeed) {
+            observed = mul(observed, kMaxSpeed / length(observed));
+        }
+        if (!stirred_ && length(observed) == 0 && carry_.x == 0 && carry_.y == 0) {
+            return;
+        }
         stirred_ = true;
 
         const double blend = 1 - std::exp(-dt / kVelocitySmoothing);
@@ -283,7 +322,9 @@ namespace hyprimate {
             idle_ = 0;
         } else {
             idle_ += dt;
-            if (idle_ > .16) hold_ = std::max(ask, hold_ - dt / .22);
+            if (idle_ > .16) {
+                hold_ = std::max(ask, hold_ - (dt / .22));
+            }
         }
 
         substep_ += dt;
@@ -296,10 +337,12 @@ namespace hyprimate {
         // Stress brings colour into the film quickly; it drains away more slowly once released.
         const double limit = dragLimit();
         double waves = 0;
-        for (const auto &w : wave_) waves += length(w);
+        for (const auto &w : wave_) {
+            waves += length(w);
+        }
         const double stress = (limit > 0 ? length(lag_) / limit : 0) +
-                              .35 * waves / std::max(1.0, .02 * reference()) +
-                              .3 * std::abs(pressure_.x);
+                              (.35 * waves / std::max(1.0, .02 * reference())) +
+                              (.3 * std::abs(pressure_.x));
         const double target = params_.strength > 0 ? .6 * std::clamp(stress, 0.0, 1.0) : 0.0;
         sheen_ += (target - sheen_) * (1 - std::exp(-dt / (target > sheen_ ? .06 : .3)));
 
@@ -308,7 +351,8 @@ namespace hyprimate {
         migrate(dt, acceleration);
         emitTrail(dt, acceleration);
 
-        double waveRest = 0, waveRate = 0;
+        double waveRest = 0;
+        double waveRate = 0;
         for (std::size_t i = 0; i < wave_.size(); ++i) {
             waveRest = std::max(waveRest, length(wave_[i]));
             waveRate = std::max(waveRate, length(waveRate_[i]));
@@ -340,13 +384,15 @@ namespace hyprimate {
     }
 
     void BubbleMotion::step(double h, Vec2 acceleration, double speedRate) {
-        const double strength = params_.strength, L = reference();
+        const double strength = params_.strength;
+        const double L = reference();
         // The trailing fluid: dragged along by the film at a steady speed, thrown back by
         // acceleration and carried forward by its own momentum when the window stops.
         Vec2 target{};
-        if (speed_ > 1e-6)
+        if (speed_ > 1e-6) {
             target = mul(velocity_,
                 -strength * std::clamp(.05 * L, 4.0, 32.0) * std::tanh(speed_ / 1600) / speed_);
+        }
         const double w2 = kLagFrequency * kLagFrequency;
         const Vec2 lagForce =
             sub(sub(mul(sub(lag_, target), -w2), mul(lagRate_, 2 * kLagDamping * kLagFrequency)),
@@ -364,12 +410,14 @@ namespace hyprimate {
         constexpr std::array<double, 4> gust{150.0, 340.0, 460.0, 520.0};
         const double time = clock_ + substep_;
         for (std::size_t i = 0; i < wave_.size(); ++i) {
-            const double n = kModes[i], w = modeFrequency(i), decay = modeDecay(i);
-            const double drift = .43 * w * time + phase_[i];
-            const Vec2 force{
-                gain[i] * scale * slosh * std::cos(n * theta) + buffet * gust[i] * std::sin(drift),
-                gain[i] * scale * slosh * std::sin(n * theta) +
-                    buffet * gust[i] * std::cos(1.13 * drift + phase_[(i + 1) % 4])};
+            const double n = kModes[i];
+            const double w = modeFrequency(i);
+            const double decay = modeDecay(i);
+            const double drift = (.43 * w * time) + phase_[i];
+            const Vec2 force{(gain[i] * scale * slosh * std::cos(n * theta)) +
+                                 (buffet * gust[i] * std::sin(drift)),
+                (gain[i] * scale * slosh * std::sin(n * theta)) +
+                    (buffet * gust[i] * std::cos((1.13 * drift) + phase_[(i + 1) % 4]))};
             const Vec2 accel = sub(sub(force, mul(wave_[i], w * w)), mul(waveRate_[i], 2 * decay));
             waveRate_[i] = add(waveRate_[i], mul(accel, h));
             wave_[i] = add(wave_[i], mul(waveRate_[i], h));
@@ -377,32 +425,36 @@ namespace hyprimate {
 
         // The fluid compresses while the window gathers speed and rebounds when it sheds it.
         const double drive = std::clamp(speedRate / 9000, -1.5, 1.5);
-        const double wp = kPressureFrequency, wr = 1.7 * kPressureFrequency;
+        const double wp = kPressureFrequency;
+        const double wr = 1.7 * kPressureFrequency;
         pressureRate_.x +=
-            (-wp * wp * (pressure_.x - drive) - 2 * kPressureDamping * wp * pressureRate_.x) * h;
+            ((-wp * wp * (pressure_.x - drive)) - (2 * kPressureDamping * wp * pressureRate_.x)) *
+            h;
         pressureRate_.y +=
-            (-wr * wr * (pressure_.y - .5 * drive) - 2 * .4 * wr * pressureRate_.y) * h;
+            ((-wr * wr * (pressure_.y - (.5 * drive))) - (2 * .4 * wr * pressureRate_.y)) * h;
         pressure_ = add(pressure_, mul(pressureRate_, h));
 
         // Surface tension pulls the moving film into a sphere briskly and nearly without
         // overshoot; spreading back into the frame is softer and overshoots a little before the
         // rectangle settles.
         const bool contracting = hold_ > round_;
-        const double wc = kTau * (contracting ? 1.6 : 1.3), zc = contracting ? .75 : .5;
-        roundRate_ += (-wc * wc * (round_ - hold_) - 2 * zc * wc * roundRate_) * h;
+        const double wc = kTau * (contracting ? 1.6 : 1.3);
+        const double zc = contracting ? .75 : .5;
+        roundRate_ += ((-wc * wc * (round_ - hold_)) - (2 * zc * wc * roundRate_)) * h;
         round_ += roundRate_ * h;
     }
 
     BubbleMotion::Outline BubbleMotion::outline(double angle) const noexcept {
-        const Vec2 centre{body_.x + body_.w * .5, body_.y + body_.h * .5};
-        const Vec2 half{body_.w * .5, body_.h * .5};
-        const Vec2 membrane{size_.x * .5, size_.y * .5};
+        const Vec2 centre{.x = body_.x + (body_.w * .5), .y = body_.y + (body_.h * .5)};
+        const Vec2 half{.x = body_.w * .5, .y = body_.h * .5};
+        const Vec2 membrane{.x = size_.x * .5, .y = size_.y * .5};
         const auto at = [&](double a) {
-            const double c = std::cos(a), s = std::sin(a);
+            const double c = std::cos(a);
+            const double s = std::sin(a);
             // A steep superellipse: the body's straight sides with softly rounded corners.
             const double k =
                 std::pow(std::pow(std::abs(c), 12.0) + std::pow(std::abs(s), 12.0), -1.0 / 12.0);
-            const Vec2 p = add(centre, Vec2{half.x * c * k, half.y * s * k});
+            const Vec2 p = add(centre, Vec2{.x = half.x * c * k, .y = half.y * s * k});
             return bubbleMotionPoint(membrane, shape_, p);
         };
         constexpr double epsilon = .01;
@@ -411,29 +463,31 @@ namespace hyprimate {
         const Vec2 span = sub(at(angle + epsilon), at(angle - epsilon));
         const double l = length(span);
         o.stretch = l / (2 * epsilon);
-        o.tangent = l > 0 ? mul(span, 1 / l) : Vec2{-std::sin(angle), std::cos(angle)};
-        o.normal = {o.tangent.y, -o.tangent.x};
-        if (dot(o.normal, sub(o.point, add(centre, shape_.carry))) < 0)
+        o.tangent = l > 0 ? mul(span, 1 / l) : Vec2{.x = -std::sin(angle), .y = std::cos(angle)};
+        o.normal = {.x = o.tangent.y, .y = -o.tangent.x};
+        if (dot(o.normal, sub(o.point, add(centre, shape_.carry))) < 0) {
             o.normal = mul(o.normal, -1);
+        }
         return o;
     }
 
     double BubbleMotion::trailingAngle() const noexcept {
-        Vec2 d{1, 0};
-        if (speed_ > 20)
+        Vec2 d{.x = 1, .y = 0};
+        if (speed_ > 20) {
             d = mul(velocity_, -1 / speed_);
-        else if (length(lag_) > 1e-3)
+        } else if (length(lag_) > 1e-3) {
             d = mul(lag_, 1 / length(lag_));
+        }
         return std::atan2(d.y / std::max(body_.h, 1.0), d.x / std::max(body_.w, 1.0));
     }
 
     BubbleMicro BubbleMotion::draw(const Attached &b) const noexcept {
         const auto o = outline(b.angle);
         const double e = smoothstep(0, 1, b.growth);
-        const double r = b.radius * (.35 + .65 * e);
+        const double r = b.radius * (.35 + (.65 * e));
         // A forming bubble begins as a swelling half sunk in the film and rides out on its neck.
         BubbleMicro m;
-        m.centre = add(o.point, mul(o.normal, r * (-.55 + 1.25 * e)));
+        m.centre = add(o.point, mul(o.normal, r * (-.55 + (1.25 * e))));
         m.radius = r;
         m.growth = b.growth;
         m.anchor = o.point;
@@ -446,32 +500,40 @@ namespace hyprimate {
 
     std::size_t BubbleMotion::microbubbles(std::span<BubbleMicro> out) const {
         const std::size_t count = std::min(attachedCount_, out.size());
-        for (std::size_t i = 0; i < count; ++i) out[i] = draw(attached_[i]);
+        for (std::size_t i = 0; i < count; ++i) {
+            out[i] = draw(attached_[i]);
+        }
         return count;
     }
 
     void BubbleMotion::nucleate(double dt, Vec2 acceleration) {
-        if (params_.microbubbles <= 0 || params_.strength <= 0) return;
+        if (params_.microbubbles <= 0 || params_.strength <= 0) {
+            return;
+        }
         const double limit = dragLimit();
         const double stretch = limit > 0 ? std::clamp(length(lag_) / limit, 0.0, 1.0) : 0;
         const double travel = std::clamp((speed_ - 150) / 1200, 0.0, 1.5);
-        if (travel <= 0) return;
+        if (travel <= 0) {
+            return;
+        }
         const double turn = turning(velocity_, speed_, acceleration);
         // Stretched, fast-moving film is where it thins and sheds bubbles.
         spawn_ += params_.microbubbles * 12 * travel * (.35 + stretch + turn) * dt;
         while (spawn_ >= threshold_) {
             spawn_ -= threshold_;
             threshold_ = -std::log(1 - draw01());
-            if (attachedCount_ >= attached_.size()) continue;
+            if (attachedCount_ >= attached_.size()) {
+                continue;
+            }
             Attached b;
             const double trailing = trailingAngle();
-            b.angle = draw01() < .75 ? trailing + (draw01() + draw01() + draw01() - 1.5) * 1.1
+            b.angle = draw01() < .75 ? trailing + ((draw01() + draw01() + draw01() - 1.5) * 1.1)
                                      : kTau * draw01();
             const double r = draw01();
-            b.radius = (4 + 9 * r * r) * std::clamp(reference() / 700, .8, 1.35);
-            b.grow = .14 + .2 * draw01();
-            b.life = .45 + 1.1 * draw01();
-            b.thickness = 320 + 520 * draw01();
+            b.radius = (4 + (9 * r * r)) * std::clamp(reference() / 700, .8, 1.35);
+            b.grow = .14 + (.2 * draw01());
+            b.life = .45 + (1.1 * draw01());
+            b.thickness = 320 + (520 * draw01());
             b.seed = draw01();
             const double fate = draw01();
             b.fate = fate < .5 ? Fate::Detach : fate < .72 ? Fate::Merge : Fate::Collapse;
@@ -497,10 +559,14 @@ namespace hyprimate {
             if (b.merging || (expired && b.fate == Fate::Merge && b.collapse == 0)) {
                 b.merging = true;
                 b.growth -= dt / .3;
-                if (b.growth <= 0) continue;
+                if (b.growth <= 0) {
+                    continue;
+                }
             } else if (b.collapse > 0 || expired) {
                 b.collapse += dt / .09;
-                if (b.collapse >= 1) continue;
+                if (b.collapse >= 1) {
+                    continue;
+                }
             } else {
                 b.growth = std::min(1.0, b.age / b.grow);
                 const double off = std::remainder(b.angle - trailing, kTau);
@@ -512,10 +578,10 @@ namespace hyprimate {
                         r.micro = draw(b);
                         r.micro.attach = 0;
                         r.micro.anchor = r.micro.centre;
-                        r.velocity = add(add(mul(velocity_, .55 + .3 * draw01()),
+                        r.velocity = add(add(mul(velocity_, .55 + (.3 * draw01())),
                                              mul(here.tangent, b.slip * here.stretch)),
-                            mul(here.normal, 20 + 25 * draw01()));
-                        r.life = .35 + .55 * draw01();
+                            mul(here.normal, 20 + (25 * draw01())));
+                        r.life = .35 + (.55 * draw01());
                         releases_[releaseCount_++] = r;
                     }
                     continue;
@@ -533,26 +599,34 @@ namespace hyprimate {
             return;
         }
         travel_ += speed_ * dt;
-        if (trailing_ && travel_ < std::clamp(speed_ * .02, 12.0, 40.0)) return;
+        if (trailing_ && travel_ < std::clamp(speed_ * .02, 12.0, 40.0)) {
+            return;
+        }
         travel_ = 0;
-        if (trailCount_ >= trail_.size()) return;
+        if (trailCount_ >= trail_.size()) {
+            return;
+        }
         const Vec2 dir = mul(velocity_, 1 / speed_);
         const auto o = outline(trailingAngle());
         const double across = std::abs(body_.w * .5 * dir.y) + std::abs(body_.h * .5 * dir.x);
         // A contracted bubble sheds film as wide as it now is.
         const double reshaped =
             std::abs(shape_.extent.x * dir.y) + std::abs(shape_.extent.y * dir.x);
-        const double width = across + (reshaped - across) * std::clamp(shape_.round, 0.0, 1.0);
+        const double width = across + ((reshaped - across) * std::clamp(shape_.round, 0.0, 1.0));
         // Sharp turns and a stretched film shed more of it.
         const double turn = turning(velocity_, speed_, acceleration);
         const double limit = dragLimit();
         const double stretch = limit > 0 ? std::clamp(length(lag_) / limit, 0.0, 1.0) : 0;
         const double density = std::clamp(
             2 * params_.trail * std::pow(std::clamp((speed_ - kTrailSpeed) / 2200, 0.0, 1.0), .8) *
-                (.7 + .5 * stretch + .6 * turn),
+                (.7 + (.5 * stretch) + (.6 * turn)),
             0.0,
             1.0);
-        trail_[trailCount_++] = {o.point, dir, width * (.22 + .3 * density), density, !trailing_};
+        trail_[trailCount_++] = {.position = o.point,
+            .direction = dir,
+            .halfWidth = width * (.22 + (.3 * density)),
+            .density = density,
+            .start = !trailing_};
         trailing_ = true;
     }
 

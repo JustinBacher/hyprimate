@@ -11,15 +11,14 @@ namespace hyprimate {
     // Bare names refer to PNGs in the sprite directory; explicit paths are used directly.
     std::string spritePath(std::string_view value, std::string_view directory);
 
-
     // How a creature is drawn, independent of how the swarm moves: the sheet's walk cycle, which
     // way it faces, and what its silhouette measures. The simulation only supplies where an agent
     // is, how far it has walked and how locked it is.
     // One square frame of a sprite sheet, measured from its alpha. Lengths are fractions of the
     // frame's side.
     struct SpriteFrame {
-        Vec2 centre{0.5, 0.5};  // deepest point of the silhouette: the body, which the creature
-                                // turns and grows about
+        Vec2 centre{.x = 0.5, .y = 0.5};  // deepest point of the silhouette: the body, which the
+                                          // creature turns and grows about
         double core = 0.0;  // radius of the largest solid disc around `centre`
         double reach = 0.0;  // distance from `centre` to the farthest solid texel
     };

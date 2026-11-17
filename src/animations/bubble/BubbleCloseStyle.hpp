@@ -20,7 +20,9 @@ namespace close_style {
         const std::function<std::span<const hyprimate::Box>()> &,
         const std::function<std::uint64_t()> &nextSeed,
         const std::function<hyprimate::EdgeSet()> &) {
-        if (!style.renderer) return false;
+        if (!style.renderer) {
+            return false;
+        }
         pending.closeData =
             SBubbleCloseData{.duration = config.close.bubble.duration, .seed = nextSeed()};
         pending.style = std::move(style);
@@ -34,7 +36,9 @@ namespace close_style {
         style.bubble.begin(
             hyprimate::Transition::Close, data.duration, data.seed, pending.captureLogical);
         // An interrupted opening hands over its clock, so its pending beads keep landing in step.
-        if (!style.impacts.running()) style.impacts.start();
+        if (!style.impacts.running()) {
+            style.impacts.start();
+        }
     }
     inline bool running(const SBubbleStyle &style) {
         return style.bubble.active();
@@ -65,7 +69,7 @@ namespace close_style {
         CRegion) {
         return false;
     }
-    inline void fill(SBubbleStyle &style, Record &record) {
+    inline void fill(const SBubbleStyle &style, Record &record) {
         const auto bounds = style.bubble.bounds(record.captureLogical);
         if (bounds.w <= 0.0 || bounds.h <= 0.0) {
             record.extentsDevice = CBox{};
@@ -73,26 +77,29 @@ namespace close_style {
         }
         const double sx = record.sourceDevice.w / record.captureLogical.x;
         const double sy = record.sourceDevice.h / record.captureLogical.y;
-        record.extentsDevice = CBox{record.sourceDevice.x + bounds.x * sx,
-            record.sourceDevice.y + bounds.y * sy,
+        record.extentsDevice = CBox{record.sourceDevice.x + (bounds.x * sx),
+            record.sourceDevice.y + (bounds.y * sy),
             bounds.w * sx,
             bounds.h * sy}
                                    .expand(2.0);
-        const double x = std::floor(record.extentsDevice.x), y = std::floor(record.extentsDevice.y);
+        const double x = std::floor(record.extentsDevice.x);
+        const double y = std::floor(record.extentsDevice.y);
         record.extentsDevice = CBox{x,
             y,
             std::ceil(record.extentsDevice.x + record.extentsDevice.w) - x,
             std::ceil(record.extentsDevice.y + record.extentsDevice.h) - y};
     }
     inline void render(SBubbleStyle &style,
-        Record &record,
+        const Record &record,
         Render::CRenderContext &ctx,
         const PHLMONITOR &monitor,
         const SP<Render::ITexture> &tex,
         const SP<CSolidFill> &,
         const SP<CPaperShade> &,
         const SP<CSwarmSprites> &) {
-        if (!style.renderer || record.extentsDevice.empty() || record.sourceAlpha <= 0.F) return;
+        if (!style.renderer || record.extentsDevice.empty() || record.sourceAlpha <= 0.F) {
+            return;
+        }
         CBubblePassElement::SData data;
         data.renderer = style.renderer;
         data.draw = SBubbleDraw{
@@ -101,9 +108,9 @@ namespace close_style {
             .frame = style.bubble.frame(record.captureLogical),
             .canvas = record.extentsDevice.size(),
             .source = record.sourceDevice,
-            .textureOrigin = {0.0, 0.0},
-            .textureSize = {record.snapshotSize.x, record.snapshotSize.y},
-            .outputOrigin = {record.extentsDevice.x, record.extentsDevice.y},
+            .textureOrigin = {.x = 0.0, .y = 0.0},
+            .textureSize = {.x = record.snapshotSize.x, .y = record.snapshotSize.y},
+            .outputOrigin = {.x = record.extentsDevice.x, .y = record.extentsDevice.y},
         };
         if (!ctx.readOnlyEffects() && !ctx.m_renderingCapture && !ctx.m_renderingSnapshot) {
             const auto source = project(record.sourceDevice, record.renderBox, record.snapshotSize)

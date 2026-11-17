@@ -1,10 +1,17 @@
 #include <algorithm>
 #include <cmath>
 #include <utility>
+#include <vector>
 
+#include <GLES3/gl32.h>
+#include <hyprland/src/helpers/memory/Memory.hpp>
+#include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/render/gl/GLFramebuffer.hpp>
+#include <hyprland/src/render/pass/PassElement.hpp>
+#include <hyprutils/math/Box.hpp>
+#include <hyprutils/memory/UniquePtr.hpp>
 
 #include "BubbleWallpaper.hpp"
 
@@ -17,30 +24,37 @@ namespace {
 
         ~CBubbleWallpaperPass() override {
             // A discarded pass or an unavailable target is not a completed capture.
-            if (!m_wallpaper->framebuffer) m_wallpaper->queued = false;
+            if (!m_wallpaper->framebuffer) {
+                m_wallpaper->queued = false;
+            }
         }
 
         std::vector<UP<IPassElement>> draw(Render::CRenderContext &ctx) override {
             if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL || ctx.readOnlyEffects() ||
                 ctx.m_renderingCapture || ctx.m_renderingSnapshot ||
-                g_pHyprRenderer->type() != Render::IHyprRenderer::RT_GL)
+                g_pHyprRenderer->type() != Render::IHyprRenderer::RT_GL) {
                 return {};
+            }
             const auto source = ctx.m_data.currentFB;
             if (!source || !source->getTexture() || !source->getTexture()->m_texID ||
-                m_source.empty())
+                m_source.empty()) {
                 return {};
+            }
 
             // Native projection accounts for framebuffer orientation and the current render target.
             CBox box = m_source;
             ctx.m_data.renderModif.applyToBox(box);
             const auto matrix = g_pHyprRenderer->projectBoxToTarget(ctx, box).getMatrix();
             const auto project = [&](double u, double v) {
-                return Vector2D{
-                    (0.5 + 0.5 * (matrix[0] * u + matrix[1] * v + matrix[2])) * source->m_size.x,
-                    (0.5 + 0.5 * (matrix[3] * u + matrix[4] * v + matrix[5])) * source->m_size.y};
+                return Vector2D{(0.5 + (0.5 * ((matrix[0] * u) + (matrix[1] * v) + matrix[2]))) *
+                                    source->m_size.x,
+                    (0.5 + (0.5 * ((matrix[3] * u) + (matrix[4] * v) + matrix[5]))) *
+                        source->m_size.y};
             };
-            const auto p0 = project(0, 0), px = project(1, 0), py = project(0, 1),
-                       pxy = project(1, 1);
+            const auto p0 = project(0, 0);
+            const auto px = project(1, 0);
+            const auto py = project(0, 1);
+            const auto pxy = project(1, 1);
             const double x = std::max(0.0, std::floor(std::min({p0.x, px.x, py.x, pxy.x})) - 1.0);
             const double y = std::max(0.0, std::floor(std::min({p0.y, px.y, py.y, pxy.y})) - 1.0);
             const double right =
@@ -49,13 +63,15 @@ namespace {
                 std::min(source->m_size.y, std::ceil(std::max({p0.y, px.y, py.y, pxy.y})) + 1.0);
             const Vector2D extent{right - x, top - y};
             if (!(extent.x > 0 && extent.y > 0) || !std::isfinite(extent.x) ||
-                !std::isfinite(extent.y))
+                !std::isfinite(extent.y)) {
                 return {};
+            }
 
             auto &gl = *Render::GL::g_pHyprOpenGL;
-            Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
-            auto state = ctx.saveDrawState();
-            GLint active, texture;
+            const Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
+            const auto state = ctx.saveDrawState();
+            GLint active = 0;
+            GLint texture = 0;
             glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
             gl.setActiveTexture(GL_TEXTURE0);
             glGetIntegerv(GL_TEXTURE_BINDING_2D, &texture);
@@ -63,8 +79,9 @@ namespace {
             glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(texture));
             gl.setActiveTexture(static_cast<GLenum>(active));
             if (!destination || !destination->getTexture() ||
-                destination->getTexture()->m_texID == source->getTexture()->m_texID)
+                destination->getTexture()->m_texID == source->getTexture()->m_texID) {
                 return {};
+            }
 
             const bool scissor = glIsEnabled(GL_SCISSOR_TEST);
             gl.setCapStatus(GL_SCISSOR_TEST, false);
@@ -120,11 +137,13 @@ namespace {
 void queueBubbleWallpaper(
     Render::CRenderContext &ctx, const SP<SBubbleWallpaper> &wallpaper, const CBox &source) {
     if (!wallpaper || wallpaper->queued || ctx.readOnlyEffects() || ctx.m_renderingCapture ||
-        ctx.m_renderingSnapshot || ctx.m_mode != Render::RENDER_MODE_NORMAL)
+        ctx.m_renderingSnapshot || ctx.m_mode != Render::RENDER_MODE_NORMAL) {
         return;
+    }
     if (!ctx.m_data.pMonitor ||
-        source.copy().intersection(CBox{{}, ctx.m_data.pMonitor->m_transformedSize}).empty())
+        source.copy().intersection(CBox{{}, ctx.m_data.pMonitor->m_transformedSize}).empty()) {
         return;
+    }
     wallpaper->queued = true;
     Render::IHyprRenderer::addPassElement(ctx, makeUnique<CBubbleWallpaperPass>(wallpaper, source));
 }

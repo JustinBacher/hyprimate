@@ -1,9 +1,12 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <numbers>
 
+#include "animations/shared/Core.hpp"
 #include "animations/swarm/Swarm.hpp"
 
 namespace hyprimate {
@@ -109,22 +112,22 @@ namespace hyprimate {
         constexpr std::array<Edge, 4> kEdges{Edge::Left, Edge::Right, Edge::Top, Edge::Bottom};
 
         Vec2 operator+(Vec2 a, Vec2 b) noexcept {
-            return {a.x + b.x, a.y + b.y};
+            return {.x = a.x + b.x, .y = a.y + b.y};
         }
         Vec2 operator-(Vec2 a, Vec2 b) noexcept {
-            return {a.x - b.x, a.y - b.y};
+            return {.x = a.x - b.x, .y = a.y - b.y};
         }
         Vec2 operator*(Vec2 a, double s) noexcept {
-            return {a.x * s, a.y * s};
+            return {.x = a.x * s, .y = a.y * s};
         }
         double dot(Vec2 a, Vec2 b) noexcept {
-            return a.x * b.x + a.y * b.y;
+            return (a.x * b.x) + (a.y * b.y);
         }
         double length(Vec2 a) noexcept {
             return std::hypot(a.x, a.y);
         }
         double lerp(double a, double b, double t) noexcept {
-            return a + (b - a) * t;
+            return a + ((b - a) * t);
         }
         double unit(double v) noexcept {
             return std::clamp(v, 0.0, 1.0);
@@ -137,8 +140,9 @@ namespace hyprimate {
 
         // `a` turned clockwise on screen (y down) by `angle`.
         Vec2 turned(Vec2 a, double angle) noexcept {
-            const double c = std::cos(angle), s = std::sin(angle);
-            return {a.x * c - a.y * s, a.x * s + a.y * c};
+            const double c = std::cos(angle);
+            const double s = std::sin(angle);
+            return {(a.x * c) - (a.y * s), (a.x * s) + (a.y * c)};
         }
 
         double wrapAngle(double a) noexcept {
@@ -177,13 +181,13 @@ namespace hyprimate {
         Vec2 beyond(const Box &s, Edge e, double along, double depth) noexcept {
             switch (e) {
                 case Edge::Left:
-                    return {s.x - depth, along};
+                    return {.x = s.x - depth, .y = along};
                 case Edge::Right:
-                    return {s.x + s.w + depth, along};
+                    return {.x = s.x + s.w + depth, .y = along};
                 case Edge::Top:
-                    return {along, s.y - depth};
+                    return {.x = along, .y = s.y - depth};
                 case Edge::Bottom:
-                    return {along, s.y + s.h + depth};
+                    return {.x = along, .y = s.y + s.h + depth};
             }
             return {};
         }
@@ -191,19 +195,19 @@ namespace hyprimate {
         std::uint32_t bucket(Vec2 p, double cell) noexcept {
             const auto ix = static_cast<std::int64_t>(std::floor(p.x / cell)) & (kHashSide - 1);
             const auto iy = static_cast<std::int64_t>(std::floor(p.y / cell)) & (kHashSide - 1);
-            return static_cast<std::uint32_t>(iy * kHashSide + ix);
+            return static_cast<std::uint32_t>((iy * kHashSide) + ix);
         }
 
     }  // namespace
 
     void Swarm::layout(const SwarmPlacement &placement) {
         const Box &capture = placement.capture;
-        m_origin = {capture.x, capture.y};
-        m_size = {capture.w, capture.h};
-        m_screen = {placement.screen.x - capture.x,
-            placement.screen.y - capture.y,
-            placement.screen.w,
-            placement.screen.h};
+        m_origin = {.x = capture.x, .y = capture.y};
+        m_size = {.x = capture.w, .y = capture.h};
+        m_screen = {.x = placement.screen.x - capture.x,
+            .y = placement.screen.y - capture.y,
+            .w = placement.screen.w,
+            .h = placement.screen.h};
 
         // The body, clipped to the capture; a body that is unusable or outside it falls back to the
         // whole capture.
@@ -214,36 +218,41 @@ namespace hyprimate {
         const double y1 =
             std::clamp(placement.body.y + placement.body.h - capture.y, 0.0, capture.h);
         m_body = isUsable(placement.body) && x1 - x0 >= 1.0 && y1 - y0 >= 1.0
-                     ? Box{x0, y0, x1 - x0, y1 - y0}
-                     : Box{0.0, 0.0, capture.w, capture.h};
+                     ? Box{.x = x0, .y = y0, .w = x1 - x0, .h = y1 - y0}
+                     : Box{.x = 0.0, .y = 0.0, .w = capture.w, .h = capture.h};
 
         const auto count = static_cast<int>(m_agents.size());
-        if (m_rows == 0)
+        if (m_rows == 0) {
             m_rows = std::clamp(
                 static_cast<int>(std::lround(std::sqrt(count * m_body.h / m_body.w))), 1, count);
+        }
         const int rows = m_rows;
         m_spacing = std::sqrt(m_body.w * m_body.h / count);
 
         // Rows share the agents as evenly as integers allow, so every row's tiles are near square.
-        const auto columnsOf = [&](int r) { return (r + 1) * count / rows - r * count / rows; };
+        const auto columnsOf = [&](int r) { return ((r + 1) * count / rows) - (r * count / rows); };
         int index = 0;
         for (int r = 0; r < rows; ++r) {
             const int columns = columnsOf(r);
-            const double top = m_body.y + m_body.h * r / rows;
-            const double bottom = m_body.y + m_body.h * (r + 1) / rows;
+            const double top = m_body.y + (m_body.h * r / rows);
+            const double bottom = m_body.y + (m_body.h * (r + 1) / rows);
             for (int c = 0; c < columns; ++c) {
-                const double left = m_body.x + m_body.w * c / columns;
-                const double right = m_body.x + m_body.w * (c + 1) / columns;
+                const double left = m_body.x + (m_body.w * c / columns);
+                const double right = m_body.x + (m_body.w * (c + 1) / columns);
                 SwarmAgent &a = m_agents[static_cast<std::size_t>(index++)];
                 // Outermost tiles extend over the decoration margin to the capture's edge.
-                const double tx0 = c == 0 ? 0.0 : left, tx1 = c == columns - 1 ? m_size.x : right;
-                const double ty0 = r == 0 ? 0.0 : top, ty1 = r == rows - 1 ? m_size.y : bottom;
-                a.tile = {tx0, ty0, tx1 - tx0, ty1 - ty0};
-                a.home = {0.5 * (left + right), 0.5 * (top + bottom)};
+                const double tx0 = c == 0 ? 0.0 : left;
+                const double tx1 = c == columns - 1 ? m_size.x : right;
+                const double ty0 = r == 0 ? 0.0 : top;
+                const double ty1 = r == rows - 1 ? m_size.y : bottom;
+                a.tile = {.x = tx0, .y = ty0, .w = tx1 - tx0, .h = ty1 - ty0};
+                a.home = {.x = 0.5 * (left + right), .y = 0.5 * (top + bottom)};
                 a.fit = 0.5 * std::min(right - left, bottom - top);
                 a.reach = std::hypot(std::max(a.home.x - tx0, tx1 - a.home.x),
                     std::max(a.home.y - ty0, ty1 - a.home.y));
-                if (a.docked) a.position = a.home;
+                if (a.docked) {
+                    a.position = a.home;
+                }
             }
         }
     }
@@ -258,12 +267,12 @@ namespace hyprimate {
             a.docked = true;
             a.lock = 1.0;
             a.visible = true;
-            a.pace = 1.0 + m_params.variation * kPaceSpread * (unitDraw(m_rng) - 0.5);
+            a.pace = 1.0 + (m_params.variation * kPaceSpread * (unitDraw(m_rng) - 0.5));
             a.grip = lerp(kGripMin, kGripMax, m_params.responsiveness) *
-                     (1.0 + m_params.variation * kGripSpread * (unitDraw(m_rng) - 0.5));
-            a.rest = std::numbers::pi * (2.0 * unitDraw(m_rng) - 1.0);
+                     (1.0 + (m_params.variation * kGripSpread * (unitDraw(m_rng) - 0.5)));
+            a.rest = std::numbers::pi * ((2.0 * unitDraw(m_rng)) - 1.0);
             a.reaction = kReactionShare * m_params.stagger * unitDraw(m_rng);
-            a.arc = kArcAngle * m_params.variation * (2.0 * unitDraw(m_rng) - 1.0);
+            a.arc = kArcAngle * m_params.variation * ((2.0 * unitDraw(m_rng)) - 1.0);
             a.weave = 2.0 * std::numbers::pi * unitDraw(m_rng);
             a.weaveRate = lerp(kWeaveRateMin, kWeaveRateMax, unitDraw(m_rng));
             a.gait = 2.0 * std::numbers::pi * unitDraw(m_rng);
@@ -284,31 +293,36 @@ namespace hyprimate {
         const SwarmPlacement &placement,
         EdgeSet sides) {
         if (!isUsable(placement.capture) || !isUsable(placement.screen) || sides.empty() ||
-            !finite(params))
+            !finite(params)) {
             return;
+        }
 
         const bool closing = kind == Transition::Close;
-        if (!closing || !active() || m_agents.empty())
+        if (!closing || !active() || m_agents.empty()) {
             build(params, seed, placement);
-        else {
+        } else {
             // A close during an opening or a movement keeps the agents where they are.
             m_params = sane(params);
             m_params.count = static_cast<int>(m_agents.size());
-            m_screen = {placement.screen.x - m_origin.x,
-                placement.screen.y - m_origin.y,
-                placement.screen.w,
-                placement.screen.h};
+            m_screen = {.x = placement.screen.x - m_origin.x,
+                .y = placement.screen.y - m_origin.y,
+                .w = placement.screen.w,
+                .h = placement.screen.h};
             m_shift = {};
             m_time = 0.0;
         }
         m_phase = closing ? Phase::Closing : Phase::Opening;
-        if (!closing) m_rounding = 1.0;
+        if (!closing) {
+            m_rounding = 1.0;
+        }
 
         const double cruise = m_params.speed;
         std::array<Edge, 4> allowed{};
         std::size_t edges = 0;
-        for (Edge e : kEdges) {
-            if (sides.has(e)) allowed[edges++] = e;
+        for (const Edge e : kEdges) {
+            if (sides.has(e)) {
+                allowed[edges++] = e;
+            }
         }
 
         double longest = 0.0;
@@ -319,7 +333,7 @@ namespace hyprimate {
                 allowed[std::min(edges - 1, static_cast<std::size_t>(unitDraw(m_rng) * edges))];
             const bool hz = horizontal(edge);
             const double along =
-                (hz ? m_screen.x : m_screen.y) + (hz ? m_screen.w : m_screen.h) * unitDraw(m_rng);
+                (hz ? m_screen.x : m_screen.y) + ((hz ? m_screen.w : m_screen.h) * unitDraw(m_rng));
 
             if (closing) {
                 if (!a.visible) {
@@ -329,7 +343,7 @@ namespace hyprimate {
                 }
                 a.leaving = true;
                 a.due = 0.0;
-                a.exit = beyond(m_screen, edge, along, kExitDepth * a.fit + a.reach);
+                a.exit = beyond(m_screen, edge, along, (kExitDepth * a.fit) + a.reach);
                 // Agents let go in random order over the stagger; those already loose leave at
                 // once.
                 a.delay = a.docked ? m_params.stagger * unitDraw(m_rng) : 0.0;
@@ -355,36 +369,44 @@ namespace hyprimate {
         // therefore fill in no order, whether they are near an edge or far from it.
         double first = std::numeric_limits<double>::infinity();
         for (SwarmAgent &a : m_agents) {
-            if (a.gone) continue;
+            if (a.gone) {
+                continue;
+            }
             if (!closing) {
                 const double walk = a.due;
-                a.due = kLead * longest + m_params.stagger * unitDraw(m_rng);
+                a.due = (kLead * longest) + (m_params.stagger * unitDraw(m_rng));
                 a.delay = std::max(0.0, a.due - walk);
             }
             first = std::min(first, a.delay);
         }
         // The first to go goes now, so the animation never opens on a wait.
         for (SwarmAgent &a : m_agents) {
-            if (a.gone) continue;
+            if (a.gone) {
+                continue;
+            }
             a.delay -= first;
-            if (!closing) a.due -= first;
+            if (!closing) {
+                a.due -= first;
+            }
         }
     }
 
     void Swarm::beginMovement(
         const SwarmParams &params, std::uint64_t seed, const SwarmPlacement &placement) {
         if (m_phase != Phase::Idle || !isUsable(placement.capture) || !isUsable(placement.screen) ||
-            !finite(params))
+            !finite(params)) {
             return;
+        }
         build(params, seed, placement);
         m_phase = Phase::Movement;
     }
 
     void Swarm::updateMovement(const SwarmPlacement &placement) {
         if ((m_phase != Phase::Opening && m_phase != Phase::Movement) ||
-            !isUsable(placement.capture) || !isUsable(placement.screen))
+            !isUsable(placement.capture) || !isUsable(placement.screen)) {
             return;
-        m_shift = m_shift + (Vec2{placement.capture.x, placement.capture.y} - m_origin);
+        }
+        m_shift = m_shift + (Vec2{.x = placement.capture.x, .y = placement.capture.y} - m_origin);
         layout(placement);
     }
 
@@ -398,10 +420,14 @@ namespace hyprimate {
     }
 
     Box Swarm::bounds() const noexcept {
-        double x0 = std::numeric_limits<double>::infinity(), y0 = x0;
-        double x1 = -x0, y1 = -x0;
+        double x0 = std::numeric_limits<double>::infinity();
+        double y0 = x0;
+        double x1 = -x0;
+        double y1 = -x0;
         for (const SwarmAgent &a : m_agents) {
-            if (!a.visible) continue;
+            if (!a.visible) {
+                continue;
+            }
             x0 = std::min(x0, a.position.x - a.reach);
             y0 = std::min(y0, a.position.y - a.reach);
             x1 = std::max(x1, a.position.x + a.reach);
@@ -411,16 +437,22 @@ namespace hyprimate {
         y0 = std::max(y0, m_screen.y);
         x1 = std::min(x1, m_screen.x + m_screen.w);
         y1 = std::min(y1, m_screen.y + m_screen.h);
-        if (!(x1 > x0 && y1 > y0)) return {};
-        return {x0, y0, x1 - x0, y1 - y0};
+        if (!(x1 > x0 && y1 > y0)) {
+            return {};
+        }
+        return {.x = x0, .y = y0, .w = x1 - x0, .h = y1 - y0};
     }
 
     bool Swarm::advance(double elapsedSeconds, bool movementHeld) {
-        if (!active()) return false;
+        if (!active()) {
+            return false;
+        }
         const double dt = std::isfinite(elapsedSeconds) && elapsedSeconds > 0.0
                               ? std::min(elapsedSeconds, kStallSeconds)
                               : 0.0;
-        if (!(dt > 0.0)) return true;
+        if (!(dt > 0.0)) {
+            return true;
+        }
         const bool wandering = moving() && movementHeld && m_params.wander > 0.0;
         if (wandering) {
             for (SwarmAgent &a : m_agents) {
@@ -435,7 +467,9 @@ namespace hyprimate {
             // Agents live in the window's frame. One that lets go stays where it is on screen, so
             // it shifts back here.
             for (SwarmAgent &a : m_agents) {
-                if (a.gone || (a.docked && speed <= a.grip)) continue;
+                if (a.gone || (a.docked && speed <= a.grip)) {
+                    continue;
+                }
                 a.position = a.position - m_shift;
                 if (a.docked) {
                     // It was riding the window. It stays put for its reaction time, then sets off
@@ -448,9 +482,12 @@ namespace hyprimate {
                 }
             }
             m_still = 0.0;
-        } else if (!wandering)
+        } else if (!wandering) {
             m_still += dt;
-        if (wandering) m_still = 0.0;
+        }
+        if (wandering) {
+            m_still = 0.0;
+        }
         m_windowSpeed = std::max(speed, m_windowSpeed * std::exp(-dt / kWindowSpeedHold));
         m_shift = {};
 
@@ -462,13 +499,15 @@ namespace hyprimate {
 
         if (m_phase == Phase::Closing) {
             if (m_time > m_params.stagger + kCloseDeadline ||
-                std::ranges::all_of(m_agents, [](const SwarmAgent &a) { return a.gone; }))
+                std::ranges::all_of(m_agents, [](const SwarmAgent &a) { return a.gone; })) {
                 m_phase = Phase::Closed;
+            }
         } else if (!wandering && m_rounding <= 0.0 &&
                    std::ranges::all_of(m_agents, [](const SwarmAgent &a) {
                        return a.docked && a.lock >= 1.0 && a.turn <= 0.0;
-                   }))
+                   })) {
             m_phase = Phase::Idle;
+        }
         return active();
     }
 
@@ -478,19 +517,26 @@ namespace hyprimate {
         m_cellOf.assign(m_agents.size(), kNoCell);
         for (std::size_t i = 0; i < m_agents.size(); ++i) {
             const SwarmAgent &a = m_agents[i];
-            if (a.docked || a.gone || !a.visible) continue;
+            if (a.docked || a.gone || !a.visible) {
+                continue;
+            }
             m_cellOf[i] = bucket(a.position, cell);
             ++m_cellStart[m_cellOf[i] + 1];
         }
-        for (int c = 0; c < kHashCells; ++c) m_cellStart[c + 1] += m_cellStart[c];
+        for (int c = 0; c < kHashCells; ++c) {
+            m_cellStart[c + 1] += m_cellStart[c];
+        }
         m_cellItems.resize(m_cellStart[kHashCells]);
         // Filling from each bucket's end leaves m_cellStart pointing at the bucket starts again.
         for (std::size_t i = m_agents.size(); i-- > 0;) {
-            if (m_cellOf[i] != kNoCell)
+            if (m_cellOf[i] != kNoCell) {
                 m_cellItems[--m_cellStart[m_cellOf[i] + 1]] = static_cast<std::uint32_t>(i);
+            }
         }
         // Each start slid down one bucket; shift them back.
-        for (int c = 0; c < kHashCells; ++c) m_cellStart[c] = m_cellStart[c + 1];
+        for (int c = 0; c < kHashCells; ++c) {
+            m_cellStart[c] = m_cellStart[c + 1];
+        }
         m_cellStart[kHashCells] = static_cast<std::uint32_t>(m_cellItems.size());
     }
 
@@ -509,49 +555,59 @@ namespace hyprimate {
                                        length(agent.home - agent.position));
         };
         const double own = transit(a);
-        const Vec2 right{-forward.y, forward.x};  // its right-hand side on screen
+        const Vec2 right{.x = -forward.y, .y = forward.x};  // its right-hand side on screen
         const auto cx = static_cast<std::int64_t>(std::floor(a.position.x / cell));
         const auto cy = static_cast<std::int64_t>(std::floor(a.position.y / cell));
 
         Crowd out;
-        Vec2 push{}, dodge{}, velocity{}, centre{};
+        Vec2 push{};
+        Vec2 dodge{};
+        Vec2 velocity{};
+        Vec2 centre{};
         int neighbours = 0;
         for (std::int64_t dy = -1; dy <= 1; ++dy) {
             for (std::int64_t dx = -1; dx <= 1; ++dx) {
                 const auto c = static_cast<std::size_t>(
-                    ((cy + dy) & (kHashSide - 1)) * kHashSide + ((cx + dx) & (kHashSide - 1)));
-                const std::uint32_t begin = m_cellStart[c], end = m_cellStart[c + 1];
+                    (((cy + dy) & (kHashSide - 1)) * kHashSide) + ((cx + dx) & (kHashSide - 1)));
+                const std::uint32_t begin = m_cellStart[c];
+                const std::uint32_t end = m_cellStart[c + 1];
                 for (std::uint32_t k = begin; k < end; ++k) {
                     const std::size_t j = m_cellItems[k];
-                    if (j == index) continue;
+                    if (j == index) {
+                        continue;
+                    }
                     const SwarmAgent &b = m_agents[j];
                     const Vec2 away = a.position - b.position;
                     const double d = length(away);
-                    if (d > cell) continue;
+                    if (d > cell) {
+                        continue;
+                    }
                     // Coincident agents part along a direction fixed by their order.
                     const Vec2 normal =
-                        d > 1e-6 ? away * (1.0 / d) : Vec2{index < j ? 1.0 : -1.0, 0.0};
+                        d > 1e-6 ? away * (1.0 / d) : Vec2{.x = index < j ? 1.0 : -1.0, .y = 0.0};
                     const double closing =
                         -dot(a.velocity - b.velocity, normal);  // px/s the gap is shrinking by
 
                     // Bodies in transit do not pass through each other: each of the two backs out
                     // of half the overlap and gives up half the speed they were closing with.
-                    const double overlap = body + kSwarmBodyShare * b.fit - d;
+                    const double overlap = body + (kSwarmBodyShare * b.fit) - d;
                     const double ahead = -dot(normal, forward);
                     const bool inWay = d < look && ahead > 0.0 && closing > 0.0;
                     const double solid = overlap > 0.0 || inWay ? std::min(own, transit(b)) : 0.0;
                     if (overlap > 0.0) {
                         out.shove = out.shove + normal * (0.5 * overlap * solid);
-                        if (closing > 0.0) out.check = out.check + normal * (0.5 * closing * solid);
+                        if (closing > 0.0) {
+                            out.check = out.check + normal * (0.5 * closing * solid);
+                        }
                     }
                     if (d < near) {
-                        const double w = 1.0 - d / near;
+                        const double w = 1.0 - (d / near);
                         push = push + normal * (w * w);
                     }
                     // Someone ahead that it is gaining on: step to the side they are not on. Dead
                     // ahead, step left, so two meeting head-on pass each other.
                     if (inWay) {
-                        const double w = solid * (1.0 - d / look) * ahead *
+                        const double w = solid * (1.0 - (d / look)) * ahead *
                                          std::min(1.0, closing / (kAvoidSpeed * m_params.speed));
                         dodge = dodge + right * (dot(normal, right) > 0.0 ? w : -w);
                     }
@@ -591,11 +647,15 @@ namespace hyprimate {
 
         for (std::size_t i = 0; i < m_agents.size(); ++i) {
             SwarmAgent &a = m_agents[i];
-            if (a.gone) continue;
+            if (a.gone) {
+                continue;
+            }
             a.due -= kStep;
             if (a.delay > 0.0) {
                 a.delay -= kStep;
-                if (a.delay > 0.0) continue;
+                if (a.delay > 0.0) {
+                    continue;
+                }
                 a.delay = 0.0;
             }
             // Past its delay an opening agent is on its way in, and a closing one lets go of the
@@ -613,23 +673,28 @@ namespace hyprimate {
             }
             if (a.docked) {
                 // Keep the creature alive while its carried tile straightens and fills in.
-                if (a.lock < 1.0) a.walk += 4.0 * a.fit * kStep;
-                if (a.turn > 0.0)
-                    a.turn = std::max(0.0, a.turn - kStep / kTurnTime);
-                else
-                    a.lock = std::min(1.0, a.lock + kStep / merge);
+                if (a.lock < 1.0) {
+                    a.walk += 4.0 * a.fit * kStep;
+                }
+                if (a.turn > 0.0) {
+                    a.turn = std::max(0.0, a.turn - (kStep / kTurnTime));
+                } else {
+                    a.lock = std::min(1.0, a.lock + (kStep / merge));
+                }
                 continue;
             }
 
-            a.lock = std::max(0.0, a.lock - kStep / kSplitTime);
-            if (a.leaving && a.lock > kHoldLock) continue;
+            a.lock = std::max(0.0, a.lock - (kStep / kSplitTime));
+            if (a.leaving && a.lock > kHoldLock) {
+                continue;
+            }
 
             const double cruise = m_params.speed * a.pace;
             const double limit = cruise * force;
             const double pace = length(a.velocity);
             const Vec2 forward = pace > kHeadingSpeed * cruise
                                      ? a.velocity * (1.0 / pace)
-                                     : Vec2{std::cos(a.heading), std::sin(a.heading)};
+                                     : Vec2{.x = std::cos(a.heading), .y = std::sin(a.heading)};
             const Crowd crowd = this->crowd(i, forward, limit);
             a.position = a.position + crowd.shove * solid;
             if (a.pause > 0.0) {
@@ -645,9 +710,10 @@ namespace hyprimate {
             // A moving home keeps the spring walking around the tile throughout a held drag.
             // Its radius scales with wander; the real home is restored immediately on release.
             const double radius = wandering ? m_params.wander * m_spacing : 0.0;
-            const Vec2 target = a.leaving ? a.exit
-                                         : a.home + Vec2{radius * std::cos(a.weave),
-                                                        radius * std::sin(0.73 * a.weave + a.gait)};
+            const Vec2 target =
+                a.leaving ? a.exit
+                          : a.home + Vec2{.x = radius * std::cos(a.weave),
+                                         .y = radius * std::sin((0.73 * a.weave) + a.gait)};
             const Vec2 offset = target - a.position;
             const double distance = length(offset);
             const Vec2 toward = distance > 1e-9 ? offset * (1.0 / distance) : Vec2{};
@@ -657,21 +723,25 @@ namespace hyprimate {
                 a.leaving ? 1.0
                           : smoothstep(kRouteNear * m_spacing, kRouteFar * m_spacing, distance) *
                                 (1.0 - urgency);
-            const double sway = (std::sin(a.weave) + 0.5 * std::sin(2.3 * a.weave + 1.7)) / 1.5;
-            const double off = std::clamp(
-                (a.arc + kMeanderAngle * m_params.wander * sway) * fade, -kRouteLimit, kRouteLimit);
+            const double sway = (std::sin(a.weave) + (0.5 * std::sin((2.3 * a.weave) + 1.7))) / 1.5;
+            const double off = std::clamp((a.arc + (kMeanderAngle * m_params.wander * sway)) * fade,
+                -kRouteLimit,
+                kRouteLimit);
             const double hesitation = smoothstep(kGaitFrom, kGaitFull, std::sin(a.gait));
 
             // Walk the route at the gait's speed; arriving agents brake over their stopping
             // distance.
-            double want = cruise * (1.0 - kGaitDepth * m_params.wander * hesitation * fade);
+            double want = cruise * (1.0 - (kGaitDepth * m_params.wander * hesitation * fade));
             if (m_phase ==
-                Phase::Opening)  // on a schedule: hurry or dawdle towards being home when due
+                Phase::Opening) {  // on a schedule: hurry or dawdle towards being home when due
                 want *= a.due > kStep ? std::clamp(distance / (a.due * cruise), kDawdle, kHurry)
                                       : kHurry;
-            if (!a.leaving)
+            }
+            if (!a.leaving) {
                 want *= std::min(1.0,
-                    distance / (kSlowMargin * cruise * cruise / (2.0 * limit) + 0.5 * m_spacing));
+                    distance /
+                        ((kSlowMargin * cruise * cruise / (2.0 * limit)) + (0.5 * m_spacing)));
+            }
             Vec2 accel =
                 clampLength((turned(toward, off) * want - a.velocity) * (1.0 / kSteerTime), limit);
             accel = accel + crowd.steer * fade;
@@ -721,8 +791,9 @@ namespace hyprimate {
                 kStep / kTurnTime);
             if (!wandering && left < kDockDistance && speed < kDockSpeed &&
                 m_windowSpeed <= kDockWindowSpeed * a.grip) {
-                if (m_phase == Phase::Movement && a.settleWait < 0.0)
+                if (m_phase == Phase::Movement && a.settleWait < 0.0) {
                     a.settleWait = m_params.stagger * unitDraw(m_rng);
+                }
                 if (m_phase != Phase::Movement || (a.settleWait -= kStep) <= 0.0) {
                     a.docked = true;
                     a.position = a.home;
@@ -734,7 +805,9 @@ namespace hyprimate {
             [](const SwarmAgent &a) { return a.docked && a.lock >= 1.0 && a.turn <= 0.0; });
         if (closing) {
             // Preserve an interrupted opening's surface until the first piece leaves.
-            if (!whole) m_rounding = approach(m_rounding, 1.0, kStep / kCornerTime);
+            if (!whole) {
+                m_rounding = approach(m_rounding, 1.0, kStep / kCornerTime);
+            }
         } else if (whole && !wandering) {
             m_rounding = approach(m_rounding, 0.0, kStep / kCornerTime);
         } else if (m_phase == Phase::Opening) {

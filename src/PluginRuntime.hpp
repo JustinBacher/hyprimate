@@ -29,6 +29,8 @@ class CPluginRuntime {
 
     CPluginRuntime(const CPluginRuntime &) = delete;
     CPluginRuntime &operator=(const CPluginRuntime &) = delete;
+    CPluginRuntime(CPluginRuntime &&) = delete;
+    CPluginRuntime &operator=(CPluginRuntime &&) = delete;
 
     friend struct SLiquidLiveStyle;
     friend struct SPaperLiveStyle;

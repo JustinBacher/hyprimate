@@ -1,9 +1,32 @@
+#include <cstdint>
+#include <variant>
+
+#include <hyprland/src/desktop/DesktopTypes.hpp>
+#include <hyprland/src/desktop/view/types/Geometric.hpp>
 #include <hyprland/src/desktop/view/window/Window.hpp>
 #include <hyprland/src/desktop/view/window/WindowPresentation.hpp>
+#include <hyprland/src/helpers/memory/Memory.hpp>
+#include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/Renderer.hpp>
+#include <hyprland/src/render/transformer/Transformer.hpp>
+#include <hyprutils/math/Box.hpp>
 
+#include "AnimationTransformer.hpp"
 #include "LiveRender.hpp"
 #include "LiveStyle.hpp"
+#include "PluginRuntime.hpp"
+#include "WindowTracker.hpp"
+#include "animations/bubble/BubbleLiveState.hpp"
+#include "animations/bubble/BubbleMotion.hpp"
+#include "animations/bubble/BubbleRenderer.hpp"
+#include "animations/bubble/BubbleWallpaper.hpp"
+#include "animations/cloth/ClothFlutter.hpp"
+#include "animations/liquid/LiquidMesh.hpp"
+#include "animations/liquid/SolidFill.hpp"
+#include "animations/shared/Core.hpp"
+#include "animations/shared/PaperRenderer.hpp"
+#include "animations/swarm/SwarmRenderer.hpp"
+#include "config_generated.hpp"
 
 namespace {
     hyprimate::BubbleShape bubbleShape(hyprimate::config::Shape shape) {
@@ -20,7 +43,7 @@ namespace {
 }  // namespace
 
 CBox liveExtents(const SBubbleStyle &state, const CBox &box) {
-    const auto bounds = state.bubble.bounds({box.w, box.h});
+    const auto bounds = state.bubble.bounds({.x = box.w, .y = box.h});
     return CBox{box.x + bounds.x, box.y + bounds.y, bounds.w, bounds.h}.expand(2.0);
 }
 
@@ -32,10 +55,10 @@ Render::SWindowTransformBuffer renderLive(SBubbleStyle &state,
     const SP<CSolidFill> &,
     const SP<CPaperShade> &,
     const SP<CSwarmSprites> &) {
-    const Render::SWindowTransformBuffer failed{
-        .framebuffer = in.framebuffer, .box = in.box, .success = false};
-    if (!state.renderer) return failed;
-    const hyprimate::Vec2 size{g.source.w / g.scale, g.source.h / g.scale};
+    if (!state.renderer) {
+        return {.framebuffer = in.framebuffer, .box = in.box, .success = false};
+    }
+    const hyprimate::Vec2 size{.x = g.source.w / g.scale, .y = g.source.h / g.scale};
     const auto frame = state.bubble.frame(size);
     const auto layer = state.renderer->render(ctx,
         SBubbleDraw{
@@ -44,11 +67,13 @@ Render::SWindowTransformBuffer renderLive(SBubbleStyle &state,
             .frame = frame,
             .canvas = g.canvas.size(),
             .source = g.source,
-            .textureOrigin = {in.box.x, in.box.y},
+            .textureOrigin = {.x = in.box.x, .y = in.box.y},
             .textureSize = g.textureSize,
-            .outputOrigin = {g.canvas.x, g.canvas.y},
+            .outputOrigin = {.x = g.canvas.x, .y = g.canvas.y},
         });
-    if (!layer) return failed;
+    if (!layer) {
+        return {.framebuffer = in.framebuffer, .box = in.box, .success = false};
+    }
     if (!ctx.readOnlyEffects() && !ctx.m_renderingCapture && !ctx.m_renderingSnapshot) {
         const auto monitor = context.monitor.lock();
         const auto centre = context.currentBox.middle();
@@ -57,13 +82,14 @@ Render::SWindowTransformBuffer renderLive(SBubbleStyle &state,
         // relative to the window drawn now.
         const auto &motion = state.bubble.motion();
         if (!motion.trail().empty() || !motion.releases().empty()) {
-            if (state.residue && monitor)
+            if (state.residue && monitor) {
                 state.wake = state.residue->trail(monitor,
                     state.window.lock(),
                     state.wake,
                     centre,
                     motion.trail(),
                     motion.releases());
+            }
             state.bubble.clearEmissions();
         }
     }
@@ -75,18 +101,22 @@ bool SBubbleLiveStyle::open(
     const CBox current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
     const CBox goal = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
     const CBox capture = window->getFullWindowBoundingBox();
-    const hyprimate::Box rest{goal.x + capture.x - current.x,
-        goal.y + capture.y - current.y,
-        goal.w + capture.w - current.w,
-        goal.h + capture.h - current.h};
-    if (!hyprimate::isUsable(toBox(goal)) || !hyprimate::isUsable(rest)) return false;
+    const hyprimate::Box rest{.x = goal.x + capture.x - current.x,
+        .y = goal.y + capture.y - current.y,
+        .w = goal.w + capture.w - current.w,
+        .h = goal.h + capture.h - current.h};
+    if (!hyprimate::isUsable(toBox(goal)) || !hyprimate::isUsable(rest)) {
+        return false;
+    }
     auto *transformer = runtime.acquireTransformer(window);
     auto &state = std::get<SBubbleStyle>(transformer->m_style);
     state.bubble.begin(hyprimate::Transition::Open,
         runtime.m_config.open.bubble.duration,
         runtime.m_nextSeed++,
-        {rest.w, rest.h});
-    if (!state.bubble.active()) return false;
+        {.x = rest.w, .y = rest.h});
+    if (!state.bubble.active()) {
+        return false;
+    }
     state.wallpaper = makeShared<SBubbleWallpaper>();
     state.residue = runtime.m_bubbleResidue;
     state.shellImpactsDeposited = state.windowImpactsDeposited = false;
@@ -108,14 +138,16 @@ void SBubbleLiveStyle::movement(CPluginRuntime &,
     double,
     bool,
     bool moving) {
-    if (!moving) return;
+    if (!moving) {
+        return;
+    }
     // The fluid follows the body's centre: an edge dragged by a resize carries it by half as much.
     // A layout animating the window moves it faster than a bubble travels; the film follows.
     const auto &current = decision.currentBox;
     const auto &was = decision.previousBox;
     std::get<SBubbleStyle>(transformer.m_style)
-        .bubble.drive({current.x + current.w * .5 - (was.x + was.w * .5),
-                          current.y + current.h * .5 - (was.y + was.h * .5)},
+        .bubble.drive({.x = current.x + (current.w * .5) - (was.x + (was.w * .5)),
+                          .y = current.y + (current.h * .5) - (was.y + (was.h * .5))},
             !decision.workspaceMoving && window->positionAnimation()->isBeingAnimated());
 }
 
@@ -132,25 +164,29 @@ void SBubbleLiveStyle::step(CPluginRuntime &runtime,
     hyprimate::Vec2 size,
     bool enabled) {
     auto &state = std::get<SBubbleStyle>(transformer.m_style);
-    if (!enabled && state.bubble.stirred()) cancelMovement(transformer);
-    hyprimate::Box body{-size.x * .5, -size.y * .5, size.x, size.y};
+    if (!enabled && state.bubble.stirred()) {
+        cancelMovement(transformer);
+    }
+    hyprimate::Box body{.x = -size.x * .5, .y = -size.y * .5, .w = size.x, .h = size.y};
     state.window = transformer.m_window;
     if (const auto window = transformer.m_window.lock()) {
         const CBox current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
         const CBox capture = window->getFullWindowBoundingBox();
-        body = {
-            current.x - capture.middle().x, current.y - capture.middle().y, current.w, current.h};
+        body = {.x = current.x - capture.middle().x,
+            .y = current.y - capture.middle().y,
+            .w = current.w,
+            .h = current.h};
     }
     const auto &options = runtime.m_config.movement.bubble;
     state.bubble.advance(elapsed,
         size,
         body,
-        enabled ? hyprimate::BubbleMotionParams{options.strength,
-                      options.microbubbles,
-                      options.trail,
-                      options.roundness,
-                      bubbleShape(options.shape),
-                      options.shapeSpeed}
+        enabled ? hyprimate::BubbleMotionParams{.strength = options.strength,
+                      .microbubbles = options.microbubbles,
+                      .trail = options.trail,
+                      .roundness = options.roundness,
+                      .shape = bubbleShape(options.shape),
+                      .shapeSpeed = options.shapeSpeed}
                 : hyprimate::BubbleMotionParams{});
     state.impacts.advance(elapsed);
     if (!state.bubble.active()) {

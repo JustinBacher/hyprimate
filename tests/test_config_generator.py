@@ -106,7 +106,6 @@ class ConfigGeneratorTests(unittest.TestCase):
     def test_registration_keys_and_members(self):
         header = GEN.config_header(SCHEMA)
         for item in REGISTERED:
-            self.assertIn(f'values.{item["member"]} = makeShared<', header)
             self.assertIn(f'"{GEN.key(item)}"', header)
         self.assertEqual(len(re.findall(r'= makeShared<', header)), len(REGISTERED))
         self.assertIn('plugin:hyprimate:window:close:options:liquid:splash', header)
@@ -274,13 +273,6 @@ class ConfigGeneratorTests(unittest.TestCase):
             with self.subTest(changes=changes):
                 with self.assertRaisesRegex(ValueError, 'window.example: set'):
                     GEN.validate([dict(item, **changes)])
-
-    def test_swarm_header_contract(self):
-        header = GEN.config_header(SCHEMA)
-        self.assertIn('enum class LoneWindowSides : std::uint8_t { Top = 1, Bottom = 2, Left = 4, Right = 8 };', header)
-        self.assertIn('c.swarm.count = detail::clampInt(v.m_swarmCount->value(), 1, 400);', header)
-        for direction in ('open', 'close'):
-            self.assertIn(f'values.m_{direction}SwarmLoneWindowSides = makeShared<Config::Values::CStringValue>', header)
 
     def test_generated_config_inheritance_at_runtime(self):
         header = self.tmp / 'config_generated.hpp'

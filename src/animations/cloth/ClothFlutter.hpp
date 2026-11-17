@@ -35,6 +35,8 @@ namespace hyprimate {
         ~ClothPhysics();
         ClothPhysics(const ClothPhysics &) = delete;
         ClothPhysics &operator=(const ClothPhysics &) = delete;
+        ClothPhysics(ClothPhysics &&) = delete;
+        ClothPhysics &operator=(ClothPhysics &&) = delete;
 
         // Deterministic worker starvation control for model tests. Does not affect already
         // published snapshots.

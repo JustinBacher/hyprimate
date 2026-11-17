@@ -1,9 +1,28 @@
 #include <cmath>
+#include <cstdint>
+#include <variant>
 
+#include <hyprland/src/desktop/DesktopTypes.hpp>
 #include <hyprland/src/desktop/view/window/Window.hpp>
+#include <hyprland/src/helpers/memory/Memory.hpp>
+#include <hyprland/src/render/Context.hpp>
+#include <hyprland/src/render/transformer/Transformer.hpp>
+#include <hyprutils/math/Box.hpp>
 
+#include "AnimationTransformer.hpp"
+#include "LiveRender.hpp"
 #include "LiveStyle.hpp"
+#include "PluginRuntime.hpp"
+#include "WindowTracker.hpp"
+#include "animations/cloth/ClothFlutter.hpp"
+#include "animations/liquid/LiquidMesh.hpp"
+#include "animations/liquid/SolidFill.hpp"
+#include "animations/paper/PaperLiveState.hpp"
+#include "animations/shared/Core.hpp"
 #include "animations/shared/LiveSheetRender.hpp"
+#include "animations/shared/PaperRenderer.hpp"
+#include "animations/swarm/SwarmRenderer.hpp"
+#include "config_generated.hpp"
 using hyprimate::Vec2;
 
 CBox liveExtents(const SPaperStyle &state, const CBox &box) {
@@ -35,7 +54,7 @@ bool SPaperLiveStyle::open(
             .shading = paper.shading,
             .variation = paper.variation},
         runtime.m_nextSeed++);
-    state.sheet.captureSize = {capture.w, capture.h};
+    state.sheet.captureSize = {.x = capture.w, .y = capture.h};
     state.crumple.frame(state.sheet.captureSize, *state.sheet.frame);
     return true;
 }
@@ -63,7 +82,9 @@ void SPaperLiveStyle::step(CPluginRuntime &,
     hyprimate::Vec2 size,
     bool) {
     auto &paper = std::get<SPaperStyle>(transformer.m_style);
-    if (!paper.crumple.active()) return;
+    if (!paper.crumple.active()) {
+        return;
+    }
     paper.sheet.captureSize = size;
     paper.crumple.advance(elapsed);
     paper.crumple.frame(size, *paper.sheet.frame);
@@ -71,7 +92,9 @@ void SPaperLiveStyle::step(CPluginRuntime &,
 
 void SPaperLiveStyle::cancelOpening(CAnimationTransformer &transformer) {
     auto &paper = std::get<SPaperStyle>(transformer.m_style);
-    if (paper.crumple.active()) paper.crumple.reset();
+    if (paper.crumple.active()) {
+        paper.crumple.reset();
+    }
 }
 
 void SPaperLiveStyle::cancelMovement(CAnimationTransformer &) {

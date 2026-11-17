@@ -1,7 +1,14 @@
 #include <utility>
 
+#include <hyprland/src/desktop/DesktopTypes.hpp>
+#include <hyprland/src/desktop/state/Fadeout.hpp>
+#include <hyprland/src/helpers/memory/Memory.hpp>
+#include <hyprland/src/render/Context.hpp>
+#include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/render/pass/RectPassElement.hpp>
 #include <hyprland/src/render/pass/TexPassElement.hpp>
+#include <hyprutils/math/Region.hpp>
+#include <hyprutils/memory/UniquePtr.hpp>
 
 #include "NativeFadeoutPass.hpp"
 

@@ -1,3 +1,6 @@
+#include <cstdint>
+
+#include "../src/animations/shared/Core.hpp"
 #include "Check.hpp"
 #include "WindowTracker.hpp"
 
@@ -15,8 +18,8 @@ namespace {
     // A deformable window whose capture is its body grown by a 10 px margin.
     WindowSnapshot snap(double x, double y, double w, double h) {
         WindowSnapshot s;
-        s.current = Box{x, y, w, h};
-        s.capture = Box{x - 10, y - 10, w + 20, h + 20};
+        s.current = Box{.x = x, .y = y, .w = w, .h = h};
+        s.capture = Box{.x = x - 10, .y = y - 10, .w = w + 20, .h = h + 20};
         s.deformable = true;
         s.openEnabled = true;
         s.movementEnabled = true;
@@ -30,11 +33,11 @@ namespace {
         WindowTracker t;
         const WindowSnapshot s = snap(x, y, w, h);
         t.track(s.current, s.capture, kMonitor);
-        t.update(s); // registers eligibility; the rebaseline decision is not under test here
+        t.update(s);  // registers eligibility; the rebaseline decision is not under test here
         return t;
     }
 
-} // namespace
+}  // namespace
 
 int main() {
     // A window that is not deformable stays idle, and is dormant so the runtime can skip it.
@@ -206,9 +209,9 @@ int main() {
         WindowTracker t = eligibleAt(100, 80, 400, 300);
         auto s = snap(100, 80, 400, 300);
         s.workspaceMoving = true;
-        s.workspaceOffset = {1600, 0};
-        CHECK(t.update(s).action == TrackAction::Rebaseline); // incoming workspace placement
-        s.workspaceOffset = {1500, 0};
+        s.workspaceOffset = {.x = 1600, .y = 0};
+        CHECK(t.update(s).action == TrackAction::Rebaseline);  // incoming workspace placement
+        s.workspaceOffset = {.x = 1500, .y = 0};
         const auto d = t.update(s);
         CHECK(d.action == TrackAction::Move);
         CHECK(d.translated);
@@ -216,11 +219,11 @@ int main() {
         CHECK(d.currentCapture.x - d.previousCapture.x == -100);
         // Layout baselining after a simulation step must retain workspace history.
         t.baseline(s.current, s.capture, kMonitor);
-        s.workspaceOffset = {1500, 35};
+        s.workspaceOffset = {.x = 1500, .y = 35};
         const auto vertical = t.update(s);
         CHECK(vertical.currentBox.y - vertical.previousBox.y == 35);
-        s.workspaceOffset = {1530, 35};
-        CHECK(t.update(s).currentBox.x == 1630); // interrupted/reversed slide
+        s.workspaceOffset = {.x = 1530, .y = 35};
+        CHECK(t.update(s).currentBox.x == 1630);  // interrupted/reversed slide
     }
 
     // The global opt-out removes only workspace movement, not ordinary window motion.
@@ -229,9 +232,9 @@ int main() {
         auto s = snap(100, 80, 400, 300);
         s.workspaceMovement = false;
         s.workspaceMoving = true;
-        s.workspaceOffset = {1600, 0};
-        t.update(s); // live setting change rebaselines without an impulse
-        s.workspaceOffset = {1200, 0};
+        s.workspaceOffset = {.x = 1600, .y = 0};
+        t.update(s);  // live setting change rebaselines without an impulse
+        s.workspaceOffset = {.x = 1200, .y = 0};
         CHECK(t.update(s).action == TrackAction::Idle);
         s.current.x += 20;
         s.capture.x += 20;
@@ -247,7 +250,7 @@ int main() {
         WindowTracker t = eligibleAt(100, 80, 400, 300);
         auto s = snap(100, 80, 400, 300);
         s.workspaceMoving = true;
-        s.workspaceOffset = {10, 0};
+        s.workspaceOffset = {.x = 10, .y = 0};
         t.update(s);
         s.workspaceOffset = {};
         s.workspaceMoving = false;
@@ -262,9 +265,9 @@ int main() {
         WindowTracker t = eligibleAt(100, 80, 120, 100);
         auto s = snap(100, 80, 120, 100);
         s.workspaceMoving = true;
-        s.workspaceOffset = {3000, 0};
+        s.workspaceOffset = {.x = 3000, .y = 0};
         t.update(s);
-        s.workspaceOffset = {2300, 0};
+        s.workspaceOffset = {.x = 2300, .y = 0};
         s.current.x += 20;
         s.capture.x += 20;
         const auto d = t.update(s);

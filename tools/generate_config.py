@@ -259,7 +259,7 @@ def config_header(settings):
     if any(item['type'] == 'set' for item in enum_items.values()):
         out.append('template <class E> struct Flags {')
         out.append('    std::uint8_t bits = 0;')
-        out.append('    constexpr bool has(E v) const noexcept { return (bits & static_cast<std::uint8_t>(v)) != 0; }')
+        out.append('    [[nodiscard]] constexpr bool has(E value) const noexcept { return (bits & static_cast<std::uint8_t>(value)) != 0; }')
         out.append('    constexpr bool operator==(const Flags &) const = default;')
         out.append('};')
         out.append('')
@@ -286,14 +286,22 @@ def config_header(settings):
             out.append('    while (true) {')
             out.append("        const auto end = text.find(',', start);")
             out.append('        const auto first = text.find_first_not_of(" \\t", start);')
-            out.append('        if (first == std::string::npos || (end != std::string::npos && first >= end)) return std::nullopt;')
+            out.append('        if (first == std::string::npos || (end != std::string::npos && first >= end)) {')
+            out.append('            return std::nullopt;')
+            out.append('        }')
             out.append('        const auto last = text.find_last_not_of(" \\t", end == std::string::npos ? end : end - 1);')
-            out.append('        const auto length = last - first + 1;')
-            out.append(f'        if (text.compare(first, length, {literal(item["all"])}) == 0) result.bits = {(1 << len(item["choices"])) - 1};')
+            out.append('        const auto length = (last - first) + 1;')
+            out.append(f'        if (text.compare(first, length, {literal(item["all"])}) == 0) {{')
+            out.append(f'            result.bits = {(1 << len(item["choices"])) - 1};')
             for i, choice in enumerate(item['choices']):
-                out.append(f'        else if (text.compare(first, length, {literal(choice)}) == 0) result.bits |= {1 << i};')
-            out.append('        else return std::nullopt;')
-            out.append('        if (end == std::string::npos) break;')
+                out.append(f'        }} else if (text.compare(first, length, {literal(choice)}) == 0) {{')
+                out.append(f'            result.bits |= {1 << i}U;')
+            out.append('        } else {')
+            out.append('            return std::nullopt;')
+            out.append('        }')
+            out.append('        if (end == std::string::npos) {')
+            out.append('            break;')
+            out.append('        }')
             out.append('        start = end + 1;')
             out.append('    }')
             out.append('    return result;')
@@ -302,7 +310,9 @@ def config_header(settings):
             continue
         out.append(f'inline {name} parse{name}(const std::string& text) noexcept {{')
         for choice in item['choices']:
-            out.append(f'    if (text == {literal(choice)}) return {name}::{pascal(choice)};')
+            out.append(f'    if (text == {literal(choice)}) {{')
+            out.append(f'        return {name}::{pascal(choice)};')
+            out.append('    }')
         out.append(f'    return {name}::{pascal(item["default"])};')
         out.append('}')
         out.append('')
@@ -346,31 +356,34 @@ def config_header(settings):
                 error = name + ' must be a comma-separated list of: ' + ', '.join(item['choices'] + [item['all']])
             out.append(f'    values.{member} = makeShared<Config::Values::{cls}>({literal(name)}, {desc}, {literal(default)},')
             out.append('        Config::Values::SStringValueOptions{.validator = [](const Config::STRING& value) -> std::expected<void, std::string> {')
-            out.append(f'            if ({conditions}) return {{}};')
+            out.append(f'            if ({conditions}) {{')
+            out.append('                return {};')
+            out.append('            }')
             out.append(f'            return std::unexpected(std::string({literal(error)}));')
-            out.append('        }});')
+            out.append('        },});')
         else:
             out.append(f'    values.{member} = makeShared<Config::Values::{cls}>({literal(name)}, {desc}, {value});')
-    out.append('    if (' + '\n     || '.join(f'!HyprlandAPI::addConfigValueV2(handle, values.{x["member"]})' for x in settings) + ')')
+    out.append('    if (' + '\n     || '.join(f'!HyprlandAPI::addConfigValueV2(handle, values.{x["member"]})' for x in settings) + ') {')
     out.append('        throw std::runtime_error("[hyprimate] failed to register configuration values");')
+    out.append('    }')
     for item in settings:
         if item.get('optional'):
             out.append(f'    values.{item["member"]}Set.bind({literal(key(item))});')
     out.append('}')
     out.append('')
-    out.append('inline SConfig readConfig(const SConfigValues& v) {')
-    out.append('    SConfig c;')
+    out.append('inline SConfig readConfig(const SConfigValues& values) {')
+    out.append('    SConfig config;')
     by_path = {item['path']: item for item in settings}
     for item in settings:
-        target = 'c.' + '.'.join(camel(s) for s in config_segments(item))
-        source = f'v.{item["member"]}->value()'
+        target = 'config.' + '.'.join(camel(s) for s in config_segments(item))
+        source = f'values.{item["member"]}->value()'
         if item.get('inherited'):
             parts = item['path'].split('.')
             shared = by_path['.'.join(('window', 'options', *parts[3:]))]
-            shared_source = f'v.{shared["member"]}->value()'
+            shared_source = f'values.{shared["member"]}->value()'
             if shared.get('optional'):
-                shared_source = f'(v.{shared["member"]}Set.setByUser() ? {shared_source} : {source})'
-            source = f'(v.{item["member"]}Set.setByUser() ? {source} : {shared_source})'
+                shared_source = f'(values.{shared["member"]}Set.setByUser() ? {shared_source} : {source})'
+            source = f'(values.{item["member"]}Set.setByUser() ? {source} : {shared_source})'
         if item['type'] == 'int':
             value = f'detail::clampInt({source}, {item["min"]}, {item["max"]})'
         elif item['type'] == 'set':
@@ -387,7 +400,7 @@ def config_header(settings):
         else:
             value = source
         out.append(f'    {target} = {value};')
-    out.append('    return c;')
+    out.append('    return config;')
     out.append('}')
     out.append('')
     out.append('} // namespace hyprimate::config')

@@ -20,7 +20,7 @@ inline Render::SWindowTransformBuffer renderLiveSheet(SSheetBuffers &sheet,
     fillSheetMeshes(*sheet.frame,
         g.source,
         g.output,
-        {in.box.x, in.box.y},
+        {.x = in.box.x, .y = in.box.y},
         g.textureSize,
         sheet.window,
         sheet.shade);
@@ -34,6 +34,8 @@ inline Render::SWindowTransformBuffer renderLiveSheet(SSheetBuffers &sheet,
             .shadeVertices = &sheet.shade,
             .alpha = float(opacity),
         });
-    if (!layer) return {.framebuffer = in.framebuffer, .box = in.box, .success = false};
+    if (!layer) {
+        return {.framebuffer = in.framebuffer, .box = in.box, .success = false};
+    }
     return {.framebuffer = layer, .box = g.canvas};
 }

@@ -33,6 +33,8 @@ class CBubbleRenderer {
     ~CBubbleRenderer();
     CBubbleRenderer(const CBubbleRenderer &) = delete;
     CBubbleRenderer &operator=(const CBubbleRenderer &) = delete;
+    CBubbleRenderer(CBubbleRenderer &&) = delete;
+    CBubbleRenderer &operator=(CBubbleRenderer &&) = delete;
     SP<Render::IFramebuffer> render(Render::CRenderContext &, const SBubbleDraw &);
     // Compiles the material ahead of the first bubble. Compilation takes long enough to read as a
     // frame stall, which would otherwise cancel the opening that first needs it. Safe to call

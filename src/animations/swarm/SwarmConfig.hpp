@@ -26,9 +26,17 @@ inline hyprimate::EdgeSet swarmSides(
     using hyprimate::Edge;
     using hyprimate::config::LoneWindowSides;
     hyprimate::EdgeSet out;
-    if (sides.has(LoneWindowSides::Top)) out.add(Edge::Top);
-    if (sides.has(LoneWindowSides::Bottom)) out.add(Edge::Bottom);
-    if (sides.has(LoneWindowSides::Left)) out.add(Edge::Left);
-    if (sides.has(LoneWindowSides::Right)) out.add(Edge::Right);
+    if (sides.has(LoneWindowSides::Top)) {
+        out.add(Edge::Top);
+    }
+    if (sides.has(LoneWindowSides::Bottom)) {
+        out.add(Edge::Bottom);
+    }
+    if (sides.has(LoneWindowSides::Left)) {
+        out.add(Edge::Left);
+    }
+    if (sides.has(LoneWindowSides::Right)) {
+        out.add(Edge::Right);
+    }
     return out;
 }

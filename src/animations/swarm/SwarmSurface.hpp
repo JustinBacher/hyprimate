@@ -14,6 +14,8 @@ class CSwarmSurface {
     ~CSwarmSurface();
     CSwarmSurface(const CSwarmSurface &) = delete;
     CSwarmSurface &operator=(const CSwarmSurface &) = delete;
+    CSwarmSurface(CSwarmSurface &&) = delete;
+    CSwarmSurface &operator=(CSwarmSurface &&) = delete;
 
     // The standing half is rebuilt from analytic bodies; zero radius preserves the input exactly.
     // radius controls smooth joins; cornerRadius independently restores the native outline.

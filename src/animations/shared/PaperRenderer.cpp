@@ -1,15 +1,27 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <utility>
+#include <vector>
 
+#include <GLES3/gl32.h>
 #include <drm_fourcc.h>
+#include <hyprland/src/helpers/DeformableMesh.hpp>
+#include <hyprland/src/helpers/memory/Memory.hpp>
+#include <hyprland/src/render/Context.hpp>
+#include <hyprland/src/render/Framebuffer.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Renderer.hpp>
+#include <hyprland/src/render/Texture.hpp>
 #include <hyprland/src/render/pass/ClearPassElement.hpp>
+#include <hyprland/src/render/types.hpp>
+#include <hyprutils/math/Box.hpp>
 
 #include "animations/shared/PaperRenderer.hpp"
+#include "animations/shared/SheetFrame.hpp"
 
 namespace {
     constexpr int RAMP_SIZE = 256;
@@ -25,13 +37,15 @@ namespace {
     // Ramp U for a shade in [-1, 1]; the centre texel is neutral. Continuous, so a triangle's
     // corners interpolate.
     float shadeU(double shade) noexcept {
-        const double texel = RAMP_CENTRE + std::clamp(shade, -1.0, 1.0) * RAMP_SPAN;
+        const double texel = RAMP_CENTRE + (std::clamp(shade, -1.0, 1.0) * RAMP_SPAN);
         return static_cast<float>((texel + 0.5) / RAMP_SIZE);
     }
 }  // namespace
 
 SP<Render::ITexture> CPaperShade::texture() {
-    if (m_texture || !g_pHyprRenderer) return m_texture;
+    if (m_texture || !g_pHyprRenderer) {
+        return m_texture;
+    }
 
     // Premultiplied; memory order is B, G, R, A for DRM_FORMAT_ARGB8888.
     std::array<uint8_t, RAMP_SIZE * 4> pixels{};
@@ -40,15 +54,16 @@ SP<Render::ITexture> CPaperShade::texture() {
         uint8_t colour =
             0;  // black for shadow; white highlight is premultiplied, so colour equals alpha
         uint8_t alpha = 0;
-        if (k < 0.0)
+        if (k < 0.0) {
             alpha = rampByte(-k * SHADOW_STRENGTH);
-        else if (k > 0.0)
+        } else if (k > 0.0) {
             colour = alpha = rampByte(k * HIGHLIGHT_STRENGTH);
+        }
 
-        pixels[i * 4 + 0] = colour;
-        pixels[i * 4 + 1] = colour;
-        pixels[i * 4 + 2] = colour;
-        pixels[i * 4 + 3] = alpha;
+        pixels[(i * 4) + 0] = colour;
+        pixels[(i * 4) + 1] = colour;
+        pixels[(i * 4) + 2] = colour;
+        pixels[(i * 4) + 3] = alpha;
     }
 
     m_texture = g_pHyprRenderer->createTexture(
@@ -62,8 +77,8 @@ CBox sheetExtents(const hyprimate::SheetFrame &frame, const CBox &logicalBox) {
     double maxX = -std::numeric_limits<double>::infinity();
     double maxY = -std::numeric_limits<double>::infinity();
     for (const auto &p : frame.position) {
-        const double x = logicalBox.x + logicalBox.w * (0.5 + p.x);
-        const double y = logicalBox.y + logicalBox.h * (0.5 + p.y);
+        const double x = logicalBox.x + (logicalBox.w * (0.5 + p.x));
+        const double y = logicalBox.y + (logicalBox.h * (0.5 + p.y));
         minX = std::min(minX, x);
         minY = std::min(minY, y);
         maxX = std::max(maxX, x);
@@ -79,11 +94,15 @@ void fillSheetMeshes(const hyprimate::SheetFrame &frame,
     hyprimate::Vec2 textureSize,
     std::vector<SMeshRenderVertex> &window,
     std::vector<SMeshRenderVertex> &shade) {
-    if (window.size() != PAPER_VERTEX_COUNT) window.resize(PAPER_VERTEX_COUNT);
-    if (shade.size() != PAPER_VERTEX_COUNT) shade.resize(PAPER_VERTEX_COUNT);
+    if (window.size() != PAPER_VERTEX_COUNT) {
+        window.resize(PAPER_VERTEX_COUNT);
+    }
+    if (shade.size() != PAPER_VERTEX_COUNT) {
+        shade.resize(PAPER_VERTEX_COUNT);
+    }
 
-    const double centreX = sourceDevice.x + 0.5 * sourceDevice.w;
-    const double centreY = sourceDevice.y + 0.5 * sourceDevice.h;
+    const double centreX = sourceDevice.x + (0.5 * sourceDevice.w);
+    const double centreY = sourceDevice.y + (0.5 * sourceDevice.h);
     std::size_t k = 0;
     for (std::size_t slot = 0; slot < hyprimate::PAPER_TRIANGLES; ++slot) {
         const std::size_t tri = frame.order[slot];
@@ -93,19 +112,19 @@ void fillSheetMeshes(const hyprimate::SheetFrame &frame,
             const auto &p = frame.position[vertex];
             const auto uv = hyprimate::sheetUv(vertex);
             const auto x = static_cast<float>(
-                (centreX + p.x * sourceDevice.w - outputDevice.x) / outputDevice.w);
+                (centreX + (p.x * sourceDevice.w) - outputDevice.x) / outputDevice.w);
             const auto y = static_cast<float>(
-                (centreY + p.y * sourceDevice.h - outputDevice.y) / outputDevice.h);
+                (centreY + (p.y * sourceDevice.h) - outputDevice.y) / outputDevice.h);
 
             window[k] = {
-                x,
-                y,
-                static_cast<float>(
-                    (sourceDevice.x + sourceDevice.w * uv.x - textureOrigin.x) / textureSize.x),
-                static_cast<float>(
-                    (sourceDevice.y + sourceDevice.h * uv.y - textureOrigin.y) / textureSize.y),
+                .x = x,
+                .y = y,
+                .u = static_cast<float>(
+                    (sourceDevice.x + (sourceDevice.w * uv.x) - textureOrigin.x) / textureSize.x),
+                .v = static_cast<float>(
+                    (sourceDevice.y + (sourceDevice.h * uv.y) - textureOrigin.y) / textureSize.y),
             };
-            shade[k] = {x, y, shadeU(frame.shade[tri][c]), 0.5F};
+            shade[k] = {.x = x, .y = y, .u = shadeU(frame.shade[tri][c]), .v = 0.5F};
             ++k;
         }
     }
@@ -113,35 +132,39 @@ void fillSheetMeshes(const hyprimate::SheetFrame &frame,
 
 const std::vector<SMeshRenderVertex> &paperCanvasQuad() {
     static const std::vector<SMeshRenderVertex> quad{
-        {0.F, 0.F, 0.F, 0.F},
-        {0.F, 1.F, 0.F, 1.F},
-        {1.F, 0.F, 1.F, 0.F},
-        {1.F, 0.F, 1.F, 0.F},
-        {0.F, 1.F, 0.F, 1.F},
-        {1.F, 1.F, 1.F, 1.F},
+        {.x = 0.F, .y = 0.F, .u = 0.F, .v = 0.F},
+        {.x = 0.F, .y = 1.F, .u = 0.F, .v = 1.F},
+        {.x = 1.F, .y = 0.F, .u = 1.F, .v = 0.F},
+        {.x = 1.F, .y = 0.F, .u = 1.F, .v = 0.F},
+        {.x = 0.F, .y = 1.F, .u = 0.F, .v = 1.F},
+        {.x = 1.F, .y = 1.F, .u = 1.F, .v = 1.F},
     };
     return quad;
 }
 
 SP<Render::IFramebuffer> renderPaper(Render::CRenderContext &ctx, const SPaperDraw &d) {
     if (!d.window || !d.windowVertices || d.windowVertices->empty() ||
-        !(d.canvas.x > 0.0 && d.canvas.y > 0.0))
+        !(d.canvas.x > 0.0 && d.canvas.y > 0.0)) {
         return nullptr;
+    }
 
     // Entry blend state, restored on exit. The wrapper does not expose the blend function, so GL is
     // queried for it. Hyprland sets blend factors only through its wrapper, which never separates
     // RGB from alpha.
     const bool entryBlend = Render::GL::g_pHyprOpenGL->blendEnabled();
-    GLint entrySrc = 0, entryDst = 0;
+    GLint entrySrc = 0;
+    GLint entryDst = 0;
     glGetIntegerv(GL_BLEND_SRC_RGB, &entrySrc);
     glGetIntegerv(GL_BLEND_DST_RGB, &entryDst);
 
-    Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
-    auto state = ctx.saveDrawState();
+    const Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
+    const auto state = ctx.saveDrawState();
     auto &data = ctx.m_data;
 
-    const auto paperLayer = g_pHyprRenderer->getWorkBuffer(ctx, d.canvas);
-    if (!paperLayer) return nullptr;
+    auto paperLayer = g_pHyprRenderer->getWorkBuffer(ctx, d.canvas);
+    if (!paperLayer) {
+        return nullptr;
+    }
 
     // Requested while paperLayer is held, so the pool cannot return the same buffer twice.
     const bool lit = d.shade && d.shadeVertices && !d.shadeVertices->empty();

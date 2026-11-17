@@ -65,8 +65,8 @@ namespace close_style {
         style.crumple.frame(style.sheet.captureSize, *style.sheet.frame);
         fillSheet(style.sheet, record);
     }
-    inline void render(SPaperStyle &style,
-        Record &record,
+    inline void render(const SPaperStyle &style,
+        const Record &record,
         Render::CRenderContext &ctx,
         const PHLMONITOR &monitor,
         const SP<Render::ITexture> &tex,

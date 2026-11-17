@@ -1,8 +1,13 @@
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
 #include <limits>
+#include <optional>
 
 #include "animations/liquid/LiquidPose.hpp"
+#include "animations/shared/Core.hpp"
+#include "animations/shared/EdgeTransition.hpp"
 
 namespace hyprimate {
 
@@ -20,7 +25,7 @@ namespace hyprimate {
         constexpr int kGainHalvings = 8;
 
         double triangleArea(Vec2 a, Vec2 b, Vec2 c) {
-            return 0.5 * ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
+            return 0.5 * (((b.x - a.x) * (c.y - a.y)) - ((b.y - a.y) * (c.x - a.x)));
         }
 
         // Window sample offset from the box centre, in logical px, for a sample at rest offset
@@ -33,11 +38,13 @@ namespace hyprimate {
             Vec2 base,
             Vec2 flow,
             double gain) {
-            if (pose.boxPose) return {base.x + gain * flow.x, base.y + gain * flow.y};
+            if (pose.boxPose) {
+                return {.x = base.x + (gain * flow.x), .y = base.y + (gain * flow.y)};
+            }
             const Vec2 c = pose.compensation;
-            const Vec2 mapped =
-                map.map({(base.x + gain * flow.x) * c.x, (base.y + gain * flow.y) * c.y});
-            return {mapped.x + pose.openOffset.x, mapped.y + pose.openOffset.y};
+            const Vec2 mapped = map.map(
+                {.x = (base.x + (gain * flow.x)) * c.x, .y = (base.y + (gain * flow.y)) * c.y});
+            return {.x = mapped.x + pose.openOffset.x, .y = mapped.y + pose.openOffset.y};
         }
 
         // Span along one axis of the visible half-plane: the screen side of the edge line.
@@ -58,23 +65,26 @@ namespace hyprimate {
 
     Vec2 liquidEdgePoint(const LiquidPose &pose, double t, double n) {
         const Vec2 p = edgePoint(pose.transition.frame(), t, n);
-        return {p.x + pose.openOffset.x, p.y + pose.openOffset.y};
+        return {.x = p.x + pose.openOffset.x, .y = p.y + pose.openOffset.y};
     }
 
     void refreshLiquidPoseGrid(const LiquidPose &pose, Vec2 size, LiquidPoseGrid &grid) {
         if (!grid.stale && std::abs(grid.size.x - size.x) <= SIZE_TOLERANCE &&
-            std::abs(grid.size.y - size.y) <= SIZE_TOLERANCE)
+            std::abs(grid.size.y - size.y) <= SIZE_TOLERANCE) {
             return;
+        }
 
         const Vec2 c = pose.compensation;
-        const EdgeTransition::RestMap map = pose.transition.restMap({size.x * c.x, size.y * c.y});
+        const EdgeTransition::RestMap map =
+            pose.transition.restMap({.x = size.x * c.x, .y = size.y * c.y});
         for (int j = 0; j < LIQUID_POSE_SAMPLES; ++j) {
             for (int i = 0; i < LIQUID_POSE_SAMPLES; ++i) {
                 const double u = static_cast<double>(i) / LIQUID_RENDER_CELLS;
                 const double v = static_cast<double>(j) / LIQUID_RENDER_CELLS;
-                const Vec2 base{(u - 0.5) * size.x, (v - 0.5) * size.y};
-                grid.offsets[static_cast<std::size_t>(j) * LIQUID_POSE_SAMPLES + i] = sampleOffset(
-                    pose, map, base, pose.mesh.sampleDisplacement(u, v), pose.displacementGain);
+                const Vec2 base{.x = (u - 0.5) * size.x, .y = (v - 0.5) * size.y};
+                grid.offsets[(static_cast<std::size_t>(j) * LIQUID_POSE_SAMPLES) + i] =
+                    sampleOffset(
+                        pose, map, base, pose.mesh.sampleDisplacement(u, v), pose.displacementGain);
             }
         }
         grid.size = size;
@@ -85,30 +95,38 @@ namespace hyprimate {
         // Only an accepted field reaches the grid; any other outcome leaves the grid to be rebuilt
         // lazily.
         const auto settle = [grid](double gain) {
-            if (grid) grid->invalidate();
+            if (grid) {
+                grid->invalidate();
+            }
             return gain;
         };
         const EdgeTransition &transition = pose.transition;
-        if (!transition.active() || pose.mesh.settled()) return settle(1.0);
+        if (!transition.active() || pose.mesh.settled()) {
+            return settle(1.0);
+        }
         const Vec2 c = pose.compensation;
         if (!std::isfinite(restSize.x) || !std::isfinite(restSize.y) || !std::isfinite(c.x) ||
             !std::isfinite(c.y) || restSize.x <= 0.0 || restSize.y <= 0.0 || c.x <= 0.0 ||
-            c.y <= 0.0)
+            c.y <= 0.0) {
             return settle(0.0);
+        }
 
         // Same composition as the renderer: the displayed sample is map(((u-0.5)*S + g*d) * c,
         // S*c).
         const EdgeTransition::RestMap map =
-            transition.restMap({restSize.x * c.x, restSize.y * c.y});
+            transition.restMap({.x = restSize.x * c.x, .y = restSize.y * c.y});
         constexpr int kSide = LIQUID_POSE_SAMPLES;
         constexpr int kVertices = kSide * kSide;
-        std::array<Vec2, kVertices> base{}, flow{}, mapOnly{}, moved{};
+        std::array<Vec2, kVertices> base{};
+        std::array<Vec2, kVertices> flow{};
+        std::array<Vec2, kVertices> mapOnly{};
+        std::array<Vec2, kVertices> moved{};
         for (int j = 0; j < kSide; ++j) {
             for (int i = 0; i < kSide; ++i) {
                 const double u = static_cast<double>(i) / LIQUID_RENDER_CELLS;
                 const double v = static_cast<double>(j) / LIQUID_RENDER_CELLS;
-                const int k = j * kSide + i;
-                base[k] = {(u - 0.5) * restSize.x, (v - 0.5) * restSize.y};
+                const int k = (j * kSide) + i;
+                base[k] = {.x = (u - 0.5) * restSize.x, .y = (v - 0.5) * restSize.y};
                 flow[k] = pose.mesh.sampleDisplacement(u, v);
                 mapOnly[k] = sampleOffset(pose, map, base[k], flow[k], 0.0);
             }
@@ -118,14 +136,21 @@ namespace hyprimate {
         const auto keepsArea = [&](const std::array<Vec2, kVertices> &field) {
             for (int j = 0; j + 1 < kSide; ++j) {
                 for (int i = 0; i + 1 < kSide; ++i) {
-                    const int p00 = j * kSide + i, p10 = p00 + 1, p01 = p00 + kSide, p11 = p01 + 1;
+                    const int p00 = j * kSide + i;
+                    const int p10 = p00 + 1;
+                    const int p01 = p00 + kSide;
+                    const int p11 = p01 + 1;
                     const int tris[2][3] = {{p00, p10, p01}, {p10, p11, p01}};
                     for (const auto &t : tris) {
                         const double before =
                             triangleArea(mapOnly[t[0]], mapOnly[t[1]], mapOnly[t[2]]);
-                        if (!(before > 0.0)) continue;  // degenerate at rest: nothing to keep
+                        if (!(before > 0.0)) {
+                            continue;  // degenerate at rest: nothing to keep
+                        }
                         const double after = triangleArea(field[t[0]], field[t[1]], field[t[2]]);
-                        if (!(after >= kMinAreaFraction * before)) return false;
+                        if (!(after >= kMinAreaFraction * before)) {
+                            return false;
+                        }
                     }
                 }
             }
@@ -143,9 +168,12 @@ namespace hyprimate {
         };
         for (int h = 0; h <= kGainHalvings; ++h) {
             const double gain = std::ldexp(1.0, -h);
-            for (int k = 0; k < kVertices; ++k)
+            for (int k = 0; k < kVertices; ++k) {
                 moved[k] = sampleOffset(pose, map, base[k], flow[k], gain);
-            if (keepsArea(moved)) return publish(moved, gain);
+            }
+            if (keepsArea(moved)) {
+                return publish(moved, gain);
+            }
         }
         return publish(mapOnly, 0.0);
     }
@@ -162,34 +190,42 @@ namespace hyprimate {
         // Drained every frame so travel never accumulates while drive is 0.
         const Vec2 travel = transition.takeTravel();
         const double share = std::isfinite(drive) ? std::clamp(drive, 0.0, 1.0) : 0.0;
-        if (share > 0.0 && (travel.x != 0.0 || travel.y != 0.0))
-            mesh.recordTranslation({travel.x * share, travel.y * share}, size, strength);
+        if (share > 0.0 && (travel.x != 0.0 || travel.y != 0.0)) {
+            mesh.recordTranslation({.x = travel.x * share, .y = travel.y * share}, size, strength);
+        }
         mesh.advance(elapsed, size);
     }
 
     std::optional<Box> liquidVisibleBox(const LiquidPose &pose, const Box &logicalBox) {
-        if (!pose.transition.active()) return std::nullopt;
+        if (!pose.transition.active()) {
+            return std::nullopt;
+        }
 
         const auto &frame = pose.transition.frame();
         const Vec2 inward = inwardNormal(frame.edge);
         const Vec2 edge = liquidEdgePoint(pose, 0.0, 0.0);
-        const double edgeX = logicalBox.x + 0.5 * logicalBox.w + edge.x;
-        const double edgeY = logicalBox.y + 0.5 * logicalBox.h + edge.y;
+        const double edgeX = logicalBox.x + (0.5 * logicalBox.w) + edge.x;
+        const double edgeY = logicalBox.y + (0.5 * logicalBox.h) + edge.y;
 
-        double minX = 0.0, maxX = 0.0, minY = 0.0, maxY = 0.0;
+        double minX = 0.0;
+        double maxX = 0.0;
+        double minY = 0.0;
+        double maxY = 0.0;
         visibleSpan(edgeX, inward.x, minX, maxX);
         visibleSpan(edgeY, inward.y, minY, maxY);
-        return Box{minX, minY, maxX - minX, maxY - minY};
+        return Box{.x = minX, .y = minY, .w = maxX - minX, .h = maxY - minY};
     }
 
     std::optional<Box> liquidMeniscusExtents(const LiquidPose &pose, const Box &logicalBox) {
         const double low = pose.transition.meniscusLow();
         const double high = pose.transition.meniscusHigh();
         const double peak = pose.transition.meniscusPeak();
-        if (!(peak > 0.0) || !(high > low)) return std::nullopt;
+        if (!(peak > 0.0) || !(high > low)) {
+            return std::nullopt;
+        }
 
-        const double centreX = logicalBox.x + 0.5 * logicalBox.w;
-        const double centreY = logicalBox.y + 0.5 * logicalBox.h;
+        const double centreX = logicalBox.x + (0.5 * logicalBox.w);
+        const double centreY = logicalBox.y + (0.5 * logicalBox.h);
         double minX = std::numeric_limits<double>::max();
         double minY = std::numeric_limits<double>::max();
         double maxX = std::numeric_limits<double>::lowest();
@@ -203,15 +239,15 @@ namespace hyprimate {
                 maxY = std::max(maxY, centreY + p.y);
             }
         }
-        return Box{minX, minY, maxX - minX, maxY - minY};
+        return Box{.x = minX, .y = minY, .w = maxX - minX, .h = maxY - minY};
     }
 
     Box liquidRenderExtents(const LiquidPose &pose, const Box &logicalBox, LiquidPoseGrid &grid) {
-        const Vec2 size{logicalBox.w, logicalBox.h};
+        const Vec2 size{.x = logicalBox.w, .y = logicalBox.h};
         refreshLiquidPoseGrid(pose, size, grid);
 
-        const double centreX = logicalBox.x + 0.5 * logicalBox.w;
-        const double centreY = logicalBox.y + 0.5 * logicalBox.h;
+        const double centreX = logicalBox.x + (0.5 * logicalBox.w);
+        const double centreY = logicalBox.y + (0.5 * logicalBox.h);
 
         // Only displayed samples and the meniscus contribute; the undeformed box is not part of the
         // canvas.
@@ -233,7 +269,7 @@ namespace hyprimate {
             maxY = std::max(maxY, meniscus->y + meniscus->h);
         }
 
-        Box extents{minX, minY, maxX - minX, maxY - minY};
+        Box extents{.x = minX, .y = minY, .w = maxX - minX, .h = maxY - minY};
         if (const auto visible = liquidVisibleBox(pose, logicalBox)) {
             extents = intersectBoxes(extents, *visible);
             if (emptyBox(extents)) {
@@ -241,7 +277,10 @@ namespace hyprimate {
                 // damage path valid.
                 const Vec2 inward = inwardNormal(pose.transition.frame().edge);
                 const Vec2 edge = liquidEdgePoint(pose, 0.0, 0.0);
-                extents = Box{centreX + edge.x + inward.x, centreY + edge.y + inward.y, 1.0, 1.0};
+                extents = Box{.x = centreX + edge.x + inward.x,
+                    .y = centreY + edge.y + inward.y,
+                    .w = 1.0,
+                    .h = 1.0};
             }
         }
         return extents;
@@ -250,20 +289,20 @@ namespace hyprimate {
     Box projectToOutput(const Box &extentsDevice, const Box &renderBox, Vec2 snapshotSize) {
         const double kx = renderBox.w / snapshotSize.x;
         const double ky = renderBox.h / snapshotSize.y;
-        return Box{renderBox.x + extentsDevice.x * kx,
-            renderBox.y + extentsDevice.y * ky,
-            extentsDevice.w * kx,
-            extentsDevice.h * ky};
+        return Box{.x = renderBox.x + (extentsDevice.x * kx),
+            .y = renderBox.y + (extentsDevice.y * ky),
+            .w = extentsDevice.w * kx,
+            .h = extentsDevice.h * ky};
     }
 
     Box ownedRenderBox(const Box &sourceDevice, const Box &nativeBox, Vec2 snapshotSize) {
         const double kx = nativeBox.w / snapshotSize.x;
         const double ky = nativeBox.h / snapshotSize.y;
-        const double mx = sourceDevice.x + sourceDevice.w * 0.5;
-        const double my = sourceDevice.y + sourceDevice.h * 0.5;
-        const double cx = nativeBox.x + mx * kx;
-        const double cy = nativeBox.y + my * ky;
-        return Box{cx - mx, cy - my, snapshotSize.x, snapshotSize.y};
+        const double mx = sourceDevice.x + (sourceDevice.w * 0.5);
+        const double my = sourceDevice.y + (sourceDevice.h * 0.5);
+        const double cx = nativeBox.x + (mx * kx);
+        const double cy = nativeBox.y + (my * ky);
+        return Box{.x = cx - mx, .y = cy - my, .w = snapshotSize.x, .h = snapshotSize.y};
     }
 
     namespace {
@@ -283,8 +322,10 @@ namespace hyprimate {
     Box intersectBoxes(const Box &a, const Box &b) noexcept {
         const double x = std::max(a.x, b.x);
         const double y = std::max(a.y, b.y);
-        return normaliseEmpty(
-            Box{x, y, std::min(a.x + a.w, b.x + b.w) - x, std::min(a.y + a.h, b.y + b.h) - y});
+        return normaliseEmpty(Box{.x = x,
+            .y = y,
+            .w = std::min(a.x + a.w, b.x + b.w) - x,
+            .h = std::min(a.y + a.h, b.y + b.h) - y});
     }
 
     void expandBox(Box &box, double padding) noexcept {

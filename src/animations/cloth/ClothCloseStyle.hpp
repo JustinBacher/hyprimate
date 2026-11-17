@@ -83,8 +83,8 @@ namespace close_style {
         style.cloth.frame(style.sheet.captureSize, *style.sheet.frame);
         fillSheet(style.sheet, record);
     }
-    inline void render(SClothStyle &style,
-        Record &record,
+    inline void render(const SClothStyle &style,
+        const Record &record,
         Render::CRenderContext &ctx,
         const PHLMONITOR &monitor,
         const SP<Render::ITexture> &tex,

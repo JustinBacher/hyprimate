@@ -28,7 +28,7 @@
 
 // Converts between the plugin's CBox and the core's hyprimate::Box at the renderer boundary.
 inline hyprimate::Box toBox(const CBox &box) {
-    return {box.x, box.y, box.w, box.h};
+    return {.x = box.x, .y = box.y, .w = box.w, .h = box.h};
 }
 inline CBox toCBox(const hyprimate::Box &box) {
     return CBox{box.x, box.y, box.w, box.h};
@@ -57,6 +57,8 @@ class CAnimationTransformer final : public Render::IWindowTransformer {
 
     CAnimationTransformer(const CAnimationTransformer &) = delete;
     CAnimationTransformer &operator=(const CAnimationTransformer &) = delete;
+    CAnimationTransformer(CAnimationTransformer &&) = delete;
+    CAnimationTransformer &operator=(CAnimationTransformer &&) = delete;
 
     Render::SWindowTransformBuffer transform(Render::CRenderContext &ctx,
         const Render::SWindowTransformBuffer &in,

@@ -1,14 +1,25 @@
 #include <cmath>
+#include <optional>
+#include <utility>
+#include <vector>
 
+#include <hyprland/src/helpers/memory/Memory.hpp>
+#include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
+#include <hyprland/src/render/pass/PassElement.hpp>
+#include <hyprutils/math/Region.hpp>
+#include <hyprutils/math/Vector2D.hpp>
 
 #include "SheetClosePass.hpp"
+#include "animations/shared/PaperRenderer.hpp"
 
 CPaperClosePassElement::CPaperClosePassElement(SData data) : m_data(std::move(data)) {
 }
 
 std::vector<UP<IPassElement>> CPaperClosePassElement::draw(Render::CRenderContext &ctx) {
-    if (!m_data.tex || !m_data.vertices || m_data.vertices->empty()) return {};
+    if (!m_data.tex || !m_data.vertices || m_data.vertices->empty()) {
+        return {};
+    }
 
     Render::GL::CHyprOpenGLImpl::STextureRenderData textureData{};
     textureData.damage = &m_data.damage;

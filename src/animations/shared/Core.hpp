@@ -71,7 +71,7 @@ namespace hyprimate {
     // C1 smoothstep: 0 at a, 1 at b, clamped outside [a, b].
     inline double smoothstep(double a, double b, double x) noexcept {
         const double t = std::clamp((x - a) / (b - a), 0.0, 1.0);
-        return t * t * (3.0 - 2.0 * t);
+        return t * t * (3.0 - (2.0 * t));
     }
 
 }  // namespace hyprimate

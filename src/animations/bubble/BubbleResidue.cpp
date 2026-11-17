@@ -1,12 +1,27 @@
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <optional>
+#include <span>
+#include <utility>
 
 #include <aquamarine/output/Output.hpp>
+#include <hyprland/src/desktop/DesktopTypes.hpp>
+#include <hyprland/src/helpers/memory/Memory.hpp>
 #include <hyprland/src/output/Monitor.hpp>
+#include <hyprland/src/render/Context.hpp>
+#include <hyprland/src/render/Renderer.hpp>
+#include <hyprutils/math/Box.hpp>
+#include <hyprutils/math/Vector2D.hpp>
+#include <hyprutils/memory/UniquePtr.hpp>
 
+#include "Bubble.hpp"
+#include "BubbleMotion.hpp"
 #include "BubbleRenderer.hpp"
 #include "BubbleResidue.hpp"
+#include "animations/shared/Core.hpp"
 
 namespace {
     CBox footprint(Vector2D position, double radius) {
@@ -35,7 +50,7 @@ namespace {
     // The device-pixel box a monitor-local logical source box covers on screen, pixel aligned.
     CBox onScreen(const PHLMONITOR &monitor, const CBox &source) {
         const CBox screen{{}, monitor->m_transformedSize};
-        auto clipped = source.copy().intersection(screen);
+        const auto clipped = source.copy().intersection(screen);
         if (clipped.empty()) return {};
         const double x = std::floor(clipped.x), y = std::floor(clipped.y);
         return CBox{

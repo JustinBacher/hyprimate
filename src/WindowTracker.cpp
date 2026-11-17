@@ -1,7 +1,9 @@
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 
 #include "WindowTracker.hpp"
+#include "animations/shared/Core.hpp"
 
 namespace hyprimate {
     namespace {
@@ -63,7 +65,9 @@ namespace hyprimate {
         const bool eligibleNow = s.deformable && isUsable(s.current) && isUsable(s.capture);
 
         TrackDecision d;
-        if (!eligibleNow && !m_eligible) return d;
+        if (!eligibleNow && !m_eligible) {
+            return d;
+        }
 
         const Vec2 offset = s.workspaceMovement ? s.workspaceOffset : Vec2{};
         d.previousBox = translated(m_lastBox, m_workspaceOffset);
@@ -72,12 +76,11 @@ namespace hyprimate {
         d.currentCapture = translated(s.capture, offset);
         d.workspaceMoving = s.workspaceMovement && s.workspaceMoving;
 
-        const bool reset = !eligibleNow || !m_eligible || !isUsable(m_lastBox) ||
-                           !isUsable(m_lastCapture) || s.monitor != m_monitor ||
-                           s.elapsed > kStallSeconds || s.workspace != m_workspace ||
-                           s.workspaceMovement != m_workspaceMovement ||
-                           (d.workspaceMoving && !m_workspaceMoving &&
-                               (offset.x != 0.0 || offset.y != 0.0));
+        const bool reset =
+            !eligibleNow || !m_eligible || !isUsable(m_lastBox) || !isUsable(m_lastCapture) ||
+            s.monitor != m_monitor || s.elapsed > kStallSeconds || s.workspace != m_workspace ||
+            s.workspaceMovement != m_workspaceMovement ||
+            (d.workspaceMoving && !m_workspaceMoving && (offset.x != 0.0 || offset.y != 0.0));
         if (reset) {
             d.action = TrackAction::Rebaseline;
             d.beginOpen = openingEdge && eligibleNow;
@@ -109,7 +112,7 @@ namespace hyprimate {
         }
 
         const Vec2 delta{
-            d.currentBox.x - d.previousBox.x, d.currentBox.y - d.previousBox.y};
+            .x = d.currentBox.x - d.previousBox.x, .y = d.currentBox.y - d.previousBox.y};
         d.translated = delta.x != 0.0 || delta.y != 0.0;
         d.resized = !sameSize(s.current, d.previousBox);
         d.captureChanged = d.currentCapture.x != d.previousCapture.x ||
@@ -119,7 +122,7 @@ namespace hyprimate {
             std::max({s.current.w, s.current.h, d.previousBox.w, d.previousBox.h});
         // Only client geometry can teleport. A legitimate workspace slide may travel several
         // window widths between frames, particularly for small windows on a large monitor.
-        const Vec2 layoutDelta{s.current.x - m_lastBox.x, s.current.y - m_lastBox.y};
+        const Vec2 layoutDelta{.x = s.current.x - m_lastBox.x, .y = s.current.y - m_lastBox.y};
         adopt(s, true);
 
         if (std::hypot(layoutDelta.x, layoutDelta.y) > kMaxJumpFactor * largest) {
@@ -128,7 +131,9 @@ namespace hyprimate {
         }
 
         d.cancelMovement = s.handoffMoving && !s.movementEnabled;
-        if (!d.translated && !d.resized && !d.captureChanged && !d.cancelMovement) return d;
+        if (!d.translated && !d.resized && !d.captureChanged && !d.cancelMovement) {
+            return d;
+        }
 
         d.action = TrackAction::Move;
         return d;

@@ -129,8 +129,8 @@ namespace hyprimate {
             bool identity = true;  // inactive or invalid size: the map is the identity
             bool horizontal = false;  // the edge runs horizontally, so the tangent is x
             bool rectangle = true;  // roundness below 2e-4: the outline is the rectangle itself
-            Vec2 along{1.0, 0.0};
-            Vec2 inward{0.0, 0.0};
+            Vec2 along{.x = 1.0, .y = 0.0};
+            Vec2 inward{.x = 0.0, .y = 0.0};
             double halfT = 1.0, halfN = 1.0;
             double exponent = 2.0,
                    invExponent = 0.5;  // outline exponent 2 / roundness and its reciprocal
@@ -175,7 +175,9 @@ namespace hyprimate {
             std::array<Lobe, kMaxLobes> lobes{};
             // Adds a visible lobe to the first free slot. Callers stay within kMaxLobes.
             void add(const Lobe &lobe) noexcept {
-                if (!(lobe.height > 0.0)) return;
+                if (!(lobe.height > 0.0)) {
+                    return;
+                }
                 for (Lobe &slot : lobes) {
                     if (!(slot.height > 0.0)) {
                         slot = lobe;
@@ -185,7 +187,9 @@ namespace hyprimate {
             }
             double peak() const noexcept {
                 double h = 0.0;
-                for (const Lobe &l : lobes) h = l.height > h ? l.height : h;
+                for (const Lobe &l : lobes) {
+                    h = l.height > h ? l.height : h;
+                }
                 return h;
             }
         };

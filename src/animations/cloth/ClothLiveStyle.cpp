@@ -1,11 +1,32 @@
 #include <cmath>
+#include <cstdint>
+#include <optional>
+#include <variant>
 
+#include <hyprland/src/desktop/DesktopTypes.hpp>
+#include <hyprland/src/desktop/view/types/Geometric.hpp>
 #include <hyprland/src/desktop/view/window/Window.hpp>
+#include <hyprland/src/helpers/memory/Memory.hpp>
+#include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/Renderer.hpp>
+#include <hyprland/src/render/transformer/Transformer.hpp>
+#include <hyprutils/math/Box.hpp>
 
+#include "AnimationTransformer.hpp"
+#include "LiveRender.hpp"
 #include "LiveStyle.hpp"
+#include "PluginRuntime.hpp"
+#include "WindowTracker.hpp"
+#include "animations/cloth/ClothFlutter.hpp"
+#include "animations/cloth/ClothLiveState.hpp"
+#include "animations/liquid/LiquidMesh.hpp"
+#include "animations/liquid/SolidFill.hpp"
+#include "animations/shared/Core.hpp"
 #include "animations/shared/EdgeStyleConfig.hpp"
 #include "animations/shared/LiveSheetRender.hpp"
+#include "animations/shared/PaperRenderer.hpp"
+#include "animations/swarm/SwarmRenderer.hpp"
+#include "config_generated.hpp"
 
 CBox liveExtents(const SClothStyle &state, const CBox &box) {
     return liveSheetExtents(state.sheet, box);
@@ -26,8 +47,9 @@ Render::SWindowTransformBuffer renderLive(SClothStyle &state,
 bool SClothLiveStyle::open(
     CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window) {
     if (const auto frame = hyprimate::resolveStyleOpenEdge(
-            runtime.edgeInputFor(window, true), runtime.m_config.open.cloth))
+            runtime.edgeInputFor(window, true), runtime.m_config.open.cloth)) {
         entry.openEdge = frame->edge;
+    }
     const CBox current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
     const CBox goal = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
     const CBox capture = window->getFullWindowBoundingBox();
@@ -39,7 +61,9 @@ bool SClothLiveStyle::open(
         return std::isfinite(box.x) && std::isfinite(box.y) && std::isfinite(box.w) &&
                std::isfinite(box.h) && box.w > 0.0 && box.h > 0.0;
     };
-    if (!usable(goal) || !usable(rest)) return false;
+    if (!usable(goal) || !usable(rest)) {
+        return false;
+    }
     runtime.m_neighbours.clear();
     runtime.gatherClothObstacles(window);
     auto *transformer = runtime.acquireTransformer(window);
@@ -56,7 +80,7 @@ bool SClothLiveStyle::open(
         toBox(rest),
         runtime.m_neighbours,
         std::nullopt);
-    state.sheet.captureSize = {rest.w, rest.h};
+    state.sheet.captureSize = {.x = rest.w, .y = rest.h};
     state.cloth.frame(state.sheet.captureSize, *state.sheet.frame);
     if (state.cloth.active()) {
         g_pHyprRenderer->damageBox(capture);
@@ -77,13 +101,14 @@ void SClothLiveStyle::movement(CPluginRuntime &runtime,
     auto &state = std::get<SClothStyle>(transformer.m_style);
     if (moving && !state.cloth.moving()) {
         state.cloth.beginMovement(state.movement, runtime.m_nextSeed++, decision.previousCapture);
-        state.sheet.captureSize = {decision.previousCapture.w, decision.previousCapture.h};
+        state.sheet.captureSize = {
+            .x = decision.previousCapture.w, .y = decision.previousCapture.h};
         state.cloth.frame(state.sheet.captureSize, *state.sheet.frame);
     }
     if (enabled && state.cloth.moving()) {
         const auto &capture = decision.currentCapture;
         state.cloth.updateMovement(capture, elapsed);
-        state.sheet.captureSize = {capture.w, capture.h};
+        state.sheet.captureSize = {.x = capture.w, .y = capture.h};
         state.cloth.frame(state.sheet.captureSize, *state.sheet.frame);
     }
 }
@@ -102,8 +127,12 @@ void SClothLiveStyle::step(CPluginRuntime &,
     hyprimate::Vec2 size,
     bool enabled) {
     auto &cloth = std::get<SClothStyle>(transformer.m_style);
-    if (!enabled && cloth.cloth.moving()) cancelMovement(transformer);
-    if (!cloth.cloth.active()) return;
+    if (!enabled && cloth.cloth.moving()) {
+        cancelMovement(transformer);
+    }
+    if (!cloth.cloth.active()) {
+        return;
+    }
     cloth.sheet.captureSize = size;
     cloth.cloth.advance(elapsed);
     cloth.cloth.frame(size, *cloth.sheet.frame);
@@ -111,7 +140,9 @@ void SClothLiveStyle::step(CPluginRuntime &,
 
 void SClothLiveStyle::cancelOpening(CAnimationTransformer &transformer) {
     auto &cloth = std::get<SClothStyle>(transformer.m_style).cloth;
-    if (cloth.active() && !cloth.moving()) cloth.reset();
+    if (cloth.active() && !cloth.moving()) {
+        cloth.reset();
+    }
 }
 
 void SClothLiveStyle::cancelMovement(CAnimationTransformer &transformer) {

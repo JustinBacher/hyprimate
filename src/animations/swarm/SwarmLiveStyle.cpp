@@ -1,16 +1,38 @@
+#include <cstdint>
 #include <optional>
+#include <variant>
 
+#include <hyprland/src/desktop/DesktopTypes.hpp>
+#include <hyprland/src/desktop/view/types/Geometric.hpp>
 #include <hyprland/src/desktop/view/window/Window.hpp>
+#include <hyprland/src/helpers/memory/Memory.hpp>
 #include <hyprland/src/layout/LayoutManager.hpp>
+#include <hyprland/src/managers/input/InputManager.hpp>
 #include <hyprland/src/output/Monitor.hpp>
+#include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Renderer.hpp>
+#include <hyprland/src/render/Texture.hpp>
 #include <hyprland/src/render/pass/ClearPassElement.hpp>
+#include <hyprland/src/render/transformer/Transformer.hpp>
+#include <hyprland/src/render/types.hpp>
+#include <hyprutils/math/Box.hpp>
 
+#include "AnimationTransformer.hpp"
 #include "LiveRender.hpp"
 #include "LiveStyle.hpp"
+#include "PluginRuntime.hpp"
+#include "WindowTracker.hpp"
+#include "animations/cloth/ClothFlutter.hpp"
+#include "animations/liquid/LiquidMesh.hpp"
+#include "animations/liquid/SolidFill.hpp"
+#include "animations/shared/Core.hpp"
+#include "animations/shared/PaperRenderer.hpp"
+#include "animations/swarm/Swarm.hpp"
 #include "animations/swarm/SwarmConfig.hpp"
+#include "animations/swarm/SwarmLiveState.hpp"
 #include "animations/swarm/SwarmRenderer.hpp"
+#include "config_generated.hpp"
 
 using hyprimate::Transition;
 
@@ -20,12 +42,16 @@ namespace {
     // monitor.
     std::optional<hyprimate::SwarmPlacement> placementOf(const PHLWINDOW &window, bool atGoal) {
         const auto monitor = window->m_monitor.lock();
-        if (!monitor) return std::nullopt;
+        if (!monitor) {
+            return std::nullopt;
+        }
         const CBox current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
         const CBox capture = window->getFullWindowBoundingBox();
-        if (!atGoal)
-            return hyprimate::SwarmPlacement{
-                toBox(capture), toBox(current), toBox(monitor->logicalBox())};
+        if (!atGoal) {
+            return hyprimate::SwarmPlacement{.capture = toBox(capture),
+                .body = toBox(current),
+                .screen = toBox(monitor->logicalBox())};
+        }
         // Decoration margins (border, shadow) do not scale with native popin, so they carry over to
         // the rest box.
         const CBox goal = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
@@ -33,7 +59,8 @@ namespace {
             goal.y + (capture.y - current.y),
             goal.w + (capture.w - current.w),
             goal.h + (capture.h - current.h)};
-        return hyprimate::SwarmPlacement{toBox(rest), toBox(goal), toBox(monitor->logicalBox())};
+        return hyprimate::SwarmPlacement{
+            .capture = toBox(rest), .body = toBox(goal), .screen = toBox(monitor->logicalBox())};
     }
 
 }  // namespace
@@ -42,7 +69,9 @@ CBox liveExtents(const SSwarmStyle &state, const CBox &box) {
     const hyprimate::Box bounds = state.swarm.bounds();
     // Nothing on screen yet (or any more): a token box keeps the window itself from being drawn in
     // its place.
-    if (!(bounds.w > 0.0 && bounds.h > 0.0)) return CBox{box.x, box.y, 1.0, 1.0};
+    if (!(bounds.w > 0.0 && bounds.h > 0.0)) {
+        return CBox{box.x, box.y, 1.0, 1.0};
+    }
     return CBox{box.x + bounds.x, box.y + bounds.y, bounds.w, bounds.h}.expand(2.0);
 }
 
@@ -54,27 +83,36 @@ Render::SWindowTransformBuffer renderLive(SSwarmStyle &state,
     const SP<CSolidFill> &,
     const SP<CPaperShade> &,
     const SP<CSwarmSprites> &sprites) {
-    const Render::SWindowTransformBuffer failed{
-        .framebuffer = in.framebuffer, .box = in.box, .success = false};
     const auto *sheet = sprites ? sprites->sheet(state.creature) : nullptr;
     const auto atlas = sheet ? sprites->texture(state.creature) : SP<Render::ITexture>{};
-    if (!sheet || !atlas) return failed;
+    if (!sheet || !atlas) {
+        return {.framebuffer = in.framebuffer, .box = in.box, .success = false};
+    }
 
-    fillSwarmMeshes(
-        state.swarm, *sheet, g.source, g.output, {in.box.x, in.box.y}, g.textureSize, state.meshes);
+    fillSwarmMeshes(state.swarm,
+        *sheet,
+        g.source,
+        g.output,
+        {.x = in.box.x, .y = in.box.y},
+        g.textureSize,
+        state.meshes);
     const auto layer = renderSwarmLayer(ctx,
         in.framebuffer->getTexture(),
         atlas,
         swarmLayerSize(g.source),
         state.meshes,
         sprites->surface());
-    if (!layer) return failed;
+    if (!layer) {
+        return {.framebuffer = in.framebuffer, .box = in.box, .success = false};
+    }
     // Requested while the layer is held, so the pool cannot return the same buffer twice.
     const auto out = g_pHyprRenderer->getWorkBuffer(ctx, g.canvas.size());
-    if (!out) return failed;
+    if (!out) {
+        return {.framebuffer = in.framebuffer, .box = in.box, .success = false};
+    }
 
-    Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
-    auto drawState = ctx.saveDrawState();
+    const Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
+    const auto drawState = ctx.saveDrawState();
     auto &renderData = ctx.m_data;
     g_pHyprRenderer->bindFB(ctx, out);
     renderData.damage = CRegion{0.0, 0.0, g.canvas.w, g.canvas.h};
@@ -97,14 +135,19 @@ bool SSwarmLiveStyle::open(
     const auto sides = runtime.swarmSides(window, true);
     const auto placement = placementOf(window, true);
     const auto creature = swarmCreature(runtime.m_config.open.swarm);
-    if (!placement || sides.empty() || !runtime.m_sprites->sheet(creature)) return false;
+    if (!placement || sides.empty() || !runtime.m_sprites->sheet(creature)) {
+        return false;
+    }
 
     auto *transformer = runtime.acquireTransformer(window);
     auto &state = std::get<SSwarmStyle>(transformer->m_style);
     state.creature = creature;
     state.swarm.reset();
-    state.swarm.begin(
-        Transition::Open, swarmParams(runtime.m_config.open.swarm), runtime.m_nextSeed++, *placement, sides);
+    state.swarm.begin(Transition::Open,
+        swarmParams(runtime.m_config.open.swarm),
+        runtime.m_nextSeed++,
+        *placement,
+        sides);
     if (state.swarm.active()) {
         // The swarm assembles the window where it will rest, so the native popin is taken straight
         // to its goal.
@@ -126,7 +169,9 @@ void SSwarmLiveStyle::movement(CPluginRuntime &runtime,
     bool moving) {
     auto &state = std::get<SSwarmStyle>(transformer.m_style);
     auto placement = placementOf(window, false);
-    if (!placement) return;
+    if (!placement) {
+        return;
+    }
     if (!state.swarm.opening()) {
         placement->capture = decision.currentCapture;
         placement->body = decision.currentBox;
@@ -137,11 +182,14 @@ void SSwarmLiveStyle::movement(CPluginRuntime &runtime,
         state.swarm.reset();
         state.swarm.beginMovement(swarmParams(runtime.m_config.movement.swarm),
             runtime.m_nextSeed++,
-            {decision.previousCapture, decision.previousBox, placement->screen});
+            {.capture = decision.previousCapture,
+                .body = decision.previousBox,
+                .screen = placement->screen});
     }
     // An opening follows its window even with movement off; its agents are in flight either way.
-    if (state.swarm.opening() || (enabled && state.swarm.moving()))
+    if (state.swarm.opening() || (enabled && state.swarm.moving())) {
         state.swarm.updateMovement(*placement);
+    }
 }
 
 void SSwarmLiveStyle::snapshot(
@@ -158,7 +206,9 @@ void SSwarmLiveStyle::step(CPluginRuntime &,
     hyprimate::Vec2,
     bool enabled) {
     auto &state = std::get<SSwarmStyle>(transformer.m_style);
-    if (!enabled && state.swarm.moving()) cancelMovement(transformer);
+    if (!enabled && state.swarm.moving()) {
+        cancelMovement(transformer);
+    }
     const auto target = g_layoutManager->dragController()->target();
     const bool held = enabled && target && target->window() == transformer.m_window.lock() &&
                       g_layoutManager->dragController()->mode() == MBIND_MOVE;
@@ -167,12 +217,16 @@ void SSwarmLiveStyle::step(CPluginRuntime &,
 
 void SSwarmLiveStyle::cancelOpening(CAnimationTransformer &transformer) {
     auto &swarm = std::get<SSwarmStyle>(transformer.m_style).swarm;
-    if (swarm.opening()) swarm.reset();
+    if (swarm.opening()) {
+        swarm.reset();
+    }
 }
 
 void SSwarmLiveStyle::cancelMovement(CAnimationTransformer &transformer) {
     auto &swarm = std::get<SSwarmStyle>(transformer.m_style).swarm;
-    if (swarm.moving()) swarm.reset();
+    if (swarm.moving()) {
+        swarm.reset();
+    }
 }
 
 bool SSwarmLiveStyle::deforming(const CAnimationTransformer &transformer) noexcept {

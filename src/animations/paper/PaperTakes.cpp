@@ -1,8 +1,9 @@
 #include <bit>
+#include <cstddef>
 #include <cstdint>
 
-#include "animations/paper/PaperCrumple.hpp"
 #include "animations/paper/PaperTakes.hpp"
+#include "animations/shared/SheetFrame.hpp"
 
 namespace hyprimate {
     namespace {
@@ -22,7 +23,7 @@ namespace hyprimate {
         constexpr int FRAMES = int(u32(12));
         constexpr int TAKES = int(u32(16));
         constexpr std::size_t ASPECTS = 20;
-        constexpr std::size_t DATA = ASPECTS + 4 * std::size_t(TAKES);
+        constexpr std::size_t DATA = ASPECTS + (4 * std::size_t(TAKES));
         constexpr std::size_t VERTICES = std::size_t(GRID) * GRID;
         constexpr std::size_t TAKE_BYTES = std::size_t(FRAMES) * VERTICES * 3 * 2;
 
@@ -32,7 +33,7 @@ namespace hyprimate {
         static_assert(GRID == PAPER_CELLS + 1,
             "paper takes were baked for a different grid; rebake with src/animations/paper/tools");
         static_assert(FRAMES >= 2 && TAKES >= 1, "paper take asset is empty");
-        static_assert(sizeof(ASSET) == DATA + std::size_t(TAKES) * TAKE_BYTES,
+        static_assert(sizeof(ASSET) == DATA + (std::size_t(TAKES) * TAKE_BYTES),
             "paper take asset is truncated");
 
         double i16(std::size_t at) noexcept {
@@ -52,12 +53,12 @@ namespace hyprimate {
     }
 
     double paperTakeAspect(int take) noexcept {
-        return std::bit_cast<float>(u32(ASPECTS + 4 * std::size_t(take)));
+        return std::bit_cast<float>(u32(ASPECTS + (4 * std::size_t(take))));
     }
 
     void paperTakeVertex(int take, int frame, std::size_t vertex, double out[3]) noexcept {
-        const std::size_t at =
-            DATA + std::size_t(take) * TAKE_BYTES + (std::size_t(frame) * VERTICES + vertex) * 6;
+        const std::size_t at = DATA + (std::size_t(take) * TAKE_BYTES) +
+                               (((std::size_t(frame) * VERTICES) + vertex) * 6);
         out[0] = i16(at);
         out[1] = i16(at + 2);
         out[2] = i16(at + 4);

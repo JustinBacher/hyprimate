@@ -12,22 +12,24 @@ namespace close_style {
         fillSheetMeshes(*sheet.frame,
             record.sourceDevice,
             record.extentsDevice,
-            hyprimate::Vec2{0.0, 0.0},
-            hyprimate::Vec2{record.snapshotSize.x, record.snapshotSize.y},
+            hyprimate::Vec2{.x = 0.0, .y = 0.0},
+            hyprimate::Vec2{.x = record.snapshotSize.x, .y = record.snapshotSize.y},
             sheet.window,
             sheet.shade);
     }
 
-    inline void renderSheet(SSheetBuffers &sheet,
+    inline void renderSheet(const SSheetBuffers &sheet,
         bool shaded,
         double opacity,
-        Record &record,
+        const Record &record,
         Render::CRenderContext &ctx,
         const PHLMONITOR &monitor,
         const SP<Render::ITexture> &tex,
         const SP<CPaperShade> &shade) {
         const float alpha = record.sourceAlpha * float(opacity);
-        if (alpha <= 0.F) return;
+        if (alpha <= 0.F) {
+            return;
+        }
         CPaperClosePassElement::SData data;
         data.tex = tex;
         data.shade = shaded && shade ? shade->texture() : nullptr;

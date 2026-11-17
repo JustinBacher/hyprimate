@@ -15,6 +15,8 @@
 class CBubbleImpactLease {
   public:
     CBubbleImpactLease() = default;
+    CBubbleImpactLease(const CBubbleImpactLease &) = delete;
+    CBubbleImpactLease &operator=(const CBubbleImpactLease &) = delete;
     CBubbleImpactLease(CBubbleImpactLease &&) noexcept = default;
     CBubbleImpactLease &operator=(CBubbleImpactLease &&other) noexcept {
         if (this != &other) {
@@ -32,15 +34,20 @@ class CBubbleImpactLease {
         m_clock = makeShared<SBubbleImpactClock>();
     }
     void advance(double elapsed) {
-        if (m_clock && std::isfinite(elapsed) && elapsed > 0)
+        if (m_clock && std::isfinite(elapsed) && elapsed > 0) {
             m_clock->time += std::min(elapsed, hyprimate::kStallSeconds);
+        }
     }
     void cancel() {
-        if (m_clock) m_clock->cancelled = true;
+        if (m_clock) {
+            m_clock->cancelled = true;
+        }
         m_clock.reset();
     }
     void release() {
-        if (m_clock) m_clock->ended = true;
+        if (m_clock) {
+            m_clock->ended = true;
+        }
         m_clock.reset();
     }
     bool running() const {
@@ -74,14 +81,19 @@ inline void depositBubbleImpacts(SBubbleStyle &state,
     const hyprimate::BubbleFrame &frame,
     const PHLMONITOR &monitor,
     Vector2D centre) {
-    if (!state.residue || !monitor) return;
+    if (!state.residue || !monitor) {
+        return;
+    }
     const auto deposit = [&](const hyprimate::BubbleSurface &surface, bool &done) {
-        if (done) return;
+        if (done) {
+            return;
+        }
         const auto holes =
             std::span(surface.holes).first(std::min(surface.holeCount, surface.holes.size()));
         if (std::ranges::none_of(
-                holes, [](const hyprimate::BubbleHole &hole) { return hole.radius > 0; }))
+                holes, [](const hyprimate::BubbleHole &hole) { return hole.radius > 0; })) {
             return;
+        }
         std::array<hyprimate::BubbleImpact, hyprimate::kBubbleMaxImpacts> found{};
         const auto count = hyprimate::bubbleImpacts(surface, found);
         // A disabled residue declines the beads; they are not retried later.
