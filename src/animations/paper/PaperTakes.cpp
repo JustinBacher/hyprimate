@@ -60,11 +60,11 @@ namespace hyprimate {
     }
 
     void paperTakeVertex(int take, int frame, std::size_t vertex, double out[3]) noexcept {
-        const std::size_t at = DATA + (static_cast<std::size_t>(take) * TAKE_BYTES) +
-                               (((static_cast<std::size_t>(frame) * VERTICES) + vertex) * 6);
-        out[0] = i16(at);
-        out[1] = i16(at + 2);
-        out[2] = i16(at + 4);
+        const std::size_t OFFSET = DATA + (static_cast<std::size_t>(take) * TAKE_BYTES) +
+                                   (((static_cast<std::size_t>(frame) * VERTICES) + vertex) * 6);
+        out[0] = i16(OFFSET);
+        out[1] = i16(OFFSET + 2);
+        out[2] = i16(OFFSET + 4);
     }
 
 }  // namespace hyprimate

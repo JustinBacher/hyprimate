@@ -186,11 +186,11 @@ namespace hyprimate {
                 }
             }
             double peak() const noexcept {
-                double h = 0.0;
-                for (const Lobe &l : lobes) {
-                    h = l.height > h ? l.height : h;
+                double peakHeight = 0.0;
+                for (const Lobe &lobe : lobes) {
+                    peakHeight = lobe.height > peakHeight ? lobe.height : peakHeight;
                 }
-                return h;
+                return peakHeight;
             }
         };
 

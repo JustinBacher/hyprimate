@@ -266,13 +266,13 @@ namespace {
             state.goalBody.h + TOP + BOTTOM};
         const Vec2 HALF = state.transition.beadHalf({.x = REST.w, .y = REST.h});
         const Vec2 CENTRE = state.transition.beadCentre();
-        const double cx = REST.x + (0.5 * REST.w) + CENTRE.x;
-        const double cy = REST.y + (0.5 * REST.h) + CENTRE.y;
+        const double CENTRE_X = REST.x + (0.5 * REST.w) + CENTRE.x;
+        const double CENTRE_Y = REST.y + (0.5 * REST.h) + CENTRE.y;
         constexpr double MIN_SIDE = 2.0;
-        const double w = std::max(MIN_SIDE, (2.0 * HALF.x) - LEFT - RIGHT);
-        const double h = std::max(MIN_SIDE, (2.0 * HALF.y) - TOP - BOTTOM);
-        const Vector2D POSITION{cx - HALF.x + LEFT, cy - HALF.y + TOP};
-        const Vector2D SIZE{w, h};
+        const double WIDTH = std::max(MIN_SIDE, (2.0 * HALF.x) - LEFT - RIGHT);
+        const double HEIGHT = std::max(MIN_SIDE, (2.0 * HALF.y) - TOP - BOTTOM);
+        const Vector2D POSITION{CENTRE_X - HALF.x + LEFT, CENTRE_Y - HALF.y + TOP};
+        const Vector2D SIZE{WIDTH, HEIGHT};
 
         positionVar->setValueAndWarp(POSITION);
         sizeVar->setValueAndWarp(SIZE);

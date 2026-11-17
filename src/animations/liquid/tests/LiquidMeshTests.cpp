@@ -34,8 +34,8 @@ namespace {
 
     double maxMagnitude(const std::array<Vec2, 81> &field) {
         double result = 0.0;
-        for (const Vec2 &p : field) {
-            result = std::max(result, magnitude(p));
+        for (const Vec2 &point : field) {
+            result = std::max(result, magnitude(point));
         }
         return result;
     }
@@ -79,13 +79,13 @@ namespace {
         if (mesh.settled()) {
             return true;
         }
-        const auto &d = mesh.displacements();
+        const auto &offsets = mesh.displacements();
         const double LIMIT = std::min(120.0, 0.2 * std::min(size.x, size.y));
-        for (const Vec2 &p : d) {
-            if (!std::isfinite(p.x) || !std::isfinite(p.y)) {
+        for (const Vec2 &displacement : offsets) {
+            if (!std::isfinite(displacement.x) || !std::isfinite(displacement.y)) {
                 return false;
             }
-            if (magnitude(p) > LIMIT + 1e-9) {
+            if (magnitude(displacement) > LIMIT + 1e-9) {
                 return false;
             }
         }
@@ -97,7 +97,7 @@ namespace {
                 const std::array<Corner, 3> SECOND{Corner{.x = cx + 1, .y = cy},
                     Corner{.x = cx, .y = cy + 1},
                     Corner{.x = cx + 1, .y = cy + 1}};
-                if (!triangleValid(FIRST, d, size) || !triangleValid(SECOND, d, size)) {
+                if (!triangleValid(FIRST, offsets, size) || !triangleValid(SECOND, offsets, size)) {
                     return false;
                 }
             }
@@ -110,13 +110,14 @@ namespace {
     bool renderValid(const LiquidMesh &mesh, Vec2 size) {
         constexpr unsigned CELLS = 32;
         const auto POSITION = [&](unsigned i, unsigned j) {
-            const double u = static_cast<double>(i) / CELLS;
-            const double v = static_cast<double>(j) / CELLS;
-            const Vec2 d = mesh.sampleDisplacement(u, v);
-            if (!std::isfinite(d.x) || !std::isfinite(d.y)) {
+            const double TEX_U = static_cast<double>(i) / CELLS;
+            const double TEX_V = static_cast<double>(j) / CELLS;
+            const Vec2 DISPLACEMENT = mesh.sampleDisplacement(TEX_U, TEX_V);
+            if (!std::isfinite(DISPLACEMENT.x) || !std::isfinite(DISPLACEMENT.y)) {
                 return Vec2{.x = kNaN, .y = kNaN};
             }
-            return Vec2{.x = (size.x * u) + d.x, .y = (size.y * v) + d.y};
+            return Vec2{
+                .x = (size.x * TEX_U) + DISPLACEMENT.x, .y = (size.y * TEX_V) + DISPLACEMENT.y};
         };
         for (unsigned cy = 0; cy < CELLS; ++cy) {
             for (unsigned cx = 0; cx < CELLS; ++cx) {
@@ -132,9 +133,11 @@ namespace {
                     {{REST00, REST01, REST10}, {REST10, REST01, REST11}}};
                 const std::array<std::array<Vec2, 3>, 2> DEFORMED{
                     {{P00, P01, P10}, {P10, P01, P11}}};
-                for (std::size_t t = 0; t < 2; ++t) {
-                    const double REST_AREA = signedArea(REST[t][0], REST[t][1], REST[t][2]);
-                    const double AREA = signedArea(DEFORMED[t][0], DEFORMED[t][1], DEFORMED[t][2]);
+                for (std::size_t triangle = 0; triangle < 2; ++triangle) {
+                    const double REST_AREA =
+                        signedArea(REST[triangle][0], REST[triangle][1], REST[triangle][2]);
+                    const double AREA = signedArea(
+                        DEFORMED[triangle][0], DEFORMED[triangle][1], DEFORMED[triangle][2]);
                     if (!std::isfinite(AREA) || !(AREA / REST_AREA >= 0.2)) {
                         return false;
                     }
@@ -151,7 +154,7 @@ namespace {
             LiquidMesh mesh{};
             mesh.recordTranslation(Vec2{.x = 5000.0, .y = 0.0}, kWindow, kStrength);
             CHECK(latticeValid(mesh, kWindow));
-            for (int f = 0; f < 30; ++f) {
+            for (int initialFrame = 0; initialFrame < 30; ++initialFrame) {
                 mesh.advance(1.0 / 60.0, kWindow);
                 CHECK(latticeValid(mesh, kWindow));
             }
@@ -168,7 +171,7 @@ namespace {
             for (const Vec2 &impulse : IMPULSES) {
                 mesh.recordTranslation(impulse, kWindow, kStrength);
                 CHECK(latticeValid(mesh, kWindow));
-                for (int f = 0; f < 3; ++f) {
+                for (int frameIndex = 0; frameIndex < 3; ++frameIndex) {
                     mesh.advance(1.0 / 60.0, kWindow);
                     CHECK(latticeValid(mesh, kWindow));
                 }
@@ -182,7 +185,7 @@ namespace {
             mesh.recordTranslation(Vec2{.x = 80.0, .y = 0.0}, TINY, kStrength);
             CHECK(maxMagnitude(mesh.displacements()) <= 0.2 * 16.0 + 1e-9);
             CHECK(latticeValid(mesh, TINY));
-            for (int f = 0; f < 30; ++f) {
+            for (int frame = 0; frame < 30; ++frame) {
                 mesh.advance(1.0 / 60.0, TINY);
                 CHECK(latticeValid(mesh, TINY));
             }
@@ -289,9 +292,10 @@ namespace {
     // One frame of a constant-velocity drag: record this frame's translation, then advance by its
     // duration.
     void driveFrame(LiquidMesh &mesh, Vec2 velocity, double hz, Vec2 size, double strength) {
-        const double dt = 1.0 / hz;
-        mesh.recordTranslation(Vec2{.x = velocity.x * dt, .y = velocity.y * dt}, size, strength);
-        mesh.advance(dt, size);
+        const double STEP_SECONDS = 1.0 / hz;
+        mesh.recordTranslation(
+            Vec2{.x = velocity.x * STEP_SECONDS, .y = velocity.y * STEP_SECONDS}, size, strength);
+        mesh.advance(STEP_SECONDS, size);
     }
 
     // One frame with no motion (a stop).
@@ -314,39 +318,40 @@ namespace {
     // Drags at 2000 px/s for 0.25 s at 60 Hz, then stops and records the trailing response.
     StopTrace traceStop(const MaterialParams &params, double hz = 60.0, std::uint64_t seed = 0) {
         LiquidMesh mesh{params, seed};
-        for (int f = 0; f < static_cast<int>(std::lround(hz * 0.25)); ++f) {
+        for (int frameIndex = 0; frameIndex < static_cast<int>(std::lround(hz * 0.25)); ++frameIndex) {
             driveFrame(mesh, Vec2{.x = 2000.0, .y = 0.0}, hz, kWindow, kStrength);
         }
 
-        StopTrace t{};
-        t.peakLag = -trailingX(mesh);
+        StopTrace trace{};
+        trace.peakLag = -trailingX(mesh);
 
         double bestOvershoot = 0.0;
         int bestFrame = -1;
         std::array<double, 400> series{};
         int frames = 0;
-        for (int f = 1; f <= static_cast<int>(hz * 2.0); ++f) {
+        for (int frame = 1; frame <= static_cast<int>(hz * 2.0); ++frame) {
             coastFrame(mesh, hz, kWindow);
-            series[static_cast<std::size_t>(f - 1)] = trailingX(mesh);
-            frames = f;
+            series[static_cast<std::size_t>(frame - 1)] = trailingX(mesh);
+            frames = frame;
             if (mesh.settled()) {
-                if (t.settleSeconds > 1e8) {
-                    t.settleSeconds = f / hz;
+                if (trace.settleSeconds > 1e8) {
+                    trace.settleSeconds = frame / hz;
                 }
                 break;
             }
             if (trailingX(mesh) > bestOvershoot) {
                 bestOvershoot = trailingX(mesh);
-                bestFrame = f - 1;
+                bestFrame = frame - 1;
             }
         }
-        t.overshoot = bestOvershoot;
+        trace.overshoot = bestOvershoot;
         if (bestFrame >= 0) {
             for (int k = bestFrame; k < frames; ++k) {
-                t.laterNegative = std::max(t.laterNegative, -series[static_cast<std::size_t>(k)]);
+                trace.laterNegative =
+                    std::max(trace.laterNegative, -series[static_cast<std::size_t>(k)]);
             }
         }
-        return t;
+        return trace;
     }
 
     // Liquid drag schedule at a given frame rate: drag for 0.25 s, then stop until 0.5 s.
@@ -360,12 +365,12 @@ namespace {
         LiquidMesh mesh{params, seed};
         const int FRAMES_DRAG = static_cast<int>(std::lround(hz * 0.25));
         const int FRAMES_TOTAL = static_cast<int>(std::lround(hz * 0.5));
-        for (int f = 0; f < FRAMES_DRAG; ++f) {
+        for (int dragFrame = 0; dragFrame < FRAMES_DRAG; ++dragFrame) {
             driveFrame(mesh, Vec2{.x = 2000.0, .y = 0.0}, hz, kWindow, kStrength);
         }
         LiquidSnapshots result{};
         result.drag = mesh.displacements();
-        for (int f = FRAMES_DRAG; f < FRAMES_TOTAL; ++f) {
+        for (int frame = FRAMES_DRAG; frame < FRAMES_TOTAL; ++frame) {
             coastFrame(mesh, hz, kWindow);
         }
         result.stop = mesh.displacements();
@@ -376,15 +381,15 @@ namespace {
     // sheet narrows transversely.
     void testLiquidDragLag() {
         LiquidMesh mesh{};
-        for (int f = 0; f < 15; ++f) {
+        for (int frame = 0; frame < 15; ++frame) {
             driveFrame(mesh, Vec2{.x = 2000.0, .y = 0.0}, 60.0, kWindow, kStrength);
             CHECK(renderValid(mesh, kWindow));
         }
         const double TRAILING = -trailingX(mesh);
         const double LEADING = std::abs(mesh.displacements()[node(8, 4)].x);
         double transverse = 0.0;
-        for (const Vec2 &p : mesh.displacements()) {
-            transverse = std::max(transverse, std::abs(p.y));
+        for (const Vec2 &displacement : mesh.displacements()) {
+            transverse = std::max(transverse, std::abs(displacement.y));
         }
 
         CHECK(TRAILING >= 20.0);
@@ -395,7 +400,7 @@ namespace {
     // Slow drag at 100 px/s for 0.5 s deforms little.
     void testLiquidSlowDragIsSubtle() {
         LiquidMesh mesh{};
-        for (int f = 0; f < 30; ++f) {
+        for (int frame = 0; frame < 30; ++frame) {
             driveFrame(mesh, Vec2{.x = 100.0, .y = 0.0}, 60.0, kWindow, kStrength);
         }
         CHECK(maxMagnitude(mesh.displacements()) < 3.0);
@@ -403,17 +408,17 @@ namespace {
 
     // Abrupt stop: a small overshoot, a decaying second swing, and an exact settle.
     void testLiquidStopOvershootAndSettle() {
-        const StopTrace t = traceStop(MaterialParams{});
-        CHECK(t.peakLag > 20.0);
-        CHECK(t.overshoot >= 0.05 * t.peakLag);
-        CHECK(t.overshoot <= 0.30 * t.peakLag);
-        CHECK(t.laterNegative <= 0.5 * t.overshoot);
-        CHECK(t.settleSeconds <= 1.5);
+        const StopTrace TRACE = traceStop(MaterialParams{});
+        CHECK(TRACE.peakLag > 20.0);
+        CHECK(TRACE.overshoot >= 0.05 * TRACE.peakLag);
+        CHECK(TRACE.overshoot <= 0.30 * TRACE.peakLag);
+        CHECK(TRACE.laterNegative <= 0.5 * TRACE.overshoot);
+        CHECK(TRACE.settleSeconds <= 1.5);
         LiquidMesh mesh{};
-        for (int f = 0; f < 15; ++f) {
+        for (int frameIndex = 0; frameIndex < 15; ++frameIndex) {
             driveFrame(mesh, Vec2{.x = 2000.0, .y = 0.0}, 60.0, kWindow, kStrength);
         }
-        for (int f = 0; f < 90; ++f) {
+        for (int frame = 0; frame < 90; ++frame) {
             coastFrame(mesh, 60.0, kWindow);
         }
         CHECK(mesh.settled());
@@ -425,17 +430,17 @@ namespace {
     // leading face. The render mesh keeps every triangle oriented throughout.
     void testLiquidReversal() {
         LiquidMesh mesh{};
-        for (int f = 0; f < 15; ++f) {
+        for (int frameIndex = 0; frameIndex < 15; ++frameIndex) {
             driveFrame(mesh, Vec2{.x = 2000.0, .y = 0.0}, 60.0, kWindow, kStrength);
         }
         CHECK(trailingX(mesh) < -10.0);
 
         int crossFrame = -1;
-        for (int f = 0; f < 30; ++f) {
+        for (int frame = 0; frame < 30; ++frame) {
             driveFrame(mesh, Vec2{.x = -2000.0, .y = 0.0}, 60.0, kWindow, kStrength);
             CHECK(renderValid(mesh, kWindow));
             if (crossFrame < 0 && mesh.displacements()[(4 * 9) + 4].x > 0.0) {
-                crossFrame = f;
+                crossFrame = frame;
             }
         }
         CHECK(crossFrame >= 0);
@@ -467,7 +472,7 @@ namespace {
         const auto PEAK_OVER = [](Vec2 size) {
             const double MIN_SIDE = std::min(size.x, size.y);
             LiquidMesh mesh{};
-            for (int f = 0; f < 12; ++f) {
+            for (int frame = 0; frame < 12; ++frame) {
                 driveFrame(mesh, Vec2{.x = 5.0 * MIN_SIDE, .y = 0.0}, 60.0, size, kStrength);
                 CHECK(renderValid(mesh, size));
             }
@@ -483,12 +488,12 @@ namespace {
     void testLiquidDegenerateGeometrySettles() {
         for (const Vec2 SIZE : {Vec2{.x = 16.0, .y = 16.0}, Vec2{.x = 1000.0, .y = 40.0}}) {
             LiquidMesh mesh{};
-            for (int f = 0; f < 15; ++f) {
+            for (int frameIndex = 0; frameIndex < 15; ++frameIndex) {
                 driveFrame(mesh, Vec2{.x = 2000.0, .y = 0.0}, 60.0, SIZE, kStrength);
                 CHECK(latticeValid(mesh, SIZE));
                 CHECK(renderValid(mesh, SIZE));
             }
-            for (int f = 0; f < 240 * 4; ++f) {
+            for (int frame = 0; frame < 240 * 4; ++frame) {
                 coastFrame(mesh, 240.0, SIZE);
                 CHECK(latticeValid(mesh, SIZE));
             }
@@ -524,34 +529,36 @@ namespace {
     // sampleDisplacement: exact at nodes, clamped outside [0, 1], and C1 across cell boundaries.
     void testSampleDisplacement() {
         LiquidMesh mesh{};
-        for (int f = 0; f < 15; ++f) {
+        for (int frame = 0; frame < 15; ++frame) {
             driveFrame(mesh, Vec2{.x = 2000.0, .y = 0.0}, 60.0, kWindow, kStrength);
         }
-        const auto &d = mesh.displacements();
+        const auto &offsets = mesh.displacements();
 
-        for (unsigned y = 0; y < 9; ++y) {
-            for (unsigned x = 0; x < 9; ++x) {
-                const Vec2 s = mesh.sampleDisplacement(x / 8.0, y / 8.0);
-                CHECK(std::abs(s.x - d[node(x, y)].x) <= 1e-9);
-                CHECK(std::abs(s.y - d[node(x, y)].y) <= 1e-9);
+        for (unsigned row = 0; row < 9; ++row) {
+            for (unsigned col = 0; col < 9; ++col) {
+                const Vec2 SAMPLE = mesh.sampleDisplacement(col / 8.0, row / 8.0);
+                CHECK(std::abs(SAMPLE.x - offsets[node(col, row)].x) <= 1e-9);
+                CHECK(std::abs(SAMPLE.y - offsets[node(col, row)].y) <= 1e-9);
             }
         }
 
         const Vec2 CLAMPED_U = mesh.sampleDisplacement(-1.0, 2.0);
-        CHECK(std::abs(CLAMPED_U.x - d[node(0, 8)].x) <= 1e-9);
+        CHECK(std::abs(CLAMPED_U.x - offsets[node(0, 8)].x) <= 1e-9);
         const Vec2 CLAMPED_V = mesh.sampleDisplacement(2.0, -1.0);
-        CHECK(std::abs(CLAMPED_V.x - d[node(8, 0)].x) <= 1e-9);
+        CHECK(std::abs(CLAMPED_V.x - offsets[node(8, 0)].x) <= 1e-9);
         const Vec2 NONFINITE = mesh.sampleDisplacement(kNaN, 0.5);
         CHECK(NONFINITE.x == 0.0 && NONFINITE.y == 0.0);
 
         // C1: the slope from each side of an interior cell boundary matches.
-        constexpr double h = 1e-5;
-        for (const double v : {0.2, 0.55}) {
-            const double u = 3.0 / 8.0;
-            const double LEFT =
-                (mesh.sampleDisplacement(u, v).x - mesh.sampleDisplacement(u - h, v).x) / h;
-            const double RIGHT =
-                (mesh.sampleDisplacement(u + h, v).x - mesh.sampleDisplacement(u, v).x) / h;
+        constexpr double EPSILON = 1e-5;
+        for (const double TEX_V : {0.2, 0.55}) {
+            const double TEX_U = 3.0 / 8.0;
+            const double LEFT = (mesh.sampleDisplacement(TEX_U, TEX_V).x -
+                                    mesh.sampleDisplacement(TEX_U - EPSILON, TEX_V).x) /
+                                EPSILON;
+            const double RIGHT = (mesh.sampleDisplacement(TEX_U + EPSILON, TEX_V).x -
+                                     mesh.sampleDisplacement(TEX_U, TEX_V).x) /
+                                 EPSILON;
             CHECK(std::abs(LEFT - RIGHT) <= 1e-3 * std::max(1.0, std::abs(LEFT)));
         }
     }
@@ -633,7 +640,7 @@ namespace {
     // there is no tail-corner cusp.
     void testLiquidTrailingTaperCurvature() {
         LiquidMesh mesh{};
-        for (int f = 0; f < 15; ++f) {
+        for (int frame = 0; frame < 15; ++frame) {
             driveFrame(mesh, Vec2{.x = 2000.0, .y = 0.0}, 60.0, kWindow, kStrength);
         }
         const double CENTRE = -trailingX(mesh);
@@ -644,8 +651,8 @@ namespace {
         CHECK(TAPER >= 0.15 * CENTRE);
         CHECK(TAPER <= 0.20 * CENTRE);
         double previous = TAPER;
-        for (unsigned y = 1; y <= 4; ++y) {
-            const double EDGE = std::abs(mesh.displacements()[node(0, y)].y);
+        for (unsigned row = 1; row <= 4; ++row) {
+            const double EDGE = std::abs(mesh.displacements()[node(0, row)].y);
             CHECK(EDGE < previous);
             previous = EDGE;
         }
@@ -656,7 +663,7 @@ namespace {
     void testLiquidStopLandingBulgeAndSurge() {
         const double MIN_SIDE = std::min(kWindow.x, kWindow.y);
         LiquidMesh mesh{};
-        for (int f = 0; f < 15; ++f) {
+        for (int frame = 0; frame < 15; ++frame) {
             driveFrame(mesh, Vec2{.x = 2000.0, .y = 0.0}, 60.0, kWindow, kStrength);
         }
         const double PEAK_LAG = -trailingX(mesh);
@@ -689,7 +696,7 @@ namespace {
     template <typename Visible>
     CadenceStats driveCadence(double advanceHz, Visible visible) {
         constexpr double K_SPEED = 2000.0;
-        const double dt = 1.0 / advanceHz;
+        const double STEP_SECONDS = 1.0 / advanceHz;
         const int WARMUP_FRAMES = static_cast<int>(std::lround(advanceHz * 1.0));
         const int TOTAL_FRAMES = static_cast<int>(std::lround(advanceHz * 2.0));
         LiquidMesh mesh{};
@@ -699,12 +706,12 @@ namespace {
         double sumLag = 0.0;
         int count = 0;
         for (int k = 0; k < TOTAL_FRAMES; ++k) {
-            const double t = (k + 1) * dt;
-            const double REPORTED = visible(k, t);
+            const double TIME = (k + 1) * STEP_SECONDS;
+            const double REPORTED = visible(k, TIME);
             const double DELTA = K_SPEED * (REPORTED - previousReported);
             previousReported = REPORTED;
             mesh.recordTranslation(Vec2{.x = DELTA, .y = 0.0}, kWindow, kStrength);
-            mesh.advance(dt, kWindow);
+            mesh.advance(STEP_SECONDS, kWindow);
             if (k < WARMUP_FRAMES) {
                 continue;
             }
@@ -738,10 +745,11 @@ namespace {
 
     // Variation 0: the seed has no effect, so every window moves exactly alike.
     void testVariationZeroIgnoresSeed() {
-        const LiquidSnapshots a = runLiquidSchedule(60.0, MaterialParams{}, 1);
-        const LiquidSnapshots b = runLiquidSchedule(60.0, MaterialParams{}, 0x9E3779B97F4A7C15ULL);
-        CHECK(maxDifference(a.drag, b.drag) == 0.0);
-        CHECK(maxDifference(a.stop, b.stop) == 0.0);
+        const LiquidSnapshots FIRST = runLiquidSchedule(60.0, MaterialParams{}, 1);
+        const LiquidSnapshots SECOND =
+            runLiquidSchedule(60.0, MaterialParams{}, 0x9E3779B97F4A7C15ULL);
+        CHECK(maxDifference(FIRST.drag, SECOND.drag) == 0.0);
+        CHECK(maxDifference(FIRST.stop, SECOND.stop) == 0.0);
     }
 
     // Variation > 0: two windows given the same motion (a scrolling-layout pan) deform visibly
@@ -749,12 +757,12 @@ namespace {
     void testVariationSeedsDiffer() {
         MaterialParams params{};
         params.variation = 0.5;
-        const LiquidSnapshots a = runLiquidSchedule(60.0, params, 1);
-        const LiquidSnapshots b = runLiquidSchedule(60.0, params, 2);
+        const LiquidSnapshots FIRST = runLiquidSchedule(60.0, params, 1);
+        const LiquidSnapshots SECOND = runLiquidSchedule(60.0, params, 2);
         const LiquidSnapshots AGAIN = runLiquidSchedule(60.0, params, 1);
-        CHECK(maxDifference(a.drag, b.drag) > 2.0);
-        CHECK(maxDifference(a.drag, AGAIN.drag) == 0.0);
-        CHECK(maxDifference(a.stop, AGAIN.stop) == 0.0);
+        CHECK(maxDifference(FIRST.drag, SECOND.drag) > 2.0);
+        CHECK(maxDifference(FIRST.drag, AGAIN.drag) == 0.0);
+        CHECK(maxDifference(FIRST.stop, AGAIN.stop) == 0.0);
     }
 
     // Each movement from rest draws a new character: the same window repeating the same move
@@ -764,11 +772,11 @@ namespace {
         params.variation = 0.5;
         LiquidMesh mesh{params, 7};
         const auto DRAG_ONCE = [&] {
-            for (int f = 0; f < 15; ++f) {
+            for (int frameIndex = 0; frameIndex < 15; ++frameIndex) {
                 driveFrame(mesh, Vec2{.x = 2000.0, .y = 0.0}, 60.0, kWindow, kStrength);
             }
             const auto FIELD = mesh.displacements();
-            for (int f = 0; f < 240 && !mesh.settled(); ++f) {
+            for (int frame = 0; frame < 240 && !mesh.settled(); ++frame) {
                 coastFrame(mesh, 60.0, kWindow);
             }
             CHECK(mesh.settled());
@@ -789,11 +797,11 @@ namespace {
             for (std::uint64_t seed = 0; seed < 48; ++seed) {
                 LiquidMesh mesh{params, seed};
                 bool valid = true;
-                for (int f = 0; f < 15; ++f) {
+                for (int frameIndex = 0; frameIndex < 15; ++frameIndex) {
                     driveFrame(mesh, Vec2{.x = 2400.0, .y = 900.0}, 60.0, kWindow, kStrength);
                     valid = valid && renderValid(mesh, kWindow) && latticeValid(mesh, kWindow);
                 }
-                for (int f = 0; f < 10; ++f) {
+                for (int frame = 0; frame < 10; ++frame) {
                     driveFrame(mesh, Vec2{.x = -2400.0, .y = -900.0}, 60.0, kWindow, kStrength);
                     valid = valid && renderValid(mesh, kWindow) && latticeValid(mesh, kWindow);
                 }
@@ -806,8 +814,8 @@ namespace {
                 CHECK(mesh.settled());
 
                 if (MOMENTUM == 0.0) {
-                    const StopTrace t = traceStop(params, 60.0, seed);
-                    CHECK(t.overshoot <= 0.02 * t.peakLag);
+                    const StopTrace TRACE = traceStop(params, 60.0, seed);
+                    CHECK(TRACE.overshoot <= 0.02 * TRACE.peakLag);
                 }
             }
         }

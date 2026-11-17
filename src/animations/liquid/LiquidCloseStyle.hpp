@@ -19,11 +19,11 @@ namespace close_style {
         if (data.hasLiquid) {
             const CBox LIQUID =
                 project(toCBox(data.liquidDevice), record.renderBox, record.snapshotSize);
-            const double x0 = std::min(device.x, LIQUID.x);
-            const double y0 = std::min(device.y, LIQUID.y);
-            const double x1 = std::max(device.x + device.w, LIQUID.x + LIQUID.w);
-            const double y1 = std::max(device.y + device.h, LIQUID.y + LIQUID.h);
-            device = CBox{x0, y0, x1 - x0, y1 - y0};
+            const double MIN_X = std::min(device.x, LIQUID.x);
+            const double MIN_Y = std::min(device.y, LIQUID.y);
+            const double MAX_X = std::max(device.x + device.w, LIQUID.x + LIQUID.w);
+            const double MAX_Y = std::max(device.y + device.h, LIQUID.y + LIQUID.h);
+            device = CBox{MIN_X, MIN_Y, MAX_X - MIN_X, MAX_Y - MIN_Y};
         }
         return device;
     }

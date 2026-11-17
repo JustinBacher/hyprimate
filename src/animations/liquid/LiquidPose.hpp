@@ -129,29 +129,31 @@ namespace hyprimate {
             samples;
         for (int j = 0; j < LIQUID_POSE_SAMPLES; ++j) {
             for (int i = 0; i < LIQUID_POSE_SAMPLES; ++i) {
-                const double u = static_cast<double>(i) / LIQUID_RENDER_CELLS;
-                const double v = static_cast<double>(j) / LIQUID_RENDER_CELLS;
+                const double TEX_U = static_cast<double>(i) / LIQUID_RENDER_CELLS;
+                const double TEX_V = static_cast<double>(j) / LIQUID_RENDER_CELLS;
                 const std::size_t INDEX = (static_cast<std::size_t>(j) * LIQUID_POSE_SAMPLES) + i;
-                const Vec2 p = grid.offsets[INDEX];
+                const Vec2 OFFSET = grid.offsets[INDEX];
                 samples[INDEX] = {
                     .x = static_cast<float>(
-                        (CENTRE_X + (p.x * scale) - outputDevice.x) / outputDevice.w),
+                        (CENTRE_X + (OFFSET.x * scale) - outputDevice.x) / outputDevice.w),
                     .y = static_cast<float>(
-                        (CENTRE_Y + (p.y * scale) - outputDevice.y) / outputDevice.h),
+                        (CENTRE_Y + (OFFSET.y * scale) - outputDevice.y) / outputDevice.h),
                     .u = static_cast<float>(
-                        (sourceDevice.x + (sourceDevice.w * u) - textureOrigin.x) / textureSize.x),
+                        (sourceDevice.x + (sourceDevice.w * TEX_U) - textureOrigin.x) /
+                        textureSize.x),
                     .v = static_cast<float>(
-                        (sourceDevice.y + (sourceDevice.h * v) - textureOrigin.y) / textureSize.y),
+                        (sourceDevice.y + (sourceDevice.h * TEX_V) - textureOrigin.y) /
+                        textureSize.y),
                 };
             }
         }
 
         constexpr int ORDER[6][2] = {{0, 0}, {0, 1}, {1, 0}, {1, 0}, {0, 1}, {1, 1}};
-        std::size_t k = 0;
+        std::size_t vertexIndex = 0;
         for (int cj = 0; cj < LIQUID_RENDER_CELLS; ++cj) {
             for (int ci = 0; ci < LIQUID_RENDER_CELLS; ++ci) {
                 for (const auto &corner : ORDER) {
-                    Vertex &vertex = out[k++];
+                    Vertex &vertex = out[vertexIndex++];
                     const LiquidVertex &sample =
                         samples[(static_cast<std::size_t>(cj + corner[1]) * LIQUID_POSE_SAMPLES) +
                                 ci + corner[0]];
@@ -181,30 +183,32 @@ namespace hyprimate {
         const double SPAN = pose.transition.meniscusHigh() - LOW;
 
         const auto PLACE = [&](Vertex &vertex, double t, double n) {
-            const Vec2 p = liquidEdgePoint(pose, t, n);
-            vertex.x =
-                static_cast<float>((CENTRE_X + (p.x * scale) - outputDevice.x) / outputDevice.w);
-            vertex.y =
-                static_cast<float>((CENTRE_Y + (p.y * scale) - outputDevice.y) / outputDevice.h);
+            const Vec2 POSITION = liquidEdgePoint(pose, t, n);
+            vertex.x = static_cast<float>(
+                (CENTRE_X + (POSITION.x * scale) - outputDevice.x) / outputDevice.w);
+            vertex.y = static_cast<float>(
+                (CENTRE_Y + (POSITION.y * scale) - outputDevice.y) / outputDevice.h);
             vertex.u = 0.5F;
             vertex.v = 0.5F;
         };
 
         for (int i = 0; i < LIQUID_MENISCUS_COLUMNS; ++i) {
-            const double t0 = LOW + (SPAN * static_cast<double>(i) / LIQUID_MENISCUS_COLUMNS);
-            const double t1 = LOW + (SPAN * static_cast<double>(i + 1) / LIQUID_MENISCUS_COLUMNS);
-            const double h0 = pose.transition.meniscus(t0);
-            const double h1 = pose.transition.meniscus(t1);
+            const double TANGENT_START =
+                LOW + (SPAN * static_cast<double>(i) / LIQUID_MENISCUS_COLUMNS);
+            const double TANGENT_END =
+                LOW + (SPAN * static_cast<double>(i + 1) / LIQUID_MENISCUS_COLUMNS);
+            const double HEIGHT_START = pose.transition.meniscus(TANGENT_START);
+            const double HEIGHT_END = pose.transition.meniscus(TANGENT_END);
 
             // Corners: a = behind edge at t0, b = behind edge at t1, c = crest at t0, d = crest at
             // t1. Triangles abc, bdc.
             Vertex *quad = &out[static_cast<std::size_t>(i) * 6];
-            PLACE(quad[0], t0, -LIQUID_BEHIND_EDGE);
-            PLACE(quad[1], t1, -LIQUID_BEHIND_EDGE);
-            PLACE(quad[2], t0, h0);
-            PLACE(quad[3], t1, -LIQUID_BEHIND_EDGE);
-            PLACE(quad[4], t1, h1);
-            PLACE(quad[5], t0, h0);
+            PLACE(quad[0], TANGENT_START, -LIQUID_BEHIND_EDGE);
+            PLACE(quad[1], TANGENT_END, -LIQUID_BEHIND_EDGE);
+            PLACE(quad[2], TANGENT_START, HEIGHT_START);
+            PLACE(quad[3], TANGENT_END, -LIQUID_BEHIND_EDGE);
+            PLACE(quad[4], TANGENT_END, HEIGHT_END);
+            PLACE(quad[5], TANGENT_START, HEIGHT_START);
         }
     }
 

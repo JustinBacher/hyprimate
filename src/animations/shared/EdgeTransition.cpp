@@ -124,8 +124,8 @@ namespace hyprimate {
             if (x <= 0.0 || x >= 1.0) {
                 return 0.0;
             }
-            const double a = x / kSplashPeakX;
-            return a * std::exp(1.0 - a) * (1.0 - smoothstep(0.7, 1.0, x));
+            const double PEAK_RATIO = x / kSplashPeakX;
+            return PEAK_RATIO * std::exp(1.0 - PEAK_RATIO) * (1.0 - smoothstep(0.7, 1.0, x));
         }
 
         // Semi-implicit Euler toward `target`. Stable for omega * dt < 2; the largest omega used
@@ -139,10 +139,10 @@ namespace hyprimate {
         }
 
         bool validFrame(const EdgeFrame &f) {
-            const double v[] = {
+            const double values[] = {
                 f.edgeDistance, f.captureFar, f.bodyNear, f.bodyFar, f.bodyT0, f.bodyT1};
-            for (const double x : v) {
-                if (!std::isfinite(x)) {
+            for (const double VALUE : values) {
+                if (!std::isfinite(VALUE)) {
                     return false;
                 }
             }
@@ -155,16 +155,16 @@ namespace hyprimate {
         // roundness; every ray from the centre maps onto itself, so the image cannot fold. `invN`
         // is 1/n. Callers pass the rectangle through unchanged (roundness below 2e-4).
         Vec2 outline(Vec2 p, double n, double invN) {
-            const double ax = std::abs(p.x);
-            const double ay = std::abs(p.y);
-            const double RHO = std::max(ax, ay);
+            const double ABS_X = std::abs(p.x);
+            const double ABS_Y = std::abs(p.y);
+            const double RHO = std::max(ABS_X, ABS_Y);
             if (!(RHO > 0.0)) {
                 return p;
             }
-            const double x = ax / RHO;
-            const double y = ay / RHO;  // direction on the rectangle outline, max = 1
-            const double g = std::pow(std::pow(x, n) + std::pow(y, n), invN);  // in [1, 2^(1/n)]
-            return {.x = p.x / g, .y = p.y / g};
+            const double DIR_X = ABS_X / RHO;
+            const double DIR_Y = ABS_Y / RHO;  // direction on the rectangle outline, max = 1
+            const double OUTLINE_SCALE = std::pow(std::pow(DIR_X, n) + std::pow(DIR_Y, n), invN);  // in [1, 2^(1/n)]
+            return {.x = p.x / OUTLINE_SCALE, .y = p.y / OUTLINE_SCALE};
         }
 
     }  // namespace
@@ -223,20 +223,20 @@ namespace hyprimate {
         constexpr std::array<Edge, 4> K_EDGES{Edge::Left, Edge::Right, Edge::Top, Edge::Bottom};
         const auto SLOT = [](Edge e) { return static_cast<std::size_t>(e); };
         std::array<double, 4> contact{};
-        for (const Box &n : neighbours) {
-            if (!is_usable(n)) {
+        for (const Box &adjacent : neighbours) {
+            if (!is_usable(adjacent)) {
                 continue;
             }
             for (const Edge SIDE : K_EDGES) {
-                contact[SLOT(SIDE)] += contactLength(body, SIDE, n);
+                contact[SLOT(SIDE)] += contactLength(body, SIDE, adjacent);
             }
         }
         const double MOST = *std::max_element(contact.begin(), contact.end());
         const auto FREE = [&](Edge e) { return !(contact[SLOT(e)] > 0.0); };
-        const double cx = body.x + (0.5 * body.w);
-        const double cy = body.y + (0.5 * body.h);
+        const double BODY_CENTRE_X = body.x + (0.5 * body.w);
+        const double BODY_CENTRE_Y = body.y + (0.5 * body.h);
         const std::array<double, 4> REACH{
-            cx - screen.x, screen.x + screen.w - cx, cy - screen.y, screen.y + screen.h - cy};
+            BODY_CENTRE_X - screen.x, screen.x + screen.w - BODY_CENTRE_X, BODY_CENTRE_Y - screen.y, screen.y + screen.h - BODY_CENTRE_Y};
 
         if (MOST > 0.0) {
             for (const Edge SIDE : K_EDGES) {
@@ -253,14 +253,14 @@ namespace hyprimate {
         const bool ANY_FREE = std::ranges::any_of(K_EDGES, FREE);
         const auto ALLOWED = [&](Edge e) { return !ANY_FREE || FREE(e); };
         double best = std::numeric_limits<double>::infinity();
-        for (const Edge e : K_EDGES) {
-            if (ALLOWED(e)) {
-                best = std::min(best, REACH[SLOT(e)]);
+        for (const Edge EDGE_OPTION : K_EDGES) {
+            if (ALLOWED(EDGE_OPTION)) {
+                best = std::min(best, REACH[SLOT(EDGE_OPTION)]);
             }
         }
-        for (const Edge e : K_EDGES) {
-            if (ALLOWED(e) && REACH[SLOT(e)] <= best + kTieTolerance) {
-                sides.add(e);
+        for (const Edge EDGE : K_EDGES) {
+            if (ALLOWED(EDGE) && REACH[SLOT(EDGE)] <= best + kTieTolerance) {
+                sides.add(EDGE);
             }
         }
         return sides;
@@ -281,33 +281,33 @@ namespace hyprimate {
     }
 
     Vec2 edgePoint(const EdgeFrame &f, double t, double n) noexcept {
-        const double d = f.edgeDistance;
+        const double EDGE_DISTANCE = f.edgeDistance;
         switch (f.edge) {
             case Edge::Left:
-                return {.x = n - d, .y = t};
+                return {.x = n - EDGE_DISTANCE, .y = t};
             case Edge::Right:
-                return {.x = d - n, .y = t};
+                return {.x = EDGE_DISTANCE - n, .y = t};
             case Edge::Top:
-                return {.x = t, .y = n - d};
+                return {.x = t, .y = n - EDGE_DISTANCE};
             case Edge::Bottom:
-                return {.x = t, .y = d - n};
+                return {.x = t, .y = EDGE_DISTANCE - n};
         }
-        return {.x = t, .y = d - n};
+        return {.x = t, .y = EDGE_DISTANCE - n};
     }
 
     double edgeNormal(const EdgeFrame &f, Vec2 p) noexcept {
-        const double d = f.edgeDistance;
+        const double EDGE_DISTANCE = f.edgeDistance;
         switch (f.edge) {
             case Edge::Left:
-                return d + p.x;
+                return EDGE_DISTANCE + p.x;
             case Edge::Right:
-                return d - p.x;
+                return EDGE_DISTANCE - p.x;
             case Edge::Top:
-                return d + p.y;
+                return EDGE_DISTANCE + p.y;
             case Edge::Bottom:
-                return d - p.y;
+                return EDGE_DISTANCE - p.y;
         }
-        return d - p.y;
+        return EDGE_DISTANCE - p.y;
     }
 
     double edgeTangent(const EdgeFrame &f, Vec2 p) noexcept {
@@ -340,8 +340,8 @@ namespace hyprimate {
         };
         const double RIGHT = screen.x + screen.w;
         const double BOTTOM = screen.y + screen.h;
-        const double cx = body.x + (0.5 * body.w);
-        const double cy = body.y + (0.5 * body.h);
+        const double CENTRE_X = body.x + (0.5 * body.w);
+        const double CENTRE_Y = body.y + (0.5 * body.h);
         const auto GAP = [&](Edge e) {
             switch (e) {
                 case Edge::Left:
@@ -358,13 +358,13 @@ namespace hyprimate {
         const auto REACH = [&](Edge e) {
             switch (e) {
                 case Edge::Left:
-                    return cx - screen.x;
+                    return CENTRE_X - screen.x;
                 case Edge::Right:
-                    return RIGHT - cx;
+                    return RIGHT - CENTRE_X;
                 case Edge::Top:
-                    return cy - screen.y;
+                    return CENTRE_Y - screen.y;
                 case Edge::Bottom:
-                    return BOTTOM - cy;
+                    return BOTTOM - CENTRE_Y;
             }
             return std::numeric_limits<double>::infinity();
         };
@@ -373,19 +373,19 @@ namespace hyprimate {
         // Nearest valid edge among `allowed`; ties within kTieTolerance go to fallback, then
         // kOrder.
         const auto NEAREST_AMONG = [&](const std::array<bool, 4> &allowed) -> std::optional<Edge> {
-            const auto ok = [&](Edge e) { return allowed[SLOT(e)] && VALID(e); };
+            const auto IS_ALLOWED = [&](Edge e) { return allowed[SLOT(e)] && VALID(e); };
             double best = std::numeric_limits<double>::infinity();
-            for (const Edge e : K_ORDER) {
-                if (ok(e)) {
-                    best = std::min(best, REACH(e));
+            for (const Edge CANDIDATE : K_ORDER) {
+                if (IS_ALLOWED(CANDIDATE)) {
+                    best = std::min(best, REACH(CANDIDATE));
                 }
             }
-            if (ok(fallback) && REACH(fallback) <= best + kTieTolerance) {
+            if (IS_ALLOWED(fallback) && REACH(fallback) <= best + kTieTolerance) {
                 return fallback;
             }
-            for (Edge e : K_ORDER) {
-                if (ok(e) && REACH(e) <= best + kTieTolerance) {
-                    return e;
+            for (Edge edgeOption : K_ORDER) {
+                if (IS_ALLOWED(edgeOption) && REACH(edgeOption) <= best + kTieTolerance) {
+                    return edgeOption;
                 }
             }
             return std::nullopt;
@@ -394,12 +394,12 @@ namespace hyprimate {
         // Contact: the body sides touching neighbours point the window at the opposite screen
         // edges.
         std::array<double, 4> contact{};
-        for (const Box &n : neighbours) {
-            if (!is_usable(n)) {
+        for (const Box &neighbour : neighbours) {
+            if (!is_usable(neighbour)) {
                 continue;
             }
             for (const Edge SIDE : K_ORDER) {
-                contact[SLOT(SIDE)] += contactLength(body, SIDE, n);
+                contact[SLOT(SIDE)] += contactLength(body, SIDE, neighbour);
             }
         }
         const double MOST = *std::max_element(contact.begin(), contact.end());
@@ -428,32 +428,32 @@ namespace hyprimate {
             return std::nullopt;
         }
 
-        const Edge e = *chosen;
-        const bool hz = runsHorizontally(e);
+        const Edge EDGE = *chosen;
+        const bool HORIZONTAL = runsHorizontally(EDGE);
         const double CCX = capture.x + (0.5 * capture.w);
         const double CCY = capture.y + (0.5 * capture.h);
-        EdgeFrame f;
-        f.edge = e;
-        switch (e) {
+        EdgeFrame frame;
+        frame.edge = EDGE;
+        switch (EDGE) {
             case Edge::Left:
-                f.edgeDistance = CCX - screen.x;
+                frame.edgeDistance = CCX - screen.x;
                 break;
             case Edge::Right:
-                f.edgeDistance = RIGHT - CCX;
+                frame.edgeDistance = RIGHT - CCX;
                 break;
             case Edge::Top:
-                f.edgeDistance = CCY - screen.y;
+                frame.edgeDistance = CCY - screen.y;
                 break;
             case Edge::Bottom:
-                f.edgeDistance = BOTTOM - CCY;
+                frame.edgeDistance = BOTTOM - CCY;
                 break;
         }
-        f.captureFar = f.edgeDistance + (0.5 * (hz ? capture.h : capture.w));
-        f.bodyNear = std::max(0.0, GAP(e));
-        f.bodyFar = f.bodyNear + (hz ? body.h : body.w);
-        f.bodyT0 = hz ? body.x - CCX : body.y - CCY;
-        f.bodyT1 = f.bodyT0 + (hz ? body.w : body.h);
-        return f;
+        frame.captureFar = frame.edgeDistance + (0.5 * (HORIZONTAL ? capture.h : capture.w));
+        frame.bodyNear = std::max(0.0, GAP(EDGE));
+        frame.bodyFar = frame.bodyNear + (HORIZONTAL ? body.h : body.w);
+        frame.bodyT0 = HORIZONTAL ? body.x - CCX : body.y - CCY;
+        frame.bodyT1 = frame.bodyT0 + (HORIZONTAL ? body.w : body.h);
+        return frame;
     }
 
     void EdgeTransition::begin(Transition kind,
@@ -471,9 +471,9 @@ namespace hyprimate {
         }
 
         m_frame = chosen;
-        const double e = std::clamp(params.elasticity, 0.0, 1.0);
-        const double m = std::clamp(params.momentum, 0.0, 1.0);
-        const double k = std::clamp(strength / kReferenceStrength, 0.25, 1.5);
+        const double ELASTICITY = std::clamp(params.elasticity, 0.0, 1.0);
+        const double MOMENTUM = std::clamp(params.momentum, 0.0, 1.0);
+        const double STRENGTH_SCALE = std::clamp(strength / kReferenceStrength, 0.25, 1.5);
         const double WIDTH = m_frame.bodyT1 - m_frame.bodyT0;
         const double DEPTH = m_frame.bodyFar - m_frame.bodyNear;
         m_halfN = m_frame.captureFar - m_frame.edgeDistance;
@@ -481,29 +481,31 @@ namespace hyprimate {
         // that bound keeps the bead inside both capture half-extents without needing the capture
         // size here.
         const double FIT = kRadiusFit * std::min(m_halfN, 0.5 * WIDTH);
-        m_radius = std::min(
-            std::clamp(kRadiusPerSide * std::min(WIDTH, DEPTH), kRadiusMin, kRadiusMax) * k, FIT);
+        m_radius =
+            std::min(std::clamp(kRadiusPerSide * std::min(WIDTH, DEPTH), kRadiusMin, kRadiusMax) *
+                         STRENGTH_SCALE,
+                FIT);
         m_tuck = std::clamp(kTuckPerRadius * m_radius, kTuckMin, kTuckMax);
         m_pinch = std::clamp(kPinchPerRadius * m_radius, kPinchMin, kPinchMax);
         m_neckSkirt = std::clamp(kNeckPerRadius * m_radius, kNeckMin, kNeckMax);
         m_crossSkirt = kCrossSkirtPerTuck * m_tuck;
         m_hover = m_radius + (kHoverPerPinch * m_pinch);
-        m_recoilOmega = kRecoilOmega * std::exp2(e - 0.5);
-        m_recoilZeta = lerp(kRecoilZetaStiff, kRecoilZetaLoose, m);
-        m_growOmega = kGrowOmega * std::exp2(e - 0.5);
-        m_growZeta = lerp(kGrowZetaStiff, kGrowZetaLoose, m);
+        m_recoilOmega = kRecoilOmega * std::exp2(ELASTICITY - 0.5);
+        m_recoilZeta = lerp(kRecoilZetaStiff, kRecoilZetaLoose, MOMENTUM);
+        m_growOmega = kGrowOmega * std::exp2(ELASTICITY - 0.5);
+        m_growZeta = lerp(kGrowZetaStiff, kGrowZetaLoose, MOMENTUM);
 
         if (kind == Transition::Open) {
-            m_hopOmega = kHopOmega * std::exp2(e - 0.5);
-            m_hopZeta = lerp(kHopZetaStiff, kHopZetaLoose, m);
+            m_hopOmega = kHopOmega * std::exp2(ELASTICITY - 0.5);
+            m_hopZeta = lerp(kHopZetaStiff, kHopZetaLoose, MOMENTUM);
             m_hop = {.value = -m_radius, .velocity = 0.0};  // bead fully behind the edge
             m_nc = -m_radius;
             m_phase = Phase::Opening;
         } else {
-            m_duration = kCloseSeconds * std::exp2(0.5 - e);
-            m_closeMomentum = m;
+            m_duration = kCloseSeconds * std::exp2(0.5 - ELASTICITY);
+            m_closeMomentum = MOMENTUM;
             m_closeSplash = closeSplash;
-            m_splashDuration = kSplashSeconds * std::exp2(0.5 - e);
+            m_splashDuration = kSplashSeconds * std::exp2(0.5 - ELASTICITY);
             m_nc0 = CONTINUING ? PREVIOUS.m_nc : m_frame.edgeDistance;
             m_sT0 = CONTINUING ? PREVIOUS.m_spreadT.value : 1.0;
             m_sN0 = CONTINUING ? PREVIOUS.m_spreadN.value : 1.0;
@@ -549,58 +551,61 @@ namespace hyprimate {
         if (!active()) {
             return {.x = 0.0, .y = 0.0};
         }
-        const bool hz = runsHorizontally(m_frame.edge);
-        const Vec2 in = inwardNormal(m_frame.edge);
-        const Vec2 ALONG = hz ? Vec2{.x = 1.0, .y = 0.0} : Vec2{.x = 0.0, .y = 1.0};
-        const double tc = 0.5 * (m_frame.bodyT0 + m_frame.bodyT1) * (1.0 - m_spreadT.value);
-        const double nc = m_nc - m_frame.edgeDistance;
-        return {.x = (ALONG.x * tc) + (in.x * nc), .y = (ALONG.y * tc) + (in.y * nc)};
+        const bool HORIZONTAL = runsHorizontally(m_frame.edge);
+        const Vec2 INWARD = inwardNormal(m_frame.edge);
+        const Vec2 ALONG = HORIZONTAL ? Vec2{.x = 1.0, .y = 0.0} : Vec2{.x = 0.0, .y = 1.0};
+        const double TANGENT_CENTRE =
+            0.5 * (m_frame.bodyT0 + m_frame.bodyT1) * (1.0 - m_spreadT.value);
+        const double NORMAL_CENTRE = m_nc - m_frame.edgeDistance;
+        return {.x = (ALONG.x * TANGENT_CENTRE) + (INWARD.x * NORMAL_CENTRE),
+            .y = (ALONG.y * TANGENT_CENTRE) + (INWARD.y * NORMAL_CENTRE)};
     }
 
     Vec2 EdgeTransition::beadHalf(Vec2 restSize) const noexcept {
-        const bool hz = runsHorizontally(m_frame.edge);
-        const double HALF_T = 0.5 * (hz ? restSize.x : restSize.y);
-        const double HALF_N = 0.5 * (hz ? restSize.y : restSize.x);
+        const bool HORIZONTAL = runsHorizontally(m_frame.edge);
+        const double HALF_T = 0.5 * (HORIZONTAL ? restSize.x : restSize.y);
+        const double HALF_N = 0.5 * (HORIZONTAL ? restSize.y : restSize.x);
         if (!active()) {
             return {.x = 0.5 * restSize.x, .y = 0.5 * restSize.y};
         }
-        const double eT = m_radius + ((HALF_T - m_radius) * m_spreadT.value);
-        const double eN = m_radius + ((HALF_N - m_radius) * m_spreadN.value);
-        return hz ? Vec2{.x = eT, .y = eN} : Vec2{.x = eN, .y = eT};
+        const double EXTENT_T = m_radius + ((HALF_T - m_radius) * m_spreadT.value);
+        const double EXTENT_N = m_radius + ((HALF_N - m_radius) * m_spreadN.value);
+        return HORIZONTAL ? Vec2{.x = EXTENT_T, .y = EXTENT_N} : Vec2{.x = EXTENT_N, .y = EXTENT_T};
     }
 
     EdgeTransition::RestMap EdgeTransition::restMap(Vec2 size) const noexcept {
-        RestMap m;
+        RestMap mapping;
         if (!active() || !std::isfinite(size.x) || !std::isfinite(size.y) || size.x <= 0.0 ||
             size.y <= 0.0) {
-            return m;
+            return mapping;
         }
-        m.identity = false;
-        const bool hz = runsHorizontally(m_frame.edge);
-        m.horizontal = hz;
-        m.along = hz ? Vec2{.x = 1.0, .y = 0.0} : Vec2{.x = 0.0, .y = 1.0};
-        m.inward = inwardNormal(m_frame.edge);
-        m.halfT = 0.5 * (hz ? size.x : size.y);
-        m.halfN = 0.5 * (hz ? size.y : size.x);
+        mapping.identity = false;
+        const bool HORIZONTAL = runsHorizontally(m_frame.edge);
+        mapping.horizontal = HORIZONTAL;
+        mapping.along = HORIZONTAL ? Vec2{.x = 1.0, .y = 0.0} : Vec2{.x = 0.0, .y = 1.0};
+        mapping.inward = inwardNormal(m_frame.edge);
+        mapping.halfT = 0.5 * (HORIZONTAL ? size.x : size.y);
+        mapping.halfN = 0.5 * (HORIZONTAL ? size.y : size.x);
 
-        const double sT = m_spreadT.value;
-        const double sN = m_spreadN.value;
-        const double ROUNDNESS = std::pow(1.0 - std::clamp(std::min(sT, sN), 0.0, 1.0), 1.5);
-        m.rectangle = !(ROUNDNESS >= 2e-4);  // exponent > 1e4 is indistinguishable from a rectangle
-        if (!m.rectangle) {
-            m.exponent = 2.0 / ROUNDNESS;
-            m.invExponent = 1.0 / m.exponent;
+        const double SPREAD_T = m_spreadT.value;
+        const double SPREAD_N = m_spreadN.value;
+        const double ROUNDNESS = std::pow(1.0 - std::clamp(std::min(SPREAD_T, SPREAD_N), 0.0, 1.0), 1.5);
+        mapping.rectangle =
+            !(ROUNDNESS >= 2e-4);  // exponent > 1e4 is indistinguishable from a rectangle
+        if (!mapping.rectangle) {
+            mapping.exponent = 2.0 / ROUNDNESS;
+            mapping.invExponent = 1.0 / mapping.exponent;
         }
 
         const double CENTRE_T = 0.5 * (m_frame.bodyT0 + m_frame.bodyT1);
-        m.tBase = CENTRE_T * (1.0 - sT);
-        m.tScale = m_radius + ((m.halfT - m_radius) * sT);
+        mapping.tBase = CENTRE_T * (1.0 - SPREAD_T);
+        mapping.tScale = m_radius + ((mapping.halfT - m_radius) * SPREAD_T);
         // The normal extent comes from `size`, like the tangential one: the frame's capture is
         // taken when the open begins, before decorations (shadow) report their extents, and a stale
         // extent leaves the window short of its rest box.
-        m.nBase = m_nc - m_frame.edgeDistance;
-        m.nScale = m_radius + ((m.halfN - m_radius) * sN);
-        return m;
+        mapping.nBase = m_nc - m_frame.edgeDistance;
+        mapping.nScale = m_radius + ((mapping.halfN - m_radius) * SPREAD_N);
+        return mapping;
     }
 
     Vec2 EdgeTransition::RestMap::map(Vec2 fromCentre) const noexcept {
@@ -608,10 +613,10 @@ namespace hyprimate {
             return fromCentre;
         }
         // Rest point in units of the capture half-extents.
-        const double a = (horizontal ? fromCentre.x : fromCentre.y) / halfT;
-        const double b = ((fromCentre.x * inward.x) + (fromCentre.y * inward.y)) / halfN;
+        const double REST_T = (horizontal ? fromCentre.x : fromCentre.y) / halfT;
+        const double REST_N = ((fromCentre.x * inward.x) + (fromCentre.y * inward.y)) / halfN;
         const Vec2 SHAPE =
-            rectangle ? Vec2{.x = a, .y = b} : outline({.x = a, .y = b}, exponent, invExponent);
+            rectangle ? Vec2{.x = REST_T, .y = REST_N} : outline({.x = REST_T, .y = REST_N}, exponent, invExponent);
         const double T_OUT = tBase + (tScale * SHAPE.x);
         const double N_OUT = nBase + (nScale * SHAPE.y);
         return {.x = (along.x * T_OUT) + (inward.x * N_OUT),
@@ -627,8 +632,8 @@ namespace hyprimate {
                                  ? m_nc - m_taken
                                  : 0.0;  // Closed keeps the final substep's travel
         m_taken = m_nc;
-        const Vec2 n = inwardNormal(m_frame.edge);
-        return {.x = n.x * DELTA, .y = n.y * DELTA};
+        const Vec2 INWARD = inwardNormal(m_frame.edge);
+        return {.x = INWARD.x * DELTA, .y = INWARD.y * DELTA};
     }
 
     double EdgeTransition::eNormal() const noexcept {
@@ -704,15 +709,16 @@ namespace hyprimate {
 
         if (!m_drained) {
             m_time += SUBSTEP_SECONDS;
-            const double p = std::min(m_time / m_duration, 1.0);
+            const double PROGRESS = std::min(m_time / m_duration, 1.0);
             // Shrink: the pill folds back into a circle, normal first, then tangential.
-            m_spreadN.value = m_sN0 * (1.0 - easeInOutCubic(p / kShrinkEnd));
+            m_spreadN.value = m_sN0 * (1.0 - easeInOutCubic(PROGRESS / kShrinkEnd));
             m_spreadT.value =
-                m_sT0 * (1.0 - easeInOutCubic((p - kShrinkTangentStart) / kShrinkTangentSpan));
+                m_sT0 *
+                (1.0 - easeInOutCubic((PROGRESS - kShrinkTangentStart) / kShrinkTangentSpan));
             // One continuous trajectory: shrinking must not stop the centre at a hover point.
             // Momentum advances the dive without introducing a second launch.
-            const double SQUARE = p * p;
-            const double CUBIC = SQUARE * p;
+            const double SQUARE = PROGRESS * PROGRESS;
+            const double CUBIC = SQUARE * PROGRESS;
             const double DIVE =
                 m_closeMomentum < 0.5
                     ? lerp(CUBIC, SQUARE, m_closeMomentum * 2.0)
@@ -741,36 +747,37 @@ namespace hyprimate {
     }
 
     EdgeTransition::Lobe EdgeTransition::liveLobe() const noexcept {
-        const double n = nearSide();
-        if (n < 0.0) {
+        const double NEAR_SIDE = nearSide();
+        if (NEAR_SIDE < 0.0) {
             // Crossing: fillets hug the bead where it passes through the edge. They ramp in as the
             // bead's far side breaks the surface.
             return {.height = m_tuck * smoothstep(0.0, 2.0 * m_tuck, farSide()),
                 .plateau = m_radius,
                 .skirt = m_crossSkirt};
         }
-        if (n <= m_pinch) {
+        if (NEAR_SIDE <= m_pinch) {
             // Attached: the tip stays tucked under the near side while the contact patch necks
             // down.
-            const double q = smoothstep(0.0, m_pinch, n);
-            return {.height = n + m_tuck,
-                .plateau = m_radius * (1.0 - q),
-                .skirt = lerp(m_crossSkirt, m_neckSkirt, q)};
+            const double PINCH_BLEND = smoothstep(0.0, m_pinch, NEAR_SIDE);
+            return {.height = NEAR_SIDE + m_tuck,
+                .plateau = m_radius * (1.0 - PINCH_BLEND),
+                .skirt = lerp(m_crossSkirt, m_neckSkirt, PINCH_BLEND)};
         }
         return {};
     }
 
     EdgeTransition::Lobe EdgeTransition::recoilLobe() const noexcept {
-        const double t = m_recoilTime;
+        const double RECOIL_TIME = m_recoilTime;
         return {.height = std::max(0.0, m_recoil.value),
-            .plateau = m_snap.plateau * std::exp(-t / kRecoilPlateauSeconds),
-            .skirt = m_snap.skirt *
-                     (1.0 + (kRecoilSkirtGrowth * (1.0 - std::exp(-t / kRecoilSkirtSeconds))))};
+            .plateau = m_snap.plateau * std::exp(-RECOIL_TIME / kRecoilPlateauSeconds),
+            .skirt =
+                m_snap.skirt * (1.0 + (kRecoilSkirtGrowth *
+                                          (1.0 - std::exp(-RECOIL_TIME / kRecoilSkirtSeconds))))};
     }
 
     EdgeTransition::Lobe EdgeTransition::splashLobe() const noexcept {
-        const double x = m_splashTime / m_splashDuration;
-        return {.height = kSplashPerRadius * m_radius * splashImpulse(x),
+        const double PROGRESS = m_splashTime / m_splashDuration;
+        return {.height = kSplashPerRadius * m_radius * splashImpulse(PROGRESS),
             .plateau = 0.0,
             .skirt = kSplashSkirt * m_radius};
     }
@@ -811,54 +818,54 @@ namespace hyprimate {
     }
 
     double EdgeTransition::meniscus(double t) const noexcept {
-        const double c = 0.5 * (m_frame.bodyT0 + m_frame.bodyT1);
-        double h = 0.0;
-        for (const Lobe &l : m_profile.lobes) {
-            if (!(l.height > 0.0)) {
+        const double CENTRE = 0.5 * (m_frame.bodyT0 + m_frame.bodyT1);
+        double peakHeight = 0.0;
+        for (const Lobe &lobe : m_profile.lobes) {
+            if (!(lobe.height > 0.0)) {
                 continue;
             }
-            const double x = std::abs(t - c) - l.plateau;
-            if (x <= 0.0) {
-                h = std::max(h, l.height);
+            const double SKIRT_DISTANCE = std::abs(t - CENTRE) - lobe.plateau;
+            if (SKIRT_DISTANCE <= 0.0) {
+                peakHeight = std::max(peakHeight, lobe.height);
                 continue;
             }
-            const double u = x / l.skirt;
-            if (u >= 1.0) {
+            const double SKIRT_FRACTION = SKIRT_DISTANCE / lobe.skirt;
+            if (SKIRT_FRACTION >= 1.0) {
                 continue;
             }
-            const double w = 1.0 - (u * u);
-            h = std::max(h,
-                l.height * w *
-                    w);  // tangent to the edge at the skirt's foot, like the bar's concave flanks
+            const double SKIRT_WEIGHT = 1.0 - (SKIRT_FRACTION * SKIRT_FRACTION);
+            peakHeight = std::max(peakHeight,
+                lobe.height * SKIRT_WEIGHT *
+                    SKIRT_WEIGHT);  // tangent to the edge at the skirt's foot, like the bar's concave flanks
         }
-        return h;
+        return peakHeight;
     }
 
     double EdgeTransition::meniscusLow() const noexcept {
-        const double c = 0.5 * (m_frame.bodyT0 + m_frame.bodyT1);
-        double low = c;
+        const double CENTRE = 0.5 * (m_frame.bodyT0 + m_frame.bodyT1);
+        double low = CENTRE;
         bool any = false;
-        for (const Lobe &l : m_profile.lobes) {
-            if (!(l.height > 0.0)) {
+        for (const Lobe &lobe : m_profile.lobes) {
+            if (!(lobe.height > 0.0)) {
                 continue;
             }
-            const double lo = c - l.plateau - l.skirt;
-            low = any ? std::min(low, lo) : lo;
+            const double LOW_EDGE = CENTRE - lobe.plateau - lobe.skirt;
+            low = any ? std::min(low, LOW_EDGE) : LOW_EDGE;
             any = true;
         }
         return low;
     }
 
     double EdgeTransition::meniscusHigh() const noexcept {
-        const double c = 0.5 * (m_frame.bodyT0 + m_frame.bodyT1);
-        double high = c;
+        const double CENTRE = 0.5 * (m_frame.bodyT0 + m_frame.bodyT1);
+        double high = CENTRE;
         bool any = false;
-        for (const Lobe &l : m_profile.lobes) {
-            if (!(l.height > 0.0)) {
+        for (const Lobe &lobe : m_profile.lobes) {
+            if (!(lobe.height > 0.0)) {
                 continue;
             }
-            const double hi = c + l.plateau + l.skirt;
-            high = any ? std::max(high, hi) : hi;
+            const double HIGH_EDGE = CENTRE + lobe.plateau + lobe.skirt;
+            high = any ? std::max(high, HIGH_EDGE) : HIGH_EDGE;
             any = true;
         }
         return high;

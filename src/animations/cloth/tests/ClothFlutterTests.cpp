@@ -26,91 +26,95 @@ namespace {
         SheetGrid p{}, v{};
     };
     Pose pose(const ClothFlutter &m) {
-        Pose p;
-        m.sampleVertices(p.p, p.v);
+        Pose result;
+        m.sampleVertices(result.p, result.v);
         const auto FINITE = [](const Vec3 &v) {
             return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
         };
-        CHECK(std::all_of(p.p.begin(), p.p.end(), FINITE));
-        CHECK(std::all_of(p.v.begin(), p.v.end(), FINITE));
-        return p;
+        CHECK(std::all_of(result.p.begin(), result.p.end(), FINITE));
+        CHECK(std::all_of(result.v.begin(), result.v.end(), FINITE));
+        return result;
     }
     double delta(const SheetGrid &a, const SheetGrid &b) {
-        double d = 0;
+        double maxDelta = 0;
         for (std::size_t k = 0; k < a.size(); ++k) {
-            d = std::max({d,
+            maxDelta = std::max({maxDelta,
                 std::abs(a[k].x - b[k].x),
                 std::abs(a[k].y - b[k].y),
                 std::abs(a[k].z - b[k].z)});
         }
-        return d;
+        return maxDelta;
     }
     void advance(ClothFlutter &m, double seconds, double step = 1.0 / 144) {
         while (seconds > 1e-12 && m.active()) {
-            const double dt = std::min(step, seconds);
-            m.advance(dt);
-            seconds -= dt;
+            const double STEP_SECONDS = std::min(step, seconds);
+            m.advance(STEP_SECONDS);
+            seconds -= STEP_SECONDS;
         }
     }
     ClothFlutter open(ClothParams p = params(), std::uint64_t seed = 7) {
-        ClothFlutter m;
-        m.begin(Transition::Open, p, seed, WINDOW, {});
-        CHECK(m.waitForRecording());
-        return m;
+        ClothFlutter cloth;
+        cloth.begin(Transition::Open, p, seed, WINDOW, {});
+        CHECK(cloth.waitForRecording());
+        return cloth;
     }
     ClothFlutter close(Edge edge, ClothParams p = params()) {
-        ClothFlutter m;
-        m.begin(Transition::Close,
+        ClothFlutter cloth;
+        cloth.begin(Transition::Close,
             p,
             3,
             WINDOW,
             {},
             ClothCloseGeometry{.edge = edge, .screen = SCREEN});
-        CHECK(m.waitForRecording());
-        return m;
+        CHECK(cloth.waitForRecording());
+        return cloth;
     }
     void needsPhysics() {
-        ClothFlutter m;
-        m.begin(Transition::Open, params(), 1, WINDOW, {});
-        CHECK(!m.active());
+        ClothFlutter cloth;
+        cloth.begin(Transition::Open, params(), 1, WINDOW, {});
+        CHECK(!cloth.active());
     }
     void openingSettlesFlat() {
-        auto p = params();
-        p.flutter = 0;
-        auto m = open(p);
-        CHECK(m.opacity() == 0);
-        advance(m, .85);
-        CHECK(!m.active() && !m.closed() && m.opacity() == 1);
+        auto material = params();
+        material.flutter = 0;
+        auto cloth = open(material);
+        CHECK(cloth.opacity() == 0);
+        advance(cloth, .85);
+        CHECK(!cloth.active() && !cloth.closed() && cloth.opacity() == 1);
         hyprimate::SheetFrame frame;
-        m.frame({.x = WINDOW.w, .y = WINDOW.h}, frame);
-        for (std::size_t v = 0; v < hyprimate::PAPER_GRID_VERTICES; ++v) {
-            const auto uv = hyprimate::sheetUv(v);
-            CHECK(frame.position[v].x == uv.x - 0.5 && frame.position[v].y == uv.y - 0.5);
+        cloth.frame({.x = WINDOW.w, .y = WINDOW.h}, frame);
+        for (std::size_t vertex = 0; vertex < hyprimate::PAPER_GRID_VERTICES; ++vertex) {
+            const auto TEX_COORD = hyprimate::sheetUv(vertex);
+            CHECK(frame.position[vertex].x == TEX_COORD.x - 0.5 &&
+                  frame.position[vertex].y == TEX_COORD.y - 0.5);
         }
         for (const auto &shade : frame.shade) {
-            for (const float s : shade) {
-                CHECK(s == 0.0F);
+            for (const float SHADE : shade) {
+                CHECK(SHADE == 0.0F);
             }
         }
     }
     // Gathering a curtain makes folds by spending its width in depth, not by stretching or
     // shrinking its material.
     void curtainDrape() {
-        auto p = params();
-        p.flutter = p.variation = 0;
-        const auto m = open(p);
-        const auto START = pose(m);
+        auto material = params();
+        material.flutter = material.variation = 0;
+        const auto CLOTH = open(material);
+        const auto START = pose(CLOTH);
         double contour = 0;
         double near = 1e9;
         double far = -1e9;
         const int ROW = PAPER_CELLS / 2;
         for (int i = 0; i < GRID; ++i) {
-            const auto &v = START.p[(static_cast<std::size_t>(ROW) * GRID) + i];
-            near = std::min(near, v.z);
-            far = std::max(far, v.z);
+            const auto &vertex = START.p[(static_cast<std::size_t>(ROW) * GRID) + i];
+            near = std::min(near, vertex.z);
+            far = std::max(far, vertex.z);
             if (i != 0) {
-                const auto &a = START.p[(static_cast<std::size_t>(ROW) * GRID) + i - 1];
-                contour += std::hypot(v.x - a.x, v.y - a.y, v.z - a.z);
+                const auto &previousVertex =
+                    START.p[(static_cast<std::size_t>(ROW) * GRID) + i - 1];
+                contour += std::hypot(vertex.x - previousVertex.x,
+                    vertex.y - previousVertex.y,
+                    vertex.z - previousVertex.z);
             }
         }
         CHECK(far - near > .03);
@@ -126,26 +130,26 @@ namespace {
 
     // Folds must spread and settle without a one-frame jolt at the free edge or weighted hem.
     void softLanding() {
-        const double L = std::sqrt(WINDOW.w * WINDOW.h);
+        const double LENGTH_SCALE = std::sqrt(WINDOW.w * WINDOW.h);
         for (const double FLUTTER : {0.0, 0.5}) {
-            auto p = params();
-            p.flutter = FLUTTER;
-            auto m = open(p);
+            auto material = params();
+            material.flutter = FLUTTER;
+            auto cloth = open(material);
             std::vector<SheetGrid> frames;
-            while (m.active()) {
-                m.advance(1.0 / 120);
-                frames.push_back(pose(m).p);
+            while (cloth.active()) {
+                cloth.advance(1.0 / 120);
+                frames.push_back(pose(cloth).p);
             }
             double worst = 0;
-            for (std::size_t f = 2; f < frames.size(); ++f) {
-                for (std::size_t k = 0; k < frames[f].size(); ++k) {
-                    const Vec3 a = frames[f - 2][k];
-                    const Vec3 b = frames[f - 1][k];
-                    const Vec3 c = frames[f][k];
+            for (std::size_t frameIndex = 2; frameIndex < frames.size(); ++frameIndex) {
+                for (std::size_t k = 0; k < frames[frameIndex].size(); ++k) {
+                    const Vec3 EARLIER = frames[frameIndex - 2][k];
+                    const Vec3 PREVIOUS = frames[frameIndex - 1][k];
+                    const Vec3 CURRENT = frames[frameIndex][k];
                     worst = std::max(worst,
-                        std::hypot((c.x - (2 * b.x) + a.x) * WINDOW.w,
-                            (c.y - (2 * b.y) + a.y) * WINDOW.h,
-                            (c.z - (2 * b.z) + a.z) * L));
+                        std::hypot((CURRENT.x - (2 * PREVIOUS.x) + EARLIER.x) * WINDOW.w,
+                            (CURRENT.y - (2 * PREVIOUS.y) + EARLIER.y) * WINDOW.h,
+                            (CURRENT.z - (2 * PREVIOUS.z) + EARLIER.z) * LENGTH_SCALE));
                 }
             }
             // Per-frame velocity change in pixels at 120 Hz; the undamped swing peaked near 60
@@ -154,9 +158,9 @@ namespace {
         }
     }
     void exits() {
-        auto p = params();
-        p.flutter = 0;
-        auto falling = close(Edge::Bottom, p);
+        auto material = params();
+        material.flutter = 0;
+        auto falling = close(Edge::Bottom, material);
         const auto START = pose(falling);
         advance(falling, 0.25);
         const auto DROP = pose(falling);
@@ -169,39 +173,39 @@ namespace {
         CHECK(falling.opacity() == 1);  // visible sheet cannot fade prematurely
         advance(falling, 0.45);
         const auto LATE = pose(falling);
-        for (const auto &v : LATE.p) {
-            CHECK(WINDOW.y + WINDOW.h / 2 + (-v.y * WINDOW.h - WINDOW.h / 2) > SCREEN.y + SCREEN.h);
+        for (const auto &vertexPos : LATE.p) {
+            CHECK(WINDOW.y + WINDOW.h / 2 + (-vertexPos.y * WINDOW.h - WINDOW.h / 2) > SCREEN.y + SCREEN.h);
         }
         advance(falling, 1);
         CHECK(falling.closed() && falling.opacity() == 0);
         for (const Edge EDGE : {Edge::Top, Edge::Left, Edge::Right}) {
-            auto pulling = close(EDGE, p);
+            auto pulling = close(EDGE, material);
             const auto INITIAL = pose(pulling);
             advance(pulling, 0.4);
             const auto MID = pose(pulling);
             for (int i = 0; i < GRID; ++i) {
-                const std::size_t k = i;
+                const std::size_t INDEX = i;
                 if (EDGE == Edge::Top) {
-                    CHECK(MID.p[k].y > INITIAL.p[k].y + 0.5);
+                    CHECK(MID.p[INDEX].y > INITIAL.p[INDEX].y + 0.5);
                 }
                 if (EDGE == Edge::Left) {
-                    CHECK(MID.p[k].x < INITIAL.p[k].x - 0.5);
+                    CHECK(MID.p[INDEX].x < INITIAL.p[INDEX].x - 0.5);
                 }
                 if (EDGE == Edge::Right) {
-                    CHECK(MID.p[k].x > INITIAL.p[k].x + 0.5);
+                    CHECK(MID.p[INDEX].x > INITIAL.p[INDEX].x + 0.5);
                 }
             }
             advance(pulling, 0.35);
             const auto END = pose(pulling);
-            for (const auto &v : END.p) {
+            for (const auto &vertex : END.p) {
                 if (EDGE == Edge::Top) {
-                    CHECK(WINDOW.y - v.y * WINDOW.h < SCREEN.y);
+                    CHECK(WINDOW.y - vertex.y * WINDOW.h < SCREEN.y);
                 }
                 if (EDGE == Edge::Left) {
-                    CHECK(WINDOW.x + WINDOW.w / 2 + v.x * WINDOW.w < SCREEN.x);
+                    CHECK(WINDOW.x + WINDOW.w / 2 + vertex.x * WINDOW.w < SCREEN.x);
                 }
                 if (EDGE == Edge::Right) {
-                    CHECK(WINDOW.x + WINDOW.w / 2 + v.x * WINDOW.w > SCREEN.x + SCREEN.w);
+                    CHECK(WINDOW.x + WINDOW.w / 2 + vertex.x * WINDOW.w > SCREEN.x + SCREEN.w);
                 }
             }
             advance(pulling, 1);
@@ -213,21 +217,21 @@ namespace {
         const Box SCREEN{.x = 0, .y = 0, .w = 1920, .h = 1080};
         const Box BELOW{.x = 100, .y = 460, .w = 1000, .h = 500};
         const Box RIGHT{.x = 1110, .y = 50, .w = 600, .h = 400};
-        auto p = params();
-        p.flutter = p.variation = 0;
-        p.duration = .9;
+        auto material = params();
+        material.flutter = material.variation = 0;
+        material.duration = .9;
         for (const auto EDGE : {Edge::Bottom, Edge::Right}) {
             const Box OBSTACLE = EDGE == Edge::Bottom ? BELOW : RIGHT;
             ClothFlutter clear;
             ClothFlutter blocked;
             clear.begin(Transition::Close,
-                p,
+                material,
                 1,
                 WINDOW,
                 {},
                 ClothCloseGeometry{.edge = EDGE, .screen = SCREEN});
             blocked.begin(Transition::Close,
-                p,
+                material,
                 1,
                 WINDOW,
                 std::span<const Box>(&OBSTACLE, 1),
@@ -238,122 +242,123 @@ namespace {
             advance(blocked, .7);
             CHECK(delta(pose(clear).p, pose(blocked).p) == 0);
             const auto FINAL = pose(blocked);
-            for (const auto &v : FINAL.p) {
-                CHECK(std::abs(v.x) < 20 && std::abs(v.y) < 20 && std::abs(v.z) < 20);
+            for (const auto &vertex : FINAL.p) {
+                CHECK(
+                    std::abs(vertex.x) < 20 && std::abs(vertex.y) < 20 && std::abs(vertex.z) < 20);
                 if (EDGE == Edge::Bottom) {
-                    CHECK(WINDOW.y - v.y * WINDOW.h > SCREEN.y + SCREEN.h);
+                    CHECK(WINDOW.y - vertex.y * WINDOW.h > SCREEN.y + SCREEN.h);
                 } else {
-                    CHECK(WINDOW.x + WINDOW.w / 2 + v.x * WINDOW.w > SCREEN.x + SCREEN.w);
+                    CHECK(WINDOW.x + WINDOW.w / 2 + vertex.x * WINDOW.w > SCREEN.x + SCREEN.w);
                 }
             }
         }
     }
     void handoff() {
         for (const double WHEN : {0.015, 0.25, 0.73}) {
-            auto m = open();
-            advance(m, WHEN);
-            const auto BEFORE = pose(m);
-            const double ALPHA = m.opacity();
-            auto p = params();
-            p.duration = 1.6;
-            m.begin(Transition::Close,
-                p,
+            auto cloth = open();
+            advance(cloth, WHEN);
+            const auto BEFORE = pose(cloth);
+            const double ALPHA = cloth.opacity();
+            auto material = params();
+            material.duration = 1.6;
+            cloth.begin(Transition::Close,
+                material,
                 12,
                 WINDOW,
                 {},
                 ClothCloseGeometry{.edge = Edge::Left, .screen = SCREEN});
-            const auto AFTER = pose(m);
+            const auto AFTER = pose(cloth);
             CHECK(delta(BEFORE.p, AFTER.p) < 1e-12);
             CHECK(delta(BEFORE.v, AFTER.v) < 1e-12);
-            CHECK(m.opacity() == ALPHA);
-            CHECK(m.waitForRecording());
-            const auto READY = pose(m);
+            CHECK(cloth.opacity() == ALPHA);
+            CHECK(cloth.waitForRecording());
+            const auto READY = pose(cloth);
             CHECK(delta(BEFORE.p, READY.p) < 2e-6);
             CHECK(delta(BEFORE.v, READY.v) < 2e-5);
         }
     }
     void extremeDurationHandoff() {
-        auto p = params();
-        p.duration = .1;
-        p.flutter = 1;
-        p.variation = 0;
-        auto m = open(p);
-        advance(m, .03, .001);
-        const auto BEFORE = pose(m);
-        const double ALPHA = m.opacity();
-        p.duration = 3.430429;
-        m.begin(Transition::Close,
-            p,
+        auto material = params();
+        material.duration = .1;
+        material.flutter = 1;
+        material.variation = 0;
+        auto cloth = open(material);
+        advance(cloth, .03, .001);
+        const auto BEFORE = pose(cloth);
+        const double ALPHA = cloth.opacity();
+        material.duration = 3.430429;
+        cloth.begin(Transition::Close,
+            material,
             2,
             WINDOW,
             {},
             ClothCloseGeometry{.edge = Edge::Left, .screen = SCREEN});
-        CHECK(m.waitForRecording());
-        const auto AFTER = pose(m);
+        CHECK(cloth.waitForRecording());
+        const auto AFTER = pose(cloth);
         CHECK(delta(BEFORE.p, AFTER.p) < 2e-6);
         CHECK(delta(BEFORE.v, AFTER.v) < 2e-4);
-        CHECK(m.opacity() == ALPHA);
+        CHECK(cloth.opacity() == ALPHA);
     }
     void cadence() {
         const auto SOURCE = open();
         auto reference = SOURCE;
         advance(reference, 0.63, 0.001);
         const auto EXPECTED = pose(reference);
-        for (const double hz : {60., 120., 144., 240.}) {
-            auto m = SOURCE;
-            advance(m, 0.63, 1 / hz);
-            CHECK(delta(EXPECTED.p, pose(m).p) < 1e-10);
+        for (const double REFRESH_HZ : {60., 120., 144., 240.}) {
+            auto cloth = SOURCE;
+            advance(cloth, 0.63, 1 / REFRESH_HZ);
+            CHECK(delta(EXPECTED.p, pose(cloth).p) < 1e-10);
         }
         auto irregular = SOURCE;
         double time = 0;
         const double STEPS[] = {.003, .027, .011, .007, .045, .016};
-        int i = 0;
+        int stepIndex = 0;
         while (time < .63 - 1e-12) {
-            const double dt = std::min(STEPS[i++ % 6], .63 - time);
-            irregular.advance(dt);
-            time += dt;
+            const double STEP_SECONDS = std::min(STEPS[stepIndex++ % 6], .63 - time);
+            irregular.advance(STEP_SECONDS);
+            time += STEP_SECONDS;
         }
         CHECK(delta(EXPECTED.p, pose(irregular).p) < 1e-10);
     }
     void deterministic() {
-        auto p = params();
-        p.variation = 0;
-        auto a = open(p, 5);
-        auto b = open(p, 900);
-        advance(a, .43);
-        advance(b, .43);
-        CHECK(delta(pose(a).p, pose(b).p) == 0);
+        auto material = params();
+        material.variation = 0;
+        auto first = open(material, 5);
+        auto second = open(material, 900);
+        advance(first, .43);
+        advance(second, .43);
+        CHECK(delta(pose(first).p, pose(second).p) == 0);
     }
     void invalid() {
-        auto p = params();
-        p.duration = std::numeric_limits<double>::quiet_NaN();
-        ClothFlutter m;
-        m.begin(Transition::Open, p, 1, WINDOW, {});
-        CHECK(!m.active());
-        m.begin(Transition::Open, params(), 1, Box{.x = 0, .y = 0, .w = 0, .h = 500}, {});
-        CHECK(!m.active());
-        m.begin(Transition::Open,
+        auto material = params();
+        material.duration = std::numeric_limits<double>::quiet_NaN();
+        ClothFlutter cloth;
+        cloth.begin(Transition::Open, material, 1, WINDOW, {});
+        CHECK(!cloth.active());
+        cloth.begin(Transition::Open, params(), 1, Box{.x = 0, .y = 0, .w = 0, .h = 500}, {});
+        CHECK(!cloth.active());
+        cloth.begin(Transition::Open,
             params(),
             1,
             Box{.x = 0, .y = 0, .w = std::numeric_limits<double>::max(), .h = 500},
             {});
-        CHECK(!m.active());
-        m.begin(static_cast<Transition>(99), params(), 1, WINDOW, {});
-        CHECK(!m.active());
-        m.begin(Transition::Close,
+        CHECK(!cloth.active());
+        cloth.begin(static_cast<Transition>(99), params(), 1, WINDOW, {});
+        CHECK(!cloth.active());
+        cloth.begin(Transition::Close,
             params(),
             1,
             WINDOW,
             {},
             ClothCloseGeometry{
                 .edge = Edge::Left, .screen = Box{.x = 0, .y = 0, .w = -1, .h = 500}});
-        CHECK(!m.active());
-        m = open();
-        m.advance(-1);
-        CHECK(!m.active() && !m.closed());
-        m = close(Edge::Top);
-        m.advance(std::numeric_limits<double>::infinity());
-        CHECK(m.closed());
+        CHECK(!cloth.active());
+        cloth = open();
+        cloth.advance(-1);
+        CHECK(!cloth.active() && !cloth.closed());
+        cloth = close(Edge::Top);
+        cloth.advance(std::numeric_limits<double>::infinity());
+        CHECK(cloth.closed());
     }
     void starvation() {
         ClothPhysics::pauseWorkersForTesting(true);
@@ -382,11 +387,11 @@ namespace {
     }
     // A recoverable publication gap must retain the same recording and resume it.
     void publicationRecovery() {
-        constexpr double dt = 1.0 / 120;
+        constexpr double STEP_SECONDS = 1.0 / 120;
         for (const auto KIND : {Transition::Open, Transition::Close}) {
             ClothPhysics::pauseWorkersForTesting(true, 4);
-            ClothFlutter m;
-            m.begin(KIND,
+            ClothFlutter cloth;
+            cloth.begin(KIND,
                 params(),
                 7,
                 WINDOW,
@@ -394,22 +399,22 @@ namespace {
                 KIND == Transition::Close ? std::optional<ClothCloseGeometry>{ClothCloseGeometry{
                                                 .edge = Edge::Bottom, .screen = SCREEN}}
                                           : std::optional<ClothCloseGeometry>{});
-            CHECK(m.waitForSnapshots(4));
-            const ClothFlutter WITNESS = m;
-            advance(m, .1, dt);
-            const auto HELD = pose(m);
-            const double ALPHA = m.opacity();
-            advance(m, .1, dt);
-            CHECK(m.active());
-            CHECK(delta(pose(m).p, HELD.p) < 1e-9);
-            CHECK(std::abs(m.opacity() - ALPHA) < 1e-9);
+            CHECK(cloth.waitForSnapshots(4));
+            const ClothFlutter WITNESS = cloth;
+            advance(cloth, .1, STEP_SECONDS);
+            const auto HELD = pose(cloth);
+            const double ALPHA = cloth.opacity();
+            advance(cloth, .1, STEP_SECONDS);
+            CHECK(cloth.active());
+            CHECK(delta(pose(cloth).p, HELD.p) < 1e-9);
+            CHECK(std::abs(cloth.opacity() - ALPHA) < 1e-9);
             ClothPhysics::pauseWorkersForTesting(false);
             CHECK(WITNESS.waitForRecording());
-            const auto BEFORE = pose(m);
-            advance(m, .1, dt);
-            CHECK(delta(pose(m).p, BEFORE.p) > 1e-9);
-            advance(m, 2, dt);
-            CHECK(KIND == Transition::Open ? !m.active() && !m.closed() : m.closed());
+            const auto BEFORE = pose(cloth);
+            advance(cloth, .1, STEP_SECONDS);
+            CHECK(delta(pose(cloth).p, BEFORE.p) > 1e-9);
+            advance(cloth, 2, STEP_SECONDS);
+            CHECK(KIND == Transition::Open ? !cloth.active() && !cloth.closed() : cloth.closed());
         }
     }
 
@@ -417,37 +422,37 @@ namespace {
         // A gap shorter than the stall bound must recover even when the compositor posts targets
         // faster than Jolt.
         for (const int REFRESH_RATE : {120, 360, 1000}) {
-            const double dt = 1.0 / REFRESH_RATE;
-            ClothFlutter m;
-            m.beginMovement({}, 7, WINDOW);
-            CHECK(m.waitForSnapshots(2));
-            const ClothFlutter WITNESS = m;
+            const double STEP_SECONDS = 1.0 / REFRESH_RATE;
+            ClothFlutter cloth;
+            cloth.beginMovement({}, 7, WINDOW);
+            CHECK(cloth.waitForSnapshots(2));
+            const ClothFlutter WITNESS = cloth;
             ClothPhysics::pauseWorkersForTesting(true, 2);
             Box box = WINDOW;
             for (int i = 0; i < REFRESH_RATE / 5; ++i) {
                 box.x += 1;
-                m.updateMovement(box, dt);
-                m.advance(dt);
+                cloth.updateMovement(box, STEP_SECONDS);
+                cloth.advance(STEP_SECONDS);
             }
-            CHECK(m.moving());
+            CHECK(cloth.moving());
             ClothPhysics::pauseWorkersForTesting(false);
             CHECK(WITNESS.waitForSnapshots(26, 2));
-            m.advance(0);
-            CHECK(m.moving());
-            CHECK(delta(pose(m).p, pose(WITNESS).p) > 1e-7);
+            cloth.advance(0);
+            CHECK(cloth.moving());
+            CHECK(delta(pose(cloth).p, pose(WITNESS).p) > 1e-7);
         }
     }
 
     void clothShine() {
-        ClothFlutter m;
-        auto p = params();
-        p.shine = std::numeric_limits<double>::quiet_NaN();
-        m.begin(Transition::Open, p, 1, WINDOW, {});
-        CHECK(!m.active());
+        ClothFlutter cloth;
+        auto material = params();
+        material.shine = std::numeric_limits<double>::quiet_NaN();
+        cloth.begin(Transition::Open, material, 1, WINDOW, {});
+        CHECK(!cloth.active());
         ClothMovementParams movement;
         movement.shine = std::numeric_limits<double>::infinity();
-        m.beginMovement(movement, 1, WINDOW);
-        CHECK(!m.active());
+        cloth.beginMovement(movement, 1, WINDOW);
+        CHECK(!cloth.active());
 
         auto source = open();
         advance(source, .25);
@@ -457,15 +462,15 @@ namespace {
         dark.beginMovement(movement, 1, WINDOW);
         movement.shine = 1;
         bright.beginMovement(movement, 1, WINDOW);
-        SheetFrame a;
-        SheetFrame b;
-        dark.frame({.x = WINDOW.w, .y = WINDOW.h}, a);
-        bright.frame({.x = WINDOW.w, .y = WINDOW.h}, b);
+        SheetFrame first;
+        SheetFrame second;
+        dark.frame({.x = WINDOW.w, .y = WINDOW.h}, first);
+        bright.frame({.x = WINDOW.w, .y = WINDOW.h}, second);
         bool highlight = false;
-        for (std::size_t t = 0; t < PAPER_TRIANGLES; ++t) {
-            for (int c = 0; c < 3; ++c) {
-                CHECK(a.shade[t][c] <= 0);
-                if (b.shade[t][c] > 0) {
+        for (std::size_t triangle = 0; triangle < PAPER_TRIANGLES; ++triangle) {
+            for (int corner = 0; corner < 3; ++corner) {
+                CHECK(first.shade[triangle][corner] <= 0);
+                if (second.shade[triangle][corner] > 0) {
                     highlight = true;
                 }
             }
@@ -477,9 +482,9 @@ namespace {
         ClothPhysics::pauseWorkersForTesting(true);
         const auto START = std::chrono::steady_clock::now();
         for (int i = 0; i < 50; ++i) {
-            ClothFlutter m;
-            m.begin(Transition::Open, params(), i, WINDOW, {});
-            m.reset();
+            ClothFlutter cloth;
+            cloth.begin(Transition::Open, params(), i, WINDOW, {});
+            cloth.reset();
         }
         CHECK(std::chrono::steady_clock::now() - START < std::chrono::seconds(1));
         ClothPhysics::pauseWorkersForTesting(false);
@@ -498,8 +503,8 @@ namespace {
     // A curtain's rod is its entire top edge, irrespective of where it travels or where a drag
     // began.
     void pocketHeaderStaysHorizontal() {
-        auto m = open();
-        advance(m, .2);
+        auto cloth = open();
+        advance(cloth, .2);
         const auto HORIZONTAL = [](const ClothFlutter &sheet) {
             SheetFrame frame;
             sheet.frame({.x = WINDOW.w, .y = WINDOW.h}, frame);
@@ -511,39 +516,39 @@ namespace {
             }
             return high - low < 1e-6;
         };
-        CHECK(HORIZONTAL(m));
-        m.beginMovement({}, 7, WINDOW);
-        CHECK(HORIZONTAL(m));
-        CHECK(m.waitForSnapshots(2));
+        CHECK(HORIZONTAL(cloth));
+        cloth.beginMovement({}, 7, WINDOW);
+        CHECK(HORIZONTAL(cloth));
+        CHECK(cloth.waitForSnapshots(2));
         Box box = WINDOW;
         double time = 0;
         for (int k = 0; k < 24; ++k) {
             box.x += 4;
-            movementStep(m, box, 1.0 / 120, time);
-            CHECK(HORIZONTAL(m));
+            movementStep(cloth, box, 1.0 / 120, time);
+            CHECK(HORIZONTAL(cloth));
         }
     }
 
     // The displayed sleeve must stay in the real window bounds, including reversal, resize and
     // worker recovery.
     void pocketStaysWithinWindowBounds() {
-        constexpr double dt = 1.0 / 120;
+        constexpr double STEP_SECONDS = 1.0 / 120;
         for (const double SPRINGINESS : {0., .5, 1.}) {
             for (const double DIRECTION : {-1., 1.}) {
                 auto material = params();
                 material.flutter = material.variation = 0;
-                auto m = open(material);
-                m.beginMovement({.springiness = SPRINGINESS}, 7, WINDOW);
-                CHECK(m.waitForSnapshots(2));
+                auto cloth = open(material);
+                cloth.beginMovement({.springiness = SPRINGINESS}, 7, WINDOW);
+                CHECK(cloth.waitForSnapshots(2));
                 Box box = WINDOW;
                 double time = 0;
                 double overhang = 0;
                 bool ordered = true;
                 bool level = true;
                 const auto check = [&] {
-                    const auto SAMPLED = pose(m);
+                    const auto SAMPLED = pose(cloth);
                     SheetFrame frame;
-                    m.frame({.x = box.w, .y = box.h}, frame);
+                    cloth.frame({.x = box.w, .y = box.h}, frame);
                     for (int i = 0; i < GRID; ++i) {
                         overhang = std::max(overhang, (std::abs(frame.position[i].x) - .5) * box.w);
                         ordered &= i == 0 || SAMPLED.p[i].x >= SAMPLED.p[i - 1].x;
@@ -557,14 +562,14 @@ namespace {
                         box.w *= .7;
                         box.h *= 1.1;
                     }
-                    movementStep(m, box, dt, time);
+                    movementStep(cloth, box, STEP_SECONDS, time);
                     check();
                 }
                 ClothPhysics::pauseWorkersForTesting(true);
                 for (int k = 0; k < 72; ++k) {
                     box.x -= DIRECTION * 12;
-                    m.updateMovement(box, dt);
-                    m.advance(dt);
+                    cloth.updateMovement(box, STEP_SECONDS);
+                    cloth.advance(STEP_SECONDS);
                     check();
                 }
                 ClothPhysics::pauseWorkersForTesting(false);
@@ -580,17 +585,17 @@ namespace {
         for (const double DIRECTION : {-1., 1.}) {
             auto material = params();
             material.flutter = material.variation = 0;
-            auto m = open(material);
-            m.beginMovement({.springiness = 1}, 7, WINDOW);
-            CHECK(m.waitForSnapshots(2));
-            const auto START = pose(m);
+            auto cloth = open(material);
+            cloth.beginMovement({.springiness = 1}, 7, WINDOW);
+            CHECK(cloth.waitForSnapshots(2));
+            const auto START = pose(cloth);
             Box box = WINDOW;
             double time = 0;
             for (int k = 0; k < 24; ++k) {
                 box.x += DIRECTION * .25;
-                movementStep(m, box, 1.0 / 120, time);
+                movementStep(cloth, box, 1.0 / 120, time);
             }
-            const auto SPREAD = pose(m);
+            const auto SPREAD = pose(cloth);
             const int TRAILING = DIRECTION > 0 ? 0 : PAPER_CELLS;
             const int LEADING = DIRECTION > 0 ? PAPER_CELLS : 0;
             const double TRAILING_SPREAD =
@@ -609,16 +614,16 @@ namespace {
             if (SPRINGINESS > 0) {
                 material.springiness = SPRINGINESS;
             }
-            ClothFlutter m;
-            m.beginMovement(material, 7, WINDOW);
-            CHECK(m.waitForSnapshots(2));
+            ClothFlutter cloth;
+            cloth.beginMovement(material, 7, WINDOW);
+            CHECK(cloth.waitForSnapshots(2));
             Box box = WINDOW;
             double time = 0;
             double lowerDrift = 0;
             for (int k = 0; k < 48; ++k) {
                 box.x += k < 24 ? 5 : -5;
-                movementStep(m, box, 1.0 / 120, time);
-                const auto MOVED = pose(m);
+                movementStep(cloth, box, 1.0 / 120, time);
+                const auto MOVED = pose(cloth);
                 for (int i = 0; i < GRID; ++i) {
                     const double REST = (static_cast<double>(i) / PAPER_CELLS) - .5;
                     peaks[mode] = std::max(peaks[mode], std::abs(MOVED.p[i].x - REST) * box.w);
@@ -644,16 +649,16 @@ namespace {
             ClothMovementParams material;
             material.variation = 0;
             material.springiness = 1;
-            ClothFlutter m;
-            m.beginMovement(material, 7, WINDOW);
-            CHECK(m.waitForSnapshots(2));
+            ClothFlutter cloth;
+            cloth.beginMovement(material, 7, WINDOW);
+            CHECK(cloth.waitForSnapshots(2));
             Box box = WINDOW;
             double time = 0;
             for (int k = 0; k < 30; ++k) {
                 box.x += DIRECTION * 5;
-                movementStep(m, box, 1.0 / 120, time);
+                movementStep(cloth, box, 1.0 / 120, time);
             }
-            const auto MOVED = pose(m);
+            const auto MOVED = pose(cloth);
             bool onRod = true;
             for (int i = 0; i < GRID; ++i) {
                 onRod &= MOVED.p[i].x >= -.50001 && MOVED.p[i].x <= .50001 &&
@@ -667,20 +672,20 @@ namespace {
     // The lengthwise spring must restore the pocket even while the window keeps travelling.
     void pocketSpringRestoresDuringTravel() {
         for (const double DIRECTION : {-1., 1.}) {
-            ClothFlutter m;
+            ClothFlutter cloth;
             ClothMovementParams material;
             material.variation = 0;
             material.springiness = 1;
-            m.beginMovement(material, 7, WINDOW);
-            CHECK(m.waitForSnapshots(2));
+            cloth.beginMovement(material, 7, WINDOW);
+            CHECK(cloth.waitForSnapshots(2));
             Box box = WINDOW;
             double time = 0;
             double peak = 0;
             double offset = 0;
             for (int frame = 0; frame < 120; ++frame) {
                 box.x += DIRECTION * 5;
-                movementStep(m, box, 1.0 / 120, time);
-                const auto MOVED = pose(m);
+                movementStep(cloth, box, 1.0 / 120, time);
+                const auto MOVED = pose(cloth);
                 offset = 0;
                 for (int i = 0; i < GRID; ++i) {
                     offset += MOVED.p[i].x - ((static_cast<double>(i) / PAPER_CELLS) - .5);
@@ -688,7 +693,7 @@ namespace {
                 offset /= GRID;
                 peak = std::max(peak, std::abs(offset));
             }
-            CHECK(m.moving());
+            CHECK(cloth.moving());
             CHECK(peak > .005);
             CHECK(std::abs(offset) < peak * .5);
         }
@@ -700,20 +705,20 @@ namespace {
             ClothMovementParams material;
             material.variation = 0;
             material.springiness = 1;
-            ClothFlutter m;
-            m.beginMovement(material, 7, WINDOW);
-            CHECK(m.waitForSnapshots(2));
+            ClothFlutter cloth;
+            cloth.beginMovement(material, 7, WINDOW);
+            CHECK(cloth.waitForSnapshots(2));
             Box box = WINDOW;
             double time = 0;
             const auto STEP = [&](double dx) {
                 box.x += dx;
-                movementStep(m, box, 1.0 / 120, time);
+                movementStep(cloth, box, 1.0 / 120, time);
             };
             const auto CENTER = [&] {
-                const auto p = pose(m);
+                const auto POSE = pose(cloth);
                 double sum = 0;
                 for (int i = 0; i < GRID; ++i) {
-                    sum += p.p[i].x;
+                    sum += POSE.p[i].x;
                 }
                 return sum / GRID;
             };
@@ -731,13 +736,14 @@ namespace {
             for (int i = 0; i < 30; ++i) {
                 STEP(-DIRECTION * 5);
             }
-            const auto REVERSED = pose(m);
+            const auto REVERSED = pose(cloth);
             double reversedCenter = 0;
             bool onRod = true;
             for (int i = 0; i < GRID; ++i) {
-                const auto &p = REVERSED.p[i];
-                reversedCenter += p.x;
-                onRod &= p.x >= -.50001 && p.x <= .50001 && (i == 0 || p.x >= REVERSED.p[i - 1].x);
+                const auto &vertex = REVERSED.p[i];
+                reversedCenter += vertex.x;
+                onRod &= vertex.x >= -.50001 && vertex.x <= .50001 &&
+                         (i == 0 || vertex.x >= REVERSED.p[i - 1].x);
             }
             reversedCenter /= GRID;
             CHECK(onRod);
@@ -745,8 +751,8 @@ namespace {
 
             box.w *= .9;
             box.h *= 1.1;
-            movementStep(m, box, 1.0 / 120, time);
-            const auto RESIZED = pose(m);
+            movementStep(cloth, box, 1.0 / 120, time);
+            const auto RESIZED = pose(cloth);
             for (int i = 0; i < GRID; ++i) {
                 CHECK(RESIZED.p[i].x >= -.50001 && RESIZED.p[i].x <= .50001);
                 CHECK(i == 0 || RESIZED.p[i].x >= RESIZED.p[i - 1].x);
@@ -760,37 +766,39 @@ namespace {
                  Vec2{.x = -1, .y = 0},
                  Vec2{.x = 0, .y = 1},
                  Vec2{.x = 0, .y = -1}}) {
-            ClothFlutter m;
+            ClothFlutter cloth;
             ClothMovementParams material;
             material.variation = 0;
-            m.beginMovement(material, 7, WINDOW);
-            CHECK(m.waitForSnapshots(2));
+            cloth.beginMovement(material, 7, WINDOW);
+            CHECK(cloth.waitForSnapshots(2));
             Box box = WINDOW;
             double time = 0;
             for (int frame = 0; frame < 24; ++frame) {
                 box.x += 4 * DIRECTION.x;
                 box.y += 4 * DIRECTION.y;
-                movementStep(m, box, 1.0 / 120, time);
+                movementStep(cloth, box, 1.0 / 120, time);
             }
-            const auto MOVED = pose(m);
+            const auto MOVED = pose(cloth);
             bool topAttached = true;
             for (int i = 0; i < GRID; ++i) {
-                const auto &p = MOVED.p[i];
-                topAttached &= p.x >= -.50001 && p.x <= .50001 &&
-                               (i == 0 || p.x >= MOVED.p[i - 1].x) && std::abs(p.y) < 1e-5 &&
-                               std::abs(p.z) < 1e-5;
+                const auto &vertexPos = MOVED.p[i];
+                topAttached &= vertexPos.x >= -.50001 && vertexPos.x <= .50001 &&
+                               (i == 0 || vertexPos.x >= MOVED.p[i - 1].x) && std::abs(vertexPos.y) < 1e-5 &&
+                               std::abs(vertexPos.z) < 1e-5;
             }
             CHECK(topAttached);
             if (DIRECTION.x != 0) {
                 const auto MOTION_AT = [&](int row) {
                     double sum = 0;
                     for (int i = 0; i < GRID; ++i) {
-                        const auto &p = MOVED.p[(static_cast<std::size_t>(row) * GRID) + i];
+                        const auto &vertex = MOVED.p[(static_cast<std::size_t>(row) * GRID) + i];
                         sum +=
                             std::pow(
-                                (p.x - (static_cast<double>(i) / PAPER_CELLS) + .5) * box.w, 2) +
-                            std::pow((p.y + (static_cast<double>(row) / PAPER_CELLS)) * box.h, 2) +
-                            (p.z * p.z * box.w * box.h);
+                                (vertex.x - (static_cast<double>(i) / PAPER_CELLS) + .5) * box.w,
+                                2) +
+                            std::pow(
+                                (vertex.y + (static_cast<double>(row) / PAPER_CELLS)) * box.h, 2) +
+                            (vertex.z * vertex.z * box.w * box.h);
                     }
                     return std::sqrt(sum / GRID);
                 };
@@ -801,9 +809,9 @@ namespace {
 
     void curtainRodClose() {
         for (const Edge EDGE : {Edge::Top, Edge::Bottom, Edge::Left, Edge::Right}) {
-            auto m = close(EDGE);
-            advance(m, .2);
-            const auto MOVED = pose(m);
+            auto cloth = close(EDGE);
+            advance(cloth, .2);
+            const auto MOVED = pose(cloth);
             bool straightRod = true;
             for (int i = 1; i < GRID; ++i) {
                 straightRod &= MOVED.p[i].x >= MOVED.p[i - 1].x &&
@@ -820,27 +828,27 @@ namespace {
         params.flutter = 0;
         params.variation = 0;
         params.springiness = 1;
-        ClothFlutter m;
-        m.beginMovement(params, 1, WINDOW);
-        CHECK(m.moving() && m.waitForSnapshots(2));
+        ClothFlutter cloth;
+        cloth.beginMovement(params, 1, WINDOW);
+        CHECK(cloth.moving() && cloth.waitForSnapshots(2));
         Box box = WINDOW;
         double time = 0;
         for (int i = 0; i < 24; ++i) {
             box.x += 4;
-            movementStep(m, box, 1.0 / 120, time);
+            movementStep(cloth, box, 1.0 / 120, time);
         }
-        auto moved = pose(m);
+        auto moved = pose(cloth);
         CHECK(
             std::any_of(moved.p.begin(), moved.p.end(), [](const Vec3 &v) { return v.z > .001; }));
         for (int i = 0; i < 12; ++i) {
             box.x -= 4;
-            movementStep(m, box, 1.0 / 120, time);
+            movementStep(cloth, box, 1.0 / 120, time);
         }
-        moved = pose(m);
+        moved = pose(cloth);
         // A retained copy freezes the displayed pose; closing consumes it without sharing mutable
         // playback state.
-        ClothFlutter closing = m;
-        const double ALPHA = m.opacity();
+        ClothFlutter closing = cloth;
+        const double ALPHA = cloth.opacity();
         closing.begin(Transition::Close,
             ::params(),
             4,
@@ -853,96 +861,97 @@ namespace {
         CHECK(std::abs(closing.opacity() - ALPHA) < 1e-8);
         box.w *= .9;
         box.h *= 1.1;
-        movementStep(m, box, 1.0 / 120, time);
-        for (int i = 0; i < 55 && m.moving(); ++i) {
-            movementStep(m, box, 1.0 / 120, time);
+        movementStep(cloth, box, 1.0 / 120, time);
+        for (int i = 0; i < 55 && cloth.moving(); ++i) {
+            movementStep(cloth, box, 1.0 / 120, time);
         }
-        advance(m, .25);
-        CHECK(!m.active() && m.opacity() == 1);
+        advance(cloth, .25);
+        CHECK(!cloth.active() && cloth.opacity() == 1);
         hyprimate::SheetFrame frame;
-        m.frame({.x = box.w, .y = box.h}, frame);
-        for (std::size_t v = 0; v < hyprimate::PAPER_GRID_VERTICES; ++v) {
-            const auto uv = hyprimate::sheetUv(v);
-            CHECK(frame.position[v].x == uv.x - .5 && frame.position[v].y == uv.y - .5);
+        cloth.frame({.x = box.w, .y = box.h}, frame);
+        for (std::size_t vertex = 0; vertex < hyprimate::PAPER_GRID_VERTICES; ++vertex) {
+            const auto TEX_COORD = hyprimate::sheetUv(vertex);
+            CHECK(frame.position[vertex].x == TEX_COORD.x - .5 &&
+                  frame.position[vertex].y == TEX_COORD.y - .5);
         }
     }
 
     void movementHandoff() {
-        auto m = open();
-        advance(m, .3);
-        const auto BEFORE = pose(m);
-        const double ALPHA = m.opacity();
-        m.beginMovement({}, 2, WINDOW);
-        CHECK(delta(pose(m).p, BEFORE.p) < 1e-6);
-        CHECK(delta(pose(m).v, BEFORE.v) < 1e-6);
-        CHECK(std::abs(m.opacity() - ALPHA) < 1e-8);
-        CHECK(m.waitForSnapshots(2));
+        auto cloth = open();
+        advance(cloth, .3);
+        const auto BEFORE = pose(cloth);
+        const double ALPHA = cloth.opacity();
+        cloth.beginMovement({}, 2, WINDOW);
+        CHECK(delta(pose(cloth).p, BEFORE.p) < 1e-6);
+        CHECK(delta(pose(cloth).v, BEFORE.v) < 1e-6);
+        CHECK(std::abs(cloth.opacity() - ALPHA) < 1e-8);
+        CHECK(cloth.waitForSnapshots(2));
         Box box = WINDOW;
         box.x += 10;
         double time = 0;
-        movementStep(m, box, 1.0 / 120, time);
-        CHECK(m.moving());
+        movementStep(cloth, box, 1.0 / 120, time);
+        CHECK(cloth.moving());
         // Bounded starvation flattens, and a new move during that flattening continues from its
         // visible pose.
         ClothPhysics::pauseWorkersForTesting(true, 2);
-        advance(m, .12);
-        const auto FALLBACK = pose(m);
+        advance(cloth, .12);
+        const auto FALLBACK = pose(cloth);
         box.y += 20;
-        m.updateMovement(box, .01);
-        CHECK(m.moving());
-        CHECK(delta(pose(m).p, FALLBACK.p) < 1e-6);
+        cloth.updateMovement(box, .01);
+        CHECK(cloth.moving());
+        CHECK(delta(pose(cloth).p, FALLBACK.p) < 1e-6);
         ClothPhysics::pauseWorkersForTesting(false);
-        m.reset();
+        cloth.reset();
     }
 
     Pose movementTrajectory(double cadence, std::uint64_t seed, bool irregular = false) {
         ClothMovementParams params;
         params.variation = 0;
-        ClothFlutter m;
-        m.beginMovement(params, seed, WINDOW);
-        CHECK(m.waitForSnapshots(2));
+        ClothFlutter cloth;
+        cloth.beginMovement(params, seed, WINDOW);
+        CHECK(cloth.waitForSnapshots(2));
         double time = 0;
         int frame = 0;
         while (time < .2 - 1e-9) {
-            const double dt =
+            const double STEP_SECONDS =
                 std::min(cadence * (irregular ? (((frame++ % 2) != 0) ? 1.6 : .4) : 1), .2 - time);
             Box box = WINDOW;
-            box.x += 300 * (time + dt);
-            movementStep(m, box, dt, time);
+            box.x += 300 * (time + STEP_SECONDS);
+            movementStep(cloth, box, STEP_SECONDS, time);
         }
-        return pose(m);
+        return pose(cloth);
     }
 
     void movementCadenceAndInvalid() {
         const auto REFERENCE = movementTrajectory(1.0 / 120, 7);
-        for (const double hz : {60., 144., 240.}) {
-            const auto SAMPLED = movementTrajectory(1 / hz, 100);
+        for (const double REFRESH_HZ : {60., 144., 240.}) {
+            const auto SAMPLED = movementTrajectory(1 / REFRESH_HZ, 100);
             CHECK(delta(REFERENCE.p, SAMPLED.p) < .015);
         }
         const auto SAME = movementTrajectory(1.0 / 120, 900);
         CHECK(delta(REFERENCE.p, SAME.p) == 0);
         CHECK(delta(REFERENCE.p, movementTrajectory(1.0 / 120, 100, true).p) < .015);
-        ClothFlutter m;
+        ClothFlutter cloth;
         auto params = ClothMovementParams{};
         params.strength = 0;
-        m.beginMovement(params, 1, WINDOW);
-        CHECK(!m.active());
+        cloth.beginMovement(params, 1, WINDOW);
+        CHECK(!cloth.active());
         params.strength = std::numeric_limits<double>::quiet_NaN();
-        m.beginMovement(params, 1, WINDOW);
-        CHECK(!m.active());
-        m.beginMovement({}, 1, WINDOW);
-        m.updateMovement(Box{.x = 0, .y = 0, .w = -1, .h = 200}, .01);
-        CHECK(!m.active());
+        cloth.beginMovement(params, 1, WINDOW);
+        CHECK(!cloth.active());
+        cloth.beginMovement({}, 1, WINDOW);
+        cloth.updateMovement(Box{.x = 0, .y = 0, .w = -1, .h = 200}, .01);
+        CHECK(!cloth.active());
         ClothPhysics::pauseWorkersForTesting(true, 2);
-        m.beginMovement({}, 1, WINDOW);
-        CHECK(m.waitForSnapshots(2));
-        advance(m, .5);
-        CHECK(!m.active());
+        cloth.beginMovement({}, 1, WINDOW);
+        CHECK(cloth.waitForSnapshots(2));
+        advance(cloth, .5);
+        CHECK(!cloth.active());
         ClothPhysics::pauseWorkersForTesting(false);
         const auto START = std::chrono::steady_clock::now();
         for (int i = 0; i < 20; ++i) {
-            m.beginMovement({}, i, WINDOW);
-            m.reset();
+            cloth.beginMovement({}, i, WINDOW);
+            cloth.reset();
         }
         CHECK(std::chrono::steady_clock::now() - START < std::chrono::seconds(1));
     }
@@ -956,33 +965,34 @@ namespace {
         constexpr double FRAME = 1.0 / 60;
         std::vector<SheetGrid> answered;
         {
-            ClothFlutter m;
-            m.beginMovement(params, 3, WINDOW);
-            CHECK(m.waitForSnapshots(2));
+            ClothFlutter animation;
+            animation.beginMovement(params, 3, WINDOW);
+            CHECK(animation.waitForSnapshots(2));
             Box box = WINDOW;
             for (int k = 1; k <= FRAMES; ++k) {
                 box.x += 5;
-                m.updateMovement(box, FRAME);
-                m.advance(FRAME);
-                CHECK(m.waitForSnapshots(2 + 2 * k));
-                m.advance(0);
-                answered.push_back(pose(m).p);
+                animation.updateMovement(box, FRAME);
+                animation.advance(FRAME);
+                CHECK(animation.waitForSnapshots(2 + 2 * k));
+                animation.advance(0);
+                answered.push_back(pose(animation).p);
             }
         }
-        ClothFlutter m;
-        m.beginMovement(params, 3, WINDOW);
-        CHECK(m.waitForSnapshots(2));
+        ClothFlutter cloth;
+        cloth.beginMovement(params, 3, WINDOW);
+        CHECK(cloth.waitForSnapshots(2));
         Box box = WINDOW;
         double worst = 0;
         for (int k = 1; k <= FRAMES; ++k) {
             // Let the worker answer every earlier target, then hold it before the one this frame
             // posts.
             ClothPhysics::pauseWorkersForTesting(true, 2 + (2 * (k - 1)));
-            CHECK(m.waitForSnapshots(2 + 2 * (k - 1)));
+            CHECK(cloth.waitForSnapshots(2 + 2 * (k - 1)));
             box.x += 5;
-            m.updateMovement(box, FRAME);
-            m.advance(FRAME);
-            worst = std::max(worst, delta(answered[static_cast<std::size_t>(k - 1)], pose(m).p));
+            cloth.updateMovement(box, FRAME);
+            cloth.advance(FRAME);
+            worst =
+                std::max(worst, delta(answered[static_cast<std::size_t>(k - 1)], pose(cloth).p));
         }
         ClothPhysics::pauseWorkersForTesting(false);
         CHECK(worst < 1e-9);
@@ -990,16 +1000,16 @@ namespace {
 
     void movementGravityControl() {
         const auto HEM_AFTER_DRAG = [](double gravity) {
-            ClothFlutter m;
-            m.beginMovement({.variation = 0, .gravity = gravity}, 7, WINDOW);
-            CHECK(m.waitForSnapshots(2));
+            ClothFlutter animation;
+            animation.beginMovement({.variation = 0, .gravity = gravity}, 7, WINDOW);
+            CHECK(animation.waitForSnapshots(2));
             Box box = WINDOW;
             double time = 0;
             for (int frame = 0; frame < 36; ++frame) {
                 box.y += 2800.0 / 120;
-                movementStep(m, box, 1.0 / 120, time);
+                movementStep(animation, box, 1.0 / 120, time);
             }
-            const auto MOVED = pose(m);
+            const auto MOVED = pose(animation);
             double hem = 0;
             for (int i = 0; i < GRID; ++i) {
                 hem += MOVED.p[(static_cast<std::size_t>(PAPER_CELLS) * GRID) + i].y;
@@ -1015,25 +1025,25 @@ namespace {
         CHECK(HEM_AFTER_DRAG(4) == HEAVY);
         for (const double INVALID :
             {std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity()}) {
-            ClothFlutter m;
-            m.beginMovement({.gravity = INVALID}, 7, WINDOW);
-            CHECK(!m.active());
+            ClothFlutter cloth;
+            cloth.beginMovement({.gravity = INVALID}, 7, WINDOW);
+            CHECK(!cloth.active());
         }
     }
 
     // A quick downward pull leaves the free hem behind instead of dragging a rigid panel.
     void downwardDragLiftsHem() {
-        for (const double hz : {60., 120., 240.}) {
-            ClothFlutter m;
-            m.beginMovement({}, 7, WINDOW);
-            CHECK(m.waitForSnapshots(2));
+        for (const double REFRESH_HZ : {60., 120., 240.}) {
+            ClothFlutter cloth;
+            cloth.beginMovement({}, 7, WINDOW);
+            CHECK(cloth.waitForSnapshots(2));
             Box box = WINDOW;
             double time = 0;
             while (time < .3 - 1e-9) {
-                box.y = WINDOW.y + (2800 * (time + (1 / hz)));
-                movementStep(m, box, 1 / hz, time);
+                box.y = WINDOW.y + (2800 * (time + (1 / REFRESH_HZ)));
+                movementStep(cloth, box, 1 / REFRESH_HZ, time);
             }
-            const auto LIFTED = pose(m);
+            const auto LIFTED = pose(cloth);
             double hem = 0;
             for (int i = 0; i < GRID; ++i) {
                 hem += LIFTED.p[(static_cast<std::size_t>(PAPER_CELLS) * GRID) + i].y + 1;
@@ -1046,61 +1056,61 @@ namespace {
     }
 
     void movementBoundsAndRestart() {
-        ClothFlutter m;
-        m.beginMovement({}, 1, WINDOW);
-        CHECK(m.waitForSnapshots(2));
+        ClothFlutter cloth;
+        cloth.beginMovement({}, 1, WINDOW);
+        CHECK(cloth.waitForSnapshots(2));
         double time = 0;
         Box box = WINDOW;
         box.x += 300;
-        movementStep(m, box, 1.0 / 120, time);
-        movementStep(m, box, 1.0 / 120, time);
-        const auto MOVED = pose(m);
+        movementStep(cloth, box, 1.0 / 120, time);
+        movementStep(cloth, box, 1.0 / 120, time);
+        const auto MOVED = pose(cloth);
         const auto ANCHOR = static_cast<std::size_t>(PAPER_CELLS);
         CHECK(MOVED.p[ANCHOR].x >= -.50001 && MOVED.p[ANCHOR].x <= .50001 &&
               std::abs(MOVED.p[ANCHOR].y) < 1e-5);
         for (int i = 0; i < 48; ++i) {
-            movementStep(m, box, 1.0 / 120, time);
+            movementStep(cloth, box, 1.0 / 120, time);
         }
-        m.advance(.12);  // begin the bounded final flattening transition
-        const auto SETTLING = pose(m);
+        cloth.advance(.12);  // begin the bounded final flattening transition
+        const auto SETTLING = pose(cloth);
         box.y += 10;
-        m.updateMovement(box, .01);
-        CHECK(m.moving());
-        CHECK(delta(pose(m).p, SETTLING.p) < 1e-6);
-        CHECK(delta(pose(m).v, SETTLING.v) < 1e-6);
+        cloth.updateMovement(box, .01);
+        CHECK(cloth.moving());
+        CHECK(delta(pose(cloth).p, SETTLING.p) < 1e-6);
+        CHECK(delta(pose(cloth).v, SETTLING.v) < 1e-6);
     }
 
     void movementRodBeforePublication() {
-        ClothFlutter m;
-        m.beginMovement({}, 1, WINDOW);
-        CHECK(m.waitForSnapshots(2));
+        ClothFlutter cloth;
+        cloth.beginMovement({}, 1, WINDOW);
+        CHECK(cloth.waitForSnapshots(2));
         ClothPhysics::pauseWorkersForTesting(true, 2);
         Box box = WINDOW;
         box.x += 20;
-        m.updateMovement(box, 1.0 / 60);
-        m.advance(1.0 / 60);
-        const auto ONSET = pose(m);
+        cloth.updateMovement(box, 1.0 / 60);
+        cloth.advance(1.0 / 60);
+        const auto ONSET = pose(cloth);
         CHECK(std::abs(ONSET.p[PAPER_CELLS].x - .5) < 1e-7);
         CHECK(std::abs(ONSET.v[PAPER_CELLS].x - 1.2) < 1e-6);
         ClothPhysics::pauseWorkersForTesting(false);
-        m.reset();
+        cloth.reset();
 
-        m.beginMovement({}, 1, WINDOW);
-        CHECK(m.waitForSnapshots(2));
+        cloth.beginMovement({}, 1, WINDOW);
+        CHECK(cloth.waitForSnapshots(2));
         box = WINDOW;
         double time = 0;
         for (int i = 0; i < 4; ++i) {
             box.x += 10;
-            movementStep(m, box, 1.0 / 120, time);
+            movementStep(cloth, box, 1.0 / 120, time);
         }
         ClothPhysics::pauseWorkersForTesting(true, 6);
-        m.updateMovement(box, 1.0 / 60);
+        cloth.updateMovement(box, 1.0 / 60);
         // Already-published samples may still advance the sliding pocket; hold only once those are
         // consumed.
-        advance(m, .1);
-        const auto HELD = pose(m);
-        advance(m, .02);
-        CHECK(delta(pose(m).p, HELD.p) < 1e-9);
+        advance(cloth, .1);
+        const auto HELD = pose(cloth);
+        advance(cloth, .02);
+        CHECK(delta(pose(cloth).p, HELD.p) < 1e-9);
         ClothPhysics::pauseWorkersForTesting(false);
     }
 }  // namespace

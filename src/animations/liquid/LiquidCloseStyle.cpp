@@ -55,11 +55,11 @@ std::optional<CBox> CLiquidClosePassElement::boundingBox(Render::CRenderContext 
     // the box.
     CBox box = m_data.box;
     if ((m_data.liquid != nullptr) && m_data.solid) {
-        const double x0 = std::min(box.x, m_data.liquidBox.x);
-        const double y0 = std::min(box.y, m_data.liquidBox.y);
-        const double x1 = std::max(box.x + box.w, m_data.liquidBox.x + m_data.liquidBox.w);
-        const double y1 = std::max(box.y + box.h, m_data.liquidBox.y + m_data.liquidBox.h);
-        box = CBox{x0, y0, x1 - x0, y1 - y0};
+        const double MIN_X = std::min(box.x, m_data.liquidBox.x);
+        const double MIN_Y = std::min(box.y, m_data.liquidBox.y);
+        const double MAX_X = std::max(box.x + box.w, m_data.liquidBox.x + m_data.liquidBox.w);
+        const double MAX_Y = std::max(box.y + box.h, m_data.liquidBox.y + m_data.liquidBox.h);
+        box = CBox{MIN_X, MIN_Y, MAX_X - MIN_X, MAX_Y - MIN_Y};
     }
     return box.copy().scale(1.0 / m_data.scale).round();
 }
