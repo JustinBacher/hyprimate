@@ -170,16 +170,17 @@ namespace hyprimate {
                     const int P10 = P00 + 1;
                     const int P01 = P00 + K_SIDE;
                     const int P11 = P01 + 1;
-                    const int TRIS[2][3] = {{P00, P10, P01}, {P10, P11, P01}};
+                    const std::array TRIS{std::array{P00, P10, P01}, std::array{P10, P11, P01}};
                     for (const auto &tri_indices : TRIS) {
-                        const double BEFORE = triangle_area(map_only[tri_indices[0]],
-                            map_only[tri_indices[1]],
-                            map_only[tri_indices[2]]);
+                        const double BEFORE = triangle_area(map_only[std::get<0>(tri_indices)],
+                            map_only[std::get<1>(tri_indices)],
+                            map_only[std::get<2>(tri_indices)]);
                         if (!(BEFORE > 0.0)) {
                             continue;  // degenerate at rest: nothing to keep
                         }
-                        const double AFTER = triangle_area(
-                            field[tri_indices[0]], field[tri_indices[1]], field[tri_indices[2]]);
+                        const double AFTER = triangle_area(field[std::get<0>(tri_indices)],
+                            field[std::get<1>(tri_indices)],
+                            field[std::get<2>(tri_indices)]);
                         if (!(AFTER >= MIN_AREA_FRACTION * BEFORE)) {
                             return false;
                         }
