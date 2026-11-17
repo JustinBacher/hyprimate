@@ -136,7 +136,7 @@ namespace hyprimate {
         const auto keepsArea = [&](const std::array<Vec2, kVertices> &field) {
             for (int j = 0; j + 1 < kSide; ++j) {
                 for (int i = 0; i + 1 < kSide; ++i) {
-                    const int p00 = j * kSide + i;
+                    const int p00 = (j * kSide) + i;
                     const int p10 = p00 + 1;
                     const int p01 = p00 + kSide;
                     const int p11 = p01 + 1;

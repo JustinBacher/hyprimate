@@ -465,10 +465,10 @@ namespace hyprimate {
                     (shearDamping * shearLaplacian(v, &Vec2::y, x, y, wx, wy)) +
                     (waveSpeed2 * gradY);
 
-                a[i] = {(-stiffness * (e[i].x - lagField.x)) - (damping * v[i].x) + coupledX +
-                            (m_inertia.x * kickWeight),
-                    (-stiffness * (e[i].y - lagField.y)) - (damping * v[i].y) + coupledY +
-                        (m_inertia.y * kickWeight)};
+                a[i] = {.x = (-stiffness * (e[i].x - lagField.x)) - (damping * v[i].x) + coupledX +
+                             (m_inertia.x * kickWeight),
+                    .y = (-stiffness * (e[i].y - lagField.y)) - (damping * v[i].y) + coupledY +
+                         (m_inertia.y * kickWeight)};
             }
         }
         // The pseudo-force decays exponentially across each tick, so its shape does not depend on
@@ -497,8 +497,8 @@ namespace hyprimate {
         // along the previous motion is carried forward.
         if (elapsedSeconds > 0.0) {
             const double decay = std::exp(-elapsedSeconds / m_velocitySeconds);
-            m_smoothDelta = {(m_smoothDelta.x * decay) + m_pendingDelta.x,
-                (m_smoothDelta.y * decay) + m_pendingDelta.y};
+            m_smoothDelta = {.x = (m_smoothDelta.x * decay) + m_pendingDelta.x,
+                .y = (m_smoothDelta.y * decay) + m_pendingDelta.y};
             m_smoothTime = (m_smoothTime * decay) + elapsedSeconds;
             Vec2 velocity{.x = m_smoothDelta.x / m_smoothTime, .y = m_smoothDelta.y / m_smoothTime};
             if (!isFinite(velocity)) {
@@ -515,8 +515,8 @@ namespace hyprimate {
             // arrivals from reading as deceleration, so only a real stop or reversal pushes the
             // leading face.
             const double slowDecay = std::exp(-elapsedSeconds / kLiquidInertiaSeconds);
-            m_slowDelta = {(m_slowDelta.x * slowDecay) + m_pendingDelta.x,
-                (m_slowDelta.y * slowDecay) + m_pendingDelta.y};
+            m_slowDelta = {.x = (m_slowDelta.x * slowDecay) + m_pendingDelta.x,
+                .y = (m_slowDelta.y * slowDecay) + m_pendingDelta.y};
             m_slowTime = (m_slowTime * slowDecay) + elapsedSeconds;
             const Vec2 slowVelocity{
                 .x = m_slowDelta.x / m_slowTime, .y = m_slowDelta.y / m_slowTime};

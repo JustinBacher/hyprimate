@@ -13,9 +13,9 @@ namespace hyprimate {
     // draws the result.
     inline constexpr int PAPER_CELLS = 56;
     inline constexpr std::size_t PAPER_TRIANGLES =
-        std::size_t(PAPER_CELLS) * PAPER_CELLS * 2;  // 6272
+        static_cast<std::size_t>(PAPER_CELLS) * PAPER_CELLS * 2;  // 6272
     inline constexpr std::size_t PAPER_GRID_VERTICES =
-        std::size_t(PAPER_CELLS + 1) * (PAPER_CELLS + 1);
+        static_cast<std::size_t>(PAPER_CELLS + 1) * (PAPER_CELLS + 1);
 
     // Sheet vertex positions, index j * (PAPER_CELLS + 1) + i for column i and row j (row 0 is the
     // window's top edge). Logical pixels relative to the rest capture centre: x right, y down, z

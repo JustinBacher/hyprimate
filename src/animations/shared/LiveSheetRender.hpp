@@ -32,7 +32,7 @@ inline Render::SWindowTransformBuffer renderLiveSheet(SSheetBuffers &sheet,
             .meshBox = g.localOutput,
             .windowVertices = &sheet.window,
             .shadeVertices = &sheet.shade,
-            .alpha = float(opacity),
+            .alpha = static_cast<float>(opacity),
         });
     if (!layer) {
         return {.framebuffer = in.framebuffer, .box = in.box, .success = false};

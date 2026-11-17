@@ -143,7 +143,7 @@ const std::vector<SMeshRenderVertex> &paperCanvasQuad() {
 }
 
 SP<Render::IFramebuffer> renderPaper(Render::CRenderContext &ctx, const SPaperDraw &d) {
-    if (!d.window || !d.windowVertices || d.windowVertices->empty() ||
+    if (!d.window || (d.windowVertices == nullptr) || d.windowVertices->empty() ||
         !(d.canvas.x > 0.0 && d.canvas.y > 0.0)) {
         return nullptr;
     }
@@ -167,7 +167,7 @@ SP<Render::IFramebuffer> renderPaper(Render::CRenderContext &ctx, const SPaperDr
     }
 
     // Requested while paperLayer is held, so the pool cannot return the same buffer twice.
-    const bool lit = d.shade && d.shadeVertices && !d.shadeVertices->empty();
+    const bool lit = d.shade && (d.shadeVertices != nullptr) && !d.shadeVertices->empty();
     const auto shadeLayer =
         lit ? g_pHyprRenderer->getWorkBuffer(ctx, d.canvas) : SP<Render::IFramebuffer>{};
 

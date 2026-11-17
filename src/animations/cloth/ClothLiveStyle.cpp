@@ -115,10 +115,11 @@ void SClothLiveStyle::movement(CPluginRuntime &runtime,
 
 void SClothLiveStyle::snapshot(
     const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &s) {
-    const auto *cloth = transformer ? std::get_if<SClothStyle>(&transformer->m_style) : nullptr;
-    s.handoff = cloth && cloth->cloth.active();
-    s.transition_busy = cloth && cloth->cloth.active() && !s.handoff;
-    s.handoff_moving = cloth && cloth->cloth.moving();
+    const auto *cloth =
+        (transformer != nullptr) ? std::get_if<SClothStyle>(&transformer->m_style) : nullptr;
+    s.handoff = (cloth != nullptr) && cloth->cloth.active();
+    s.transition_busy = (cloth != nullptr) && cloth->cloth.active() && !s.handoff;
+    s.handoff_moving = (cloth != nullptr) && cloth->cloth.moving();
 }
 
 void SClothLiveStyle::step(CPluginRuntime &,

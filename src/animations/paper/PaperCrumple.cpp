@@ -48,7 +48,7 @@ namespace hyprimate {
         }
 
         std::size_t gridIndex(int i, int j) noexcept {
-            return (std::size_t(j) * GRID) + std::size_t(i);
+            return (static_cast<std::size_t>(j) * GRID) + static_cast<std::size_t>(i);
         }
 
     }  // namespace
@@ -175,9 +175,9 @@ namespace hyprimate {
         }
         int family = 0;
         for (int t = 0; t < takes; ++t) {
-            family += paperTakeAspect(t) == nearest;
+            family += static_cast<int>(paperTakeAspect(t) == nearest);
         }
-        int wanted = int(m_takePick * family);
+        int wanted = static_cast<int>(m_takePick * family);
         for (int t = 0; t < takes; ++t) {
             if (paperTakeAspect(t) != nearest) {
                 continue;
@@ -207,7 +207,7 @@ namespace hyprimate {
         const int frames = paperTakeFrames();
         const double end = LOOSEST_END + ((1.0 - LOOSEST_END) * m_params.crumpliness);
         const double at = std::clamp(m_s, 0.0, 1.0) * end * (frames - 1);
-        const int f0 = std::min(int(at), frames - 2);
+        const int f0 = std::min(static_cast<int>(at), frames - 2);
         const int fBack = std::max(f0 - 1, 0);
         const int fNext = std::min(f0 + 2, frames - 1);
         const double u = at - f0;

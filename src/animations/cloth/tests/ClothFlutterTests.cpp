@@ -105,11 +105,11 @@ namespace {
         double far = -1e9;
         const int row = PAPER_CELLS / 2;
         for (int i = 0; i < GRID; ++i) {
-            const auto &v = start.p[(std::size_t(row) * GRID) + i];
+            const auto &v = start.p[(static_cast<std::size_t>(row) * GRID) + i];
             near = std::min(near, v.z);
             far = std::max(far, v.z);
-            if (i) {
-                const auto &a = start.p[(std::size_t(row) * GRID) + i - 1];
+            if (i != 0) {
+                const auto &a = start.p[(static_cast<std::size_t>(row) * GRID) + i - 1];
                 contour += std::hypot(v.x - a.x, v.y - a.y, v.z - a.z);
             }
         }
@@ -209,10 +209,10 @@ namespace {
         }
     }
     void exitCorridor() {
-        const Box window{100, 50, 1000, 400};
-        const Box screen{0, 0, 1920, 1080};
-        const Box below{100, 460, 1000, 500};
-        const Box right{1110, 50, 600, 400};
+        const Box window{.x = 100, .y = 50, .w = 1000, .h = 400};
+        const Box screen{.x = 0, .y = 0, .w = 1920, .h = 1080};
+        const Box below{.x = 100, .y = 460, .w = 1000, .h = 500};
+        const Box right{.x = 1110, .y = 50, .w = 600, .h = 400};
         auto p = params();
         p.flutter = p.variation = 0;
         p.duration = .9;
@@ -619,10 +619,12 @@ namespace {
                 movementStep(m, box, 1.0 / 120, time);
                 const auto moved = pose(m);
                 for (int i = 0; i < GRID; ++i) {
-                    const double rest = (double(i) / PAPER_CELLS) - .5;
+                    const double rest = (static_cast<double>(i) / PAPER_CELLS) - .5;
                     peaks[mode] = std::max(peaks[mode], std::abs(moved.p[i].x - rest) * box.w);
                     lowerDrift = std::max(lowerDrift,
-                        std::abs(moved.p[(std::size_t(PAPER_CELLS) * GRID) + i].x - rest) * box.w);
+                        std::abs(
+                            moved.p[(static_cast<std::size_t>(PAPER_CELLS) * GRID) + i].x - rest) *
+                            box.w);
                 }
             }
             CHECK(lowerDrift > 1);
@@ -680,7 +682,7 @@ namespace {
                 const auto moved = pose(m);
                 offset = 0;
                 for (int i = 0; i < GRID; ++i) {
-                    offset += moved.p[i].x - ((double(i) / PAPER_CELLS) - .5);
+                    offset += moved.p[i].x - ((static_cast<double>(i) / PAPER_CELLS) - .5);
                 }
                 offset /= GRID;
                 peak = std::max(peak, std::abs(offset));
@@ -782,10 +784,12 @@ namespace {
                 const auto motionAt = [&](int row) {
                     double sum = 0;
                     for (int i = 0; i < GRID; ++i) {
-                        const auto &p = moved.p[(std::size_t(row) * GRID) + i];
-                        sum += std::pow((p.x - (double(i) / PAPER_CELLS) + .5) * box.w, 2) +
-                               std::pow((p.y + (double(row) / PAPER_CELLS)) * box.h, 2) +
-                               (p.z * p.z * box.w * box.h);
+                        const auto &p = moved.p[(static_cast<std::size_t>(row) * GRID) + i];
+                        sum +=
+                            std::pow(
+                                (p.x - (static_cast<double>(i) / PAPER_CELLS) + .5) * box.w, 2) +
+                            std::pow((p.y + (static_cast<double>(row) / PAPER_CELLS)) * box.h, 2) +
+                            (p.z * p.z * box.w * box.h);
                     }
                     return std::sqrt(sum / GRID);
                 };
@@ -900,7 +904,7 @@ namespace {
         int frame = 0;
         while (time < .2 - 1e-9) {
             const double dt =
-                std::min(cadence * (irregular ? (frame++ % 2 ? 1.6 : .4) : 1), .2 - time);
+                std::min(cadence * (irregular ? (((frame++ % 2) != 0) ? 1.6 : .4) : 1), .2 - time);
             Box box = WINDOW;
             box.x += 300 * (time + dt);
             movementStep(m, box, dt, time);
@@ -977,7 +981,7 @@ namespace {
             box.x += 5;
             m.updateMovement(box, FRAME);
             m.advance(FRAME);
-            worst = std::max(worst, delta(answered[std::size_t(k - 1)], pose(m).p));
+            worst = std::max(worst, delta(answered[static_cast<std::size_t>(k - 1)], pose(m).p));
         }
         ClothPhysics::pauseWorkersForTesting(false);
         CHECK(worst < 1e-9);
@@ -997,7 +1001,7 @@ namespace {
             const auto moved = pose(m);
             double hem = 0;
             for (int i = 0; i < GRID; ++i) {
-                hem += moved.p[(std::size_t(PAPER_CELLS) * GRID) + i].y;
+                hem += moved.p[(static_cast<std::size_t>(PAPER_CELLS) * GRID) + i].y;
             }
             return hem / GRID;
         };
@@ -1031,7 +1035,7 @@ namespace {
             const auto lifted = pose(m);
             double hem = 0;
             for (int i = 0; i < GRID; ++i) {
-                hem += lifted.p[(std::size_t(PAPER_CELLS) * GRID) + i].y + 1;
+                hem += lifted.p[(static_cast<std::size_t>(PAPER_CELLS) * GRID) + i].y + 1;
             }
             CHECK(hem / GRID > .3);
             for (int i = 0; i < GRID; ++i) {
@@ -1050,7 +1054,7 @@ namespace {
         movementStep(m, box, 1.0 / 120, time);
         movementStep(m, box, 1.0 / 120, time);
         const auto moved = pose(m);
-        const auto anchor = std::size_t(PAPER_CELLS);
+        const auto anchor = static_cast<std::size_t>(PAPER_CELLS);
         CHECK(moved.p[anchor].x >= -.50001 && moved.p[anchor].x <= .50001 &&
               std::abs(moved.p[anchor].y) < 1e-5);
         for (int i = 0; i < 48; ++i) {
@@ -1145,7 +1149,7 @@ int main() {
         survivor.begin(Transition::Open, params(), 1, WINDOW, {});
     }
     survivor.reset();
-    if (g_failures) {
+    if (g_failures != 0) {
         std::fprintf(stderr, "%d cloth checks failed\n", g_failures);
         return 1;
     }

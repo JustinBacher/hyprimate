@@ -16,7 +16,7 @@ CLiquidClosePassElement::CLiquidClosePassElement(SData data) : m_data(std::move(
 }
 
 std::vector<UP<IPassElement>> CLiquidClosePassElement::draw(Render::CRenderContext &ctx) {
-    if (!m_data.tex || !m_data.vertices || m_data.vertices->empty()) {
+    if (!m_data.tex || (m_data.vertices == nullptr) || m_data.vertices->empty()) {
         return {};
     }
 
@@ -25,7 +25,7 @@ std::vector<UP<IPassElement>> CLiquidClosePassElement::draw(Render::CRenderConte
     textureData.a = m_data.alpha;
     textureData.allowCustomUV = true;
     // Edge liquid first, so the window mesh draws over the meniscus where they meet.
-    if (m_data.liquid && m_data.solid) {
+    if ((m_data.liquid != nullptr) && m_data.solid) {
         Render::GL::g_pHyprOpenGL->renderTextureMesh(
             ctx, m_data.solid, m_data.liquidBox, *m_data.liquid, textureData);
     }
@@ -54,7 +54,7 @@ std::optional<CBox> CLiquidClosePassElement::boundingBox(Render::CRenderContext 
     // Same convention as CTexPassElement: monitor-local logical coordinates. The edge liquid widens
     // the box.
     CBox box = m_data.box;
-    if (m_data.liquid && m_data.solid) {
+    if ((m_data.liquid != nullptr) && m_data.solid) {
         const double x0 = std::min(box.x, m_data.liquidBox.x);
         const double y0 = std::min(box.y, m_data.liquidBox.y);
         const double x1 = std::max(box.x + box.w, m_data.liquidBox.x + m_data.liquidBox.w);

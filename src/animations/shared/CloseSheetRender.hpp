@@ -26,7 +26,7 @@ namespace close_style {
         const PHLMONITOR &monitor,
         const SP<Render::ITexture> &tex,
         const SP<CPaperShade> &shade) {
-        const float alpha = record.sourceAlpha * float(opacity);
+        const float alpha = record.sourceAlpha * static_cast<float>(opacity);
         if (alpha <= 0.F) {
             return;
         }

@@ -42,20 +42,21 @@ namespace hyprimate {
             return (a.x * b.x) + (a.y * b.y) + (a.z * b.z);
         }
         Vec3 cross(Vec3 a, Vec3 b) noexcept {
-            return {
-                (a.y * b.z) - (a.z * b.y), (a.z * b.x) - (a.x * b.z), (a.x * b.y) - (a.y * b.x)};
+            return {.x = (a.y * b.z) - (a.z * b.y),
+                .y = (a.z * b.x) - (a.x * b.z),
+                .z = (a.x * b.y) - (a.y * b.x)};
         }
 
         std::size_t gridIndex(int i, int j) noexcept {
-            return (std::size_t(j) * GRID) + std::size_t(i);
+            return (static_cast<std::size_t>(j) * GRID) + static_cast<std::size_t>(i);
         }
 
         // Grid corners of triangle t: two per cell, same winding as the idle sheet and the baked
         // takes.
         Triangle triangleCorners(std::size_t t) noexcept {
             const std::size_t cell = t / 2;
-            const int i = int(cell % PAPER_CELLS);
-            const int j = int(cell / PAPER_CELLS);
+            const int i = static_cast<int>(cell % PAPER_CELLS);
+            const int j = static_cast<int>(cell / PAPER_CELLS);
             const bool second = (t & 1U) != 0;
             return second
                        ? Triangle{gridIndex(i + 1, j), gridIndex(i, j + 1), gridIndex(i + 1, j + 1)}
@@ -75,7 +76,10 @@ namespace hyprimate {
                     const auto add = [&](int ci, int cj, unsigned half) {
                         if (ci >= 0 && cj >= 0 && ci < PAPER_CELLS && cj < PAPER_CELLS) {
                             adjacent.triangles[adjacent.count++] = static_cast<std::uint16_t>(
-                                (((std::size_t(cj) * PAPER_CELLS) + std::size_t(ci)) * 2) + half);
+                                (((static_cast<std::size_t>(cj) * PAPER_CELLS) +
+                                     static_cast<std::size_t>(ci)) *
+                                    2) +
+                                half);
                         }
                     };
                     // Keep the original paper neighborhood order so crease shading remains

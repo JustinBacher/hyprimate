@@ -116,7 +116,7 @@ namespace {
             if (!std::isfinite(d.x) || !std::isfinite(d.y)) {
                 return Vec2{.x = kNaN, .y = kNaN};
             }
-            return Vec2{(size.x * u) + d.x, (size.y * v) + d.y};
+            return Vec2{.x = (size.x * u) + d.x, .y = (size.y * v) + d.y};
         };
         for (unsigned cy = 0; cy < cells; ++cy) {
             for (unsigned cx = 0; cx < cells; ++cx) {

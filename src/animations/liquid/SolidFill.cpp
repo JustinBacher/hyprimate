@@ -34,9 +34,9 @@ SP<Render::ITexture> CSolidFill::texture() {
     }
 
     // Premultiplied; memory order is B, G, R, A for DRM_FORMAT_ARGB8888.
-    const uint8_t red = static_cast<uint8_t>(toByte(m_color.r) * alpha / 255U);
-    const uint8_t green = static_cast<uint8_t>(toByte(m_color.g) * alpha / 255U);
-    const uint8_t blue = static_cast<uint8_t>(toByte(m_color.b) * alpha / 255U);
+    const auto red = static_cast<uint8_t>(toByte(m_color.r) * alpha / 255U);
+    const auto green = static_cast<uint8_t>(toByte(m_color.g) * alpha / 255U);
+    const auto blue = static_cast<uint8_t>(toByte(m_color.b) * alpha / 255U);
     std::array<uint8_t, SOLID_SIZE * SOLID_SIZE * 4> pixels{};
     for (std::size_t i = 0; i < pixels.size(); i += 4) {
         pixels[i + 0] = blue;

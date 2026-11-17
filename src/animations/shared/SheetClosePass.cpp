@@ -17,7 +17,7 @@ CPaperClosePassElement::CPaperClosePassElement(SData data) : m_data(std::move(da
 }
 
 std::vector<UP<IPassElement>> CPaperClosePassElement::draw(Render::CRenderContext &ctx) {
-    if (!m_data.tex || !m_data.vertices || m_data.vertices->empty()) {
+    if (!m_data.tex || (m_data.vertices == nullptr) || m_data.vertices->empty()) {
         return {};
     }
 

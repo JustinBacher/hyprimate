@@ -183,8 +183,9 @@ void SLiquidLiveStyle::movement(CPluginRuntime &runtime,
 
 void SLiquidLiveStyle::snapshot(
     const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &s) {
-    const auto *state = transformer ? std::get_if<SLiquidStyle>(&transformer->m_style) : nullptr;
-    s.transition_busy = state && state->transition.active();
+    const auto *state =
+        (transformer != nullptr) ? std::get_if<SLiquidStyle>(&transformer->m_style) : nullptr;
+    s.transition_busy = (state != nullptr) && state->transition.active();
 }
 
 void SLiquidLiveStyle::step(CPluginRuntime &runtime,

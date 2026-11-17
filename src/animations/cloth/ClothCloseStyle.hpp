@@ -27,7 +27,9 @@ namespace close_style {
         const auto monitor = window->m_monitor.lock();
         const auto boxes = obstacles();
         const auto seed = nextSeed();
-        if (!frame || !monitor) return false;
+        if (!frame || !monitor) {
+            return false;
+        }
         const auto &p = config.close.cloth;
         SClothCloseData data;
         data.params = {.duration = p.duration,
@@ -38,7 +40,8 @@ namespace close_style {
         data.seed = seed;
         data.capture = toBox(window->getFullWindowBoundingBox());
         data.obstacles.assign(boxes.begin(), boxes.end());
-        data.geometry = hyprimate::ClothCloseGeometry{frame->edge, toBox(monitor->logicalBox())};
+        data.geometry = hyprimate::ClothCloseGeometry{
+            .edge = frame->edge, .screen = toBox(monitor->logicalBox())};
         pending.closeData = std::move(data);
         pending.style = std::move(style);
         return true;

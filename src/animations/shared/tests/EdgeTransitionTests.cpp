@@ -382,9 +382,9 @@ namespace {
             }
             for (int j = 0; j + 1 < kSide; ++j) {
                 for (int i = 0; i + 1 < kSide; ++i) {
-                    const Vec2 a = mapped[j * kSide + i];
-                    const Vec2 b = mapped[j * kSide + i + 1];
-                    const Vec2 c = mapped[(j + 1) * kSide + i];
+                    const Vec2 a = mapped[(j * kSide) + i];
+                    const Vec2 b = mapped[(j * kSide) + i + 1];
+                    const Vec2 c = mapped[((j + 1) * kSide) + i];
                     const double area = ((b.x - a.x) * (c.y - a.y)) - ((b.y - a.y) * (c.x - a.x));
                     CHECK(area > 0.0);
                 }

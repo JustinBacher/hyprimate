@@ -233,8 +233,8 @@ namespace hyprimate {
         }
         const double most = *std::max_element(contact.begin(), contact.end());
         const auto free = [&](Edge e) { return !(contact[slot(e)] > 0.0); };
-        const double cx = body.x + 0.5 * body.w;
-        const double cy = body.y + 0.5 * body.h;
+        const double cx = body.x + (0.5 * body.w);
+        const double cy = body.y + (0.5 * body.h);
         const std::array<double, 4> reach{
             cx - screen.x, screen.x + screen.w - cx, cy - screen.y, screen.y + screen.h - cy};
 
@@ -340,8 +340,8 @@ namespace hyprimate {
         };
         const double right = screen.x + screen.w;
         const double bottom = screen.y + screen.h;
-        const double cx = body.x + 0.5 * body.w;
-        const double cy = body.y + 0.5 * body.h;
+        const double cx = body.x + (0.5 * body.w);
+        const double cy = body.y + (0.5 * body.h);
         const auto gap = [&](Edge e) {
             switch (e) {
                 case Edge::Left:
@@ -430,8 +430,8 @@ namespace hyprimate {
 
         const Edge e = *chosen;
         const bool hz = runsHorizontally(e);
-        const double ccx = capture.x + 0.5 * capture.w;
-        const double ccy = capture.y + 0.5 * capture.h;
+        const double ccx = capture.x + (0.5 * capture.w);
+        const double ccy = capture.y + (0.5 * capture.h);
         EdgeFrame f;
         f.edge = e;
         switch (e) {
@@ -554,7 +554,7 @@ namespace hyprimate {
         const Vec2 along = hz ? Vec2{.x = 1.0, .y = 0.0} : Vec2{.x = 0.0, .y = 1.0};
         const double tc = 0.5 * (m_frame.bodyT0 + m_frame.bodyT1) * (1.0 - m_spreadT.value);
         const double nc = m_nc - m_frame.edgeDistance;
-        return {(along.x * tc) + (in.x * nc), (along.y * tc) + (in.y * nc)};
+        return {.x = (along.x * tc) + (in.x * nc), .y = (along.y * tc) + (in.y * nc)};
     }
 
     Vec2 EdgeTransition::beadHalf(Vec2 restSize) const noexcept {
@@ -614,7 +614,8 @@ namespace hyprimate {
             rectangle ? Vec2{.x = a, .y = b} : outline({.x = a, .y = b}, exponent, invExponent);
         const double tOut = tBase + (tScale * shape.x);
         const double nOut = nBase + (nScale * shape.y);
-        return {(along.x * tOut) + (inward.x * nOut), (along.y * tOut) + (inward.y * nOut)};
+        return {
+            .x = (along.x * tOut) + (inward.x * nOut), .y = (along.y * tOut) + (inward.y * nOut)};
     }
 
     Vec2 EdgeTransition::map(Vec2 fromCentre, Vec2 size) const noexcept {

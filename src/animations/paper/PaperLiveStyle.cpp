@@ -70,9 +70,9 @@ void SPaperLiveStyle::movement(CPluginRuntime &,
 
 void SPaperLiveStyle::snapshot(
     const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &s) {
-    if (transformer) {
+    if (transformer != nullptr) {
         const auto *paper = std::get_if<SPaperStyle>(&transformer->m_style);
-        s.transition_busy = paper && paper->crumple.active();
+        s.transition_busy = (paper != nullptr) && paper->crumple.active();
     }
 }
 
