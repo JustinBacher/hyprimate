@@ -65,22 +65,22 @@ namespace hyprimate {
             const Vec3 CENTRE = hole.centre;
             const Vec3 AXIS = std::abs(CENTRE.z) < .9 ? Vec3{.x = 0, .y = 0, .z = 1}
                                                       : Vec3{.x = 1, .y = 0, .z = 0};
-            Vec3 basisFirst{.x = (AXIS.y * CENTRE.z) - (AXIS.z * CENTRE.y),
+            Vec3 basis_first{.x = (AXIS.y * CENTRE.z) - (AXIS.z * CENTRE.y),
                 .y = (AXIS.z * CENTRE.x) - (AXIS.x * CENTRE.z),
                 .z = (AXIS.x * CENTRE.y) - (AXIS.y * CENTRE.x)};
             const double LEN =
-                std::sqrt((basisFirst.x * basisFirst.x) + (basisFirst.y * basisFirst.y) +
-                          (basisFirst.z * basisFirst.z));
+                std::sqrt((basis_first.x * basis_first.x) + (basis_first.y * basis_first.y) +
+                          (basis_first.z * basis_first.z));
             if (LEN > 0) {
-                basisFirst = {
-                    .x = basisFirst.x / LEN, .y = basisFirst.y / LEN, .z = basisFirst.z / LEN};
+                basis_first = {
+                    .x = basis_first.x / LEN, .y = basis_first.y / LEN, .z = basis_first.z / LEN};
             }
-            const Vec3 BASIS_SECOND{.x = (CENTRE.y * basisFirst.z) - (CENTRE.z * basisFirst.y),
-                .y = (CENTRE.z * basisFirst.x) - (CENTRE.x * basisFirst.z),
-                .z = (CENTRE.x * basisFirst.y) - (CENTRE.y * basisFirst.x)};
-            direction = {.x = (basisFirst.x * std::cos(phi)) + (BASIS_SECOND.x * std::sin(phi)),
-                .y = (basisFirst.y * std::cos(phi)) + (BASIS_SECOND.y * std::sin(phi)),
-                .z = (basisFirst.z * std::cos(phi)) + (BASIS_SECOND.z * std::sin(phi))};
+            const Vec3 BASIS_SECOND{.x = (CENTRE.y * basis_first.z) - (CENTRE.z * basis_first.y),
+                .y = (CENTRE.z * basis_first.x) - (CENTRE.x * basis_first.z),
+                .z = (CENTRE.x * basis_first.y) - (CENTRE.y * basis_first.x)};
+            direction = {.x = (basis_first.x * std::cos(phi)) + (BASIS_SECOND.x * std::sin(phi)),
+                .y = (basis_first.y * std::cos(phi)) + (BASIS_SECOND.y * std::sin(phi)),
+                .z = (basis_first.z * std::cos(phi)) + (BASIS_SECOND.z * std::sin(phi))};
             const double ROOT = BOUNDARY + (SECTION.width / RADIUS);
             normal = {.x = (CENTRE.x * std::cos(ROOT)) + (direction.x * std::sin(ROOT)),
                 .y = (CENTRE.y * std::cos(ROOT)) + (direction.y * std::sin(ROOT)),

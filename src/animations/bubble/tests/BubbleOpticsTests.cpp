@@ -22,10 +22,11 @@ int main() {
         CHECK(SAMPLE(200, 0, k) > 0.98);
     }
     float maximum = 0;
-    for (int thicknessIndex = 50; thicknessIndex <= 200; thicknessIndex += 5) {
+    for (int thickness_index = 50; thickness_index <= 200; thickness_index += 5) {
         maximum = std::max(maximum,
-            (0.2126F * SAMPLE(thicknessIndex, 32, 0)) + (0.7152F * SAMPLE(thicknessIndex, 32, 1)) +
-                (0.0722F * SAMPLE(thicknessIndex, 32, 2)));
+            (0.2126F * SAMPLE(thickness_index, 32, 0)) +
+                (0.7152F * SAMPLE(thickness_index, 32, 1)) +
+                (0.0722F * SAMPLE(thickness_index, 32, 2)));
     }
     CHECK(maximum > 0.06 && maximum < 0.09);
     const auto SPREAD = [&](int d) {

@@ -45,10 +45,10 @@ namespace hyprimate {
         if (!spherical) {
             return std::atan2(p.y - hole.centre.y, p.x - hole.centre.x);
         }
-        Vec3 basisFirst;
-        Vec3 basisSecond;
-        basis(hole.centre, basisFirst, basisSecond);
-        return std::atan2(dot(p, basisSecond), dot(p, basisFirst));
+        Vec3 basis_first;
+        Vec3 basis_second;
+        basis(hole.centre, basis_first, basis_second);
+        return std::atan2(dot(p, basis_second), dot(p, basis_first));
     }
 
     double bubbleHoleBoundary(const BubbleHole &hole, double phi) {
@@ -242,12 +242,12 @@ namespace hyprimate {
                     .y = h.centre.y + (DISTANCE * std::sin(phi)),
                     .z = 0};
             }
-            Vec3 basisFirst;
-            Vec3 basisSecond;
-            basis(h.centre, basisFirst, basisSecond);
-            const Vec3 DIR{.x = (basisFirst.x * std::cos(phi)) + (basisSecond.x * std::sin(phi)),
-                .y = (basisFirst.y * std::cos(phi)) + (basisSecond.y * std::sin(phi)),
-                .z = (basisFirst.z * std::cos(phi)) + (basisSecond.z * std::sin(phi))};
+            Vec3 basis_first;
+            Vec3 basis_second;
+            basis(h.centre, basis_first, basis_second);
+            const Vec3 DIR{.x = (basis_first.x * std::cos(phi)) + (basis_second.x * std::sin(phi)),
+                .y = (basis_first.y * std::cos(phi)) + (basis_second.y * std::sin(phi)),
+                .z = (basis_first.z * std::cos(phi)) + (basis_second.z * std::sin(phi))};
             return {.x = (h.centre.x * std::cos(DISTANCE)) + (DIR.x * std::sin(DISTANCE)),
                 .y = (h.centre.y * std::cos(DISTANCE)) + (DIR.y * std::sin(DISTANCE)),
                 .z = (h.centre.z * std::cos(DISTANCE)) + (DIR.z * std::sin(DISTANCE))};
@@ -561,10 +561,10 @@ namespace hyprimate {
             const double UNITS_PER_PIXEL = s.spherical ? 1 / s.halfSize.x : 1;
             std::uint64_t holeRng = s.debris ^ (hi * 0x9e3779b97f4a7c15ULL) ^ 0x94d049bb133111ebULL;
             const int FINGER_COUNT = 14 + static_cast<int>(13 * unit_draw(holeRng));
-            Vec3 basisFirst{};
-            Vec3 basisSecond{};
+            Vec3 basis_first{};
+            Vec3 basis_second{};
             if (s.spherical) {
-                basis(hole.centre, basisFirst, basisSecond);
+                basis(hole.centre, basis_first, basis_second);
             }
             for (int finger = 0; finger < FINGER_COUNT; ++finger) {
                 if (impactMode && count >= (s.spherical ? 3U : 2U)) {
@@ -598,9 +598,9 @@ namespace hyprimate {
                 const double COS_PHI = std::cos(PHI);
                 const double SIN_PHI = std::sin(PHI);
                 const Vec3 DIRECTION =
-                    s.spherical ? Vec3{.x = (basisFirst.x * COS_PHI) + (basisSecond.x * SIN_PHI),
-                                      .y = (basisFirst.y * COS_PHI) + (basisSecond.y * SIN_PHI),
-                                      .z = (basisFirst.z * COS_PHI) + (basisSecond.z * SIN_PHI)}
+                    s.spherical ? Vec3{.x = (basis_first.x * COS_PHI) + (basis_second.x * SIN_PHI),
+                                      .y = (basis_first.y * COS_PHI) + (basis_second.y * SIN_PHI),
+                                      .z = (basis_first.z * COS_PHI) + (basis_second.z * SIN_PHI)}
                                 : Vec3{.x = COS_PHI, .y = SIN_PHI, .z = 0};
                 double corrugation = 0;
                 double currentCorrugation = 0;

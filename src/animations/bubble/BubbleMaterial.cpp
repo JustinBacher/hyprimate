@@ -256,10 +256,11 @@ bool CBubbleMaterial::initialize() {
             std::snprintf(name, sizeof(name), "sheet.%s", FIELDS[i]);
             m_curlSurfaceUniforms[i] = glGetUniformLocation(m_curl, name);
         }
-        for (std::size_t holeIndex = 0; holeIndex < hyprimate::kBubbleHoles; ++holeIndex) {
+        for (std::size_t hole_index = 0; hole_index < hyprimate::kBubbleHoles; ++hole_index) {
             for (std::size_t i = 0; i < std::size(HOLE_FIELDS); ++i) {
-                std::snprintf(name, sizeof(name), "sheet.holes[%zu].%s", holeIndex, HOLE_FIELDS[i]);
-                m_curlSurfaceUniforms[13 + (holeIndex * 6) + i] =
+                std::snprintf(
+                    name, sizeof(name), "sheet.holes[%zu].%s", hole_index, HOLE_FIELDS[i]);
+                m_curlSurfaceUniforms[13 + (hole_index * 6) + i] =
                     glGetUniformLocation(m_curl, name);
             }
         }
@@ -448,22 +449,22 @@ void CBubbleMaterial::drawMembranes(
     glEnable(GL_BLEND);
     glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     glUseProgram(m_curl);
-    const auto &curlUniforms = m_curlUniforms;
-    vector(curlUniforms[0], frame.size);
-    vector(curlUniforms[1], t.canvas);
-    vector(curlUniforms[2], t.origin);
-    vector(curlUniforms[3], t.sourcePos);
-    vector(curlUniforms[4], t.sourceSize);
-    vector(curlUniforms[5], images.textureOrigin);
-    vector(curlUniforms[6], images.textureSize);
-    vector(curlUniforms[7], images.wallpaperOrigin);
-    vector(curlUniforms[8], images.wallpaperX);
-    vector(curlUniforms[9], images.wallpaperY);
-    vector(curlUniforms[10], images.wallpaperPixel);
-    glUniform1i(curlUniforms[11], static_cast<GLint>(images.wallpaper != 0));
-    glUniform1i(curlUniforms[12], 0);
-    glUniform1i(curlUniforms[13], 1);
-    glUniform1i(curlUniforms[14], 2);
+    const auto &curl_uniforms = m_curlUniforms;
+    vector(curl_uniforms[0], frame.size);
+    vector(curl_uniforms[1], t.canvas);
+    vector(curl_uniforms[2], t.origin);
+    vector(curl_uniforms[3], t.sourcePos);
+    vector(curl_uniforms[4], t.sourceSize);
+    vector(curl_uniforms[5], images.textureOrigin);
+    vector(curl_uniforms[6], images.textureSize);
+    vector(curl_uniforms[7], images.wallpaperOrigin);
+    vector(curl_uniforms[8], images.wallpaperX);
+    vector(curl_uniforms[9], images.wallpaperY);
+    vector(curl_uniforms[10], images.wallpaperPixel);
+    glUniform1i(curl_uniforms[11], static_cast<GLint>(images.wallpaper != 0));
+    glUniform1i(curl_uniforms[12], 0);
+    glUniform1i(curl_uniforms[13], 1);
+    glUniform1i(curl_uniforms[14], 2);
     for (std::size_t index = 0; index < SURFACES.size(); ++index) {
         if (!visible[index]) {
             continue;
@@ -472,18 +473,18 @@ void CBubbleMaterial::drawMembranes(
         const auto COUNT = counts[index];
         for (std::size_t i = 0; i < COUNT; ++i) {
             const auto &piece = sheets[index][i];
-            const auto &maskUniforms = m_sheetMaskUniforms[i];
-            glUniform4f(maskUniforms[0],
+            const auto &mask_uniforms = m_sheetMaskUniforms[i];
+            glUniform4f(mask_uniforms[0],
                 static_cast<float>(piece.hole),
                 static_cast<float>(piece.phi),
                 static_cast<float>(piece.halfAngle),
                 0);
-            glUniform4f(maskUniforms[1],
+            glUniform4f(mask_uniforms[1],
                 static_cast<float>(piece.radii[0]),
                 static_cast<float>(piece.radii[1]),
                 static_cast<float>(piece.radii[2]),
                 static_cast<float>(piece.radii[3]));
-            glUniform4f(maskUniforms[2],
+            glUniform4f(mask_uniforms[2],
                 static_cast<float>(piece.onsets[0]),
                 static_cast<float>(piece.onsets[1]),
                 static_cast<float>(piece.onsets[2]),
@@ -506,11 +507,11 @@ void CBubbleMaterial::drawMembranes(
             if (piece.scale <= 0) {
                 continue;
             }
-            for (std::size_t holeIndex = 0; holeIndex < hyprimate::kBubbleHoles; ++holeIndex) {
-                glUniform1f(m_curlSurfaceUniforms[14 + (holeIndex * 6)],
-                    static_cast<float>(piece.radii[holeIndex]));
-                const auto ONSET = static_cast<float>(piece.onsets[holeIndex]);
-                glUniform4f(m_curlSurfaceUniforms[17 + (holeIndex * 6)],
+            for (std::size_t hole_index = 0; hole_index < hyprimate::kBubbleHoles; ++hole_index) {
+                glUniform1f(m_curlSurfaceUniforms[14 + (hole_index * 6)],
+                    static_cast<float>(piece.radii[hole_index]));
+                const auto ONSET = static_cast<float>(piece.onsets[hole_index]);
+                glUniform4f(m_curlSurfaceUniforms[17 + (hole_index * 6)],
                     ONSET * .014f,
                     ONSET * .012f,
                     ONSET * .010f,

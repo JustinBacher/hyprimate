@@ -227,14 +227,14 @@ CBubblePassElement::CBubblePassElement(SData data) : m_data(std::move(data)) {
 std::vector<UP<IPassElement>> CBubblePassElement::draw(Render::CRenderContext &ctx) {
     const auto LAYER =
         m_data.renderer ? m_data.renderer->render(ctx, m_data.draw) : SP<Render::IFramebuffer>{};
-    Render::GL::CHyprOpenGLImpl::STextureRenderData textureData{};
-    textureData.damage = &m_data.damage;
-    textureData.a = m_data.alpha;
-    textureData.allowCustomUV = true;
-    textureData.allowDim = false;
+    Render::GL::CHyprOpenGLImpl::STextureRenderData texture_data{};
+    texture_data.damage = &m_data.damage;
+    texture_data.a = m_data.alpha;
+    texture_data.allowCustomUV = true;
+    texture_data.allowDim = false;
     if (LAYER) {
         Render::GL::g_pHyprOpenGL->renderTextureMesh(
-            ctx, LAYER->getTexture(), m_data.box, paperCanvasQuad(), textureData);
+            ctx, LAYER->getTexture(), m_data.box, paperCanvasQuad(), texture_data);
     } else {
         // Preserve the native snapshot when the material cannot run. The
         // capture may occupy only a sub-rectangle of a larger texture.
@@ -268,7 +268,7 @@ std::vector<UP<IPassElement>> CBubblePassElement::draw(Render::CRenderContext &c
             {.x = 0.F, .y = 1.F, .u = U_MIN, .v = V_MAX},
             {.x = 1.F, .y = 1.F, .u = U_MAX, .v = V_MAX},
         };
-        Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, drawData.window, BOX, QUAD, textureData);
+        Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, drawData.window, BOX, QUAD, texture_data);
     }
     return {};
 }

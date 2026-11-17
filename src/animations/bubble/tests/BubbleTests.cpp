@@ -536,17 +536,17 @@ namespace {
                     if (previous[j].id != currentParticle.id) {
                         continue;
                     }
-                    const auto &priorParticle = previous[j].particle;
+                    const auto &prior_particle = previous[j].particle;
                     const bool ATTACHED = currentParticle.id >= 2000 && currentParticle.id < 3000;
                     // Attached ligaments follow the rolling film, not just the puncture front.
                     const double SPEED_LIMIT = SURFACE.speed * (ATTACHED ? 2 : 1);
-                    CHECK(std::hypot(currentParticle.particle.centre.x - priorParticle.centre.x,
-                              currentParticle.particle.centre.y - priorParticle.centre.y) <=
+                    CHECK(std::hypot(currentParticle.particle.centre.x - prior_particle.centre.x,
+                              currentParticle.particle.centre.y - prior_particle.centre.y) <=
                           SPEED_LIMIT * .01 + 2);
                     if (ATTACHED) {
-                        CHECK(currentParticle.particle.radius + 1e-9 >= priorParticle.radius);
-                    } else if (currentParticle.particle.blur == 0 && priorParticle.blur == 0) {
-                        CHECK(currentParticle.particle.radius <= priorParticle.radius + 1e-9);
+                        CHECK(currentParticle.particle.radius + 1e-9 >= prior_particle.radius);
+                    } else if (currentParticle.particle.blur == 0 && prior_particle.blur == 0) {
+                        CHECK(currentParticle.particle.radius <= prior_particle.radius + 1e-9);
                     }
                 }
             }
@@ -756,13 +756,13 @@ namespace {
                     if (previous[j].id != current[i].id + 2000) {
                         continue;
                     }
-                    const auto &priorParticle = previous[j].particle;
+                    const auto &prior_particle = previous[j].particle;
                     const auto &currentParticle = current[i].particle;
-                    CHECK(std::hypot(priorParticle.centre.x - currentParticle.centre.x,
-                              priorParticle.centre.y - currentParticle.centre.y) <
+                    CHECK(std::hypot(prior_particle.centre.x - currentParticle.centre.x,
+                              prior_particle.centre.y - currentParticle.centre.y) <
                           SURFACE.speed * SURFACE.rate * .00021 + 1);
-                    CHECK(std::hypot(priorParticle.tail.x - currentParticle.tail.x,
-                              priorParticle.tail.y - currentParticle.tail.y) <
+                    CHECK(std::hypot(prior_particle.tail.x - currentParticle.tail.x,
+                              prior_particle.tail.y - currentParticle.tail.y) <
                           SURFACE.speed * SURFACE.rate * .00021 + 1);
                     observed = true;
                 }
