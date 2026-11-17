@@ -345,8 +345,9 @@ void CPluginRuntime::gatherNeighbours(const PHLWINDOW &window) const {
     for (const auto &other : Desktop::windowState()->windows()) {
         if (other && other.get() != window.get() && other->m_workspace == window->m_workspace &&
             other->mapped() && !other->isHidden() && !other->isFloating()) {
-            const CBox b = other->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
-            m_neighbours.push_back({.x = b.x, .y = b.y, .w = b.w, .h = b.h});
+            const CBox GOAL_BOX = other->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
+            m_neighbours.push_back(
+                {.x = GOAL_BOX.x, .y = GOAL_BOX.y, .w = GOAL_BOX.w, .h = GOAL_BOX.h});
         }
     }
 }
@@ -355,8 +356,9 @@ void CPluginRuntime::gatherClothObstacles(const PHLWINDOW &window) const {
     for (const auto &other : Desktop::windowState()->windows()) {
         if (other && other.get() != window.get() && other->m_workspace == window->m_workspace &&
             other->mapped() && !other->isHidden()) {
-            const CBox b = other->getFullWindowBoundingBox();
-            m_neighbours.push_back({.x = b.x, .y = b.y, .w = b.w, .h = b.h});
+            const CBox WINDOW_BOX = other->getFullWindowBoundingBox();
+            m_neighbours.push_back(
+                {.x = WINDOW_BOX.x, .y = WINDOW_BOX.y, .w = WINDOW_BOX.w, .h = WINDOW_BOX.h});
         }
     }
 }
@@ -377,8 +379,9 @@ hyprimate::EdgeInput CPluginRuntime::edgeInputFor(
         BODY.y + (CAPTURE.y - CURRENT.y),
         BODY.w + (CAPTURE.w - CURRENT.w),
         BODY.h + (CAPTURE.h - CURRENT.h)};
-    const auto BOX = [](const CBox &b) {
-        return hyprimate::Box{.x = b.x, .y = b.y, .w = b.w, .h = b.h};
+    const auto BOX = [](const CBox &sourceBox) {
+        return hyprimate::Box{
+            .x = sourceBox.x, .y = sourceBox.y, .w = sourceBox.w, .h = sourceBox.h};
     };
 
     m_neighbours.clear();
@@ -596,37 +599,40 @@ void CPluginRuntime::updateWindow(STracked &entry, const PHLWINDOW &window, cloc
 hyprimate::WindowSnapshot CPluginRuntime::snapshotOf(
     const PHLWINDOW &window, bool animating, double elapsed) {
     const auto *transformer = transformerOf(window);
-    hyprimate::WindowSnapshot s;
-    s.current = toBox(window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT));
-    s.capture = toBox(window->getFullWindowBoundingBox());
-    s.deformable = eligible(window);
-    s.animating_in = animating;
-    withLiveStyle(m_config.style, [&](auto style) { style.snapshot(transformer, s); });
-    s.material_changed = (transformer != nullptr) && materialChanged(*transformer);
-    s.open_enabled = openEnabled();
-    s.movement_enabled = movementEnabled();
-    s.monitor = monitorId(window);
-    s.elapsed = elapsed;
-    s.workspace_movement = m_config.movement.workspaceMovement;
+    hyprimate::WindowSnapshot windowSnapshot;
+    windowSnapshot.current =
+        toBox(window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT));
+    windowSnapshot.capture = toBox(window->getFullWindowBoundingBox());
+    windowSnapshot.deformable = eligible(window);
+    windowSnapshot.animating_in = animating;
+    withLiveStyle(m_config.style, [&](auto style) { style.snapshot(transformer, windowSnapshot); });
+    windowSnapshot.material_changed = (transformer != nullptr) && materialChanged(*transformer);
+    windowSnapshot.open_enabled = openEnabled();
+    windowSnapshot.movement_enabled = movementEnabled();
+    windowSnapshot.monitor = monitorId(window);
+    windowSnapshot.elapsed = elapsed;
+    windowSnapshot.workspace_movement = m_config.movement.workspaceMovement;
     if (const auto WORKSPACE = window->m_workspace;
         WORKSPACE && !(window->m_state & Desktop::View::WINDOW_STATE_PINNED)) {
-        s.workspace = reinterpret_cast<std::uintptr_t>(WORKSPACE.get());
-        s.workspace_moving = WORKSPACE->m_renderOffset->isBeingAnimated();
-        if (s.workspace_moving) {
+        windowSnapshot.workspace = reinterpret_cast<std::uintptr_t>(WORKSPACE.get());
+        windowSnapshot.workspace_moving = WORKSPACE->m_renderOffset->isBeingAnimated();
+        if (windowSnapshot.workspace_moving) {
             const auto OFFSET = WORKSPACE->m_renderOffset->value();
-            s.workspace_offset = {.x = OFFSET.x, .y = OFFSET.y};
+            windowSnapshot.workspace_offset = {.x = OFFSET.x, .y = OFFSET.y};
         }
         // Native hiding ends the slide, not the swarm's flight. Preserve its last screen-space
         // placement while the retained window image supplies the remaining creatures.
         const auto *tail = workspaceSwarmTail(window);
         if (tail != nullptr) {
-            s.workspace_offset = {.x = tail->workspaceCapture.x - s.capture.x,
-                .y = tail->workspaceCapture.y - s.capture.y};
+            windowSnapshot.workspace_offset = {
+                .x = tail->workspaceCapture.x - windowSnapshot.capture.x,
+                .y = tail->workspaceCapture.y - windowSnapshot.capture.y};
         }
-        s.deformable =
-            s.deformable && (WORKSPACE->visible() || s.workspace_moving || (tail != nullptr));
+        windowSnapshot.deformable =
+            windowSnapshot.deformable &&
+            (WORKSPACE->visible() || windowSnapshot.workspace_moving || (tail != nullptr));
     }
-    return s;
+    return windowSnapshot;
 }
 
 void CPluginRuntime::recordMovement(STracked &entry,

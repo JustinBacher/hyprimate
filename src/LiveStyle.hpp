@@ -54,21 +54,21 @@ inline SBubbleLiveStyle liveStyleFor(const SBubbleStyle &) {
 #undef LIVE_STYLE_OPERATIONS
 
 template <class F>
-decltype(auto) withLiveStyle(hyprimate::config::Style style, F &&f) {
+decltype(auto) withLiveStyle(hyprimate::config::Style style, F &&operation) {
     using enum hyprimate::config::Style;
 
     switch (style) {
         case Paper:
-            return f(SPaperLiveStyle{});
+            return operation(SPaperLiveStyle{});
         case Cloth:
-            return f(SClothLiveStyle{});
+            return operation(SClothLiveStyle{});
         case Swarm:
-            return f(SSwarmLiveStyle{});
+            return operation(SSwarmLiveStyle{});
         case Bubble:
-            return f(SBubbleLiveStyle{});
+            return operation(SBubbleLiveStyle{});
         case Liquid:
-            return f(SLiquidLiveStyle{});
+            return operation(SLiquidLiveStyle{});
     }
 
-    return f(SLiquidLiveStyle{});
+    return operation(SLiquidLiveStyle{});
 }

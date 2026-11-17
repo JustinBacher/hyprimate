@@ -120,16 +120,17 @@ CBox CAnimationTransformer::sourceBoxForOutput(const CBox &outputBox, const CBox
     return outputBox.intersection(inputBox);
 }
 
-SWindowTransformBuffer CAnimationTransformer::transform(
-    CRenderContext &ctx, const SWindowTransformBuffer &in, const SWindowTransformContext &context) {
+SWindowTransformBuffer CAnimationTransformer::transform(CRenderContext &ctx,
+    const SWindowTransformBuffer &input,
+    const SWindowTransformContext &context) {
     if (!active() || context.standalone || context.renderingSnapshot || !context.monitor ||
-        !in.framebuffer || !in.framebuffer->getTexture()) {
-        return in;
+        !input.framebuffer || !input.framebuffer->getTexture()) {
+        return input;
     }
 
     const double SCALE = context.monitor->m_scale;
     if (!std::isfinite(SCALE) || SCALE <= 0.0 || context.currentBox.empty()) {
-        return in;
+        return input;
     }
     const double CANVASPADDING = 1.0 / SCALE;
     const CBox OUTPUTCANVAS =
@@ -139,13 +140,13 @@ SWindowTransformBuffer CAnimationTransformer::transform(
     const CBox LOCALOUTPUTBOX = OUTPUTBOX.copy().translate(-OUTPUTCANVAS.pos());
 
     if (OUTPUTCANVAS.empty() || SOURCEBOX.empty() || OUTPUTBOX.empty()) {
-        return in;
+        return input;
     }
-    const auto TEX_SIZE = in.framebuffer->getTexture()->m_size;
+    const auto TEX_SIZE = input.framebuffer->getTexture()->m_size;
     const double TEX_W = TEX_SIZE.x;
     const double TEX_H = TEX_SIZE.y;
     if (!(TEX_W > 0.0 && TEX_H > 0.0)) {
-        return in;
+        return input;
     }
 
     const SLiveRenderGeometry GEOMETRY{.canvas = OUTPUTCANVAS,
@@ -156,7 +157,7 @@ SWindowTransformBuffer CAnimationTransformer::transform(
         .textureSize = {.x = TEX_W, .y = TEX_H}};
     return std::visit(
         [&](auto &state) {
-            return renderLive(state, ctx, in, context, GEOMETRY, m_solid, m_shade, m_sprites);
+            return renderLive(state, ctx, input, context, GEOMETRY, m_solid, m_shade, m_sprites);
         },
         m_style);
 }

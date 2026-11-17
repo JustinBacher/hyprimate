@@ -61,7 +61,7 @@ class CAnimationTransformer final : public Render::IWindowTransformer {
     CAnimationTransformer &operator=(CAnimationTransformer &&) = delete;
 
     Render::SWindowTransformBuffer transform(Render::CRenderContext &ctx,
-        const Render::SWindowTransformBuffer &in,
+        const Render::SWindowTransformBuffer &input,
         const Render::SWindowTransformContext &context) override;
     int priority() const override;
     bool active() const override;

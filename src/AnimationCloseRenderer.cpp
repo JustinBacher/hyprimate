@@ -107,8 +107,8 @@ namespace {
     }
 
     // Exact box equality: a box that did not move is not damaged again.
-    bool sameBox(const CBox &a, const CBox &b) {
-        return a.x == b.x && a.y == b.y && a.w == b.w && a.h == b.h;
+    bool sameBox(const CBox &lhs, const CBox &rhs) {
+        return lhs.x == rhs.x && lhs.y == rhs.y && lhs.w == rhs.w && lhs.h == rhs.h;
     }
 
     // Adds `box` to `damage` unless it is empty or already listed.
@@ -126,11 +126,11 @@ namespace {
             [&](const auto &style) { return close_style::footprint(style, record); }, record.style);
 
         const double SCALE = record.scale;
-        const double x0 = std::floor((DEVICE.x / SCALE) + monitor->m_position.x);
-        const double y0 = std::floor((DEVICE.y / SCALE) + monitor->m_position.y);
-        const double x1 = std::ceil(((DEVICE.x + DEVICE.w) / SCALE) + monitor->m_position.x);
-        const double y1 = std::ceil(((DEVICE.y + DEVICE.h) / SCALE) + monitor->m_position.y);
-        return CBox{x0, y0, x1 - x0, y1 - y0};
+        const double LEFT = std::floor((DEVICE.x / SCALE) + monitor->m_position.x);
+        const double TOP = std::floor((DEVICE.y / SCALE) + monitor->m_position.y);
+        const double RIGHT = std::ceil(((DEVICE.x + DEVICE.w) / SCALE) + monitor->m_position.x);
+        const double BOTTOM = std::ceil(((DEVICE.y + DEVICE.h) / SCALE) + monitor->m_position.y);
+        return CBox{LEFT, TOP, RIGHT - LEFT, BOTTOM - TOP};
     }
 
     // An owned record stops drawing: its last drawn box is damaged once so those pixels clear.
@@ -395,20 +395,20 @@ std::optional<CAnimationCloseRenderer::SPending> CAnimationCloseRenderer::pendin
 
 void CAnimationCloseRenderer::push(SPending pending) {
     std::erase_if(m_pending,
-        [&pending](const SPending &p) { return p.window.get() == pending.window.get(); });
+        [&pending](const SPending &item) { return item.window.get() == pending.window.get(); });
     m_pending.push_back(std::move(pending));
 }
 
 void CAnimationCloseRenderer::onFadeoutCreated(
     const PHLWINDOW &window, const SP<Desktop::CWindowFadeout> &created) {
-    const auto it = std::ranges::find_if(
-        m_pending, [&window](const SPending &p) { return p.window.get() == window.get(); });
-    if (it == m_pending.end()) {
+    const auto PENDING_MATCH = std::ranges::find_if(
+        m_pending, [&window](const SPending &item) { return item.window.get() == window.get(); });
+    if (PENDING_MATCH == m_pending.end()) {
         return;
     }
 
-    SPending pending = std::move(*it);
-    m_pending.erase(it);
+    SPending pending = std::move(*PENDING_MATCH);
+    m_pending.erase(PENDING_MATCH);
 
     if (!created || window.get() != pending.window.get()) {
         return;
@@ -487,8 +487,8 @@ void CAnimationCloseRenderer::tick(
     clock::time_point now, const PHLMONITOR &rendering, std::vector<CBox> &damage) {
     damage.clear();
 
-    std::erase_if(m_pending, [now](const SPending &p) {
-        return std::chrono::duration<double>(now - p.staged).count() > PENDING_TIMEOUT_SECONDS;
+    std::erase_if(m_pending, [now](const SPending &item) {
+        return std::chrono::duration<double>(now - item.staged).count() > PENDING_TIMEOUT_SECONDS;
     });
 
     std::erase_if(m_records, [&](const std::unique_ptr<SClosing> &record) {
@@ -709,15 +709,15 @@ bool CAnimationCloseRenderer::renderBatch(Render::CRenderContext &ctx,
         if (!fadeout) {
             continue;
         }
-        const auto FB = fadeout->framebuffer(Render::eSceneMode::MONITOR);
-        if (!FB || !FB->getTexture()) {
+        const auto FRAMEBUFFER = fadeout->framebuffer(Render::eSceneMode::MONITOR);
+        if (!FRAMEBUFFER || !FRAMEBUFFER->getTexture()) {
             continue;
         }
 
         const auto EFFECTS = fadeout->effects();
         native.drawBackdrop(EFFECTS);
 
-        const auto TEX = FB->getTexture();
+        const auto TEX = FRAMEBUFFER->getTexture();
         // Texture blur rides on a stock element; the mesh path only replaces the plain texture
         // draw.
         if (record && sameMonitor(record->monitor, monitor) && !EFFECTS.textureBlur.enabled &&

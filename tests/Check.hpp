@@ -6,8 +6,8 @@
 // keeps going; main() returns g_failures == 0 ? 0 : 1.
 inline int g_failures = 0;
 
-inline void report(bool ok, const char *expression, const char *file, int line) {
-    if (ok) {
+inline void report(bool passed, const char *expression, const char *file, int line) {
+    if (passed) {
         return;
     }
     ++g_failures;
