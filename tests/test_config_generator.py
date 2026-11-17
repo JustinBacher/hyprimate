@@ -129,10 +129,59 @@ class ConfigGeneratorTests(unittest.TestCase):
         self.assertEqual(lua_leaf_paths(region),
                          {item['path'] for item in SCHEMA if not item.get('optional')})
 
-    def test_readme_documents_every_registered_key(self):
+    def test_readme_table_documents_only_shared_and_control_settings(self):
         block = GEN.documentation(SCHEMA)
-        documented = set(re.findall(r'`(plugin:hyprimate:[a-z_:]+)`', block))
-        self.assertEqual(documented, {GEN.key(item) for item in REGISTERED})
+        rows = re.findall(r'^\| `([^`]+)` \| ([^\n]+)$', block, re.MULTILINE)
+        documented = {path for path, _ in rows}
+        self.assertEqual(documented, {item['path'].replace('.', ':') for item in SCHEMA
+                                      if not item.get('inherited')})
+        self.assertEqual(len(rows), len(documented))
+        self.assertIn('| Setting | Type / default | Numeric range | Meaning |', block)
+        for item in SCHEMA:
+            if item.get('inherited'):
+                continue
+            path = item['path'].replace('.', ':')
+            row = next(text for key, text in rows if key == path)
+            expected_range = (f'{item["min"]}–{item["max"]}'
+                              if item['type'] in ('int', 'float') else '—')
+            self.assertIn(f' | {expected_range} | ', row)
+
+    def test_readme_example_includes_all_shared_options_without_changing_defaults(self):
+        block = GEN.documentation(SCHEMA)
+        example = block.split('```lua\n', 1)[1].split('\n```', 1)[0]
+        uncommented = re.sub(r'^(\s*)-- (?=[a-z_]+ = )', r'\1', example, flags=re.MULTILINE)
+        self.assertEqual(lua_leaf_paths(uncommented),
+                         {item['path'] for item in SCHEMA if not item.get('inherited')})
+        active = lua_leaf_paths(example)
+        for item in SCHEMA:
+            if not item['path'].startswith('window.options.') or not item.get('optional'):
+                continue
+            suffix = item['path'].removeprefix('window.options.')
+            values = {other['default'] for other in SCHEMA if other.get('inherited')
+                      and other['path'].split('.options.', 1)[1] == suffix}
+            with self.subTest(path=item['path']):
+                self.assertEqual(item['path'] in active, len(values) <= 1)
+
+    def test_readme_describes_differing_animation_defaults_and_meanings(self):
+        block = GEN.documentation(SCHEMA)
+        for style, opening, closing in [('paper', '0.6', '0.5'),
+                                        ('cloth', '1.0', '0.9'),
+                                        ('bubble', '0.62', '0.42')]:
+            row = next(line for line in block.splitlines()
+                       if line.startswith(f'| `window:options:{style}:duration` |'))
+            self.assertIn(f'open `{opening}`', row)
+            self.assertIn(f'close `{closing}`', row)
+            self.assertIn('Open:', row)
+            self.assertIn('Close:', row)
+            self.assertNotIn(f'Shared {style} duration setting.', row)
+        self.assertIn('window.<animation>.options.<style>', block)
+        self.assertIn('clamped to the receiving animation', block)
+
+    def test_documentation_does_not_change_nested_lua_example(self):
+        before = GEN.lua_config(SCHEMA)
+        GEN.documentation(SCHEMA)
+        self.assertEqual(GEN.lua_config(SCHEMA), before)
+        self.assertEqual(before, nested_region(LUA.read_text()))
 
     def test_strength_zero_contract_is_documented_in_schema(self):
         strengths = [item for item in json.loads(SCHEMA_PATH.read_text()) if item['path'].endswith('.strength')]
@@ -159,7 +208,7 @@ class ConfigGeneratorTests(unittest.TestCase):
         self.assertNotIn('strength = 0.7,', lua.read_text())
         self.assertIn('0.7F', header.read_text())
         self.assertIn('count = 300,', readme.read_text())
-        self.assertIn('fallback `0.7`', readme.read_text())
+        self.assertIn('movement `0.7`', readme.read_text())
         stale = self.run_generator('--schema', str(schema), '--readme', str(README), '--lua', str(LUA), '--check')
         self.assertEqual(stale.returncode, 1)
 

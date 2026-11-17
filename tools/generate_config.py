@@ -395,32 +395,67 @@ def config_header(settings):
 
 
 def documentation(settings):
-    lines = ['After the first load has registered the settings, add this Lua configuration:', '', '```lua',
-             lua_config(settings), '```', '',
-             'Use `hyprimate` under `plugin` in `hl.config`; the matching `hyprctl` keys begin with `plugin:hyprimate:`. Each nested Lua table maps to colon-separated segments of the key, for example `window.movement.options.liquid.viscosity` is `plugin:hyprimate:window:movement:options:liquid:viscosity`.', '',
-             'Style settings under `window.options.<style>` apply to each animation unless its matching `window.<animation>.options.<style>` setting is explicitly set. When neither is set, each animation keeps its own default. Shared values are clamped to the receiving animation’s range. Optional settings are omitted from the example so they do not override inheritance.', '',
-             '| Setting | Type / default | Meaning |', '|---|---|---|']
+    overrides = {}
     for item in settings:
-        kind = item['type']
-        default = item['default'] if kind == 'color' else literal(item['default'])
-        meaning = item['description']
         if item.get('inherited'):
-            meaning += ' Overrides the shared setting when explicitly set; otherwise inherits it, or uses this animation’s default if the shared setting is unset.'
-        elif item.get('optional'):
-            meaning += ' Optional shared value; when unset, each animation uses its own default.'
-        if kind == 'float':
-            meaning += f' Finite values clamped to {item["min"]}–{item["max"]}.'
-        if kind == 'int':
-            meaning += f' Clamped to {item["min"]}–{item["max"]}.'
+            parts = item['path'].split('.')
+            shared = '.'.join(('window', 'options', *parts[3:]))
+            overrides.setdefault(shared, []).append((parts[1], item))
+
+    def defaults(item):
+        values = overrides.get(item['path'], [])
+        if values and len({value['default'] for _, value in values}) > 1:
+            return ', '.join(f'{animation} `{value["default"] if item["type"] == "color" else literal(value["default"])}`'
+                             for animation, value in values)
+        value = values[0][1]['default'] if values else item['default']
+        return f'`{value if item["type"] == "color" else literal(value)}`'
+
+    def example_fields(node, depth):
+        pad = '    ' * depth
+        result = []
+        for name, child in node.items():
+            if isinstance(child, _Node):
+                result.append(f'{pad}{name} = {{')
+                result.extend(example_fields(child, depth + 1))
+                result.append(f'{pad}}},')
+            else:
+                value = child['default'] if child['type'] == 'color' else literal(child['default'])
+                values = overrides.get(child['path'], [])
+                comment = '-- ' if child.get('optional') and len({v['default'] for _, v in values}) > 1 else ''
+                result.append(f'{pad}{comment}{name} = {value},')
+        return result
+
+    example = tree([item for item in settings if not item.get('inherited')])
+    example_lua = '\n'.join(['hl.config({', '    decoration = { wobble = { enabled = false } },',
+                             '    plugin = {', '        ["hyprimate"] = {',
+                             *example_fields(example, 3), '        },', '    },', '})'])
+    lines = ['After the first load has registered the settings, add this Lua configuration:', '', '```lua',
+             example_lua, '```', '',
+             'Use `hyprimate` under `plugin` in `hl.config`; the matching `hyprctl` keys begin with `plugin:hyprimate:`. Each nested Lua table maps to colon-separated key segments.', '',
+             'Style settings under `window.options.<style>` are shared; set `window.<animation>.options.<style>` to override one animation. When a shared setting is unset, each animation uses its own default. Shared values are clamped to the receiving animation’s range. Example lines with differing animation defaults are commented out to preserve them.', '',
+             '| Setting | Type / default | Numeric range | Meaning |', '|---|---|---|---|']
+    for item in settings:
+        if item.get('inherited'):
+            continue
+        kind = item['type']
+        meaning = item['description']
+        if item.get('optional') and item['path'] in overrides:
+            descriptions = overrides[item['path']]
+            if len({value['description'] for _, value in descriptions}) == 1:
+                meaning = descriptions[0][1]['description']
+            else:
+                meaning = ' '.join(f'{animation.capitalize()}: {value["description"]}'
+                                   for animation, value in descriptions)
         if kind == 'set':
             choices = ', '.join('`' + x + '`' for x in item['choices'])
             meaning += f' Comma-separated list of: {choices}; `{item["all"]}` selects every one and overrides the rest.'
         if kind == 'string' and 'choices' in item:
             meaning += ' Allowed: ' + ', '.join('`' + x + '`' for x in item['choices']) + '.'
-        label = f'{kind} / `{default}`'
+        default = defaults(item)
         if item.get('optional'):
-            label = f'{kind} / unset (fallback `{default}`)' if item.get('inherited') else f'{kind} / unset'
-        lines.append(f'| `{key(item)}` | {label} | {meaning} |')
+            default = f'animation defaults: {default}'
+        numeric_range = f'{item["min"]}–{item["max"]}' if kind in ('int', 'float') else '—'
+        lines.append(f'| `{item["path"].replace(".", ":")}` | {kind} / {default} | {numeric_range} | {meaning} |')
     return '\n'.join(lines)
 
 
