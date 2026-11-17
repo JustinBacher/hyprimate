@@ -154,20 +154,19 @@ void SClothLiveStyle::cancelMovement(CAnimationTransformer &transformer) {
     }
 }
 
-bool SClothLiveStyle::deforming(const CAnimationTransformer &transformer) noexcept {
-    return std::get<SClothStyle>(transformer.m_style).cloth.active();
+bool SClothLiveStyle::deforming(const SClothStyle &state) noexcept {
+    return state.cloth.active();
 }
 
-bool SClothLiveStyle::builtFor(const CAnimationTransformer &transformer,
+bool SClothLiveStyle::builtFor(const SClothStyle &state,
     hyprimate::config::Style style,
     hyprimate::MaterialParams,
     hyprimate::ClothMovementParams cloth) noexcept {
-    return style == hyprimate::config::Style::Cloth &&
-           std::get<SClothStyle>(transformer.m_style).movement == cloth;
+    return style == hyprimate::config::Style::Cloth && state.movement == cloth;
 }
 
-bool SClothLiveStyle::available(const CAnimationTransformer &transformer) noexcept {
-    return bool(std::get<SClothStyle>(transformer.m_style).sheet.frame);
+bool SClothLiveStyle::available(const SClothStyle &state) noexcept {
+    return bool(state.sheet.frame);
 }
 
 SStyleState SClothLiveStyle::initial(

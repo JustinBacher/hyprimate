@@ -212,16 +212,16 @@ void SBubbleLiveStyle::cancelMovement(CAnimationTransformer &transformer) {
     state.wake = 0;
 }
 
-bool SBubbleLiveStyle::available(const CAnimationTransformer &transformer) noexcept {
-    return bool(std::get<SBubbleStyle>(transformer.m_style).renderer);
+bool SBubbleLiveStyle::available(const SBubbleStyle &state) noexcept {
+    return bool(state.renderer);
 }
 
-bool SBubbleLiveStyle::deforming(const CAnimationTransformer &transformer) noexcept {
-    const auto &bubble = std::get<SBubbleStyle>(transformer.m_style).bubble;
+bool SBubbleLiveStyle::deforming(const SBubbleStyle &state) noexcept {
+    const auto &bubble = state.bubble;
     return bubble.active() || bubble.stirred();
 }
 
-bool SBubbleLiveStyle::builtFor(const CAnimationTransformer &,
+bool SBubbleLiveStyle::builtFor(const SBubbleStyle &,
     hyprimate::config::Style style,
     hyprimate::MaterialParams,
     hyprimate::ClothMovementParams) noexcept {

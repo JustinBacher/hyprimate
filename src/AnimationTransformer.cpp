@@ -62,7 +62,7 @@ bool CAnimationTransformer::builtFor(hyprimate::config::Style style,
     hyprimate::ClothMovementParams cloth) const noexcept {
     return std::visit(
         [&](const auto &state) {
-            return liveStyleFor(state).builtFor(*this, style, liquid, cloth);
+            return liveStyleFor(state).builtFor(state, style, liquid, cloth);
         },
         m_style);
 }
@@ -77,7 +77,7 @@ void CAnimationTransformer::cancelMovement() {
 
 bool CAnimationTransformer::deforming() const noexcept {
     return std::visit(
-        [&](const auto &state) { return liveStyleFor(state).deforming(*this); }, m_style);
+        [&](const auto &state) { return liveStyleFor(state).deforming(state); }, m_style);
 }
 
 bool CAnimationTransformer::active() const {
@@ -166,7 +166,7 @@ void CAnimationTransformer::markDetached() {
     m_detached = true;
     // A close may have moved a sheet state into its retained record.
     if (!std::visit(
-            [&](const auto &state) { return liveStyleFor(state).available(*this); }, m_style)) {
+            [&](const auto &state) { return liveStyleFor(state).available(state); }, m_style)) {
         return;
     }
     cancelOpening();

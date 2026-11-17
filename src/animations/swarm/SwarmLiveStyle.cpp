@@ -236,19 +236,19 @@ void SSwarmLiveStyle::cancelMovement(CAnimationTransformer &transformer) {
     }
 }
 
-bool SSwarmLiveStyle::deforming(const CAnimationTransformer &transformer) noexcept {
-    return std::get<SSwarmStyle>(transformer.m_style).swarm.active();
+bool SSwarmLiveStyle::deforming(const SSwarmStyle &state) noexcept {
+    return state.swarm.active();
 }
 
 // Swarm settings are read when an animation begins, so a state is never stale for them.
-bool SSwarmLiveStyle::builtFor(const CAnimationTransformer &,
+bool SSwarmLiveStyle::builtFor(const SSwarmStyle &,
     hyprimate::config::Style style,
     hyprimate::MaterialParams,
     hyprimate::ClothMovementParams) noexcept {
     return style == hyprimate::config::Style::Swarm;
 }
 
-bool SSwarmLiveStyle::available(const CAnimationTransformer &) noexcept {
+bool SSwarmLiveStyle::available(const SSwarmStyle &) noexcept {
     return true;
 }
 

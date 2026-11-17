@@ -100,19 +100,19 @@ void SPaperLiveStyle::cancelOpening(CAnimationTransformer &transformer) {
 void SPaperLiveStyle::cancelMovement(CAnimationTransformer &) {
 }
 
-bool SPaperLiveStyle::deforming(const CAnimationTransformer &transformer) noexcept {
-    return std::get<SPaperStyle>(transformer.m_style).crumple.active();
+bool SPaperLiveStyle::deforming(const SPaperStyle &state) noexcept {
+    return state.crumple.active();
 }
 
-bool SPaperLiveStyle::builtFor(const CAnimationTransformer &,
+bool SPaperLiveStyle::builtFor(const SPaperStyle &,
     hyprimate::config::Style style,
     hyprimate::MaterialParams,
     hyprimate::ClothMovementParams) noexcept {
     return style == hyprimate::config::Style::Paper;
 }
 
-bool SPaperLiveStyle::available(const CAnimationTransformer &transformer) noexcept {
-    return bool(std::get<SPaperStyle>(transformer.m_style).sheet.frame);
+bool SPaperLiveStyle::available(const SPaperStyle &state) noexcept {
+    return bool(state.sheet.frame);
 }
 
 SStyleState SPaperLiveStyle::initial(

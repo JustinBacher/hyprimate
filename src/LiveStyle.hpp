@@ -4,7 +4,7 @@
 
 // The configured style is selected once here; compositor orchestration invokes the same operations
 // for every style.
-#define LIVE_STYLE_OPERATIONS(name)                                                        \
+#define LIVE_STYLE_OPERATIONS(name, state)                                                 \
     struct name {                                                                          \
         static SStyleState initial(                                                        \
             hyprimate::MaterialParams, hyprimate::ClothMovementParams, std::uint64_t);     \
@@ -21,20 +21,20 @@
         static void snapshot(const CAnimationTransformer *, hyprimate::WindowSnapshot &);  \
         static void cancelOpening(CAnimationTransformer &);                                \
         static void cancelMovement(CAnimationTransformer &);                               \
-        static bool available(const CAnimationTransformer &) noexcept;                     \
-        static bool deforming(const CAnimationTransformer &) noexcept;                     \
-        static bool builtFor(const CAnimationTransformer &,                                \
+        static bool available(const state &) noexcept;                                     \
+        static bool deforming(const state &) noexcept;                                     \
+        static bool builtFor(const state &,                                                \
             hyprimate::config::Style,                                                      \
             hyprimate::MaterialParams,                                                     \
             hyprimate::ClothMovementParams) noexcept;                                      \
         static void step(                                                                  \
             CPluginRuntime &, CAnimationTransformer &, double, hyprimate::Vec2, bool);     \
     };
-LIVE_STYLE_OPERATIONS(SLiquidLiveStyle)
-LIVE_STYLE_OPERATIONS(SPaperLiveStyle)
-LIVE_STYLE_OPERATIONS(SClothLiveStyle)
-LIVE_STYLE_OPERATIONS(SSwarmLiveStyle)
-LIVE_STYLE_OPERATIONS(SBubbleLiveStyle)
+LIVE_STYLE_OPERATIONS(SLiquidLiveStyle, SLiquidStyle)
+LIVE_STYLE_OPERATIONS(SPaperLiveStyle, SPaperStyle)
+LIVE_STYLE_OPERATIONS(SClothLiveStyle, SClothStyle)
+LIVE_STYLE_OPERATIONS(SSwarmLiveStyle, SSwarmStyle)
+LIVE_STYLE_OPERATIONS(SBubbleLiveStyle, SBubbleStyle)
 
 inline SLiquidLiveStyle liveStyleFor(const SLiquidStyle &) {
     return {};

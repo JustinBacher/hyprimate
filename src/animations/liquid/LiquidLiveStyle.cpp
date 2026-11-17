@@ -309,20 +309,18 @@ void SLiquidLiveStyle::cancelMovement(CAnimationTransformer &transformer) {
     state.grid.invalidate();
 }
 
-bool SLiquidLiveStyle::deforming(const CAnimationTransformer &transformer) noexcept {
-    const auto &state = std::get<SLiquidStyle>(transformer.m_style);
+bool SLiquidLiveStyle::deforming(const SLiquidStyle &state) noexcept {
     return !(state.mesh.settled() && !state.transition.active());
 }
 
-bool SLiquidLiveStyle::builtFor(const CAnimationTransformer &transformer,
+bool SLiquidLiveStyle::builtFor(const SLiquidStyle &state,
     hyprimate::config::Style style,
     hyprimate::MaterialParams liquid,
     hyprimate::ClothMovementParams) noexcept {
-    return style == hyprimate::config::Style::Liquid &&
-           std::get<SLiquidStyle>(transformer.m_style).mesh.params() == liquid;
+    return style == hyprimate::config::Style::Liquid && state.mesh.params() == liquid;
 }
 
-bool SLiquidLiveStyle::available(const CAnimationTransformer &) noexcept {
+bool SLiquidLiveStyle::available(const SLiquidStyle &) noexcept {
     return true;
 }
 
