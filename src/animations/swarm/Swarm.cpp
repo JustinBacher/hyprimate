@@ -142,7 +142,7 @@ namespace hyprimate {
         Vec2 turned(Vec2 a, double angle) noexcept {
             const double c = std::cos(angle);
             const double s = std::sin(angle);
-            return {(a.x * c) - (a.y * s), (a.x * s) + (a.y * c)};
+            return {.x = (a.x * c) - (a.y * s), .y = (a.x * s) + (a.y * c)};
         }
 
         double wrapAngle(double a) noexcept {

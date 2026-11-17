@@ -49,7 +49,9 @@ namespace hyprimate {
                 double s = 0.0;
                 while (true) {
                     const int p = v[k];
-                    s = ((at(q) + (double(q) * q)) - (at(p) + (double(p) * p))) / (2.0 * (q - p));
+                    s = ((at(q) + (static_cast<double>(q) * q)) -
+                            (at(p) + (static_cast<double>(p) * p))) /
+                        (2.0 * (q - p));
                     if (s > z[k] || k == 0) {
                         break;
                     }
@@ -68,7 +70,7 @@ namespace hyprimate {
                     ++k;
                 }
                 const int p = v[k];
-                out[q] = (double(q - p) * (q - p)) + at(p);
+                out[q] = (static_cast<double>(q - p) * (q - p)) + at(p);
             }
             for (int q = 0; q < n; ++q) {
                 f[static_cast<std::size_t>(q) * stride] = out[q];

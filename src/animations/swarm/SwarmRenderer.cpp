@@ -292,7 +292,7 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
     const double unit = std::min(sx, sy);
     // The layer: walking creatures in its left half, everything standing in the window in its
     // right.
-    const double width = 2.0 * box.w + LAYER_GAP;
+    const double width = (2.0 * box.w) + LAYER_GAP;
     const double standingAt = box.w + LAYER_GAP;
     const double atlasW = (frames + SHAPE_CELLS) * CELL_PX;
     const double solidU = (frames + 0.5) * CELL_PX / atlasW;
@@ -343,12 +343,12 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
     }
 
     for (const hyprimate::SwarmAgent &a : agents) {
-        const double x0 = source.x + a.tile.x * sx;
-        const double x1 = source.x + (a.tile.x + a.tile.w) * sx;
-        const double y0 = source.y + a.tile.y * sy;
-        const double y1 = source.y + (a.tile.y + a.tile.h) * sy;
-        const double hx = source.x + a.home.x * sx;
-        const double hy = source.y + a.home.y * sy;
+        const double x0 = source.x + (a.tile.x * sx);
+        const double x1 = source.x + ((a.tile.x + a.tile.w) * sx);
+        const double y0 = source.y + (a.tile.y * sy);
+        const double y1 = source.y + ((a.tile.y + a.tile.h) * sy);
+        const double hx = source.x + (a.home.x * sx);
+        const double hy = source.y + (a.home.y * sy);
         const bool stands = standing(a);
 
         if (!a.visible) {
@@ -438,8 +438,8 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
             const double radiusU = 0.5 * FRAME_PX / atlasW;
             const double radiusV = 0.5 * FRAME_PX / CELL_PX;
             for (unsigned corner = 0; corner < 4; ++corner) {
-                const bool right = corner & 1U;
-                const bool bottom = corner & 2U;
+                const bool right = (corner & 1U) != 0u;
+                const bool bottom = (corner & 2U) != 0u;
                 const double outerX = right ? x1 : x0;
                 const double innerX = right ? x1 - radius : x0 + radius;
                 const double outerY = bottom ? y1 : y0;
@@ -569,7 +569,7 @@ CSwarmClosePassElement::CSwarmClosePassElement(SData data) : m_data(std::move(da
 }
 
 std::vector<UP<IPassElement>> CSwarmClosePassElement::draw(Render::CRenderContext &ctx) {
-    if (!m_data.sprites || !m_data.meshes || m_data.meshes->pieces.empty()) {
+    if (!m_data.sprites || (m_data.meshes == nullptr) || m_data.meshes->pieces.empty()) {
         return {};
     }
     const auto layer = renderSwarmLayer(

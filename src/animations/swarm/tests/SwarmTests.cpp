@@ -245,8 +245,8 @@ namespace {
         int fromLeft = 0;
         int fromTop = 0;
         for (const SwarmAgent &a : all.agents()) {
-            fromLeft += onScreen(a).x < SCREEN.x;
-            fromTop += onScreen(a).y < SCREEN.y;
+            fromLeft += static_cast<int>(onScreen(a).x < SCREEN.x);
+            fromTop += static_cast<int>(onScreen(a).y < SCREEN.y);
         }
         const int count = static_cast<int>(all.agents().size());
         CHECK(fromLeft > count / 8 && fromLeft < 3 * count / 8);
@@ -355,11 +355,13 @@ namespace {
     }
 
     void workspaceSlidesPreserveIndependentFlight() {
-        for (const Vec2 travel :
-            {Vec2{-SCREEN.w, 0}, Vec2{SCREEN.w, 0}, Vec2{0, -SCREEN.h}, Vec2{0, SCREEN.h}}) {
+        for (const Vec2 travel : {Vec2{.x = -SCREEN.w, .y = 0},
+                 Vec2{.x = SCREEN.w, .y = 0},
+                 Vec2{.x = 0, .y = -SCREEN.h},
+                 Vec2{.x = 0, .y = SCREEN.h}}) {
             for (const bool INCOMING : {false, true}) {
                 Swarm m;
-                Vec2 offset = INCOMING ? Vec2{-travel.x, -travel.y} : Vec2{};
+                Vec2 offset = INCOMING ? Vec2{.x = -travel.x, .y = -travel.y} : Vec2{};
                 m.beginMovement({}, 2, placement(offset));
                 for (int frame = 0; frame < 40; ++frame) {
                     offset.x += travel.x / 40.0;
@@ -369,21 +371,27 @@ namespace {
                 }
                 // The native slide is over, but independently moving creatures are still flying.
                 CHECK(m.active());
-                if (!INCOMING) CHECK(m.bounds().w > 0.0 && m.bounds().h > 0.0);
+                if (!INCOMING) {
+                    CHECK(m.bounds().w > 0.0 && m.bounds().h > 0.0);
+                }
                 std::vector<Vec2> before;
-                for (const auto &a : m.agents()) before.push_back(a.position);
+                for (const auto &a : m.agents()) {
+                    before.push_back(a.position);
+                }
                 run(m, 0.1);
                 double flight = 0.0;
-                for (std::size_t i = 0; i < before.size(); ++i)
+                for (std::size_t i = 0; i < before.size(); ++i) {
                     flight += std::hypot(m.agents()[i].position.x - before[i].x,
                         m.agents()[i].position.y - before[i].y);
+                }
                 CHECK(flight / before.size() > 1.0);
                 run(m, 8.0);
                 CHECK(inFormation(m));
-                if (INCOMING)
+                if (INCOMING) {
                     CHECK(m.bounds().w > 0.0 && m.bounds().h > 0.0);
-                else
+                } else {
                     CHECK(m.bounds().w == 0.0 && m.bounds().h == 0.0);
+                }
             }
         }
     }
@@ -394,7 +402,8 @@ namespace {
         run(baseline, 0.25);
         Swarm moved = baseline;
         Vec2 offset{};
-        for (const Vec2 delta : {Vec2{-300, 40}, Vec2{500, -80}, Vec2{-200, 40}}) {
+        for (const Vec2 delta :
+            {Vec2{.x = -300, .y = 40}, Vec2{.x = 500, .y = -80}, Vec2{.x = -200, .y = 40}}) {
             offset.x += delta.x;
             offset.y += delta.y;
             moved.updateMovement(placement(offset));
@@ -851,8 +860,8 @@ namespace {
     }
 
     void edgeSidesFollowTheNeighbours() {
-        const Box left{0, 0, 960, 1080};
-        const Box right{960, 0, 960, 1080};
+        const Box left{.x = 0, .y = 0, .w = 960, .h = 1080};
+        const Box right{.x = 960, .y = 0, .w = 960, .h = 1080};
         // Alone: the nearest edge; equidistant edges all count.
         CHECK(resolveEdgeSides({100, 300, 400, 400}, SCREEN, {}) == sides({Edge::Left}));
         CHECK(

@@ -84,8 +84,9 @@ Render::SWindowTransformBuffer renderLive(SSwarmStyle &state,
     const SP<CPaperShade> &,
     const SP<CSwarmSprites> &sprites) {
     const auto *sheet = sprites ? sprites->sheet(state.creature) : nullptr;
-    const auto atlas = sheet ? sprites->texture(state.creature) : SP<Render::ITexture>{};
-    if (!sheet || !atlas) {
+    const auto atlas =
+        (sheet != nullptr) ? sprites->texture(state.creature) : SP<Render::ITexture>{};
+    if ((sheet == nullptr) || !atlas) {
         return {.framebuffer = in.framebuffer, .box = in.box, .success = false};
     }
     if (state.captureWorkspaceFrame) {
@@ -140,7 +141,7 @@ bool SSwarmLiveStyle::open(
     const auto sides = runtime.swarmSides(window, true);
     const auto placement = placementOf(window, true);
     const auto creature = swarmCreature(runtime.m_config.open.swarm);
-    if (!placement || sides.empty() || !runtime.m_sprites->sheet(creature)) {
+    if (!placement || sides.empty() || (runtime.m_sprites->sheet(creature) == nullptr)) {
         return false;
     }
 
@@ -199,10 +200,11 @@ void SSwarmLiveStyle::movement(CPluginRuntime &runtime,
 
 void SSwarmLiveStyle::snapshot(
     const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &s) {
-    const auto *state = transformer ? std::get_if<SSwarmStyle>(&transformer->m_style) : nullptr;
-    s.handoff = state && state->swarm.active();
+    const auto *state =
+        (transformer != nullptr) ? std::get_if<SSwarmStyle>(&transformer->m_style) : nullptr;
+    s.handoff = (state != nullptr) && state->swarm.active();
     s.transition_busy = false;
-    s.handoff_moving = state && state->swarm.moving();
+    s.handoff_moving = (state != nullptr) && state->swarm.moving();
 }
 
 void SSwarmLiveStyle::step(CPluginRuntime &,

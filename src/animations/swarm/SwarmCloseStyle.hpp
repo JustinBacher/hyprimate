@@ -101,8 +101,9 @@ namespace close_style {
         const SP<CPaperShade> &,
         const SP<CSwarmSprites> &sprites) {
         const auto *sheet = sprites ? sprites->sheet(style.creature) : nullptr;
-        const auto atlas = sheet ? sprites->texture(style.creature) : SP<Render::ITexture>{};
-        if (!sheet || !atlas || record.sourceAlpha <= 0.F) {
+        const auto atlas =
+            (sheet != nullptr) ? sprites->texture(style.creature) : SP<Render::ITexture>{};
+        if ((sheet == nullptr) || !atlas || record.sourceAlpha <= 0.F) {
             return;
         }
         fillSwarmMeshes(style.swarm,

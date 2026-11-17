@@ -22,7 +22,7 @@
 namespace {
     GLuint compile(GLenum type, const char *source) {
         const GLuint shader = glCreateShader(type);
-        if (!shader) {
+        if (shader == 0u) {
             std::fprintf(stderr, "swarm surface: cannot create shader\n");
             return 0;
         }
@@ -30,7 +30,7 @@ namespace {
         glCompileShader(shader);
         GLint ok = 0;
         glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
-        if (!ok) {
+        if (ok == 0) {
             char log[2048]{};
             glGetShaderInfoLog(shader, sizeof(log), nullptr, log);
             std::fprintf(stderr, "swarm surface shader: %s\n", log);
@@ -44,15 +44,15 @@ namespace {
         const GLuint vs = compile(GL_VERTEX_SHADER, vertex);
         const GLuint fs = compile(GL_FRAGMENT_SHADER, fragment);
         GLuint program = 0;
-        if (vs && fs) {
+        if ((vs != 0u) && (fs != 0u)) {
             program = glCreateProgram();
-            if (program) {
+            if (program != 0u) {
                 glAttachShader(program, vs);
                 glAttachShader(program, fs);
                 glLinkProgram(program);
                 GLint ok = 0;
                 glGetProgramiv(program, GL_LINK_STATUS, &ok);
-                if (!ok) {
+                if (ok == 0) {
                     char log[2048]{};
                     glGetProgramInfoLog(program, sizeof(log), nullptr, log);
                     std::fprintf(stderr, "swarm surface program: %s\n", log);
@@ -61,13 +61,13 @@ namespace {
                 }
             }
         }
-        if (!program) {
+        if (program == 0u) {
             std::fprintf(stderr, "swarm surface: cannot create program\n");
         }
-        if (vs) {
+        if (vs != 0u) {
             glDeleteShader(vs);
         }
-        if (fs) {
+        if (fs != 0u) {
             glDeleteShader(fs);
         }
         return program;
@@ -75,8 +75,8 @@ namespace {
 }  // namespace
 
 CSwarmSurface::~CSwarmSurface() {
-    if ((!m_program && !m_fieldProgram && !m_vao && !m_quad && !m_instances &&
-            !m_fieldFramebuffer && !m_fieldTexture) ||
+    if (((m_program == 0u) && (m_fieldProgram == 0u) && (m_vao == 0u) && (m_quad == 0u) &&
+            (m_instances == 0u) && (m_fieldFramebuffer == 0u) && (m_fieldTexture == 0u)) ||
         !Render::GL::g_pHyprOpenGL) {
         return;
     }
@@ -86,25 +86,25 @@ CSwarmSurface::~CSwarmSurface() {
     const EGLSurface read = eglGetCurrentSurface(EGL_READ);
     auto &gl = *Render::GL::g_pHyprOpenGL;
     gl.makeEGLCurrent();
-    if (m_program) {
+    if (m_program != 0u) {
         glDeleteProgram(m_program);
     }
-    if (m_fieldProgram) {
+    if (m_fieldProgram != 0u) {
         glDeleteProgram(m_fieldProgram);
     }
-    if (m_vao) {
+    if (m_vao != 0u) {
         glDeleteVertexArrays(1, &m_vao);
     }
-    if (m_quad) {
+    if (m_quad != 0u) {
         glDeleteBuffers(1, &m_quad);
     }
-    if (m_instances) {
+    if (m_instances != 0u) {
         glDeleteBuffers(1, &m_instances);
     }
-    if (m_fieldFramebuffer) {
+    if (m_fieldFramebuffer != 0u) {
         glDeleteFramebuffers(1, &m_fieldFramebuffer);
     }
-    if (m_fieldTexture) {
+    if (m_fieldTexture != 0u) {
         glDeleteTextures(1, &m_fieldTexture);
     }
     if (display != EGL_NO_DISPLAY && context != EGL_NO_CONTEXT) {
@@ -115,33 +115,33 @@ CSwarmSurface::~CSwarmSurface() {
 }
 
 bool CSwarmSurface::initialize() {
-    if (m_program && m_fieldProgram && m_vao && m_quad && m_instances && m_fieldFramebuffer &&
-        m_fieldTexture) {
+    if ((m_program != 0u) && (m_fieldProgram != 0u) && (m_vao != 0u) && (m_quad != 0u) &&
+        (m_instances != 0u) && (m_fieldFramebuffer != 0u) && (m_fieldTexture != 0u)) {
         return true;
     }
-    if (!m_program) {
+    if (m_program == 0u) {
         m_program = linkProgram(swarm_shader::SURFACE_VERTEX, swarm_shader::SURFACE_FRAGMENT);
     }
-    if (!m_fieldProgram) {
+    if (m_fieldProgram == 0u) {
         m_fieldProgram = linkProgram(swarm_shader::FIELD_VERTEX, swarm_shader::FIELD_FRAGMENT);
     }
-    if (!m_vao) {
+    if (m_vao == 0u) {
         glGenVertexArrays(1, &m_vao);
     }
-    if (!m_quad) {
+    if (m_quad == 0u) {
         glGenBuffers(1, &m_quad);
     }
-    if (!m_instances) {
+    if (m_instances == 0u) {
         glGenBuffers(1, &m_instances);
     }
-    if (!m_fieldFramebuffer) {
+    if (m_fieldFramebuffer == 0u) {
         glGenFramebuffers(1, &m_fieldFramebuffer);
     }
-    if (!m_fieldTexture) {
+    if (m_fieldTexture == 0u) {
         glGenTextures(1, &m_fieldTexture);
     }
-    if (!m_program || !m_fieldProgram || !m_vao || !m_quad || !m_instances || !m_fieldFramebuffer ||
-        !m_fieldTexture) {
+    if ((m_program == 0u) || (m_fieldProgram == 0u) || (m_vao == 0u) || (m_quad == 0u) ||
+        (m_instances == 0u) || (m_fieldFramebuffer == 0u) || (m_fieldTexture == 0u)) {
         std::fprintf(stderr, "swarm surface: cannot create GPU resources\n");
         return false;
     }
@@ -185,7 +185,7 @@ SP<Render::IFramebuffer> CSwarmSurface::filter(Render::CRenderContext &ctx,
         return input;
     }
     if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL || !input || !input->getTexture() ||
-        !input->getTexture()->m_texID || !std::isfinite(radius) || radius < 0 ||
+        (input->getTexture()->m_texID == 0u) || !std::isfinite(radius) || radius < 0 ||
         !std::isfinite(cornerRadius) || cornerRadius < 0 || !std::isfinite(standingAt) ||
         !std::isfinite(size.x) || !std::isfinite(size.y) || size.x < 1 || size.y < 1 ||
         size.x > std::numeric_limits<GLsizei>::max() ||
@@ -200,15 +200,15 @@ SP<Render::IFramebuffer> CSwarmSurface::filter(Render::CRenderContext &ctx,
     }
     const int standing = static_cast<int>(std::ceil(standingAt));
     const GLsizei width = static_cast<GLsizei>(size.x) - standing;
-    const GLsizei height = static_cast<GLsizei>(size.y);
-    if (!width) {
+    const auto height = static_cast<GLsizei>(size.y);
+    if (width == 0) {
         return input;
     }
     auto &gl = *Render::GL::g_pHyprOpenGL;
     const Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
     const auto drawState = ctx.saveDrawState();
     const auto output = g_pHyprRenderer->getWorkBuffer(ctx, size);
-    if (!output || !output->getTexture() || !output->getTexture()->m_texID ||
+    if (!output || !output->getTexture() || (output->getTexture()->m_texID == 0u) ||
         output->getTexture()->m_texID == input->getTexture()->m_texID) {
         std::fprintf(stderr, "swarm surface: unable to allocate distinct work buffer\n");
         return nullptr;
@@ -244,10 +244,10 @@ SP<Render::IFramebuffer> CSwarmSurface::filter(Render::CRenderContext &ctx,
     glGetIntegerv(GL_BLEND_EQUATION_ALPHA, &equationAlpha);
     glGetFloatv(GL_COLOR_CLEAR_VALUE, clearColor);
     glGetBooleanv(GL_COLOR_WRITEMASK, mask);
-    const bool scissor = glIsEnabled(GL_SCISSOR_TEST);
-    const bool stencil = glIsEnabled(GL_STENCIL_TEST);
-    const bool depth = glIsEnabled(GL_DEPTH_TEST);
-    const bool cull = glIsEnabled(GL_CULL_FACE);
+    const bool scissor = glIsEnabled(GL_SCISSOR_TEST) != 0u;
+    const bool stencil = glIsEnabled(GL_STENCIL_TEST) != 0u;
+    const bool depth = glIsEnabled(GL_DEPTH_TEST) != 0u;
+    const bool cull = glIsEnabled(GL_CULL_FACE) != 0u;
     const bool blend = gl.blendEnabled();
     for (int i = 0; i < 2; ++i) {
         gl.setActiveTexture(GL_TEXTURE0 + i);
@@ -313,7 +313,7 @@ SP<Render::IFramebuffer> CSwarmSurface::filter(Render::CRenderContext &ctx,
                 m_instanceCapacity = static_cast<std::size_t>(allocated);
             }
         }
-        if (ready && bytes) {
+        if (ready && (bytes != 0u)) {
             glBufferSubData(GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(bytes), bodies.data());
         }
         if (ready) {
@@ -328,7 +328,7 @@ SP<Render::IFramebuffer> CSwarmSurface::filter(Render::CRenderContext &ctx,
             gl.blendFunc(GL_ONE, GL_ONE);
             glBlendEquation(GL_FUNC_ADD);
             glUseProgram(m_fieldProgram);
-            glUniform2f(m_fieldSizeUniform, float(width), float(height));
+            glUniform2f(m_fieldSizeUniform, static_cast<float>(width), static_cast<float>(height));
             glUniform1f(m_fieldK, k);
             glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, static_cast<GLsizei>(bodies.size()));
             g_pHyprRenderer->bindFB(ctx, output);
