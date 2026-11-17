@@ -22,12 +22,12 @@ namespace close_style {
         const std::function<std::span<const hyprimate::Box>()> &obstacles,
         const std::function<std::uint64_t()> &nextSeed,
         const std::function<hyprimate::EdgeSet()> &) {
-        const auto input = edgeInput();
-        const auto frame = hyprimate::resolveStyleCloseEdge(input, config.close.cloth);
-        const auto monitor = window->m_monitor.lock();
-        const auto boxes = obstacles();
-        const auto seed = nextSeed();
-        if (!frame || !monitor) {
+        const auto INPUT = edgeInput();
+        const auto FRAME = hyprimate::resolveStyleCloseEdge(INPUT, config.close.cloth);
+        const auto MONITOR = window->m_monitor.lock();
+        const auto BOXES = obstacles();
+        const auto SEED = nextSeed();
+        if (!FRAME || !MONITOR) {
             return false;
         }
         const auto &p = config.close.cloth;
@@ -37,11 +37,11 @@ namespace close_style {
             .shading = p.shading,
             .variation = p.variation,
             .shine = p.shine};
-        data.seed = seed;
+        data.seed = SEED;
         data.capture = toBox(window->getFullWindowBoundingBox());
-        data.obstacles.assign(boxes.begin(), boxes.end());
+        data.obstacles.assign(BOXES.begin(), BOXES.end());
         data.geometry = hyprimate::ClothCloseGeometry{
-            .edge = frame->edge, .screen = toBox(monitor->logicalBox())};
+            .edge = FRAME->edge, .screen = toBox(MONITOR->logicalBox())};
         pending.closeData = std::move(data);
         pending.style = std::move(style);
         return true;

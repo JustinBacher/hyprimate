@@ -17,12 +17,12 @@ namespace close_style {
         CBox device = project(record.extentsDevice, record.renderBox, record.snapshotSize);
         const auto &data = std::get<SLiquidCloseData>(record.closeData);
         if (data.hasLiquid) {
-            const CBox liquid =
+            const CBox LIQUID =
                 project(toCBox(data.liquidDevice), record.renderBox, record.snapshotSize);
-            const double x0 = std::min(device.x, liquid.x);
-            const double y0 = std::min(device.y, liquid.y);
-            const double x1 = std::max(device.x + device.w, liquid.x + liquid.w);
-            const double y1 = std::max(device.y + device.h, liquid.y + liquid.h);
+            const double x0 = std::min(device.x, LIQUID.x);
+            const double y0 = std::min(device.y, LIQUID.y);
+            const double x1 = std::max(device.x + device.w, LIQUID.x + LIQUID.w);
+            const double y1 = std::max(device.y + device.h, LIQUID.y + LIQUID.h);
             device = CBox{x0, y0, x1 - x0, y1 - y0};
         }
         return device;
@@ -72,17 +72,17 @@ namespace close_style {
         auto &data = std::get<SLiquidCloseData>(record.closeData);
         hyprimate::LiquidPose pose{
             .mesh = style.mesh, .transition = style.transition, .compensation = data.compensation};
-        const CBox logical = CBox{record.sourceDevice}.scale(1.0 / record.scale);
-        const auto logicalBox = toBox(logical);
+        const CBox LOGICAL = CBox{record.sourceDevice}.scale(1.0 / record.scale);
+        const auto LOGICAL_BOX = toBox(LOGICAL);
         pose.displacementGain =
-            hyprimate::fitLiquidPoseGain(pose, {.x = logical.w, .y = logical.h}, &style.grid);
-        auto extents = hyprimate::liquidRenderExtents(pose, logicalBox, style.grid);
+            hyprimate::fitLiquidPoseGain(pose, {.x = LOGICAL.w, .y = LOGICAL.h}, &style.grid);
+        auto extents = hyprimate::liquidRenderExtents(pose, LOGICAL_BOX, style.grid);
         hyprimate::expandBox(extents, 16.0);
         record.extentsDevice = toCBox(extents).scale(record.scale);
-        const auto meniscus = hyprimate::liquidMeniscusExtents(pose, logicalBox);
-        data.hasLiquid = meniscus.has_value();
-        if (meniscus) {
-            data.liquidDevice = toBox(toCBox(*meniscus).scale(record.scale));
+        const auto MENISCUS = hyprimate::liquidMeniscusExtents(pose, LOGICAL_BOX);
+        data.hasLiquid = MENISCUS.has_value();
+        if (MENISCUS) {
+            data.liquidDevice = toBox(toCBox(*MENISCUS).scale(record.scale));
         }
         hyprimate::fillLiquidRenderMesh(pose,
             toBox(record.sourceDevice),
@@ -92,7 +92,7 @@ namespace close_style {
             Vec2{.x = record.snapshotSize.x, .y = record.snapshotSize.y},
             style.grid,
             style.vertices);
-        if (meniscus) {
+        if (MENISCUS) {
             hyprimate::fillLiquidMeniscusMesh(pose,
                 toBox(record.sourceDevice),
                 record.scale,
@@ -120,15 +120,15 @@ namespace close_style {
         data.alpha = record.sourceAlpha;
         data.scale = record.scale;
         CBox clip{0.0, 0.0, monitor->m_transformedSize.x, monitor->m_transformedSize.y};
-        const CBox restLogical = CBox{record.renderBox.x + record.sourceDevice.x,
+        const CBox REST_LOGICAL = CBox{record.renderBox.x + record.sourceDevice.x,
             record.renderBox.y + record.sourceDevice.y,
             record.sourceDevice.w,
             record.sourceDevice.h}
-                                     .scale(1.0 / record.scale);
-        const hyprimate::LiquidPose pose{
+                                      .scale(1.0 / record.scale);
+        const hyprimate::LiquidPose POSE{
             .mesh = style.mesh, .transition = style.transition, .compensation = close.compensation};
-        if (const auto visible = hyprimate::liquidVisibleBox(pose, toBox(restLogical))) {
-            clip = clip.intersection(toCBox(*visible).scale(record.scale));
+        if (const auto VISIBLE = hyprimate::liquidVisibleBox(POSE, toBox(REST_LOGICAL))) {
+            clip = clip.intersection(toCBox(*VISIBLE).scale(record.scale));
         }
         data.damage = CRegion{clip};
         data.solid = solid ? solid->texture() : nullptr;
@@ -138,27 +138,27 @@ namespace close_style {
             ctx, makeUnique<CLiquidClosePassElement>(std::move(data)));
     }
     inline hyprimate::LiquidPose closePose(const SLiquidStyle &state, const PHLWINDOW &window) {
-        const hyprimate::LiquidPose unit{.mesh = state.mesh,
+        const hyprimate::LiquidPose UNIT{.mesh = state.mesh,
             .transition = state.transition,
             .compensation = {.x = 1.0, .y = 1.0},
             .openOffset = {.x = 0.0, .y = 0.0},
             .displacementGain = state.displacementGain,
             .boxPose = false};
         if (!window || !state.boxDriven) {
-            return unit;
+            return UNIT;
         }
-        const CBox current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
-        const CBox goal = state.goalBody;
-        if (!(current.w > 0.0 && current.h > 0.0 && goal.w > 0.0 && goal.h > 0.0)) {
-            return unit;
+        const CBox CURRENT = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+        const CBox GOAL = state.goalBody;
+        if (!(CURRENT.w > 0.0 && CURRENT.h > 0.0 && GOAL.w > 0.0 && GOAL.h > 0.0)) {
+            return UNIT;
         }
-        constexpr double maxScale = 64.0;
+        constexpr double MAX_SCALE = 64.0;
         return {.mesh = state.mesh,
             .transition = state.transition,
-            .compensation = {.x = std::clamp(goal.w / current.w, 1.0 / maxScale, maxScale),
-                .y = std::clamp(goal.h / current.h, 1.0 / maxScale, maxScale)},
-            .openOffset = {.x = (goal.x + (0.5 * goal.w)) - (current.x + (0.5 * current.w)),
-                .y = (goal.y + (0.5 * goal.h)) - (current.y + (0.5 * current.h))},
+            .compensation = {.x = std::clamp(GOAL.w / CURRENT.w, 1.0 / MAX_SCALE, MAX_SCALE),
+                .y = std::clamp(GOAL.h / CURRENT.h, 1.0 / MAX_SCALE, MAX_SCALE)},
+            .openOffset = {.x = (GOAL.x + (0.5 * GOAL.w)) - (CURRENT.x + (0.5 * CURRENT.w)),
+                .y = (GOAL.y + (0.5 * GOAL.h)) - (CURRENT.y + (0.5 * CURRENT.h))},
             .displacementGain = state.displacementGain,
             .boxPose = false};
     }
@@ -176,19 +176,19 @@ namespace close_style {
         if (!std::isfinite(close.strength) || close.strength <= 0.0) {
             return false;
         }
-        const bool continuing = style.transition.active();
-        const auto frame = continuing ? std::optional<hyprimate::EdgeFrame>{}
+        const bool CONTINUING = style.transition.active();
+        const auto FRAME = CONTINUING ? std::optional<hyprimate::EdgeFrame>{}
                                       : hyprimate::resolveStyleCloseEdge(edgeInput(), close);
         SLiquidCloseData data;
         if (active) {
-            const auto pose = closePose(style, window);
-            pending.style = SLiquidStyle{.mesh = pose.mesh, .transition = pose.transition};
-            data.compensation = pose.compensation;
+            const auto POSE = closePose(style, window);
+            pending.style = SLiquidStyle{.mesh = POSE.mesh, .transition = POSE.transition};
+            data.compensation = POSE.compensation;
         } else {
             pending.style = SLiquidStyle{.mesh = hyprimate::LiquidMesh{material}};
         }
         data.strength = close.strength;
-        data.frame = frame;
+        data.frame = FRAME;
         data.splash = close.splash;
         data.params = {.elasticity = close.elasticity, .momentum = close.momentum};
         pending.closeData = data;

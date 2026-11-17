@@ -30,9 +30,9 @@ namespace {
     }
 
     void advanceFor(PaperCrumple &model, double seconds) {
-        const double step = 0.01;
-        for (double t = 0.0; t + 1e-12 < seconds; t += step) {
-            model.advance(std::min(step, seconds - t));
+        const double STEP = 0.01;
+        for (double t = 0.0; t + 1e-12 < seconds; t += STEP) {
+            model.advance(std::min(STEP, seconds - t));
         }
     }
 
@@ -95,13 +95,13 @@ namespace {
         model.begin(Transition::Open, openParams(), 7);
         CHECK(model.active());
         CHECK(model.opacity() == 0.0);
-        const double radius = maxRadiusPx(frameOf(model));
-        const double limit = 0.25 * std::sqrt(SIZE.x * SIZE.y);
+        const double RADIUS = maxRadiusPx(frameOf(model));
+        const double LIMIT = 0.25 * std::sqrt(SIZE.x * SIZE.y);
         std::fprintf(stdout,
             "[measure] check 2: open start max radius %.3f px, limit %.3f px\n",
-            radius,
-            limit);
-        CHECK(radius <= limit);
+            RADIUS,
+            LIMIT);
+        CHECK(RADIUS <= LIMIT);
     }
 
     // 3. Close finishes; mid-close and mid-open steps behave as specified.
@@ -132,13 +132,13 @@ namespace {
         PaperCrumple open;
         open.begin(Transition::Open, openParams(), 1);
         advanceFor(open, 0.4 * openParams().duration);
-        const SheetFrame before = frameOf(open);
+        const SheetFrame BEFORE = frameOf(open);
 
         open.begin(Transition::Close, closeParams(), 99);
-        const SheetFrame after = frameOf(open);
-        const double delta = maxPositionDelta(before, after);
-        std::fprintf(stdout, "[measure] check 4: open->close continuity max delta %.3e\n", delta);
-        CHECK(delta <= 1e-9);
+        const SheetFrame AFTER = frameOf(open);
+        const double DELTA = maxPositionDelta(BEFORE, AFTER);
+        std::fprintf(stdout, "[measure] check 4: open->close continuity max delta %.3e\n", DELTA);
+        CHECK(DELTA <= 1e-9);
     }
 
     // 5. Determinism and variation.
@@ -168,13 +168,13 @@ namespace {
         PaperCrumple v1;
         v1.begin(Transition::Close, varied, 1);
         advanceFor(v1, 0.2);
-        const SheetFrame first = frameOf(v1);
+        const SheetFrame FIRST = frameOf(v1);
         double spread = 0.0;
         for (std::uint64_t seed = 2; seed <= 8; ++seed) {
             PaperCrumple other;
             other.begin(Transition::Close, varied, seed);
             advanceFor(other, 0.2);
-            spread = std::max(spread, maxPositionDelta(first, frameOf(other)));
+            spread = std::max(spread, maxPositionDelta(FIRST, frameOf(other)));
         }
         std::fprintf(stdout, "[measure] check 5: variation 1 seed spread %.3e\n", spread);
         CHECK(spread > 1e-3);
@@ -189,8 +189,8 @@ namespace {
         advanceFor(dark, 0.25);  // s ~ 0.5
         CHECK(!dark.shaded());
         bool allZero = true;
-        const SheetFrame darkFrame = frameOf(dark);
-        for (const auto &tri : darkFrame.shade) {
+        const SheetFrame DARK_FRAME = frameOf(dark);
+        for (const auto &tri : DARK_FRAME.shade) {
             for (const float s : tri) {
                 allZero = allZero && s == 0.0F;
             }
@@ -202,8 +202,8 @@ namespace {
         advanceFor(lit, 0.25);
         bool anyNonZero = false;
         bool inRange = true;
-        const SheetFrame litFrame = frameOf(lit);
-        for (const auto &tri : litFrame.shade) {
+        const SheetFrame LIT_FRAME = frameOf(lit);
+        for (const auto &tri : LIT_FRAME.shade) {
             for (const float s : tri) {
                 anyNonZero = anyNonZero || s != 0.0F;
                 inRange = inRange && s >= -1.0F && s <= 1.0F;
@@ -219,8 +219,8 @@ namespace {
         advanceFor(fullLit, 0.25);
         bool fullInRange = true;
         bool fullAny = false;
-        const SheetFrame fullFrame = frameOf(fullLit);
-        for (const auto &tri : fullFrame.shade) {
+        const SheetFrame FULL_FRAME = frameOf(fullLit);
+        for (const auto &tri : FULL_FRAME.shade) {
             for (const float s : tri) {
                 fullInRange = fullInRange && s >= -1.0F && s <= 1.0F;
                 fullAny = fullAny || s != 0.0F;
@@ -244,13 +244,13 @@ namespace {
         b.begin(Transition::Close, tight, 11);
         advanceFor(a, 0.75);  // s ~ 0.75
         advanceFor(b, 0.75);
-        const double looseRadius = maxRadiusPx(frameOf(a));
-        const double tightRadius = maxRadiusPx(frameOf(b));
+        const double LOOSE_RADIUS = maxRadiusPx(frameOf(a));
+        const double TIGHT_RADIUS = maxRadiusPx(frameOf(b));
         std::fprintf(stdout,
             "[measure] check 7: s=0.75 extents radius crumpliness 0 %.3f px, 1 %.3f px\n",
-            looseRadius,
-            tightRadius);
-        CHECK(tightRadius < looseRadius);
+            LOOSE_RADIUS,
+            TIGHT_RADIUS);
+        CHECK(TIGHT_RADIUS < LOOSE_RADIUS);
     }
 
     // 8. Invalid params leave the model inactive.
@@ -280,7 +280,7 @@ namespace {
     // stretched (and swapped for portrait windows) so its flat sheet lands exactly on the window,
     // with no jump on the first frame.
     void testCloseStartsAtRestForAnyAspect() {
-        for (const Vec2 size : {Vec2{.x = 1000.0, .y = 700.0},
+        for (const Vec2 SIZE : {Vec2{.x = 1000.0, .y = 700.0},
                  Vec2{.x = 600.0, .y = 1000.0},
                  Vec2{.x = 3000.0, .y = 800.0},
                  Vec2{.x = 900.0, .y = 900.0}}) {
@@ -290,13 +290,13 @@ namespace {
                 PaperCrumple model;
                 model.begin(Transition::Close, params, seed);
                 model.advance(1e-4);
-                const SheetFrame frame = frameOf(model, size);
+                const SheetFrame FRAME = frameOf(model, SIZE);
                 double worst = 0.0;
                 for (std::size_t v = 0; v < hyprimate::PAPER_GRID_VERTICES; ++v) {
                     const Vec2 uv = hyprimate::sheetUv(v);
                     worst = std::max({worst,
-                        std::abs(frame.position[v].x - (uv.x - 0.5)) * size.x,
-                        std::abs(frame.position[v].y - (uv.y - 0.5)) * size.y});
+                        std::abs(FRAME.position[v].x - (uv.x - 0.5)) * SIZE.x,
+                        std::abs(FRAME.position[v].y - (uv.y - 0.5)) * SIZE.y});
                 }
                 CHECK(worst < 1.0);  // under a pixel
             }
@@ -323,14 +323,14 @@ namespace {
     void testOrderMatchesFreshSortAlongPlayback() {
         using hyprimate::PAPER_GRID_VERTICES;
         using hyprimate::PAPER_TRIANGLES;
-        const int frames = hyprimate::paperTakeFrames();
+        const int FRAMES = hyprimate::paperTakeFrames();
         SheetFrame out{};
         for (int take = 0; take < hyprimate::paperTakeCount(); ++take) {
             std::vector<int> path;
-            for (int f = 0; f < frames; ++f) {
+            for (int f = 0; f < FRAMES; ++f) {
                 path.push_back(f);
             }
-            for (int f = frames - 1; f >= 0; --f) {
+            for (int f = FRAMES - 1; f >= 0; --f) {
                 path.push_back(f);
             }
             for (const int f : path) {

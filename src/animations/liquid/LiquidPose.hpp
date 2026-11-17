@@ -120,8 +120,8 @@ namespace hyprimate {
         refreshLiquidPoseGrid(
             pose, Vec2{.x = sourceDevice.w / scale, .y = sourceDevice.h / scale}, grid);
 
-        const double centreX = sourceDevice.x + (0.5 * sourceDevice.w);
-        const double centreY = sourceDevice.y + (0.5 * sourceDevice.h);
+        const double CENTRE_X = sourceDevice.x + (0.5 * sourceDevice.w);
+        const double CENTRE_Y = sourceDevice.y + (0.5 * sourceDevice.h);
 
         // Each grid sample is placed once, then reused by its neighbouring triangles.
         std::array<LiquidVertex,
@@ -131,13 +131,13 @@ namespace hyprimate {
             for (int i = 0; i < LIQUID_POSE_SAMPLES; ++i) {
                 const double u = static_cast<double>(i) / LIQUID_RENDER_CELLS;
                 const double v = static_cast<double>(j) / LIQUID_RENDER_CELLS;
-                const std::size_t index = (static_cast<std::size_t>(j) * LIQUID_POSE_SAMPLES) + i;
-                const Vec2 p = grid.offsets[index];
-                samples[index] = {
+                const std::size_t INDEX = (static_cast<std::size_t>(j) * LIQUID_POSE_SAMPLES) + i;
+                const Vec2 p = grid.offsets[INDEX];
+                samples[INDEX] = {
                     .x = static_cast<float>(
-                        (centreX + (p.x * scale) - outputDevice.x) / outputDevice.w),
+                        (CENTRE_X + (p.x * scale) - outputDevice.x) / outputDevice.w),
                     .y = static_cast<float>(
-                        (centreY + (p.y * scale) - outputDevice.y) / outputDevice.h),
+                        (CENTRE_Y + (p.y * scale) - outputDevice.y) / outputDevice.h),
                     .u = static_cast<float>(
                         (sourceDevice.x + (sourceDevice.w * u) - textureOrigin.x) / textureSize.x),
                     .v = static_cast<float>(
@@ -175,36 +175,36 @@ namespace hyprimate {
             out.resize(LIQUID_MENISCUS_VERTEX_COUNT);
         }
 
-        const double centreX = sourceDevice.x + (0.5 * sourceDevice.w);
-        const double centreY = sourceDevice.y + (0.5 * sourceDevice.h);
-        const double low = pose.transition.meniscusLow();
-        const double span = pose.transition.meniscusHigh() - low;
+        const double CENTRE_X = sourceDevice.x + (0.5 * sourceDevice.w);
+        const double CENTRE_Y = sourceDevice.y + (0.5 * sourceDevice.h);
+        const double LOW = pose.transition.meniscusLow();
+        const double SPAN = pose.transition.meniscusHigh() - LOW;
 
-        const auto place = [&](Vertex &vertex, double t, double n) {
+        const auto PLACE = [&](Vertex &vertex, double t, double n) {
             const Vec2 p = liquidEdgePoint(pose, t, n);
             vertex.x =
-                static_cast<float>((centreX + (p.x * scale) - outputDevice.x) / outputDevice.w);
+                static_cast<float>((CENTRE_X + (p.x * scale) - outputDevice.x) / outputDevice.w);
             vertex.y =
-                static_cast<float>((centreY + (p.y * scale) - outputDevice.y) / outputDevice.h);
+                static_cast<float>((CENTRE_Y + (p.y * scale) - outputDevice.y) / outputDevice.h);
             vertex.u = 0.5F;
             vertex.v = 0.5F;
         };
 
         for (int i = 0; i < LIQUID_MENISCUS_COLUMNS; ++i) {
-            const double t0 = low + (span * static_cast<double>(i) / LIQUID_MENISCUS_COLUMNS);
-            const double t1 = low + (span * static_cast<double>(i + 1) / LIQUID_MENISCUS_COLUMNS);
+            const double t0 = LOW + (SPAN * static_cast<double>(i) / LIQUID_MENISCUS_COLUMNS);
+            const double t1 = LOW + (SPAN * static_cast<double>(i + 1) / LIQUID_MENISCUS_COLUMNS);
             const double h0 = pose.transition.meniscus(t0);
             const double h1 = pose.transition.meniscus(t1);
 
             // Corners: a = behind edge at t0, b = behind edge at t1, c = crest at t0, d = crest at
             // t1. Triangles abc, bdc.
             Vertex *quad = &out[static_cast<std::size_t>(i) * 6];
-            place(quad[0], t0, -LIQUID_BEHIND_EDGE);
-            place(quad[1], t1, -LIQUID_BEHIND_EDGE);
-            place(quad[2], t0, h0);
-            place(quad[3], t1, -LIQUID_BEHIND_EDGE);
-            place(quad[4], t1, h1);
-            place(quad[5], t0, h0);
+            PLACE(quad[0], t0, -LIQUID_BEHIND_EDGE);
+            PLACE(quad[1], t1, -LIQUID_BEHIND_EDGE);
+            PLACE(quad[2], t0, h0);
+            PLACE(quad[3], t1, -LIQUID_BEHIND_EDGE);
+            PLACE(quad[4], t1, h1);
+            PLACE(quad[5], t0, h0);
         }
     }
 

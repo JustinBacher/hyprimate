@@ -46,22 +46,22 @@ Render::SWindowTransformBuffer renderLive(SClothStyle &state,
 
 bool SClothLiveStyle::open(
     CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window) {
-    if (const auto frame = hyprimate::resolveStyleOpenEdge(
+    if (const auto FRAME = hyprimate::resolveStyleOpenEdge(
             runtime.edgeInputFor(window, true), runtime.m_config.open.cloth)) {
-        entry.openEdge = frame->edge;
+        entry.openEdge = FRAME->edge;
     }
-    const CBox current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
-    const CBox goal = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
-    const CBox capture = window->getFullWindowBoundingBox();
-    const CBox rest{goal.x + (capture.x - current.x),
-        goal.y + (capture.y - current.y),
-        goal.w + (capture.w - current.w),
-        goal.h + (capture.h - current.h)};
-    const auto usable = [](const CBox &box) {
+    const CBox CURRENT = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+    const CBox GOAL = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
+    const CBox CAPTURE = window->getFullWindowBoundingBox();
+    const CBox REST{GOAL.x + (CAPTURE.x - CURRENT.x),
+        GOAL.y + (CAPTURE.y - CURRENT.y),
+        GOAL.w + (CAPTURE.w - CURRENT.w),
+        GOAL.h + (CAPTURE.h - CURRENT.h)};
+    const auto USABLE = [](const CBox &box) {
         return std::isfinite(box.x) && std::isfinite(box.y) && std::isfinite(box.w) &&
                std::isfinite(box.h) && box.w > 0.0 && box.h > 0.0;
     };
-    if (!usable(goal) || !usable(rest)) {
+    if (!USABLE(GOAL) || !USABLE(REST)) {
         return false;
     }
     runtime.m_neighbours.clear();
@@ -77,15 +77,15 @@ bool SClothLiveStyle::open(
             .variation = cloth.variation,
             .shine = cloth.shine},
         runtime.m_nextSeed++,
-        toBox(rest),
+        toBox(REST),
         runtime.m_neighbours,
         std::nullopt);
-    state.sheet.captureSize = {.x = rest.w, .y = rest.h};
+    state.sheet.captureSize = {.x = REST.w, .y = REST.h};
     state.cloth.frame(state.sheet.captureSize, *state.sheet.frame);
     if (state.cloth.active()) {
-        g_pHyprRenderer->damageBox(capture);
-        window->positionAnimation()->setValueAndWarp(goal.pos());
-        window->sizeAnimation()->setValueAndWarp(goal.size());
+        g_pHyprRenderer->damageBox(CAPTURE);
+        window->positionAnimation()->setValueAndWarp(GOAL.pos());
+        window->sizeAnimation()->setValueAndWarp(GOAL.size());
         runtime.rebaseline(entry, window);
     }
     return true;
@@ -179,7 +179,7 @@ double SClothLiveStyle::strength(const CPluginRuntime &runtime) {
     return runtime.m_config.movement.cloth.strength;
 }
 bool SClothLiveStyle::usable(const CPluginRuntime &runtime) {
-    const auto params = runtime.clothMovementParams();
-    return std::isfinite(params.flutter) && std::isfinite(params.shading) &&
-           std::isfinite(params.variation);
+    const auto PARAMS = runtime.clothMovementParams();
+    return std::isfinite(PARAMS.flutter) && std::isfinite(PARAMS.shading) &&
+           std::isfinite(PARAMS.variation);
 }

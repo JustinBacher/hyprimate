@@ -94,14 +94,14 @@ namespace hyprimate {
             }
             return active();
         }
-        const double step = std::min(elapsedSeconds, MAX_PLAYED_STEP);
+        const double STEP = std::min(elapsedSeconds, MAX_PLAYED_STEP);
         if (m_phase == Phase::Opening) {
-            m_s -= m_rate * step;
+            m_s -= m_rate * STEP;
             if (m_s <= 0.0) {
                 reset();
             }
         } else if (m_phase == Phase::Closing) {
-            m_s += m_rate * step;
+            m_s += m_rate * STEP;
             if (m_s >= 1.0) {
                 m_phase = Phase::Closed;
                 m_s = 1.0;
@@ -142,15 +142,15 @@ namespace hyprimate {
         // variation 0 ignores the seed and every window plays the same take the same way.
         std::uint64_t base = BASE_SEED;
         std::uint64_t random = seed;
-        const double variation = m_params.variation;
-        const auto draw = [&] {
+        const double VARIATION = m_params.variation;
+        const auto DRAW = [&] {
             const double b = unit_draw(base);
             const double r = unit_draw(random);
-            return b + (variation * (r - b));
+            return b + (VARIATION * (r - b));
         };
-        m_takePick = std::min(draw(), 0x1.fffffffffffffp-1);
-        m_mirrorX = draw() < 0.5;
-        m_mirrorY = draw() < 0.5;
+        m_takePick = std::min(DRAW(), 0x1.fffffffffffffp-1);
+        m_mirrorX = DRAW() < 0.5;
+        m_mirrorY = DRAW() < 0.5;
         m_take = -1;
     }
 
@@ -160,25 +160,25 @@ namespace hyprimate {
         }
         // Takes are landscape; a portrait window plays one with its axes swapped.
         m_transpose = aspect < 1.0;
-        const double landscape = m_transpose ? 1.0 / aspect : aspect;
-        const int takes = paperTakeCount();
+        const double LANDSCAPE = m_transpose ? 1.0 / aspect : aspect;
+        const int TAKES = paperTakeCount();
         // Nearest baked aspect on a log scale, then the seeded pick among the takes baked at that
         // aspect.
         double nearest = 0.0;
         double bestDistance = INFINITY;
-        for (int t = 0; t < takes; ++t) {
-            const double distance = std::abs(std::log(paperTakeAspect(t) / landscape));
-            if (distance < bestDistance) {
-                bestDistance = distance;
+        for (int t = 0; t < TAKES; ++t) {
+            const double DISTANCE = std::abs(std::log(paperTakeAspect(t) / LANDSCAPE));
+            if (DISTANCE < bestDistance) {
+                bestDistance = DISTANCE;
                 nearest = paperTakeAspect(t);
             }
         }
         int family = 0;
-        for (int t = 0; t < takes; ++t) {
+        for (int t = 0; t < TAKES; ++t) {
             family += static_cast<int>(paperTakeAspect(t) == nearest);
         }
         int wanted = static_cast<int>(m_takePick * family);
-        for (int t = 0; t < takes; ++t) {
+        for (int t = 0; t < TAKES; ++t) {
             if (paperTakeAspect(t) != nearest) {
                 continue;
             }
@@ -204,12 +204,12 @@ namespace hyprimate {
         // goes. Frames are joined by a Catmull-Rom spline, so vertex velocities stay continuous
         // across baked frames; linear blending would kink every vertex's path at every frame, which
         // reads as judder.
-        const int frames = paperTakeFrames();
-        const double end = LOOSEST_END + ((1.0 - LOOSEST_END) * m_params.crumpliness);
-        const double at = std::clamp(m_s, 0.0, 1.0) * end * (frames - 1);
-        const int f0 = std::min(static_cast<int>(at), frames - 2);
-        const int fBack = std::max(f0 - 1, 0);
-        const int fNext = std::min(f0 + 2, frames - 1);
+        const int FRAMES = paperTakeFrames();
+        const double END = LOOSEST_END + ((1.0 - LOOSEST_END) * m_params.crumpliness);
+        const double at = std::clamp(m_s, 0.0, 1.0) * END * (FRAMES - 1);
+        const int f0 = std::min(static_cast<int>(at), FRAMES - 2);
+        const int F_BACK = std::max(f0 - 1, 0);
+        const int F_NEXT = std::min(f0 + 2, FRAMES - 1);
         const double u = at - f0;
         const double u2 = u * u;
         const double u3 = u2 * u;
@@ -221,14 +221,14 @@ namespace hyprimate {
 
         // The take's sheet has its own aspect; stretch it to the window's, keeping area, so rest
         // maps to rest exactly.
-        const double windowLandscape = m_transpose ? H / W : W / H;
-        const double takeAspect = paperTakeAspect(m_take);
-        const double stretchX = std::sqrt(windowLandscape / takeAspect);
-        const double stretchY = 1.0 / stretchX;
+        const double WINDOW_LANDSCAPE = m_transpose ? H / W : W / H;
+        const double TAKE_ASPECT = paperTakeAspect(m_take);
+        const double STRETCH_X = std::sqrt(WINDOW_LANDSCAPE / TAKE_ASPECT);
+        const double STRETCH_Y = 1.0 / STRETCH_X;
 
         // The sheet stays facing the viewer: no rotation beyond what the crumple itself does. It
         // only recedes at the end, as the ball drops away.
-        const double shrink = 1.0 - (0.35 * smoothstep(0.86, 1.0, m_s));
+        const double SHRINK = 1.0 - (0.35 * smoothstep(0.86, 1.0, m_s));
 
         SheetGrid world;  // every vertex is written below
         for (int j = 0; j < GRID; ++j) {
@@ -243,26 +243,26 @@ namespace hyprimate {
                 if (m_mirrorY) {
                     sj = PAPER_CELLS - sj;
                 }
-                const std::size_t take = gridIndex(si, sj);
+                const std::size_t TAKE = gridIndex(si, sj);
                 double p0[3];
                 double p1[3];
                 double p2[3];
                 double p3[3];
-                paperTakeVertex(m_take, fBack, take, p0);
-                paperTakeVertex(m_take, f0, take, p1);
-                paperTakeVertex(m_take, f0 + 1, take, p2);
-                paperTakeVertex(m_take, fNext, take, p3);
+                paperTakeVertex(m_take, F_BACK, TAKE, p0);
+                paperTakeVertex(m_take, f0, TAKE, p1);
+                paperTakeVertex(m_take, f0 + 1, TAKE, p2);
+                paperTakeVertex(m_take, F_NEXT, TAKE, p3);
                 double p[3];
                 for (int k = 0; k < 3; ++k) {
                     p[k] = (w0 * p0[k]) + (w1 * p1[k]) + (w2 * p2[k]) + (w3 * p3[k]);
                 }
-                double x = p[0] * stretchX * (m_mirrorX ? -1.0 : 1.0);
-                double y = p[1] * stretchY * (m_mirrorY ? -1.0 : 1.0);
+                double x = p[0] * STRETCH_X * (m_mirrorX ? -1.0 : 1.0);
+                double y = p[1] * STRETCH_Y * (m_mirrorY ? -1.0 : 1.0);
                 if (m_transpose) {
                     std::swap(x, y);
                 }
                 world[gridIndex(i, j)] = {
-                    .x = L * shrink * x, .y = L * shrink * y, .z = L * shrink * p[2]};
+                    .x = L * SHRINK * x, .y = L * SHRINK * y, .z = L * SHRINK * p[2]};
             }
         }
         projectSheet(world, {.x = W, .y = H}, m_params.shading, SheetLighting::PaperCreases, out);

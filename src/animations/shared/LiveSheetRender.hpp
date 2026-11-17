@@ -24,7 +24,7 @@ inline Render::SWindowTransformBuffer renderLiveSheet(SSheetBuffers &sheet,
         g.textureSize,
         sheet.window,
         sheet.shade);
-    const auto layer = renderPaper(ctx,
+    const auto LAYER = renderPaper(ctx,
         SPaperDraw{
             .window = in.framebuffer->getTexture(),
             .shade = shaded && shade ? shade->texture() : SP<Render::ITexture>{},
@@ -34,8 +34,8 @@ inline Render::SWindowTransformBuffer renderLiveSheet(SSheetBuffers &sheet,
             .shadeVertices = &sheet.shade,
             .alpha = static_cast<float>(opacity),
         });
-    if (!layer) {
+    if (!LAYER) {
         return {.framebuffer = in.framebuffer, .box = in.box, .success = false};
     }
-    return {.framebuffer = layer, .box = g.canvas};
+    return {.framebuffer = LAYER, .box = g.canvas};
 }

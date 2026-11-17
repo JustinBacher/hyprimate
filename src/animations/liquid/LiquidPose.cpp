@@ -42,9 +42,9 @@ namespace hyprimate {
                 return {.x = base.x + (gain * flow.x), .y = base.y + (gain * flow.y)};
             }
             const Vec2 c = pose.compensation;
-            const Vec2 mapped = map.map(
+            const Vec2 MAPPED = map.map(
                 {.x = (base.x + (gain * flow.x)) * c.x, .y = (base.y + (gain * flow.y)) * c.y});
-            return {.x = mapped.x + pose.openOffset.x, .y = mapped.y + pose.openOffset.y};
+            return {.x = MAPPED.x + pose.openOffset.x, .y = MAPPED.y + pose.openOffset.y};
         }
 
         // Span along one axis of the visible half-plane: the screen side of the edge line.
@@ -75,16 +75,16 @@ namespace hyprimate {
         }
 
         const Vec2 c = pose.compensation;
-        const EdgeTransition::RestMap map =
+        const EdgeTransition::RestMap MAP =
             pose.transition.restMap({.x = size.x * c.x, .y = size.y * c.y});
         for (int j = 0; j < LIQUID_POSE_SAMPLES; ++j) {
             for (int i = 0; i < LIQUID_POSE_SAMPLES; ++i) {
                 const double u = static_cast<double>(i) / LIQUID_RENDER_CELLS;
                 const double v = static_cast<double>(j) / LIQUID_RENDER_CELLS;
-                const Vec2 base{.x = (u - 0.5) * size.x, .y = (v - 0.5) * size.y};
+                const Vec2 BASE{.x = (u - 0.5) * size.x, .y = (v - 0.5) * size.y};
                 grid.offsets[(static_cast<std::size_t>(j) * LIQUID_POSE_SAMPLES) + i] =
                     sampleOffset(
-                        pose, map, base, pose.mesh.sampleDisplacement(u, v), pose.displacementGain);
+                        pose, MAP, BASE, pose.mesh.sampleDisplacement(u, v), pose.displacementGain);
             }
         }
         grid.size = size;
@@ -94,7 +94,7 @@ namespace hyprimate {
     double fitLiquidPoseGain(const LiquidPose &pose, Vec2 restSize, LiquidPoseGrid *grid) {
         // Only an accepted field reaches the grid; any other outcome leaves the grid to be rebuilt
         // lazily.
-        const auto settle = [grid](double gain) {
+        const auto SETTLE = [grid](double gain) {
             if (grid) {
                 grid->invalidate();
             }
@@ -102,53 +102,53 @@ namespace hyprimate {
         };
         const EdgeTransition &transition = pose.transition;
         if (!transition.active() || pose.mesh.settled()) {
-            return settle(1.0);
+            return SETTLE(1.0);
         }
         const Vec2 c = pose.compensation;
         if (!std::isfinite(restSize.x) || !std::isfinite(restSize.y) || !std::isfinite(c.x) ||
             !std::isfinite(c.y) || restSize.x <= 0.0 || restSize.y <= 0.0 || c.x <= 0.0 ||
             c.y <= 0.0) {
-            return settle(0.0);
+            return SETTLE(0.0);
         }
 
         // Same composition as the renderer: the displayed sample is map(((u-0.5)*S + g*d) * c,
         // S*c).
-        const EdgeTransition::RestMap map =
+        const EdgeTransition::RestMap MAP =
             transition.restMap({.x = restSize.x * c.x, .y = restSize.y * c.y});
-        constexpr int kSide = LIQUID_POSE_SAMPLES;
-        constexpr int kVertices = kSide * kSide;
-        std::array<Vec2, kVertices> base{};
-        std::array<Vec2, kVertices> flow{};
-        std::array<Vec2, kVertices> mapOnly{};
-        std::array<Vec2, kVertices> moved{};
-        for (int j = 0; j < kSide; ++j) {
-            for (int i = 0; i < kSide; ++i) {
+        constexpr int K_SIDE = LIQUID_POSE_SAMPLES;
+        constexpr int K_VERTICES = K_SIDE * K_SIDE;
+        std::array<Vec2, K_VERTICES> base{};
+        std::array<Vec2, K_VERTICES> flow{};
+        std::array<Vec2, K_VERTICES> mapOnly{};
+        std::array<Vec2, K_VERTICES> moved{};
+        for (int j = 0; j < K_SIDE; ++j) {
+            for (int i = 0; i < K_SIDE; ++i) {
                 const double u = static_cast<double>(i) / LIQUID_RENDER_CELLS;
                 const double v = static_cast<double>(j) / LIQUID_RENDER_CELLS;
-                const int k = (j * kSide) + i;
+                const int k = (j * K_SIDE) + i;
                 base[k] = {.x = (u - 0.5) * restSize.x, .y = (v - 0.5) * restSize.y};
                 flow[k] = pose.mesh.sampleDisplacement(u, v);
-                mapOnly[k] = sampleOffset(pose, map, base[k], flow[k], 0.0);
+                mapOnly[k] = sampleOffset(pose, MAP, base[k], flow[k], 0.0);
             }
         }
 
         // Every triangle keeps kMinAreaFraction of its gain-0 area.
-        const auto keepsArea = [&](const std::array<Vec2, kVertices> &field) {
-            for (int j = 0; j + 1 < kSide; ++j) {
-                for (int i = 0; i + 1 < kSide; ++i) {
-                    const int p00 = (j * kSide) + i;
-                    const int p10 = p00 + 1;
-                    const int p01 = p00 + kSide;
-                    const int p11 = p01 + 1;
-                    const int tris[2][3] = {{p00, p10, p01}, {p10, p11, p01}};
-                    for (const auto &t : tris) {
-                        const double before =
+        const auto KEEPS_AREA = [&](const std::array<Vec2, K_VERTICES> &field) {
+            for (int j = 0; j + 1 < K_SIDE; ++j) {
+                for (int i = 0; i + 1 < K_SIDE; ++i) {
+                    const int P00 = (j * K_SIDE) + i;
+                    const int P10 = P00 + 1;
+                    const int P01 = P00 + K_SIDE;
+                    const int P11 = P01 + 1;
+                    const int TRIS[2][3] = {{P00, P10, P01}, {P10, P11, P01}};
+                    for (const auto &t : TRIS) {
+                        const double BEFORE =
                             triangleArea(mapOnly[t[0]], mapOnly[t[1]], mapOnly[t[2]]);
-                        if (!(before > 0.0)) {
+                        if (!(BEFORE > 0.0)) {
                             continue;  // degenerate at rest: nothing to keep
                         }
-                        const double after = triangleArea(field[t[0]], field[t[1]], field[t[2]]);
-                        if (!(after >= kMinAreaFraction * before)) {
+                        const double AFTER = triangleArea(field[t[0]], field[t[1]], field[t[2]]);
+                        if (!(AFTER >= kMinAreaFraction * BEFORE)) {
                             return false;
                         }
                     }
@@ -157,8 +157,8 @@ namespace hyprimate {
             return true;
         };
         // The grid's offsets are exactly this field at `gain`.
-        const auto publish = [grid, &restSize](
-                                 const std::array<Vec2, kVertices> &field, double gain) {
+        const auto PUBLISH = [grid, &restSize](
+                                 const std::array<Vec2, K_VERTICES> &field, double gain) {
             if (grid) {
                 grid->offsets = field;
                 grid->size = restSize;
@@ -167,15 +167,15 @@ namespace hyprimate {
             return gain;
         };
         for (int h = 0; h <= kGainHalvings; ++h) {
-            const double gain = std::ldexp(1.0, -h);
-            for (int k = 0; k < kVertices; ++k) {
-                moved[k] = sampleOffset(pose, map, base[k], flow[k], gain);
+            const double GAIN = std::ldexp(1.0, -h);
+            for (int k = 0; k < K_VERTICES; ++k) {
+                moved[k] = sampleOffset(pose, MAP, base[k], flow[k], GAIN);
             }
-            if (keepsArea(moved)) {
-                return publish(moved, gain);
+            if (KEEPS_AREA(moved)) {
+                return PUBLISH(moved, GAIN);
             }
         }
-        return publish(mapOnly, 0.0);
+        return PUBLISH(mapOnly, 0.0);
     }
 
     void advanceLiquidPose(LiquidMesh &mesh,
@@ -188,10 +188,10 @@ namespace hyprimate {
         grid.invalidate();
         transition.advance(elapsed);
         // Drained every frame so travel never accumulates while drive is 0.
-        const Vec2 travel = transition.takeTravel();
-        const double share = std::isfinite(drive) ? std::clamp(drive, 0.0, 1.0) : 0.0;
-        if (share > 0.0 && (travel.x != 0.0 || travel.y != 0.0)) {
-            mesh.recordTranslation({.x = travel.x * share, .y = travel.y * share}, size, strength);
+        const Vec2 TRAVEL = transition.takeTravel();
+        const double SHARE = std::isfinite(drive) ? std::clamp(drive, 0.0, 1.0) : 0.0;
+        if (SHARE > 0.0 && (TRAVEL.x != 0.0 || TRAVEL.y != 0.0)) {
+            mesh.recordTranslation({.x = TRAVEL.x * SHARE, .y = TRAVEL.y * SHARE}, size, strength);
         }
         mesh.advance(elapsed, size);
     }
@@ -202,52 +202,52 @@ namespace hyprimate {
         }
 
         const auto &frame = pose.transition.frame();
-        const Vec2 inward = inwardNormal(frame.edge);
-        const Vec2 edge = liquidEdgePoint(pose, 0.0, 0.0);
-        const double edgeX = logicalBox.x + (0.5 * logicalBox.w) + edge.x;
-        const double edgeY = logicalBox.y + (0.5 * logicalBox.h) + edge.y;
+        const Vec2 INWARD = inwardNormal(frame.edge);
+        const Vec2 EDGE = liquidEdgePoint(pose, 0.0, 0.0);
+        const double EDGE_X = logicalBox.x + (0.5 * logicalBox.w) + EDGE.x;
+        const double EDGE_Y = logicalBox.y + (0.5 * logicalBox.h) + EDGE.y;
 
         double minX = 0.0;
         double maxX = 0.0;
         double minY = 0.0;
         double maxY = 0.0;
-        visibleSpan(edgeX, inward.x, minX, maxX);
-        visibleSpan(edgeY, inward.y, minY, maxY);
+        visibleSpan(EDGE_X, INWARD.x, minX, maxX);
+        visibleSpan(EDGE_Y, INWARD.y, minY, maxY);
         return Box{.x = minX, .y = minY, .w = maxX - minX, .h = maxY - minY};
     }
 
     std::optional<Box> liquidMeniscusExtents(const LiquidPose &pose, const Box &logicalBox) {
-        const double low = pose.transition.meniscusLow();
-        const double high = pose.transition.meniscusHigh();
-        const double peak = pose.transition.meniscusPeak();
-        if (!(peak > 0.0) || !(high > low)) {
+        const double LOW = pose.transition.meniscusLow();
+        const double HIGH = pose.transition.meniscusHigh();
+        const double PEAK = pose.transition.meniscusPeak();
+        if (!(PEAK > 0.0) || !(HIGH > LOW)) {
             return std::nullopt;
         }
 
-        const double centreX = logicalBox.x + (0.5 * logicalBox.w);
-        const double centreY = logicalBox.y + (0.5 * logicalBox.h);
+        const double CENTRE_X = logicalBox.x + (0.5 * logicalBox.w);
+        const double CENTRE_Y = logicalBox.y + (0.5 * logicalBox.h);
         double minX = std::numeric_limits<double>::max();
         double minY = std::numeric_limits<double>::max();
         double maxX = std::numeric_limits<double>::lowest();
         double maxY = std::numeric_limits<double>::lowest();
-        for (const double t : {low, high}) {
-            for (const double n : {-LIQUID_BEHIND_EDGE, peak}) {
+        for (const double t : {LOW, HIGH}) {
+            for (const double n : {-LIQUID_BEHIND_EDGE, PEAK}) {
                 const Vec2 p = liquidEdgePoint(pose, t, n);
-                minX = std::min(minX, centreX + p.x);
-                minY = std::min(minY, centreY + p.y);
-                maxX = std::max(maxX, centreX + p.x);
-                maxY = std::max(maxY, centreY + p.y);
+                minX = std::min(minX, CENTRE_X + p.x);
+                minY = std::min(minY, CENTRE_Y + p.y);
+                maxX = std::max(maxX, CENTRE_X + p.x);
+                maxY = std::max(maxY, CENTRE_Y + p.y);
             }
         }
         return Box{.x = minX, .y = minY, .w = maxX - minX, .h = maxY - minY};
     }
 
     Box liquidRenderExtents(const LiquidPose &pose, const Box &logicalBox, LiquidPoseGrid &grid) {
-        const Vec2 size{.x = logicalBox.w, .y = logicalBox.h};
-        refreshLiquidPoseGrid(pose, size, grid);
+        const Vec2 SIZE{.x = logicalBox.w, .y = logicalBox.h};
+        refreshLiquidPoseGrid(pose, SIZE, grid);
 
-        const double centreX = logicalBox.x + (0.5 * logicalBox.w);
-        const double centreY = logicalBox.y + (0.5 * logicalBox.h);
+        const double CENTRE_X = logicalBox.x + (0.5 * logicalBox.w);
+        const double CENTRE_Y = logicalBox.y + (0.5 * logicalBox.h);
 
         // Only displayed samples and the meniscus contribute; the undeformed box is not part of the
         // canvas.
@@ -256,29 +256,29 @@ namespace hyprimate {
         double maxX = std::numeric_limits<double>::lowest();
         double maxY = std::numeric_limits<double>::lowest();
         for (const Vec2 p : grid.offsets) {
-            minX = std::min(minX, centreX + p.x);
-            minY = std::min(minY, centreY + p.y);
-            maxX = std::max(maxX, centreX + p.x);
-            maxY = std::max(maxY, centreY + p.y);
+            minX = std::min(minX, CENTRE_X + p.x);
+            minY = std::min(minY, CENTRE_Y + p.y);
+            maxX = std::max(maxX, CENTRE_X + p.x);
+            maxY = std::max(maxY, CENTRE_Y + p.y);
         }
 
-        if (const auto meniscus = liquidMeniscusExtents(pose, logicalBox)) {
-            minX = std::min(minX, meniscus->x);
-            minY = std::min(minY, meniscus->y);
-            maxX = std::max(maxX, meniscus->x + meniscus->w);
-            maxY = std::max(maxY, meniscus->y + meniscus->h);
+        if (const auto MENISCUS = liquidMeniscusExtents(pose, logicalBox)) {
+            minX = std::min(minX, MENISCUS->x);
+            minY = std::min(minY, MENISCUS->y);
+            maxX = std::max(maxX, MENISCUS->x + MENISCUS->w);
+            maxY = std::max(maxY, MENISCUS->y + MENISCUS->h);
         }
 
         Box extents{.x = minX, .y = minY, .w = maxX - minX, .h = maxY - minY};
-        if (const auto visible = liquidVisibleBox(pose, logicalBox)) {
-            extents = intersectBoxes(extents, *visible);
+        if (const auto VISIBLE = liquidVisibleBox(pose, logicalBox)) {
+            extents = intersectBoxes(extents, *VISIBLE);
             if (emptyBox(extents)) {
                 // Nothing visible yet: a 1 px sliver on the screen side of the edge keeps the
                 // damage path valid.
-                const Vec2 inward = inwardNormal(pose.transition.frame().edge);
-                const Vec2 edge = liquidEdgePoint(pose, 0.0, 0.0);
-                extents = Box{.x = centreX + edge.x + inward.x,
-                    .y = centreY + edge.y + inward.y,
+                const Vec2 INWARD = inwardNormal(pose.transition.frame().edge);
+                const Vec2 EDGE = liquidEdgePoint(pose, 0.0, 0.0);
+                extents = Box{.x = CENTRE_X + EDGE.x + INWARD.x,
+                    .y = CENTRE_Y + EDGE.y + INWARD.y,
                     .w = 1.0,
                     .h = 1.0};
             }

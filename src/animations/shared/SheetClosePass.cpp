@@ -28,26 +28,26 @@ std::vector<UP<IPassElement>> CPaperClosePassElement::draw(Render::CRenderContex
 
     // Shade the sheet in its own layer so the tint covers only its pixels; without a layer it draws
     // unlit.
-    const Vector2D canvas{std::ceil(m_data.box.w), std::ceil(m_data.box.h)};
-    const SPaperDraw paper{
+    const Vector2D CANVAS{std::ceil(m_data.box.w), std::ceil(m_data.box.h)};
+    const SPaperDraw PAPER{
         .window = m_data.tex,
         .shade = m_data.shade,
-        .canvas = canvas,
+        .canvas = CANVAS,
         .meshBox = CBox{0.0, 0.0, m_data.box.w, m_data.box.h},
         .windowVertices = m_data.vertices,
         .shadeVertices = m_data.shadeVertices,
         .alpha = 1.F,
     };
-    const auto layer = renderPaper(ctx, paper);
-    if (!layer) {
+    const auto LAYER = renderPaper(ctx, PAPER);
+    if (!LAYER) {
         Render::GL::g_pHyprOpenGL->renderTextureMesh(
             ctx, m_data.tex, m_data.box, *m_data.vertices, textureData);
         return {};
     }
 
     Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx,
-        layer->getTexture(),
-        CBox{m_data.box.x, m_data.box.y, canvas.x, canvas.y},
+        LAYER->getTexture(),
+        CBox{m_data.box.x, m_data.box.y, CANVAS.x, CANVAS.y},
         paperCanvasQuad(),
         textureData);
     return {};

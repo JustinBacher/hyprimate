@@ -61,9 +61,9 @@ namespace {
     }
 
     void testFrameGeometry() {
-        const hyprimate::Box body{.x = 972, .y = 548, .w = 924, .h = 508};
+        const hyprimate::Box BODY{.x = 972, .y = 548, .w = 924, .h = 508};
         const auto f = hyprimate::resolveEdgeFrame(
-            body, withShadow(body), kScreen, {}, hyprimate::Edge::Bottom, false);
+            BODY, withShadow(BODY), kScreen, {}, hyprimate::Edge::Bottom, false);
         CHECK(f && f->edge == hyprimate::Edge::Bottom);
         // Capture centre (1434, 802): 278 px above the bottom edge; capture half height 266.
         CHECK(std::abs(f->edgeDistance - 278.0) < 1e-9 && std::abs(f->captureFar - 544.0) < 1e-9);
@@ -102,40 +102,41 @@ namespace {
 
     void testDwindleContactKeepsDwindleEdges() {
         using hyprimate::Edge;
-        const std::array<hyprimate::Box, 1> leftHalf{{{.x = 24, .y = 24, .w = 924, .h = 1032}}};
-        CHECK(pick({972, 24, 924, 1032}, Edge::Bottom, false, leftHalf) ==
+        const std::array<hyprimate::Box, 1> LEFT_HALF{{{.x = 24, .y = 24, .w = 924, .h = 1032}}};
+        CHECK(pick({972, 24, 924, 1032}, Edge::Bottom, false, LEFT_HALF) ==
               Edge::Right);  // right half beside left half
-        const std::array<hyprimate::Box, 1> topRight{{{.x = 972, .y = 24, .w = 924, .h = 508}}};
-        CHECK(pick({972, 548, 924, 508}, Edge::Bottom, false, topRight) ==
+        const std::array<hyprimate::Box, 1> TOP_RIGHT{{{.x = 972, .y = 24, .w = 924, .h = 508}}};
+        CHECK(pick({972, 548, 924, 508}, Edge::Bottom, false, TOP_RIGHT) ==
               Edge::Bottom);  // bottom-right quarter below top-right
-        const std::array<hyprimate::Box, 1> bottomRight{{{.x = 972, .y = 548, .w = 924, .h = 508}}};
-        CHECK(pick({972, 24, 924, 508}, Edge::Bottom, false, bottomRight) ==
+        const std::array<hyprimate::Box, 1> BOTTOM_RIGHT{
+            {{.x = 972, .y = 548, .w = 924, .h = 508}}};
+        CHECK(pick({972, 24, 924, 508}, Edge::Bottom, false, BOTTOM_RIGHT) ==
               Edge::Top);  // top-right quarter above bottom-right
-        const std::array<hyprimate::Box, 1> sibling{{{.x = 972, .y = 548, .w = 458, .h = 508}}};
-        CHECK(pick({1438, 548, 458, 508}, Edge::Bottom, false, sibling) ==
+        const std::array<hyprimate::Box, 1> SIBLING{{{.x = 972, .y = 548, .w = 458, .h = 508}}};
+        CHECK(pick({1438, 548, 458, 508}, Edge::Bottom, false, SIBLING) ==
               Edge::Right);  // right eighth beside its sibling
     }
 
     void testScrollingColumnsEmergeAwayFromNeighbours() {
         using hyprimate::Edge;
         // 1600x900 monitor, full-height columns: gaps_out top 15, bottom 30, sides 30; gaps_in 12.
-        const std::array<hyprimate::Box, 1> left{{{.x = 30, .y = 15, .w = 700, .h = 855}}};
-        CHECK(pick({742, 15, 800, 855}, Edge::Bottom, false, left, kWideScreen) ==
+        const std::array<hyprimate::Box, 1> LEFT{{{.x = 30, .y = 15, .w = 700, .h = 855}}};
+        CHECK(pick({742, 15, 800, 855}, Edge::Bottom, false, LEFT, kWideScreen) ==
               Edge::Right);  // new column right of the left column
-        const std::array<hyprimate::Box, 1> right{{{.x = 870, .y = 15, .w = 700, .h = 855}}};
-        CHECK(pick({58, 15, 800, 855}, Edge::Bottom, false, right, kWideScreen) ==
+        const std::array<hyprimate::Box, 1> RIGHT{{{.x = 870, .y = 15, .w = 700, .h = 855}}};
+        CHECK(pick({58, 15, 800, 855}, Edge::Bottom, false, RIGHT, kWideScreen) ==
               Edge::Left);  // new column left of the right column
-        const std::array<hyprimate::Box, 2> around{
+        const std::array<hyprimate::Box, 2> AROUND{
             {{.x = 30, .y = 15, .w = 400, .h = 855}, {.x = 1060, .y = 15, .w = 510, .h = 855}}};
-        CHECK(pick({442, 15, 600, 855}, Edge::Bottom, false, around, kWideScreen) ==
+        CHECK(pick({442, 15, 600, 855}, Edge::Bottom, false, AROUND, kWideScreen) ==
               Edge::Left);  // between two columns, nearer Left
-        const std::array<hyprimate::Box, 2> around2{
+        const std::array<hyprimate::Box, 2> AROUND2{
             {{.x = 30, .y = 15, .w = 600, .h = 855}, {.x = 1000, .y = 15, .w = 570, .h = 855}}};
-        CHECK(pick({640, 15, 360, 855}, Edge::Bottom, false, around2, kWideScreen) ==
+        CHECK(pick({640, 15, 360, 855}, Edge::Bottom, false, AROUND2, kWideScreen) ==
               Edge::Right);  // between two columns, nearer Right
         CHECK(pick({742, 15, 800, 855}, Edge::Bottom, false, {}, kWideScreen) ==
               Edge::Top);  // no neighbours: nearest edge
-        CHECK(pick({742, 15, 800, 855}, Edge::Top, true, left, kWideScreen) ==
+        CHECK(pick({742, 15, 800, 855}, Edge::Top, true, LEFT, kWideScreen) ==
               Edge::Top);  // first window: side beats contact
     }
 
@@ -143,26 +144,26 @@ namespace {
         using hyprimate::Edge;
         // The body crosses the right screen edge, so the Right candidate is invalid; the nearest
         // valid edge is Top.
-        const std::array<hyprimate::Box, 1> left{{{.x = 600, .y = 24, .w = 380, .h = 400}}};
-        CHECK(pick({1000, 24, 1000, 400}, Edge::Bottom, false, left) == Edge::Top);
+        const std::array<hyprimate::Box, 1> LEFT{{{.x = 600, .y = 24, .w = 380, .h = 400}}};
+        CHECK(pick({1000, 24, 1000, 400}, Edge::Bottom, false, LEFT) == Edge::Top);
         CHECK(pick({1000, 24, 1000, 400}, Edge::Bottom, false) == Edge::Top);
     }
 
     void testOnlyTouchingNeighboursCount() {
         using hyprimate::Edge;
-        const hyprimate::Box body{.x = 972, .y = 548, .w = 924, .h = 508};
-        const std::array<hyprimate::Box, 1> gap64{
+        const hyprimate::Box BODY{.x = 972, .y = 548, .w = 924, .h = 508};
+        const std::array<hyprimate::Box, 1> GAP64{
             {{.x = 600, .y = 548, .w = 308, .h = 508}}};  // facing gap 64 px: counts
-        CHECK(pick(body, Edge::Bottom, false, gap64) == Edge::Right);
-        const std::array<hyprimate::Box, 1> gap100{
+        CHECK(pick(BODY, Edge::Bottom, false, GAP64) == Edge::Right);
+        const std::array<hyprimate::Box, 1> GAP100{
             {{.x = 600, .y = 548, .w = 272, .h = 508}}};  // facing gap 100 px: ignored
-        CHECK(pick(body, Edge::Bottom, false, gap100) == Edge::Bottom);
-        const std::array<hyprimate::Box, 1> aside{
+        CHECK(pick(BODY, Edge::Bottom, false, GAP100) == Edge::Bottom);
+        const std::array<hyprimate::Box, 1> ASIDE{
             {{.x = 600, .y = 24, .w = 360, .h = 400}}};  // 12 px gap, no vertical overlap: ignored
-        CHECK(pick(body, Edge::Bottom, false, aside) == Edge::Bottom);
-        const std::array<hyprimate::Box, 1> overlapping{
+        CHECK(pick(BODY, Edge::Bottom, false, ASIDE) == Edge::Bottom);
+        const std::array<hyprimate::Box, 1> OVERLAPPING{
             {{.x = 1200, .y = 300, .w = 600, .h = 600}}};  // floating-like overlap: ignored
-        CHECK(pick(body, Edge::Bottom, false, overlapping) == Edge::Bottom);
+        CHECK(pick(BODY, Edge::Bottom, false, OVERLAPPING) == Edge::Bottom);
     }
 
     // Both materials call this close policy, including an in-place cloth opening's logical origin.
@@ -170,71 +171,71 @@ namespace {
         using hyprimate::Box;
         using hyprimate::CloseSide;
         using hyprimate::Edge;
-        const Box body{.x = 972, .y = 548, .w = 924, .h = 508};
-        const std::array<Box, 1> left{{{.x = 600, .y = 548, .w = 308, .h = 508}}};
-        const auto close = [&](CloseSide side, std::optional<Edge> origin = std::nullopt) {
-            const auto frame = hyprimate::resolveCloseEdgeFrame(
-                body, withShadow(body), kScreen, left, Edge::Bottom, side, origin);
-            return frame ? std::optional{frame->edge} : std::nullopt;
+        const Box BODY{.x = 972, .y = 548, .w = 924, .h = 508};
+        const std::array<Box, 1> LEFT{{{.x = 600, .y = 548, .w = 308, .h = 508}}};
+        const auto CLOSE = [&](CloseSide side, std::optional<Edge> origin = std::nullopt) {
+            const auto FRAME = hyprimate::resolveCloseEdgeFrame(
+                BODY, withShadow(BODY), kScreen, LEFT, Edge::Bottom, side, origin);
+            return FRAME ? std::optional{FRAME->edge} : std::nullopt;
         };
-        CHECK(close(CloseSide::Auto) == Edge::Right);
-        CHECK(close(CloseSide::Nearest) == Edge::Bottom);  // ignores tiled contact
-        CHECK(close(CloseSide::Origin, Edge::Top) == Edge::Top);
-        CHECK(close(CloseSide::Origin) == close(CloseSide::Auto));
-        const auto last = hyprimate::resolveCloseEdgeFrame(
-            body, withShadow(body), kScreen, {}, Edge::Top, CloseSide::Auto, std::nullopt, true);
-        CHECK(last && last->edge == Edge::Top);
-        const auto nearest = hyprimate::resolveCloseEdgeFrame(
-            body, withShadow(body), kScreen, {}, Edge::Top, CloseSide::Nearest, std::nullopt, true);
-        CHECK(nearest && nearest->edge == Edge::Bottom);
-        for (const auto &[side, edge] :
+        CHECK(CLOSE(CloseSide::Auto) == Edge::Right);
+        CHECK(CLOSE(CloseSide::Nearest) == Edge::Bottom);  // ignores tiled contact
+        CHECK(CLOSE(CloseSide::Origin, Edge::Top) == Edge::Top);
+        CHECK(CLOSE(CloseSide::Origin) == CLOSE(CloseSide::Auto));
+        const auto LAST = hyprimate::resolveCloseEdgeFrame(
+            BODY, withShadow(BODY), kScreen, {}, Edge::Top, CloseSide::Auto, std::nullopt, true);
+        CHECK(LAST && LAST->edge == Edge::Top);
+        const auto NEAREST = hyprimate::resolveCloseEdgeFrame(
+            BODY, withShadow(BODY), kScreen, {}, Edge::Top, CloseSide::Nearest, std::nullopt, true);
+        CHECK(NEAREST && NEAREST->edge == Edge::Bottom);
+        for (const auto &[SIDE, EDGE] :
             std::array<std::pair<CloseSide, Edge>, 4>{{{CloseSide::Left, Edge::Left},
                 {CloseSide::Right, Edge::Right},
                 {CloseSide::Top, Edge::Top},
                 {CloseSide::Bottom, Edge::Bottom}}}) {
-            CHECK(close(side) == edge);
-            CHECK(close(side, Edge::Top) ==
-                  edge);  // an opening origin does not override a fixed direction
+            CHECK(CLOSE(SIDE) == EDGE);
+            CHECK(CLOSE(SIDE, Edge::Top) ==
+                  EDGE);  // an opening origin does not override a fixed direction
         }
 
-        const Box crossingBottom{.x = 500, .y = 900, .w = 400, .h = 300};
-        const auto fallback = hyprimate::resolveCloseEdgeFrame(crossingBottom,
-            withShadow(crossingBottom),
+        const Box CROSSING_BOTTOM{.x = 500, .y = 900, .w = 400, .h = 300};
+        const auto FALLBACK = hyprimate::resolveCloseEdgeFrame(CROSSING_BOTTOM,
+            withShadow(CROSSING_BOTTOM),
             kScreen,
             {},
             Edge::Bottom,
             CloseSide::Bottom);
-        CHECK(fallback &&
-              fallback->edge == Edge::Left);  // fixed preference invalid: normal resolver fallback
-        const auto originFallback = hyprimate::resolveCloseEdgeFrame(crossingBottom,
-            withShadow(crossingBottom),
+        CHECK(FALLBACK &&
+              FALLBACK->edge == Edge::Left);  // fixed preference invalid: normal resolver fallback
+        const auto ORIGIN_FALLBACK = hyprimate::resolveCloseEdgeFrame(CROSSING_BOTTOM,
+            withShadow(CROSSING_BOTTOM),
             kScreen,
             {},
             Edge::Bottom,
             CloseSide::Origin,
             Edge::Bottom);
-        CHECK(originFallback && originFallback->edge == Edge::Left);
+        CHECK(ORIGIN_FALLBACK && ORIGIN_FALLBACK->edge == Edge::Left);
     }
 
     void testCloseMonitorAndWorkAreaBounds() {
         using hyprimate::Box;
         using hyprimate::CloseSide;
         using hyprimate::Edge;
-        const Box body{.x = 760, .y = 340, .w = 400, .h = 400};
-        const auto screen = hyprimate::resolveCloseEdgeFrame(
-            body, withShadow(body), kScreen, {}, Edge::Bottom, CloseSide::Nearest);
-        const auto work = hyprimate::resolveCloseEdgeFrame(body,
-            withShadow(body),
+        const Box BODY{.x = 760, .y = 340, .w = 400, .h = 400};
+        const auto SCREEN = hyprimate::resolveCloseEdgeFrame(
+            BODY, withShadow(BODY), kScreen, {}, Edge::Bottom, CloseSide::Nearest);
+        const auto WORK = hyprimate::resolveCloseEdgeFrame(BODY,
+            withShadow(BODY),
             {.x = 0, .y = 100, .w = 1920, .h = 980},
             {},
             Edge::Bottom,
             CloseSide::Nearest);
-        CHECK(screen && screen->edge == Edge::Bottom);
-        CHECK(work && work->edge == Edge::Top);
+        CHECK(SCREEN && SCREEN->edge == Edge::Bottom);
+        CHECK(WORK && WORK->edge == Edge::Top);
 
         // Translating the monitor, window, capture and neighbours must preserve every direction and
         // boundary distance.
-        const Box shiftedBody{.x = body.x - 1920, .y = body.y - 200, .w = body.w, .h = body.h};
+        const Box SHIFTED_BODY{.x = BODY.x - 1920, .y = BODY.y - 200, .w = BODY.w, .h = BODY.h};
         for (CloseSide side : {CloseSide::Auto,
                  CloseSide::Nearest,
                  CloseSide::Origin,
@@ -243,9 +244,9 @@ namespace {
                  CloseSide::Left,
                  CloseSide::Right}) {
             const auto a = hyprimate::resolveCloseEdgeFrame(
-                body, withShadow(body), kScreen, {}, Edge::Bottom, side, Edge::Right);
-            const auto b = hyprimate::resolveCloseEdgeFrame(shiftedBody,
-                withShadow(shiftedBody),
+                BODY, withShadow(BODY), kScreen, {}, Edge::Bottom, side, Edge::Right);
+            const auto b = hyprimate::resolveCloseEdgeFrame(SHIFTED_BODY,
+                withShadow(SHIFTED_BODY),
                 {.x = -1920, .y = -200, .w = 1920, .h = 1080},
                 {},
                 Edge::Bottom,
@@ -255,7 +256,7 @@ namespace {
             CHECK(a && b && std::abs(a->edgeDistance - b->edgeDistance) < 1e-9);
         }
         CHECK(!hyprimate::resolveCloseEdgeFrame(
-            body, withShadow(body), {}, {}, Edge::Bottom, CloseSide::Auto));
+            BODY, withShadow(BODY), {}, {}, Edge::Bottom, CloseSide::Auto));
         CHECK(!hyprimate::resolveCloseEdgeFrame(
             {-10, -10, 1940, 1100}, kScreen, kScreen, {}, Edge::Bottom, CloseSide::Right));
     }
@@ -318,8 +319,8 @@ namespace {
                       1e-6);
             }
         }
-        const Vec2 first = tr.takeTravel();
-        CHECK(first.x == 0.0 && first.y == 0.0);  // begin is not travel
+        const Vec2 FIRST = tr.takeTravel();
+        CHECK(FIRST.x == 0.0 && FIRST.y == 0.0);  // begin is not travel
         double maxInward = -1e9;
         for (int i = 0; i < 960 && tr.active(); ++i) {
             tr.advance(kStep);
@@ -340,7 +341,7 @@ namespace {
     void testOpenFillsLiveCaptureAlongNormal() {
         EdgeTransition tr;
         tr.begin(Transition::Open, kQuarter, TransitionParams{}, kStrength);
-        constexpr Vec2 kLive{
+        constexpr Vec2 K_LIVE{
             .x = kCapture.x, .y = kCapture.y + 24.0};  // Bottom edge: the normal is vertical
         double worst = 0.0;
         int checked = 0;
@@ -349,11 +350,11 @@ namespace {
             if (i < 240 || !tr.active()) {
                 continue;  // from 1 s of 240 Hz steps the spring is within a fraction of a pixel
             }
-            const double far =
-                hyprimate::edgeNormal(kQuarter, tr.map({.x = 0.0, .y = -0.5 * kLive.y}, kLive));
-            const double near =
-                hyprimate::edgeNormal(kQuarter, tr.map({.x = 0.0, .y = 0.5 * kLive.y}, kLive));
-            worst = std::max(worst, std::abs((far - near) - kLive.y));
+            const double FAR =
+                hyprimate::edgeNormal(kQuarter, tr.map({.x = 0.0, .y = -0.5 * K_LIVE.y}, K_LIVE));
+            const double NEAR =
+                hyprimate::edgeNormal(kQuarter, tr.map({.x = 0.0, .y = 0.5 * K_LIVE.y}, K_LIVE));
+            worst = std::max(worst, std::abs((FAR - NEAR) - K_LIVE.y));
             ++checked;
         }
         CHECK(checked > 0);
@@ -365,28 +366,28 @@ namespace {
     void testBeadMapDoesNotFold() {
         EdgeTransition tr;
         tr.begin(Transition::Open, kQuarter, TransitionParams{}, kStrength);
-        constexpr int kSide = 33;
+        constexpr int K_SIDE = 33;
         for (int frame = 0; frame < 240 && tr.active(); ++frame) {
             tr.advance(kStep);
             if (!tr.active()) {
                 break;
             }
-            std::array<Vec2, kSide * kSide> mapped{};
-            for (int j = 0; j < kSide; ++j) {
-                for (int i = 0; i < kSide; ++i) {
-                    const double u = static_cast<double>(i) / (kSide - 1);
-                    const double v = static_cast<double>(j) / (kSide - 1);
-                    mapped[(j * kSide) + i] = tr.map(
+            std::array<Vec2, K_SIDE * K_SIDE> mapped{};
+            for (int j = 0; j < K_SIDE; ++j) {
+                for (int i = 0; i < K_SIDE; ++i) {
+                    const double u = static_cast<double>(i) / (K_SIDE - 1);
+                    const double v = static_cast<double>(j) / (K_SIDE - 1);
+                    mapped[(j * K_SIDE) + i] = tr.map(
                         {.x = (u - 0.5) * kCapture.x, .y = (v - 0.5) * kCapture.y}, kCapture);
                 }
             }
-            for (int j = 0; j + 1 < kSide; ++j) {
-                for (int i = 0; i + 1 < kSide; ++i) {
-                    const Vec2 a = mapped[(j * kSide) + i];
-                    const Vec2 b = mapped[(j * kSide) + i + 1];
-                    const Vec2 c = mapped[((j + 1) * kSide) + i];
-                    const double area = ((b.x - a.x) * (c.y - a.y)) - ((b.y - a.y) * (c.x - a.x));
-                    CHECK(area > 0.0);
+            for (int j = 0; j + 1 < K_SIDE; ++j) {
+                for (int i = 0; i + 1 < K_SIDE; ++i) {
+                    const Vec2 a = mapped[(j * K_SIDE) + i];
+                    const Vec2 b = mapped[(j * K_SIDE) + i + 1];
+                    const Vec2 c = mapped[((j + 1) * K_SIDE) + i];
+                    const double AREA = ((b.x - a.x) * (c.y - a.y)) - ((b.y - a.y) * (c.x - a.x));
+                    CHECK(AREA > 0.0);
                 }
             }
         }
@@ -394,18 +395,18 @@ namespace {
 
     void testOpenEdgesPointTheRightWay() {
         using hyprimate::Edge;
-        const std::array<std::pair<Edge, Vec2>, 4> cases{{{Edge::Bottom, {.x = 0, .y = 1}},
+        const std::array<std::pair<Edge, Vec2>, 4> CASES{{{Edge::Bottom, {.x = 0, .y = 1}},
             {Edge::Top, {.x = 0, .y = -1}},
             {Edge::Left, {.x = -1, .y = 0}},
             {Edge::Right, {.x = 1, .y = 0}}}};
-        for (const auto &[edge, sign] : cases) {
+        for (const auto &[EDGE, SIGN] : CASES) {
             EdgeTransition tr;
             tr.begin(Transition::Open,
-                frameFor({.x = 24, .y = 24, .w = 1872, .h = 1032}, edge, true),
+                frameFor({.x = 24, .y = 24, .w = 1872, .h = 1032}, EDGE, true),
                 TransitionParams{},
                 kStrength);
             const Vec2 o = centreOf(tr);
-            CHECK(o.x * sign.x + o.y * sign.y > 200.0);  // starts hidden beyond that edge
+            CHECK(o.x * SIGN.x + o.y * SIGN.y > 200.0);  // starts hidden beyond that edge
         }
     }
 
@@ -421,27 +422,27 @@ namespace {
         double prevNear = nearSide(tr);
         for (int i = 0; i < 480 && tr.active(); ++i) {
             tr.advance(kStep);
-            const double peak = tr.meniscusPeak();
+            const double PEAK = tr.meniscusPeak();
             const double n = nearSide(tr);
-            CHECK(peak >= 0.0);
+            CHECK(PEAK >= 0.0);
             // Tolerance 8 px: the recoil spring legitimately moves ~5 px per substep. Snaps to or
             // from zero (>= Fs+Lp ~ 44 px) still fail.
-            CHECK(std::abs(peak - prevPeak) <= std::abs(n - prevNear) + 8.0);  // continuous
-            if (n >= 0.0 && peak > n + 1.0) {
+            CHECK(std::abs(PEAK - prevPeak) <= std::abs(n - prevNear) + 8.0);  // continuous
+            if (n >= 0.0 && PEAK > n + 1.0) {
                 tucked = true;  // tip under the window
             }
-            if (tucked && peak < n - 1.0 && snaps == 0) {
+            if (tucked && PEAK < n - 1.0 && snaps == 0) {
                 ++snaps;  // gap opened: snapped
-            } else if (snaps == 1 && peak > n + 1.0) {
+            } else if (snaps == 1 && PEAK > n + 1.0) {
                 ++snaps;  // must never re-attach
             }
-            if (snaps == 1 && peak == 0.0) {
+            if (snaps == 1 && PEAK == 0.0) {
                 sawZeroAfterSnap = true;
             }
-            if (sawZeroAfterSnap && peak > 0.5) {
+            if (sawZeroAfterSnap && PEAK > 0.5) {
                 secondLobe = true;  // the bar's small rebound bump
             }
-            prevPeak = peak;
+            prevPeak = PEAK;
             prevNear = n;
         }
         CHECK(tucked);
@@ -490,15 +491,15 @@ namespace {
     void testOpenTravelSumsToCentreDisplacement() {
         EdgeTransition tr;
         tr.begin(Transition::Open, kQuarter, TransitionParams{}, kStrength);
-        const Vec2 inward = hyprimate::inwardNormal(kQuarter.edge);
-        const double start = centreInward(tr);
+        const Vec2 INWARD = hyprimate::inwardNormal(kQuarter.edge);
+        const double START = centreInward(tr);
         double sum = 0.0;
         for (int i = 0; i < 960 && tr.active(); ++i) {
             tr.advance(kStep);
             const Vec2 t = tr.takeTravel();
-            sum += (t.x * inward.x) + (t.y * inward.y);
+            sum += (t.x * INWARD.x) + (t.y * INWARD.y);
         }
-        CHECK(std::abs(sum - (0.0 - start)) < 0.5);  // from the start displacement back to rest
+        CHECK(std::abs(sum - (0.0 - START)) < 0.5);  // from the start displacement back to rest
     }
 
     // Close.
@@ -524,24 +525,24 @@ namespace {
 
     // Shrinking into a bead must not brake to a hover before the dive.
     void testCloseKeepsMovingThroughTheShrink() {
-        for (const double momentum : {0.0, 0.5, 1.0}) {
+        for (const double MOMENTUM : {0.0, 0.5, 1.0}) {
             EdgeTransition tr;
             tr.begin(Transition::Close,
                 kQuarter,
-                TransitionParams{.momentum = momentum},
+                TransitionParams{.momentum = MOMENTUM},
                 kStrength,
                 false);
             double previousTravel = 0.0;
             bool continuous = true;
             for (int i = 0; i < 100; ++i) {
                 tr.advance(kStep);
-                const Vec2 travel = tr.takeTravel();
-                const Vec2 inward = hyprimate::inwardNormal(kQuarter.edge);
-                const double outward = -((travel.x * inward.x) + (travel.y * inward.y));
+                const Vec2 TRAVEL = tr.takeTravel();
+                const Vec2 INWARD = hyprimate::inwardNormal(kQuarter.edge);
+                const double OUTWARD = -((TRAVEL.x * INWARD.x) + (TRAVEL.y * INWARD.y));
                 if (i >= 24) {
-                    continuous = continuous && outward > 0.0 && outward >= 0.95 * previousTravel;
+                    continuous = continuous && OUTWARD > 0.0 && OUTWARD >= 0.95 * previousTravel;
                 }
-                previousTravel = outward;
+                previousTravel = OUTWARD;
             }
             CHECK(continuous);
         }
@@ -553,16 +554,16 @@ namespace {
         for (int i = 0; i < 30; ++i) {
             tr.advance(kStep);
         }
-        const Vec2 before = centreOf(tr);
-        const double peakBefore = tr.meniscusPeak();
-        const auto other = frameFor({.x = 24, .y = 24, .w = 900, .h = 500},
+        const Vec2 BEFORE = centreOf(tr);
+        const double PEAK_BEFORE = tr.meniscusPeak();
+        const auto OTHER = frameFor({.x = 24, .y = 24, .w = 900, .h = 500},
             hyprimate::Edge::Left,
             true);  // different edge: ignored
-        tr.begin(Transition::Close, other, TransitionParams{}, kStrength);
+        tr.begin(Transition::Close, OTHER, TransitionParams{}, kStrength);
         CHECK(tr.frame().edge == hyprimate::Edge::Bottom);
-        CHECK(std::abs(centreOf(tr).x - before.x) < 1e-9 &&
-              std::abs(centreOf(tr).y - before.y) < 1e-9);
-        CHECK(std::abs(tr.meniscusPeak() - peakBefore) < 1e-9);  // Open->Close begin is continuous
+        CHECK(std::abs(centreOf(tr).x - BEFORE.x) < 1e-9 &&
+              std::abs(centreOf(tr).y - BEFORE.y) < 1e-9);
+        CHECK(std::abs(tr.meniscusPeak() - PEAK_BEFORE) < 1e-9);  // Open->Close begin is continuous
         for (int i = 0; i < 480 && tr.active(); ++i) {
             tr.advance(kStep);
         }
@@ -572,10 +573,10 @@ namespace {
     // A close from rest shows no liquid until the drain (0.46 s at default elasticity = substep
     // 111).
     void testCloseFromRestHasNoLiquidBeforeDrain() {
-        constexpr int kDrainStep = 111;
+        constexpr int K_DRAIN_STEP = 111;
         EdgeTransition tr;
         tr.begin(Transition::Close, kQuarter, TransitionParams{}, kStrength);
-        for (int i = 1; i < kDrainStep && tr.active(); ++i) {
+        for (int i = 1; i < K_DRAIN_STEP && tr.active(); ++i) {
             tr.advance(kStep);
             CHECK(tr.meniscusPeak() == 0.0);
         }
@@ -592,11 +593,11 @@ namespace {
             low.advance(kStep);
             high.advance(kStep);
         }
-        const double lowNormal =
+        const double LOW_NORMAL =
             hyprimate::edgeNormal(kQuarter, low.map({.x = 0, .y = 0}, kCapture));
-        const double highNormal =
+        const double HIGH_NORMAL =
             hyprimate::edgeNormal(kQuarter, high.map({.x = 0, .y = 0}, kCapture));
-        CHECK(highNormal < lowNormal);
+        CHECK(HIGH_NORMAL < LOW_NORMAL);
     }
 
     // A window whose real box follows the pop-out must sit exactly where the outline map puts the
@@ -612,15 +613,15 @@ namespace {
             }
             const Vec2 c = tr.beadCentre();
             const Vec2 h = tr.beadHalf(kCapture);
-            const Vec2 top = tr.map({.x = 0.0, .y = -0.5 * kCapture.y}, kCapture);
-            const Vec2 bottom = tr.map({.x = 0.0, .y = 0.5 * kCapture.y}, kCapture);
-            const Vec2 left = tr.map({.x = -0.5 * kCapture.x, .y = 0.0}, kCapture);
-            const Vec2 right = tr.map({.x = 0.5 * kCapture.x, .y = 0.0}, kCapture);
+            const Vec2 TOP = tr.map({.x = 0.0, .y = -0.5 * kCapture.y}, kCapture);
+            const Vec2 BOTTOM = tr.map({.x = 0.0, .y = 0.5 * kCapture.y}, kCapture);
+            const Vec2 LEFT = tr.map({.x = -0.5 * kCapture.x, .y = 0.0}, kCapture);
+            const Vec2 RIGHT = tr.map({.x = 0.5 * kCapture.x, .y = 0.0}, kCapture);
             worst = std::max({worst,
-                std::abs(top.y - (c.y - h.y)),
-                std::abs(bottom.y - (c.y + h.y)),
-                std::abs(left.x - (c.x - h.x)),
-                std::abs(right.x - (c.x + h.x))});
+                std::abs(TOP.y - (c.y - h.y)),
+                std::abs(BOTTOM.y - (c.y + h.y)),
+                std::abs(LEFT.x - (c.x - h.x)),
+                std::abs(RIGHT.x - (c.x + h.x))});
         }
         CHECK(worst < 1e-6);
         const Vec2 c = tr.beadCentre();
@@ -662,9 +663,9 @@ namespace {
         pose.displacementGain = g;
         hyprimate::LiquidPoseGrid grid;
         std::vector<hyprimate::LiquidVertex> out;
-        const hyprimate::Box logical{.x = 0.0, .y = 0.0, .w = size.x, .h = size.y};
+        const hyprimate::Box LOGICAL{.x = 0.0, .y = 0.0, .w = size.x, .h = size.y};
         hyprimate::fillLiquidRenderMesh(pose,
-            logical,
+            LOGICAL,
             1.0,
             hyprimate::Box{.x = 0.0, .y = 0.0, .w = 1.0, .h = 1.0},
             Vec2{.x = 0.0, .y = 0.0},
@@ -678,22 +679,22 @@ namespace {
     // is a fold that pinches the window.
     double minRenderRatio(
         const EdgeTransition &tr, const LiquidMesh &mesh, double g, Vec2 size, Vec2 c) {
-        const auto base = renderMesh(tr, mesh, 0.0, size, c);
-        const auto moved = renderMesh(tr, mesh, g, size, c);
-        const auto area = [](const hyprimate::LiquidVertex &a,
+        const auto BASE = renderMesh(tr, mesh, 0.0, size, c);
+        const auto MOVED = renderMesh(tr, mesh, g, size, c);
+        const auto AREA = [](const hyprimate::LiquidVertex &a,
                               const hyprimate::LiquidVertex &b,
                               const hyprimate::LiquidVertex &q) {
             return ((static_cast<double>(b.x) - a.x) * (static_cast<double>(q.y) - a.y)) -
                    ((static_cast<double>(b.y) - a.y) * (static_cast<double>(q.x) - a.x));
         };
         double worst = 1.0;
-        for (std::size_t t = 0; t + 2 < base.size();
+        for (std::size_t t = 0; t + 2 < BASE.size();
             t += 3) {  // six vertices per cell: two triangles of three
-            const double ref = area(base[t], base[t + 1], base[t + 2]);
-            if (std::abs(ref) < 1e-9) {
+            const double REF = AREA(BASE[t], BASE[t + 1], BASE[t + 2]);
+            if (std::abs(REF) < 1e-9) {
                 continue;  // degenerate at rest: nothing to fold
             }
-            worst = std::min(worst, area(moved[t], moved[t + 1], moved[t + 2]) / ref);
+            worst = std::min(worst, AREA(MOVED[t], MOVED[t + 1], MOVED[t + 2]) / REF);
         }
         return worst;
     }
@@ -712,10 +713,10 @@ namespace {
             mesh.advance(kStep, kCapture);
         }
         for (const double c : {1.0, 1.5, 2.0}) {
-            const Vec2 comp{.x = c, .y = c};
-            const double g = fitGain(mesh, tr, comp);
+            const Vec2 COMP{.x = c, .y = c};
+            const double g = fitGain(mesh, tr, COMP);
             CHECK(g < 1.0);
-            CHECK(minRenderRatio(tr, mesh, g, kCapture, comp) >= 0.2 - 1e-9);
+            CHECK(minRenderRatio(tr, mesh, g, kCapture, COMP) >= 0.2 - 1e-9);
         }
     }
 
@@ -724,22 +725,22 @@ namespace {
     void testCloseReturnsFinalTravel() {
         EdgeTransition tr;
         tr.begin(Transition::Close, kQuarter, TransitionParams{}, kStrength, false);
-        const Vec2 inward = hyprimate::inwardNormal(kQuarter.edge);
+        const Vec2 INWARD = hyprimate::inwardNormal(kQuarter.edge);
         bool sawClosed = false;
         double closingTravel = 0.0;
         for (int i = 0; i < 480 && tr.active(); ++i) {
             tr.advance(kStep);
-            const bool reached = tr.closed();
+            const bool REACHED = tr.closed();
             const Vec2 t = tr.takeTravel();
-            if (reached && !sawClosed) {
+            if (REACHED && !sawClosed) {
                 sawClosed = true;
-                closingTravel = (t.x * inward.x) + (t.y * inward.y);
+                closingTravel = (t.x * INWARD.x) + (t.y * INWARD.y);
             }
         }
         CHECK(sawClosed);
         CHECK(std::abs(closingTravel) > 1e-3);
-        const Vec2 after = tr.takeTravel();
-        CHECK(after.x == 0.0 && after.y == 0.0);
+        const Vec2 AFTER = tr.takeTravel();
+        CHECK(AFTER.x == 0.0 && AFTER.y == 0.0);
     }
 
     // Close begun on the same substep as an open: the open's neck is still hidden, so there is no
@@ -760,15 +761,15 @@ namespace {
     // Local maxima of the meniscus above 5% of `peak`, sampled every 0.02 r across +-2 r of the
     // window centre `c`.
     std::vector<double> lobeCentres(const EdgeTransition &tr, double c, double peak) {
-        constexpr int kHalf = 100;
-        std::vector<double> v((2 * kHalf) + 1);
-        for (int k = -kHalf; k <= kHalf; ++k) {
-            v[k + kHalf] = tr.meniscus(c + (k * 0.02 * kBeadRadius));
+        constexpr int K_HALF = 100;
+        std::vector<double> v((2 * K_HALF) + 1);
+        for (int k = -K_HALF; k <= K_HALF; ++k) {
+            v[k + K_HALF] = tr.meniscus(c + (k * 0.02 * kBeadRadius));
         }
         std::vector<double> centres;
         for (int k = 1; k + 1 < static_cast<int>(v.size()); ++k) {
             if (v[k] > 0.05 * peak && v[k] > v[k - 1] && v[k] >= v[k + 1]) {
-                centres.push_back(c + ((k - kHalf) * 0.02 * kBeadRadius));
+                centres.push_back(c + ((k - K_HALF) * 0.02 * kBeadRadius));
             }
         }
         return centres;
@@ -788,21 +789,21 @@ namespace {
         bool oneCentredLobe = false;
         for (int i = 1; i <= 600 && tr.active(); ++i) {
             tr.advance(kStep);
-            const double peak = tr.meniscusPeak();
+            const double PEAK = tr.meniscusPeak();
             const double n = nearSide(tr);
-            CHECK(std::abs(peak - prevPeak) <= std::abs(n - prevNear) + 8.0);
-            prevPeak = peak;
+            CHECK(std::abs(PEAK - prevPeak) <= std::abs(n - prevNear) + 8.0);
+            prevPeak = PEAK;
             prevNear = n;
-            if (peak > 0.0) {
+            if (PEAK > 0.0) {
                 if (firstSplash < 0) {
                     firstSplash = i;
                 }
                 lastSplash = i;
             }
-            if (peak > splashPeak) {
-                splashPeak = peak;
-                const auto lobes = lobeCentres(tr, c, peak);
-                oneCentredLobe = lobes.size() == 1 && std::abs(lobes[0] - c) < 0.1 * kBeadRadius;
+            if (PEAK > splashPeak) {
+                splashPeak = PEAK;
+                const auto LOBES = lobeCentres(tr, c, PEAK);
+                oneCentredLobe = LOBES.size() == 1 && std::abs(LOBES[0] - c) < 0.1 * kBeadRadius;
             }
         }
         CHECK(splashPeak > 0.3 * kBeadRadius);
@@ -845,14 +846,14 @@ namespace {
         bool splashAfterQuiet = false;
         for (int i = 0; i < 960 && tr.active(); ++i) {
             tr.advance(kStep);
-            const double peak = tr.meniscusPeak();
+            const double PEAK = tr.meniscusPeak();
             const double n = nearSide(tr);
-            CHECK(std::abs(peak - prevPeak) <= std::abs(n - prevNear) + 8.0);
-            prevPeak = peak;
+            CHECK(std::abs(PEAK - prevPeak) <= std::abs(n - prevNear) + 8.0);
+            prevPeak = PEAK;
             prevNear = n;
-            if (peak <= 0.5) {
+            if (PEAK <= 0.5) {
                 sawQuiet = true;
-            } else if (sawQuiet && peak > 0.3 * kBeadRadius) {
+            } else if (sawQuiet && PEAK > 0.3 * kBeadRadius) {
                 splashAfterQuiet = true;
             }
         }
@@ -879,16 +880,16 @@ namespace {
 
     // Invalid input.
     void testInvalidInputs() {
-        constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
+        constexpr double K_NA_N = std::numeric_limits<double>::quiet_NaN();
         EdgeTransition tr;
         tr.begin(Transition::Open, EdgeFrame{}, TransitionParams{}, kStrength);
         CHECK(!tr.active());
-        tr.begin(Transition::Open, kQuarter, TransitionParams{.elasticity = kNaN}, kStrength);
+        tr.begin(Transition::Open, kQuarter, TransitionParams{.elasticity = K_NA_N}, kStrength);
         CHECK(!tr.active());
         tr.begin(Transition::Open, kQuarter, TransitionParams{}, 0.0);
         CHECK(!tr.active());
         tr.begin(Transition::Open, kQuarter, TransitionParams{}, kStrength);
-        tr.advance(kNaN);
+        tr.advance(K_NA_N);
         CHECK(!tr.active() && !tr.closed());
         CHECK(tr.map({0.0, 0.0}, kCapture).x == 0.0 && tr.map({0.0, 0.0}, kCapture).y == 0.0);
         tr.begin(Transition::Close, kQuarter, TransitionParams{}, kStrength);

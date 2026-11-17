@@ -37,8 +37,8 @@ namespace {
     // Ramp U for a shade in [-1, 1]; the centre texel is neutral. Continuous, so a triangle's
     // corners interpolate.
     float shadeU(double shade) noexcept {
-        const double texel = RAMP_CENTRE + (std::clamp(shade, -1.0, 1.0) * RAMP_SPAN);
-        return static_cast<float>((texel + 0.5) / RAMP_SIZE);
+        const double TEXEL = RAMP_CENTRE + (std::clamp(shade, -1.0, 1.0) * RAMP_SPAN);
+        return static_cast<float>((TEXEL + 0.5) / RAMP_SIZE);
     }
 }  // namespace
 
@@ -101,20 +101,20 @@ void fillSheetMeshes(const hyprimate::SheetFrame &frame,
         shade.resize(PAPER_VERTEX_COUNT);
     }
 
-    const double centreX = sourceDevice.x + (0.5 * sourceDevice.w);
-    const double centreY = sourceDevice.y + (0.5 * sourceDevice.h);
+    const double CENTRE_X = sourceDevice.x + (0.5 * sourceDevice.w);
+    const double CENTRE_Y = sourceDevice.y + (0.5 * sourceDevice.h);
     std::size_t k = 0;
     for (std::size_t slot = 0; slot < hyprimate::PAPER_TRIANGLES; ++slot) {
-        const std::size_t tri = frame.order[slot];
-        const auto &corners = hyprimate::sheetTriangle(tri);
+        const std::size_t TRI = frame.order[slot];
+        const auto &corners = hyprimate::sheetTriangle(TRI);
         for (std::size_t c = 0; c < 3; ++c) {
-            const std::size_t vertex = corners[c];
-            const auto &p = frame.position[vertex];
-            const auto uv = hyprimate::sheetUv(vertex);
+            const std::size_t VERTEX = corners[c];
+            const auto &p = frame.position[VERTEX];
+            const auto uv = hyprimate::sheetUv(VERTEX);
             const auto x = static_cast<float>(
-                (centreX + (p.x * sourceDevice.w) - outputDevice.x) / outputDevice.w);
+                (CENTRE_X + (p.x * sourceDevice.w) - outputDevice.x) / outputDevice.w);
             const auto y = static_cast<float>(
-                (centreY + (p.y * sourceDevice.h) - outputDevice.y) / outputDevice.h);
+                (CENTRE_Y + (p.y * sourceDevice.h) - outputDevice.y) / outputDevice.h);
 
             window[k] = {
                 .x = x,
@@ -124,7 +124,7 @@ void fillSheetMeshes(const hyprimate::SheetFrame &frame,
                 .v = static_cast<float>(
                     (sourceDevice.y + (sourceDevice.h * uv.y) - textureOrigin.y) / textureSize.y),
             };
-            shade[k] = {.x = x, .y = y, .u = shadeU(frame.shade[tri][c]), .v = 0.5F};
+            shade[k] = {.x = x, .y = y, .u = shadeU(frame.shade[TRI][c]), .v = 0.5F};
             ++k;
         }
     }
@@ -151,14 +151,14 @@ SP<Render::IFramebuffer> renderPaper(Render::CRenderContext &ctx, const SPaperDr
     // Entry blend state, restored on exit. The wrapper does not expose the blend function, so GL is
     // queried for it. Hyprland sets blend factors only through its wrapper, which never separates
     // RGB from alpha.
-    const bool entryBlend = Render::GL::g_pHyprOpenGL->blendEnabled();
+    const bool ENTRY_BLEND = Render::GL::g_pHyprOpenGL->blendEnabled();
     GLint entrySrc = 0;
     GLint entryDst = 0;
     glGetIntegerv(GL_BLEND_SRC_RGB, &entrySrc);
     glGetIntegerv(GL_BLEND_DST_RGB, &entryDst);
 
-    const Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
-    const auto state = ctx.saveDrawState();
+    const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
+    const auto STATE = ctx.saveDrawState();
     auto &data = ctx.m_data;
 
     auto paperLayer = g_pHyprRenderer->getWorkBuffer(ctx, d.canvas);
@@ -167,12 +167,12 @@ SP<Render::IFramebuffer> renderPaper(Render::CRenderContext &ctx, const SPaperDr
     }
 
     // Requested while paperLayer is held, so the pool cannot return the same buffer twice.
-    const bool lit = d.shade && (d.shadeVertices != nullptr) && !d.shadeVertices->empty();
-    const auto shadeLayer =
-        lit ? g_pHyprRenderer->getWorkBuffer(ctx, d.canvas) : SP<Render::IFramebuffer>{};
+    const bool LIT = d.shade && (d.shadeVertices != nullptr) && !d.shadeVertices->empty();
+    const auto SHADE_LAYER =
+        LIT ? g_pHyprRenderer->getWorkBuffer(ctx, d.canvas) : SP<Render::IFramebuffer>{};
 
     // Binds fb as the target and clears it to transparent under the canvas damage.
-    const auto beginTarget = [&](const SP<Render::IFramebuffer> &fb) {
+    const auto BEGIN_TARGET = [&](const SP<Render::IFramebuffer> &fb) {
         g_pHyprRenderer->bindFB(ctx, fb);
         data.damage = CRegion{0.0, 0.0, d.canvas.x, d.canvas.y};
         data.fbSize = d.canvas;
@@ -186,20 +186,20 @@ SP<Render::IFramebuffer> renderPaper(Render::CRenderContext &ctx, const SPaperDr
 
     // Shade layer: no blending, so the frontmost triangle's shade wins each pixel and hidden
     // triangles never tint visible ones.
-    if (shadeLayer) {
-        beginTarget(shadeLayer);
-        const bool wasBlend = Render::GL::g_pHyprOpenGL->blendEnabled();
+    if (SHADE_LAYER) {
+        BEGIN_TARGET(SHADE_LAYER);
+        const bool WAS_BLEND = Render::GL::g_pHyprOpenGL->blendEnabled();
         Render::GL::g_pHyprOpenGL->blend(false);
         td.a = 1.F;
         Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, d.shade, d.meshBox, *d.shadeVertices, td);
-        Render::GL::g_pHyprOpenGL->blend(wasBlend);
+        Render::GL::g_pHyprOpenGL->blend(WAS_BLEND);
     }
 
     // Window layer: triangles are sorted back to front and drawn without blending, so each pixel
     // takes the frontmost triangle only. Paper is opaque: with blending, a translucent window let
     // the layers folded behind show through, and the crumple read as tissue. The window's own
     // translucency against what is behind it is kept.
-    beginTarget(paperLayer);
+    BEGIN_TARGET(paperLayer);
     Render::GL::g_pHyprOpenGL->blend(false);
     td.a = d.alpha;
     Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, d.window, d.meshBox, *d.windowVertices, td);
@@ -207,18 +207,18 @@ SP<Render::IFramebuffer> renderPaper(Render::CRenderContext &ctx, const SPaperDr
 
     // Tint: DST_ALPHA weights the shade by window coverage, so transparent pixels stay transparent
     // and alpha is preserved.
-    if (shadeLayer) {
+    if (SHADE_LAYER) {
         Render::GL::g_pHyprOpenGL->blendFunc(GL_DST_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         td.a = 1.F;
         Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx,
-            shadeLayer->getTexture(),
+            SHADE_LAYER->getTexture(),
             CBox{0.0, 0.0, d.canvas.x, d.canvas.y},
             paperCanvasQuad(),
             td);
     }
 
     // Restore the entry blend state through the wrapper so its cached factors stay in sync with GL.
-    Render::GL::g_pHyprOpenGL->blend(entryBlend);
+    Render::GL::g_pHyprOpenGL->blend(ENTRY_BLEND);
     Render::GL::g_pHyprOpenGL->blendFunc(
         static_cast<GLenum>(entrySrc), static_cast<GLenum>(entryDst));
 

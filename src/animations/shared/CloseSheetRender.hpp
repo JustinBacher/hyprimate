@@ -5,8 +5,8 @@
 
 namespace close_style {
     inline void fillSheet(SSheetBuffers &sheet, Record &record) {
-        const CBox logical = record.sourceDevice.copy().scale(1.0 / record.scale);
-        CBox extents = sheetExtents(*sheet.frame, logical);
+        const CBox LOGICAL = record.sourceDevice.copy().scale(1.0 / record.scale);
+        CBox extents = sheetExtents(*sheet.frame, LOGICAL);
         extents.expand(16.0);
         record.extentsDevice = extents.copy().scale(record.scale);
         fillSheetMeshes(*sheet.frame,
@@ -26,8 +26,8 @@ namespace close_style {
         const PHLMONITOR &monitor,
         const SP<Render::ITexture> &tex,
         const SP<CPaperShade> &shade) {
-        const float alpha = record.sourceAlpha * static_cast<float>(opacity);
-        if (alpha <= 0.F) {
+        const float ALPHA = record.sourceAlpha * static_cast<float>(opacity);
+        if (ALPHA <= 0.F) {
             return;
         }
         CPaperClosePassElement::SData data;
@@ -36,7 +36,7 @@ namespace close_style {
         data.box = project(record.extentsDevice, record.renderBox, record.snapshotSize);
         data.vertices = &sheet.window;
         data.shadeVertices = &sheet.shade;
-        data.alpha = alpha;
+        data.alpha = ALPHA;
         data.scale = record.scale;
         data.damage = CRegion{
             CBox{0.0, 0.0, monitor->m_transformedSize.x, monitor->m_transformedSize.y}.intersection(

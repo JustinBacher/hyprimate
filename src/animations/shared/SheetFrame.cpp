@@ -54,11 +54,11 @@ namespace hyprimate {
         // Grid corners of triangle t: two per cell, same winding as the idle sheet and the baked
         // takes.
         Triangle triangleCorners(std::size_t t) noexcept {
-            const std::size_t cell = t / 2;
-            const int i = static_cast<int>(cell % PAPER_CELLS);
-            const int j = static_cast<int>(cell / PAPER_CELLS);
-            const bool second = (t & 1U) != 0;
-            return second
+            const std::size_t CELL = t / 2;
+            const int i = static_cast<int>(CELL % PAPER_CELLS);
+            const int j = static_cast<int>(CELL / PAPER_CELLS);
+            const bool SECOND = (t & 1U) != 0;
+            return SECOND
                        ? Triangle{gridIndex(i + 1, j), gridIndex(i, j + 1), gridIndex(i + 1, j + 1)}
                        : Triangle{gridIndex(i, j), gridIndex(i, j + 1), gridIndex(i + 1, j)};
         }
@@ -73,7 +73,7 @@ namespace hyprimate {
                         .y = static_cast<double>(j) / PAPER_CELLS};
 
                     auto &adjacent = result.adjacent[vertex];
-                    const auto add = [&](int ci, int cj, unsigned half) {
+                    const auto ADD = [&](int ci, int cj, unsigned half) {
                         if (ci >= 0 && cj >= 0 && ci < PAPER_CELLS && cj < PAPER_CELLS) {
                             adjacent.triangles[adjacent.count++] = static_cast<std::uint16_t>(
                                 (((static_cast<std::size_t>(cj) * PAPER_CELLS) +
@@ -84,12 +84,12 @@ namespace hyprimate {
                     };
                     // Keep the original paper neighborhood order so crease shading remains
                     // identical.
-                    add(i, j, 0);
-                    add(i - 1, j, 0);
-                    add(i - 1, j, 1);
-                    add(i, j - 1, 0);
-                    add(i, j - 1, 1);
-                    add(i - 1, j - 1, 1);
+                    ADD(i, j, 0);
+                    ADD(i - 1, j, 0);
+                    ADD(i - 1, j, 1);
+                    ADD(i, j - 1, 0);
+                    ADD(i, j - 1, 1);
+                    ADD(i - 1, j - 1, 1);
                 }
                 for (std::size_t tri = 0; tri < PAPER_TRIANGLES; ++tri) {
                     result.triangles[tri] = triangleCorners(tri);
@@ -104,13 +104,13 @@ namespace hyprimate {
         void sortBackToFront(
             const SheetGrid &world, std::array<std::uint16_t, PAPER_TRIANGLES> &order) noexcept {
             const Topology &mesh = topology();
-            const auto meanZ = [&](std::uint16_t t) {
+            const auto MEAN_Z = [&](std::uint16_t t) {
                 const auto &c = mesh.triangles[t];
                 return (world[c[0]].z + world[c[1]].z + world[c[2]].z) / 3.0;
             };
             std::sort(order.begin(), order.end(), [&](std::uint16_t a, std::uint16_t b) {
-                const double za = meanZ(a);
-                const double zb = meanZ(b);
+                const double za = MEAN_Z(a);
+                const double zb = MEAN_Z(b);
                 return za < zb || (!(zb < za) && a < b);
             });
         }
@@ -157,8 +157,8 @@ namespace hyprimate {
 
         for (std::size_t vi = 0; vi < PAPER_GRID_VERTICES; ++vi) {
             const Vec3 &X = world[vi];
-            const double denom = std::max(0.25 * f, f - X.z);
-            out.position[vi] = {.x = X.x * f / denom / W, .y = X.y * f / denom / H};
+            const double DENOM = std::max(0.25 * f, f - X.z);
+            out.position[vi] = {.x = X.x * f / DENOM / W, .y = X.y * f / DENOM / H};
         }
 
         sortBackToFront(world, out.order);
@@ -177,8 +177,8 @@ namespace hyprimate {
         const double lx = LIGHT_X;
         const double ly = LIGHT_Y;
         const double lz = LIGHT_Z;
-        const double lLen = std::sqrt((lx * lx) + (ly * ly) + (lz * lz));
-        const Vec3 Ld{.x = lx / lLen, .y = ly / lLen, .z = lz / lLen};
+        const double L_LEN = std::sqrt((lx * lx) + (ly * ly) + (lz * lz));
+        const Vec3 Ld{.x = lx / L_LEN, .y = ly / L_LEN, .z = lz / L_LEN};
 
         // Area-weighted (unnormalised) normals are used by both modes; unit face normals are only
         // needed for paper creases.
@@ -188,19 +188,19 @@ namespace hyprimate {
         for (std::size_t tri = 0; tri < PAPER_TRIANGLES; ++tri) {
             const auto &c = mesh.triangles[tri];
             const Vec3 n = cross(world[c[1]] - world[c[0]], world[c[2]] - world[c[0]]);
-            const double len = std::sqrt(dot(n, n));
+            const double LEN = std::sqrt(dot(n, n));
             faceNormal[tri] = n;
             if (lighting == SheetLighting::PaperCreases) {
-                faceUnit[tri] = len >= 1e-12 ? n * (1.0 / len) : Vec3{};
+                faceUnit[tri] = LEN >= 1e-12 ? n * (1.0 / LEN) : Vec3{};
             } else {
-                for (const std::size_t vertex : c) {
-                    Vec3 &sum = vertexNormal[vertex];
+                for (const std::size_t VERTEX : c) {
+                    Vec3 &sum = vertexNormal[VERTEX];
                     sum = {.x = sum.x + n.x, .y = sum.y + n.y, .z = sum.z + n.z};
                 }
             }
         }
         // Normal at `vertex` as seen by triangle `tri`.
-        const auto cornerNormal = [&](std::size_t tri, std::size_t vertex) {
+        const auto CORNER_NORMAL = [&](std::size_t tri, std::size_t vertex) {
             if (lighting == SheetLighting::ClothSmooth) {
                 return vertexNormal[vertex];
             }
@@ -208,49 +208,49 @@ namespace hyprimate {
             Vec3 sum{};
             const VertexAdjacency &around = mesh.adjacent[vertex];
             for (std::uint8_t k = 0; k < around.count; ++k) {
-                const std::size_t neighbor = around.triangles[k];
-                if (dot(faceUnit[neighbor], faceUnit[tri]) < CREASE_COS) {
+                const std::size_t NEIGHBOR = around.triangles[k];
+                if (dot(faceUnit[NEIGHBOR], faceUnit[tri]) < CREASE_COS) {
                     continue;
                 }
-                const Vec3 &n = faceNormal[neighbor];
+                const Vec3 &n = faceNormal[NEIGHBOR];
                 sum = {.x = sum.x + n.x, .y = sum.y + n.y, .z = sum.z + n.z};
             }
             return sum;
         };
         // Shade for a normal seen from the side `facing` (+1 front, -1 back) of the sheet.
-        const auto shadeOf = [&](Vec3 n, double facing) {
-            const double len = std::sqrt(dot(n, n));
-            if (len < 1e-12) {
+        const auto SHADE_OF = [&](Vec3 n, double facing) {
+            const double LEN = std::sqrt(dot(n, n));
+            if (LEN < 1e-12) {
                 return 0.0;
             }
-            n = n * (facing / len);
-            const double diff = dot(n, Ld) - Ld.z;
-            const double s = diff >= 0.0 ? diff / (1.0 - Ld.z) : diff / (1.0 + Ld.z);
-            const double shade = std::clamp(s * 1.8 * shading, -1.0, 1.0);
-            return lighting == SheetLighting::ClothSmooth && shade > 0
-                       ? shade * std::clamp(shine, 0.0, 1.0)
-                       : shade;
+            n = n * (facing / LEN);
+            const double DIFF = dot(n, Ld) - Ld.z;
+            const double s = DIFF >= 0.0 ? DIFF / (1.0 - Ld.z) : DIFF / (1.0 + Ld.z);
+            const double SHADE = std::clamp(s * 1.8 * shading, -1.0, 1.0);
+            return lighting == SheetLighting::ClothSmooth && SHADE > 0
+                       ? SHADE * std::clamp(shine, 0.0, 1.0)
+                       : SHADE;
         };
 
         std::array<double, PAPER_GRID_VERTICES> vertexShadeFront{};
         std::array<double, PAPER_GRID_VERTICES> vertexShadeBack{};
         if (lighting == SheetLighting::ClothSmooth) {
             for (std::size_t vertex = 0; vertex < PAPER_GRID_VERTICES; ++vertex) {
-                vertexShadeFront[vertex] = shadeOf(vertexNormal[vertex], 1.0);
-                vertexShadeBack[vertex] = shadeOf(vertexNormal[vertex], -1.0);
+                vertexShadeFront[vertex] = SHADE_OF(vertexNormal[vertex], 1.0);
+                vertexShadeBack[vertex] = SHADE_OF(vertexNormal[vertex], -1.0);
             }
         }
 
         for (std::size_t tri = 0; tri < PAPER_TRIANGLES; ++tri) {
             const auto &corners = mesh.triangles[tri];
             // The side of the sheet this triangle shows decides which way its vertex normals point.
-            const double facing = faceNormal[tri].z < 0.0 ? -1.0 : 1.0;
+            const double FACING = faceNormal[tri].z < 0.0 ? -1.0 : 1.0;
             for (std::size_t n = 0; n < 3; ++n) {
                 double s = 0.0;
                 if (lighting == SheetLighting::ClothSmooth) {
-                    s = facing > 0.0 ? vertexShadeFront[corners[n]] : vertexShadeBack[corners[n]];
+                    s = FACING > 0.0 ? vertexShadeFront[corners[n]] : vertexShadeBack[corners[n]];
                 } else {
-                    s = shadeOf(cornerNormal(tri, corners[n]), facing);
+                    s = SHADE_OF(CORNER_NORMAL(tri, corners[n]), FACING);
                 }
                 out.shade[tri][n] = static_cast<float>(s);
             }

@@ -43,7 +43,7 @@ Render::SWindowTransformBuffer renderLive(SPaperStyle &state,
 
 bool SPaperLiveStyle::open(
     CPluginRuntime &runtime, CPluginRuntime::STracked &, const PHLWINDOW &window) {
-    const CBox capture = window->getFullWindowBoundingBox();
+    const CBox CAPTURE = window->getFullWindowBoundingBox();
     const auto &paper = runtime.m_config.open.paper;
     auto *transformer = runtime.acquireTransformer(window);
     auto &state = std::get<SPaperStyle>(transformer->m_style);
@@ -54,7 +54,7 @@ bool SPaperLiveStyle::open(
             .shading = paper.shading,
             .variation = paper.variation},
         runtime.m_nextSeed++);
-    state.sheet.captureSize = {.x = capture.w, .y = capture.h};
+    state.sheet.captureSize = {.x = CAPTURE.w, .y = CAPTURE.h};
     state.crumple.frame(state.sheet.captureSize, *state.sheet.frame);
     return true;
 }
@@ -124,7 +124,7 @@ double SPaperLiveStyle::strength(const CPluginRuntime &) {
     return 0.0;
 }
 bool SPaperLiveStyle::usable(const CPluginRuntime &runtime) {
-    const auto params = runtime.effectiveMaterialParams();
-    return std::isfinite(params.viscosity) && std::isfinite(params.elasticity) &&
-           std::isfinite(params.momentum) && std::isfinite(params.variation);
+    const auto PARAMS = runtime.effectiveMaterialParams();
+    return std::isfinite(PARAMS.viscosity) && std::isfinite(PARAMS.elasticity) &&
+           std::isfinite(PARAMS.momentum) && std::isfinite(PARAMS.variation);
 }
