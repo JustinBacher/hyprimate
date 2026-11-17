@@ -25,43 +25,45 @@ namespace {
     struct Pose {
         SheetGrid p{}, v{};
     };
-    Pose pose(const ClothFlutter &m) {
+    Pose pose(const ClothFlutter &cloth) {
         Pose result;
-        m.sampleVertices(result.p, result.v);
-        const auto FINITE = [](const Vec3 &v) {
-            return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+        cloth.sampleVertices(result.p, result.v);
+        const auto FINITE = [](const Vec3 &vertex) {
+            return std::isfinite(vertex.x) && std::isfinite(vertex.y) && std::isfinite(vertex.z);
         };
         CHECK(std::all_of(result.p.begin(), result.p.end(), FINITE));
         CHECK(std::all_of(result.v.begin(), result.v.end(), FINITE));
         return result;
     }
-    double delta(const SheetGrid &a, const SheetGrid &b) {
+    double delta(const SheetGrid &first, const SheetGrid &second) {
         double max_delta = 0;
-        for (std::size_t k = 0; k < a.size(); ++k) {
-            max_delta = std::max({max_delta,
-                std::abs(a[k].x - b[k].x),
-                std::abs(a[k].y - b[k].y),
-                std::abs(a[k].z - b[k].z)});
+        for (std::size_t k = 0; k < first.size(); ++k) {
+            max_delta = std::max({
+                max_delta,
+                std::abs(first[k].x - second[k].x),
+                std::abs(first[k].y - second[k].y),
+                std::abs(first[k].z - second[k].z),
+            });
         }
         return max_delta;
     }
-    void advance(ClothFlutter &m, double seconds, double step = 1.0 / 144) {
-        while (seconds > 1e-12 && m.active()) {
+    void advance(ClothFlutter &cloth, double seconds, double step = 1.0 / 144) {
+        while (seconds > 1e-12 && cloth.active()) {
             const double STEP_SECONDS = std::min(step, seconds);
-            m.advance(STEP_SECONDS);
+            cloth.advance(STEP_SECONDS);
             seconds -= STEP_SECONDS;
         }
     }
-    ClothFlutter open(ClothParams p = params(), std::uint64_t seed = 7) {
+    ClothFlutter open(ClothParams options = params(), std::uint64_t seed = 7) {
         ClothFlutter cloth;
-        cloth.begin(Transition::Open, p, seed, WINDOW, {});
+        cloth.begin(Transition::Open, options, seed, WINDOW, {});
         CHECK(cloth.waitForRecording());
         return cloth;
     }
-    ClothFlutter close(Edge edge, ClothParams p = params()) {
+    ClothFlutter close(Edge edge, ClothParams options = params()) {
         ClothFlutter cloth;
         cloth.begin(Transition::Close,
-            p,
+            options,
             3,
             WINDOW,
             {},
@@ -69,12 +71,12 @@ namespace {
         CHECK(cloth.waitForRecording());
         return cloth;
     }
-    void needsPhysics() {
+    void needs_physics() {
         ClothFlutter cloth;
         cloth.begin(Transition::Open, params(), 1, WINDOW, {});
         CHECK(!cloth.active());
     }
-    void openingSettlesFlat() {
+    void opening_settles_flat() {
         auto material = params();
         material.flutter = 0;
         auto cloth = open(material);
@@ -96,7 +98,7 @@ namespace {
     }
     // Gathering a curtain makes folds by spending its width in depth, not by stretching or
     // shrinking its material.
-    void curtainDrape() {
+    void curtain_drape() {
         auto material = params();
         material.flutter = material.variation = 0;
         const auto CLOTH = open(material);
@@ -129,7 +131,7 @@ namespace {
     }
 
     // Folds must spread and settle without a one-frame jolt at the free edge or weighted hem.
-    void softLanding() {
+    void soft_landing() {
         const double LENGTH_SCALE = std::sqrt(WINDOW.w * WINDOW.h);
         for (const double FLUTTER : {0.0, 0.5}) {
             auto material = params();
@@ -164,12 +166,12 @@ namespace {
         const auto START = pose(falling);
         advance(falling, 0.25);
         const auto DROP = pose(falling);
-        double averageYVelocity = 0;
+        double average_yvelocity = 0;
         for (int i = 0; i < GRID; ++i) {
             CHECK(DROP.p[i].y < START.p[i].y - 0.1);
-            averageYVelocity += DROP.v[i].y;
+            average_yvelocity += DROP.v[i].y;
         }
-        CHECK(averageYVelocity < 0);
+        CHECK(average_yvelocity < 0);
         CHECK(falling.opacity() == 1);  // visible sheet cannot fade prematurely
         advance(falling, 0.45);
         const auto LATE = pose(falling);
@@ -213,7 +215,7 @@ namespace {
             CHECK(pulling.closed());
         }
     }
-    void exitCorridor() {
+    void exit_corridor() {
         const Box WINDOW{.x = 100, .y = 50, .w = 1000, .h = 400};
         const Box SCREEN{.x = 0, .y = 0, .w = 1920, .h = 1080};
         const Box BELOW{.x = 100, .y = 460, .w = 1000, .h = 500};
@@ -278,7 +280,7 @@ namespace {
             CHECK(delta(BEFORE.v, READY.v) < 2e-5);
         }
     }
-    void extremeDurationHandoff() {
+    void extreme_duration_handoff() {
         auto material = params();
         material.duration = .1;
         material.flutter = 1;
@@ -352,7 +354,9 @@ namespace {
             WINDOW,
             {},
             ClothCloseGeometry{
-                .edge = Edge::Left, .screen = Box{.x = 0, .y = 0, .w = -1, .h = 500}});
+                .edge = Edge::Left,
+                .screen = Box{.x = 0, .y = 0, .w = -1, .h = 500},
+            });
         CHECK(!cloth.active());
         cloth = open();
         cloth.advance(-1);
@@ -387,7 +391,7 @@ namespace {
         ClothPhysics::pauseWorkersForTesting(false);
     }
     // A recoverable publication gap must retain the same recording and resume it.
-    void publicationRecovery() {
+    void publication_recovery() {
         constexpr double STEP_SECONDS = 1.0 / 120;
         for (const auto KIND : {Transition::Open, Transition::Close}) {
             ClothPhysics::pauseWorkersForTesting(true, 4);
@@ -398,7 +402,9 @@ namespace {
                 WINDOW,
                 {},
                 KIND == Transition::Close ? std::optional<ClothCloseGeometry>{ClothCloseGeometry{
-                                                .edge = Edge::Bottom, .screen = SCREEN}}
+                                                .edge = Edge::Bottom,
+                                                .screen = SCREEN,
+                                            }}
                                           : std::optional<ClothCloseGeometry>{});
             CHECK(cloth.waitForSnapshots(4));
             const ClothFlutter WITNESS = cloth;
@@ -419,7 +425,7 @@ namespace {
         }
     }
 
-    void movementPublicationRecovery() {
+    void movement_publication_recovery() {
         // A gap shorter than the stall bound must recover even when the compositor posts targets
         // faster than Jolt.
         for (const int REFRESH_RATE : {120, 360, 1000}) {
@@ -444,7 +450,7 @@ namespace {
         }
     }
 
-    void clothShine() {
+    void cloth_shine() {
         ClothFlutter cloth;
         auto material = params();
         material.shine = std::numeric_limits<double>::quiet_NaN();
@@ -479,7 +485,7 @@ namespace {
         CHECK(highlight);
     }
 
-    void cancelAndUnload() {
+    void cancel_and_unload() {
         ClothPhysics::pauseWorkersForTesting(true);
         const auto START = std::chrono::steady_clock::now();
         for (int i = 0; i < 50; ++i) {
@@ -491,19 +497,19 @@ namespace {
         ClothPhysics::pauseWorkersForTesting(false);
     }
 
-    void movementStep(ClothFlutter &m, const Box &box, double dt, double &time) {
-        m.updateMovement(box, dt);
-        m.advance(dt);
-        time += dt;
-        if (m.moving()) {
-            CHECK(m.waitForSnapshots(2 + int(std::floor(time * 120 + 1e-7))));
-            m.advance(0);
+    void movement_step(ClothFlutter &cloth, const Box &box, double seconds, double &time) {
+        cloth.updateMovement(box, seconds);
+        cloth.advance(seconds);
+        time += seconds;
+        if (cloth.moving()) {
+            CHECK(cloth.waitForSnapshots(2 + int(std::floor(time * 120 + 1e-7))));
+            cloth.advance(0);
         }
     }
 
     // A curtain's rod is its entire top edge, irrespective of where it travels or where a drag
     // began.
-    void pocketHeaderStaysHorizontal() {
+    void pocket_header_stays_horizontal() {
         auto cloth = open();
         advance(cloth, .2);
         const auto HORIZONTAL = [](const ClothFlutter &sheet) {
@@ -525,14 +531,14 @@ namespace {
         double time = 0;
         for (int k = 0; k < 24; ++k) {
             box.x += 4;
-            movementStep(cloth, box, 1.0 / 120, time);
+            movement_step(cloth, box, 1.0 / 120, time);
             CHECK(HORIZONTAL(cloth));
         }
     }
 
     // The displayed sleeve must stay in the real window bounds, including reversal, resize and
     // worker recovery.
-    void pocketStaysWithinWindowBounds() {
+    void pocket_stays_within_window_bounds() {
         constexpr double STEP_SECONDS = 1.0 / 120;
         for (const double SPRINGINESS : {0., .5, 1.}) {
             for (const double DIRECTION : {-1., 1.}) {
@@ -546,7 +552,7 @@ namespace {
                 double overhang = 0;
                 bool ordered = true;
                 bool level = true;
-                const auto check = [&] {
+                const auto verify = [&] {
                     const auto SAMPLED = pose(cloth);
                     SheetFrame frame;
                     cloth.frame({.x = box.w, .y = box.h}, frame);
@@ -556,22 +562,22 @@ namespace {
                         level &= std::abs(SAMPLED.p[i].y) < 1e-6 && std::abs(SAMPLED.p[i].z) < 1e-6;
                     }
                 };
-                check();
+                verify();
                 for (int k = 0; k < 64; ++k) {
                     box.x += (k < 32 ? DIRECTION : -DIRECTION) * 12;
                     if (k == 32) {
                         box.w *= .7;
                         box.h *= 1.1;
                     }
-                    movementStep(cloth, box, STEP_SECONDS, time);
-                    check();
+                    movement_step(cloth, box, STEP_SECONDS, time);
+                    verify();
                 }
                 ClothPhysics::pauseWorkersForTesting(true);
                 for (int k = 0; k < 72; ++k) {
                     box.x -= DIRECTION * 12;
                     cloth.updateMovement(box, STEP_SECONDS);
                     cloth.advance(STEP_SECONDS);
-                    check();
+                    verify();
                 }
                 ClothPhysics::pauseWorkersForTesting(false);
                 CHECK(overhang <= 1e-6);
@@ -582,7 +588,7 @@ namespace {
     }
 
     // A gently travelling gathered sleeve spreads faster at the end opposite its travel direction.
-    void pocketSpringIsStifferBehindTravel() {
+    void pocket_spring_is_stiffer_behind_travel() {
         for (const double DIRECTION : {-1., 1.}) {
             auto material = params();
             material.flutter = material.variation = 0;
@@ -594,7 +600,7 @@ namespace {
             double time = 0;
             for (int k = 0; k < 24; ++k) {
                 box.x += DIRECTION * .25;
-                movementStep(cloth, box, 1.0 / 120, time);
+                movement_step(cloth, box, 1.0 / 120, time);
             }
             const auto SPREAD = pose(cloth);
             const int TRAILING = DIRECTION > 0 ? 0 : PAPER_CELLS;
@@ -607,7 +613,7 @@ namespace {
         }
     }
 
-    void pocketSpringinessControl() {
+    void pocket_springiness_control() {
         std::array<double, 3> peaks{};
         int mode = 0;
         for (const double SPRINGINESS : {0., .25, 1.}) {
@@ -620,21 +626,21 @@ namespace {
             CHECK(cloth.waitForSnapshots(2));
             Box box = WINDOW;
             double time = 0;
-            double lowerDrift = 0;
+            double lower_drift = 0;
             for (int k = 0; k < 48; ++k) {
                 box.x += k < 24 ? 5 : -5;
-                movementStep(cloth, box, 1.0 / 120, time);
+                movement_step(cloth, box, 1.0 / 120, time);
                 const auto MOVED = pose(cloth);
                 for (int i = 0; i < GRID; ++i) {
                     const double REST = (static_cast<double>(i) / PAPER_CELLS) - .5;
                     peaks[mode] = std::max(peaks[mode], std::abs(MOVED.p[i].x - REST) * box.w);
-                    lowerDrift = std::max(lowerDrift,
+                    lower_drift = std::max(lower_drift,
                         std::abs(
                             MOVED.p[(static_cast<std::size_t>(PAPER_CELLS) * GRID) + i].x - REST) *
                             box.w);
                 }
             }
-            CHECK(lowerDrift > 1);
+            CHECK(lower_drift > 1);
             ++mode;
         }
         CHECK(peaks[0] < .001);
@@ -645,7 +651,7 @@ namespace {
         CHECK(!invalid.active());
     }
 
-    void pocketSlidesInward() {
+    void pocket_slides_inward() {
         for (const double DIRECTION : {-1., 1.}) {
             ClothMovementParams material;
             material.variation = 0;
@@ -657,21 +663,21 @@ namespace {
             double time = 0;
             for (int k = 0; k < 30; ++k) {
                 box.x += DIRECTION * 5;
-                movementStep(cloth, box, 1.0 / 120, time);
+                movement_step(cloth, box, 1.0 / 120, time);
             }
             const auto MOVED = pose(cloth);
-            bool onRod = true;
+            bool on_rod = true;
             for (int i = 0; i < GRID; ++i) {
-                onRod &= MOVED.p[i].x >= -.50001 && MOVED.p[i].x <= .50001 &&
-                         (i == 0 || MOVED.p[i].x >= MOVED.p[i - 1].x);
+                on_rod &= MOVED.p[i].x >= -.50001 && MOVED.p[i].x <= .50001 &&
+                          (i == 0 || MOVED.p[i].x >= MOVED.p[i - 1].x);
             }
-            CHECK(onRod);
+            CHECK(on_rod);
             CHECK(DIRECTION > 0 ? MOVED.p[PAPER_CELLS].x < .495 : MOVED.p[0].x > -.495);
         }
     }
 
     // The lengthwise spring must restore the pocket even while the window keeps travelling.
-    void pocketSpringRestoresDuringTravel() {
+    void pocket_spring_restores_during_travel() {
         for (const double DIRECTION : {-1., 1.}) {
             ClothFlutter cloth;
             ClothMovementParams material;
@@ -685,7 +691,7 @@ namespace {
             double offset = 0;
             for (int frame = 0; frame < 120; ++frame) {
                 box.x += DIRECTION * 5;
-                movementStep(cloth, box, 1.0 / 120, time);
+                movement_step(cloth, box, 1.0 / 120, time);
                 const auto MOVED = pose(cloth);
                 offset = 0;
                 for (int i = 0; i < GRID; ++i) {
@@ -701,7 +707,7 @@ namespace {
     }
 
     // Direction changes and capture resizing must preserve the bounded horizontal sleeve.
-    void pocketSpringReversalAndResize() {
+    void pocket_spring_reversal_and_resize() {
         for (const double DIRECTION : {-1., 1.}) {
             ClothMovementParams material;
             material.variation = 0;
@@ -711,9 +717,9 @@ namespace {
             CHECK(cloth.waitForSnapshots(2));
             Box box = WINDOW;
             double time = 0;
-            const auto STEP = [&](double dx) {
-                box.x += dx;
-                movementStep(cloth, box, 1.0 / 120, time);
+            const auto STEP = [&](double displacement) {
+                box.x += displacement;
+                movement_step(cloth, box, 1.0 / 120, time);
             };
             const auto CENTER = [&] {
                 const auto POSE = pose(cloth);
@@ -738,21 +744,21 @@ namespace {
                 STEP(-DIRECTION * 5);
             }
             const auto REVERSED = pose(cloth);
-            double reversedCenter = 0;
-            bool onRod = true;
+            double reversed_center = 0;
+            bool on_rod = true;
             for (int i = 0; i < GRID; ++i) {
                 const auto &vertex = REVERSED.p[i];
-                reversedCenter += vertex.x;
-                onRod &= vertex.x >= -.50001 && vertex.x <= .50001 &&
-                         (i == 0 || vertex.x >= REVERSED.p[i - 1].x);
+                reversed_center += vertex.x;
+                on_rod &= vertex.x >= -.50001 && vertex.x <= .50001 &&
+                          (i == 0 || vertex.x >= REVERSED.p[i - 1].x);
             }
-            reversedCenter /= GRID;
-            CHECK(onRod);
-            CHECK(DIRECTION * (reversedCenter - LATER) > 1e-4);
+            reversed_center /= GRID;
+            CHECK(on_rod);
+            CHECK(DIRECTION * (reversed_center - LATER) > 1e-4);
 
             box.w *= .9;
             box.h *= 1.1;
-            movementStep(cloth, box, 1.0 / 120, time);
+            movement_step(cloth, box, 1.0 / 120, time);
             const auto RESIZED = pose(cloth);
             for (int i = 0; i < GRID; ++i) {
                 CHECK(RESIZED.p[i].x >= -.50001 && RESIZED.p[i].x <= .50001);
@@ -762,11 +768,13 @@ namespace {
         }
     }
 
-    void curtainRodMovement() {
-        for (const Vec2 DIRECTION : {Vec2{.x = 1, .y = 0},
+    void curtain_rod_movement() {
+        for (const Vec2 DIRECTION : {
+                 Vec2{.x = 1, .y = 0},
                  Vec2{.x = -1, .y = 0},
                  Vec2{.x = 0, .y = 1},
-                 Vec2{.x = 0, .y = -1}}) {
+                 Vec2{.x = 0, .y = -1},
+             }) {
             ClothFlutter cloth;
             ClothMovementParams material;
             material.variation = 0;
@@ -777,17 +785,17 @@ namespace {
             for (int frame = 0; frame < 24; ++frame) {
                 box.x += 4 * DIRECTION.x;
                 box.y += 4 * DIRECTION.y;
-                movementStep(cloth, box, 1.0 / 120, time);
+                movement_step(cloth, box, 1.0 / 120, time);
             }
             const auto MOVED = pose(cloth);
-            bool topAttached = true;
+            bool top_attached = true;
             for (int i = 0; i < GRID; ++i) {
                 const auto &vertex_pos = MOVED.p[i];
-                topAttached &= vertex_pos.x >= -.50001 && vertex_pos.x <= .50001 &&
-                               (i == 0 || vertex_pos.x >= MOVED.p[i - 1].x) &&
-                               std::abs(vertex_pos.y) < 1e-5 && std::abs(vertex_pos.z) < 1e-5;
+                top_attached &= vertex_pos.x >= -.50001 && vertex_pos.x <= .50001 &&
+                                (i == 0 || vertex_pos.x >= MOVED.p[i - 1].x) &&
+                                std::abs(vertex_pos.y) < 1e-5 && std::abs(vertex_pos.z) < 1e-5;
             }
-            CHECK(topAttached);
+            CHECK(top_attached);
             if (DIRECTION.x != 0) {
                 const auto MOTION_AT = [&](int row) {
                     double sum = 0;
@@ -808,19 +816,19 @@ namespace {
         }
     }
 
-    void curtainRodClose() {
+    void curtain_rod_close() {
         for (const Edge EDGE : {Edge::Top, Edge::Bottom, Edge::Left, Edge::Right}) {
             auto cloth = close(EDGE);
             advance(cloth, .2);
             const auto MOVED = pose(cloth);
-            bool straightRod = true;
+            bool straight_rod = true;
             for (int i = 1; i < GRID; ++i) {
-                straightRod &= MOVED.p[i].x >= MOVED.p[i - 1].x &&
-                               MOVED.p[i].x - MOVED.p[0].x <= 1.00001 &&
-                               std::abs(MOVED.p[i].y - MOVED.p[0].y) < 1e-5 &&
-                               std::abs(MOVED.p[i].z - MOVED.p[0].z) < 1e-5;
+                straight_rod &= MOVED.p[i].x >= MOVED.p[i - 1].x &&
+                                MOVED.p[i].x - MOVED.p[0].x <= 1.00001 &&
+                                std::abs(MOVED.p[i].y - MOVED.p[0].y) < 1e-5 &&
+                                std::abs(MOVED.p[i].z - MOVED.p[0].z) < 1e-5;
             }
-            CHECK(straightRod);
+            CHECK(straight_rod);
         }
     }
 
@@ -836,14 +844,14 @@ namespace {
         double time = 0;
         for (int i = 0; i < 24; ++i) {
             box.x += 4;
-            movementStep(cloth, box, 1.0 / 120, time);
+            movement_step(cloth, box, 1.0 / 120, time);
         }
         auto moved = pose(cloth);
-        CHECK(
-            std::any_of(moved.p.begin(), moved.p.end(), [](const Vec3 &v) { return v.z > .001; }));
+        CHECK(std::any_of(
+            moved.p.begin(), moved.p.end(), [](const Vec3 &point) { return point.z > .001; }));
         for (int i = 0; i < 12; ++i) {
             box.x -= 4;
-            movementStep(cloth, box, 1.0 / 120, time);
+            movement_step(cloth, box, 1.0 / 120, time);
         }
         moved = pose(cloth);
         // A retained copy freezes the displayed pose; closing consumes it without sharing mutable
@@ -862,9 +870,9 @@ namespace {
         CHECK(std::abs(closing.opacity() - ALPHA) < 1e-8);
         box.w *= .9;
         box.h *= 1.1;
-        movementStep(cloth, box, 1.0 / 120, time);
+        movement_step(cloth, box, 1.0 / 120, time);
         for (int i = 0; i < 55 && cloth.moving(); ++i) {
-            movementStep(cloth, box, 1.0 / 120, time);
+            movement_step(cloth, box, 1.0 / 120, time);
         }
         advance(cloth, .25);
         CHECK(!cloth.active() && cloth.opacity() == 1);
@@ -877,7 +885,7 @@ namespace {
         }
     }
 
-    void movementHandoff() {
+    void movement_handoff() {
         auto cloth = open();
         advance(cloth, .3);
         const auto BEFORE = pose(cloth);
@@ -890,7 +898,7 @@ namespace {
         Box box = WINDOW;
         box.x += 10;
         double time = 0;
-        movementStep(cloth, box, 1.0 / 120, time);
+        movement_step(cloth, box, 1.0 / 120, time);
         CHECK(cloth.moving());
         // Bounded starvation flattens, and a new move during that flattening continues from its
         // visible pose.
@@ -905,7 +913,7 @@ namespace {
         cloth.reset();
     }
 
-    Pose movementTrajectory(double cadence, std::uint64_t seed, bool irregular = false) {
+    Pose movement_trajectory(double cadence, std::uint64_t seed, bool irregular = false) {
         ClothMovementParams params;
         params.variation = 0;
         ClothFlutter cloth;
@@ -918,20 +926,20 @@ namespace {
                 std::min(cadence * (irregular ? (((frame++ % 2) != 0) ? 1.6 : .4) : 1), .2 - time);
             Box box = WINDOW;
             box.x += 300 * (time + STEP_SECONDS);
-            movementStep(cloth, box, STEP_SECONDS, time);
+            movement_step(cloth, box, STEP_SECONDS, time);
         }
         return pose(cloth);
     }
 
-    void movementCadenceAndInvalid() {
-        const auto REFERENCE = movementTrajectory(1.0 / 120, 7);
+    void movement_cadence_and_invalid() {
+        const auto REFERENCE = movement_trajectory(1.0 / 120, 7);
         for (const double REFRESH_HZ : {60., 144., 240.}) {
-            const auto SAMPLED = movementTrajectory(1 / REFRESH_HZ, 100);
+            const auto SAMPLED = movement_trajectory(1 / REFRESH_HZ, 100);
             CHECK(delta(REFERENCE.p, SAMPLED.p) < .015);
         }
-        const auto SAME = movementTrajectory(1.0 / 120, 900);
+        const auto SAME = movement_trajectory(1.0 / 120, 900);
         CHECK(delta(REFERENCE.p, SAME.p) == 0);
-        CHECK(delta(REFERENCE.p, movementTrajectory(1.0 / 120, 100, true).p) < .015);
+        CHECK(delta(REFERENCE.p, movement_trajectory(1.0 / 120, 100, true).p) < .015);
         ClothFlutter cloth;
         auto params = ClothMovementParams{};
         params.strength = 0;
@@ -959,7 +967,7 @@ namespace {
     // Each frame posts a target the worker has not answered yet. The displayed sheet must already
     // be fully simulated, so it cannot depend on whether the worker happened to answer before the
     // frame was drawn.
-    void movementIndependentOfWorkerTiming() {
+    void movement_independent_of_worker_timing() {
         ClothMovementParams params;
         params.variation = 0;
         constexpr int FRAMES = 30;
@@ -999,7 +1007,7 @@ namespace {
         CHECK(worst < 1e-9);
     }
 
-    void movementGravityControl() {
+    void movement_gravity_control() {
         const auto HEM_AFTER_DRAG = [](double gravity) {
             ClothFlutter animation;
             animation.beginMovement({.variation = 0, .gravity = gravity}, 7, WINDOW);
@@ -1008,7 +1016,7 @@ namespace {
             double time = 0;
             for (int frame = 0; frame < 36; ++frame) {
                 box.y += 2800.0 / 120;
-                movementStep(animation, box, 1.0 / 120, time);
+                movement_step(animation, box, 1.0 / 120, time);
             }
             const auto MOVED = pose(animation);
             double hem = 0;
@@ -1033,7 +1041,7 @@ namespace {
     }
 
     // A quick downward pull leaves the free hem behind instead of dragging a rigid panel.
-    void downwardDragLiftsHem() {
+    void downward_drag_lifts_hem() {
         for (const double REFRESH_HZ : {60., 120., 240.}) {
             ClothFlutter cloth;
             cloth.beginMovement({}, 7, WINDOW);
@@ -1042,7 +1050,7 @@ namespace {
             double time = 0;
             while (time < .3 - 1e-9) {
                 box.y = WINDOW.y + (2800 * (time + (1 / REFRESH_HZ)));
-                movementStep(cloth, box, 1 / REFRESH_HZ, time);
+                movement_step(cloth, box, 1 / REFRESH_HZ, time);
             }
             const auto LIFTED = pose(cloth);
             double hem = 0;
@@ -1056,21 +1064,21 @@ namespace {
         }
     }
 
-    void movementBoundsAndRestart() {
+    void movement_bounds_and_restart() {
         ClothFlutter cloth;
         cloth.beginMovement({}, 1, WINDOW);
         CHECK(cloth.waitForSnapshots(2));
         double time = 0;
         Box box = WINDOW;
         box.x += 300;
-        movementStep(cloth, box, 1.0 / 120, time);
-        movementStep(cloth, box, 1.0 / 120, time);
+        movement_step(cloth, box, 1.0 / 120, time);
+        movement_step(cloth, box, 1.0 / 120, time);
         const auto MOVED = pose(cloth);
         const auto ANCHOR = static_cast<std::size_t>(PAPER_CELLS);
         CHECK(MOVED.p[ANCHOR].x >= -.50001 && MOVED.p[ANCHOR].x <= .50001 &&
               std::abs(MOVED.p[ANCHOR].y) < 1e-5);
         for (int i = 0; i < 48; ++i) {
-            movementStep(cloth, box, 1.0 / 120, time);
+            movement_step(cloth, box, 1.0 / 120, time);
         }
         cloth.advance(.12);  // begin the bounded final flattening transition
         const auto SETTLING = pose(cloth);
@@ -1081,7 +1089,7 @@ namespace {
         CHECK(delta(pose(cloth).v, SETTLING.v) < 1e-6);
     }
 
-    void movementRodBeforePublication() {
+    void movement_rod_before_publication() {
         ClothFlutter cloth;
         cloth.beginMovement({}, 1, WINDOW);
         CHECK(cloth.waitForSnapshots(2));
@@ -1102,7 +1110,7 @@ namespace {
         double time = 0;
         for (int i = 0; i < 4; ++i) {
             box.x += 10;
-            movementStep(cloth, box, 1.0 / 120, time);
+            movement_step(cloth, box, 1.0 / 120, time);
         }
         ClothPhysics::pauseWorkersForTesting(true, 6);
         cloth.updateMovement(box, 1.0 / 60);
@@ -1116,41 +1124,41 @@ namespace {
     }
 }  // namespace
 int main() {
-    needsPhysics();
+    needs_physics();
     {
         const ClothPhysics PHYSICS;
-        openingSettlesFlat();
-        curtainDrape();
-        softLanding();
+        opening_settles_flat();
+        curtain_drape();
+        soft_landing();
         exits();
-        exitCorridor();
+        exit_corridor();
         handoff();
-        extremeDurationHandoff();
+        extreme_duration_handoff();
         cadence();
         deterministic();
         invalid();
         starvation();
-        publicationRecovery();
-        movementPublicationRecovery();
-        clothShine();
-        cancelAndUnload();
-        pocketHeaderStaysHorizontal();
-        pocketSlidesInward();
-        pocketStaysWithinWindowBounds();
-        pocketSpringIsStifferBehindTravel();
-        pocketSpringinessControl();
-        pocketSpringReversalAndResize();
-        pocketSpringRestoresDuringTravel();
-        curtainRodMovement();
-        curtainRodClose();
+        publication_recovery();
+        movement_publication_recovery();
+        cloth_shine();
+        cancel_and_unload();
+        pocket_header_stays_horizontal();
+        pocket_slides_inward();
+        pocket_stays_within_window_bounds();
+        pocket_spring_is_stiffer_behind_travel();
+        pocket_springiness_control();
+        pocket_spring_reversal_and_resize();
+        pocket_spring_restores_during_travel();
+        curtain_rod_movement();
+        curtain_rod_close();
         movement();
-        movementHandoff();
-        movementCadenceAndInvalid();
-        movementIndependentOfWorkerTiming();
-        movementBoundsAndRestart();
-        movementRodBeforePublication();
-        downwardDragLiftsHem();
-        movementGravityControl();
+        movement_handoff();
+        movement_cadence_and_invalid();
+        movement_independent_of_worker_timing();
+        movement_bounds_and_restart();
+        movement_rod_before_publication();
+        downward_drag_lifts_hem();
+        movement_gravity_control();
     }
     // Shutdown must join a currently paused worker before unregistering Jolt, even with a model
     // reference retained.
