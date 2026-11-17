@@ -12,7 +12,7 @@
 
 namespace hyprimate {
     std::string spritePath(std::string_view value, std::string_view directory) {
-        if (value.empty() || value.find('/') != std::string_view::npos) {
+        if (value.empty() || value.contains('/')) {
             return std::string(value);
         }
         std::string result(directory);
@@ -26,25 +26,28 @@ namespace hyprimate {
 
     namespace {
 
-        constexpr std::uint8_t kSolid = 128;
-        constexpr double kFar = 1e18;
-        constexpr double kCoverMargin =
+        constexpr std::uint8_t SOLID = 128;
+        constexpr double FAR = 1e18;
+        constexpr double COVER_MARGIN =
             1.06;  // the core overshoots its tile slightly, so coverage is complete before lock 1
 
         // One pass of the exact squared Euclidean distance transform (lower envelope of parabolas)
         // over n samples with the given stride. `v` and `z` are scratch of n and n + 1 entries,
         // `out` of n.
-        void distancePass(double *f,
+        void distance_pass(std::span<double> field,
+            std::size_t offset,
             std::size_t stride,
             int n,
             std::vector<int> &v,
             std::vector<double> &z,
             std::vector<double> &out) {
-            const auto SAMPLE = [&](int i) { return f[static_cast<std::size_t>(i) * stride]; };
+            const auto SAMPLE = [&](int i) {
+                return field[offset + static_cast<std::size_t>(i) * stride];
+            };
             int envelope_index = 0;
             v[0] = 0;
-            z[0] = -kFar;
-            z[1] = kFar;
+            z[0] = -FAR;
+            z[1] = FAR;
             for (int candidate_index = 1; candidate_index < n; ++candidate_index) {
                 double intersection = 0.0;
                 while (true) {
@@ -64,7 +67,7 @@ namespace hyprimate {
                 }
                 v[envelope_index] = candidate_index;
                 z[envelope_index] = intersection;
-                z[envelope_index + 1] = kFar;
+                z[envelope_index + 1] = FAR;
             }
             envelope_index = 0;
             for (int query_index = 0; query_index < n; ++query_index) {
@@ -77,7 +80,7 @@ namespace hyprimate {
                     SAMPLE(SITE_INDEX);
             }
             for (int sample_index = 0; sample_index < n; ++sample_index) {
-                f[static_cast<std::size_t>(sample_index) * stride] = out[sample_index];
+                field[offset + static_cast<std::size_t>(sample_index) * stride] = out[sample_index];
             }
         }
 
@@ -96,9 +99,9 @@ namespace hyprimate {
         bool any = false;
         for (int alpha_row = 0; alpha_row < side; ++alpha_row) {
             for (int alpha_col = 0; alpha_col < side; ++alpha_col) {
-                if (alpha[(static_cast<std::size_t>(alpha_row) * side) + alpha_col] >= kSolid) {
+                if (alpha[(static_cast<std::size_t>(alpha_row) * side) + alpha_col] >= SOLID) {
                     field[(static_cast<std::size_t>(alpha_row + 1) * PADDED_SIDE) + alpha_col + 1] =
-                        kFar;
+                        FAR;
                     any = true;
                 }
             }
@@ -111,7 +114,8 @@ namespace hyprimate {
         std::vector<double> boundaries(PADDED_SIDE + 1);
         std::vector<double> out(PADDED_SIDE);
         for (int field_row = 0; field_row < PADDED_SIDE; ++field_row) {
-            distancePass(field.data() + (static_cast<std::size_t>(field_row) * PADDED_SIDE),
+            distance_pass(field,
+                static_cast<std::size_t>(field_row) * PADDED_SIDE,
                 1,
                 PADDED_SIDE,
                 sites,
@@ -119,7 +123,8 @@ namespace hyprimate {
                 out);
         }
         for (int field_col = 0; field_col < PADDED_SIDE; ++field_col) {
-            distancePass(field.data() + field_col,
+            distance_pass(field,
+                static_cast<std::size_t>(field_col),
                 static_cast<std::size_t>(PADDED_SIDE),
                 PADDED_SIDE,
                 sites,
@@ -144,7 +149,7 @@ namespace hyprimate {
         double farthest = 0.0;
         for (int row = 0; row < side; ++row) {
             for (int col = 0; col < side; ++col) {
-                if (alpha[(static_cast<std::size_t>(row) * side) + col] >= kSolid) {
+                if (alpha[(static_cast<std::size_t>(row) * side) + col] >= SOLID) {
                     farthest = std::max(farthest, std::hypot(col - core_x, row - core_y));
                 }
             }
@@ -175,7 +180,7 @@ namespace hyprimate {
             return 0.0;
         }
         const double LOOSE = fit / frame.reach;
-        const double WHOLE = std::max(LOOSE, kCoverMargin * cover / frame.core);
+        const double WHOLE = std::max(LOOSE, COVER_MARGIN * cover / frame.core);
         return LOOSE * std::pow(WHOLE / LOOSE, std::clamp(lock, 0.0, 1.0));
     }
 

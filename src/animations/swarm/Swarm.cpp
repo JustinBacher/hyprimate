@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <limits>
 #include <numbers>
+#include <span>
 
 #include "animations/shared/Core.hpp"
 #include "animations/swarm/Swarm.hpp"
@@ -12,104 +13,104 @@
 namespace hyprimate {
     namespace {
 
-        constexpr double kStep = 1.0 / 120.0;
-        constexpr double kAccumulatorTolerance = 1e-9;
+        constexpr double STEP = 1.0 / 120.0;
+        constexpr double ACCUMULATOR_TOLERANCE = 1e-9;
 
         // Steering. Accelerations are multiples of an agent's cruise speed per second.
-        constexpr double kForceMin = 4.0, kForceMax = 14.0;  // by responsiveness
-        constexpr double kSteerTime = 0.07;  // s to close a velocity error, before the force limit
-        constexpr double kSlowMargin = 1.5;  // braking distance margin for arriving
-        constexpr double kSpeedCap = 1.45;  // top speed over cruise
-        constexpr double kTurnRate = 14.0;  // rad/s the heading can swing
-        constexpr double kHeadingSpeed = 0.04;  // of cruise: slower than this keeps the old heading
+        constexpr double FORCE_MIN = 4.0, FORCE_MAX = 14.0;  // by responsiveness
+        constexpr double STEER_TIME = 0.07;  // s to close a velocity error, before the force limit
+        constexpr double SLOW_MARGIN = 1.5;  // braking distance margin for arriving
+        constexpr double SPEED_CAP = 1.45;  // top speed over cruise
+        constexpr double TURN_RATE = 14.0;  // rad/s the heading can swing
+        constexpr double HEADING_SPEED = 0.04;  // of cruise: slower than this keeps the old heading
 
         // The route. An agent walks in the direction of its target turned by its approach arc and
         // its meander, so it comes in on a wandering curve; both fade out near home, where the turn
         // would otherwise become an orbit.
-        constexpr double kArcAngle = 0.9;  // rad either way, at full variation
-        constexpr double kMeanderAngle = 0.9;  // rad either way, at full wander
-        constexpr double kRouteLimit =
+        constexpr double ARC_ANGLE = 0.9;  // rad either way, at full variation
+        constexpr double MEANDER_ANGLE = 0.9;  // rad either way, at full wander
+        constexpr double ROUTE_LIMIT =
             1.15;  // rad: it is never turned further than this off its target
-        constexpr double kWeaveRateMin = 5.0, kWeaveRateMax = 11.0;  // rad/s
-        constexpr double kRouteNear = 0.5,
-                         kRouteFar = 2.0;  // spacings from home over which route and crowd fade in
+        constexpr double WEAVE_RATE_MIN = 5.0, WEAVE_RATE_MAX = 11.0;  // rad/s
+        constexpr double ROUTE_NEAR = 0.5,
+                         ROUTE_FAR = 2.0;  // spacings from home over which route and crowd fade in
 
         // The gait. An agent hesitates for part of every gait cycle, so a column of them bunches
         // and strings out.
-        constexpr double kGaitDepth = 0.85;  // share of cruise lost in a hesitation, at full wander
-        constexpr double kGaitFrom = 0.45,
-                         kGaitFull = 0.95;  // sine of the gait phase over which it slows
-        constexpr double kGaitRateMin = 5.0, kGaitRateMax = 10.0;  // rad/s
+        constexpr double GAIT_DEPTH = 0.85;  // share of cruise lost in a hesitation, at full wander
+        constexpr double GAIT_FROM = 0.45,
+                         GAIT_FULL = 0.95;  // sine of the gait phase over which it slows
+        constexpr double GAIT_RATE_MIN = 5.0, GAIT_RATE_MAX = 10.0;  // rad/s
 
         // The crowd. Radii in tile spacings; force shares of the steering limit.
-        constexpr double kNeighbourRadius = 3.0;
-        constexpr double kSeparationRadius = 0.8;  // soft push inside this
-        constexpr double kSeparationForce = 1.2;
-        constexpr double kAvoidRadius = 2.4;  // how far ahead an agent looks for others in its way
-        constexpr double kAvoidForce = 1.8;
-        constexpr double kAvoidSpeed = 0.35;  // of cruise: closing this fast draws a full sidestep
-        constexpr double kContactFull = 0.5;  // separation at which bodies are fully solid
-        constexpr double kTransitNear = 1.0,
-                         kTransitFar = 5.0;  // spacings from home over which a body becomes solid
-        constexpr double kAlignRate = 3.0;  // 1/s velocity matching at full cohesion
-        constexpr double kCohesionForce = 0.35;
+        constexpr double NEIGHBOUR_RADIUS = 3.0;
+        constexpr double SEPARATION_RADIUS = 0.8;  // soft push inside this
+        constexpr double SEPARATION_FORCE = 1.2;
+        constexpr double AVOID_RADIUS = 2.4;  // how far ahead an agent looks for others in its way
+        constexpr double AVOID_FORCE = 1.8;
+        constexpr double AVOID_SPEED = 0.35;  // of cruise: closing this fast draws a full sidestep
+        constexpr double CONTACT_FULL = 0.5;  // separation at which bodies are fully solid
+        constexpr double TRANSIT_NEAR = 1.0,
+                         TRANSIT_FAR = 5.0;  // spacings from home over which a body becomes solid
+        constexpr double ALIGN_RATE = 3.0;  // 1/s velocity matching at full cohesion
+        constexpr double COHESION_FORCE = 0.35;
 
         // Settling: a critically damped spring takes over near home, and everywhere once patience
         // runs out.
-        constexpr double kSpringNear = 0.25, kSpringFar = 1.25;  // spacings
-        constexpr double kSpringMin = 9.0, kSpringMax = 26.0;  // rad/s by settling
-        constexpr double kSpringForce = 3.0;  // spring force limit over the steering limit
-        constexpr double kPatienceMax = 2.4,
-                         kPatienceMin =
+        constexpr double SPRING_NEAR = 0.25, SPRING_FAR = 1.25;  // spacings
+        constexpr double SPRING_MIN = 9.0, SPRING_MAX = 26.0;  // rad/s by settling
+        constexpr double SPRING_FORCE = 3.0;  // spring force limit over the steering limit
+        constexpr double PATIENCE_MAX = 2.4,
+                         PATIENCE_MIN =
                              0.5;  // s of a still window, after the stagger, before hurrying
-        constexpr double kPatienceRamp = 0.8;
-        constexpr double kPatienceDeadline =
+        constexpr double PATIENCE_RAMP = 0.8;
+        constexpr double PATIENCE_DEADLINE =
             4.0;  // s after patience at which every agent is placed
-        constexpr double kDockDistance = 1.5;  // px
-        constexpr double kDockSpeed = 60.0;  // px/s
-        constexpr double kDockWindowSpeed =
+        constexpr double DOCK_DISTANCE = 1.5;  // px
+        constexpr double DOCK_SPEED = 60.0;  // px/s
+        constexpr double DOCK_WINDOW_SPEED =
             0.5;  // of grip: the window must be slower than this to dock on it
-        constexpr double kRestRadius =
+        constexpr double REST_RADIUS =
             0.7;  // spacings from home inside which an agent swings to its rest direction
 
         // Formation lock.
-        constexpr double kMergeMax = 0.5,
-                         kMergeMin = 0.18;  // s to merge into the window, by settling
-        constexpr double kSplitTime = 0.14;  // s to shrink from tile to creature
-        constexpr double kTurnTime = 0.16;  // s to swing between rest direction and heading
-        constexpr double kHoldLock = 0.35;  // a leaving agent waits until its lock is below this
-        constexpr double kCornerTime = 0.18;  // s for the global surface rounding to change
+        constexpr double MERGE_MAX = 0.5,
+                         MERGE_MIN = 0.18;  // s to merge into the window, by settling
+        constexpr double SPLIT_TIME = 0.14;  // s to shrink from tile to creature
+        constexpr double TURN_TIME = 0.16;  // s to swing between rest direction and heading
+        constexpr double HOLD_LOCK = 0.35;  // a leaving agent waits until its lock is below this
+        constexpr double CORNER_TIME = 0.18;  // s for the global surface rounding to change
 
         // Per-agent spread.
-        constexpr double kGripMin = 60.0, kGripMax = 900.0;  // px/s by responsiveness
-        constexpr double kPaceSpread = 0.7;  // total, at full variation
-        constexpr double kGripSpread = 1.0;
-        constexpr double kWindowSpeedHold = 0.12;  // s the window speed estimate lingers
+        constexpr double GRIP_MIN = 60.0, GRIP_MAX = 900.0;  // px/s by responsiveness
+        constexpr double PACE_SPREAD = 0.7;  // total, at full variation
+        constexpr double GRIP_SPREAD = 1.0;
+        constexpr double WINDOW_SPEED_HOLD = 0.12;  // s the window speed estimate lingers
 
         // Departures, as shares of the stagger.
-        constexpr double kReactionShare =
+        constexpr double REACTION_SHARE =
             0.5;  // the longest an agent shaken loose by movement stays put
-        constexpr double kStaggerMax = 5.0;  // s
+        constexpr double STAGGER_MAX = 5.0;  // s
 
         // Transitions.
-        constexpr double kEntryDepth = 1.5;  // fits beyond the edge an agent starts
-        constexpr double kEntrySpeed = 0.5;  // of cruise
+        constexpr double ENTRY_DEPTH = 1.5;  // fits beyond the edge an agent starts
+        constexpr double ENTRY_SPEED = 0.5;  // of cruise
         constexpr double
-            kDawdle = 0.7,
-            kHurry = 1.3;  // of cruise: how far an opening agent bends its speed to be on time
-        constexpr double kLead =
+            DAWDLE = 0.7,
+            HURRY = 1.3;  // of cruise: how far an opening agent bends its speed to be on time
+        constexpr double LEAD =
             0.85;  // of the longest walk at cruise: when the first agents are due
-        constexpr double kExitDepth = 3.0;  // fits beyond the edge an agent runs to
-        constexpr double kGoneMargin = 1.2;  // fits beyond the edge at which it has left
-        constexpr double kCloseDeadline =
+        constexpr double EXIT_DEPTH = 3.0;  // fits beyond the edge an agent runs to
+        constexpr double GONE_MARGIN = 1.2;  // fits beyond the edge at which it has left
+        constexpr double CLOSE_DEADLINE =
             6.0;  // s after the stagger at which a close ends regardless
 
-        constexpr int kHashSide =
+        constexpr int HASH_SIDE =
             32;  // buckets per axis; positions wrap and the distance check rejects aliases
-        constexpr int kHashCells = kHashSide * kHashSide;
-        constexpr std::uint32_t kNoCell = std::numeric_limits<std::uint32_t>::max();
+        constexpr int HASH_CELLS = HASH_SIDE * HASH_SIDE;
+        constexpr std::uint32_t NO_CELL = std::numeric_limits<std::uint32_t>::max();
 
-        constexpr std::array<Edge, 4> kEdges{Edge::Left, Edge::Right, Edge::Top, Edge::Bottom};
+        constexpr std::array<Edge, 4> EDGES{Edge::Left, Edge::Right, Edge::Top, Edge::Bottom};
 
         Vec2 operator+(Vec2 a, Vec2 b) noexcept {
             return {.x = a.x + b.x, .y = a.y + b.y};
@@ -133,7 +134,7 @@ namespace hyprimate {
             return std::clamp(v, 0.0, 1.0);
         }
 
-        Vec2 clampLength(Vec2 a, double limit) noexcept {
+        Vec2 clamp_length(Vec2 a, double limit) noexcept {
             const double LENGTH = length(a);
             return LENGTH > limit && LENGTH > 0.0 ? a * (limit / LENGTH) : a;
         }
@@ -145,7 +146,7 @@ namespace hyprimate {
             return {.x = (a.x * COSINE) - (a.y * SINE), .y = (a.x * SINE) + (a.y * COSINE)};
         }
 
-        double wrapAngle(double a) noexcept {
+        double wrap_angle(double a) noexcept {
             return std::remainder(a, 2.0 * std::numbers::pi);
         }
 
@@ -163,7 +164,7 @@ namespace hyprimate {
         SwarmParams sane(SwarmParams p) noexcept {
             p.count = std::clamp(p.count, 1, kSwarmMaxAgents);
             p.speed = std::max(p.speed, 1.0);
-            p.stagger = std::clamp(p.stagger, 0.0, kStaggerMax);
+            p.stagger = std::clamp(p.stagger, 0.0, STAGGER_MAX);
             p.cohesion = unit(p.cohesion);
             p.separation = unit(p.separation);
             p.responsiveness = unit(p.responsiveness);
@@ -193,9 +194,9 @@ namespace hyprimate {
         }
 
         std::uint32_t bucket(Vec2 p, double cell) noexcept {
-            const auto CELL_X = static_cast<std::int64_t>(std::floor(p.x / cell)) & (kHashSide - 1);
-            const auto CELL_Y = static_cast<std::int64_t>(std::floor(p.y / cell)) & (kHashSide - 1);
-            return static_cast<std::uint32_t>((CELL_Y * kHashSide) + CELL_X);
+            const auto CELL_X = static_cast<std::int64_t>(std::floor(p.x / cell)) & (HASH_SIDE - 1);
+            const auto CELL_Y = static_cast<std::int64_t>(std::floor(p.y / cell)) & (HASH_SIDE - 1);
+            return static_cast<std::uint32_t>((CELL_Y * HASH_SIDE) + CELL_X);
         }
 
     }  // namespace
@@ -204,10 +205,12 @@ namespace hyprimate {
         const Box &capture = placement.capture;
         m_origin = {.x = capture.x, .y = capture.y};
         m_size = {.x = capture.w, .y = capture.h};
-        m_screen = {.x = placement.screen.x - capture.x,
+        m_screen = {
+            .x = placement.screen.x - capture.x,
             .y = placement.screen.y - capture.y,
             .w = placement.screen.w,
-            .h = placement.screen.h};
+            .h = placement.screen.h,
+        };
 
         // The body, clipped to the capture; a body that is unusable or outside it falls back to the
         // whole capture.
@@ -222,7 +225,7 @@ namespace hyprimate {
                      ? Box{.x = BODY_LEFT,
                            .y = BODY_TOP,
                            .w = BODY_RIGHT - BODY_LEFT,
-                           .h = BODY_BOTTOM - BODY_TOP}
+                           .h = BODY_BOTTOM - BODY_TOP,}
                      : Box{.x = 0.0, .y = 0.0, .w = capture.w, .h = capture.h};
 
         const auto COUNT = static_cast<int>(m_agents.size());
@@ -273,16 +276,16 @@ namespace hyprimate {
             agent.docked = true;
             agent.lock = 1.0;
             agent.visible = true;
-            agent.pace = 1.0 + (m_params.variation * kPaceSpread * (unit_draw(m_rng) - 0.5));
-            agent.grip = lerp(kGripMin, kGripMax, m_params.responsiveness) *
-                         (1.0 + (m_params.variation * kGripSpread * (unit_draw(m_rng) - 0.5)));
+            agent.pace = 1.0 + (m_params.variation * PACE_SPREAD * (unit_draw(m_rng) - 0.5));
+            agent.grip = lerp(GRIP_MIN, GRIP_MAX, m_params.responsiveness) *
+                         (1.0 + (m_params.variation * GRIP_SPREAD * (unit_draw(m_rng) - 0.5)));
             agent.rest = std::numbers::pi * ((2.0 * unit_draw(m_rng)) - 1.0);
-            agent.reaction = kReactionShare * m_params.stagger * unit_draw(m_rng);
-            agent.arc = kArcAngle * m_params.variation * ((2.0 * unit_draw(m_rng)) - 1.0);
+            agent.reaction = REACTION_SHARE * m_params.stagger * unit_draw(m_rng);
+            agent.arc = ARC_ANGLE * m_params.variation * ((2.0 * unit_draw(m_rng)) - 1.0);
             agent.weave = 2.0 * std::numbers::pi * unit_draw(m_rng);
-            agent.weaveRate = lerp(kWeaveRateMin, kWeaveRateMax, unit_draw(m_rng));
+            agent.weaveRate = lerp(WEAVE_RATE_MIN, WEAVE_RATE_MAX, unit_draw(m_rng));
             agent.gait = 2.0 * std::numbers::pi * unit_draw(m_rng);
-            agent.gaitRate = lerp(kGaitRateMin, kGaitRateMax, unit_draw(m_rng));
+            agent.gaitRate = lerp(GAIT_RATE_MIN, GAIT_RATE_MAX, unit_draw(m_rng));
         }
         layout(placement);
         m_shift = {};
@@ -310,10 +313,12 @@ namespace hyprimate {
             // A close during an opening or a movement keeps the agents where they are.
             m_params = sane(params);
             m_params.count = static_cast<int>(m_agents.size());
-            m_screen = {.x = placement.screen.x - m_origin.x,
+            m_screen = {
+                .x = placement.screen.x - m_origin.x,
                 .y = placement.screen.y - m_origin.y,
                 .w = placement.screen.w,
-                .h = placement.screen.h};
+                .h = placement.screen.h,
+            };
             m_shift = {};
             m_time = 0.0;
         }
@@ -325,7 +330,7 @@ namespace hyprimate {
         const double CRUISE = m_params.speed;
         std::array<Edge, 4> allowed{};
         std::size_t edges = 0;
-        for (const Edge CANDIDATE_EDGE : kEdges) {
+        for (const Edge CANDIDATE_EDGE : EDGES) {
             if (sides.has(CANDIDATE_EDGE)) {
                 allowed[edges++] = CANDIDATE_EDGE;
             }
@@ -352,7 +357,7 @@ namespace hyprimate {
                 entering_agent.exit = beyond(m_screen,
                     EDGE,
                     ALONG,
-                    (kExitDepth * entering_agent.fit) + entering_agent.reach);
+                    (EXIT_DEPTH * entering_agent.fit) + entering_agent.reach);
                 // Agents let go in random order over the stagger; those already loose leave at
                 // once.
                 entering_agent.delay =
@@ -361,12 +366,12 @@ namespace hyprimate {
             }
 
             entering_agent.position =
-                beyond(m_screen, EDGE, ALONG, kEntryDepth * entering_agent.fit);
+                beyond(m_screen, EDGE, ALONG, ENTRY_DEPTH * entering_agent.fit);
             const Vec2 TO_HOME = entering_agent.home - entering_agent.position;
             const double DISTANCE_HOME = length(TO_HOME);
             entering_agent.velocity =
                 DISTANCE_HOME > 0.0
-                    ? TO_HOME * (kEntrySpeed * CRUISE * entering_agent.pace / DISTANCE_HOME)
+                    ? TO_HOME * (ENTRY_SPEED * CRUISE * entering_agent.pace / DISTANCE_HOME)
                     : Vec2{};
             entering_agent.heading = std::atan2(TO_HOME.y, TO_HOME.x);
             entering_agent.turn = 1.0;
@@ -388,7 +393,7 @@ namespace hyprimate {
             }
             if (!CLOSING) {
                 const double WALK = waiting_agent.due;
-                waiting_agent.due = (kLead * longest) + (m_params.stagger * unit_draw(m_rng));
+                waiting_agent.due = (LEAD * longest) + (m_params.stagger * unit_draw(m_rng));
                 waiting_agent.delay = std::max(0.0, waiting_agent.due - WALK);
             }
             first = std::min(first, waiting_agent.delay);
@@ -502,17 +507,17 @@ namespace hyprimate {
         if (WANDERING) {
             m_still = 0.0;
         }
-        m_windowSpeed = std::max(SPEED, m_windowSpeed * std::exp(-DELTA_TIME / kWindowSpeedHold));
+        m_windowSpeed = std::max(SPEED, m_windowSpeed * std::exp(-DELTA_TIME / WINDOW_SPEED_HOLD));
         m_shift = {};
 
         m_accumulator += DELTA_TIME;
-        while (m_accumulator >= kStep - kAccumulatorTolerance) {
+        while (m_accumulator >= STEP - ACCUMULATOR_TOLERANCE) {
             step(WANDERING);
-            m_accumulator = std::max(0.0, m_accumulator - kStep);
+            m_accumulator = std::max(0.0, m_accumulator - STEP);
         }
 
         if (m_phase == Phase::Closing) {
-            if (m_time > m_params.stagger + kCloseDeadline ||
+            if (m_time > m_params.stagger + CLOSE_DEADLINE ||
                 std::ranges::all_of(m_agents, [](const SwarmAgent &a) { return a.gone; })) {
                 m_phase = Phase::Closed;
             }
@@ -526,9 +531,9 @@ namespace hyprimate {
     }
 
     void Swarm::hash() {
-        const double CELL = kNeighbourRadius * m_spacing;
-        m_cellStart.assign(kHashCells + 1, 0);
-        m_cellOf.assign(m_agents.size(), kNoCell);
+        const double CELL = NEIGHBOUR_RADIUS * m_spacing;
+        m_cellStart.assign(HASH_CELLS + 1, 0);
+        m_cellOf.assign(m_agents.size(), NO_CELL);
         for (std::size_t i = 0; i < m_agents.size(); ++i) {
             const SwarmAgent &agent = m_agents[i];
             if (agent.docked || agent.gone || !agent.visible) {
@@ -537,35 +542,35 @@ namespace hyprimate {
             m_cellOf[i] = bucket(agent.position, CELL);
             ++m_cellStart[m_cellOf[i] + 1];
         }
-        for (int bucket_index = 0; bucket_index < kHashCells; ++bucket_index) {
+        for (int bucket_index = 0; bucket_index < HASH_CELLS; ++bucket_index) {
             m_cellStart[bucket_index + 1] += m_cellStart[bucket_index];
         }
-        m_cellItems.resize(m_cellStart[kHashCells]);
+        m_cellItems.resize(m_cellStart.back());
         // Filling from each bucket's end leaves m_cellStart pointing at the bucket starts again.
         for (std::size_t i = m_agents.size(); i-- > 0;) {
-            if (m_cellOf[i] != kNoCell) {
+            if (m_cellOf[i] != NO_CELL) {
                 m_cellItems[--m_cellStart[m_cellOf[i] + 1]] = static_cast<std::uint32_t>(i);
             }
         }
         // Each start slid down one bucket; shift them back.
-        for (int cell_index = 0; cell_index < kHashCells; ++cell_index) {
+        for (int cell_index = 0; cell_index < HASH_CELLS; ++cell_index) {
             m_cellStart[cell_index] = m_cellStart[cell_index + 1];
         }
-        m_cellStart[kHashCells] = static_cast<std::uint32_t>(m_cellItems.size());
+        m_cellStart.back() = static_cast<std::uint32_t>(m_cellItems.size());
     }
 
     Swarm::Crowd Swarm::crowd(std::size_t index, Vec2 forward, double force) const {
         const SwarmAgent &subject_agent = m_agents[index];
-        const double CELL = kNeighbourRadius * m_spacing;
-        const double NEAR = kSeparationRadius * m_spacing;
-        const double LOOK = kAvoidRadius * m_spacing;
+        const double CELL = NEIGHBOUR_RADIUS * m_spacing;
+        const double NEAR = SEPARATION_RADIUS * m_spacing;
+        const double LOOK = AVOID_RADIUS * m_spacing;
         const double BODY = kSwarmBodyShare * subject_agent.fit;
         // How much an agent is still in transit: 0 at its home, where it neither blocks others nor
         // is blocked, so arrivals can settle while the rest of the crowd walks through.
         const auto TRANSIT = [&](const SwarmAgent &agent) {
             return agent.leaving ? 1.0
-                                 : smoothstep(kTransitNear * m_spacing,
-                                       kTransitFar * m_spacing,
+                                 : smoothstep(TRANSIT_NEAR * m_spacing,
+                                       TRANSIT_FAR * m_spacing,
                                        length(agent.home - agent.position));
         };
         const double OWN = TRANSIT(subject_agent);
@@ -582,12 +587,12 @@ namespace hyprimate {
         for (std::int64_t dy = -1; dy <= 1; ++dy) {
             for (std::int64_t dx = -1; dx <= 1; ++dx) {
                 const auto BUCKET_INDEX =
-                    static_cast<std::size_t>((((CELL_Y + dy) & (kHashSide - 1)) * kHashSide) +
-                                             ((CELL_X + dx) & (kHashSide - 1)));
+                    static_cast<std::size_t>((((CELL_Y + dy) & (HASH_SIDE - 1)) * HASH_SIDE) +
+                                             ((CELL_X + dx) & (HASH_SIDE - 1)));
                 const std::uint32_t BEGIN = m_cellStart[BUCKET_INDEX];
                 const std::uint32_t END = m_cellStart[BUCKET_INDEX + 1];
-                for (std::uint32_t k = BEGIN; k < END; ++k) {
-                    const std::size_t NEIGHBOUR_INDEX = m_cellItems[k];
+                for (const std::uint32_t NEIGHBOUR_INDEX :
+                    std::span(m_cellItems).subspan(BEGIN, END - BEGIN)) {
                     if (NEIGHBOUR_INDEX == index) {
                         continue;
                     }
@@ -626,7 +631,7 @@ namespace hyprimate {
                     if (IN_WAY) {
                         const double DODGE_WEIGHT =
                             SOLID * (1.0 - (DISTANCE / LOOK)) * AHEAD *
-                            std::min(1.0, CLOSING / (kAvoidSpeed * m_params.speed));
+                            std::min(1.0, CLOSING / (AVOID_SPEED * m_params.speed));
                         dodge = dodge +
                                 RIGHT * (dot(NORMAL, RIGHT) > 0.0 ? DODGE_WEIGHT : -DODGE_WEIGHT);
                     }
@@ -637,41 +642,41 @@ namespace hyprimate {
             }
         }
 
-        out.steer = (push * kSeparationForce + dodge * kAvoidForce) * (force * m_params.separation);
+        out.steer = (push * SEPARATION_FORCE + dodge * AVOID_FORCE) * (force * m_params.separation);
         if (neighbours > 0) {
             const double SHARE = 1.0 / neighbours;
             out.steer = out.steer + (velocity * SHARE - subject_agent.velocity) *
-                                        (kAlignRate * m_params.cohesion);
+                                        (ALIGN_RATE * m_params.cohesion);
             out.steer = out.steer + (centre * SHARE - subject_agent.position) *
-                                        (kCohesionForce * force * m_params.cohesion / CELL);
+                                        (COHESION_FORCE * force * m_params.cohesion / CELL);
         }
         return out;
     }
 
     void Swarm::step(bool wandering) {
-        m_time += kStep;
+        m_time += STEP;
         hash();
 
         const bool CLOSING = m_phase == Phase::Closing;
-        const double FORCE = lerp(kForceMin, kForceMax, m_params.responsiveness);
-        const double OMEGA = lerp(kSpringMin, kSpringMax, m_params.settling);
-        const double MERGE = lerp(kMergeMax, kMergeMin, m_params.settling);
+        const double FORCE = lerp(FORCE_MIN, FORCE_MAX, m_params.responsiveness);
+        const double OMEGA = lerp(SPRING_MIN, SPRING_MAX, m_params.settling);
+        const double MERGE = lerp(MERGE_MAX, MERGE_MIN, m_params.settling);
         // Patience starts once the last agent has had its turn to set off.
         const double PATIENCE =
-            m_params.stagger + lerp(kPatienceMax, kPatienceMin, m_params.settling);
+            m_params.stagger + lerp(PATIENCE_MAX, PATIENCE_MIN, m_params.settling);
         const double URGENCY =
-            CLOSING || wandering ? 0.0 : smoothstep(PATIENCE, PATIENCE + kPatienceRamp, m_still);
-        const bool OVERDUE = !CLOSING && !wandering && m_still > PATIENCE + kPatienceDeadline;
-        const double SOLID = std::min(1.0, m_params.separation / kContactFull) * (1.0 - URGENCY);
+            CLOSING || wandering ? 0.0 : smoothstep(PATIENCE, PATIENCE + PATIENCE_RAMP, m_still);
+        const bool OVERDUE = !CLOSING && !wandering && m_still > PATIENCE + PATIENCE_DEADLINE;
+        const double SOLID = std::min(1.0, m_params.separation / CONTACT_FULL) * (1.0 - URGENCY);
 
         for (std::size_t i = 0; i < m_agents.size(); ++i) {
             SwarmAgent &moving_agent = m_agents[i];
             if (moving_agent.gone) {
                 continue;
             }
-            moving_agent.due -= kStep;
+            moving_agent.due -= STEP;
             if (moving_agent.delay > 0.0) {
-                moving_agent.delay -= kStep;
+                moving_agent.delay -= STEP;
                 if (moving_agent.delay > 0.0) {
                     continue;
                 }
@@ -694,49 +699,53 @@ namespace hyprimate {
             if (moving_agent.docked) {
                 // Keep the creature alive while its carried tile straightens and fills in.
                 if (moving_agent.lock < 1.0) {
-                    moving_agent.walk += 4.0 * moving_agent.fit * kStep;
+                    moving_agent.walk += 4.0 * moving_agent.fit * STEP;
                 }
                 if (moving_agent.turn > 0.0) {
-                    moving_agent.turn = std::max(0.0, moving_agent.turn - (kStep / kTurnTime));
+                    moving_agent.turn = std::max(0.0, moving_agent.turn - (STEP / TURN_TIME));
                 } else {
-                    moving_agent.lock = std::min(1.0, moving_agent.lock + (kStep / MERGE));
+                    moving_agent.lock = std::min(1.0, moving_agent.lock + (STEP / MERGE));
                 }
                 continue;
             }
 
-            moving_agent.lock = std::max(0.0, moving_agent.lock - (kStep / kSplitTime));
-            if (moving_agent.leaving && moving_agent.lock > kHoldLock) {
+            moving_agent.lock = std::max(0.0, moving_agent.lock - (STEP / SPLIT_TIME));
+            if (moving_agent.leaving && moving_agent.lock > HOLD_LOCK) {
                 continue;
             }
 
             const double CRUISE = m_params.speed * moving_agent.pace;
             const double LIMIT = CRUISE * FORCE;
             const double PACE = length(moving_agent.velocity);
-            const Vec2 FORWARD = PACE > kHeadingSpeed * CRUISE
+            const Vec2 FORWARD = PACE > HEADING_SPEED * CRUISE
                                      ? moving_agent.velocity * (1.0 / PACE)
-                                     : Vec2{.x = std::cos(moving_agent.heading),
-                                           .y = std::sin(moving_agent.heading)};
+                                     : Vec2{
+                                           .x = std::cos(moving_agent.heading),
+                                           .y = std::sin(moving_agent.heading),
+                                       };
             const Crowd CROWD = this->crowd(i, FORWARD, LIMIT);
             moving_agent.position = moving_agent.position + CROWD.shove * SOLID;
             if (moving_agent.pause > 0.0) {
                 // Shaken loose and not yet giving chase: the window leaves it behind, and
                 // passers-by jostle it.
-                moving_agent.pause -= kStep;
+                moving_agent.pause -= STEP;
                 continue;
             }
             moving_agent.velocity = moving_agent.velocity + CROWD.check * SOLID;
 
-            moving_agent.weave += moving_agent.weaveRate * kStep;
-            moving_agent.gait += moving_agent.gaitRate * kStep;
+            moving_agent.weave += moving_agent.weaveRate * STEP;
+            moving_agent.gait += moving_agent.gaitRate * STEP;
             // A moving home keeps the spring walking around the tile throughout a held drag.
             // Its radius scales with wander; the real home is restored immediately on release.
             const double RADIUS = wandering ? m_params.wander * m_spacing : 0.0;
             const Vec2 TARGET =
                 moving_agent.leaving
                     ? moving_agent.exit
-                    : moving_agent.home + Vec2{.x = RADIUS * std::cos(moving_agent.weave),
+                    : moving_agent.home + Vec2{
+                                              .x = RADIUS * std::cos(moving_agent.weave),
                                               .y = RADIUS * std::sin((0.73 * moving_agent.weave) +
-                                                                     moving_agent.gait)};
+                                                                     moving_agent.gait),
+                                          };
             const Vec2 OFFSET = TARGET - moving_agent.position;
             const double DISTANCE = length(OFFSET);
             const Vec2 TOWARD = DISTANCE > 1e-9 ? OFFSET * (1.0 / DISTANCE) : Vec2{};
@@ -745,71 +754,70 @@ namespace hyprimate {
             const double FADE =
                 moving_agent.leaving
                     ? 1.0
-                    : smoothstep(kRouteNear * m_spacing, kRouteFar * m_spacing, DISTANCE) *
+                    : smoothstep(ROUTE_NEAR * m_spacing, ROUTE_FAR * m_spacing, DISTANCE) *
                           (1.0 - URGENCY);
             const double SWAY = (std::sin(moving_agent.weave) +
                                     (0.5 * std::sin((2.3 * moving_agent.weave) + 1.7))) /
                                 1.5;
             const double OFF =
-                std::clamp((moving_agent.arc + (kMeanderAngle * m_params.wander * SWAY)) * FADE,
-                    -kRouteLimit,
-                    kRouteLimit);
-            const double HESITATION = smoothstep(kGaitFrom, kGaitFull, std::sin(moving_agent.gait));
+                std::clamp((moving_agent.arc + (MEANDER_ANGLE * m_params.wander * SWAY)) * FADE,
+                    -ROUTE_LIMIT,
+                    ROUTE_LIMIT);
+            const double HESITATION = smoothstep(GAIT_FROM, GAIT_FULL, std::sin(moving_agent.gait));
 
             // Walk the route at the gait's speed; arriving agents brake over their stopping
             // distance.
-            double want = CRUISE * (1.0 - (kGaitDepth * m_params.wander * HESITATION * FADE));
+            double want = CRUISE * (1.0 - (GAIT_DEPTH * m_params.wander * HESITATION * FADE));
             if (m_phase ==
                 Phase::Opening) {  // on a schedule: hurry or dawdle towards being home when due
-                want *= moving_agent.due > kStep
-                            ? std::clamp(DISTANCE / (moving_agent.due * CRUISE), kDawdle, kHurry)
-                            : kHurry;
+                want *= moving_agent.due > STEP
+                            ? std::clamp(DISTANCE / (moving_agent.due * CRUISE), DAWDLE, HURRY)
+                            : HURRY;
             }
             if (!moving_agent.leaving) {
                 want *= std::min(1.0,
                     DISTANCE /
-                        ((kSlowMargin * CRUISE * CRUISE / (2.0 * LIMIT)) + (0.5 * m_spacing)));
+                        ((SLOW_MARGIN * CRUISE * CRUISE / (2.0 * LIMIT)) + (0.5 * m_spacing)));
             }
-            Vec2 accel = clampLength(
-                (turned(TOWARD, OFF) * want - moving_agent.velocity) * (1.0 / kSteerTime), LIMIT);
+            Vec2 accel = clamp_length(
+                (turned(TOWARD, OFF) * want - moving_agent.velocity) * (1.0 / STEER_TIME), LIMIT);
             accel = accel + CROWD.steer * FADE;
 
             if (!moving_agent.leaving) {
                 const double SETTLE = std::max(
-                    1.0 - smoothstep(kSpringNear * m_spacing, kSpringFar * m_spacing, DISTANCE),
+                    1.0 - smoothstep(SPRING_NEAR * m_spacing, SPRING_FAR * m_spacing, DISTANCE),
                     URGENCY);
                 if (SETTLE > 0.0) {
-                    const Vec2 SPRING = clampLength(
+                    const Vec2 SPRING = clamp_length(
                         OFFSET * (OMEGA * OMEGA) - moving_agent.velocity * (2.0 * OMEGA),
-                        kSpringForce * LIMIT);
+                        SPRING_FORCE * LIMIT);
                     accel = accel * (1.0 - SETTLE) + SPRING * SETTLE;
                 }
             }
 
             moving_agent.velocity =
-                clampLength(moving_agent.velocity + accel * kStep, kSpeedCap * CRUISE);
-            moving_agent.position = moving_agent.position + moving_agent.velocity * kStep;
+                clamp_length(moving_agent.velocity + accel * STEP, SPEED_CAP * CRUISE);
+            moving_agent.position = moving_agent.position + moving_agent.velocity * STEP;
             const double SPEED = length(moving_agent.velocity);
-            moving_agent.travel += SPEED * kStep;
+            moving_agent.travel += SPEED * STEP;
             // Keep the gait readable even when small agents travel many body lengths per display
             // frame.
             const bool SETTLING =
-                !wandering && !moving_agent.leaving && DISTANCE < kRestRadius * m_spacing;
+                !wandering && !moving_agent.leaving && DISTANCE < REST_RADIUS * m_spacing;
             moving_agent.walk +=
                 (SETTLING ? 4.0 * moving_agent.fit : std::min(SPEED, 4.0 * moving_agent.fit)) *
-                kStep;
-            if (SPEED > kHeadingSpeed * CRUISE) {
+                STEP;
+            if (SPEED > HEADING_SPEED * CRUISE) {
                 const double SWING =
-                    wrapAngle(std::atan2(moving_agent.velocity.y, moving_agent.velocity.x) -
-                              moving_agent.heading);
-                moving_agent.heading =
-                    wrapAngle(moving_agent.heading +
-                              std::clamp(SWING, -kTurnRate * kStep, kTurnRate * kStep));
+                    wrap_angle(std::atan2(moving_agent.velocity.y, moving_agent.velocity.x) -
+                               moving_agent.heading);
+                moving_agent.heading = wrap_angle(
+                    moving_agent.heading + std::clamp(SWING, -TURN_RATE * STEP, TURN_RATE * STEP));
             }
 
             if (moving_agent.leaving) {
-                moving_agent.turn = approach(moving_agent.turn, 1.0, kStep / kTurnTime);
-                const double MARGIN = kGoneMargin * moving_agent.fit;
+                moving_agent.turn = approach(moving_agent.turn, 1.0, STEP / TURN_TIME);
+                const double MARGIN = GONE_MARGIN * moving_agent.fit;
                 if (moving_agent.position.x < m_screen.x - MARGIN ||
                     moving_agent.position.x > m_screen.x + m_screen.w + MARGIN ||
                     moving_agent.position.y < m_screen.y - MARGIN ||
@@ -822,14 +830,14 @@ namespace hyprimate {
 
             const double LEFT = length(moving_agent.home - moving_agent.position);
             moving_agent.turn = approach(moving_agent.turn,
-                !wandering && LEFT < kRestRadius * m_spacing ? 0.0 : 1.0,
-                kStep / kTurnTime);
-            if (!wandering && LEFT < kDockDistance && SPEED < kDockSpeed &&
-                m_windowSpeed <= kDockWindowSpeed * moving_agent.grip) {
+                !wandering && LEFT < REST_RADIUS * m_spacing ? 0.0 : 1.0,
+                STEP / TURN_TIME);
+            if (!wandering && LEFT < DOCK_DISTANCE && SPEED < DOCK_SPEED &&
+                m_windowSpeed <= DOCK_WINDOW_SPEED * moving_agent.grip) {
                 if (m_phase == Phase::Movement && moving_agent.settleWait < 0.0) {
                     moving_agent.settleWait = m_params.stagger * unit_draw(m_rng);
                 }
-                if (m_phase != Phase::Movement || (moving_agent.settleWait -= kStep) <= 0.0) {
+                if (m_phase != Phase::Movement || (moving_agent.settleWait -= STEP) <= 0.0) {
                     moving_agent.docked = true;
                     moving_agent.position = moving_agent.home;
                     moving_agent.velocity = {};
@@ -841,14 +849,14 @@ namespace hyprimate {
         if (CLOSING) {
             // Preserve an interrupted opening's surface until the first piece leaves.
             if (!WHOLE) {
-                m_rounding = approach(m_rounding, 1.0, kStep / kCornerTime);
+                m_rounding = approach(m_rounding, 1.0, STEP / CORNER_TIME);
             }
         } else if (WHOLE && !wandering) {
-            m_rounding = approach(m_rounding, 0.0, kStep / kCornerTime);
+            m_rounding = approach(m_rounding, 0.0, STEP / CORNER_TIME);
         } else if (m_phase == Phase::Opening) {
             m_rounding = 1.0;
         } else {
-            m_rounding = approach(m_rounding, 1.0, kStep / kCornerTime);
+            m_rounding = approach(m_rounding, 1.0, STEP / CORNER_TIME);
         }
     }
 
