@@ -127,10 +127,8 @@ void SSwarmLiveStyle::movement(CPluginRuntime &runtime,
     auto &state = std::get<SSwarmStyle>(transformer.m_style);
     auto placement = placementOf(window, false);
     if (!placement) return;
-    if (!state.swarm.opening()) {
-        placement->capture = decision.currentCapture;
-        placement->body = decision.currentBox;
-    }
+    placement->capture = decision.currentCapture;
+    placement->body = decision.currentBox;
     if (moving && !state.swarm.active()) {
         // Formed where the window was, so the first update carries this frame's movement.
         state.creature = swarmCreature(runtime.m_config.movement.swarm);
@@ -141,7 +139,7 @@ void SSwarmLiveStyle::movement(CPluginRuntime &runtime,
     }
     // An opening follows its window even with movement off; its agents are in flight either way.
     if (state.swarm.opening() || (enabled && state.swarm.moving()))
-        state.swarm.updateMovement(*placement);
+        state.swarm.updateMovement(*placement, decision.workspaceDelta);
 }
 
 void SSwarmLiveStyle::snapshot(

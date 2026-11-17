@@ -207,20 +207,39 @@ int main() {
         auto s = snap(100, 80, 400, 300);
         s.workspaceMoving = true;
         s.workspaceOffset = {1600, 0};
-        CHECK(t.update(s).action == TrackAction::Rebaseline); // incoming workspace placement
+        CHECK(t.update(s).action == TrackAction::Move); // outgoing motion must not detach sprites
         s.workspaceOffset = {1500, 0};
         const auto d = t.update(s);
         CHECK(d.action == TrackAction::Move);
         CHECK(d.translated);
         CHECK(d.currentBox.x - d.previousBox.x == -100);
         CHECK(d.currentCapture.x - d.previousCapture.x == -100);
+        CHECK(d.workspaceDelta.x == -100 && d.workspaceDelta.y == 0);
         // Layout baselining after a simulation step must retain workspace history.
         t.baseline(s.current, s.capture, kMonitor);
         s.workspaceOffset = {1500, 35};
         const auto vertical = t.update(s);
         CHECK(vertical.currentBox.y - vertical.previousBox.y == 35);
+        CHECK(vertical.workspaceDelta.x == 0 && vertical.workspaceDelta.y == 35);
         s.workspaceOffset = {1530, 35};
-        CHECK(t.update(s).currentBox.x == 1630); // interrupted/reversed slide
+        const auto reversed = t.update(s);
+        CHECK(reversed.currentBox.x == 1630); // interrupted/reversed slide
+        CHECK(reversed.workspaceDelta.x == 30 && reversed.workspaceDelta.y == 0);
+    }
+
+    // An incoming workspace was ineligible while hidden: its offscreen placement is a baseline,
+    // not a screen-wide movement impulse.
+    {
+        WindowTracker t = eligibleAt(100, 80, 400, 300);
+        auto s = snap(100, 80, 400, 300);
+        s.deformable = false;
+        t.update(s);
+        s.deformable = true;
+        s.workspaceMoving = true;
+        s.workspaceOffset = {1600, 0};
+        CHECK(t.update(s).action == TrackAction::Rebaseline);
+        s.workspaceOffset = {1500, 0};
+        CHECK(t.update(s).action == TrackAction::Move);
     }
 
     // The global opt-out removes only workspace movement, not ordinary window motion.

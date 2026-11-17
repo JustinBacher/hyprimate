@@ -271,6 +271,7 @@ namespace hyprimate {
         }
         layout(placement);
         m_shift = {};
+        m_workspaceShift = {};
         m_windowSpeed = 0.0;
         m_still = 0.0;
         m_time = 0.0;
@@ -299,6 +300,7 @@ namespace hyprimate {
                 placement.screen.w,
                 placement.screen.h};
             m_shift = {};
+            m_workspaceShift = {};
             m_time = 0.0;
         }
         m_phase = closing ? Phase::Closing : Phase::Opening;
@@ -380,11 +382,12 @@ namespace hyprimate {
         m_phase = Phase::Movement;
     }
 
-    void Swarm::updateMovement(const SwarmPlacement &placement) {
+    void Swarm::updateMovement(const SwarmPlacement &placement, Vec2 workspaceDelta) {
         if ((m_phase != Phase::Opening && m_phase != Phase::Movement) ||
             !isUsable(placement.capture) || !isUsable(placement.screen))
             return;
         m_shift = m_shift + (Vec2{placement.capture.x, placement.capture.y} - m_origin);
+        m_workspaceShift = m_workspaceShift + workspaceDelta;
         layout(placement);
     }
 
@@ -392,6 +395,7 @@ namespace hyprimate {
         m_phase = Phase::Idle;
         m_agents.clear();
         m_shift = {};
+        m_workspaceShift = {};
         m_windowSpeed = 0.0;
         m_rounding = 0.0;
         m_accumulator = 0.0;
@@ -421,7 +425,9 @@ namespace hyprimate {
                               ? std::min(elapsedSeconds, kStallSeconds)
                               : 0.0;
         if (!(dt > 0.0)) return true;
-        const bool wandering = moving() && movementHeld && m_params.wander > 0.0;
+        const bool workspaceMoving = m_workspaceShift.x != 0.0 || m_workspaceShift.y != 0.0;
+        const bool wandering =
+            moving() && (movementHeld || workspaceMoving) && m_params.wander > 0.0;
         if (wandering) {
             for (SwarmAgent &a : m_agents) {
                 a.docked = false;
@@ -430,13 +436,14 @@ namespace hyprimate {
             }
         }
 
-        const double speed = length(m_shift) / dt;
+        const Vec2 relativeShift = m_shift - m_workspaceShift;
+        const double speed = std::max(length(m_shift), length(relativeShift)) / dt;
         if (speed > 0.0) {
-            // Agents live in the window's frame. One that lets go stays where it is on screen, so
-            // it shifts back here.
+            // Loose agents trail client motion, but ride the workspace's coordinate frame. Keeping
+            // them screen-anchored would leave outgoing tails to be culled and arrivals offscreen.
             for (SwarmAgent &a : m_agents) {
                 if (a.gone || (a.docked && speed <= a.grip)) continue;
-                a.position = a.position - m_shift;
+                a.position = a.position - relativeShift;
                 if (a.docked) {
                     // It was riding the window. It stays put for its reaction time, then sets off
                     // after the window.
@@ -453,6 +460,7 @@ namespace hyprimate {
         if (wandering) m_still = 0.0;
         m_windowSpeed = std::max(speed, m_windowSpeed * std::exp(-dt / kWindowSpeedHold));
         m_shift = {};
+        m_workspaceShift = {};
 
         m_accumulator += dt;
         while (m_accumulator >= kStep - kAccumulatorTolerance) {

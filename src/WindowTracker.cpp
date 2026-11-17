@@ -29,7 +29,6 @@ namespace hyprimate {
         m_eligible = false;
         m_wasAnimatingIn = false;
         m_workspaceOffset = {};
-        m_workspaceMoving = false;
         m_workspaceMovement = true;
         m_workspace = 0;
     }
@@ -46,7 +45,6 @@ namespace hyprimate {
         m_monitor = snapshot.monitor;
         m_eligible = eligible;
         m_workspaceOffset = snapshot.workspaceMovement ? snapshot.workspaceOffset : Vec2{};
-        m_workspaceMoving = snapshot.workspaceMovement && snapshot.workspaceMoving;
         m_workspaceMovement = snapshot.workspaceMovement;
         m_workspace = snapshot.workspace;
     }
@@ -71,13 +69,12 @@ namespace hyprimate {
         d.currentBox = translated(s.current, offset);
         d.currentCapture = translated(s.capture, offset);
         d.workspaceMoving = s.workspaceMovement && s.workspaceMoving;
+        d.workspaceDelta = {offset.x - m_workspaceOffset.x, offset.y - m_workspaceOffset.y};
 
         const bool reset = !eligibleNow || !m_eligible || !isUsable(m_lastBox) ||
                            !isUsable(m_lastCapture) || s.monitor != m_monitor ||
                            s.elapsed > kStallSeconds || s.workspace != m_workspace ||
-                           s.workspaceMovement != m_workspaceMovement ||
-                           (d.workspaceMoving && !m_workspaceMoving &&
-                               (offset.x != 0.0 || offset.y != 0.0));
+                           s.workspaceMovement != m_workspaceMovement;
         if (reset) {
             d.action = TrackAction::Rebaseline;
             d.beginOpen = openingEdge && eligibleNow;
