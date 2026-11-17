@@ -15,6 +15,6 @@ namespace hyprimate {
     };
 
     BubbleThinFilmTable bubbleThinFilmTable(
-        int thicknessSamples = 512, int cosineSamples = 32, double maxThickness = 1500);
+        int thickness_samples = 512, int cosine_samples = 32, double max_thickness = 1500);
 
 }  // namespace hyprimate
