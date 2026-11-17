@@ -41,38 +41,38 @@ namespace {
     // Where the window is (or, opening, where it will rest) on its monitor; nullopt without a
     // monitor.
     std::optional<hyprimate::SwarmPlacement> placementOf(const PHLWINDOW &window, bool atGoal) {
-        const auto monitor = window->m_monitor.lock();
-        if (!monitor) {
+        const auto MONITOR = window->m_monitor.lock();
+        if (!MONITOR) {
             return std::nullopt;
         }
-        const CBox current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
-        const CBox capture = window->getFullWindowBoundingBox();
+        const CBox CURRENT = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+        const CBox CAPTURE = window->getFullWindowBoundingBox();
         if (!atGoal) {
-            return hyprimate::SwarmPlacement{.capture = toBox(capture),
-                .body = toBox(current),
-                .screen = toBox(monitor->logicalBox())};
+            return hyprimate::SwarmPlacement{.capture = toBox(CAPTURE),
+                .body = toBox(CURRENT),
+                .screen = toBox(MONITOR->logicalBox())};
         }
         // Decoration margins (border, shadow) do not scale with native popin, so they carry over to
         // the rest box.
-        const CBox goal = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
-        const CBox rest{goal.x + (capture.x - current.x),
-            goal.y + (capture.y - current.y),
-            goal.w + (capture.w - current.w),
-            goal.h + (capture.h - current.h)};
+        const CBox GOAL = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
+        const CBox REST{GOAL.x + (CAPTURE.x - CURRENT.x),
+            GOAL.y + (CAPTURE.y - CURRENT.y),
+            GOAL.w + (CAPTURE.w - CURRENT.w),
+            GOAL.h + (CAPTURE.h - CURRENT.h)};
         return hyprimate::SwarmPlacement{
-            .capture = toBox(rest), .body = toBox(goal), .screen = toBox(monitor->logicalBox())};
+            .capture = toBox(REST), .body = toBox(GOAL), .screen = toBox(MONITOR->logicalBox())};
     }
 
 }  // namespace
 
 CBox liveExtents(const SSwarmStyle &state, const CBox &box) {
-    const hyprimate::Box bounds = state.swarm.bounds();
+    const hyprimate::Box BOUNDS = state.swarm.bounds();
     // Nothing on screen yet (or any more): a token box keeps the window itself from being drawn in
     // its place.
-    if (!(bounds.w > 0.0 && bounds.h > 0.0)) {
+    if (!(BOUNDS.w > 0.0 && BOUNDS.h > 0.0)) {
         return CBox{box.x, box.y, 1.0, 1.0};
     }
-    return CBox{box.x + bounds.x, box.y + bounds.y, bounds.w, bounds.h}.expand(2.0);
+    return CBox{box.x + BOUNDS.x, box.y + BOUNDS.y, BOUNDS.w, BOUNDS.h}.expand(2.0);
 }
 
 Render::SWindowTransformBuffer renderLive(SSwarmStyle &state,
@@ -84,9 +84,9 @@ Render::SWindowTransformBuffer renderLive(SSwarmStyle &state,
     const SP<CPaperShade> &,
     const SP<CSwarmSprites> &sprites) {
     const auto *sheet = sprites ? sprites->sheet(state.creature) : nullptr;
-    const auto atlas =
+    const auto ATLAS =
         (sheet != nullptr) ? sprites->texture(state.creature) : SP<Render::ITexture>{};
-    if ((sheet == nullptr) || !atlas) {
+    if ((sheet == nullptr) || !ATLAS) {
         return {.framebuffer = in.framebuffer, .box = in.box, .success = false};
     }
     if (state.captureWorkspaceFrame) {
@@ -102,25 +102,25 @@ Render::SWindowTransformBuffer renderLive(SSwarmStyle &state,
         {.x = in.box.x, .y = in.box.y},
         g.textureSize,
         state.meshes);
-    const auto layer = renderSwarmLayer(ctx,
+    const auto LAYER = renderSwarmLayer(ctx,
         in.framebuffer->getTexture(),
-        atlas,
+        ATLAS,
         swarmLayerSize(g.source),
         state.meshes,
         sprites->surface());
-    if (!layer) {
+    if (!LAYER) {
         return {.framebuffer = in.framebuffer, .box = in.box, .success = false};
     }
     // Requested while the layer is held, so the pool cannot return the same buffer twice.
-    const auto out = g_pHyprRenderer->getWorkBuffer(ctx, g.canvas.size());
-    if (!out) {
+    const auto OUT = g_pHyprRenderer->getWorkBuffer(ctx, g.canvas.size());
+    if (!OUT) {
         return {.framebuffer = in.framebuffer, .box = in.box, .success = false};
     }
 
-    const Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
-    const auto drawState = ctx.saveDrawState();
+    const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
+    const auto DRAW_STATE = ctx.saveDrawState();
     auto &renderData = ctx.m_data;
-    g_pHyprRenderer->bindFB(ctx, out);
+    g_pHyprRenderer->bindFB(ctx, OUT);
     renderData.damage = CRegion{0.0, 0.0, g.canvas.w, g.canvas.h};
     renderData.fbSize = g.canvas.size();
     g_pHyprRenderer->setProjectionType(ctx, Render::RPT_EXPORT);
@@ -131,36 +131,36 @@ Render::SWindowTransformBuffer renderLive(SSwarmStyle &state,
         textureData.allowCustomUV = true;
         textureData.allowDim = false;  // the layer is already dimmed
         Render::GL::g_pHyprOpenGL->renderTextureMesh(
-            ctx, layer->getTexture(), g.localOutput, state.meshes.pieces, textureData);
+            ctx, LAYER->getTexture(), g.localOutput, state.meshes.pieces, textureData);
     }
-    return {.framebuffer = out, .box = g.canvas};
+    return {.framebuffer = OUT, .box = g.canvas};
 }
 
 bool SSwarmLiveStyle::open(
     CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window) {
-    const auto sides = runtime.swarmSides(window, true);
-    const auto placement = placementOf(window, true);
-    const auto creature = swarmCreature(runtime.m_config.open.swarm);
-    if (!placement || sides.empty() || (runtime.m_sprites->sheet(creature) == nullptr)) {
+    const auto SIDES = runtime.swarmSides(window, true);
+    const auto PLACEMENT = placementOf(window, true);
+    const auto CREATURE = swarmCreature(runtime.m_config.open.swarm);
+    if (!PLACEMENT || SIDES.empty() || (runtime.m_sprites->sheet(CREATURE) == nullptr)) {
         return false;
     }
 
     auto *transformer = runtime.acquireTransformer(window);
     auto &state = std::get<SSwarmStyle>(transformer->m_style);
-    state.creature = creature;
+    state.creature = CREATURE;
     state.swarm.reset();
     state.swarm.begin(Transition::Open,
         swarmParams(runtime.m_config.open.swarm),
         runtime.m_nextSeed++,
-        *placement,
-        sides);
+        *PLACEMENT,
+        SIDES);
     if (state.swarm.active()) {
         // The swarm assembles the window where it will rest, so the native popin is taken straight
         // to its goal.
-        const CBox goal = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
+        const CBox GOAL = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
         g_pHyprRenderer->damageBox(window->getFullWindowBoundingBox());
-        window->positionAnimation()->setValueAndWarp(goal.pos());
-        window->sizeAnimation()->setValueAndWarp(goal.size());
+        window->positionAnimation()->setValueAndWarp(GOAL.pos());
+        window->sizeAnimation()->setValueAndWarp(GOAL.size());
         runtime.rebaseline(entry, window);
     }
     return true;
@@ -216,10 +216,10 @@ void SSwarmLiveStyle::step(CPluginRuntime &,
     if (!enabled && state.swarm.moving()) {
         cancelMovement(transformer);
     }
-    const auto target = g_layoutManager->dragController()->target();
-    const bool held = enabled && target && target->window() == transformer.m_window.lock() &&
+    const auto TARGET = g_layoutManager->dragController()->target();
+    const bool HELD = enabled && TARGET && TARGET->window() == transformer.m_window.lock() &&
                       g_layoutManager->dragController()->mode() == MBIND_MOVE;
-    state.swarm.advance(elapsed, held);
+    state.swarm.advance(elapsed, HELD);
 }
 
 void SSwarmLiveStyle::cancelOpening(CAnimationTransformer &transformer) {

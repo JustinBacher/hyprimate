@@ -88,12 +88,12 @@ namespace {
     }
 
     void tilesPartitionTheCapture() {
-        for (const int count : {1, 2, 7, 80, 400}) {
+        for (const int COUNT : {1, 2, 7, 80, 400}) {
             Swarm m;
             SwarmParams p;
-            p.count = count;
+            p.count = COUNT;
             m.beginMovement(p, 1, placement());
-            CHECK(static_cast<int>(m.agents().size()) == count);
+            CHECK(static_cast<int>(m.agents().size()) == COUNT);
             double area = 0.0;
             double x0 = 1e9;
             double y0 = 1e9;
@@ -143,14 +143,14 @@ namespace {
         CHECK(m.bounds().w > 0.0);
 
         // Well inside the point at which stragglers are placed by force.
-        const double used = 0.8 + run(m, 8.0);
+        const double USED = 0.8 + run(m, 8.0);
         CHECK(!m.active() && !m.closed());
-        CHECK(used < 4.5);
+        CHECK(USED < 4.5);
         CHECK(inFormation(m));
     }
 
     void equalSeedsGiveEqualMotion() {
-        const auto midFlight = [](std::uint64_t seed) {
+        const auto MID_FLIGHT = [](std::uint64_t seed) {
             Swarm m;
             m.begin(Transition::Open, {}, seed, placement(), sides({Edge::Left}));
             run(m, 0.4);
@@ -160,9 +160,9 @@ namespace {
             }
             return out;
         };
-        const auto a = midFlight(3);
-        const auto b = midFlight(3);
-        const auto c = midFlight(4);
+        const auto a = MID_FLIGHT(3);
+        const auto b = MID_FLIGHT(3);
+        const auto c = MID_FLIGHT(4);
         bool same = true;
         bool differs = false;
         for (std::size_t i = 0; i < a.size(); ++i) {
@@ -190,15 +190,15 @@ namespace {
             row.push_back(a.home.y);
             column.push_back(a.home.x);
         }
-        const auto gone = std::ranges::count(loose, 1.0);
-        CHECK(gone > static_cast<long>(loose.size()) / 4 &&
-              gone < 3 * static_cast<long>(loose.size()) / 4);
+        const auto GONE = std::ranges::count(loose, 1.0);
+        CHECK(GONE > static_cast<long>(loose.size()) / 4 &&
+              GONE < 3 * static_cast<long>(loose.size()) / 4);
         CHECK(std::abs(correlation(loose, row)) < 0.2);
         CHECK(std::abs(correlation(loose, column)) < 0.2);
 
-        const double used = 0.3 + run(m, 8.0);
+        const double USED = 0.3 + run(m, 8.0);
         CHECK(m.closed() && !m.active());
-        CHECK(used < 4.0);
+        CHECK(USED < 4.0);
         // They leave through the whole length of the edge, not just the stretch under the window.
         double leftmost = 1e9;
         double rightmost = -1e9;
@@ -226,14 +226,14 @@ namespace {
             entry.push_back(a.position.y);
         }
         CHECK(std::abs(correlation(entry, row)) < 0.2);
-        const double top = *std::ranges::min_element(entry);
-        const double bottom = *std::ranges::max_element(entry);
-        CHECK(CAPTURE.y + top < SCREEN.y + 0.1 * SCREEN.h &&
-              CAPTURE.y + bottom > SCREEN.y + 0.9 * SCREEN.h);
-        const std::vector<double> landed = landings(m);
+        const double TOP = *std::ranges::min_element(entry);
+        const double BOTTOM = *std::ranges::max_element(entry);
+        CHECK(CAPTURE.y + TOP < SCREEN.y + 0.1 * SCREEN.h &&
+              CAPTURE.y + BOTTOM > SCREEN.y + 0.9 * SCREEN.h);
+        const std::vector<double> LANDED = landings(m);
         CHECK(inFormation(m));
-        CHECK(std::abs(correlation(landed, column)) < 0.25);
-        CHECK(std::abs(correlation(landed, row)) < 0.25);
+        CHECK(std::abs(correlation(LANDED, column)) < 0.25);
+        CHECK(std::abs(correlation(LANDED, row)) < 0.25);
 
         // With several edges to choose from, each is used about equally.
         Swarm all;
@@ -248,15 +248,15 @@ namespace {
             fromLeft += static_cast<int>(onScreen(a).x < SCREEN.x);
             fromTop += static_cast<int>(onScreen(a).y < SCREEN.y);
         }
-        const int count = static_cast<int>(all.agents().size());
-        CHECK(fromLeft > count / 8 && fromLeft < 3 * count / 8);
-        CHECK(fromTop > count / 8 && fromTop < 3 * count / 8);
+        const int COUNT = static_cast<int>(all.agents().size());
+        CHECK(fromLeft > COUNT / 8 && fromLeft < 3 * COUNT / 8);
+        CHECK(fromTop > COUNT / 8 && fromTop < 3 * COUNT / 8);
     }
 
     void surfaceRoundingWaitsForFormation() {
-        for (const bool movement : {false, true}) {
+        for (const bool MOVEMENT : {false, true}) {
             Swarm m;
-            if (movement) {
+            if (MOVEMENT) {
                 m.beginMovement({}, 17, placement());
                 CHECK(m.rounding() == 0.0);
                 for (int i = 0; i < 120; ++i) {
@@ -270,9 +270,9 @@ namespace {
             bool sawHandoff = false;
             for (int frame = 0; frame < 1200 && m.active(); ++frame) {
                 m.advance(1.0 / 120.0);
-                const bool whole = std::ranges::all_of(m.agents(),
+                const bool WHOLE = std::ranges::all_of(m.agents(),
                     [](const SwarmAgent &a) { return a.docked && a.turn == 0.0 && a.lock == 1.0; });
-                if (!whole) {
+                if (!WHOLE) {
                     sawJoining = true;
                     CHECK(m.rounding() == 1.0);
                     CHECK(m.active());
@@ -303,13 +303,13 @@ namespace {
         m.begin(Transition::Open, {}, 9, placement(), sides({Edge::Left}));
         run(m, 0.25);
         std::vector<Vec2> before;
-        const double rounding = m.rounding();
+        const double ROUNDING = m.rounding();
         for (const SwarmAgent &a : m.agents()) {
             before.push_back(a.position);
         }
         m.begin(Transition::Close, {}, 10, placement(), sides({Edge::Left}));
         CHECK(m.active() && !m.opening());
-        CHECK(m.rounding() == rounding);
+        CHECK(m.rounding() == ROUNDING);
         // Agents carry on from where they were instead of jumping into formation.
         for (std::size_t i = 0; i < before.size(); ++i) {
             CHECK(
@@ -325,12 +325,12 @@ namespace {
         for (int frame = 0; frame < 1200 && m.rounding() == 1.0; ++frame) {
             m.advance(1.0 / 120.0);
         }
-        const double rounding = m.rounding();
-        CHECK(m.active() && rounding > 0.0 && rounding < 1.0);
+        const double ROUNDING = m.rounding();
+        CHECK(m.active() && ROUNDING > 0.0 && ROUNDING < 1.0);
         m.begin(Transition::Close, {}, 10, placement(), sides({Edge::Left}));
-        CHECK(m.rounding() == rounding);
+        CHECK(m.rounding() == ROUNDING);
         m.advance(1.0 / 120.0);
-        CHECK(m.rounding() > rounding);
+        CHECK(m.rounding() > ROUNDING);
         run(m, 8.0);
         CHECK(m.closed());
     }
@@ -355,17 +355,17 @@ namespace {
     }
 
     void workspaceSlidesPreserveIndependentFlight() {
-        for (const Vec2 travel : {Vec2{.x = -SCREEN.w, .y = 0},
+        for (const Vec2 TRAVEL : {Vec2{.x = -SCREEN.w, .y = 0},
                  Vec2{.x = SCREEN.w, .y = 0},
                  Vec2{.x = 0, .y = -SCREEN.h},
                  Vec2{.x = 0, .y = SCREEN.h}}) {
             for (const bool INCOMING : {false, true}) {
                 Swarm m;
-                Vec2 offset = INCOMING ? Vec2{.x = -travel.x, .y = -travel.y} : Vec2{};
+                Vec2 offset = INCOMING ? Vec2{.x = -TRAVEL.x, .y = -TRAVEL.y} : Vec2{};
                 m.beginMovement({}, 2, placement(offset));
                 for (int frame = 0; frame < 40; ++frame) {
-                    offset.x += travel.x / 40.0;
-                    offset.y += travel.y / 40.0;
+                    offset.x += TRAVEL.x / 40.0;
+                    offset.y += TRAVEL.y / 40.0;
                     m.updateMovement(placement(offset));
                     m.advance(FRAME);
                 }
@@ -402,10 +402,10 @@ namespace {
         run(baseline, 0.25);
         Swarm moved = baseline;
         Vec2 offset{};
-        for (const Vec2 delta :
+        for (const Vec2 DELTA :
             {Vec2{.x = -300, .y = 40}, Vec2{.x = 500, .y = -80}, Vec2{.x = -200, .y = 40}}) {
-            offset.x += delta.x;
-            offset.y += delta.y;
+            offset.x += DELTA.x;
+            offset.y += DELTA.y;
             moved.updateMovement(placement(offset));
             // Apply the coordinate change without consuming a physics substep.
             moved.advance(1e-6);
@@ -442,30 +442,30 @@ namespace {
         CHECK(trailing / m.agents().size() > 40.0);
         CHECK(lock / m.agents().size() < 0.2);
 
-        const double used = run(m, 8.0);
+        const double USED = run(m, 8.0);
         CHECK(!m.active());
-        CHECK(used < 4.0);
+        CHECK(USED < 4.0);
         CHECK(inFormation(m));
     }
 
     void heldMovementWandersUntilRelease() {
-        for (const double wander : {0.1, 0.5, 1.0}) {
+        for (const double WANDER : {0.1, 0.5, 1.0}) {
             Swarm m;
             SwarmParams p;
-            p.wander = wander;
+            p.wander = WANDER;
             m.beginMovement(p, 23, placement());
             // No translations at all, including a pause longer than the forced-settle deadline.
             for (int interval = 0; interval < 20; ++interval) {
-                const std::vector<SwarmAgent> before(m.agents().begin(), m.agents().end());
+                const std::vector<SwarmAgent> BEFORE(m.agents().begin(), m.agents().end());
                 for (int frame = 0; frame < 60; ++frame) {
                     m.advance(1.0 / 120.0, true);
                 }
                 CHECK(m.moving());
-                for (std::size_t i = 0; i < before.size(); ++i) {
+                for (std::size_t i = 0; i < BEFORE.size(); ++i) {
                     const auto &a = m.agents()[i];
                     CHECK(!a.docked);
-                    CHECK(a.travel > before[i].travel + 0.01);
-                    CHECK(a.walk > before[i].walk);
+                    CHECK(a.travel > BEFORE[i].travel + 0.01);
+                    CHECK(a.walk > BEFORE[i].walk);
                     CHECK(std::isfinite(a.position.x) && std::isfinite(a.position.y));
                 }
             }
@@ -476,7 +476,7 @@ namespace {
     }
 
     void heldMovementRespectsWander() {
-        const auto distance = [](double wander) {
+        const auto DISTANCE = [](double wander) {
             Swarm m;
             SwarmParams p;
             p.count = 1;
@@ -491,13 +491,13 @@ namespace {
             }
             return m.agents()[0].travel;
         };
-        CHECK(distance(0.0) == 0.0);
-        CHECK(distance(1.0) > distance(0.1) * 2.0);
+        CHECK(DISTANCE(0.0) == 0.0);
+        CHECK(DISTANCE(1.0) > DISTANCE(0.1) * 2.0);
     }
 
     void departuresAreStaggered() {
         // How long the middle four fifths of an opening's agents take to land.
-        const auto landingSpan = [](double stagger) {
+        const auto LANDING_SPAN = [](double stagger) {
             Swarm m;
             SwarmParams p;
             p.stagger = stagger;
@@ -509,7 +509,7 @@ namespace {
             std::ranges::sort(at);
             return at[at.size() * 9 / 10] - at[at.size() / 10];
         };
-        const auto holding = [](double stagger, double seconds) {
+        const auto HOLDING = [](double stagger, double seconds) {
             Swarm m;
             SwarmParams p;
             p.stagger = stagger;
@@ -517,16 +517,16 @@ namespace {
             run(m, seconds);
             return std::ranges::count_if(m.agents(), [](const SwarmAgent &a) { return a.docked; });
         };
-        const long all = SwarmParams{}.count;
-        const double first = 2.0 * FRAME;  // long enough for one simulation step
+        const long ALL = SwarmParams{}.count;
+        const double FIRST = 2.0 * FRAME;  // long enough for one simulation step
         // An opening's agents are timed to land over the stagger, wherever they come from.
-        CHECK(landingSpan(2.0) > landingSpan(0.0) + 1.0);
+        CHECK(LANDING_SPAN(2.0) > LANDING_SPAN(0.0) + 1.0);
         // A closing window lets every agent go at once without a stagger; with one, the first goes
         // at once and the rest follow steadily until the stagger is up.
-        CHECK(holding(0.0, first) == 0);
-        CHECK(holding(1.0, first) > 9 * all / 10 && holding(1.0, first) < all);
-        CHECK(holding(1.0, 0.5) > all / 4 && holding(1.0, 0.5) < 3 * all / 4);
-        CHECK(holding(1.0, 1.05) == 0);
+        CHECK(HOLDING(0.0, FIRST) == 0);
+        CHECK(HOLDING(1.0, FIRST) > 9 * ALL / 10 && HOLDING(1.0, FIRST) < ALL);
+        CHECK(HOLDING(1.0, 0.5) > ALL / 4 && HOLDING(1.0, 0.5) < 3 * ALL / 4);
+        CHECK(HOLDING(1.0, 1.05) == 0);
 
         // Movement: agents shaken loose do not all give chase in the same instant.
         Swarm m;
@@ -537,14 +537,14 @@ namespace {
             m.updateMovement(placement(shift));
             m.advance(FRAME);
         }
-        const auto waiting =
+        const auto WAITING =
             std::ranges::count_if(m.agents(), [](const SwarmAgent &a) { return a.travel == 0.0; });
-        CHECK(waiting > all / 4 && waiting < all);
+        CHECK(WAITING > ALL / 4 && WAITING < ALL);
     }
 
     void routesAreNotStraightLines() {
         // Mean distance walked over the straight-line distance, with nothing in the way.
-        const auto detour = [](double wander, double variation) {
+        const auto DETOUR = [](double wander, double variation) {
             Swarm m;
             SwarmParams p;
             p.wander = wander;
@@ -566,43 +566,43 @@ namespace {
         };
         // With neither meander nor per-agent arcs an agent walks straight home; each of the two
         // bends its path.
-        CHECK(std::abs(detour(0.0, 0.0) - 1.0) < 0.01);
-        CHECK(detour(1.0, 0.0) > 1.06);
-        CHECK(detour(0.0, 1.0) > 1.06);
-        CHECK(detour(1.0, 0.0) > detour(0.5, 0.0));
+        CHECK(std::abs(DETOUR(0.0, 0.0) - 1.0) < 0.01);
+        CHECK(DETOUR(1.0, 0.0) > 1.06);
+        CHECK(DETOUR(0.0, 1.0) > 1.06);
+        CHECK(DETOUR(1.0, 0.0) > DETOUR(0.5, 0.0));
     }
 
     void bodiesInTransitDoNotPassThroughEachOther() {
         // Among agents still far from home, the share of close encounters in which two bodies
         // overlap by over a quarter.
-        const auto overlapping = [](double separation) {
+        const auto OVERLAPPING = [](double separation) {
             Swarm m;
             SwarmParams p;
             p.separation = separation;
             m.begin(Transition::Open, p, 21, placement(), sides({Edge::Left}));
-            const double far = 5.0 * std::sqrt(BODY.w * BODY.h / p.count);
-            const auto inTransit = [&](const SwarmAgent &a) {
+            const double FAR = 5.0 * std::sqrt(BODY.w * BODY.h / p.count);
+            const auto IN_TRANSIT = [&](const SwarmAgent &a) {
                 return a.visible && !a.docked &&
-                       std::hypot(a.position.x - a.home.x, a.position.y - a.home.y) > far;
+                       std::hypot(a.position.x - a.home.x, a.position.y - a.home.y) > FAR;
             };
             long encounters = 0;
             long overlaps = 0;
             while (m.active()) {
                 m.advance(FRAME);
-                const auto agents = m.agents();
-                for (std::size_t i = 0; i < agents.size(); ++i) {
-                    if (!inTransit(agents[i])) {
+                const auto AGENTS = m.agents();
+                for (std::size_t i = 0; i < AGENTS.size(); ++i) {
+                    if (!IN_TRANSIT(AGENTS[i])) {
                         continue;
                     }
-                    for (std::size_t j = i + 1; j < agents.size(); ++j) {
-                        if (!inTransit(agents[j])) {
+                    for (std::size_t j = i + 1; j < AGENTS.size(); ++j) {
+                        if (!IN_TRANSIT(AGENTS[j])) {
                             continue;
                         }
-                        const double d = std::hypot(agents[i].position.x - agents[j].position.x,
-                            agents[i].position.y - agents[j].position.y);
-                        const double bodies = kSwarmBodyShare * (agents[i].fit + agents[j].fit);
-                        encounters += d < 2.0 * bodies;
-                        overlaps += d < 0.75 * bodies;
+                        const double d = std::hypot(AGENTS[i].position.x - AGENTS[j].position.x,
+                            AGENTS[i].position.y - AGENTS[j].position.y);
+                        const double BODIES = kSwarmBodyShare * (AGENTS[i].fit + AGENTS[j].fit);
+                        encounters += d < 2.0 * BODIES;
+                        overlaps += d < 0.75 * BODIES;
                     }
                 }
             }
@@ -610,20 +610,20 @@ namespace {
             return static_cast<double>(overlaps) / std::max(1L, encounters);
         };
         // Free to cross, agents walk through each other all the time; with solid bodies it is rare.
-        CHECK(overlapping(0.0) > 0.08);
-        CHECK(overlapping(0.5) < 0.02);
-        CHECK(overlapping(1.0) < 0.02);
+        CHECK(OVERLAPPING(0.0) > 0.08);
+        CHECK(OVERLAPPING(0.5) < 0.02);
+        CHECK(OVERLAPPING(1.0) < 0.02);
     }
 
     void settlingHurriesTheLanding() {
-        const auto duration = [](double settling) {
+        const auto DURATION = [](double settling) {
             Swarm m;
             SwarmParams p;
             p.settling = settling;
             m.begin(Transition::Open, p, 13, placement(), sides({Edge::Bottom}));
             return run(m, 10.0);
         };
-        CHECK(duration(1.0) < duration(0.0));
+        CHECK(DURATION(1.0) < DURATION(0.0));
     }
 
     void resizeRecutsTheTiles() {
@@ -717,10 +717,10 @@ namespace {
 
         m.begin(Transition::Open, {}, 1, placement(), sides({Edge::Left}));
         run(m, 0.3);
-        const Vec2 before = m.agents()[0].position;
+        const Vec2 BEFORE = m.agents()[0].position;
         CHECK(m.advance(std::numeric_limits<double>::quiet_NaN()));
         CHECK(m.advance(-1.0));
-        CHECK(m.agents()[0].position.x == before.x && m.agents()[0].position.y == before.y);
+        CHECK(m.agents()[0].position.x == BEFORE.x && m.agents()[0].position.y == BEFORE.y);
         // A stalled frame is clamped rather than integrated whole.
         m.advance(30.0);
         for (const SwarmAgent &a : m.agents()) {
@@ -733,25 +733,25 @@ namespace {
     void spriteMeasuresBodyAndLegs() {
         // A disc of radius 20 at (40, 60) with a thin leg reaching right to x = 110, in a 128 px
         // frame.
-        constexpr int side = 128;
-        std::vector<std::uint8_t> alpha(side * side, 0);
-        for (int y = 0; y < side; ++y) {
-            for (int x = 0; x < side; ++x) {
+        constexpr int SIDE = 128;
+        std::vector<std::uint8_t> alpha(SIDE * SIDE, 0);
+        for (int y = 0; y < SIDE; ++y) {
+            for (int x = 0; x < SIDE; ++x) {
                 if (std::hypot(x + 0.5 - 40.0, y + 0.5 - 60.0) <= 20.0 ||
                     (y >= 59 && y <= 60 && x >= 40 && x < 110)) {
-                    alpha[(y * side) + x] = 255;
+                    alpha[(y * SIDE) + x] = 255;
                 }
             }
         }
-        const SpriteFrame f = measureSprite(alpha, side);
+        const SpriteFrame f = measureSprite(alpha, SIDE);
         CHECK(
-            std::abs(f.centre.x * side - 40.0) <= 1.5 && std::abs(f.centre.y * side - 60.0) <= 1.5);
-        CHECK(std::abs(f.core * side - 20.0) <= 1.5);
-        CHECK(std::abs(f.reach * side - 70.0) <= 2.0);
+            std::abs(f.centre.x * SIDE - 40.0) <= 1.5 && std::abs(f.centre.y * SIDE - 60.0) <= 1.5);
+        CHECK(std::abs(f.core * SIDE - 20.0) <= 1.5);
+        CHECK(std::abs(f.reach * SIDE - 70.0) <= 2.0);
 
-        const SpriteFrame empty = measureSprite(std::vector<std::uint8_t>(side * side, 0), side);
-        CHECK(empty.core == 0.0 && empty.reach == 0.0);
-        CHECK(spriteSize(empty, 40.0, 60.0, 0.5) == 0.0);
+        const SpriteFrame EMPTY = measureSprite(std::vector<std::uint8_t>(SIDE * SIDE, 0), SIDE);
+        CHECK(EMPTY.core == 0.0 && EMPTY.reach == 0.0);
+        CHECK(spriteSize(EMPTY, 40.0, 60.0, 0.5) == 0.0);
 
         // Loose, the whole silhouette fits; locked, the solid core covers the tile; it only grows
         // in between.
@@ -759,9 +759,9 @@ namespace {
         CHECK(f.core * spriteSize(f, 40.0, 60.0, 1.0) >= 60.0);
         double previous = 0.0;
         for (double lock = 0.0; lock <= 1.0; lock += 0.1) {
-            const double size = spriteSize(f, 40.0, 60.0, lock);
-            CHECK(size > previous);
-            previous = size;
+            const double SIZE = spriteSize(f, 40.0, 60.0, lock);
+            CHECK(SIZE > previous);
+            previous = SIZE;
         }
     }
 
@@ -811,13 +811,13 @@ namespace {
         m.begin(Transition::Open, {}, 12, placement(), sides({Edge::Left}));
         bool observed = false;
         for (int step = 0; step < 1200 && m.active(); ++step) {
-            const std::vector<SwarmAgent> before(m.agents().begin(), m.agents().end());
+            const std::vector<SwarmAgent> BEFORE(m.agents().begin(), m.agents().end());
             m.advance(1.0 / 120.0);
-            for (std::size_t i = 0; i < before.size(); ++i) {
+            for (std::size_t i = 0; i < BEFORE.size(); ++i) {
                 const auto &a = m.agents()[i];
-                if (before[i].docked && before[i].turn > a.turn) {
+                if (BEFORE[i].docked && BEFORE[i].turn > a.turn) {
                     observed = true;
-                    CHECK(a.walk > before[i].walk);
+                    CHECK(a.walk > BEFORE[i].walk);
                 }
             }
         }
@@ -825,9 +825,9 @@ namespace {
     }
 
     void mergingSpritesKeepAnimating() {
-        for (const bool movement : {false, true}) {
+        for (const bool MOVEMENT : {false, true}) {
             Swarm m;
-            if (movement) {
+            if (MOVEMENT) {
                 m.beginMovement({}, 12, placement());
                 for (int i = 0; i < 120; ++i) {
                     m.advance(FRAME, true);
@@ -838,19 +838,19 @@ namespace {
             bool observed = false;
             bool changedFrame = false;
             for (int step = 0; step < 1200 && m.active(); ++step) {
-                const std::vector<SwarmAgent> before(m.agents().begin(), m.agents().end());
+                const std::vector<SwarmAgent> BEFORE(m.agents().begin(), m.agents().end());
                 m.advance(FRAME);
-                for (std::size_t i = 0; i < before.size(); ++i) {
+                for (std::size_t i = 0; i < BEFORE.size(); ++i) {
                     const auto &a = m.agents()[i];
-                    if (before[i].docked && before[i].turn == 0.0 && a.lock > before[i].lock &&
+                    if (BEFORE[i].docked && BEFORE[i].turn == 0.0 && a.lock > BEFORE[i].lock &&
                         a.lock < 1.0) {
                         observed = true;
-                        CHECK(a.walk > before[i].walk);
+                        CHECK(a.walk > BEFORE[i].walk);
                         changedFrame |= walkFrame(a.walk, 2.0 * a.fit, 8) !=
-                                        walkFrame(before[i].walk, 2.0 * a.fit, 8);
+                                        walkFrame(BEFORE[i].walk, 2.0 * a.fit, 8);
                     }
-                    if (before[i].lock == 1.0 && a.lock == 1.0) {
-                        CHECK(a.walk == before[i].walk);
+                    if (BEFORE[i].lock == 1.0 && a.lock == 1.0) {
+                        CHECK(a.walk == BEFORE[i].walk);
                     }
                 }
             }
@@ -860,25 +860,25 @@ namespace {
     }
 
     void edgeSidesFollowTheNeighbours() {
-        const Box left{.x = 0, .y = 0, .w = 960, .h = 1080};
-        const Box right{.x = 960, .y = 0, .w = 960, .h = 1080};
+        const Box LEFT{.x = 0, .y = 0, .w = 960, .h = 1080};
+        const Box RIGHT{.x = 960, .y = 0, .w = 960, .h = 1080};
         // Alone: the nearest edge; equidistant edges all count.
         CHECK(resolveEdgeSides({100, 300, 400, 400}, SCREEN, {}) == sides({Edge::Left}));
         CHECK(
             resolveEdgeSides({660, 340, 600, 400}, SCREEN, {}) == sides({Edge::Top, Edge::Bottom}));
         // Beside a neighbour: the edge away from it.
-        const Box onLeft[] = {left};
-        CHECK(resolveEdgeSides(right, SCREEN, onLeft) == sides({Edge::Right}));
+        const Box ON_LEFT[] = {LEFT};
+        CHECK(resolveEdgeSides(RIGHT, SCREEN, ON_LEFT) == sides({Edge::Right}));
         // Below one neighbour and beside another of equal contact: both open edges.
-        const Box around[] = {
+        const Box AROUND[] = {
             {.x = 840, .y = 540, .w = 540, .h = 540}, {.x = 1380, .y = 0, .w = 540, .h = 540}};
-        CHECK(resolveEdgeSides({1380, 540, 540, 540}, SCREEN, around) ==
+        CHECK(resolveEdgeSides({1380, 540, 540, 540}, SCREEN, AROUND) ==
               sides({Edge::Right, Edge::Bottom}));
         // Wedged between two columns: the edges opposite its contacts are taken, so it uses the
         // free ones.
-        const Box columns[] = {
+        const Box COLUMNS[] = {
             {.x = 0, .y = 0, .w = 640, .h = 1080}, {.x = 1280, .y = 0, .w = 640, .h = 1080}};
-        CHECK(resolveEdgeSides({640, 0, 640, 1080}, SCREEN, columns) ==
+        CHECK(resolveEdgeSides({640, 0, 640, 1080}, SCREEN, COLUMNS) ==
               sides({Edge::Top, Edge::Bottom}));
         CHECK(resolveEdgeSides({0, 0, 0, 0}, SCREEN, {}).empty());
     }

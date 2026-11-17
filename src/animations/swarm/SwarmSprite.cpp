@@ -146,8 +146,8 @@ namespace hyprimate {
         if (frames <= 1 || !(stride > 0.0) || !std::isfinite(travel)) {
             return 0;
         }
-        const double cycles = travel / stride;
-        return std::clamp(static_cast<int>((cycles - std::floor(cycles)) * frames), 0, frames - 1);
+        const double CYCLES = travel / stride;
+        return std::clamp(static_cast<int>((CYCLES - std::floor(CYCLES)) * frames), 0, frames - 1);
     }
 
     double spriteRotation(double heading, double from, double turn) noexcept {
@@ -158,9 +158,9 @@ namespace hyprimate {
         if (!(frame.reach > 0.0) || !(frame.core > 0.0) || !(fit > 0.0)) {
             return 0.0;
         }
-        const double loose = fit / frame.reach;
-        const double whole = std::max(loose, kCoverMargin * cover / frame.core);
-        return loose * std::pow(whole / loose, std::clamp(lock, 0.0, 1.0));
+        const double LOOSE = fit / frame.reach;
+        const double WHOLE = std::max(LOOSE, kCoverMargin * cover / frame.core);
+        return LOOSE * std::pow(WHOLE / LOOSE, std::clamp(lock, 0.0, 1.0));
     }
 
 }  // namespace hyprimate
