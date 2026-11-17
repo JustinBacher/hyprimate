@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Embed the bubble GLSL files into a header for the compositor plugin.
+"""Embed GLSL files into a header for the compositor plugin.
 
-A line `#include "name.glsl"` is replaced by that file from the same directory, so programs share
-one definition of the membrane uniforms and the movement deformation.
+A line `#include "name.glsl"` is replaced by that file from the same directory.
+The default shader list and namespace target the bubble material.
 """
 
 import argparse
@@ -44,15 +44,27 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--namespace", default="bubble_shader")
+    parser.add_argument("--shader", action="append", metavar="NAME=FILE")
     args = parser.parse_args()
+    shaders = SHADERS
+    if args.shader:
+        shaders = {}
+        for entry in args.shader:
+            name, separator, filename = entry.partition("=")
+            if not separator or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) or not filename:
+                parser.error("--shader requires NAME=FILE with a C++ identifier")
+            shaders[name] = filename
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", args.namespace):
+        parser.error("--namespace requires a C++ identifier")
 
-    parts = ["#pragma once\n", "namespace bubble_shader {\n"]
-    for name, filename in SHADERS.items():
+    parts = ["#pragma once\n", f"namespace {args.namespace} {{\n"]
+    for name, filename in shaders.items():
         source = expand(args.source_dir, filename)
         if ')SHADER"' in source:
             raise ValueError(f"{filename} contains the raw string terminator")
         parts.append(f'inline constexpr char {name}[] = R"SHADER({source})SHADER";\n')
-    parts.append("} // namespace bubble_shader\n")
+    parts.append(f"}} // namespace {args.namespace}\n")
 
     output = "".join(parts)
     args.output.parent.mkdir(parents=True, exist_ok=True)

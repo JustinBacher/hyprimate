@@ -86,6 +86,18 @@ add_custom_command(
     VERBATIM
 )
 add_custom_target(generate-bubble-shaders DEPENDS ${CONFIG_GENERATED_DIR}/bubble_shaders_generated.hpp)
+set(SWARM_SHADER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/animations/swarm/shaders)
+add_custom_command(
+    OUTPUT ${CONFIG_GENERATED_DIR}/swarm_shaders_generated.hpp
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_bubble_shaders.py
+            --source-dir ${SWARM_SHADER_DIR}
+            --output ${CONFIG_GENERATED_DIR}/swarm_shaders_generated.hpp
+            --namespace swarm_shader --shader SURFACE_VERTEX=surface.vert --shader SURFACE_FRAGMENT=surface.frag
+    DEPENDS ${SWARM_SHADER_DIR}/surface.vert ${SWARM_SHADER_DIR}/surface.frag
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_bubble_shaders.py
+    VERBATIM
+)
+add_custom_target(generate-swarm-shaders DEPENDS ${CONFIG_GENERATED_DIR}/swarm_shaders_generated.hpp)
 add_custom_target(update-config-docs
     COMMAND ${Python3_EXECUTABLE} ${CONFIG_GENERATOR} --schema ${CONFIG_SCHEMA} --readme ${CMAKE_CURRENT_SOURCE_DIR}/README.md --lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/nested/hyprland.lua
     VERBATIM
@@ -126,6 +138,7 @@ add_library(hyprimate SHARED
     src/animations/cloth/ClothLiveStyle.cpp
     src/animations/swarm/SwarmLiveStyle.cpp
     src/animations/swarm/SwarmRenderer.cpp
+    src/animations/swarm/SwarmSurface.cpp
     src/animations/bubble/BubbleLiveStyle.cpp
     src/animations/bubble/BubbleRenderer.cpp
     src/animations/bubble/BubbleMaterial.cpp
@@ -139,7 +152,7 @@ add_library(hyprimate SHARED
     src/animations/shared/PaperRenderer.cpp
 )
 set_target_properties(hyprimate PROPERTIES PREFIX "" INTERPROCEDURAL_OPTIMIZATION FALSE)
-add_dependencies(hyprimate generate-config generate-bubble-shaders)
+add_dependencies(hyprimate generate-config generate-bubble-shaders generate-swarm-shaders)
 target_include_directories(hyprimate PRIVATE ${CONFIG_GENERATED_DIR})
 target_compile_definitions(hyprimate PRIVATE HYPRIMATE_SPRITE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/animations/swarm/sprites")
 target_link_libraries(hyprimate PRIVATE PkgConfig::HYPRLAND Jolt hyprimate-core)

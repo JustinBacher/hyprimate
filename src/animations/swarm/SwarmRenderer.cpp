@@ -16,12 +16,11 @@ using hyprimate::Vec2;
 namespace {
 
     // Atlas layout, px: a row of cells, each holding one frame with a transparent gutter around it.
-    // After the walk frames come three shapes: a solid cell, a disc as wide as a frame, and a solid
-    // cell with that disc cut out of it.
+    // A solid cell completes merged tiles; a disc rounds detached, shrinking pieces.
     constexpr int FRAME_PX = 192;
     constexpr int GUTTER_PX = 2;
     constexpr int CELL_PX = FRAME_PX + 2 * GUTTER_PX;
-    constexpr int SHAPE_CELLS = 3;
+    constexpr int SHAPE_CELLS = 2;
     // Frame-space margin a mask quad may reach past its frame: half the gutter, so filtering never
     // reaches a neighbouring cell.
     constexpr double FRAME_MARGIN = 0.5 * GUTTER_PX / FRAME_PX;
@@ -62,19 +61,13 @@ namespace {
             cairo_paint(cr);
             cairo_restore(cr);
         }
-        const double shapes = frames * CELL_PX, middle = 0.5 * CELL_PX;
+        const double shapes = frames * CELL_PX;
         cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 1.0);
         cairo_rectangle(cr, shapes, 0.0, CELL_PX, CELL_PX);
         cairo_fill(cr);
-        cairo_arc(
-            cr, shapes + CELL_PX + middle, middle, 0.5 * FRAME_PX, 0.0, 2.0 * std::numbers::pi);
-        cairo_fill(cr);
-        cairo_rectangle(cr, shapes + 2.0 * CELL_PX, 0.0, CELL_PX, CELL_PX);
-        cairo_fill(cr);
-        cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
         cairo_arc(cr,
-            shapes + 2.0 * CELL_PX + middle,
-            middle,
+            shapes + CELL_PX * 1.5,
+            CELL_PX * 0.5,
             0.5 * FRAME_PX,
             0.0,
             2.0 * std::numbers::pi);
@@ -243,10 +236,12 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
     Vec2 textureSize,
     SSwarmMeshes &meshes) {
     meshes.mask.clear();
-    meshes.cut.clear();
-    meshes.fill.clear();
+    meshes.creatures.clear();
+    meshes.walkingCut.clear();
     meshes.content.clear();
     meshes.pieces.clear();
+    meshes.standingAt = 0.0;
+    meshes.smoothingRadius = 0.0;
 
     const auto agents = swarm.agents();
     const Vec2 size = swarm.size();
@@ -261,10 +256,8 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
     // right.
     const double width = 2.0 * box.w + LAYER_GAP, standingAt = box.w + LAYER_GAP;
     const double atlasW = (frames + SHAPE_CELLS) * CELL_PX;
-    const double solidU = (frames + 0.5) * CELL_PX / atlasW,
-                 discU = (frames + 1.5) * CELL_PX / atlasW,
-                 holeU = (frames + 2.5) * CELL_PX / atlasW;
-    const double radiusU = 0.5 * FRAME_PX / atlasW, radiusV = 0.5 * FRAME_PX / CELL_PX;
+    const double solidU = (frames + 0.5) * CELL_PX / atlasW;
+    meshes.standingAt = standingAt;
 
     // Layer and output coordinates of a device-px point.
     const auto lx = [&](double x, bool standing) {
@@ -285,13 +278,15 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
     // An agent stands in the window once it is home and has swung round; until then it is a walking
     // piece.
     const auto standing = [](const hyprimate::SwarmAgent &a) { return a.docked && a.turn <= 0.0; };
-    const auto filleted = [](const hyprimate::SwarmAgent &a) {
-        return std::ranges::any_of(a.fillet, [](double f) { return f > 0.0; });
-    };
+    const bool hasStanding =
+        std::ranges::any_of(agents, [&](const auto &a) { return a.visible && standing(a); });
+    if (hasStanding) {
+        const auto smallest = std::ranges::min_element(agents, {}, &hyprimate::SwarmAgent::fit);
+        meshes.smoothingRadius = std::min(32.0, 0.65 * smallest->fit * unit) * swarm.rounding();
+    }
     // What stands in the window is drawn first and in one piece, so it has no seams; the walkers go
     // over it.
-    if (std::ranges::any_of(
-            agents, [&](const auto &a) { return (a.visible && standing(a)) || filleted(a); }))
+    if (hasStanding)
         pushRect(meshes.pieces,
             ox(box.x),
             oy(box.y),
@@ -308,56 +303,17 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
         const double hx = source.x + a.home.x * sx, hy = source.y + a.home.y * sy;
         const bool stands = standing(a);
 
-        // A quarter of a shape cell over the square of `radius` in one corner of the tile, the
-        // shape's middle on the square's inner corner: the disc rounds the corner off, the cut-out
-        // disc fills it in.
-        const auto corner = [&](std::vector<SMeshRenderVertex> &out,
-                                std::size_t which,
-                                double radius,
-                                double shapeU,
-                                bool inStanding) {
-            const bool right = (which & 1U) != 0, bottom = (which & 2U) != 0;
-            const double outerX = right ? x1 : x0, innerX = right ? x1 - radius : x0 + radius;
-            const double outerY = bottom ? y1 : y0, innerY = bottom ? y1 - radius : y0 + radius;
-            const double outerU = shapeU + (right ? radiusU : -radiusU),
-                         outerV = 0.5 + (bottom ? radiusV : -radiusV);
-            pushRect(out,
-                lx(std::min(outerX, innerX), inStanding),
-                ly(std::min(outerY, innerY)),
-                lx(std::max(outerX, innerX), inStanding),
-                ly(std::max(outerY, innerY)),
-                right ? shapeU : outerU,
-                bottom ? 0.5 : outerV,
-                right ? outerU : shapeU,
-                bottom ? outerV : 0.5);
-        };
-
-        // The notch between merged neighbours fills in where the tile is, whether or not its agent
-        // is there yet.
-        for (std::size_t c = 0; c < a.fillet.size(); ++c) {
-            if (a.fillet[c] > 0.0) corner(meshes.fill, c, a.fillet[c] * a.fit * unit, holeU, true);
-        }
         if (!a.visible) continue;
 
-        // Mask: the whole tile when merged, otherwise the part of the tile its creature's frame
-        // covers. The creature is drawn facing its rest direction; a walking piece is then turned
-        // as a whole to face its heading.
-        if (a.lock >= 1.0)
-            pushRect(meshes.mask,
-                lx(x0, stands),
-                ly(y0),
-                lx(x1, stands),
-                ly(y1),
-                solidU,
-                0.5,
-                solidU,
-                0.5);
-        else {
+        // The silhouette keeps its travel heading while the carried tile straightens beneath it.
+        // Counter-rotate the mask by the piece transform, including throughout docking.
+        const auto silhouette = [&](std::vector<SMeshRenderVertex> &out, double lock) {
             const int k = hyprimate::walkFrame(a.walk, sheet.stride * 2.0 * a.fit, frames);
             const auto &frame = sheet.frames[static_cast<std::size_t>(k)];
             const double side =
-                hyprimate::spriteSize(frame, a.fit * unit, a.reach * std::max(sx, sy), a.lock);
-            const double facing = hyprimate::spriteRotation(a.rest, sheet.forward, 1.0);
+                hyprimate::spriteSize(frame, a.fit * unit, a.reach * std::max(sx, sy), lock);
+            const double facing = hyprimate::spriteRotation(a.heading, sheet.forward, 1.0) -
+                                  hyprimate::spriteRotation(a.heading, a.rest, a.turn);
             const double c = std::cos(facing), s = std::sin(facing);
             // Where a point of the frame lands: the creature's body on the tile's home, turned
             // about it.
@@ -379,20 +335,53 @@ void fillSwarmMeshes(const hyprimate::Swarm &swarm,
                     static_cast<float>(p.v)};
             };
             for (std::size_t i = 1; i + 1 < points; ++i) {
-                meshes.mask.push_back(vertex(polygon[0]));
-                meshes.mask.push_back(vertex(polygon[i]));
-                meshes.mask.push_back(vertex(polygon[i + 1]));
+                out.push_back(vertex(polygon[0]));
+                out.push_back(vertex(polygon[i]));
+                out.push_back(vertex(polygon[i + 1]));
             }
-        }
-        // A tile that is more than its creature keeps its rounded corners; a creature alone never
-        // reaches them.
-        if (a.lock > 0.0) {
-            for (std::size_t c = 0; c < a.round.size(); ++c) {
-                if (a.round[c] > 0.0)
-                    corner(meshes.cut, c, a.round[c] * a.fit * unit, discU, stands);
-            }
+        };
+        if (a.lock >= 1.0)
+            pushRect(meshes.mask,
+                lx(x0, stands),
+                ly(y0),
+                lx(x1, stands),
+                ly(y1),
+                solidU,
+                0.5,
+                solidU,
+                0.5);
+        else {
+            silhouette(meshes.mask, a.lock);
+            // Preserve moving legs until the expanding mass consumes the creature. Only the
+            // combined growth mask is smoothed, never this original-size animated silhouette.
+            if (stands) silhouette(meshes.creatures, 0.0);
         }
         if (stands) continue;
+
+        // Detached pieces are rounded on their own; only the standing mass uses union smoothing.
+        // This keeps a closing tile from briefly becoming a sharp rectangle before its sprite
+        // shrinks away from the tile's boundaries.
+        if (a.lock > 0.0) {
+            const double radius = a.fit * unit;
+            const double discU = (frames + 1.5) * CELL_PX / atlasW;
+            const double radiusU = 0.5 * FRAME_PX / atlasW, radiusV = 0.5 * FRAME_PX / CELL_PX;
+            for (unsigned corner = 0; corner < 4; ++corner) {
+                const bool right = corner & 1U, bottom = corner & 2U;
+                const double outerX = right ? x1 : x0, innerX = right ? x1 - radius : x0 + radius;
+                const double outerY = bottom ? y1 : y0, innerY = bottom ? y1 - radius : y0 + radius;
+                const double outerU = discU + (right ? radiusU : -radiusU);
+                const double outerV = 0.5 + (bottom ? radiusV : -radiusV);
+                pushRect(meshes.walkingCut,
+                    lx(std::min(outerX, innerX), false),
+                    ly(std::min(outerY, innerY)),
+                    lx(std::max(outerX, innerX), false),
+                    ly(std::max(outerY, innerY)),
+                    right ? discU : outerU,
+                    bottom ? 0.5 : outerV,
+                    right ? outerU : discU,
+                    bottom ? outerV : 0.5);
+            }
+        }
 
         // Piece: the tile, carried to where its agent is and turned about its home.
         const double dx = (a.position.x - a.home.x) * sx, dy = (a.position.y - a.home.y) * sy;
@@ -412,16 +401,25 @@ SP<Render::IFramebuffer> renderSwarmLayer(Render::CRenderContext &ctx,
     const SP<Render::ITexture> &window,
     const SP<Render::ITexture> &atlas,
     const Vector2D &size,
-    const SSwarmMeshes &meshes) {
+    const SSwarmMeshes &meshes,
+    CSwarmSurface &surface) {
     if (!window || !atlas || meshes.content.empty() || !(size.x > 0.0 && size.y > 0.0))
         return nullptr;
 
     // Entry blend state, restored on exit; the wrapper does not expose the blend function, so GL is
     // queried for it.
     const bool entryBlend = Render::GL::g_pHyprOpenGL->blendEnabled();
-    GLint entrySrc = 0, entryDst = 0;
+    GLint entrySrc = 0, entryDst = 0, entrySrcAlpha = 0, entryDstAlpha = 0;
     glGetIntegerv(GL_BLEND_SRC_RGB, &entrySrc);
     glGetIntegerv(GL_BLEND_DST_RGB, &entryDst);
+    glGetIntegerv(GL_BLEND_SRC_ALPHA, &entrySrcAlpha);
+    glGetIntegerv(GL_BLEND_DST_ALPHA, &entryDstAlpha);
+    const auto restoreBlend = [&] {
+        Render::GL::g_pHyprOpenGL->blend(entryBlend);
+        Render::GL::g_pHyprOpenGL->blendFunc(
+            static_cast<GLenum>(entrySrc), static_cast<GLenum>(entryDst));
+        glBlendFuncSeparate(entrySrc, entryDst, entrySrcAlpha, entryDstAlpha);
+    };
 
     Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
     auto state = ctx.saveDrawState();
@@ -447,18 +445,22 @@ SP<Render::IFramebuffer> renderSwarmLayer(Render::CRenderContext &ctx,
     Render::GL::g_pHyprOpenGL->blend(false);
     if (!meshes.mask.empty())
         Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, atlas, box, meshes.mask, td);
-
-    // Rounded corners: what a quarter disc does not cover of its corner is multiplied away.
-    Render::GL::g_pHyprOpenGL->blend(true);
-    if (!meshes.cut.empty()) {
+    if (!meshes.walkingCut.empty()) {
+        Render::GL::g_pHyprOpenGL->blend(true);
         Render::GL::g_pHyprOpenGL->blendFunc(GL_ZERO, GL_SRC_ALPHA);
-        Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, atlas, box, meshes.cut, td);
+        Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, atlas, box, meshes.walkingCut, td);
     }
-    // Filled notches, added on top.
-    if (!meshes.fill.empty()) {
-        Render::GL::g_pHyprOpenGL->blendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-        Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, atlas, box, meshes.fill, td);
+
+    const auto smooth = surface.filter(ctx, layer, size, meshes.standingAt, meshes.smoothingRadius);
+    if (!smooth) {
+        restoreBlend();
+        return nullptr;
     }
+    g_pHyprRenderer->bindFB(ctx, smooth);
+    Render::GL::g_pHyprOpenGL->blend(true);
+    Render::GL::g_pHyprOpenGL->blendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    if (!meshes.creatures.empty())
+        Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, atlas, box, meshes.creatures, td);
 
     // The window, weighted by that alpha: pixels outside every silhouette stay transparent.
     td.allowDim = true;
@@ -467,19 +469,17 @@ SP<Render::IFramebuffer> renderSwarmLayer(Render::CRenderContext &ctx,
     Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, window, box, meshes.content, td);
 
     // Restore the entry blend state through the wrapper so its cached factors stay in sync with GL.
-    Render::GL::g_pHyprOpenGL->blend(entryBlend);
-    Render::GL::g_pHyprOpenGL->blendFunc(
-        static_cast<GLenum>(entrySrc), static_cast<GLenum>(entryDst));
-    return layer;
+    restoreBlend();
+    return smooth;
 }
 
 CSwarmClosePassElement::CSwarmClosePassElement(SData data) : m_data(std::move(data)) {
 }
 
 std::vector<UP<IPassElement>> CSwarmClosePassElement::draw(Render::CRenderContext &ctx) {
-    if (!m_data.meshes || m_data.meshes->pieces.empty()) return {};
-    const auto layer =
-        renderSwarmLayer(ctx, m_data.tex, m_data.atlas, m_data.layerSize, *m_data.meshes);
+    if (!m_data.sprites || !m_data.meshes || m_data.meshes->pieces.empty()) return {};
+    const auto layer = renderSwarmLayer(
+        ctx, m_data.tex, m_data.atlas, m_data.layerSize, *m_data.meshes, m_data.sprites->surface());
     if (!layer) return {};
 
     Render::GL::CHyprOpenGLImpl::STextureRenderData textureData{};

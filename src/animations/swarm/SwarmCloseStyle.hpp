@@ -108,6 +108,7 @@ namespace close_style {
         CSwarmClosePassElement::SData data;
         data.tex = tex;
         data.atlas = atlas;
+        data.sprites = sprites;
         data.layerSize = swarmLayerSize(record.sourceDevice);
         data.box = project(record.extentsDevice, record.renderBox, record.snapshotSize);
         data.meshes = &style.meshes;

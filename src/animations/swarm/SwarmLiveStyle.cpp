@@ -62,8 +62,12 @@ Render::SWindowTransformBuffer renderLive(SSwarmStyle &state,
 
     fillSwarmMeshes(
         state.swarm, *sheet, g.source, g.output, {in.box.x, in.box.y}, g.textureSize, state.meshes);
-    const auto layer = renderSwarmLayer(
-        ctx, in.framebuffer->getTexture(), atlas, swarmLayerSize(g.source), state.meshes);
+    const auto layer = renderSwarmLayer(ctx,
+        in.framebuffer->getTexture(),
+        atlas,
+        swarmLayerSize(g.source),
+        state.meshes,
+        sprites->surface());
     if (!layer) return failed;
     // Requested while the layer is held, so the pool cannot return the same buffer twice.
     const auto out = g_pHyprRenderer->getWorkBuffer(ctx, g.canvas.size());

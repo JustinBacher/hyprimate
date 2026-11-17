@@ -32,8 +32,8 @@ namespace hyprimate {
     int walkFrame(double travel, double stride, int frames) noexcept;
 
     // Rotation to draw with, radians clockwise on screen: `turn` of the way from facing `from` to
-    // facing `heading`, the short way round. A creature is drawn in its sheet facing `forward`; the
-    // tile it carries is upright while it faces its rest direction.
+    // facing `heading`, the short way round. The renderer counter-rotates the creature mask against
+    // its carried tile so straightening the tile does not turn the creature away from its heading.
     double spriteRotation(double heading, double from, double turn) noexcept;
 
     // Size in px of the frame's side for a piece at `lock`. At lock 0 the whole silhouette fits a

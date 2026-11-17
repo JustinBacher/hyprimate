@@ -43,10 +43,9 @@ namespace {
         return {CAPTURE.x + a.position.x, CAPTURE.y + a.position.y};
     }
     bool inFormation(const Swarm &m) {
-        return std::ranges::all_of(m.agents(), [](const SwarmAgent &a) {
+        return m.rounding() == 0.0 && std::ranges::all_of(m.agents(), [](const SwarmAgent &a) {
             return a.docked && a.lock == 1.0 && a.turn == 0.0 && a.position.x == a.home.x &&
-                   a.position.y == a.home.y &&
-                   std::ranges::all_of(a.round, [](double r) { return r == 0.0; });
+                   a.position.y == a.home.y;
         });
     }
     // Pearson correlation of two equally long series.
@@ -223,97 +222,46 @@ namespace {
         CHECK(fromTop > count / 8 && fromTop < 3 * count / 8);
     }
 
-    void agentsSettleFacingTheirOwnWay() {
-        Swarm m;
-        m.begin(Transition::Open, {}, 12, placement(), sides({Edge::Left}));
-        run(m, 10.0);
-        CHECK(inFormation(m));
-        // Settled, each faces its rest direction (turn is 0), and those point every way round.
-        std::array<int, 4> quadrant{};
-        for (const SwarmAgent &a : m.agents()) {
-            CHECK(a.rest >= -std::numbers::pi && a.rest <= std::numbers::pi);
-            ++quadrant[std::min(
-                3, static_cast<int>((a.rest + std::numbers::pi) / (0.5 * std::numbers::pi)))];
-        }
-        for (int n : quadrant) CHECK(n > static_cast<int>(m.agents().size()) / 8);
-    }
-
-    void cornerNeighboursMeetAtTheCorner() {
-        for (int count : {2, 7, 80, 250}) {
+    void surfaceRoundingWaitsForFormation() {
+        for (bool movement : {false, true}) {
             Swarm m;
-            SwarmParams p;
-            p.count = count;
-            m.beginMovement(p, 1, placement());
-            const auto agents = m.agents();
-            for (std::size_t i = 0; i < agents.size(); ++i) {
-                const SwarmAgent &a = agents[i];
-                for (std::size_t c = 0; c < 4; ++c) {
-                    const bool right = (c & 1U) != 0, bottom = (c & 2U) != 0;
-                    const double x = right ? a.tile.x + a.tile.w : a.tile.x,
-                                 y = bottom ? a.tile.y + a.tile.h : a.tile.y;
-                    // Just inside this tile along each edge that ends in the corner, and just
-                    // beyond the other edge.
-                    const double insideX = right ? x - 0.01 : x + 0.01,
-                                 insideY = bottom ? y - 0.01 : y + 0.01;
-                    const double beyondX = right ? x + 0.01 : x - 0.01,
-                                 beyondY = bottom ? y + 0.01 : y - 0.01;
-                    const auto holds = [&](std::int32_t index, double px, double py) {
-                        if (index < 0)  // nothing there: the point is outside the window
-                            return px < 0.0 || py < 0.0 || px > CAPTURE.w || py > CAPTURE.h;
-                        const Box &t = agents[static_cast<std::size_t>(index)].tile;
-                        return static_cast<std::size_t>(index) != i && px >= t.x &&
-                               px <= t.x + t.w && py >= t.y && py <= t.y + t.h;
-                    };
-                    CHECK(holds(a.beside[c], beyondX, insideY));
-                    CHECK(holds(a.across[c], insideX, beyondY));
+            if (movement) {
+                m.beginMovement({}, 17, placement());
+                CHECK(m.rounding() == 0.0);
+                for (int i = 0; i < 120; ++i) m.advance(1.0 / 120.0, true);
+            } else {
+                m.begin(Transition::Open, {}, 17, placement(), sides({Edge::Left, Edge::Top}));
+            }
+            CHECK(m.rounding() == 1.0);
+            bool sawJoining = false, sawHandoff = false;
+            for (int frame = 0; frame < 1200 && m.active(); ++frame) {
+                m.advance(1.0 / 120.0);
+                const bool whole = std::ranges::all_of(m.agents(),
+                    [](const SwarmAgent &a) { return a.docked && a.turn == 0.0 && a.lock == 1.0; });
+                if (!whole) {
+                    sawJoining = true;
+                    CHECK(m.rounding() == 1.0);
+                    CHECK(m.active());
+                } else if (m.rounding() > 0.0) {
+                    sawHandoff = true;
+                    CHECK(m.active());
                 }
             }
+            CHECK(sawJoining && sawHandoff);
+            CHECK(!m.active() && inFormation(m));
         }
     }
 
-    void mergedTilesAmassIntoABlob() {
-        // Followed through an opening: once things have stood for a moment, a merged tile's corner
-        // is square where a merged neighbour meets it and rounded where none does, and the notch
-        // between two merged neighbours of an unmerged tile is filled. `since` is how long each
-        // agent has been merged (positive) or not (negative).
+    void closingRoundsTheSurfaceAsPartsLeave() {
         Swarm m;
-        m.begin(Transition::Open, {}, 17, placement(), sides({Edge::Left, Edge::Top}));
-        std::vector<double> since(m.agents().size(), 0.0);
-        const double settled = 0.3;
-        long square = 0, rounded = 0, filled = 0, open = 0;
-        while (m.active()) {
-            m.advance(FRAME);
-            const auto agents = m.agents();
-            bool whole = true;
-            for (std::size_t i = 0; i < agents.size(); ++i) {
-                const bool merged = agents[i].docked && agents[i].lock >= 1.0;
-                since[i] =
-                    merged ? std::max(0.0, since[i]) + FRAME : std::min(0.0, since[i]) - FRAME;
-                whole = whole && merged;
-            }
-            if (whole) break;
-            const auto in = [&](std::int32_t index) {
-                return index >= 0 && since[static_cast<std::size_t>(index)] > settled;
-            };
-            const auto out = [&](std::int32_t index) {
-                return index < 0 || since[static_cast<std::size_t>(index)] < -settled;
-            };
-            for (std::size_t i = 0; i < agents.size(); ++i) {
-                const SwarmAgent &a = agents[i];
-                for (std::size_t c = 0; c < 4; ++c) {
-                    if (in(a.beside[c]) && in(a.across[c])) CHECK(a.fillet[c] == 1.0), ++filled;
-                    if (out(a.beside[c]) || out(a.across[c])) CHECK(a.fillet[c] == 0.0), ++open;
-                    if (since[i] > settled && (in(a.beside[c]) || in(a.across[c])))
-                        CHECK(a.round[c] == 0.0), ++square;
-                    if (since[i] > settled && out(a.beside[c]) && out(a.across[c]))
-                        CHECK(a.round[c] == 1.0), ++rounded;
-                }
-            }
-        }
-        CHECK(square > 0 && rounded > 0 && filled > 0 && open > 0);
-        // Complete, the outline squares up into the window, its outer corners included.
-        run(m, 2.0);
-        CHECK(!m.active() && inFormation(m));
+        m.begin(Transition::Close, {}, 5, placement(), sides({Edge::Bottom}));
+        CHECK(m.rounding() == 0.0 && inFormation(m));
+        m.advance(1.0 / 120.0);
+        CHECK(m.rounding() > 0.0 && m.rounding() < 1.0);
+        run(m, 0.25);
+        CHECK(m.rounding() == 1.0);
+        run(m, 8.0);
+        CHECK(m.closed());
     }
 
     void closeTakesOverAnOpening() {
@@ -321,15 +269,39 @@ namespace {
         m.begin(Transition::Open, {}, 9, placement(), sides({Edge::Left}));
         run(m, 0.25);
         std::vector<Vec2> before;
+        const double rounding = m.rounding();
         for (const SwarmAgent &a : m.agents()) before.push_back(a.position);
         m.begin(Transition::Close, {}, 10, placement(), sides({Edge::Left}));
         CHECK(m.active() && !m.opening());
+        CHECK(m.rounding() == rounding);
         // Agents carry on from where they were instead of jumping into formation.
         for (std::size_t i = 0; i < before.size(); ++i)
             CHECK(
                 m.agents()[i].position.x == before[i].x && m.agents()[i].position.y == before[i].y);
         run(m, 8.0);
         CHECK(m.closed());
+    }
+
+    void closeInheritsAnInFlightHandoff() {
+        Swarm m;
+        m.begin(Transition::Open, {}, 9, placement(), sides({Edge::Left}));
+        for (int frame = 0; frame < 1200 && m.rounding() == 1.0; ++frame) m.advance(1.0 / 120.0);
+        const double rounding = m.rounding();
+        CHECK(m.active() && rounding > 0.0 && rounding < 1.0);
+        m.begin(Transition::Close, {}, 10, placement(), sides({Edge::Left}));
+        CHECK(m.rounding() == rounding);
+        m.advance(1.0 / 120.0);
+        CHECK(m.rounding() > rounding);
+        run(m, 8.0);
+        CHECK(m.closed());
+    }
+
+    void movementWithoutMotionFinishesImmediately() {
+        Swarm m;
+        m.beginMovement({}, 2, placement());
+        CHECK(m.rounding() == 0.0);
+        m.advance(1.0 / 120.0);
+        CHECK(!m.active() && inFormation(m));
     }
 
     void slowMovementKeepsTheWindowWhole() {
@@ -716,6 +688,35 @@ namespace {
         CHECK(observed);
     }
 
+    void mergingSpritesKeepAnimating() {
+        for (bool movement : {false, true}) {
+            Swarm m;
+            if (movement) {
+                m.beginMovement({}, 12, placement());
+                for (int i = 0; i < 120; ++i) m.advance(FRAME, true);
+            } else
+                m.begin(Transition::Open, {}, 12, placement(), sides({Edge::Left}));
+            bool observed = false, changedFrame = false;
+            for (int step = 0; step < 1200 && m.active(); ++step) {
+                const std::vector<SwarmAgent> before(m.agents().begin(), m.agents().end());
+                m.advance(FRAME);
+                for (std::size_t i = 0; i < before.size(); ++i) {
+                    const auto &a = m.agents()[i];
+                    if (before[i].docked && before[i].turn == 0.0 && a.lock > before[i].lock &&
+                        a.lock < 1.0) {
+                        observed = true;
+                        CHECK(a.walk > before[i].walk);
+                        changedFrame |= walkFrame(a.walk, 2.0 * a.fit, 8) !=
+                                        walkFrame(before[i].walk, 2.0 * a.fit, 8);
+                    }
+                    if (before[i].lock == 1.0 && a.lock == 1.0) CHECK(a.walk == before[i].walk);
+                }
+            }
+            CHECK(observed && changedFrame);
+            CHECK(!m.active() && inFormation(m));
+        }
+    }
+
     void edgeSidesFollowTheNeighbours() {
         const Box left{0, 0, 960, 1080}, right{960, 0, 960, 1080};
         // Alone: the nearest edge; equidistant edges all count.
@@ -751,10 +752,11 @@ int main() {
     equalSeedsGiveEqualMotion();
     closeLetsGoInNoOrderAndLeavesThroughItsSide();
     tilesFillInNoOrder();
-    agentsSettleFacingTheirOwnWay();
-    cornerNeighboursMeetAtTheCorner();
-    mergedTilesAmassIntoABlob();
+    surfaceRoundingWaitsForFormation();
+    closingRoundsTheSurfaceAsPartsLeave();
     closeTakesOverAnOpening();
+    closeInheritsAnInFlightHandoff();
+    movementWithoutMotionFinishesImmediately();
     slowMovementKeepsTheWindowWhole();
     fastMovementScattersThenRegroups();
     heldMovementWandersUntilRelease();
@@ -771,6 +773,7 @@ int main() {
     walkCycleFollowsDistance();
     movingSpritesAdvanceAtAVisibleRate();
     turningSpritesKeepAnimating();
+    mergingSpritesKeepAnimating();
     edgeSidesFollowTheNeighbours();
     return g_failures == 0 ? 0 : 1;
 }
