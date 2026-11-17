@@ -122,10 +122,10 @@ class CAnimationCloseRenderer {
     // Trampoline targets, valid only while installed.
     static CAnimationCloseRenderer *s_active;
     void *createOriginal() const {
-        return m_createHook ? m_createHook->m_original : nullptr;
+        return (m_createHook != nullptr) ? m_createHook->m_original : nullptr;
     }
     void *renderOriginal() const {
-        return m_renderHook ? m_renderHook->m_original : nullptr;
+        return (m_renderHook != nullptr) ? m_renderHook->m_original : nullptr;
     }
 
     struct SPending {

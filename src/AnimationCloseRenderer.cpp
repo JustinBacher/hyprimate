@@ -165,8 +165,8 @@ namespace {
         float sourceAlpha,
         SP<Render::IFramebuffer> workspaceSnapshot) {
         auto *original = reinterpret_cast<CreateFn>(
-            activeRenderer() ? activeRenderer()->createOriginal() : nullptr);
-        if (!original) {
+            (activeRenderer() != nullptr) ? activeRenderer()->createOriginal() : nullptr);
+        if (original == nullptr) {
             return nullptr;
         }
 
@@ -192,7 +192,7 @@ namespace {
         PHLWORKSPACE workspace,
         Render::eSceneMode mode) {
         auto *active = activeRenderer();
-        if (active && mode == Render::eSceneMode::MONITOR &&
+        if ((active != nullptr) && mode == Render::eSceneMode::MONITOR &&
             active->hasRecordFor(monitor, plane, workspace)) {
             bool submitted = false;
             try {
@@ -209,8 +209,9 @@ namespace {
             // natively.
         }
 
-        auto *original = reinterpret_cast<RenderFn>(active ? active->renderOriginal() : nullptr);
-        if (original) {
+        auto *original =
+            reinterpret_cast<RenderFn>((active != nullptr) ? active->renderOriginal() : nullptr);
+        if (original != nullptr) {
             original(self, ctx, monitor, plane, workspace, mode);
         }
     }
@@ -262,7 +263,7 @@ bool CAnimationCloseRenderer::install(std::string &error) {
         exactSymbol(HyprlandAPI::findFunctionsByName(m_handle, CREATE_NAME), CREATE_SIGNATURE);
     const void *renderAddress =
         exactSymbol(HyprlandAPI::findFunctionsByName(m_handle, RENDER_NAME), RENDER_SIGNATURE);
-    if (!createAddress || !renderAddress) {
+    if ((createAddress == nullptr) || (renderAddress == nullptr)) {
         error = "close symbols not found by exact signature";
         return false;
     }
@@ -273,7 +274,7 @@ bool CAnimationCloseRenderer::install(std::string &error) {
         m_handle, createAddress, reinterpret_cast<const void *>(&hookCreate));
     m_renderHook = HyprlandAPI::createFunctionHook(
         m_handle, renderAddress, reinterpret_cast<const void *>(&hookRender));
-    if (!m_createHook || !m_renderHook || !m_createHook->hook()) {
+    if ((m_createHook == nullptr) || (m_renderHook == nullptr) || !m_createHook->hook()) {
         shutdown();
         error = "failed to hook CWindowFadeout::create";
         return false;
@@ -290,10 +291,10 @@ bool CAnimationCloseRenderer::install(std::string &error) {
 void CAnimationCloseRenderer::shutdown() {
     // Hooks come down first so no new trampoline call can reach this object.
     // removeFunctionHook unhooks (if active) and releases the host-owned hook.
-    if (m_renderHook) {
+    if (m_renderHook != nullptr) {
         HyprlandAPI::removeFunctionHook(m_handle, m_renderHook);
     }
-    if (m_createHook) {
+    if (m_createHook != nullptr) {
         HyprlandAPI::removeFunctionHook(m_handle, m_createHook);
     }
     m_renderHook = nullptr;
@@ -561,7 +562,9 @@ void CAnimationCloseRenderer::tick(
 }
 
 bool CAnimationCloseRenderer::needsFrame(const PHLMONITOR &monitor) const {
-    if (!monitor) return false;
+    if (!monitor) {
+        return false;
+    }
     return std::ranges::any_of(m_records, [&](const auto &record) {
         return record->owned && sameMonitor(record->monitor, monitor) &&
                (!finished(record->style) || !record->drawnBox.empty());
@@ -627,10 +630,10 @@ bool CAnimationCloseRenderer::renderBatch(Render::CRenderContext &ctx,
         }
 
         SClosing *record = recordFor(fadeout);
-        if (record && !recordOnWorkspace(*record, workspace)) {
+        if ((record != nullptr) && !recordOnWorkspace(*record, workspace)) {
             record = nullptr;
         }
-        if (record && record->owned && fadeout->done()) {
+        if ((record != nullptr) && record->owned && fadeout->done()) {
             continue;
         }
 
@@ -671,7 +674,7 @@ bool CAnimationCloseRenderer::renderBatch(Render::CRenderContext &ctx,
     for (const auto &item : batch) {
         SClosing *record = item.record;
 
-        if (record && record->owned) {
+        if ((record != nullptr) && record->owned) {
             // A closed owned close draws nothing and suppresses its native fade, dim and blur
             // included.
             if (finished(record->style)) {

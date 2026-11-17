@@ -86,8 +86,9 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     // still runs.
     m_close = std::make_unique<CAnimationCloseRenderer>(m_handle, m_closeSolid, m_shade, m_sprites);
     std::string closeError;
-    if (!m_close->install(closeError))
+    if (!m_close->install(closeError)) {
         notify("[hyprimate] close transitions unavailable: " + closeError);
+    }
 
     // Listeners are registered last so a failed constructor never leaves callbacks pointing at a
     // half-built runtime.
@@ -101,9 +102,10 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                 auto *transformer = transformerOf(window);
                 const bool matched = transformer && !materialChanged(*transformer);
                 std::optional<SStyleState> fresh;
-                if (!matched)
+                if (!matched) {
                     fresh.emplace(initialStyle(
                         m_config.style, effectiveMaterialParams(), clothMovementParams(), 0));
+                }
                 auto &state = matched ? transformer->styleState() : *fresh;
                 if (auto *bubble = std::get_if<SBubbleStyle>(&state)) {
                     bubble->renderer = m_bubble;
@@ -148,15 +150,17 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                 return;
             }
             if (!monitor || !m_bubbleResidue->active(monitor) ||
-                monitor->m_solitaryClient.expired())
+                monitor->m_solitaryClient.expired()) {
                 return;
-            if (std::ranges::none_of(
-                    m_residueInhibited, [&](const auto &entry) { return entry.lock() == monitor; }))
+            }
+            if (std::ranges::none_of(m_residueInhibited,
+                    [&](const auto &entry) { return entry.lock() == monitor; })) {
                 m_residueInhibited.emplace_back(monitor);
+            }
             monitor->m_solitaryClient.reset();
         });
     m_listenMonitorLayout =
-        Event::bus()->m_events.monitor.layoutChanged.listen([this]() { clearBubbleResidue(); });
+        Event::bus()->m_events.monitor.layoutChanged.listen([this] { clearBubbleResidue(); });
     m_listenMonitorRemoved = Event::bus()->m_events.monitor.preRemoved.listen(
         [this](const PHLMONITOR &) { clearBubbleResidue(); });
 
@@ -172,14 +176,17 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
             if (event.stage == RENDER_POST_WALLPAPER && event.context) {
                 for (const auto &entry : m_tracked) {
                     const auto window = entry.window.lock();
-                    if (!window || window->m_monitor.lock() != event.monitor) continue;
+                    if (!window || window->m_monitor.lock() != event.monitor) {
+                        continue;
+                    }
                     auto *transformer = transformerOf(window);
                     const auto *bubble = transformer
                                              ? std::get_if<SBubbleStyle>(&transformer->styleState())
                                              : nullptr;
                     if (!bubble || !bubble->bubble.opening() || bubble->bubble.stirred() ||
-                        !bubble->wallpaper || bubble->wallpaper->queued)
+                        !bubble->wallpaper || bubble->wallpaper->queued) {
                         continue;
+                    }
                     const auto presentation = window->presentation().renderPresentation();
                     const auto source =
                         window->getFullWindowBoundingBox()
@@ -202,7 +209,9 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                 // This must precede the window's transformed draw in the monitor pass: its
                 // framebuffer then contains lower windows but not this window itself.
                 if (bubble && transformer->active() && bubble->bubble.stirred()) {
-                    if (!bubble->wallpaper) bubble->wallpaper = makeShared<SBubbleWallpaper>();
+                    if (!bubble->wallpaper) {
+                        bubble->wallpaper = makeShared<SBubbleWallpaper>();
+                    }
                     const auto presentation = window->presentation().renderPresentation();
                     const auto logical = window->getFullWindowBoundingBox().translate(
                         presentation.workspaceOffset + presentation.floatingOffset -
@@ -223,14 +232,19 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                 queueWorkspaceSwarmTails(event.context->get(), event.monitor);
                 return;
             }
-            if (event.stage != RENDER_POST) return;
+            if (event.stage != RENDER_POST) {
+                return;
+            }
             if (event.monitor &&
                 (m_bubbleResidue->active(event.monitor) || m_close->needsFrame(event.monitor) ||
-                    hasWorkspaceSwarmTail(event.monitor)))
+                    hasWorkspaceSwarmTail(event.monitor))) {
                 event.monitor->scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_ANIMATION);
+            }
             for (const auto &entry : m_tracked) {
                 const auto window = entry.window.lock();
-                if (!window || window->m_monitor.lock() != event.monitor) continue;
+                if (!window || window->m_monitor.lock() != event.monitor) {
+                    continue;
+                }
                 const auto *transformer = transformerOf(window);
                 if (transformer && transformer->active()) {
                     event.monitor->scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_ANIMATION);
@@ -239,9 +253,11 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
             }
         });
 
-    m_listenReload = Event::bus()->m_events.config.reloaded.listen([this]() { onReload(); });
+    m_listenReload = Event::bus()->m_events.config.reloaded.listen([this] { onReload(); });
 
-    for (const auto &window : Desktop::windowState()->windows()) track(window);
+    for (const auto &window : Desktop::windowState()->windows()) {
+        track(window);
+    }
 }
 
 CPluginRuntime::~CPluginRuntime() {
@@ -316,8 +332,9 @@ bool CPluginRuntime::bubbleResidueEnabled() const {
 bool CPluginRuntime::workspaceHasOtherWindows(const PHLWINDOW &window) const {
     for (const auto &other : Desktop::windowState()->windows()) {
         if (other && other.get() != window.get() && other->m_workspace == window->m_workspace &&
-            other->mapped() && !other->isHidden())
+            other->mapped() && !other->isHidden()) {
             return true;
+        }
     }
     return false;
 }
@@ -329,7 +346,7 @@ void CPluginRuntime::gatherNeighbours(const PHLWINDOW &window) const {
         if (other && other.get() != window.get() && other->m_workspace == window->m_workspace &&
             other->mapped() && !other->isHidden() && !other->isFloating()) {
             const CBox b = other->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
-            m_neighbours.push_back({b.x, b.y, b.w, b.h});
+            m_neighbours.push_back({.x = b.x, .y = b.y, .w = b.w, .h = b.h});
         }
     }
 }
@@ -339,7 +356,7 @@ void CPluginRuntime::gatherClothObstacles(const PHLWINDOW &window) const {
         if (other && other.get() != window.get() && other->m_workspace == window->m_workspace &&
             other->mapped() && !other->isHidden()) {
             const CBox b = other->getFullWindowBoundingBox();
-            m_neighbours.push_back({b.x, b.y, b.w, b.h});
+            m_neighbours.push_back({.x = b.x, .y = b.y, .w = b.w, .h = b.h});
         }
     }
 }
@@ -347,7 +364,9 @@ void CPluginRuntime::gatherClothObstacles(const PHLWINDOW &window) const {
 hyprimate::EdgeInput CPluginRuntime::edgeInputFor(
     const PHLWINDOW &window, bool opening, std::optional<hyprimate::Edge> origin) const {
     const auto monitor = window->m_monitor.lock();
-    if (!monitor) return {};
+    if (!monitor) {
+        return {};
+    }
     const CBox current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
     const CBox body =
         opening ? window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL) : current;
@@ -358,17 +377,21 @@ hyprimate::EdgeInput CPluginRuntime::edgeInputFor(
         body.y + (capture.y - current.y),
         body.w + (capture.w - current.w),
         body.h + (capture.h - current.h)};
-    const auto box = [](const CBox &b) { return hyprimate::Box{b.x, b.y, b.w, b.h}; };
+    const auto box = [](const CBox &b) {
+        return hyprimate::Box{.x = b.x, .y = b.y, .w = b.w, .h = b.h};
+    };
 
     m_neighbours.clear();
-    if (!window->isFloating()) gatherNeighbours(window);
-    return {box(body),
-        box(rest),
-        box(monitor->logicalBox()),
-        box(monitor->logicalBoxMinusReserved()),
-        m_neighbours,
-        origin,
-        !workspaceHasOtherWindows(window)};
+    if (!window->isFloating()) {
+        gatherNeighbours(window);
+    }
+    return {.body = box(body),
+        .capture = box(rest),
+        .screen = box(monitor->logicalBox()),
+        .workArea = box(monitor->logicalBoxMinusReserved()),
+        .neighbours = m_neighbours,
+        .origin = origin,
+        .lastWindow = !workspaceHasOtherWindows(window)};
 }
 
 bool CPluginRuntime::materialUsable() const {
@@ -395,7 +418,9 @@ void CPluginRuntime::onReload() {
     m_close->clear();
 
     if (pluginEnabled() && wobbleEnabled()) {
-        if (!m_inert) notify(WOBBLE_MESSAGE);
+        if (!m_inert) {
+            notify(WOBBLE_MESSAGE);
+        }
         m_inert = true;
         return;
     }
@@ -406,13 +431,18 @@ void CPluginRuntime::onReload() {
 
 hyprimate::EdgeSet CPluginRuntime::swarmSides(const PHLWINDOW &window, bool opening) const {
     const auto monitor = window->m_monitor.lock();
-    if (!monitor) return {};
+    if (!monitor) {
+        return {};
+    }
     // Alone on its workspace, the window has no side it appears from: the configured sides apply.
-    if (!workspaceHasOtherWindows(window))
+    if (!workspaceHasOtherWindows(window)) {
         return ::swarmSides(
             opening ? m_config.open.swarm.loneWindowSides : m_config.close.swarm.loneWindowSides);
+    }
     m_neighbours.clear();
-    if (!window->isFloating()) gatherNeighbours(window);
+    if (!window->isFloating()) {
+        gatherNeighbours(window);
+    }
     const CBox body = window->geometricBox(opening ? Desktop::View::IGeometric::GEOMETRIC_GOAL
                                                    : Desktop::View::IGeometric::GEOMETRIC_CURRENT);
     return hyprimate::resolveEdgeSides(toBox(body), toBox(monitor->logicalBox()), m_neighbours);
@@ -420,14 +450,20 @@ hyprimate::EdgeSet CPluginRuntime::swarmSides(const PHLWINDOW &window, bool open
 
 CPluginRuntime::STracked *CPluginRuntime::find(const PHLWINDOW &window) {
     for (auto &entry : m_tracked) {
-        if (entry.window.get() == window.get()) return &entry;
+        if (entry.window.get() == window.get()) {
+            return &entry;
+        }
     }
     return nullptr;
 }
 
 void CPluginRuntime::track(const PHLWINDOW &window) {
-    if (!window) return;
-    if (find(window)) return;
+    if (!window) {
+        return;
+    }
+    if (find(window) != nullptr) {
+        return;
+    }
 
     STracked entry;
     entry.window = PHLWINDOWREF{window};
@@ -450,7 +486,9 @@ void CPluginRuntime::rebaseline(STracked &entry, const PHLWINDOW &window) const 
 
 void CPluginRuntime::baselineAll() {
     for (auto &entry : m_tracked) {
-        if (const auto window = entry.window.lock()) rebaseline(entry, window);
+        if (const auto window = entry.window.lock()) {
+            rebaseline(entry, window);
+        }
     }
 }
 
@@ -467,14 +505,18 @@ void CPluginRuntime::onRenderPre(const PHLMONITOR &monitor) {
     m_config = hyprimate::config::readConfig(m_values);
     // Compile the bubble material before any bubble needs it: done mid-animation, the compile reads
     // as a stall.
-    if (m_config.style == hyprimate::config::Style::Bubble) m_bubble->warmUp();
+    if (m_config.style == hyprimate::config::Style::Bubble) {
+        m_bubble->warmUp();
+    }
     const bool residueEnabled = bubbleResidueEnabled();
     m_bubbleResidue->setEnabled(residueEnabled);
-    if (!residueEnabled)
+    if (!residueEnabled) {
         clearBubbleResidue();
-    else {
+    } else {
         m_bubbleResidue->tick(clock::now(), monitor);
-        if (!m_bubbleResidue->active(monitor)) restoreBubbleScanout(monitor);
+        if (!m_bubbleResidue->active(monitor)) {
+            restoreBubbleScanout(monitor);
+        }
     }
     m_openSolid->setColor(colorFromArgb(m_config.open.liquid.color));
     m_closeSolid->setColor(colorFromArgb(m_config.close.liquid.color));
@@ -483,7 +525,9 @@ void CPluginRuntime::onRenderPre(const PHLMONITOR &monitor) {
     const auto now = clock::now();
     for (auto &entry : m_tracked) {
         const auto window = entry.window.lock();
-        if (!window || window->m_monitor.lock() != monitor) continue;
+        if (!window || window->m_monitor.lock() != monitor) {
+            continue;
+        }
         updateWindow(entry, window, now);
     }
 
@@ -498,8 +542,9 @@ void CPluginRuntime::onRenderPre(const PHLMONITOR &monitor) {
         for (const auto &box : damage) {
             g_pHyprRenderer->damageBox(box);
             for (const auto &candidate : State::monitorState()->monitors()) {
-                if (candidate->logicalBox().overlaps(box))
+                if (candidate->logicalBox().overlaps(box)) {
                     candidate->scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_ANIMATION);
+                }
             }
         }
     }
@@ -513,8 +558,10 @@ void CPluginRuntime::updateWindow(STracked &entry, const PHLWINDOW &window, cloc
     // A window that is not stepping, not deforming, and not opening cannot change until it becomes
     // eligible or starts animating, so it skips the snapshot entirely.
     const auto *existing = transformerOf(window);
-    const bool stepping = existing && existing->active();
-    if (!stepping && entry.tracker.dormant(animating) && !eligible(window)) return;
+    const bool stepping = (existing != nullptr) && existing->active();
+    if (!stepping && entry.tracker.dormant(animating) && !eligible(window)) {
+        return;
+    }
 
     const hyprimate::TrackDecision decision =
         entry.tracker.update(snapshotOf(window, animating, elapsed));
@@ -522,11 +569,15 @@ void CPluginRuntime::updateWindow(STracked &entry, const PHLWINDOW &window, cloc
         // Covers a material change, a stall, a movement jump, and a window that stopped being
         // deformable.
         detachWindow(entry, window);
-        if (decision.begin_open) beginOpening(entry, window);
+        if (decision.begin_open) {
+            beginOpening(entry, window);
+        }
         return;
     }
     if (decision.cancel_opening) {
-        if (auto *transformer = transformerOf(window)) transformer->cancelOpening();
+        if (auto *transformer = transformerOf(window)) {
+            transformer->cancelOpening();
+        }
     }
     if (decision.action == hyprimate::TrackAction::Opening) {
         beginOpening(entry, window);
@@ -536,8 +587,9 @@ void CPluginRuntime::updateWindow(STracked &entry, const PHLWINDOW &window, cloc
         stepWindow(entry, window, 0.0);
         return;
     }
-    if (decision.action == hyprimate::TrackAction::Move)
+    if (decision.action == hyprimate::TrackAction::Move) {
         recordMovement(entry, window, decision, elapsed);
+    }
     stepWindow(entry, window, elapsed);
 }
 
@@ -550,7 +602,7 @@ hyprimate::WindowSnapshot CPluginRuntime::snapshotOf(
     s.deformable = eligible(window);
     s.animating_in = animating;
     withLiveStyle(m_config.style, [&](auto style) { style.snapshot(transformer, s); });
-    s.material_changed = transformer && materialChanged(*transformer);
+    s.material_changed = (transformer != nullptr) && materialChanged(*transformer);
     s.open_enabled = openEnabled();
     s.movement_enabled = movementEnabled();
     s.monitor = monitorId(window);
@@ -562,16 +614,17 @@ hyprimate::WindowSnapshot CPluginRuntime::snapshotOf(
         s.workspace_moving = workspace->m_renderOffset->isBeingAnimated();
         if (s.workspace_moving) {
             const auto offset = workspace->m_renderOffset->value();
-            s.workspace_offset = {offset.x, offset.y};
+            s.workspace_offset = {.x = offset.x, .y = offset.y};
         }
         // Native hiding ends the slide, not the swarm's flight. Preserve its last screen-space
         // placement while the retained window image supplies the remaining creatures.
         const auto *tail = workspaceSwarmTail(window);
-        if (tail) {
-            s.workspace_offset = {
-                tail->workspaceCapture.x - s.capture.x, tail->workspaceCapture.y - s.capture.y};
+        if (tail != nullptr) {
+            s.workspace_offset = {.x = tail->workspaceCapture.x - s.capture.x,
+                .y = tail->workspaceCapture.y - s.capture.y};
         }
-        s.deformable = s.deformable && (workspace->visible() || s.workspace_moving || tail);
+        s.deformable =
+            s.deformable && (workspace->visible() || s.workspace_moving || (tail != nullptr));
     }
     return s;
 }
@@ -583,13 +636,19 @@ void CPluginRuntime::recordMovement(STracked &entry,
     const bool enabled = movementEnabled();
     const bool moving = decision.translated && enabled;
     auto *transformer = transformerOf(window);
-    if (!moving && !transformer) return;
+    if (!moving && (transformer == nullptr)) {
+        return;
+    }
     if (entry.hasFootprint) {
         g_pHyprRenderer->damageBox(entry.footprint);
         entry.hasFootprint = false;
     }
-    if (!transformer) transformer = acquireTransformer(window);
-    if (decision.cancel_movement) transformer->cancelMovement();
+    if (transformer == nullptr) {
+        transformer = acquireTransformer(window);
+    }
+    if (decision.cancel_movement) {
+        transformer->cancelMovement();
+    }
     withLiveStyle(m_config.style, [&](auto style) {
         style.movement(*this, *transformer, window, decision, elapsed, enabled, moving);
     });
@@ -599,13 +658,18 @@ void CPluginRuntime::beginOpening(STracked &entry, const PHLWINDOW &window) {
     // Every open attempt starts from no edge, so an early return never leaves a stale origin
     // behind.
     entry.openEdge.reset();
-    if (!openEnabled()) return;
+    if (!openEnabled()) {
+        return;
+    }
 
     if (!withLiveStyle(
-            m_config.style, [&](auto style) { return style.open(*this, entry, window); }))
+            m_config.style, [&](auto style) { return style.open(*this, entry, window); })) {
         return;
+    }
 
-    if (entry.hasFootprint) g_pHyprRenderer->damageBox(entry.footprint);
+    if (entry.hasFootprint) {
+        g_pHyprRenderer->damageBox(entry.footprint);
+    }
     entry.footprint = worldFootprint(window);
     entry.hasFootprint = true;
 
@@ -615,10 +679,11 @@ void CPluginRuntime::beginOpening(STracked &entry, const PHLWINDOW &window) {
 
 void CPluginRuntime::stepWindow(STracked &entry, const PHLWINDOW &window, double elapsed) {
     auto *transformer = transformerOf(window);
-    if (!transformer || !transformer->active()) {
-        if (transformer)
+    if ((transformer == nullptr) || !transformer->active()) {
+        if (transformer != nullptr) {
             transformer->cancelOpening();  // a driven open that went inactive (fullscreen, unmap)
-                                           // returns the layout box
+        }
+        // returns the layout box
         if (entry.hasFootprint) {
             g_pHyprRenderer->damageBox(entry.footprint);
             entry.hasFootprint = false;
@@ -640,7 +705,7 @@ void CPluginRuntime::stepWindow(STracked &entry, const PHLWINDOW &window, double
         style.step(*this, *transformer, elapsed, {capture.w, capture.h}, movementEnabled());
     });
     if (auto *swarm = std::get_if<SSwarmStyle>(&transformer->styleState());
-        swarm && window->m_workspace && window->m_workspace->visible() &&
+        (swarm != nullptr) && window->m_workspace && window->m_workspace->visible() &&
         !window->m_workspace->m_renderOffset->isBeingAnimated()) {
         swarm->workspaceSnapshot.reset();
         swarm->captureWorkspaceFrame = false;
@@ -657,7 +722,9 @@ void CPluginRuntime::stepWindow(STracked &entry, const PHLWINDOW &window, double
     } else {
         // Settled fields have already restored the undeformed mesh; pruning drops the transformer.
         window->effects().transformers()->removeInactive();
-        if (const auto monitor = window->m_monitor.lock()) monitor->recheckSolitary();
+        if (const auto monitor = window->m_monitor.lock()) {
+            monitor->recheckSolitary();
+        }
     }
     g_pHyprRenderer->damageWindow(window);
     scheduleAnimation(window);
@@ -669,7 +736,9 @@ CAnimationTransformer *CPluginRuntime::transformerOf(const PHLWINDOW &window) co
 
 CAnimationTransformer *CPluginRuntime::acquireTransformer(const PHLWINDOW &window) {
     const auto &list = window->effects().transformers();
-    if (auto *existing = list->get<CAnimationTransformer>()) return existing;
+    if (auto *existing = list->get<CAnimationTransformer>()) {
+        return existing;
+    }
     // Each window draws from its own stream, so windows moved together (scrolling, workspace
     // slides) still differ.
     auto state = initialStyle(
@@ -691,15 +760,17 @@ CBox CPluginRuntime::worldFootprint(const PHLWINDOW &window) const {
     }
     const auto workspace = window->m_workspace;
     if (workspace && workspace->m_renderOffset->isBeingAnimated() &&
-        !(window->m_state & Desktop::View::WINDOW_STATE_PINNED))
+        !(window->m_state & Desktop::View::WINDOW_STATE_PINNED)) {
         box.translate(workspace->m_renderOffset->value());
+    }
     box.translate(window->presentation().floatingOffset());
     return window->effects().transformBoxForDamage(box);
 }
 
 void CPluginRuntime::scheduleAnimation(const PHLWINDOW &window) const {
-    if (const auto monitor = window->m_monitor.lock())
+    if (const auto monitor = window->m_monitor.lock()) {
         monitor->scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_ANIMATION);
+    }
 }
 
 void CPluginRuntime::detachWindow(STracked &entry, const PHLWINDOW &window) {
@@ -709,13 +780,15 @@ void CPluginRuntime::detachWindow(STracked &entry, const PHLWINDOW &window) {
         entry.hasFootprint = false;
     }
     auto *transformer = transformerOf(window);
-    if (transformer) {
+    if (transformer != nullptr) {
         transformer->markDetached();
         window->effects().transformers()->removeInactive();
-        if (const auto monitor = window->m_monitor.lock()) monitor->recheckSolitary();
+        if (const auto monitor = window->m_monitor.lock()) {
+            monitor->recheckSolitary();
+        }
         // No pointer use after pruning: plugin vtables are gone before unload.
     }
-    if (hadFootprint || transformer) {
+    if (hadFootprint || (transformer != nullptr)) {
         g_pHyprRenderer->damageWindow(window);
         scheduleAnimation(window);
     }
@@ -723,15 +796,21 @@ void CPluginRuntime::detachWindow(STracked &entry, const PHLWINDOW &window) {
 
 void CPluginRuntime::detachAll() {
     for (auto &entry : m_tracked) {
-        if (const auto window = entry.window.lock()) detachWindow(entry, window);
+        if (const auto window = entry.window.lock()) {
+            detachWindow(entry, window);
+        }
     }
 }
 
 void CPluginRuntime::restoreBubbleScanout(const PHLMONITOR &monitor) {
     std::erase_if(m_residueInhibited, [&](const auto &entry) {
         const auto candidate = entry.lock();
-        if (!candidate) return true;
-        if (candidate != monitor) return false;
+        if (!candidate) {
+            return true;
+        }
+        if (candidate != monitor) {
+            return false;
+        }
         candidate->recheckSolitary();
         return true;
     });
@@ -740,7 +819,9 @@ void CPluginRuntime::restoreBubbleScanout(const PHLMONITOR &monitor) {
 void CPluginRuntime::clearBubbleResidue() {
     m_bubbleResidue->clear();
     for (const auto &entry : m_residueInhibited) {
-        if (const auto monitor = entry.lock()) monitor->recheckSolitary();
+        if (const auto monitor = entry.lock()) {
+            monitor->recheckSolitary();
+        }
     }
     m_residueInhibited.clear();
 }
@@ -749,11 +830,15 @@ SSwarmStyle *CPluginRuntime::workspaceSwarmTail(const PHLWINDOW &window) const {
     if (!window || !window->mapped() || !window->m_workspace || m_inert || !m_config.enabled ||
         !m_config.movement.enabled || !m_config.movement.workspaceMovement ||
         m_config.style != hyprimate::config::Style::Swarm || window->m_workspace->visible() ||
-        window->m_workspace->m_renderOffset->isBeingAnimated())
+        window->m_workspace->m_renderOffset->isBeingAnimated()) {
         return nullptr;
+    }
     auto *transformer = transformerOf(window);
-    auto *state = transformer ? std::get_if<SSwarmStyle>(&transformer->styleState()) : nullptr;
-    if (!state || !state->swarm.active() || !state->workspaceSnapshot) return nullptr;
+    auto *state =
+        (transformer != nullptr) ? std::get_if<SSwarmStyle>(&transformer->styleState()) : nullptr;
+    if ((state == nullptr) || !state->swarm.active() || !state->workspaceSnapshot) {
+        return nullptr;
+    }
     const auto bounds = state->swarm.bounds();
     return bounds.w > 0.0 && bounds.h > 0.0 ? state : nullptr;
 }
@@ -770,30 +855,36 @@ void CPluginRuntime::queueWorkspaceSwarmTails(
     for (const auto &entry : m_tracked) {
         const auto window = entry.window.lock();
         if (!window || window->m_monitor.lock() != monitor ||
-            !ctx.shouldRenderContent(window->m_ruleApplicator->noScreenShare().valueOrDefault()))
+            !ctx.shouldRenderContent(window->m_ruleApplicator->noScreenShare().valueOrDefault())) {
             continue;
+        }
         auto *state = workspaceSwarmTail(window);
-        if (!state) continue;
+        if (state == nullptr) {
+            continue;
+        }
         const auto *sheet = m_sprites->sheet(state->creature);
-        const auto atlas = sheet ? m_sprites->texture(state->creature) : SP<Render::ITexture>{};
+        const auto atlas =
+            (sheet != nullptr) ? m_sprites->texture(state->creature) : SP<Render::ITexture>{};
         const auto texture = state->workspaceSnapshot->getTexture();
-        if (!sheet || !atlas || !texture) continue;
+        if ((sheet == nullptr) || !atlas || !texture) {
+            continue;
+        }
         const auto &capture = state->workspaceCapture;
         const double scale = monitor->m_scale;
         const CBox source = CBox{capture.x, capture.y, capture.w, capture.h}
                                 .translate(-monitor->m_position)
                                 .scale(scale);
         const auto bounds = state->swarm.bounds();
-        const CBox output{source.x + bounds.x * scale,
-            source.y + bounds.y * scale,
+        const CBox output{source.x + (bounds.x * scale),
+            source.y + (bounds.y * scale),
             bounds.w * scale,
             bounds.h * scale};
         fillSwarmMeshes(state->swarm,
             *sheet,
             source,
             output,
-            {source.x + state->snapshotOffset.x, source.y + state->snapshotOffset.y},
-            {texture->m_size.x, texture->m_size.y},
+            {.x = source.x + state->snapshotOffset.x, .y = source.y + state->snapshotOffset.y},
+            {.x = texture->m_size.x, .y = texture->m_size.y},
             state->meshes);
         CSwarmClosePassElement::SData data;
         data.tex = texture;
