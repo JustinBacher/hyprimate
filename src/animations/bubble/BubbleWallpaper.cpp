@@ -35,8 +35,8 @@ namespace {
                 g_pHyprRenderer->type() != Render::IHyprRenderer::RT_GL) {
                 return {};
             }
-            const auto source = ctx.m_data.currentFB;
-            if (!source || !source->getTexture() || (source->getTexture()->m_texID == 0u) ||
+            const auto SOURCE = ctx.m_data.currentFB;
+            if (!SOURCE || !SOURCE->getTexture() || (SOURCE->getTexture()->m_texID == 0u) ||
                 m_source.empty()) {
                 return {};
             }
@@ -44,80 +44,80 @@ namespace {
             // Native projection accounts for framebuffer orientation and the current render target.
             CBox box = m_source;
             ctx.m_data.renderModif.applyToBox(box);
-            const auto matrix = g_pHyprRenderer->projectBoxToTarget(ctx, box).getMatrix();
-            const auto project = [&](double u, double v) {
-                return Vector2D{(0.5 + (0.5 * ((matrix[0] * u) + (matrix[1] * v) + matrix[2]))) *
-                                    source->m_size.x,
-                    (0.5 + (0.5 * ((matrix[3] * u) + (matrix[4] * v) + matrix[5]))) *
-                        source->m_size.y};
+            const auto MATRIX = g_pHyprRenderer->projectBoxToTarget(ctx, box).getMatrix();
+            const auto PROJECT = [&](double u, double v) {
+                return Vector2D{(0.5 + (0.5 * ((MATRIX[0] * u) + (MATRIX[1] * v) + MATRIX[2]))) *
+                                    SOURCE->m_size.x,
+                    (0.5 + (0.5 * ((MATRIX[3] * u) + (MATRIX[4] * v) + MATRIX[5]))) *
+                        SOURCE->m_size.y};
             };
-            const auto p0 = project(0, 0);
-            const auto px = project(1, 0);
-            const auto py = project(0, 1);
+            const auto p0 = PROJECT(0, 0);
+            const auto px = PROJECT(1, 0);
+            const auto py = PROJECT(0, 1);
             CBox bounds = m_bounds;
             ctx.m_data.renderModif.applyToBox(bounds);
-            const auto boundsMatrix = g_pHyprRenderer->projectBoxToTarget(ctx, bounds).getMatrix();
-            const auto projectBounds = [&](double u, double v) {
-                return Vector2D{(0.5 + (0.5 * ((boundsMatrix[0] * u) + (boundsMatrix[1] * v) +
-                                                  boundsMatrix[2]))) *
-                                    source->m_size.x,
-                    (0.5 +
-                        (0.5 * ((boundsMatrix[3] * u) + (boundsMatrix[4] * v) + boundsMatrix[5]))) *
-                        source->m_size.y};
+            const auto BOUNDS_MATRIX = g_pHyprRenderer->projectBoxToTarget(ctx, bounds).getMatrix();
+            const auto PROJECT_BOUNDS = [&](double u, double v) {
+                return Vector2D{(0.5 + (0.5 * ((BOUNDS_MATRIX[0] * u) + (BOUNDS_MATRIX[1] * v) +
+                                                  BOUNDS_MATRIX[2]))) *
+                                    SOURCE->m_size.x,
+                    (0.5 + (0.5 * ((BOUNDS_MATRIX[3] * u) + (BOUNDS_MATRIX[4] * v) +
+                                      BOUNDS_MATRIX[5]))) *
+                        SOURCE->m_size.y};
             };
-            const auto b0 = projectBounds(0, 0);
-            const auto bx = projectBounds(1, 0);
-            const auto by = projectBounds(0, 1);
-            const auto bxy = projectBounds(1, 1);
-            const double x = std::max(0.0, std::floor(std::min({b0.x, bx.x, by.x, bxy.x})) - 1.0);
-            const double y = std::max(0.0, std::floor(std::min({b0.y, bx.y, by.y, bxy.y})) - 1.0);
-            const double right =
-                std::min(source->m_size.x, std::ceil(std::max({b0.x, bx.x, by.x, bxy.x})) + 1.0);
-            const double top =
-                std::min(source->m_size.y, std::ceil(std::max({b0.y, bx.y, by.y, bxy.y})) + 1.0);
-            const Vector2D extent{right - x, top - y};
-            if (!(extent.x > 0 && extent.y > 0) || !std::isfinite(extent.x) ||
-                !std::isfinite(extent.y)) {
+            const auto b0 = PROJECT_BOUNDS(0, 0);
+            const auto bx = PROJECT_BOUNDS(1, 0);
+            const auto by = PROJECT_BOUNDS(0, 1);
+            const auto BXY = PROJECT_BOUNDS(1, 1);
+            const double x = std::max(0.0, std::floor(std::min({b0.x, bx.x, by.x, BXY.x})) - 1.0);
+            const double y = std::max(0.0, std::floor(std::min({b0.y, bx.y, by.y, BXY.y})) - 1.0);
+            const double RIGHT =
+                std::min(SOURCE->m_size.x, std::ceil(std::max({b0.x, bx.x, by.x, BXY.x})) + 1.0);
+            const double TOP =
+                std::min(SOURCE->m_size.y, std::ceil(std::max({b0.y, bx.y, by.y, BXY.y})) + 1.0);
+            const Vector2D EXTENT{RIGHT - x, TOP - y};
+            if (!(EXTENT.x > 0 && EXTENT.y > 0) || !std::isfinite(EXTENT.x) ||
+                !std::isfinite(EXTENT.y)) {
                 return {};
             }
 
             auto &gl = *Render::GL::g_pHyprOpenGL;
-            const Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
-            const auto state = ctx.saveDrawState();
+            const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
+            const auto STATE = ctx.saveDrawState();
             GLint active = 0;
             GLint texture = 0;
             glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
             gl.setActiveTexture(GL_TEXTURE0);
             glGetIntegerv(GL_TEXTURE_BINDING_2D, &texture);
-            const auto destination = g_pHyprRenderer->getWorkBuffer(ctx, extent);
+            const auto DESTINATION = g_pHyprRenderer->getWorkBuffer(ctx, EXTENT);
             glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(texture));
             gl.setActiveTexture(static_cast<GLenum>(active));
-            if (!destination || !destination->getTexture() ||
-                destination->getTexture()->m_texID == source->getTexture()->m_texID) {
+            if (!DESTINATION || !DESTINATION->getTexture() ||
+                DESTINATION->getTexture()->m_texID == SOURCE->getTexture()->m_texID) {
                 return {};
             }
 
-            const bool scissor = glIsEnabled(GL_SCISSOR_TEST) != 0u;
+            const bool SCISSOR = glIsEnabled(GL_SCISSOR_TEST) != 0u;
             gl.setCapStatus(GL_SCISSOR_TEST, false);
             gl.bindFramebuffer(GL_READ_FRAMEBUFFER,
-                static_cast<Render::GL::CGLFramebuffer *>(source.get())->getFBID());
+                static_cast<Render::GL::CGLFramebuffer *>(SOURCE.get())->getFBID());
             gl.bindFramebuffer(GL_DRAW_FRAMEBUFFER,
-                static_cast<Render::GL::CGLFramebuffer *>(destination.get())->getFBID());
+                static_cast<Render::GL::CGLFramebuffer *>(DESTINATION.get())->getFBID());
             glBlitFramebuffer(static_cast<GLint>(x),
                 static_cast<GLint>(y),
-                static_cast<GLint>(right),
-                static_cast<GLint>(top),
+                static_cast<GLint>(RIGHT),
+                static_cast<GLint>(TOP),
                 0,
                 0,
-                static_cast<GLint>(extent.x),
-                static_cast<GLint>(extent.y),
+                static_cast<GLint>(EXTENT.x),
+                static_cast<GLint>(EXTENT.y),
                 GL_COLOR_BUFFER_BIT,
                 GL_NEAREST);
-            gl.setCapStatus(GL_SCISSOR_TEST, scissor);
-            m_wallpaper->origin = (p0 - Vector2D{x, y}) / extent;
-            m_wallpaper->axisX = (px - p0) / extent;
-            m_wallpaper->axisY = (py - p0) / extent;
-            m_wallpaper->framebuffer = destination;
+            gl.setCapStatus(GL_SCISSOR_TEST, SCISSOR);
+            m_wallpaper->origin = (p0 - Vector2D{x, y}) / EXTENT;
+            m_wallpaper->axisX = (px - p0) / EXTENT;
+            m_wallpaper->axisY = (py - p0) / EXTENT;
+            m_wallpaper->framebuffer = DESTINATION;
             return {};
         }
 

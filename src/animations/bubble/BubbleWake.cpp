@@ -31,19 +31,19 @@ namespace hyprimate {
         if (full()) {
             return false;
         }
-        const Vec2 position{.x = origin.x + point.position.x, .y = origin.y + point.position.y};
-        if (!finite(position) || !finite(point.direction) || !std::isfinite(point.halfWidth) ||
+        const Vec2 POSITION{.x = origin.x + point.position.x, .y = origin.y + point.position.y};
+        if (!finite(POSITION) || !finite(point.direction) || !std::isfinite(point.halfWidth) ||
             !std::isfinite(point.density) || point.halfWidth <= 0 || point.density <= 0) {
             return true;
         }
         Node node;
         node.point = point;
-        node.point.position = position;
+        node.point.position = POSITION;
         node.point.density = std::clamp(point.density, 0.0, 1.0);
         if (count_ > 0) {
             const auto &previous = nodes_[first_ + count_ - 1];
-            node.arc = previous.arc + std::hypot(position.x - previous.point.position.x,
-                                          position.y - previous.point.position.y);
+            node.arc = previous.arc + std::hypot(POSITION.x - previous.point.position.x,
+                                          POSITION.y - previous.point.position.y);
         }
         // Denser film lasts longer; every patch keeps its own time so it does not vanish in step.
         node.life = (.45 + (.55 * node.point.density)) * (.8 + (.4 * unit_draw(random_)));
@@ -122,17 +122,17 @@ namespace hyprimate {
         double y0 = x0;
         double x1 = -x0;
         double y1 = -x0;
-        const auto include = [&](Vec2 p, double r) {
+        const auto INCLUDE = [&](Vec2 p, double r) {
             x0 = std::min(x0, p.x - r);
             y0 = std::min(y0, p.y - r);
             x1 = std::max(x1, p.x + r);
             y1 = std::max(y1, p.y + r);
         };
         for (std::size_t i = first_; i < first_ + count_; ++i) {
-            include(nodes_[i].point.position, (nodes_[i].point.halfWidth * kFray) + 2);
+            INCLUDE(nodes_[i].point.position, (nodes_[i].point.halfWidth * kFray) + 2);
         }
         for (std::size_t i = 0; i < bubbleCount_; ++i) {
-            include(bubbles_[i].micro.centre, (bubbles_[i].micro.radius * 1.4) + 3);
+            INCLUDE(bubbles_[i].micro.centre, (bubbles_[i].micro.radius * 1.4) + 3);
         }
         if (!(x1 > x0 && y1 > y0)) {
             return {};
@@ -141,23 +141,23 @@ namespace hyprimate {
     }
 
     void BubbleWake::view(BubbleWakeView &out) const noexcept {
-        const auto box = bounds();
-        out.size = {.x = box.w, .y = box.h};
+        const auto BOX = bounds();
+        out.size = {.x = BOX.w, .y = BOX.h};
         out.seed = seed_;
         out.nodeCount = count_;
         out.bubbleCount = bubbleCount_;
-        const Vec2 centre{.x = box.x + (box.w * .5), .y = box.y + (box.h * .5)};
+        const Vec2 CENTRE{.x = BOX.x + (BOX.w * .5), .y = BOX.y + (BOX.h * .5)};
         for (std::size_t i = 0; i < count_; ++i) {
             const auto &node = nodes_[first_ + i];
             auto &v = out.nodes[i];
             v.position = {
-                .x = node.point.position.x - centre.x, .y = node.point.position.y - centre.y};
+                .x = node.point.position.x - CENTRE.x, .y = node.point.position.y - CENTRE.y};
             // The ribbon turns with its path: the tangent spans the neighbouring points.
             const auto &before = nodes_[first_ + (i > 0 ? i - 1 : i)].point.position;
             const auto &after = nodes_[first_ + std::min(i + 1, count_ - 1)].point.position;
-            const Vec2 span{.x = after.x - before.x, .y = after.y - before.y};
-            const double l = std::hypot(span.x, span.y);
-            v.direction = l > 1e-6 ? Vec2{.x = span.x / l, .y = span.y / l} : node.point.direction;
+            const Vec2 SPAN{.x = after.x - before.x, .y = after.y - before.y};
+            const double l = std::hypot(SPAN.x, SPAN.y);
+            v.direction = l > 1e-6 ? Vec2{.x = SPAN.x / l, .y = SPAN.y / l} : node.point.direction;
             v.fade = std::clamp(node.age / node.life, 0.0, 1.0);
             v.halfWidth = node.point.halfWidth * (1 - (.35 * v.fade));
             v.arc = node.arc;
@@ -165,7 +165,7 @@ namespace hyprimate {
         }
         for (std::size_t i = 0; i < bubbleCount_; ++i) {
             auto m = bubbles_[i].micro;
-            m.centre = {.x = m.centre.x - centre.x, .y = m.centre.y - centre.y};
+            m.centre = {.x = m.centre.x - CENTRE.x, .y = m.centre.y - CENTRE.y};
             m.anchor = m.centre;
             out.bubbles[i] = m;
         }

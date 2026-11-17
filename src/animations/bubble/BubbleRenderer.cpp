@@ -26,15 +26,15 @@ namespace {
     // before.
     template <class F>
     void withCompositorContext(F &&work) {
-        const EGLDisplay display = eglGetCurrentDisplay();
-        const EGLContext context = eglGetCurrentContext();
-        const EGLSurface draw = eglGetCurrentSurface(EGL_DRAW);
-        const EGLSurface read = eglGetCurrentSurface(EGL_READ);
+        const EGLDisplay DISPLAY = eglGetCurrentDisplay();
+        const EGLContext CONTEXT = eglGetCurrentContext();
+        const EGLSurface DRAW = eglGetCurrentSurface(EGL_DRAW);
+        const EGLSurface READ = eglGetCurrentSurface(EGL_READ);
         Render::GL::g_pHyprOpenGL->makeEGLCurrent();
         work();
-        if (display != EGL_NO_DISPLAY && context != EGL_NO_CONTEXT) {
-            eglMakeCurrent(display, draw, read, context);
-        } else if (context == EGL_NO_CONTEXT) {
+        if (DISPLAY != EGL_NO_DISPLAY && CONTEXT != EGL_NO_CONTEXT) {
+            eglMakeCurrent(DISPLAY, DRAW, READ, CONTEXT);
+        } else if (CONTEXT == EGL_NO_CONTEXT) {
             eglMakeCurrent(Render::GL::g_pHyprOpenGL->m_eglDisplay,
                 EGL_NO_SURFACE,
                 EGL_NO_SURFACE,
@@ -87,16 +87,16 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
         return nullptr;
     }
     auto &gl = *Render::GL::g_pHyprOpenGL;
-    const auto wallpaper = d.wallpaper && d.wallpaper->framebuffer && !ctx.readOnlyEffects() &&
+    const auto WALLPAPER = d.wallpaper && d.wallpaper->framebuffer && !ctx.readOnlyEffects() &&
                                    !ctx.m_renderingCapture && !ctx.m_renderingSnapshot
                                ? d.wallpaper->framebuffer->getTexture()
                                : SP<Render::ITexture>{};
-    const Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
-    const auto state = ctx.saveDrawState();
-    const auto layer = g_pHyprRenderer->getWorkBuffer(ctx, d.canvas);
-    const GLuint image = d.window ? d.window->m_texID : 0;
-    if (!layer || !layer->getTexture() || layer->getTexture()->m_texID == image ||
-        (wallpaper && layer->getTexture()->m_texID == wallpaper->m_texID)) {
+    const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
+    const auto STATE = ctx.saveDrawState();
+    const auto LAYER = g_pHyprRenderer->getWorkBuffer(ctx, d.canvas);
+    const GLuint IMAGE = d.window ? d.window->m_texID : 0;
+    if (!LAYER || !LAYER->getTexture() || LAYER->getTexture()->m_texID == IMAGE ||
+        (WALLPAPER && LAYER->getTexture()->m_texID == WALLPAPER->m_texID)) {
         return nullptr;
     }
     GLint program = 0;
@@ -120,19 +120,19 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
     glGetIntegerv(GL_BLEND_SRC_ALPHA, &srcAlpha);
     glGetIntegerv(GL_BLEND_DST_ALPHA, &dstAlpha);
     glGetBooleanv(GL_COLOR_WRITEMASK, mask);
-    const bool scissor = glIsEnabled(GL_SCISSOR_TEST) != 0u;
-    const bool stencil = glIsEnabled(GL_STENCIL_TEST) != 0u;
-    const bool depthTest = glIsEnabled(GL_DEPTH_TEST) != 0u;
-    const bool cull = glIsEnabled(GL_CULL_FACE) != 0u;
-    const bool blend = gl.blendEnabled();
+    const bool SCISSOR = glIsEnabled(GL_SCISSOR_TEST) != 0u;
+    const bool STENCIL = glIsEnabled(GL_STENCIL_TEST) != 0u;
+    const bool DEPTH_TEST = glIsEnabled(GL_DEPTH_TEST) != 0u;
+    const bool CULL = glIsEnabled(GL_CULL_FACE) != 0u;
+    const bool BLEND = gl.blendEnabled();
     for (int i = 0; i < 4; ++i) {
         gl.setActiveTexture(GL_TEXTURE0 + i);
         glGetIntegerv(GL_TEXTURE_BINDING_2D, &textures[i][0]);
         glGetIntegerv(GL_TEXTURE_BINDING_3D, &textures[i][1]);
     }
-    const bool ready = m_material.initialize();
-    if (ready) {
-        g_pHyprRenderer->bindFB(ctx, layer);
+    const bool READY = m_material.initialize();
+    if (READY) {
+        g_pHyprRenderer->bindFB(ctx, LAYER);
         gl.setViewport(0, 0, static_cast<GLsizei>(d.canvas.x), static_cast<GLsizei>(d.canvas.y));
         gl.setCapStatus(GL_SCISSOR_TEST, false);
         gl.setCapStatus(GL_STENCIL_TEST, false);
@@ -140,23 +140,23 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
         glDisable(GL_CULL_FACE);
         gl.blend(false);
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        const SBubbleTarget target{.canvas = {.x = d.canvas.x, .y = d.canvas.y},
+        const SBubbleTarget TARGET{.canvas = {.x = d.canvas.x, .y = d.canvas.y},
             .origin = d.outputOrigin,
             .sourcePos = {.x = d.source.x, .y = d.source.y},
             .sourceSize = {.x = d.source.w, .y = d.source.h}};
         SBubbleImages images;
-        images.window = image;
+        images.window = IMAGE;
         images.textureOrigin = d.textureOrigin;
         images.textureSize = d.onGlass ? hyprimate::Vec2{.x = 1, .y = 1} : d.textureSize;
-        if (wallpaper) {
-            images.wallpaper = wallpaper->m_texID;
+        if (WALLPAPER) {
+            images.wallpaper = WALLPAPER->m_texID;
             images.wallpaperOrigin = {.x = d.wallpaper->origin.x, .y = d.wallpaper->origin.y};
             images.wallpaperX = {.x = d.wallpaper->axisX.x, .y = d.wallpaper->axisX.y};
             images.wallpaperY = {.x = d.wallpaper->axisY.x, .y = d.wallpaper->axisY.y};
             images.wallpaperPixel = {
-                .x = 1.0 / wallpaper->m_size.x, .y = 1.0 / wallpaper->m_size.y};
+                .x = 1.0 / WALLPAPER->m_size.x, .y = 1.0 / WALLPAPER->m_size.y};
         }
-        m_material.drawMembranes(d.frame, target, images);
+        m_material.drawMembranes(d.frame, TARGET, images);
         gl.blend(true);
         gl.blendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
         // The wrapper skips the call when its cached RGB pair already matches; separate alpha
@@ -166,24 +166,24 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
             m_material.drawParticles(
                 std::span{d.glassParticles}.first(std::min(d.glassCount, d.glassParticles.size())),
                 d.frame.size,
-                target,
+                TARGET,
                 true);
             if (d.wake) {
-                m_material.drawWake(*d.wake, target);
+                m_material.drawWake(*d.wake, TARGET);
             }
         } else {
-            const auto shellCount = hyprimate::bubbleParticles(
+            const auto SHELL_COUNT = hyprimate::bubbleParticles(
                 d.frame.shell, std::span{m_particles}.first(hyprimate::kBubbleMaxParticles));
-            const auto windowCount = hyprimate::bubbleParticles(d.frame.window,
-                std::span{m_particles}.subspan(shellCount, hyprimate::kBubbleMaxParticles));
-            m_material.drawParticles(std::span{m_particles}.first(shellCount + windowCount),
+            const auto WINDOW_COUNT = hyprimate::bubbleParticles(d.frame.window,
+                std::span{m_particles}.subspan(SHELL_COUNT, hyprimate::kBubbleMaxParticles));
+            m_material.drawParticles(std::span{m_particles}.first(SHELL_COUNT + WINDOW_COUNT),
                 d.frame.size,
-                target,
+                TARGET,
                 false);
             m_material.drawMicrobubbles(
                 std::span{d.frame.micro}.first(std::min(d.frame.microCount, d.frame.micro.size())),
                 d.frame.size,
-                target);
+                TARGET);
         }
     }
     for (int i = 0; i < 4; ++i) {
@@ -196,19 +196,19 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
     glBindBuffer(GL_ARRAY_BUFFER, static_cast<GLuint>(arrayBuffer));
     glUseProgram(static_cast<GLuint>(program));
     glColorMask(mask[0], mask[1], mask[2], mask[3]);
-    if (depthTest) {
+    if (DEPTH_TEST) {
         glEnable(GL_DEPTH_TEST);
     } else {
         glDisable(GL_DEPTH_TEST);
     }
-    if (cull) {
+    if (CULL) {
         glEnable(GL_CULL_FACE);
     } else {
         glDisable(GL_CULL_FACE);
     }
-    gl.setCapStatus(GL_SCISSOR_TEST, scissor);
-    gl.setCapStatus(GL_STENCIL_TEST, stencil);
-    gl.blend(blend);
+    gl.setCapStatus(GL_SCISSOR_TEST, SCISSOR);
+    gl.setCapStatus(GL_STENCIL_TEST, STENCIL);
+    gl.blend(BLEND);
     gl.blendFunc(static_cast<GLenum>(src), static_cast<GLenum>(dst));
     // Hyprland's cache tracks only the RGB pair; restore separate alpha factors underneath it.
     if (srcAlpha != src || dstAlpha != dst) {
@@ -218,22 +218,22 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
             static_cast<GLenum>(dstAlpha));
     }
     gl.setViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
-    return ready ? layer : nullptr;
+    return READY ? LAYER : nullptr;
 }
 
 CBubblePassElement::CBubblePassElement(SData data) : m_data(std::move(data)) {
 }
 std::vector<UP<IPassElement>> CBubblePassElement::draw(Render::CRenderContext &ctx) {
-    const auto layer =
+    const auto LAYER =
         m_data.renderer ? m_data.renderer->render(ctx, m_data.draw) : SP<Render::IFramebuffer>{};
     Render::GL::CHyprOpenGLImpl::STextureRenderData td{};
     td.damage = &m_data.damage;
     td.a = m_data.alpha;
     td.allowCustomUV = true;
     td.allowDim = false;
-    if (layer) {
+    if (LAYER) {
         Render::GL::g_pHyprOpenGL->renderTextureMesh(
-            ctx, layer->getTexture(), m_data.box, paperCanvasQuad(), td);
+            ctx, LAYER->getTexture(), m_data.box, paperCanvasQuad(), td);
     } else {
         // Preserve the native snapshot when the material cannot run. The
         // capture may occupy only a sub-rectangle of a larger texture.
@@ -248,11 +248,11 @@ std::vector<UP<IPassElement>> CBubblePassElement::draw(Render::CRenderContext &c
             static_cast<float>((d.source.x + d.source.w - d.textureOrigin.x) / d.textureSize.x);
         const auto v1 =
             static_cast<float>((d.source.y + d.source.h - d.textureOrigin.y) / d.textureSize.y);
-        const CBox box{m_data.box.x + ((d.source.x - d.outputOrigin.x) * m_data.box.w / d.canvas.x),
+        const CBox BOX{m_data.box.x + ((d.source.x - d.outputOrigin.x) * m_data.box.w / d.canvas.x),
             m_data.box.y + ((d.source.y - d.outputOrigin.y) * m_data.box.h / d.canvas.y),
             d.source.w * m_data.box.w / d.canvas.x,
             d.source.h * m_data.box.h / d.canvas.y};
-        const std::vector<SMeshRenderVertex> quad{
+        const std::vector<SMeshRenderVertex> QUAD{
             {.x = 0.F, .y = 0.F, .u = u0, .v = v0},
             {.x = 0.F, .y = 1.F, .u = u0, .v = v1},
             {.x = 1.F, .y = 0.F, .u = u1, .v = v0},
@@ -260,7 +260,7 @@ std::vector<UP<IPassElement>> CBubblePassElement::draw(Render::CRenderContext &c
             {.x = 0.F, .y = 1.F, .u = u0, .v = v1},
             {.x = 1.F, .y = 1.F, .u = u1, .v = v1},
         };
-        Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, d.window, box, quad, td);
+        Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, d.window, BOX, QUAD, td);
     }
     return {};
 }

@@ -63,11 +63,11 @@ namespace hyprimate {
             .rightInverseWidthPerNm = 0.0725};
 
         double matchingLobe(double wavelengthNm, const MatchingLobe &lobe) {
-            const double inverseWidth = wavelengthNm < lobe.centreNm ? lobe.leftInverseWidthPerNm
-                                                                     : lobe.rightInverseWidthPerNm;
-            const double normalizedOffset = (wavelengthNm - lobe.centreNm) * inverseWidth;
+            const double INVERSE_WIDTH = wavelengthNm < lobe.centreNm ? lobe.leftInverseWidthPerNm
+                                                                      : lobe.rightInverseWidthPerNm;
+            const double NORMALIZED_OFFSET = (wavelengthNm - lobe.centreNm) * INVERSE_WIDTH;
             // Unit Gaussian exp(-x^2 / 2), scaled by the fitted amplitude.
-            return lobe.amplitude * std::exp(-0.5 * normalizedOffset * normalizedOffset);
+            return lobe.amplitude * std::exp(-0.5 * NORMALIZED_OFFSET * NORMALIZED_OFFSET);
         }
 
         Colour colourMatching(double wavelengthNm) {
@@ -104,8 +104,8 @@ namespace hyprimate {
 
     BubbleThinFilmTable bubbleThinFilmTable(
         int thicknessSamples, int cosineSamples, double maxThickness) {
-        constexpr int kMinimumGridSamples = 2;  // Both endpoints must be represented.
-        if (thicknessSamples < kMinimumGridSamples || cosineSamples < kMinimumGridSamples ||
+        constexpr int K_MINIMUM_GRID_SAMPLES = 2;  // Both endpoints must be represented.
+        if (thicknessSamples < K_MINIMUM_GRID_SAMPLES || cosineSamples < K_MINIMUM_GRID_SAMPLES ||
             !std::isfinite(maxThickness) || maxThickness <= 0) {
             return {};
         }
@@ -124,50 +124,55 @@ namespace hyprimate {
             }
         }
         // Normalize each channel against a perfect reflector under an equal-energy spectrum.
-        const auto perfectMirrorRgb = linearSrgb(equalEnergyWhiteXyz);
+        const auto PERFECT_MIRROR_RGB = linearSrgb(equalEnergyWhiteXyz);
         for (int y = 0; y < cosineSamples; ++y) {
-            const double incidenceCosine = static_cast<double>(y) / (cosineSamples - 1);
+            const double INCIDENCE_COSINE = static_cast<double>(y) / (cosineSamples - 1);
             // Snell's law, with air's refractive index treated as one.
-            const double transmissionCosine =
-                std::sqrt(1.0 - ((1.0 - (incidenceCosine * incidenceCosine)) /
+            const double TRANSMISSION_COSINE =
+                std::sqrt(1.0 - ((1.0 - (INCIDENCE_COSINE * INCIDENCE_COSINE)) /
                                     (kFilmRefractiveIndex * kFilmRefractiveIndex)));
-            const double sReflectionAmplitude =
-                (incidenceCosine - (kFilmRefractiveIndex * transmissionCosine)) /
-                (incidenceCosine + (kFilmRefractiveIndex * transmissionCosine));
-            const double pReflectionAmplitude =
-                ((kFilmRefractiveIndex * incidenceCosine) - transmissionCosine) /
-                ((kFilmRefractiveIndex * incidenceCosine) + transmissionCosine);
+            const double S_REFLECTION_AMPLITUDE =
+                (INCIDENCE_COSINE - (kFilmRefractiveIndex * TRANSMISSION_COSINE)) /
+                (INCIDENCE_COSINE + (kFilmRefractiveIndex * TRANSMISSION_COSINE));
+            const double P_REFLECTION_AMPLITUDE =
+                ((kFilmRefractiveIndex * INCIDENCE_COSINE) - TRANSMISSION_COSINE) /
+                ((kFilmRefractiveIndex * INCIDENCE_COSINE) + TRANSMISSION_COSINE);
             // The zero-thickness column remains zero: the two interfaces cancel exactly.
             for (int x = 1; x < thicknessSamples; ++x) {
-                const double thicknessNm = maxThickness * x / (thicknessSamples - 1);
+                const double THICKNESS_NM = maxThickness * x / (thicknessSamples - 1);
                 Colour reflectedXyz{};
                 for (int i = 0; i < kWavelengthSamples; ++i) {
-                    const double roundTripPhase = kRoundTripPhaseFactor * kFilmRefractiveIndex *
-                                                  thicknessNm * transmissionCosine /
-                                                  wavelengthNm(i);
-                    const double halfPhaseSine = std::sin(roundTripPhase * 0.5);
+                    const double ROUND_TRIP_PHASE = kRoundTripPhaseFactor * kFilmRefractiveIndex *
+                                                    THICKNESS_NM * TRANSMISSION_COSINE /
+                                                    wavelengthNm(i);
+                    const double HALF_PHASE_SINE = std::sin(ROUND_TRIP_PHASE * 0.5);
                     // Airy interference terms for each polarization of an air/film/air layer.
-                    const double sInterference = 4 * sReflectionAmplitude * sReflectionAmplitude *
-                                                 halfPhaseSine * halfPhaseSine;
-                    const double pInterference = 4 * pReflectionAmplitude * pReflectionAmplitude *
-                                                 halfPhaseSine * halfPhaseSine;
-                    const double sTransmission = 1 - (sReflectionAmplitude * sReflectionAmplitude);
-                    const double pTransmission = 1 - (pReflectionAmplitude * pReflectionAmplitude);
-                    const double reflectance =
+                    const double S_INTERFERENCE = 4 * S_REFLECTION_AMPLITUDE *
+                                                  S_REFLECTION_AMPLITUDE * HALF_PHASE_SINE *
+                                                  HALF_PHASE_SINE;
+                    const double P_INTERFERENCE = 4 * P_REFLECTION_AMPLITUDE *
+                                                  P_REFLECTION_AMPLITUDE * HALF_PHASE_SINE *
+                                                  HALF_PHASE_SINE;
+                    const double S_TRANSMISSION =
+                        1 - (S_REFLECTION_AMPLITUDE * S_REFLECTION_AMPLITUDE);
+                    const double P_TRANSMISSION =
+                        1 - (P_REFLECTION_AMPLITUDE * P_REFLECTION_AMPLITUDE);
+                    const double REFLECTANCE =
                         kUnpolarizedWeight *
-                        ((sInterference / ((sTransmission * sTransmission) + sInterference)) +
-                            (pInterference / ((pTransmission * pTransmission) + pInterference)));
+                        ((S_INTERFERENCE / ((S_TRANSMISSION * S_TRANSMISSION) + S_INTERFERENCE)) +
+                            (P_INTERFERENCE /
+                                ((P_TRANSMISSION * P_TRANSMISSION) + P_INTERFERENCE)));
                     for (int channel = 0; channel < kColourChannels; ++channel) {
-                        reflectedXyz[channel] += matchingByWavelength[i][channel] * reflectance;
+                        reflectedXyz[channel] += matchingByWavelength[i][channel] * REFLECTANCE;
                     }
                 }
-                const auto reflectedRgb = linearSrgb(reflectedXyz);
+                const auto REFLECTED_RGB = linearSrgb(reflectedXyz);
                 for (int channel = 0; channel < kColourChannels; ++channel) {
                     table.rgb[(kColourChannels *
                                   ((static_cast<std::size_t>(y) * thicknessSamples) + x)) +
                               channel] =
                         static_cast<float>(std::clamp(
-                            reflectedRgb[channel] / perfectMirrorRgb[channel], 0.0, 1.0));
+                            REFLECTED_RGB[channel] / PERFECT_MIRROR_RGB[channel], 0.0, 1.0));
                 }
             }
         }

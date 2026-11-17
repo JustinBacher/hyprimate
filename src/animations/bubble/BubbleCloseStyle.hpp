@@ -70,17 +70,17 @@ namespace close_style {
         return false;
     }
     inline void fill(const SBubbleStyle &style, Record &record) {
-        const auto bounds = style.bubble.bounds(record.captureLogical);
-        if (bounds.w <= 0.0 || bounds.h <= 0.0) {
+        const auto BOUNDS = style.bubble.bounds(record.captureLogical);
+        if (BOUNDS.w <= 0.0 || BOUNDS.h <= 0.0) {
             record.extentsDevice = CBox{};
             return;
         }
         const double sx = record.sourceDevice.w / record.captureLogical.x;
         const double sy = record.sourceDevice.h / record.captureLogical.y;
-        record.extentsDevice = CBox{record.sourceDevice.x + (bounds.x * sx),
-            record.sourceDevice.y + (bounds.y * sy),
-            bounds.w * sx,
-            bounds.h * sy}
+        record.extentsDevice = CBox{record.sourceDevice.x + (BOUNDS.x * sx),
+            record.sourceDevice.y + (BOUNDS.y * sy),
+            BOUNDS.w * sx,
+            BOUNDS.h * sy}
                                    .expand(2.0);
         const double x = std::floor(record.extentsDevice.x);
         const double y = std::floor(record.extentsDevice.y);
@@ -113,9 +113,9 @@ namespace close_style {
             .outputOrigin = {.x = record.extentsDevice.x, .y = record.extentsDevice.y},
         };
         if (!ctx.readOnlyEffects() && !ctx.m_renderingCapture && !ctx.m_renderingSnapshot) {
-            const auto source = project(record.sourceDevice, record.renderBox, record.snapshotSize)
+            const auto SOURCE = project(record.sourceDevice, record.renderBox, record.snapshotSize)
                                     .scale(1.0 / record.scale);
-            depositBubbleImpacts(style, data.draw.frame, monitor, source.middle());
+            depositBubbleImpacts(style, data.draw.frame, monitor, SOURCE.middle());
         }
         data.box = project(record.extentsDevice, record.renderBox, record.snapshotSize);
         data.alpha = record.sourceAlpha;

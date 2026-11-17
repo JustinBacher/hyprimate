@@ -84,23 +84,23 @@ inline void depositBubbleImpacts(SBubbleStyle &state,
     if (!state.residue || !monitor) {
         return;
     }
-    const auto deposit = [&](const hyprimate::BubbleSurface &surface, bool &done) {
+    const auto DEPOSIT = [&](const hyprimate::BubbleSurface &surface, bool &done) {
         if (done) {
             return;
         }
-        const auto holes =
+        const auto HOLES =
             std::span(surface.holes).first(std::min(surface.holeCount, surface.holes.size()));
         if (std::ranges::none_of(
-                holes, [](const hyprimate::BubbleHole &hole) { return hole.radius > 0; })) {
+                HOLES, [](const hyprimate::BubbleHole &hole) { return hole.radius > 0; })) {
             return;
         }
         std::array<hyprimate::BubbleImpact, hyprimate::kBubbleMaxImpacts> found{};
-        const auto count = hyprimate::bubbleImpacts(surface, found);
+        const auto COUNT = hyprimate::bubbleImpacts(surface, found);
         // A disabled residue declines the beads; they are not retried later.
         state.residue->deposit(
-            monitor, centre, std::span(found).first(count), state.impacts.clock());
+            monitor, centre, std::span(found).first(COUNT), state.impacts.clock());
         done = true;
     };
-    deposit(frame.shell, state.shellImpactsDeposited);
-    deposit(frame.window, state.windowImpactsDeposited);
+    DEPOSIT(frame.shell, state.shellImpactsDeposited);
+    DEPOSIT(frame.window, state.windowImpactsDeposited);
 }

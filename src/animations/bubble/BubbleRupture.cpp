@@ -35,9 +35,9 @@ namespace hyprimate {
             e2 = cross(c, e1);
         }
         double radiusAt(const BubbleSurface &s, const BubbleHole &h, double clock) {
-            const double age = std::max(0.0, clock - h.start);
-            const double transient = s.spherical ? .05 : .075;
-            return s.speed * (age - (transient * (1 - std::exp(-age / transient))));
+            const double AGE = std::max(0.0, clock - h.start);
+            const double TRANSIENT = s.spherical ? .05 : .075;
+            return s.speed * (AGE - (TRANSIENT * (1 - std::exp(-AGE / TRANSIENT))));
         }
     }  // namespace
 
@@ -95,7 +95,7 @@ namespace hyprimate {
             entry.time = 0;
             entry.mergeCount = 0;
             entry.valid = true;
-            const auto candidate = [&](Vec3 p) {
+            const auto CANDIDATE = [&](Vec3 p) {
                 double first = 1;
                 for (std::size_t i = 0; i < n; ++i) {
                     const auto &h = s.holes[i];
@@ -110,16 +110,16 @@ namespace hyprimate {
                 }
             };
             if (s.spherical) {
-                for (const Vec3 axis : {Vec3{.x = 1, .y = 0, .z = 0},
+                for (const Vec3 AXIS : {Vec3{.x = 1, .y = 0, .z = 0},
                          Vec3{.x = -1, .y = 0, .z = 0},
                          Vec3{.x = 0, .y = 1, .z = 0},
                          Vec3{.x = 0, .y = -1, .z = 0},
                          Vec3{.x = 0, .y = 0, .z = 1},
                          Vec3{.x = 0, .y = 0, .z = -1}}) {
-                    candidate(axis);
+                    CANDIDATE(AXIS);
                 }
                 for (std::size_t i = 0; i < n; ++i) {
-                    candidate({.x = -s.holes[i].centre.x,
+                    CANDIDATE({.x = -s.holes[i].centre.x,
                         .y = -s.holes[i].centre.y,
                         .z = -s.holes[i].centre.z});
                 }
@@ -129,7 +129,7 @@ namespace hyprimate {
             } else {
                 for (int x = -1; x <= 1; ++x) {
                     for (int y = -1; y <= 1; ++y) {
-                        candidate({.x = x * s.halfSize.x, .y = y * s.halfSize.y, .z = 0});
+                        CANDIDATE({.x = x * s.halfSize.x, .y = y * s.halfSize.y, .z = 0});
                     }
                 }
             }
@@ -137,32 +137,32 @@ namespace hyprimate {
                 for (std::size_t j = i + 1; j < n; ++j) {
                     const auto &a = s.holes[i];
                     const auto &b = s.holes[j];
-                    const double distance =
+                    const double DISTANCE =
                         s.spherical ? std::acos(std::clamp(dot(a.centre, b.centre), -1.0, 1.0))
                                     : std::hypot(b.centre.x - a.centre.x, b.centre.y - a.centre.y);
                     double lo = std::max(a.start, b.start);
                     double hi = 1;
-                    if (radiusAt(s, a, lo) >= distance ||
-                        radiusAt(s, a, hi) + radiusAt(s, b, hi) < distance) {
+                    if (radiusAt(s, a, lo) >= DISTANCE ||
+                        radiusAt(s, a, hi) + radiusAt(s, b, hi) < DISTANCE) {
                         continue;
                     }
                     for (int k = 0; k < 9; ++k) {
-                        const double mid = (lo + hi) * .5;
-                        if (radiusAt(s, a, mid) + radiusAt(s, b, mid) < distance) {
-                            lo = mid;
+                        const double MID = (lo + hi) * .5;
+                        if (radiusAt(s, a, MID) + radiusAt(s, b, MID) < DISTANCE) {
+                            lo = MID;
                         } else {
-                            hi = mid;
+                            hi = MID;
                         }
                     }
-                    const double weight = distance > 0 ? radiusAt(s, a, hi) / distance : 0;
-                    Vec3 origin{.x = (a.centre.x * (1 - weight)) + (b.centre.x * weight),
-                        .y = (a.centre.y * (1 - weight)) + (b.centre.y * weight),
-                        .z = (a.centre.z * (1 - weight)) + (b.centre.z * weight)};
+                    const double WEIGHT = DISTANCE > 0 ? radiusAt(s, a, hi) / DISTANCE : 0;
+                    Vec3 origin{.x = (a.centre.x * (1 - WEIGHT)) + (b.centre.x * WEIGHT),
+                        .y = (a.centre.y * (1 - WEIGHT)) + (b.centre.y * WEIGHT),
+                        .z = (a.centre.z * (1 - WEIGHT)) + (b.centre.z * WEIGHT)};
                     if (s.spherical) {
-                        const double denom = std::sin(distance);
-                        if (std::abs(denom) > 1e-8) {
-                            const double wa = std::sin((1 - weight) * distance) / denom;
-                            const double wb = std::sin(weight * distance) / denom;
+                        const double DENOM = std::sin(DISTANCE);
+                        if (std::abs(DENOM) > 1e-8) {
+                            const double wa = std::sin((1 - WEIGHT) * DISTANCE) / DENOM;
+                            const double wb = std::sin(WEIGHT * DISTANCE) / DENOM;
                             origin = {.x = (a.centre.x * wa) + (b.centre.x * wb),
                                 .y = (a.centre.y * wa) + (b.centre.y * wb),
                                 .z = (a.centre.z * wa) + (b.centre.z * wb)};
@@ -180,9 +180,9 @@ namespace hyprimate {
                         }
                         BubbleHole other = s.holes[k];
                         other.radius = radiusAt(s, other, hi);
-                        const double onset = smoothstep(.012, .045, hi - other.start);
+                        const double ONSET = smoothstep(.012, .045, hi - other.start);
                         for (std::size_t m = 0; m < other.amplitude.size(); ++m) {
-                            other.amplitude[m] = onset * (.014 - (.002 * m));
+                            other.amplitude[m] = ONSET * (.014 - (.002 * m));
                         }
                         const double d =
                             s.spherical
@@ -232,12 +232,12 @@ namespace hyprimate {
             Vec3 e1;
             Vec3 e2;
             basis(h.centre, e1, e2);
-            const Vec3 dir{.x = (e1.x * std::cos(phi)) + (e2.x * std::sin(phi)),
+            const Vec3 DIR{.x = (e1.x * std::cos(phi)) + (e2.x * std::sin(phi)),
                 .y = (e1.y * std::cos(phi)) + (e2.y * std::sin(phi)),
                 .z = (e1.z * std::cos(phi)) + (e2.z * std::sin(phi))};
-            return {.x = (h.centre.x * std::cos(d)) + (dir.x * std::sin(d)),
-                .y = (h.centre.y * std::cos(d)) + (dir.y * std::sin(d)),
-                .z = (h.centre.z * std::cos(d)) + (dir.z * std::sin(d))};
+            return {.x = (h.centre.x * std::cos(d)) + (DIR.x * std::sin(d)),
+                .y = (h.centre.y * std::cos(d)) + (DIR.y * std::sin(d)),
+                .z = (h.centre.z * std::cos(d)) + (DIR.z * std::sin(d))};
         }
         Vec3 rotate(Vec3 v, Vec3 axis, double angle) {
             const double c = std::cos(angle);
@@ -259,11 +259,11 @@ namespace hyprimate {
         if (r <= 0) {
             return false;
         }
-        const double phi = bubbleHoleAzimuth(h, material, s.spherical);
-        const double b = bubbleHoleBoundary(h, phi);
+        const double PHI = bubbleHoleAzimuth(h, material, s.spherical);
+        const double b = bubbleHoleBoundary(h, PHI);
         const double d = s.spherical ? std::acos(std::clamp(dot(material, h.centre), -1.0, 1.0))
                                      : std::hypot(material.x - h.centre.x, material.y - h.centre.y);
-        const double w = bubbleCurlSection(s, h, b * (s.spherical ? r : 1), phi).width;
+        const double w = bubbleCurlSection(s, h, b * (s.spherical ? r : 1), PHI).width;
         if (w <= 0) {
             return false;
         }
@@ -271,29 +271,30 @@ namespace hyprimate {
         if (u < 0 || u > 1) {
             return false;
         }
-        const double limit = sheet.halfAngle * (.82 + (.14 * std::sin(pi * u)) +
+        const double LIMIT = sheet.halfAngle * (.82 + (.14 * std::sin(pi * u)) +
                                                    (.04 * std::sin((3 * pi * u) + h.phase[0])));
-        if (std::abs(std::remainder(phi - sheet.phi, 2 * pi)) > limit) {
+        if (std::abs(std::remainder(PHI - sheet.phi, 2 * pi)) > LIMIT) {
             return false;
         }
-        const double ownRank = 1 - u;
+        const double OWN_RANK = 1 - u;
         for (std::size_t i = 0; i < std::min(s.holeCount, kBubbleHoles); ++i) {
             if (i == sheet.hole || sheet.radii[i] <= 0) {
                 continue;
             }
-            const auto other = sheetHole(s, sheet, i);
-            const double otherPhi = bubbleHoleAzimuth(other, material, s.spherical);
-            const double boundary = bubbleHoleBoundary(other, otherPhi);
-            const double distance =
-                s.spherical ? std::acos(std::clamp(dot(material, other.centre), -1.0, 1.0))
-                            : std::hypot(material.x - other.centre.x, material.y - other.centre.y);
-            const double width =
-                bubbleCurlSection(s, other, boundary * (s.spherical ? r : 1), otherPhi).width;
-            if (width <= 0) {
+            const auto OTHER = sheetHole(s, sheet, i);
+            const double OTHER_PHI = bubbleHoleAzimuth(OTHER, material, s.spherical);
+            const double BOUNDARY = bubbleHoleBoundary(OTHER, OTHER_PHI);
+            const double DISTANCE =
+                s.spherical ? std::acos(std::clamp(dot(material, OTHER.centre), -1.0, 1.0))
+                            : std::hypot(material.x - OTHER.centre.x, material.y - OTHER.centre.y);
+            const double WIDTH =
+                bubbleCurlSection(s, OTHER, BOUNDARY * (s.spherical ? r : 1), OTHER_PHI).width;
+            if (WIDTH <= 0) {
                 continue;
             }
-            const double rank = (distance - boundary) * (s.spherical ? r : 1) / width;
-            if (rank >= 0 && rank <= 1 && (rank < ownRank || (rank == ownRank && i < sheet.hole))) {
+            const double RANK = (DISTANCE - BOUNDARY) * (s.spherical ? r : 1) / WIDTH;
+            if (RANK >= 0 && RANK <= 1 &&
+                (RANK < OWN_RANK || (RANK == OWN_RANK && i < sheet.hole))) {
                 return false;
             }
         }
@@ -326,8 +327,8 @@ namespace hyprimate {
             double birth;
             std::size_t source, other;
         };
-        const auto candidateFor = [&](const BurstEvent &event) {
-            const Vec3 point = s.spherical ? normalize(event.position) : event.position;
+        const auto CANDIDATE_FOR = [&](const BurstEvent &event) {
+            const Vec3 POINT = s.spherical ? normalize(event.position) : event.position;
             std::size_t source = 0;
             std::size_t other = n;
             if (event.id != 1200) {
@@ -338,71 +339,71 @@ namespace hyprimate {
                 for (std::size_t i = 0; i < n; ++i) {
                     const double d =
                         s.spherical
-                            ? std::acos(std::clamp(dot(point, s.holes[i].centre), -1.0, 1.0))
+                            ? std::acos(std::clamp(dot(POINT, s.holes[i].centre), -1.0, 1.0))
                             : std::hypot(
-                                  point.x - s.holes[i].centre.x, point.y - s.holes[i].centre.y);
-                    const double arrival = s.holes[i].start + (d / s.speed);
-                    if (arrival < first) {
-                        first = arrival;
+                                  POINT.x - s.holes[i].centre.x, POINT.y - s.holes[i].centre.y);
+                    const double ARRIVAL = s.holes[i].start + (d / s.speed);
+                    if (ARRIVAL < first) {
+                        first = ARRIVAL;
                         source = i;
                     }
                 }
             }
-            const auto widthAt = [&](std::size_t i) {
+            const auto WIDTH_AT = [&](std::size_t i) {
                 BubbleHole h = s.holes[i];
                 h.radius = radiusAt(s, h, event.time);
-                const double onset = smoothstep(.012, .045, event.time - h.start);
+                const double ONSET = smoothstep(.012, .045, event.time - h.start);
                 for (std::size_t m = 0; m < h.amplitude.size(); ++m) {
-                    h.amplitude[m] = onset * (.014 - (.002 * m));
+                    h.amplitude[m] = ONSET * (.014 - (.002 * m));
                 }
-                const double phi = bubbleHoleAzimuth(h, point, s.spherical);
+                const double PHI = bubbleHoleAzimuth(h, POINT, s.spherical);
                 return bubbleCurlSection(
-                    s, h, bubbleHoleBoundary(h, phi) * (s.spherical ? r : 1), phi)
+                    s, h, bubbleHoleBoundary(h, PHI) * (s.spherical ? r : 1), PHI)
                     .width;
             };
-            double width = widthAt(source);
+            double width = WIDTH_AT(source);
             if (other < n) {
-                width = .5 * (width + widthAt(other));
+                width = .5 * (width + WIDTH_AT(other));
             }
-            const double birth = std::max(s.holes[source].start,
+            const double BIRTH = std::max(s.holes[source].start,
                 event.time - (.55 * width / (s.speed * (s.spherical ? r : 1))));
-            return Candidate{.event = &event, .birth = birth, .source = source, .other = other};
+            return Candidate{.event = &event, .birth = BIRTH, .source = source, .other = other};
         };
         std::array<Candidate, kBubbleMaxSheets> candidates{};
         std::size_t total = 0;
-        const auto insert = [&](const BurstEvent &event) {
-            const auto candidate = candidateFor(event);
+        const auto INSERT = [&](const BurstEvent &event) {
+            const auto CANDIDATE = CANDIDATE_FOR(event);
             std::size_t i = total++;
-            while (i > 0 && (candidates[i - 1].birth > candidate.birth ||
-                                (candidates[i - 1].birth == candidate.birth &&
-                                    candidates[i - 1].event->id > candidate.event->id))) {
+            while (i > 0 && (candidates[i - 1].birth > CANDIDATE.birth ||
+                                (candidates[i - 1].birth == CANDIDATE.birth &&
+                                    candidates[i - 1].event->id > CANDIDATE.event->id))) {
                 candidates[i] = candidates[i - 1];
                 --i;
             }
-            candidates[i] = candidate;
+            candidates[i] = CANDIDATE;
         };
         for (std::size_t i = 0; i < std::min(events.mergeCount, events.merges.size()); ++i) {
-            insert(events.merges[i]);
+            INSERT(events.merges[i]);
         }
-        const BurstEvent final{.position = events.position, .time = events.time, .id = 1200};
-        insert(final);
-        const auto sheets = out.first(std::min(out.size(), kBubbleMaxSheets));
+        const BurstEvent FINAL{.position = events.position, .time = events.time, .id = 1200};
+        INSERT(FINAL);
+        const auto SHEETS = out.first(std::min(out.size(), kBubbleMaxSheets));
         std::size_t count = 0;
         // Try the other side of a neck only if the first owns no visible material.
-        for (std::size_t attempt = 0; attempt < total * 2 && count < sheets.size(); ++attempt) {
+        for (std::size_t attempt = 0; attempt < total * 2 && count < SHEETS.size(); ++attempt) {
             const auto &candidate = candidates[attempt / 2];
             const auto &event = *candidate.event;
-            const bool alternate = attempt % 2 != 0;
-            if (alternate &&
-                (event.id == 1200 || (count > 0 && sheets[count - 1].id == event.id))) {
+            const bool ALTERNATE = attempt % 2 != 0;
+            if (ALTERNATE &&
+                (event.id == 1200 || (count > 0 && SHEETS[count - 1].id == event.id))) {
                 continue;
             }
-            const Vec3 point = s.spherical ? normalize(event.position) : event.position;
-            const std::size_t source = alternate ? candidate.other : candidate.source;
-            double phi = bubbleHoleAzimuth(s.holes[source], point, s.spherical);
+            const Vec3 POINT = s.spherical ? normalize(event.position) : event.position;
+            const std::size_t SOURCE = ALTERNATE ? candidate.other : candidate.source;
+            double phi = bubbleHoleAzimuth(s.holes[SOURCE], POINT, s.spherical);
             BubbleSheet sheet;
             sheet.id = event.id;
-            sheet.hole = source;
+            sheet.hole = SOURCE;
             sheet.birth = candidate.birth;
             if (sheet.birth > s.clock || sheet.birth >= 1) {
                 continue;
@@ -412,7 +413,7 @@ namespace hyprimate {
                 sheet.radii[i] = radiusAt(s, s.holes[i], sheet.birth);
                 sheet.onsets[i] = smoothstep(.012, .045, sheet.birth - s.holes[i].start);
             }
-            const auto h = sheetHole(s, sheet, source);
+            const auto h = sheetHole(s, sheet, SOURCE);
             const double b = bubbleHoleBoundary(h, phi);
             const double w = bubbleCurlSection(s, h, b * (s.spherical ? r : 1), phi).width;
             if (w <= 0 || (s.spherical && b >= pi)) {
@@ -423,39 +424,39 @@ namespace hyprimate {
                     std::max((b * (s.spherical ? r : 1)) + (.5 * w), 1.0));
             bool available = false;
             // Centre the piece on surviving material, not on an occluded sliver's empty pivot.
-            for (const double offset : {0.0, -1.0 / 3, 1.0 / 3, -2.0 / 3, 2.0 / 3}) {
-                const double trialPhi = phi + (sheet.halfAngle * offset);
-                const Vec3 p = sheetMaterial(s, h, trialPhi, .5);
+            for (const double OFFSET : {0.0, -1.0 / 3, 1.0 / 3, -2.0 / 3, 2.0 / 3}) {
+                const double TRIAL_PHI = phi + (sheet.halfAngle * OFFSET);
+                const Vec3 p = sheetMaterial(s, h, TRIAL_PHI, .5);
                 if (!s.spherical) {
-                    const double corner = std::clamp(s.corner, 0.0, r);
-                    const double x = std::max(std::abs(p.x) - (s.halfSize.x - corner), 0.0);
-                    const double y = std::max(std::abs(p.y) - (s.halfSize.y - corner), 0.0);
+                    const double CORNER = std::clamp(s.corner, 0.0, r);
+                    const double x = std::max(std::abs(p.x) - (s.halfSize.x - CORNER), 0.0);
+                    const double y = std::max(std::abs(p.y) - (s.halfSize.y - CORNER), 0.0);
                     if (std::abs(p.x) > s.halfSize.x || std::abs(p.y) > s.halfSize.y ||
-                        (x * x) + (y * y) > corner * corner) {
+                        (x * x) + (y * y) > CORNER * CORNER) {
                         continue;
                     }
                 }
                 bool valid = bubbleSheetContains(s, sheet, p);
                 for (std::size_t i = 0; i < n && valid; ++i) {
-                    if (i == source || sheet.radii[i] <= 0) {
+                    if (i == SOURCE || sheet.radii[i] <= 0) {
                         continue;
                     }
-                    const auto prior = sheetHole(s, sheet, i);
-                    const double distance =
-                        s.spherical ? std::acos(std::clamp(dot(p, prior.centre), -1.0, 1.0))
-                                    : std::hypot(p.x - prior.centre.x, p.y - prior.centre.y);
-                    const double priorPhi = bubbleHoleAzimuth(prior, p, s.spherical);
-                    if (distance < bubbleHoleBoundary(prior, priorPhi)) {
+                    const auto PRIOR = sheetHole(s, sheet, i);
+                    const double DISTANCE =
+                        s.spherical ? std::acos(std::clamp(dot(p, PRIOR.centre), -1.0, 1.0))
+                                    : std::hypot(p.x - PRIOR.centre.x, p.y - PRIOR.centre.y);
+                    const double PRIOR_PHI = bubbleHoleAzimuth(PRIOR, p, s.spherical);
+                    if (DISTANCE < bubbleHoleBoundary(PRIOR, PRIOR_PHI)) {
                         valid = false;
                     }
                 }
                 for (std::size_t i = 0; i < count && valid; ++i) {
-                    if (sheets[i].birth <= sheet.birth && bubbleSheetContains(s, sheets[i], p)) {
+                    if (SHEETS[i].birth <= sheet.birth && bubbleSheetContains(s, SHEETS[i], p)) {
                         valid = false;
                     }
                 }
                 if (valid) {
-                    phi = sheet.phi = trialPhi;
+                    phi = sheet.phi = TRIAL_PHI;
                     available = true;
                     break;
                 }
@@ -464,25 +465,25 @@ namespace hyprimate {
                 continue;
             }
             sheet.pivot = bubblePeelSample(s, h, phi, .5).position;
-            const Vec3 before = bubblePeelSample(s, h, phi - .001, .5).position;
-            const Vec3 after = bubblePeelSample(s, h, phi + .001, .5).position;
+            const Vec3 BEFORE = bubblePeelSample(s, h, phi - .001, .5).position;
+            const Vec3 AFTER = bubblePeelSample(s, h, phi + .001, .5).position;
             sheet.axis = normalize(
-                {.x = after.x - before.x, .y = after.y - before.y, .z = after.z - before.z});
+                {.x = AFTER.x - BEFORE.x, .y = AFTER.y - BEFORE.y, .z = AFTER.z - BEFORE.z});
             sheet.age = std::max(0.0, (s.clock - sheet.birth) / s.rate);
             sheet.life = std::min(.16, (1 - sheet.birth) / s.rate);
             const double t = sheet.life > 0 ? std::clamp(sheet.age / sheet.life, 0.0, 1.0) : 1;
             sheet.scale = 1 - smoothstep(0, 1, t);
             sheet.rotation = 2.2 * t;
-            const auto root = bubblePeelSample(s, h, phi, 0).position;
-            const Vec3 outward =
-                normalize({.x = root.x - (s.spherical ? h.centre.x * r : h.centre.x),
-                    .y = root.y - (s.spherical ? h.centre.y * r : h.centre.y),
-                    .z = s.spherical ? root.z - (h.centre.z * r) : 0});
-            const double travel = std::min(.16 * r, 80.0) * (1 - std::exp(-sheet.age / .08));
-            sheet.translation = {.x = outward.x * travel,
-                .y = (outward.y * travel) + (.04 * r * t * t),
-                .z = (outward.z * travel) + (.05 * r * t)};
-            sheets[count++] = sheet;
+            const auto ROOT = bubblePeelSample(s, h, phi, 0).position;
+            const Vec3 OUTWARD =
+                normalize({.x = ROOT.x - (s.spherical ? h.centre.x * r : h.centre.x),
+                    .y = ROOT.y - (s.spherical ? h.centre.y * r : h.centre.y),
+                    .z = s.spherical ? ROOT.z - (h.centre.z * r) : 0});
+            const double TRAVEL = std::min(.16 * r, 80.0) * (1 - std::exp(-sheet.age / .08));
+            sheet.translation = {.x = OUTWARD.x * TRAVEL,
+                .y = (OUTWARD.y * TRAVEL) + (.04 * r * t * t),
+                .z = (OUTWARD.z * TRAVEL) + (.05 * r * t)};
+            SHEETS[count++] = sheet;
         }
         return count;
     }
@@ -519,22 +520,22 @@ namespace hyprimate {
         std::size_t count = 0;
         for (std::size_t hi = 0; hi < std::min(s.holeCount, kBubbleHoles); ++hi) {
             const auto &h = s.holes[hi];
-            const double minHalf = std::min(s.halfSize.x, s.halfSize.y);
-            const double threshold =
-                std::max(24.0, .08 * minHalf) / (s.spherical ? s.halfSize.x : 1);
-            if (!impactMode && h.radius < threshold) {
+            const double MIN_HALF = std::min(s.halfSize.x, s.halfSize.y);
+            const double THRESHOLD =
+                std::max(24.0, .08 * MIN_HALF) / (s.spherical ? s.halfSize.x : 1);
+            if (!impactMode && h.radius < THRESHOLD) {
                 continue;
             }
-            const double transient = s.spherical ? .05 : .075;
-            const double unitsPerPixel = s.spherical ? 1 / s.halfSize.x : 1;
+            const double TRANSIENT = s.spherical ? .05 : .075;
+            const double UNITS_PER_PIXEL = s.spherical ? 1 / s.halfSize.x : 1;
             std::uint64_t holeRng = s.debris ^ (hi * 0x9e3779b97f4a7c15ULL) ^ 0x94d049bb133111ebULL;
-            const int fingerCount = 14 + static_cast<int>(13 * unit_draw(holeRng));
+            const int FINGER_COUNT = 14 + static_cast<int>(13 * unit_draw(holeRng));
             Vec3 e1{};
             Vec3 e2{};
             if (s.spherical) {
                 basis(h.centre, e1, e2);
             }
-            for (int finger = 0; finger < fingerCount; ++finger) {
+            for (int finger = 0; finger < FINGER_COUNT; ++finger) {
                 if (impactMode && count >= (s.spherical ? 3U : 2U)) {
                     break;
                 }
@@ -543,94 +544,94 @@ namespace hyprimate {
                 if (unit_draw(rng) < .27) {
                     continue;
                 }
-                const double phi = 2 * pi * (finger + (.9 * (unit_draw(rng) - .5))) / fingerCount;
-                const int order = static_cast<int>(fingerCount * unit_draw(rng));
-                const double siteRadius =
-                    std::max(threshold, (order + 1) * 50 / (2 * pi) * unitsPerPixel);
-                if (!impactMode && h.radius < siteRadius) {
+                const double PHI = 2 * pi * (finger + (.9 * (unit_draw(rng) - .5))) / FINGER_COUNT;
+                const int ORDER = static_cast<int>(FINGER_COUNT * unit_draw(rng));
+                const double SITE_RADIUS =
+                    std::max(THRESHOLD, (ORDER + 1) * 50 / (2 * pi) * UNITS_PER_PIXEL);
+                if (!impactMode && h.radius < SITE_RADIUS) {
                     continue;
                 }
-                const double target = siteRadius / s.speed;
-                double onsetAge = target + transient;
+                const double TARGET = SITE_RADIUS / s.speed;
+                double onsetAge = TARGET + TRANSIENT;
                 for (int i = 0; i < 4; ++i) {
-                    const double expAge = std::exp(-onsetAge / transient);
-                    onsetAge -= (onsetAge - (transient * (1 - expAge)) - target) / (1 - expAge);
+                    const double EXP_AGE = std::exp(-onsetAge / TRANSIENT);
+                    onsetAge -= (onsetAge - (TRANSIENT * (1 - EXP_AGE)) - TARGET) / (1 - EXP_AGE);
                 }
-                const double fingerStart = h.start + onsetAge;
-                const double delay = .08 * s.rate * unit_draw(rng);
-                const double period = (.05 + (.04 * unit_draw(rng))) * s.rate;
-                const double length = 6 + (16 * unit_draw(rng));
-                const double threadRadius = .4 + (.5 * unit_draw(rng));
-                const double tilt = .7 * (unit_draw(rng) - .5);
-                const double cp = std::cos(phi);
-                const double sp = std::sin(phi);
-                const Vec3 direction = s.spherical ? Vec3{.x = (e1.x * cp) + (e2.x * sp),
+                const double FINGER_START = h.start + onsetAge;
+                const double DELAY = .08 * s.rate * unit_draw(rng);
+                const double PERIOD = (.05 + (.04 * unit_draw(rng))) * s.rate;
+                const double LENGTH = 6 + (16 * unit_draw(rng));
+                const double THREAD_RADIUS = .4 + (.5 * unit_draw(rng));
+                const double TILT = .7 * (unit_draw(rng) - .5);
+                const double cp = std::cos(PHI);
+                const double sp = std::sin(PHI);
+                const Vec3 DIRECTION = s.spherical ? Vec3{.x = (e1.x * cp) + (e2.x * sp),
                                                          .y = (e1.y * cp) + (e2.y * sp),
                                                          .z = (e1.z * cp) + (e2.z * sp)}
                                                    : Vec3{.x = cp, .y = sp, .z = 0};
                 double corrugation = 0;
                 double currentCorrugation = 0;
                 for (std::size_t m = 0; m < kBubbleRimModes.size(); ++m) {
-                    const double wave = std::cos((kBubbleRimModes[m] * phi) + h.phase[m]);
-                    corrugation += (.014 - (.002 * m)) * wave;
-                    currentCorrugation += h.amplitude[m] * wave;
+                    const double WAVE = std::cos((kBubbleRimModes[m] * PHI) + h.phase[m]);
+                    corrugation += (.014 - (.002 * m)) * WAVE;
+                    currentCorrugation += h.amplitude[m] * WAVE;
                 }
                 const auto at = [&](double radius) {
                     if (!s.spherical) {
-                        return Vec3{.x = h.centre.x + (direction.x * radius),
-                            .y = h.centre.y + (direction.y * radius),
+                        return Vec3{.x = h.centre.x + (DIRECTION.x * radius),
+                            .y = h.centre.y + (DIRECTION.y * radius),
                             .z = 0};
                     }
                     const double c = std::cos(radius);
                     const double sn = std::sin(radius);
-                    const double scale = s.halfSize.x;
-                    return Vec3{.x = scale * ((h.centre.x * c) + (direction.x * sn)),
-                        .y = scale * ((h.centre.y * c) + (direction.y * sn)),
-                        .z = scale * ((h.centre.z * c) + (direction.z * sn))};
+                    const double SCALE = s.halfSize.x;
+                    return Vec3{.x = SCALE * ((h.centre.x * c) + (DIRECTION.x * sn)),
+                        .y = SCALE * ((h.centre.y * c) + (DIRECTION.y * sn)),
+                        .z = SCALE * ((h.centre.z * c) + (DIRECTION.z * sn))};
                 };
-                const auto edge = [&](double boundary) {
+                const auto EDGE = [&](double boundary) {
                     BubbleHole frozen = h;
                     frozen.radius = boundary;
                     frozen.amplitude = {};
-                    return bubblePeelSample(s, frozen, phi, 1).position;
+                    return bubblePeelSample(s, frozen, PHI, 1).position;
                 };
-                const auto tipAt = [&](double boundary, Vec3 root) {
-                    const Vec3 base = at(boundary);
-                    const Vec3 tip = at(std::max(0.0, boundary - (length * unitsPerPixel)));
-                    const double dx = tip.x - base.x;
-                    const double dy = tip.y - base.y;
-                    return Vec3{.x = root.x + (dx * std::cos(tilt)) - (dy * std::sin(tilt)),
-                        .y = root.y + (dx * std::sin(tilt)) + (dy * std::cos(tilt)),
-                        .z = root.z + tip.z - base.z};
+                const auto TIP_AT = [&](double boundary, Vec3 root) {
+                    const Vec3 BASE = at(boundary);
+                    const Vec3 TIP = at(std::max(0.0, boundary - (LENGTH * UNITS_PER_PIXEL)));
+                    const double dx = TIP.x - BASE.x;
+                    const double dy = TIP.y - BASE.y;
+                    return Vec3{.x = root.x + (dx * std::cos(TILT)) - (dy * std::sin(TILT)),
+                        .y = root.y + (dx * std::sin(TILT)) + (dy * std::cos(TILT)),
+                        .z = root.z + TIP.z - BASE.z};
                 };
-                const double factor = .55 + (.4 * unit_draw(rng));
-                const bool bead = unit_draw(rng) < .13;
-                const double size =
-                    bead ? 2.5 + (1.5 * unit_draw(rng)) : .8 + (1.7 * unit_draw(rng));
-                const double maxLifetime =
-                    (bead ? .18 + (.12 * unit_draw(rng)) : .08 + (.07 * unit_draw(rng))) * s.rate;
-                const int satellites = 1 + static_cast<int>(unit_draw(rng) < .85);
-                const double satelliteScale = .3 + (.2 * unit_draw(rng));
-                const double scatter = .04 + (.08 * unit_draw(rng));
+                const double FACTOR = .55 + (.4 * unit_draw(rng));
+                const bool BEAD = unit_draw(rng) < .13;
+                const double SIZE =
+                    BEAD ? 2.5 + (1.5 * unit_draw(rng)) : .8 + (1.7 * unit_draw(rng));
+                const double MAX_LIFETIME =
+                    (BEAD ? .18 + (.12 * unit_draw(rng)) : .08 + (.07 * unit_draw(rng))) * s.rate;
+                const int SATELLITES = 1 + static_cast<int>(unit_draw(rng) < .85);
+                const double SATELLITE_SCALE = .3 + (.2 * unit_draw(rng));
+                const double SCATTER = .04 + (.08 * unit_draw(rng));
                 for (int drop = 0; drop < 4; ++drop) {
-                    const double firstDelay = std::max(delay, period * .35);
-                    const double forming = std::min(period * .65, firstDelay + (drop * period));
-                    const double birth = fingerStart + firstDelay + (drop * period);
-                    const double lifetime = std::min(maxLifetime, .995 - birth);
-                    if (lifetime <= 0) {
+                    const double FIRST_DELAY = std::max(DELAY, PERIOD * .35);
+                    const double FORMING = std::min(PERIOD * .65, FIRST_DELAY + (drop * PERIOD));
+                    const double BIRTH = FINGER_START + FIRST_DELAY + (drop * PERIOD);
+                    const double LIFETIME = std::min(MAX_LIFETIME, .995 - BIRTH);
+                    if (LIFETIME <= 0) {
                         continue;
                     }
-                    const double age = s.clock - birth;
-                    if (!impactMode && age >= -forming && age < 0 && h.radius > 0) {
-                        const double currentRadius = h.radius * (1 + currentCorrugation);
-                        const Vec3 root = at(currentRadius);
-                        bool onFilm = s.spherical ? currentRadius < pi
-                                                  : std::abs(root.x) <= s.halfSize.x &&
-                                                        std::abs(root.y) <= s.halfSize.y;
-                        const Vec3 position = s.spherical ? Vec3{.x = root.x / s.halfSize.x,
-                                                                .y = root.y / s.halfSize.x,
-                                                                .z = root.z / s.halfSize.x}
-                                                          : root;
+                    const double AGE = s.clock - BIRTH;
+                    if (!impactMode && AGE >= -FORMING && AGE < 0 && h.radius > 0) {
+                        const double CURRENT_RADIUS = h.radius * (1 + currentCorrugation);
+                        const Vec3 ROOT = at(CURRENT_RADIUS);
+                        bool onFilm = s.spherical ? CURRENT_RADIUS < pi
+                                                  : std::abs(ROOT.x) <= s.halfSize.x &&
+                                                        std::abs(ROOT.y) <= s.halfSize.y;
+                        const Vec3 POSITION = s.spherical ? Vec3{.x = ROOT.x / s.halfSize.x,
+                                                                .y = ROOT.y / s.halfSize.x,
+                                                                .z = ROOT.z / s.halfSize.x}
+                                                          : ROOT;
                         for (std::size_t other = 0;
                             onFilm && other < std::min(s.holeCount, kBubbleHoles);
                             ++other) {
@@ -639,47 +640,47 @@ namespace hyprimate {
                             }
                             const auto &prior = s.holes[other];
                             if (s.spherical) {
-                                const double alignment = dot(position, prior.centre);
+                                const double ALIGNMENT = dot(POSITION, prior.centre);
                                 if (prior.radius * .94 >= pi ||
                                     (prior.radius * .94 < pi &&
-                                        alignment > std::cos(prior.radius * .94))) {
+                                        ALIGNMENT > std::cos(prior.radius * .94))) {
                                     onFilm = false;
                                 } else if ((prior.radius * 1.06 >= pi ||
-                                               alignment > std::cos(prior.radius * 1.06)) &&
-                                           alignment > std::cos(std::min(pi,
+                                               ALIGNMENT > std::cos(prior.radius * 1.06)) &&
+                                           ALIGNMENT > std::cos(std::min(pi,
                                                            bubbleHoleBoundary(prior,
                                                                bubbleHoleAzimuth(
-                                                                   prior, position, true))))) {
+                                                                   prior, POSITION, true))))) {
                                     onFilm = false;
                                 }
                             } else {
-                                const double dx = root.x - prior.centre.x;
-                                const double dy = root.y - prior.centre.y;
-                                const double distance = std::hypot(dx, dy);
-                                if (distance < prior.radius * 1.06 &&
-                                    distance < bubbleHoleBoundary(prior,
-                                                   bubbleHoleAzimuth(prior, position, false))) {
+                                const double dx = ROOT.x - prior.centre.x;
+                                const double dy = ROOT.y - prior.centre.y;
+                                const double DISTANCE = std::hypot(dx, dy);
+                                if (DISTANCE < prior.radius * 1.06 &&
+                                    DISTANCE < bubbleHoleBoundary(prior,
+                                                   bubbleHoleAzimuth(prior, POSITION, false))) {
                                     onFilm = false;
                                 }
                             }
                         }
                         if (onFilm) {
-                            const double progress = 1 + (age / forming);
-                            const double behind =
-                                s.spherical ? length * progress / s.halfSize.x : length * progress;
-                            const Vec3 baseTip = at(std::max(0.0, currentRadius - behind));
-                            const Vec3 curled = edge(currentRadius);
-                            const double dx = baseTip.x - root.x;
-                            const double dy = baseTip.y - root.y;
+                            const double PROGRESS = 1 + (AGE / FORMING);
+                            const double BEHIND =
+                                s.spherical ? LENGTH * PROGRESS / s.halfSize.x : LENGTH * PROGRESS;
+                            const Vec3 BASE_TIP = at(std::max(0.0, CURRENT_RADIUS - BEHIND));
+                            const Vec3 CURLED = EDGE(CURRENT_RADIUS);
+                            const double dx = BASE_TIP.x - ROOT.x;
+                            const double dy = BASE_TIP.y - ROOT.y;
                             BubbleParticle ligament;
                             ligament.centre = {
-                                .x = curled.x + (dx * std::cos(tilt)) - (dy * std::sin(tilt)),
-                                .y = curled.y + (dx * std::sin(tilt)) + (dy * std::cos(tilt))};
-                            ligament.tail = {.x = curled.x, .y = curled.y};
+                                .x = CURLED.x + (dx * std::cos(TILT)) - (dy * std::sin(TILT)),
+                                .y = CURLED.y + (dx * std::sin(TILT)) + (dy * std::cos(TILT))};
+                            ligament.tail = {.x = CURLED.x, .y = CURLED.y};
                             ligament.radius =
-                                std::max(threadRadius * 1.25, size * (.6 + (.4 * progress)));
-                            ligament.tailRadius = threadRadius;
-                            ligament.depth = (curled.z + baseTip.z - root.z) / minHalf;
+                                std::max(THREAD_RADIUS * 1.25, SIZE * (.6 + (.4 * PROGRESS)));
+                            ligament.tailRadius = THREAD_RADIUS;
+                            ligament.depth = (CURLED.z + BASE_TIP.z - ROOT.z) / MIN_HALF;
                             if (count < out.size()) {
                                 out[count++] = ligament;
                             } else if (count < identified.size()) {
@@ -689,66 +690,66 @@ namespace hyprimate {
                             }
                         }
                     }
-                    if (impactMode ? drop != 0 : (age < 0 || age >= lifetime)) {
+                    if (impactMode ? drop != 0 : (AGE < 0 || AGE >= LIFETIME)) {
                         continue;
                     }
-                    const double r = radiusAt(s, h, birth);
+                    const double r = radiusAt(s, h, BIRTH);
                     if (s.spherical && r >= pi) {
                         continue;
                     }
-                    const double onset = smoothstep(.012, .045, birth - h.start);
-                    const double boundary = r * (1 + (onset * corrugation));
-                    if (s.spherical && boundary >= pi) {
+                    const double ONSET = smoothstep(.012, .045, BIRTH - h.start);
+                    const double BOUNDARY = r * (1 + (ONSET * corrugation));
+                    if (s.spherical && BOUNDARY >= pi) {
                         continue;
                     }
-                    const Vec3 base = at(boundary);
+                    const Vec3 BASE = at(BOUNDARY);
                     if (!s.spherical &&
-                        (std::abs(base.x) > s.halfSize.x || std::abs(base.y) > s.halfSize.y)) {
+                        (std::abs(BASE.x) > s.halfSize.x || std::abs(BASE.y) > s.halfSize.y)) {
                         continue;
                     }
                     bool consumed = false;
                     for (std::size_t other = 0; other < std::min(s.holeCount, kBubbleHoles);
                         ++other) {
-                        if (other == hi || birth <= s.holes[other].start) {
+                        if (other == hi || BIRTH <= s.holes[other].start) {
                             continue;
                         }
                         const auto &source = s.holes[other];
-                        const Vec3 position = s.spherical ? Vec3{.x = base.x / s.halfSize.x,
-                                                                .y = base.y / s.halfSize.x,
-                                                                .z = base.z / s.halfSize.x}
-                                                          : base;
-                        const double upper = s.speed * (birth - source.start) * 1.06;
-                        const double dx = base.x - source.centre.x;
-                        const double dy = base.y - source.centre.y;
-                        if (!s.spherical && (dx * dx) + (dy * dy) >= upper * upper) {
+                        const Vec3 POSITION = s.spherical ? Vec3{.x = BASE.x / s.halfSize.x,
+                                                                .y = BASE.y / s.halfSize.x,
+                                                                .z = BASE.z / s.halfSize.x}
+                                                          : BASE;
+                        const double UPPER = s.speed * (BIRTH - source.start) * 1.06;
+                        const double dx = BASE.x - source.centre.x;
+                        const double dy = BASE.y - source.centre.y;
+                        if (!s.spherical && (dx * dx) + (dy * dy) >= UPPER * UPPER) {
                             continue;
                         }
-                        if (s.spherical && upper < pi &&
-                            dot(position, source.centre) <= std::cos(upper)) {
+                        if (s.spherical && UPPER < pi &&
+                            dot(POSITION, source.centre) <= std::cos(UPPER)) {
                             continue;
                         }
                         BubbleHole prior = source;
-                        prior.radius = radiusAt(s, prior, birth);
-                        const double priorOnset = smoothstep(.012, .045, birth - prior.start);
+                        prior.radius = radiusAt(s, prior, BIRTH);
+                        const double PRIOR_ONSET = smoothstep(.012, .045, BIRTH - prior.start);
                         for (std::size_t m = 0; m < prior.amplitude.size(); ++m) {
-                            prior.amplitude[m] = priorOnset * (.014 - (.002 * m));
+                            prior.amplitude[m] = PRIOR_ONSET * (.014 - (.002 * m));
                         }
-                        const double distance = s.spherical ? 0 : std::sqrt((dx * dx) + (dy * dy));
-                        const double alignment = s.spherical ? dot(position, prior.centre) : 0;
-                        const bool inside =
+                        const double DISTANCE = s.spherical ? 0 : std::sqrt((dx * dx) + (dy * dy));
+                        const double ALIGNMENT = s.spherical ? dot(POSITION, prior.centre) : 0;
+                        const bool INSIDE =
                             s.spherical
                                 ? (prior.radius * .94 >= pi ||
-                                      alignment > std::cos(std::min(pi, prior.radius * .94)) ||
+                                      ALIGNMENT > std::cos(std::min(pi, prior.radius * .94)) ||
                                       ((prior.radius * 1.06 >= pi ||
-                                           alignment > std::cos(prior.radius * 1.06)) &&
-                                          alignment >
+                                           ALIGNMENT > std::cos(prior.radius * 1.06)) &&
+                                          ALIGNMENT >
                                               std::cos(std::min(pi,
                                                   bubbleHoleBoundary(prior,
-                                                      bubbleHoleAzimuth(prior, position, true))))))
-                                : (distance < prior.radius * 1.06 &&
-                                      distance < bubbleHoleBoundary(prior,
-                                                     bubbleHoleAzimuth(prior, position, false)));
-                        if (inside) {
+                                                      bubbleHoleAzimuth(prior, POSITION, true))))))
+                                : (DISTANCE < prior.radius * 1.06 &&
+                                      DISTANCE < bubbleHoleBoundary(prior,
+                                                     bubbleHoleAzimuth(prior, POSITION, false)));
+                        if (INSIDE) {
                             consumed = true;
                             break;
                         }
@@ -756,83 +757,84 @@ namespace hyprimate {
                     if (consumed) {
                         continue;
                     }
-                    const Vec3 p = tipAt(boundary, edge(boundary));
-                    const double transient = s.spherical ? .05 : .075;
-                    const double rimVelocity = s.speed *
-                                               ((birth - h.start - (r / s.speed)) / transient) *
-                                               (1 + (onset * corrugation));
-                    const double velocity = rimVelocity * factor;
-                    const double c = s.spherical ? std::cos(boundary) : 1;
-                    const double sn = s.spherical ? std::sin(boundary) : 0;
-                    const double scale = s.spherical ? s.halfSize.x : 1;
-                    const Vec3 tangent{.x = scale * ((direction.x * c) - (h.centre.x * sn)),
-                        .y = scale * ((direction.y * c) - (h.centre.y * sn)),
-                        .z = scale * ((direction.z * c) - (h.centre.z * sn))};
-                    const double vx = tangent.x * velocity;
-                    const double vy = tangent.y * velocity;
-                    const double minHalf = std::min(s.halfSize.x, s.halfSize.y);
-                    const double magnitude = s.spherical ? std::hypot(vx, vy) : velocity;
-                    const double tau =
-                        magnitude > 0 ? std::min(.13, .35 * minHalf / magnitude) : .13;
-                    const double maxWidth =
-                        std::min(48.0, .18 * minHalf) * std::clamp(s.aureole, 0.0, 1.0);
-                    const double plane =
-                        (s.spherical ? minHalf * 1.01 : minHalf * .10) + (2 * maxWidth / 1.7);
-                    const double distance = plane - p.z;
-                    const auto sourceId =
+                    const Vec3 p = TIP_AT(BOUNDARY, EDGE(BOUNDARY));
+                    const double TRANSIENT = s.spherical ? .05 : .075;
+                    const double RIM_VELOCITY = s.speed *
+                                                ((BIRTH - h.start - (r / s.speed)) / TRANSIENT) *
+                                                (1 + (ONSET * corrugation));
+                    const double VELOCITY = RIM_VELOCITY * FACTOR;
+                    const double c = s.spherical ? std::cos(BOUNDARY) : 1;
+                    const double sn = s.spherical ? std::sin(BOUNDARY) : 0;
+                    const double SCALE = s.spherical ? s.halfSize.x : 1;
+                    const Vec3 TANGENT{.x = SCALE * ((DIRECTION.x * c) - (h.centre.x * sn)),
+                        .y = SCALE * ((DIRECTION.y * c) - (h.centre.y * sn)),
+                        .z = SCALE * ((DIRECTION.z * c) - (h.centre.z * sn))};
+                    const double vx = TANGENT.x * VELOCITY;
+                    const double vy = TANGENT.y * VELOCITY;
+                    const double MIN_HALF = std::min(s.halfSize.x, s.halfSize.y);
+                    const double MAGNITUDE = s.spherical ? std::hypot(vx, vy) : VELOCITY;
+                    const double TAU =
+                        MAGNITUDE > 0 ? std::min(.13, .35 * MIN_HALF / MAGNITUDE) : .13;
+                    const double MAX_WIDTH =
+                        std::min(48.0, .18 * MIN_HALF) * std::clamp(s.aureole, 0.0, 1.0);
+                    const double PLANE =
+                        (s.spherical ? MIN_HALF * 1.01 : MIN_HALF * .10) + (2 * MAX_WIDTH / 1.7);
+                    const double DISTANCE = PLANE - p.z;
+                    const auto SOURCE_ID =
                         static_cast<std::uint32_t>((hi * 104) + (finger * 4) + drop);
-                    const bool candidate =
+                    const bool CANDIDATE =
                         drop == 0 &&
                         (impactMode || std::find(selected->ids.begin(),
                                            selected->ids.begin() + selected->count,
-                                           sourceId) != selected->ids.begin() + selected->count);
-                    const double vz = (tangent.z * velocity) +
-                                      (magnitude * (candidate ? (s.spherical ? 2.8 : 1.4) : .3));
-                    const double fraction = candidate && vz > 0 ? distance / (vz * tau) : 2;
-                    const double hitAge =
-                        fraction > 0 && fraction < 1 ? -tau * std::log1p(-fraction) : lifetime + 1;
-                    const double hitRadius = size * (1 - (hitAge / lifetime)) * 1.5;
-                    const bool hits = hitAge < lifetime && hitRadius >= 1.5 && hitRadius <= 3.5;
+                                           SOURCE_ID) != selected->ids.begin() + selected->count);
+                    const double vz = (TANGENT.z * VELOCITY) +
+                                      (MAGNITUDE * (CANDIDATE ? (s.spherical ? 2.8 : 1.4) : .3));
+                    const double FRACTION = CANDIDATE && vz > 0 ? DISTANCE / (vz * TAU) : 2;
+                    const double HIT_AGE =
+                        FRACTION > 0 && FRACTION < 1 ? -TAU * std::log1p(-FRACTION) : LIFETIME + 1;
+                    const double HIT_RADIUS = SIZE * (1 - (HIT_AGE / LIFETIME)) * 1.5;
+                    const bool HITS = HIT_AGE < LIFETIME && HIT_RADIUS >= 1.5 && HIT_RADIUS <= 3.5;
                     if (impactMode) {
-                        if (hits && count < impacts.size() && count < kBubbleMaxImpacts) {
-                            const double travel = tau * (1 - std::exp(-hitAge / tau));
-                            const double sagLimit = .05 * minHalf;
-                            const double sag =
-                                sagLimit * (1 - std::exp(-120 * hitAge * hitAge / sagLimit));
+                        if (HITS && count < impacts.size() && count < kBubbleMaxImpacts) {
+                            const double TRAVEL = TAU * (1 - std::exp(-HIT_AGE / TAU));
+                            const double SAG_LIMIT = .05 * MIN_HALF;
+                            const double SAG =
+                                SAG_LIMIT * (1 - std::exp(-120 * HIT_AGE * HIT_AGE / SAG_LIMIT));
                             if (count < impactIds.size()) {
-                                impactIds[count] = sourceId;
+                                impactIds[count] = SOURCE_ID;
                             }
-                            impacts[count++] = {.position = {.x = p.x + (vx * travel),
-                                                    .y = p.y + (vy * travel) + sag},
-                                .radius = hitRadius,
-                                .delay = (birth + hitAge - s.clock) / s.rate,
-                                .drift = {.x = 0, .y = size * 2}};
+                            impacts[count++] = {.position = {.x = p.x + (vx * TRAVEL),
+                                                    .y = p.y + (vy * TRAVEL) + SAG},
+                                .radius = HIT_RADIUS,
+                                .delay = (BIRTH + HIT_AGE - s.clock) / s.rate,
+                                .drift = {.x = 0, .y = SIZE * 2}};
                         }
                         continue;
                     }
-                    const double drag = tau * (1 - std::exp(-age / tau));
-                    const double sagLimit = .05 * minHalf;
-                    const double sag =
-                        sagLimit > 0 ? sagLimit * (1 - std::exp(-120 * age * age / sagLimit)) : 0;
+                    const double DRAG = TAU * (1 - std::exp(-AGE / TAU));
+                    const double SAG_LIMIT = .05 * MIN_HALF;
+                    const double SAG =
+                        SAG_LIMIT > 0 ? SAG_LIMIT * (1 - std::exp(-120 * AGE * AGE / SAG_LIMIT))
+                                      : 0;
                     BubbleParticle particle;
-                    particle.centre = {.x = p.x + (vx * drag), .y = p.y + (vy * drag) + sag};
-                    particle.radius = size * (1 - (age / lifetime));
-                    particle.depth = (p.z + (vz * drag)) / minHalf;
-                    if (hits) {
-                        const double approach = std::clamp(age / hitAge, 0.0, 1.0);
-                        particle.radius *= 1 + (.5 * approach * approach);
-                        particle.blur = approach * approach;
+                    particle.centre = {.x = p.x + (vx * DRAG), .y = p.y + (vy * DRAG) + SAG};
+                    particle.radius = SIZE * (1 - (AGE / LIFETIME));
+                    particle.depth = (p.z + (vz * DRAG)) / MIN_HALF;
+                    if (HITS) {
+                        const double APPROACH = std::clamp(AGE / HIT_AGE, 0.0, 1.0);
+                        particle.radius *= 1 + (.5 * APPROACH * APPROACH);
+                        particle.blur = APPROACH * APPROACH;
                     }
-                    const double detach = .04 * s.rate;
-                    const double currentBoundary = h.radius * (1 + currentCorrugation);
-                    const Vec3 tailBase = at(currentBoundary);
-                    bool tailOnFilm = s.spherical ? currentBoundary < pi
-                                                  : std::abs(tailBase.x) <= s.halfSize.x &&
-                                                        std::abs(tailBase.y) <= s.halfSize.y;
-                    const Vec3 tailPosition = s.spherical ? Vec3{.x = tailBase.x / s.halfSize.x,
-                                                                .y = tailBase.y / s.halfSize.x,
-                                                                .z = tailBase.z / s.halfSize.x}
-                                                          : tailBase;
+                    const double DETACH = .04 * s.rate;
+                    const double CURRENT_BOUNDARY = h.radius * (1 + currentCorrugation);
+                    const Vec3 TAIL_BASE = at(CURRENT_BOUNDARY);
+                    bool tailOnFilm = s.spherical ? CURRENT_BOUNDARY < pi
+                                                  : std::abs(TAIL_BASE.x) <= s.halfSize.x &&
+                                                        std::abs(TAIL_BASE.y) <= s.halfSize.y;
+                    const Vec3 TAIL_POSITION = s.spherical ? Vec3{.x = TAIL_BASE.x / s.halfSize.x,
+                                                                 .y = TAIL_BASE.y / s.halfSize.x,
+                                                                 .z = TAIL_BASE.z / s.halfSize.x}
+                                                           : TAIL_BASE;
                     for (std::size_t other = 0;
                         tailOnFilm && other < std::min(s.holeCount, kBubbleHoles);
                         ++other) {
@@ -840,23 +842,23 @@ namespace hyprimate {
                             continue;
                         }
                         const auto &prior = s.holes[other];
-                        const double distance =
+                        const double DISTANCE =
                             s.spherical
-                                ? std::acos(std::clamp(dot(tailPosition, prior.centre), -1.0, 1.0))
+                                ? std::acos(std::clamp(dot(TAIL_POSITION, prior.centre), -1.0, 1.0))
                                 : std::hypot(
-                                      tailBase.x - prior.centre.x, tailBase.y - prior.centre.y);
-                        if (distance < bubbleHoleBoundary(prior,
-                                           bubbleHoleAzimuth(prior, tailPosition, s.spherical))) {
+                                      TAIL_BASE.x - prior.centre.x, TAIL_BASE.y - prior.centre.y);
+                        if (DISTANCE < bubbleHoleBoundary(prior,
+                                           bubbleHoleAzimuth(prior, TAIL_POSITION, s.spherical))) {
                             tailOnFilm = false;
                         }
                     }
-                    const Vec3 tail = age < detach && tailOnFilm ? edge(currentBoundary) : p;
-                    particle.tail = age < detach && tailOnFilm ? Vec2{.x = tail.x, .y = tail.y}
+                    const Vec3 TAIL = AGE < DETACH && tailOnFilm ? EDGE(CURRENT_BOUNDARY) : p;
+                    particle.tail = AGE < DETACH && tailOnFilm ? Vec2{.x = TAIL.x, .y = TAIL.y}
                                                                : particle.centre;
-                    particle.tailRadius = age < detach && tailOnFilm
-                                              ? size * .3 * std::max(0.0, 1 - (age / detach))
+                    particle.tailRadius = AGE < DETACH && tailOnFilm
+                                              ? SIZE * .3 * std::max(0.0, 1 - (AGE / DETACH))
                                               : 0;
-                    if (!hits || age < hitAge) {
+                    if (!HITS || AGE < HIT_AGE) {
                         if (count < out.size()) {
                             out[count++] = particle;
                         } else if (count < identified.size()) {
@@ -864,23 +866,23 @@ namespace hyprimate {
                                 .id = static_cast<std::uint32_t>((hi * 104) + (finger * 4) + drop)};
                         }
                     }
-                    for (int satellite = 0; satellite < satellites; ++satellite) {
-                        const double satelliteLife = lifetime * (.7 + (.1 * satellite));
-                        if (age >= satelliteLife) {
+                    for (int satellite = 0; satellite < SATELLITES; ++satellite) {
+                        const double SATELLITE_LIFE = LIFETIME * (.7 + (.1 * satellite));
+                        if (AGE >= SATELLITE_LIFE) {
                             continue;
                         }
-                        const double lateral = satellite == 0 ? scatter : -scatter;
-                        const double svx = (.8 * vx) - (lateral * vy);
-                        const double svy = (.8 * vy) + (lateral * vx);
-                        const double speed = std::hypot(svx, svy);
-                        const double stau = speed > 0 ? std::min(.13, .35 * minHalf / speed) : .13;
-                        const double travel = stau * (1 - std::exp(-age / stau));
+                        const double LATERAL = satellite == 0 ? SCATTER : -SCATTER;
+                        const double SVX = (.8 * vx) - (LATERAL * vy);
+                        const double SVY = (.8 * vy) + (LATERAL * vx);
+                        const double SPEED = std::hypot(SVX, SVY);
+                        const double STAU = SPEED > 0 ? std::min(.13, .35 * MIN_HALF / SPEED) : .13;
+                        const double TRAVEL = STAU * (1 - std::exp(-AGE / STAU));
                         BubbleParticle small;
-                        small.centre = {.x = p.x + (svx * travel) - (tangent.x / scale * .5),
-                            .y = p.y + (svy * travel) - (tangent.y / scale * .5) + sag};
+                        small.centre = {.x = p.x + (SVX * TRAVEL) - (TANGENT.x / SCALE * .5),
+                            .y = p.y + (SVY * TRAVEL) - (TANGENT.y / SCALE * .5) + SAG};
                         small.tail = small.centre;
-                        small.radius = size * satelliteScale * (1 - (age / satelliteLife));
-                        small.depth = (p.z + (.8 * vz * travel)) / minHalf;
+                        small.radius = SIZE * SATELLITE_SCALE * (1 - (AGE / SATELLITE_LIFE));
+                        small.depth = (p.z + (.8 * vz * TRAVEL)) / MIN_HALF;
                         if (count < out.size()) {
                             out[count++] = small;
                         } else if (count < identified.size()) {
@@ -893,21 +895,21 @@ namespace hyprimate {
             }
         }
         if (!impactMode && (s.holeCount != 0u)) {
-            const auto burst = [&](Vec3 origin, double birth, std::uint32_t id) {
-                const double age = s.clock - birth;
-                const double life = std::min(.22 * s.rate, .995 - birth);
-                if (age < 0 || age >= life) {
+            const auto BURST = [&](Vec3 origin, double birth, std::uint32_t id) {
+                const double AGE = s.clock - birth;
+                const double LIFE = std::min(.22 * s.rate, .995 - birth);
+                if (AGE < 0 || AGE >= LIFE) {
                     return;
                 }
-                const double reach = .12 * std::min(s.halfSize.x, s.halfSize.y);
+                const double REACH = .12 * std::min(s.halfSize.x, s.halfSize.y);
                 for (std::uint32_t i = 0; i < 4; ++i) {
-                    const double phi = 2 * pi * (i + (.13 * (id % 7))) / 4;
-                    const double motion = reach * (1 - std::exp(-age / .09));
+                    const double PHI = 2 * pi * (i + (.13 * (id % 7))) / 4;
+                    const double MOTION = REACH * (1 - std::exp(-AGE / .09));
                     BubbleParticle p;
-                    p.centre = {.x = origin.x + (motion * std::cos(phi)),
-                        .y = origin.y + (motion * std::sin(phi)) + (reach * .1 * age)};
+                    p.centre = {.x = origin.x + (MOTION * std::cos(PHI)),
+                        .y = origin.y + (MOTION * std::sin(PHI)) + (REACH * .1 * AGE)};
                     p.tail = p.centre;
-                    p.radius = (2.5 + (.35 * i)) * (1 - (age / life));
+                    p.radius = (2.5 + (.35 * i)) * (1 - (AGE / LIFE));
                     p.depth = s.spherical ? origin.z / s.halfSize.x : 0;
                     if (count < out.size()) {
                         out[count++] = p;
@@ -918,9 +920,9 @@ namespace hyprimate {
             };
             const auto &events = collapse(s);
             for (std::size_t i = 0; i < events.mergeCount; ++i) {
-                burst(events.merges[i].position, events.merges[i].time, events.merges[i].id);
+                BURST(events.merges[i].position, events.merges[i].time, events.merges[i].id);
             }
-            burst(events.position, events.time, 1200);
+            BURST(events.position, events.time, 1200);
         }
         return count;
     }

@@ -43,8 +43,8 @@ namespace {
 }  // namespace
 
 CBox liveExtents(const SBubbleStyle &state, const CBox &box) {
-    const auto bounds = state.bubble.bounds({.x = box.w, .y = box.h});
-    return CBox{box.x + bounds.x, box.y + bounds.y, bounds.w, bounds.h}.expand(2.0);
+    const auto BOUNDS = state.bubble.bounds({.x = box.w, .y = box.h});
+    return CBox{box.x + BOUNDS.x, box.y + BOUNDS.y, BOUNDS.w, BOUNDS.h}.expand(2.0);
 }
 
 Render::SWindowTransformBuffer renderLive(SBubbleStyle &state,
@@ -58,54 +58,54 @@ Render::SWindowTransformBuffer renderLive(SBubbleStyle &state,
     if (!state.renderer) {
         return {.framebuffer = in.framebuffer, .box = in.box, .success = false};
     }
-    const hyprimate::Vec2 size{.x = g.source.w / g.scale, .y = g.source.h / g.scale};
-    const auto frame = state.bubble.frame(size);
-    const auto layer = state.renderer->render(ctx,
+    const hyprimate::Vec2 SIZE{.x = g.source.w / g.scale, .y = g.source.h / g.scale};
+    const auto FRAME = state.bubble.frame(SIZE);
+    const auto LAYER = state.renderer->render(ctx,
         SBubbleDraw{
             .window = in.framebuffer->getTexture(),
             .wallpaper = state.wallpaper,
-            .frame = frame,
+            .frame = FRAME,
             .canvas = g.canvas.size(),
             .source = g.source,
             .textureOrigin = {.x = in.box.x, .y = in.box.y},
             .textureSize = g.textureSize,
             .outputOrigin = {.x = g.canvas.x, .y = g.canvas.y},
         });
-    if (!layer) {
+    if (!LAYER) {
         return {.framebuffer = in.framebuffer, .box = in.box, .success = false};
     }
     if (!ctx.readOnlyEffects() && !ctx.m_renderingCapture && !ctx.m_renderingSnapshot) {
-        const auto monitor = context.monitor.lock();
-        const auto centre = context.currentBox.middle();
-        depositBubbleImpacts(state, frame, monitor, centre);
+        const auto MONITOR = context.monitor.lock();
+        const auto CENTRE = context.currentBox.middle();
+        depositBubbleImpacts(state, FRAME, MONITOR, CENTRE);
         // Film and microbubbles the movement shed since the last frame stay where they were laid,
         // relative to the window drawn now.
         const auto &motion = state.bubble.motion();
         if (!motion.trail().empty() || !motion.releases().empty()) {
-            if (state.residue && monitor) {
-                state.wake = state.residue->trail(monitor,
+            if (state.residue && MONITOR) {
+                state.wake = state.residue->trail(MONITOR,
                     state.window.lock(),
                     state.wake,
-                    centre,
+                    CENTRE,
                     motion.trail(),
                     motion.releases());
             }
             state.bubble.clearEmissions();
         }
     }
-    return {.framebuffer = layer, .box = g.canvas};
+    return {.framebuffer = LAYER, .box = g.canvas};
 }
 
 bool SBubbleLiveStyle::open(
     CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window) {
-    const CBox current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
-    const CBox goal = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
-    const CBox capture = window->getFullWindowBoundingBox();
-    const hyprimate::Box rest{.x = goal.x + capture.x - current.x,
-        .y = goal.y + capture.y - current.y,
-        .w = goal.w + capture.w - current.w,
-        .h = goal.h + capture.h - current.h};
-    if (!hyprimate::is_usable(toBox(goal)) || !hyprimate::is_usable(rest)) {
+    const CBox CURRENT = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+    const CBox GOAL = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
+    const CBox CAPTURE = window->getFullWindowBoundingBox();
+    const hyprimate::Box REST{.x = GOAL.x + CAPTURE.x - CURRENT.x,
+        .y = GOAL.y + CAPTURE.y - CURRENT.y,
+        .w = GOAL.w + CAPTURE.w - CURRENT.w,
+        .h = GOAL.h + CAPTURE.h - CURRENT.h};
+    if (!hyprimate::is_usable(toBox(GOAL)) || !hyprimate::is_usable(REST)) {
         return false;
     }
     auto *transformer = runtime.acquireTransformer(window);
@@ -113,7 +113,7 @@ bool SBubbleLiveStyle::open(
     state.bubble.begin(hyprimate::Transition::Open,
         runtime.m_config.open.bubble.duration,
         runtime.m_nextSeed++,
-        {.x = rest.w, .y = rest.h});
+        {.x = REST.w, .y = REST.h});
     if (!state.bubble.active()) {
         return false;
     }
@@ -122,9 +122,9 @@ bool SBubbleLiveStyle::open(
     state.shellImpactsDeposited = state.windowImpactsDeposited = false;
     state.impacts.start();
     // Bubble owns formation, placement and opacity. Keep focus/workspace/user alpha factors intact.
-    g_pHyprRenderer->damageBox(capture);
-    window->positionAnimation()->setValueAndWarp(goal.pos());
-    window->sizeAnimation()->setValueAndWarp(goal.size());
+    g_pHyprRenderer->damageBox(CAPTURE);
+    window->positionAnimation()->setValueAndWarp(GOAL.pos());
+    window->sizeAnimation()->setValueAndWarp(GOAL.size());
     auto &fade = window->presentation().alpha(Desktop::View::WINDOW_ALPHA_FADE);
     fade->setValueAndWarp(fade->goal());
     runtime.rebaseline(entry, window);
@@ -170,13 +170,13 @@ void SBubbleLiveStyle::step(CPluginRuntime &runtime,
     }
     hyprimate::Box body{.x = -size.x * .5, .y = -size.y * .5, .w = size.x, .h = size.y};
     state.window = transformer.m_window;
-    if (const auto window = transformer.m_window.lock()) {
-        const CBox current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
-        const CBox capture = window->getFullWindowBoundingBox();
-        body = {.x = current.x - capture.middle().x,
-            .y = current.y - capture.middle().y,
-            .w = current.w,
-            .h = current.h};
+    if (const auto WINDOW = transformer.m_window.lock()) {
+        const CBox CURRENT = WINDOW->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+        const CBox CAPTURE = WINDOW->getFullWindowBoundingBox();
+        body = {.x = CURRENT.x - CAPTURE.middle().x,
+            .y = CURRENT.y - CAPTURE.middle().y,
+            .w = CURRENT.w,
+            .h = CURRENT.h};
     }
     const auto &options = runtime.m_config.movement.bubble;
     state.bubble.advance(elapsed,

@@ -57,16 +57,16 @@ namespace {
 
     // The device-pixel box a monitor-local logical source box covers on screen, pixel aligned.
     CBox onScreen(const PHLMONITOR &monitor, const CBox &source) {
-        const CBox screen{{}, monitor->m_transformedSize};
-        const auto clipped = source.copy().intersection(screen);
-        if (clipped.empty()) {
+        const CBox SCREEN{{}, monitor->m_transformedSize};
+        const auto CLIPPED = source.copy().intersection(SCREEN);
+        if (CLIPPED.empty()) {
             return {};
         }
-        const double x = std::floor(clipped.x);
-        const double y = std::floor(clipped.y);
+        const double x = std::floor(CLIPPED.x);
+        const double y = std::floor(CLIPPED.y);
         return CBox{
-            x, y, std::ceil(clipped.x + clipped.w) - x, std::ceil(clipped.y + clipped.h) - y}
-            .intersection(screen);
+            x, y, std::ceil(CLIPPED.x + CLIPPED.w) - x, std::ceil(CLIPPED.y + CLIPPED.h) - y}
+            .intersection(SCREEN);
     }
 
     // Only the monitor's own normal frame draws residue: never captures, snapshots or read-only
@@ -89,36 +89,36 @@ bool CBubbleResidue::deposit(const PHLMONITOR &monitor,
         return false;
     }
     bool accepted = false;
-    const auto now = std::chrono::steady_clock::now();
+    const auto NOW = std::chrono::steady_clock::now();
     for (const auto &impact : impacts) {
-        const Vector2D position{centre.x + impact.position.x, centre.y + impact.position.y};
-        if (!std::isfinite(position.x) || !std::isfinite(position.y) ||
+        const Vector2D POSITION{centre.x + impact.position.x, centre.y + impact.position.y};
+        if (!std::isfinite(POSITION.x) || !std::isfinite(POSITION.y) ||
             !std::isfinite(impact.radius) || !std::isfinite(impact.delay) ||
             !std::isfinite(impact.drift.x) || !std::isfinite(impact.drift.y) ||
             impact.radius <= 0) {
             continue;
         }
-        const double lifetime = std::clamp(0.35 + (impact.radius * 0.07), 0.35, 0.7);
-        const double extent =
-            (impact.radius * 1.3) + (std::hypot(impact.drift.x, impact.drift.y) * lifetime) + 2.0;
-        if (impact.delay <= -lifetime ||
-            footprint(position, extent).intersection(CBox{{}, monitor->m_size}).empty()) {
+        const double LIFETIME = std::clamp(0.35 + (impact.radius * 0.07), 0.35, 0.7);
+        const double EXTENT =
+            (impact.radius * 1.3) + (std::hypot(impact.drift.x, impact.drift.y) * LIFETIME) + 2.0;
+        if (impact.delay <= -LIFETIME ||
+            footprint(POSITION, EXTENT).intersection(CBox{{}, monitor->m_size}).empty()) {
             continue;
         }
         // Delays are animation seconds on the source transition's clock; without one the bead keeps
         // wall time.
-        const double clockNow = clock ? clock->time : 0.0;
+        const double CLOCK_NOW = clock ? clock->time : 0.0;
         m_deposits.push_back({.monitor = monitor,
-            .position = position,
-            .radius = extent,
+            .position = POSITION,
+            .radius = EXTENT,
             .impactRadius = impact.radius,
             .drift = {impact.drift.x, impact.drift.y},
-            .lifetime = lifetime,
-            .last = now,
+            .lifetime = LIFETIME,
+            .last = NOW,
             .age = -impact.delay,
             .clock = impact.delay > 0 ? clock : SP<SBubbleImpactClock>{},
-            .land = clockNow + impact.delay});
-        damage(monitor, position, extent);
+            .land = CLOCK_NOW + impact.delay});
+        damage(monitor, POSITION, EXTENT);
         accepted = true;
     }
     return accepted;
@@ -155,13 +155,13 @@ void CBubbleResidue::tick(std::chrono::steady_clock::time_point now, const PHLMO
             continue;
         }
         wake.queued = false;  // a new frame of this monitor begins
-        const double elapsed = std::clamp(
+        const double ELAPSED = std::clamp(
             std::chrono::duration<double>(now - wake.last).count(), 0.0, hyprimate::STALL_SECONDS);
         wake.last = now;
         // Both the region it covered and the one it covers now: retracting film leaves no stale
         // pixels behind.
         damage(monitor, wake.film.bounds());
-        wake.film.advance(elapsed);
+        wake.film.advance(ELAPSED);
         damage(monitor, wake.film.bounds());
     }
     std::erase_if(
@@ -204,7 +204,7 @@ std::uint64_t CBubbleResidue::trail(const PHLMONITOR &monitor,
     if (!m_enabled || !monitor || !std::isfinite(centre.x) || !std::isfinite(centre.y)) {
         return 0;
     }
-    const hyprimate::Vec2 origin{.x = centre.x, .y = centre.y};
+    const hyprimate::Vec2 ORIGIN{.x = centre.x, .y = centre.y};
     Wake *current = wakeFor(monitor, wake);
     for (const auto &point : points) {
         if ((current == nullptr) || point.start || current->film.full()) {
@@ -218,12 +218,12 @@ std::uint64_t CBubbleResidue::trail(const PHLMONITOR &monitor,
                 current->film.extend(*carry, {});
             }
         }
-        current->film.extend(point, origin);
+        current->film.extend(point, ORIGIN);
     }
     for (const auto &release : releases) {
-        if ((current == nullptr) || !current->film.release(release, origin)) {
+        if ((current == nullptr) || !current->film.release(release, ORIGIN)) {
             current = &beginWake(monitor, owner);
-            current->film.release(release, origin);
+            current->film.release(release, ORIGIN);
         }
     }
     if (current == nullptr) {
@@ -238,26 +238,26 @@ void CBubbleResidue::queueWake(Render::CRenderContext &ctx,
     Wake &wake,
     const SP<CBubbleRenderer> &renderer) {
     wake.queued = true;
-    const auto bounds = wake.film.bounds();
-    if (!hyprimate::is_usable(bounds)) {
+    const auto BOUNDS = wake.film.bounds();
+    if (!hyprimate::is_usable(BOUNDS)) {
         return;
     }
-    const auto source = CBox{bounds.x, bounds.y, bounds.w, bounds.h}.scale(monitor->m_scale);
-    const auto clipped = onScreen(monitor, source);
-    if (clipped.empty()) {
+    const auto SOURCE = CBox{BOUNDS.x, BOUNDS.y, BOUNDS.w, BOUNDS.h}.scale(monitor->m_scale);
+    const auto CLIPPED = onScreen(monitor, SOURCE);
+    if (CLIPPED.empty()) {
         return;
     }
     CBubblePassElement::SData data;
     data.renderer = renderer;
-    data.draw.frame.size = {.x = bounds.w, .y = bounds.h};
-    data.draw.canvas = clipped.size();
-    data.draw.source = source;
-    data.draw.outputOrigin = {.x = clipped.x, .y = clipped.y};
+    data.draw.frame.size = {.x = BOUNDS.w, .y = BOUNDS.h};
+    data.draw.canvas = CLIPPED.size();
+    data.draw.source = SOURCE;
+    data.draw.outputOrigin = {.x = CLIPPED.x, .y = CLIPPED.y};
     data.draw.onGlass = true;
     wake.film.view(data.draw.wake.emplace());
-    data.box = clipped;
+    data.box = CLIPPED;
     data.scale = monitor->m_scale;
-    data.damage = CRegion{clipped};
+    data.damage = CRegion{CLIPPED};
     Render::IHyprRenderer::addPassElement(ctx, makeUnique<CBubblePassElement>(std::move(data)));
 }
 
@@ -284,17 +284,17 @@ void CBubbleResidue::queue(
         if (deposit.monitor.lock() != monitor || deposit.age < 0) {
             continue;
         }
-        const auto source = footprint(deposit.position, deposit.radius).scale(monitor->m_scale);
-        const auto clipped = onScreen(monitor, source);
-        if (clipped.empty()) {
+        const auto SOURCE = footprint(deposit.position, deposit.radius).scale(monitor->m_scale);
+        const auto CLIPPED = onScreen(monitor, SOURCE);
+        if (CLIPPED.empty()) {
             continue;
         }
         CBubblePassElement::SData data;
         data.renderer = renderer;
         data.draw.frame.size = {.x = deposit.radius * 2.0, .y = deposit.radius * 2.0};
-        data.draw.canvas = clipped.size();
-        data.draw.source = source;
-        data.draw.outputOrigin = {.x = clipped.x, .y = clipped.y};
+        data.draw.canvas = CLIPPED.size();
+        data.draw.source = SOURCE;
+        data.draw.outputOrigin = {.x = CLIPPED.x, .y = CLIPPED.y};
         data.draw.onGlass = true;
         data.draw.glassCount = 1;
         auto &particle = data.draw.glassParticles[0];
@@ -302,9 +302,9 @@ void CBubbleResidue::queue(
         particle.tail = particle.centre;
         particle.radius = deposit.impactRadius * (1.0 + (.3 * std::min(deposit.age / .03, 1.0))) *
                           std::sqrt(std::max(0.0, 1.0 - (deposit.age / deposit.lifetime)));
-        data.box = clipped;
+        data.box = CLIPPED;
         data.scale = monitor->m_scale;
-        data.damage = CRegion{clipped};
+        data.damage = CRegion{CLIPPED};
         Render::IHyprRenderer::addPassElement(ctx, makeUnique<CBubblePassElement>(std::move(data)));
     }
     // Wakes whose window was not drawn this frame (closed, or on a hidden workspace) lie over the
@@ -317,8 +317,8 @@ void CBubbleResidue::queue(
 }
 
 bool CBubbleResidue::active(const PHLMONITOR &monitor) const {
-    const auto here = [&](const auto &entry) { return entry.monitor.lock() == monitor; };
-    return std::ranges::any_of(m_deposits, here) || std::ranges::any_of(m_wakes, here);
+    const auto HERE = [&](const auto &entry) { return entry.monitor.lock() == monitor; };
+    return std::ranges::any_of(m_deposits, HERE) || std::ranges::any_of(m_wakes, HERE);
 }
 
 void CBubbleResidue::setEnabled(bool enabled) {
