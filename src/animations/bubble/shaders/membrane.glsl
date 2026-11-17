@@ -10,13 +10,14 @@ struct Membrane {
     float sheen, round;
     vec2 extent, carry;
     float transparency;
+    vec4 buds[4];  // foot.xy (contracted membrane px), height, width
 };
 bool moving(Membrane s) {
     return s.spherical==0 &&
            (s.drag!=vec2(0) || s.waveCos!=vec4(0) || s.waveSin!=vec4(0) || s.round!=0.0 ||
-            s.carry!=vec2(0));
+            s.carry!=vec2(0) || s.buds[0].z>0.0 || s.buds[1].z>0.0 || s.buds[2].z>0.0 ||
+            s.buds[3].z>0.0);
 }
-// The membrane's half size at its roundness; mirrors bubbleRoundHalf.
 vec2 roundHalf(Membrane s) {
     vec2 h=max(s.halfSize,vec2(1.0));
     return mix(h,max(s.extent,vec2(1.0)),s.round);
@@ -29,9 +30,17 @@ vec2 roundPoint(Membrane s, vec2 q) {
     vec2 disc=s.extent*n*sqrt(max(vec2(0),1.0-n.yx*n.yx*.5));
     return mix(q,disc,s.round);
 }
-// Displacement of a point of the rounded membrane; mirrors bubbleMotionOffset. The leading edge
-// stays with the window, the trailing film lags by drag, bowing out in the middle and narrowing
-// across the motion, and capillary modes n = 2..5 ripple the outline.
+// Outward direction of the rounded membrane at q: a rounded rectangle's normal turning into an
+// ellipse's; mirrors outward() in BubbleMotion.cpp.
+vec2 outwardAt(vec2 h, float rounded, vec2 q) {
+    vec2 u=q/h;
+    vec2 square=u*u*u/h, circle=u/h;
+    if (dot(square,square)<1e-24 || dot(circle,circle)<1e-24) return vec2(0);
+    return normalize(square)*(1.0-rounded)+normalize(circle)*rounded;
+}
+// Displacement of a point of the rounded membrane; mirrors bubbleMotionOffset. The leading face
+// flattens, the trailing film lags by drag, bowing out in the middle and narrowing across the
+// motion, capillary modes n = 2..5 ripple the outline, and buds swell it around their feet.
 vec2 motionOffset(Membrane s, vec2 p) {
     vec2 h=roundHalf(s), offset=vec2(0);
     float drag=length(s.drag);
@@ -39,9 +48,10 @@ vec2 motionOffset(Membrane s, vec2 p) {
         vec2 dir=s.drag/drag;
         float reach=dot(abs(dir),h), breadth=dot(abs(dir.yx),h), along=dot(p,dir);
         float w=smoothstep(-1.0,1.0,clamp(along/reach,-1.0,1.0));
+        float lead=smoothstep(0.0,1.0,clamp(-along/reach,0.0,1.0));
         vec2 across=p-dir*along;
         float side=min(1.0,dot(across,across)/(breadth*breadth));
-        offset=s.drag*(w*(1.0-.55*side))-across*(.35*drag/reach*w);
+        offset=s.drag*(w*(1.0-.55*side)+.3*lead*(1.0-side))-across*(.35*drag/reach*w);
     }
     float rounded=clamp(s.round,0.0,1.0);
     vec2 u=p/h, u2=u*u;
@@ -50,8 +60,17 @@ vec2 motionOffset(Membrane s, vec2 p) {
         float rho=min(mix(sqrt(sqrt(rho4)),length(u),rounded),1.25), phi=atan(u.y,u.x);
         vec4 n=vec4(2,3,4,5);
         float radial=dot(s.waveCos,cos(n*phi))+dot(s.waveSin,sin(n*phi));
-        vec2 g=normalize(u2*u/h)*(1.0-rounded)+normalize(u/h)*rounded;
-        offset+=normalize(g)*radial*rho*rho*rho;
+        vec2 g=outwardAt(h,rounded,p);
+        if (dot(g,g)>0.0) offset+=normalize(g)*radial*rho*rho*rho;
+    }
+    for (int i=0;i<4;i++) {
+        vec4 b=s.buds[i];
+        if (b.z<=0.0 || b.w<=0.0) continue;
+        vec2 d=p-b.xy;
+        float f=exp(-dot(d,d)/(b.w*b.w));
+        if (f<1e-4) continue;
+        vec2 n=outwardAt(h,rounded,b.xy);
+        if (dot(n,n)>0.0) offset+=normalize(n)*b.z*f;
     }
     return offset;
 }
@@ -83,11 +102,11 @@ vec2 roundSource(Membrane s, vec2 p) {
     return q;
 }
 // The undeformed point a deformed one came from: the carry is undone first, the displacement is a
-// small, smooth field that a few fixed-point steps invert, and contraction is inverted by
-// roundSource.
+// small, smooth field (buds stay below half their width) that a few fixed-point steps invert, and
+// contraction is inverted by roundSource.
 vec2 motionSource(Membrane s, vec2 p) {
     p-=s.carry;
     vec2 r=p;
-    for (int i=0;i<3;i++) r=p-motionOffset(s,r);
+    for (int i=0;i<4;i++) r=p-motionOffset(s,r);
     return roundSource(s,r);
 }

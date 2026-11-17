@@ -218,6 +218,35 @@ void testMoving(Fixture &f, int w, int h, double round, hyprimate::Vec2 extent) 
     }
 }
 
+// A bud swells the drawn outline exactly where the CPU motion model puts it.
+void testBud(Fixture &f) {
+    const int w = 160, h = 100;
+    const hyprimate::Vec2 pos{(width - w) / 2.0, (height - h) / 2.0};
+    hyprimate::BubbleFrame frame{};
+    frame.size = {double(w), double(h)};
+    frame.window.halfSize = {w / 2.0, h / 2.0};
+    frame.window.corner = 4;
+    frame.window.visibility = 1;
+    frame.window.thickness = 400;
+    frame.window.motion.round = .3;
+    frame.window.motion.extent = {w / 2.0 * .92, h / 2.0 * .92};
+    const hyprimate::Vec2 top{20, -h / 2.0};
+    auto &bud = frame.window.motion.buds[0];
+    bud.foot = hyprimate::bubbleRoundPoint(frame.window.halfSize, frame.window.motion, top);
+    bud.width = 12;
+    bud.height = 6;
+    const auto swollen = f.render(frame, f.window, f.scene, pos, frame.size);
+    const auto crest = hyprimate::bubbleMotionPoint(frame.window.halfSize, frame.window.motion, top);
+    const int x = int(std::lround(width / 2.0 + crest.x));
+    const int y = int(std::lround(height / 2.0 + crest.y));
+    CHECK(at(swollen, x, y + 2)[3] > 128);
+    CHECK(at(swollen, x, y - 3)[3] < 8);
+    // Without it the film ends lower: the swelling is drawn, not just modelled.
+    frame.window.motion.buds[0] = {};
+    const auto flat = f.render(frame, f.window, f.scene, pos, frame.size);
+    CHECK(at(flat, x, y + 2)[3] < 8);
+}
+
 // The small-bubble material: a thin film around air, visible by what its walls reflect.
 void testCompanionOptics(Fixture &f) {
     hyprimate::BubbleFrame frame{};
@@ -338,6 +367,7 @@ int main() {
         testMoving(fixture, 160, 100, .35, {76, 48}); // pillow, wide
         testMoving(fixture, 100, 160, .75, {46, 74}); // ellipse, tall
         testMoving(fixture, 150, 90, .85, {48, 48}); // disc
+        testBud(fixture);
     }
     eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     eglDestroyContext(display, context);
