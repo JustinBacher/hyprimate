@@ -95,10 +95,10 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
 
     // Listeners are registered last so a failed constructor never leaves callbacks pointing at a
     // half-built runtime.
-    m_listenOpenLate = Event::bus()->m_events.window.openLate.listen(
+    m_listen_open_late = Event::bus()->m_events.window.openLate.listen(
         [this](const PHLWINDOW &window) { track(window); });
 
-    m_listenClose = Event::bus()->m_events.window.close.listen([this](const PHLWINDOW &window) {
+    m_listen_close = Event::bus()->m_events.window.close.listen([this](const PHLWINDOW &window) {
         if (auto *entry = find(window)) {
             // Stage before detaching so a matching animation can continue into the close.
             if (closeEnabled() && eligible(window)) {
@@ -137,7 +137,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
         forget(window);
     });
 
-    m_listenDestroy = Event::bus()->m_events.window.destroy.listen([this](PHLWINDOWREF window) {
+    m_listen_destroy = Event::bus()->m_events.window.destroy.listen([this](PHLWINDOWREF window) {
         std::erase_if(m_tracked, [&window](const STracked &entry) {
             return entry.window.expired() || entry.window.get() == window.get();
         });
@@ -146,7 +146,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     // A solitary client bypasses the monitor scene entirely, and can also direct-scan out before
     // render.pre. Remove it for this frame while residue exists; restore native selection when the
     // last deposit expires.
-    m_listenRenderPreChecks =
+    m_listen_render_pre_checks =
         Event::bus()->m_events.render.preChecks.listen([this](const PHLMONITOR &monitor) {
             if (monitor && hasWorkspaceSwarmTail(monitor)) {
                 monitor->m_solitaryClient.reset();
@@ -162,19 +162,19 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
             }
             monitor->m_solitaryClient.reset();
         });
-    m_listenMonitorLayout =
+    m_listen_monitor_layout =
         Event::bus()->m_events.monitor.layoutChanged.listen([this] { clearBubbleResidue(); });
-    m_listenMonitorRemoved = Event::bus()->m_events.monitor.preRemoved.listen(
+    m_listen_monitor_removed = Event::bus()->m_events.monitor.preRemoved.listen(
         [this](const PHLMONITOR &) { clearBubbleResidue(); });
 
     // Everything advances once per rendered frame of its monitor, after native animations have
     // ticked and before the frame collects damage. Animation ticks are not used: a self-requested
     // tick re-fires every millisecond.
-    m_listenRenderPre = Event::bus()->m_events.render.pre.listen(
+    m_listen_render_pre = Event::bus()->m_events.render.pre.listen(
         [this](const PHLMONITOR &monitor) { onRenderPre(monitor); });
     // Requests made in render.pre can be consumed by the current commit. Keep requesting frames
     // after rendering while live animations, retained closes, or residue need them.
-    m_listenRenderPost =
+    m_listen_render_post =
         Event::bus()->m_events.render.stage.listen([this](const Event::SRenderStageEvent &event) {
             if (event.stage == RENDER_POST_WALLPAPER && event.context) {
                 for (const auto &entry : m_tracked) {
@@ -256,7 +256,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
             }
         });
 
-    m_listenReload = Event::bus()->m_events.config.reloaded.listen([this] { onReload(); });
+    m_listen_reload = Event::bus()->m_events.config.reloaded.listen([this] { onReload(); });
 
     for (const auto &window : Desktop::windowState()->windows()) {
         track(window);
@@ -266,15 +266,15 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
 CPluginRuntime::~CPluginRuntime() {
     // Unload order: stop callbacks, unhook the close path, drop its records, then detach every
     // window.
-    m_listenOpenLate.reset();
-    m_listenClose.reset();
-    m_listenDestroy.reset();
-    m_listenRenderPreChecks.reset();
-    m_listenRenderPre.reset();
-    m_listenRenderPost.reset();
-    m_listenReload.reset();
-    m_listenMonitorLayout.reset();
-    m_listenMonitorRemoved.reset();
+    m_listen_open_late.reset();
+    m_listen_close.reset();
+    m_listen_destroy.reset();
+    m_listen_render_pre_checks.reset();
+    m_listen_render_pre.reset();
+    m_listen_render_post.reset();
+    m_listen_reload.reset();
+    m_listen_monitor_layout.reset();
+    m_listen_monitor_removed.reset();
     clearBubbleResidue();
     m_close->shutdown();
     detachAll();

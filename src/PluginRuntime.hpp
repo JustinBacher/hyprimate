@@ -110,7 +110,7 @@ class CPluginRuntime {
     void queueWorkspaceSwarmTails(Render::CRenderContext &ctx, const PHLMONITOR &monitor);
 
     // Must outlive close records and every transformer detached during destruction.
-    hyprimate::ClothPhysics m_clothPhysics;
+    hyprimate::ClothPhysics m_cloth_physics;
 
     HANDLE m_handle = nullptr;
     hyprimate::config::SConfigValues m_values;
@@ -133,13 +133,13 @@ class CPluginRuntime {
     // replay characters.
     std::uint64_t m_nextSeed = 0;
 
-    CHyprSignalListener m_listenOpenLate;
-    CHyprSignalListener m_listenClose;
-    CHyprSignalListener m_listenDestroy;
-    CHyprSignalListener m_listenRenderPreChecks;
-    CHyprSignalListener m_listenRenderPre;
-    CHyprSignalListener m_listenRenderPost;
-    CHyprSignalListener m_listenReload;
-    CHyprSignalListener m_listenMonitorLayout;
-    CHyprSignalListener m_listenMonitorRemoved;
+    CHyprSignalListener m_listen_open_late;
+    CHyprSignalListener m_listen_close;
+    CHyprSignalListener m_listen_destroy;
+    CHyprSignalListener m_listen_render_pre_checks;
+    CHyprSignalListener m_listen_render_pre;
+    CHyprSignalListener m_listen_render_post;
+    CHyprSignalListener m_listen_reload;
+    CHyprSignalListener m_listen_monitor_layout;
+    CHyprSignalListener m_listen_monitor_removed;
 };
