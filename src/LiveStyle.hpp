@@ -36,25 +36,25 @@ LIVE_STYLE_OPERATIONS(SClothLiveStyle, SClothStyle)
 LIVE_STYLE_OPERATIONS(SSwarmLiveStyle, SSwarmStyle)
 LIVE_STYLE_OPERATIONS(SBubbleLiveStyle, SBubbleStyle)
 
-inline SLiquidLiveStyle liveStyleFor(const SLiquidStyle &) {
+inline SLiquidLiveStyle live_style_for(const SLiquidStyle &) {
     return {};
 }
-inline SPaperLiveStyle liveStyleFor(const SPaperStyle &) {
+inline SPaperLiveStyle live_style_for(const SPaperStyle &) {
     return {};
 }
-inline SClothLiveStyle liveStyleFor(const SClothStyle &) {
+inline SClothLiveStyle live_style_for(const SClothStyle &) {
     return {};
 }
-inline SSwarmLiveStyle liveStyleFor(const SSwarmStyle &) {
+inline SSwarmLiveStyle live_style_for(const SSwarmStyle &) {
     return {};
 }
-inline SBubbleLiveStyle liveStyleFor(const SBubbleStyle &) {
+inline SBubbleLiveStyle live_style_for(const SBubbleStyle &) {
     return {};
 }
 #undef LIVE_STYLE_OPERATIONS
 
 template <class F>
-decltype(auto) withLiveStyle(hyprimate::config::Style style, F &&operation) {
+decltype(auto) with_live_style(hyprimate::config::Style style, F &&operation) {
     using enum hyprimate::config::Style;
 
     switch (style) {

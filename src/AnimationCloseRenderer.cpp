@@ -87,7 +87,7 @@ namespace {
 
     // Returns the address of the single symbol whose demangled signature matches exactly, or
     // nullptr otherwise.
-    void *exactSymbol(const std::vector<SFunctionMatch> &matches, const char *signature) {
+    void *exact_symbol(const std::vector<SFunctionMatch> &matches, const char *signature) {
         void *found = nullptr;
         int count = 0;
         for (const auto &match : matches) {
@@ -100,28 +100,29 @@ namespace {
     }
 
     // Owned placement in CBox terms; the arithmetic lives in hyprimate::ownedRenderBox.
-    CBox ownedRenderBox(
-        const CBox &sourceDevice, const CBox &nativeBox, const Vector2D &snapshotSize) {
-        return toCBox(hyprimate::ownedRenderBox(
-            toBox(sourceDevice), toBox(nativeBox), Vec2{.x = snapshotSize.x, .y = snapshotSize.y}));
+    CBox owned_render_box(
+        const CBox &source_device, const CBox &native_box, const Vector2D &snapshot_size) {
+        return toCBox(hyprimate::ownedRenderBox(toBox(source_device),
+            toBox(native_box),
+            Vec2{.x = snapshot_size.x, .y = snapshot_size.y}));
     }
 
     // Exact box equality: a box that did not move is not damaged again.
-    bool sameBox(const CBox &lhs, const CBox &rhs) {
+    bool same_box(const CBox &lhs, const CBox &rhs) {
         return lhs.x == rhs.x && lhs.y == rhs.y && lhs.w == rhs.w && lhs.h == rhs.h;
     }
 
     // Adds `box` to `damage` unless it is empty or already listed.
-    void appendDamage(std::vector<CBox> &damage, const CBox &box) {
-        if (box.empty() || std::ranges::any_of(
-                               damage, [&box](const CBox &other) { return sameBox(other, box); })) {
+    void append_damage(std::vector<CBox> &damage, const CBox &box) {
+        if (box.empty() || std::ranges::any_of(damage,
+                               [&box](const CBox &other) { return same_box(other, box); })) {
             return;
         }
         damage.push_back(box);
     }
 
     // Outward rounding keeps every pixel in the style's footprint inside the damaged box.
-    CBox drawnBoxOf(const CAnimationCloseRenderer::SClosing &record, const PHLMONITOR &monitor) {
+    CBox drawn_box_of(const CAnimationCloseRenderer::SClosing &record, const PHLMONITOR &monitor) {
         const CBox DEVICE = std::visit(
             [&](const auto &style) { return close_style::footprint(style, record); }, record.style);
 
@@ -134,16 +135,16 @@ namespace {
     }
 
     // An owned record stops drawing: its last drawn box is damaged once so those pixels clear.
-    void releaseDrawn(CAnimationCloseRenderer::SClosing &record, std::vector<CBox> &damage) {
+    void release_drawn(CAnimationCloseRenderer::SClosing &record, std::vector<CBox> &damage) {
         if (record.owned) {
-            appendDamage(damage, record.drawnBox);
+            append_damage(damage, record.drawnBox);
         }
         record.drawnBox = CBox{};
     }
 
     // A bound record matches only its captured workspace (an expired one matches nothing); an
     // unbound record matches any workspace, as the native fadeout does.
-    bool recordOnWorkspace(
+    bool record_on_workspace(
         const CAnimationCloseRenderer::SClosing &record, const PHLWORKSPACE &workspace) {
         if (!record.workspaceBound) {
             return true;
@@ -152,20 +153,20 @@ namespace {
         return CAPTURED && CAPTURED == workspace;
     }
 
-    bool sameMonitor(const PHLMONITORREF &ref, const PHLMONITOR &monitor) {
+    bool same_monitor(const PHLMONITORREF &ref, const PHLMONITOR &monitor) {
         return ref.lock().get() == monitor.get();
     }
 
-    CAnimationCloseRenderer *activeRenderer() {
+    CAnimationCloseRenderer *active_renderer() {
         return CAnimationCloseRenderer::s_active;
     }
 
-    SP<Desktop::CWindowFadeout> hookCreate(PHLWINDOW window,
+    SP<Desktop::CWindowFadeout> hook_create(PHLWINDOW window,
         SP<Render::IFramebuffer> snapshot,
-        float sourceAlpha,
-        SP<Render::IFramebuffer> workspaceSnapshot) {
+        float source_alpha,
+        SP<Render::IFramebuffer> workspace_snapshot) {
         auto *original = reinterpret_cast<CreateFn>(
-            (activeRenderer() != nullptr) ? activeRenderer()->createOriginal() : nullptr);
+            (active_renderer() != nullptr) ? active_renderer()->createOriginal() : nullptr);
         if (original == nullptr) {
             return nullptr;
         }
@@ -173,8 +174,8 @@ namespace {
         // Never move from hooked by-value parameters: disassembly of the pinned host shows callers
         // keep the argument's control-block pointer in a register and release it after the call,
         // ignoring a moved-from slot.
-        auto created = original(window, snapshot, sourceAlpha, workspaceSnapshot);
-        if (auto *self = activeRenderer()) {
+        auto created = original(window, snapshot, source_alpha, workspace_snapshot);
+        if (auto *self = active_renderer()) {
             try {
                 self->onFadeoutCreated(window, created);
             } catch (...) {
@@ -185,13 +186,13 @@ namespace {
         return created;
     }
 
-    void hookRender(Render::IHyprRenderer *self,
+    void hook_render(Render::IHyprRenderer *self,
         Render::CRenderContext &ctx,
         PHLMONITOR monitor,
         Desktop::eFadeoutPlane plane,
         PHLWORKSPACE workspace,
         Render::eSceneMode mode) {
-        auto *active = activeRenderer();
+        auto *active = active_renderer();
         if ((active != nullptr) && mode == Render::eSceneMode::MONITOR &&
             active->hasRecordFor(monitor, plane, workspace)) {
             bool submitted = false;
@@ -259,11 +260,11 @@ CAnimationCloseRenderer::~CAnimationCloseRenderer() {
 bool CAnimationCloseRenderer::install(std::string &error) {
     shutdown();
 
-    const void *createAddress =
-        exactSymbol(HyprlandAPI::findFunctionsByName(m_handle, CREATE_NAME), CREATE_SIGNATURE);
-    const void *renderAddress =
-        exactSymbol(HyprlandAPI::findFunctionsByName(m_handle, RENDER_NAME), RENDER_SIGNATURE);
-    if ((createAddress == nullptr) || (renderAddress == nullptr)) {
+    const void *create_address =
+        exact_symbol(HyprlandAPI::findFunctionsByName(m_handle, CREATE_NAME), CREATE_SIGNATURE);
+    const void *render_address =
+        exact_symbol(HyprlandAPI::findFunctionsByName(m_handle, RENDER_NAME), RENDER_SIGNATURE);
+    if ((create_address == nullptr) || (render_address == nullptr)) {
         error = "close symbols not found by exact signature";
         return false;
     }
@@ -271,9 +272,9 @@ bool CAnimationCloseRenderer::install(std::string &error) {
     m_batch.reserve(BATCH_CAPACITY);
     s_active = this;
     m_createHook = HyprlandAPI::createFunctionHook(
-        m_handle, createAddress, reinterpret_cast<const void *>(&hookCreate));
+        m_handle, create_address, reinterpret_cast<const void *>(&hook_create));
     m_renderHook = HyprlandAPI::createFunctionHook(
-        m_handle, renderAddress, reinterpret_cast<const void *>(&hookRender));
+        m_handle, render_address, reinterpret_cast<const void *>(&hook_render));
     if ((m_createHook == nullptr) || (m_renderHook == nullptr) || !m_createHook->hook()) {
         shutdown();
         error = "failed to hook CWindowFadeout::create";
@@ -320,13 +321,13 @@ void CAnimationCloseRenderer::clear() {
 
 void CAnimationCloseRenderer::stage(const PHLWINDOW &window,
     SStyleState &state,
-    bool stateActive,
+    bool state_active,
     const hyprimate::config::SConfig &config,
     hyprimate::MaterialParams material,
-    const std::function<hyprimate::EdgeInput()> &edgeInput,
+    const std::function<hyprimate::EdgeInput()> &edge_input,
     const std::function<std::span<const hyprimate::Box>()> &obstacles,
-    const std::function<std::uint64_t()> &nextSeed,
-    const std::function<hyprimate::EdgeSet()> &swarmSides) {
+    const std::function<std::uint64_t()> &next_seed,
+    const std::function<hyprimate::EdgeSet()> &swarm_sides) {
     auto pending = pendingFor(window);
     const bool CAN_STAGE = pending.has_value();
     if (!pending) {
@@ -337,13 +338,13 @@ void CAnimationCloseRenderer::stage(const PHLWINDOW &window,
             return close_style::stage(style,
                 *pending,
                 window,
-                stateActive,
+                state_active,
                 config,
                 material,
-                edgeInput,
+                edge_input,
                 obstacles,
-                nextSeed,
-                swarmSides);
+                next_seed,
+                swarm_sides);
         },
         state);
     if (STAGED && CAN_STAGE) {
@@ -472,7 +473,8 @@ void CAnimationCloseRenderer::onFadeoutCreated(
         record->renderBox =
             std::holds_alternative<SBubbleStyle>(record->style)
                 ? CBox{0.0, 0.0, record->snapshotSize.x, record->snapshotSize.y}
-                : ownedRenderBox(record->sourceDevice, created->renderBox(), record->snapshotSize);
+                : owned_render_box(
+                      record->sourceDevice, created->renderBox(), record->snapshotSize);
     }
 
     fillVertices(*record);
@@ -497,7 +499,7 @@ void CAnimationCloseRenderer::tick(
         const auto MONITOR = record->monitor.lock();
 
         if (!MONITOR || MONITOR->m_scale != record->scale) {
-            releaseDrawn(*record, damage);
+            release_drawn(*record, damage);
             return true;
         }
 
@@ -505,12 +507,12 @@ void CAnimationCloseRenderer::tick(
             // A suppressed close keeps its record (so the native fade stays suppressed) until the
             // native fadeout ends.
             if (finished(record->style)) {
-                releaseDrawn(*record, damage);
+                release_drawn(*record, damage);
                 return !NATIVE_ALIVE;
             }
 
             if (NATIVE_ALIVE && !std::holds_alternative<SBubbleStyle>(record->style)) {
-                record->renderBox = ownedRenderBox(
+                record->renderBox = owned_render_box(
                     record->sourceDevice, FADEOUT->renderBox(), record->snapshotSize);
             }
 
@@ -530,10 +532,10 @@ void CAnimationCloseRenderer::tick(
 
             // An advancing record damages its box every frame, which also schedules its next frame.
             // A record that did not advance only damages when the native fadeout moved its box.
-            const CBox CURRENT = drawnBoxOf(*record, MONITOR);
-            if (advanced || !sameBox(CURRENT, record->drawnBox)) {
-                appendDamage(damage, record->drawnBox);
-                appendDamage(damage, CURRENT);
+            const CBox CURRENT = drawn_box_of(*record, MONITOR);
+            if (advanced || !same_box(CURRENT, record->drawnBox)) {
+                append_damage(damage, record->drawnBox);
+                append_damage(damage, CURRENT);
             }
             record->drawnBox = CURRENT;
             return false;
@@ -566,7 +568,7 @@ bool CAnimationCloseRenderer::needsFrame(const PHLMONITOR &monitor) const {
         return false;
     }
     return std::ranges::any_of(m_records, [&](const auto &record) {
-        return record->owned && sameMonitor(record->monitor, monitor) &&
+        return record->owned && same_monitor(record->monitor, monitor) &&
                (!finished(record->style) || !record->drawnBox.empty());
     });
 }
@@ -584,10 +586,10 @@ CAnimationCloseRenderer::SClosing *CAnimationCloseRenderer::recordFor(
 bool CAnimationCloseRenderer::hasRecordFor(
     const PHLMONITOR &monitor, Desktop::eFadeoutPlane plane, const PHLWORKSPACE &workspace) const {
     for (const auto &record : m_records) {
-        if (!sameMonitor(record->monitor, monitor) || record->plane != plane) {
+        if (!same_monitor(record->monitor, monitor) || record->plane != plane) {
             continue;
         }
-        if (!recordOnWorkspace(*record, workspace)) {
+        if (!record_on_workspace(*record, workspace)) {
             continue;
         }
         return true;
@@ -630,7 +632,7 @@ bool CAnimationCloseRenderer::renderBatch(Render::CRenderContext &ctx,
         }
 
         SClosing *record = recordFor(fadeout);
-        if ((record != nullptr) && !recordOnWorkspace(*record, workspace)) {
+        if ((record != nullptr) && !record_on_workspace(*record, workspace)) {
             record = nullptr;
         }
         if ((record != nullptr) && record->owned && fadeout->done()) {
@@ -648,10 +650,10 @@ bool CAnimationCloseRenderer::renderBatch(Render::CRenderContext &ctx,
     // Orphan pass: owned closes whose native fadeout finished or vanished keep drawing from their
     // transition.
     for (const auto &record : m_records) {
-        if (!record->owned || finished(record->style) || !sameMonitor(record->monitor, monitor)) {
+        if (!record->owned || finished(record->style) || !same_monitor(record->monitor, monitor)) {
             continue;
         }
-        if (record->plane != plane || !recordOnWorkspace(*record, workspace) ||
+        if (record->plane != plane || !record_on_workspace(*record, workspace) ||
             !ctx.shouldRenderContent(record->noScreenShare)) {
             continue;
         }
@@ -720,15 +722,16 @@ bool CAnimationCloseRenderer::renderBatch(Render::CRenderContext &ctx,
         const auto TEX = FRAMEBUFFER->getTexture();
         // Texture blur rides on a stock element; the mesh path only replaces the plain texture
         // draw.
-        if (record && sameMonitor(record->monitor, monitor) && !EFFECTS.textureBlur.enabled &&
-            TEX->m_size.x == record->snapshotSize.x && TEX->m_size.y == record->snapshotSize.y) {
-            if (std::visit(
-                    [&](auto &style) {
-                        return close_style::renderNative(
-                            style, *record, ctx, fadeout, TEX, native.damage());
-                    },
-                    record->style))
-                continue;
+        if (record != nullptr && same_monitor(record->monitor, monitor) &&
+            !EFFECTS.textureBlur.enabled && TEX->m_size.x == record->snapshotSize.x &&
+            TEX->m_size.y == record->snapshotSize.y &&
+            std::visit(
+                [&](auto &style) {
+                    return close_style::renderNative(
+                        style, *record, ctx, fadeout, TEX, native.damage());
+                },
+                record->style)) {
+            continue;
         }
 
         native.drawTexture(*fadeout, TEX, EFFECTS);

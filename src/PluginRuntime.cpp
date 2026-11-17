@@ -25,9 +25,12 @@
 #include <hyprland/src/output/Monitor.hpp>
 #include <hyprland/src/plugins/PluginAPI.hpp>
 #include <hyprland/src/render/Renderer.hpp>
+#include <hyprland/src/render/Texture.hpp>
 #include <hyprland/src/render/transformer/TransformerList.hpp>
 #include <hyprland/src/state/MonitorState.hpp>
 #include <hyprutils/math/Box.hpp>
+#include <hyprutils/memory/SharedPtr.hpp>
+#include <hyprutils/memory/UniquePtr.hpp>
 
 #include "AnimationCloseRenderer.hpp"
 #include "AnimationTransformer.hpp"
@@ -49,30 +52,30 @@ namespace {
     constexpr const char *WOBBLE_MESSAGE =
         "[hyprimate] Disable decoration:wobble:enabled before enabling hyprimate";
 
-    bool isUsableBox(const CBox &box) {
+    bool is_usable_box(const CBox &box) {
         return std::isfinite(box.x) && std::isfinite(box.y) && std::isfinite(box.w) &&
                std::isfinite(box.h) && box.w > 0.0 && box.h > 0.0;
     }
 
     // Identity of the window's monitor; zero when it has none, which matches no live monitor.
-    std::uintptr_t monitorId(const PHLWINDOW &window) {
+    std::uintptr_t monitor_id(const PHLWINDOW &window) {
         return reinterpret_cast<std::uintptr_t>(window->m_monitor.lock().get());
     }
 
     // ARGB config value to a float colour; channel bytes are unpacked, not treated as one packed
     // integer.
-    CHyprColor colorFromArgb(std::uint32_t argb) {
-        const auto CHANNEL = [argb](int shift) {
+    CHyprColor color_from_argb(std::uint32_t argb) {
+        const auto CHANNEL = [argb](unsigned int shift) {
             return static_cast<float>((argb >> shift) & 0xFFU) / 255.F;
         };
-        return CHyprColor(CHANNEL(16), CHANNEL(8), CHANNEL(0), CHANNEL(24));
+        return {CHANNEL(16), CHANNEL(8), CHANNEL(0), CHANNEL(24)};
     }
 
 }  // namespace
 
 CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     std::random_device entropy;
-    m_nextSeed = (std::uint64_t{entropy()} << 32) | entropy();
+    m_nextSeed = (std::uint64_t{entropy()} << 32U) | entropy();
     hyprimate::config::registerConfigValues(m_handle, m_values);
     m_config = hyprimate::config::readConfig(m_values);
     m_bubbleResidue->setEnabled(bubbleResidueEnabled());
@@ -85,9 +88,9 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     // Close transitions are optional: if the compositor symbols are not found, movement deformation
     // still runs.
     m_close = std::make_unique<CAnimationCloseRenderer>(m_handle, m_closeSolid, m_shade, m_sprites);
-    std::string closeError;
-    if (!m_close->install(closeError)) {
-        notify("[hyprimate] close transitions unavailable: " + closeError);
+    std::string close_error;
+    if (!m_close->install(close_error)) {
+        notify("[hyprimate] close transitions unavailable: " + close_error);
     }
 
     // Listeners are registered last so a failed constructor never leaves callbacks pointing at a
@@ -288,26 +291,30 @@ bool CPluginRuntime::pluginEnabled() const {
 }
 
 double CPluginRuntime::movementStrength() const {
-    return withLiveStyle(m_config.style, [&](auto style) { return style.strength(*this); });
+    return with_live_style(m_config.style, [&](auto style) { return style.strength(*this); });
 }
 
 hyprimate::MaterialParams CPluginRuntime::effectiveMaterialParams() const {
     const auto &liquid = m_config.movement.liquid;
-    return {.viscosity = liquid.viscosity,
+    return {
+        .viscosity = liquid.viscosity,
         .elasticity = liquid.elasticity,
         .momentum = liquid.momentum,
-        .variation = liquid.variation};
+        .variation = liquid.variation,
+    };
 }
 
 hyprimate::ClothMovementParams CPluginRuntime::clothMovementParams() const {
     const auto &cloth = m_config.movement.cloth;
-    return {.strength = cloth.strength,
+    return {
+        .strength = cloth.strength,
         .flutter = cloth.flutter,
         .shading = cloth.shading,
         .variation = cloth.variation,
         .shine = cloth.shine,
         .springiness = cloth.springiness,
-        .gravity = cloth.gravity};
+        .gravity = cloth.gravity,
+    };
 }
 
 bool CPluginRuntime::movementEnabled() const {
@@ -381,24 +388,30 @@ hyprimate::EdgeInput CPluginRuntime::edgeInputFor(
         BODY.h + (CAPTURE.h - CURRENT.h)};
     const auto BOX = [](const CBox &source_box) {
         return hyprimate::Box{
-            .x = source_box.x, .y = source_box.y, .w = source_box.w, .h = source_box.h};
+            .x = source_box.x,
+            .y = source_box.y,
+            .w = source_box.w,
+            .h = source_box.h,
+        };
     };
 
     m_neighbours.clear();
     if (!window->isFloating()) {
         gatherNeighbours(window);
     }
-    return {.body = BOX(BODY),
+    return {
+        .body = BOX(BODY),
         .capture = BOX(REST),
         .screen = BOX(MONITOR->logicalBox()),
         .workArea = BOX(MONITOR->logicalBoxMinusReserved()),
         .neighbours = m_neighbours,
         .origin = origin,
-        .lastWindow = !workspaceHasOtherWindows(window)};
+        .lastWindow = !workspaceHasOtherWindows(window),
+    };
 }
 
 bool CPluginRuntime::materialUsable() const {
-    return withLiveStyle(m_config.style, [&](auto style) { return style.usable(*this); });
+    return with_live_style(m_config.style, [&](auto style) { return style.usable(*this); });
 }
 
 bool CPluginRuntime::materialChanged(const CAnimationTransformer &transformer) const {
@@ -472,7 +485,7 @@ void CPluginRuntime::track(const PHLWINDOW &window) {
     entry.window = PHLWINDOWREF{window};
     entry.tracker.track(toBox(window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT)),
         toBox(window->getFullWindowBoundingBox()),
-        monitorId(window));
+        monitor_id(window));
     m_tracked.push_back(entry);
 }
 
@@ -484,7 +497,7 @@ void CPluginRuntime::forget(const PHLWINDOW &window) {
 void CPluginRuntime::rebaseline(STracked &entry, const PHLWINDOW &window) const {
     const CBox CURRENT = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
     entry.tracker.baseline(
-        toBox(CURRENT), toBox(window->getFullWindowBoundingBox()), monitorId(window));
+        toBox(CURRENT), toBox(window->getFullWindowBoundingBox()), monitor_id(window));
 }
 
 void CPluginRuntime::baselineAll() {
@@ -499,7 +512,7 @@ bool CPluginRuntime::eligible(const PHLWINDOW &window) const {
     // Opening animations are deformable; the sampler rebaselines geometry while they run.
     return pluginEnabled() && !m_inert && window->mapped() &&
            !Fullscreen::controller()->isFullscreen(window) &&
-           isUsableBox(window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT));
+           is_usable_box(window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT));
 }
 
 void CPluginRuntime::onRenderPre(const PHLMONITOR &monitor) {
@@ -521,8 +534,8 @@ void CPluginRuntime::onRenderPre(const PHLMONITOR &monitor) {
             restoreBubbleScanout(monitor);
         }
     }
-    m_openSolid->setColor(colorFromArgb(m_config.open.liquid.color));
-    m_closeSolid->setColor(colorFromArgb(m_config.close.liquid.color));
+    m_openSolid->setColor(color_from_argb(m_config.open.liquid.color));
+    m_closeSolid->setColor(color_from_argb(m_config.close.liquid.color));
     // Sampling runs on each window's own monitor only, so a window steps once per frame of the
     // monitor it is on.
     const auto NOW = clock::now();
@@ -605,12 +618,12 @@ hyprimate::WindowSnapshot CPluginRuntime::snapshotOf(
     window_snapshot.capture = toBox(window->getFullWindowBoundingBox());
     window_snapshot.deformable = eligible(window);
     window_snapshot.animating_in = animating;
-    withLiveStyle(
+    with_live_style(
         m_config.style, [&](auto style) { style.snapshot(transformer, window_snapshot); });
     window_snapshot.material_changed = (transformer != nullptr) && materialChanged(*transformer);
     window_snapshot.open_enabled = openEnabled();
     window_snapshot.movement_enabled = movementEnabled();
-    window_snapshot.monitor = monitorId(window);
+    window_snapshot.monitor = monitor_id(window);
     window_snapshot.elapsed = elapsed;
     window_snapshot.workspace_movement = m_config.movement.workspaceMovement;
     if (const auto WORKSPACE = window->m_workspace;
@@ -627,7 +640,8 @@ hyprimate::WindowSnapshot CPluginRuntime::snapshotOf(
         if (tail != nullptr) {
             window_snapshot.workspace_offset = {
                 .x = tail->workspaceCapture.x - window_snapshot.capture.x,
-                .y = tail->workspaceCapture.y - window_snapshot.capture.y};
+                .y = tail->workspaceCapture.y - window_snapshot.capture.y,
+            };
         }
         window_snapshot.deformable =
             window_snapshot.deformable &&
@@ -656,7 +670,7 @@ void CPluginRuntime::recordMovement(STracked &entry,
     if (decision.cancel_movement) {
         transformer->cancelMovement();
     }
-    withLiveStyle(m_config.style, [&](auto style) {
+    with_live_style(m_config.style, [&](auto style) {
         style.movement(*this, *transformer, window, decision, elapsed, ENABLED, MOVING);
     });
 }
@@ -669,7 +683,7 @@ void CPluginRuntime::beginOpening(STracked &entry, const PHLWINDOW &window) {
         return;
     }
 
-    if (!withLiveStyle(
+    if (!with_live_style(
             m_config.style, [&](auto style) { return style.open(*this, entry, window); })) {
         return;
     }
@@ -704,11 +718,11 @@ void CPluginRuntime::stepWindow(STracked &entry, const PHLWINDOW &window, double
         entry.hasFootprint = false;
     }
     const CBox CAPTURE = window->getFullWindowBoundingBox();
-    if (!isUsableBox(CAPTURE)) {
+    if (!is_usable_box(CAPTURE)) {
         detachWindow(entry, window);
         return;
     }
-    withLiveStyle(m_config.style, [&](auto style) {
+    with_live_style(m_config.style, [&](auto style) {
         style.step(*this, *transformer, elapsed, {CAPTURE.w, CAPTURE.h}, movementEnabled());
     });
     if (auto *swarm = std::get_if<SSwarmStyle>(&transformer->styleState());
@@ -722,7 +736,7 @@ void CPluginRuntime::stepWindow(STracked &entry, const PHLWINDOW &window, double
     entry.tracker.baseline(
         toBox(window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT)),
         toBox(window->getFullWindowBoundingBox()),
-        monitorId(window));
+        monitor_id(window));
     if (transformer->active()) {
         entry.footprint = worldFootprint(window);
         entry.hasFootprint = true;

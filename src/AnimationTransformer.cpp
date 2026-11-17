@@ -22,8 +22,6 @@
 #include "animations/liquid/LiquidMesh.hpp"
 #include "animations/liquid/LiquidPose.hpp"
 #include "animations/liquid/SolidFill.hpp"
-#include "animations/shared/Core.hpp"
-#include "animations/shared/EdgeTransition.hpp"
 #include "animations/shared/PaperRenderer.hpp"
 #include "animations/swarm/SwarmRenderer.hpp"
 #include "config_generated.hpp"
@@ -42,7 +40,7 @@ SStyleState initialStyle(hyprimate::config::Style style,
     hyprimate::MaterialParams liquid,
     hyprimate::ClothMovementParams cloth,
     std::uint64_t seed) {
-    return withLiveStyle(style, [&](auto live) { return live.initial(liquid, cloth, seed); });
+    return with_live_style(style, [&](auto live) { return live.initial(liquid, cloth, seed); });
 }
 
 CAnimationTransformer::CAnimationTransformer(PHLWINDOWREF window,
@@ -62,22 +60,22 @@ bool CAnimationTransformer::builtFor(hyprimate::config::Style style,
     hyprimate::ClothMovementParams cloth) const noexcept {
     return std::visit(
         [&](const auto &state) {
-            return liveStyleFor(state).builtFor(state, style, liquid, cloth);
+            return live_style_for(state).builtFor(state, style, liquid, cloth);
         },
         m_style);
 }
 
 void CAnimationTransformer::cancelOpening() {
-    std::visit([&](const auto &state) { liveStyleFor(state).cancelOpening(*this); }, m_style);
+    std::visit([&](const auto &state) { live_style_for(state).cancelOpening(*this); }, m_style);
 }
 
 void CAnimationTransformer::cancelMovement() {
-    std::visit([&](const auto &state) { liveStyleFor(state).cancelMovement(*this); }, m_style);
+    std::visit([&](const auto &state) { live_style_for(state).cancelMovement(*this); }, m_style);
 }
 
 bool CAnimationTransformer::deforming() const noexcept {
     return std::visit(
-        [&](const auto &state) { return liveStyleFor(state).deforming(state); }, m_style);
+        [&](const auto &state) { return live_style_for(state).deforming(state); }, m_style);
 }
 
 bool CAnimationTransformer::active() const {
@@ -102,22 +100,23 @@ bool CAnimationTransformer::blocksDirectScanout() const {
     return active();
 }
 
-CBox CAnimationTransformer::transformedExtents(const CBox &currentBox) const {
+CBox CAnimationTransformer::transformedExtents(const CBox &current_box) const {
     if (!active()) {
-        return currentBox;
+        return current_box;
     }
 
-    return std::visit([&](const auto &state) { return liveExtents(state, currentBox); }, m_style);
+    return std::visit([&](const auto &state) { return liveExtents(state, current_box); }, m_style);
 }
 
-CBox CAnimationTransformer::sourceBoxForOutput(const CBox &outputBox, const CBox &inputBox) const {
+CBox CAnimationTransformer::sourceBoxForOutput(
+    const CBox &output_box, const CBox &input_box) const {
     // While deforming, the inverse capture must see the full input so no displaced texel is
     // clipped.
     if (active()) {
-        return inputBox;
+        return input_box;
     }
 
-    return outputBox.intersection(inputBox);
+    return output_box.intersection(input_box);
 }
 
 SWindowTransformBuffer CAnimationTransformer::transform(CRenderContext &ctx,
@@ -149,12 +148,14 @@ SWindowTransformBuffer CAnimationTransformer::transform(CRenderContext &ctx,
         return input;
     }
 
-    const SLiveRenderGeometry GEOMETRY{.canvas = OUTPUTCANVAS,
+    const SLiveRenderGeometry GEOMETRY{
+        .canvas = OUTPUTCANVAS,
         .source = SOURCEBOX,
         .output = OUTPUTBOX,
         .localOutput = LOCALOUTPUTBOX,
         .scale = SCALE,
-        .textureSize = {.x = TEX_W, .y = TEX_H}};
+        .textureSize = {.x = TEX_W, .y = TEX_H},
+    };
     return std::visit(
         [&](auto &state) {
             return renderLive(state, ctx, input, context, GEOMETRY, m_solid, m_shade, m_sprites);
@@ -166,7 +167,7 @@ void CAnimationTransformer::markDetached() {
     m_detached = true;
     // A close may have moved a sheet state into its retained record.
     if (!std::visit(
-            [&](const auto &state) { return liveStyleFor(state).available(state); }, m_style)) {
+            [&](const auto &state) { return live_style_for(state).available(state); }, m_style)) {
         return;
     }
     cancelOpening();
