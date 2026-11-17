@@ -76,9 +76,9 @@ namespace hyprimate {
 
         // True when the window is ineligible and its opening-edge state is clear: nothing can
         // change until its eligibility rises or it begins animating.
-        bool dormant(bool animating_in) const noexcept;
+        [[nodiscard]] bool dormant(bool animating_in) const noexcept;
 
-        bool eligible() const noexcept {
+        [[nodiscard]] bool eligible() const noexcept {
             return m_eligible;
         }
 

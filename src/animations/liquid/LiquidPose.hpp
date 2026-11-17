@@ -36,15 +36,15 @@ namespace hyprimate {
         const LiquidMesh &mesh;
         const EdgeTransition &transition;
         Vec2 compensation{.x = 1.0, .y = 1.0};
-        Vec2 openOffset{.x = 0.0, .y = 0.0};
-        double displacementGain = 1.0;
-        bool boxPose = false;
+        Vec2 open_offset{.x = 0.0, .y = 0.0};
+        double displacement_gain = 1.0;
+        bool box_pose = false;
     };
 
     // Pose offsets (logical px from the box centre) at every render sample, for one logical size.
     // Owned by the caller next to the mesh it samples. The owner MUST call invalidate() whenever
-    // any pose input changes: the mesh, the transition, compensation, openOffset, displacementGain
-    // or boxPose. The grid rebuilds itself when the size changes.
+    // any pose input changes: the mesh, the transition, compensation, open_offset,
+    // displacement_gain or box_pose. The grid rebuilds itself when the size changes.
     struct LiquidPoseGrid {
         std::array<Vec2, static_cast<std::size_t>(LIQUID_POSE_SAMPLES) * LIQUID_POSE_SAMPLES>
             offsets{};
@@ -57,109 +57,119 @@ namespace hyprimate {
     };
 
     // Rebuilds grid for pose at size when it is stale or the size differs.
-    void refreshLiquidPoseGrid(const LiquidPose &pose, Vec2 size, LiquidPoseGrid &grid);
+    void refresh_liquid_pose_grid(const LiquidPose &pose, Vec2 size, LiquidPoseGrid &grid);
 
-    // Movement-field gain for `pose` at `restSize`: the largest of 1, 1/2, 1/4, ... (0 when none
+    // Movement-field gain for `pose` at `rest_size`: the largest of 1, 1/2, 1/4, ... (0 when none
     // qualifies) at which every triangle of the render lattice keeps >= 20% of its gain-0 area.
-    // Ignores pose.displacementGain; 1 when the transition is idle or the mesh settled. With a
+    // Ignores pose.displacement_gain; 1 when the transition is idle or the mesh settled. With a
     // non-null `grid` the grid is filled with the offsets of `pose` at the returned gain (exactly
-    // what refreshLiquidPoseGrid writes), so the caller does not sample the grid again; a grid is
-    // only invalidated where no field is produced.
-    double fitLiquidPoseGain(const LiquidPose &pose, Vec2 restSize, LiquidPoseGrid *grid);
+    // what refresh_liquid_pose_grid writes), so the caller does not sample the grid again; a grid
+    // is only invalidated where no field is produced.
+    double fit_liquid_pose_gain(const LiquidPose &pose, Vec2 rest_size, LiquidPoseGrid *grid);
+
+    struct LiquidStrength {
+        double value;
+    };
+
+    struct LiquidDrive {
+        double value;
+    };
 
     // Steps the mesh and transition by elapsed seconds, recording drive travel. Invalidates the
     // grid.
-    void advanceLiquidPose(LiquidMesh &mesh,
+    void advance_liquid_pose(LiquidMesh &mesh,
         EdgeTransition &transition,
         LiquidPoseGrid &grid,
         double elapsed,
         Vec2 size,
-        double strength,
-        double drive);
+        LiquidStrength strength,
+        LiquidDrive drive);
 
     // Logical-px bounds of the visible half-plane on the screen side of the edge; nullopt when the
     // transition is idle.
-    std::optional<Box> liquidVisibleBox(const LiquidPose &pose, const Box &logicalBox);
+    std::optional<Box> liquid_visible_box(const LiquidPose &pose, const Box &logical_box);
 
     // Logical-px bounds of the meniscus strip; nullopt when there is no meniscus.
-    std::optional<Box> liquidMeniscusExtents(const LiquidPose &pose, const Box &logicalBox);
+    std::optional<Box> liquid_meniscus_extents(const LiquidPose &pose, const Box &logical_box);
 
     // Logical-px bounds of the displayed window: the render samples and meniscus, clipped to the
     // visible half-plane.
-    Box liquidRenderExtents(const LiquidPose &pose, const Box &logicalBox, LiquidPoseGrid &grid);
+    Box liquid_render_extents(const LiquidPose &pose, const Box &logical_box, LiquidPoseGrid &grid);
 
     // Edge liquid point relative to the box centre, in logical px, including the open offset.
-    Vec2 liquidEdgePoint(const LiquidPose &pose, double t, double n);
+    Vec2 liquid_edge_point(const LiquidPose &pose, double tangent, double n);
 
     // Maps snapshot-space texels into the output: F(p) = B.pos + p * B.size / T.
-    Box projectToOutput(const Box &extentsDevice, const Box &renderBox, Vec2 snapshotSize);
+    Box project_to_output(const Box &extents_device, const Box &render_box, Vec2 snapshot_size);
 
     // Owned placement: the snapshot at unit scale (device px), with the window's centre riding the
     // native fadeout's centre.
-    Box ownedRenderBox(const Box &sourceDevice, const Box &nativeBox, Vec2 snapshotSize);
+    Box owned_render_box(const Box &source_device, const Box &native_box, Vec2 snapshot_size);
 
     // Box helpers matching the clipping and padding the liquid paths use.
-    Box intersectBoxes(const Box &a, const Box &b) noexcept;
-    void expandBox(Box &box, double padding) noexcept;
-    bool emptyBox(const Box &box) noexcept;
+    Box intersect_boxes(const Box &first, const Box &second) noexcept;
+    void expand_box(Box &box, double padding) noexcept;
+    bool empty_box(const Box &box) noexcept;
 
-    // Places the render mesh. sourceDevice is the window in device px, outputDevice the target in
-    // device px, and textureOrigin/textureSize the texture in device px.
+    // Places the render mesh. source_device is the window in device px, output_device the target in
+    // device px, and texture_origin/texture_size the texture in device px.
     template <class Vertex>
-    void fillLiquidRenderMesh(const LiquidPose &pose,
-        const Box &sourceDevice,
+    void fill_liquid_render_mesh(const LiquidPose &pose,
+        const Box &source_device,
         double scale,
-        const Box &outputDevice,
-        Vec2 textureOrigin,
-        Vec2 textureSize,
+        const Box &output_device,
+        Vec2 texture_origin,
+        Vec2 texture_size,
         LiquidPoseGrid &grid,
         std::vector<Vertex> &out) {
         if (out.size() != LIQUID_RENDER_VERTEX_COUNT) {
             out.resize(LIQUID_RENDER_VERTEX_COUNT);
         }
 
-        refreshLiquidPoseGrid(
-            pose, Vec2{.x = sourceDevice.w / scale, .y = sourceDevice.h / scale}, grid);
+        refresh_liquid_pose_grid(
+            pose, Vec2{.x = source_device.w / scale, .y = source_device.h / scale}, grid);
 
-        const double CENTRE_X = sourceDevice.x + (0.5 * sourceDevice.w);
-        const double CENTRE_Y = sourceDevice.y + (0.5 * sourceDevice.h);
+        const double CENTRE_X = source_device.x + (0.5 * source_device.w);
+        const double CENTRE_Y = source_device.y + (0.5 * source_device.h);
 
         // Each grid sample is placed once, then reused by its neighbouring triangles.
         std::array<LiquidVertex,
             static_cast<std::size_t>(LIQUID_POSE_SAMPLES) * LIQUID_POSE_SAMPLES>
             samples;
         using PoseExtents = std::extents<std::size_t, LIQUID_POSE_SAMPLES, LIQUID_POSE_SAMPLES>;
-        const std::mdspan<const Vec2, PoseExtents, std::layout_left> offsets{grid.offsets.data()};
-        const std::mdspan<LiquidVertex, PoseExtents, std::layout_left> sample_grid{samples.data()};
-        const std::mdspan<const LiquidVertex, PoseExtents, std::layout_left> const_samples{
+        const std::mdspan<const Vec2, PoseExtents, std::layout_left> OFFSETS{grid.offsets.data()};
+        const std::mdspan<LiquidVertex, PoseExtents, std::layout_left> SAMPLE_GRID{samples.data()};
+        const std::mdspan<const LiquidVertex, PoseExtents, std::layout_left> CONST_SAMPLES{
             samples.data()};
         for (int j = 0; j < LIQUID_POSE_SAMPLES; ++j) {
             for (int i = 0; i < LIQUID_POSE_SAMPLES; ++i) {
                 const double TEX_U = static_cast<double>(i) / LIQUID_RENDER_CELLS;
                 const double TEX_V = static_cast<double>(j) / LIQUID_RENDER_CELLS;
-                const Vec2 OFFSET = offsets[i, j];
-                sample_grid[i, j] = {
+                const Vec2 OFFSET = OFFSETS[i, j];
+                SAMPLE_GRID[i, j] = {
                     .x = static_cast<float>(
-                        (CENTRE_X + (OFFSET.x * scale) - outputDevice.x) / outputDevice.w),
+                        (CENTRE_X + (OFFSET.x * scale) - output_device.x) / output_device.w),
                     .y = static_cast<float>(
-                        (CENTRE_Y + (OFFSET.y * scale) - outputDevice.y) / outputDevice.h),
+                        (CENTRE_Y + (OFFSET.y * scale) - output_device.y) / output_device.h),
                     .u = static_cast<float>(
-                        (sourceDevice.x + (sourceDevice.w * TEX_U) - textureOrigin.x) /
-                        textureSize.x),
+                        (source_device.x + (source_device.w * TEX_U) - texture_origin.x) /
+                        texture_size.x),
                     .v = static_cast<float>(
-                        (sourceDevice.y + (sourceDevice.h * TEX_V) - textureOrigin.y) /
-                        textureSize.y),
+                        (source_device.y + (source_device.h * TEX_V) - texture_origin.y) /
+                        texture_size.y),
                 };
             }
         }
 
-        constexpr int ORDER[6][2] = {{0, 0}, {0, 1}, {1, 0}, {1, 0}, {0, 1}, {1, 1}};
-        std::size_t vertex_index = 0;
+        constexpr std::array<std::array<int, 2>, 6> ORDER{
+            {{0, 0}, {0, 1}, {1, 0}, {1, 0}, {0, 1}, {1, 1}},
+        };
+        auto output = out.begin();
         for (int cj = 0; cj < LIQUID_RENDER_CELLS; ++cj) {
             for (int ci = 0; ci < LIQUID_RENDER_CELLS; ++ci) {
-                for (const auto &[corner_x, corner_y] : ORDER) {
-                    Vertex &vertex = out[vertex_index++];
-                    const LiquidVertex &sample = const_samples[ci + corner_x, cj + corner_y];
+                for (const auto &[CORNER_X, CORNER_Y] : ORDER) {
+                    Vertex &vertex = *output++;
+                    const LiquidVertex &sample = CONST_SAMPLES[ci + CORNER_X, cj + CORNER_Y];
                     vertex.x = sample.x;
                     vertex.y = sample.y;
                     vertex.u = sample.u;
@@ -169,32 +179,33 @@ namespace hyprimate {
         }
     }
 
-    // Places the meniscus strip in outputDevice. Texture coordinates are a flat centre sample.
+    // Places the meniscus strip in output_device. Texture coordinates are a flat centre sample.
     template <class Vertex>
-    void fillLiquidMeniscusMesh(const LiquidPose &pose,
-        const Box &sourceDevice,
+    void fill_liquid_meniscus_mesh(const LiquidPose &pose,
+        const Box &source_device,
         double scale,
-        const Box &outputDevice,
+        const Box &output_device,
         std::vector<Vertex> &out) {
         if (out.size() != LIQUID_MENISCUS_VERTEX_COUNT) {
             out.resize(LIQUID_MENISCUS_VERTEX_COUNT);
         }
 
-        const double CENTRE_X = sourceDevice.x + (0.5 * sourceDevice.w);
-        const double CENTRE_Y = sourceDevice.y + (0.5 * sourceDevice.h);
-        const double LOW = pose.transition.meniscusLow();
-        const double SPAN = pose.transition.meniscusHigh() - LOW;
+        const double CENTRE_X = source_device.x + (0.5 * source_device.w);
+        const double CENTRE_Y = source_device.y + (0.5 * source_device.h);
+        const double LOW = pose.transition.meniscus_low();
+        const double SPAN = pose.transition.meniscus_high() - LOW;
 
-        const auto PLACE = [&](Vertex &vertex, double t, double n) {
-            const Vec2 POSITION = liquidEdgePoint(pose, t, n);
+        const auto PLACE = [&](Vertex &vertex, double tangent, double n) {
+            const Vec2 POSITION = liquid_edge_point(pose, tangent, n);
             vertex.x = static_cast<float>(
-                (CENTRE_X + (POSITION.x * scale) - outputDevice.x) / outputDevice.w);
+                (CENTRE_X + (POSITION.x * scale) - output_device.x) / output_device.w);
             vertex.y = static_cast<float>(
-                (CENTRE_Y + (POSITION.y * scale) - outputDevice.y) / outputDevice.h);
+                (CENTRE_Y + (POSITION.y * scale) - output_device.y) / output_device.h);
             vertex.u = 0.5F;
             vertex.v = 0.5F;
         };
 
+        auto output = out.begin();
         for (int i = 0; i < LIQUID_MENISCUS_COLUMNS; ++i) {
             const double TANGENT_START =
                 LOW + (SPAN * static_cast<double>(i) / LIQUID_MENISCUS_COLUMNS);
@@ -205,13 +216,12 @@ namespace hyprimate {
 
             // Corners: a = behind edge at t0, b = behind edge at t1, c = crest at t0, d = crest at
             // t1. Triangles abc, bdc.
-            Vertex *quad = &out[static_cast<std::size_t>(i) * 6];
-            PLACE(quad[0], TANGENT_START, -LIQUID_BEHIND_EDGE);
-            PLACE(quad[1], TANGENT_END, -LIQUID_BEHIND_EDGE);
-            PLACE(quad[2], TANGENT_START, HEIGHT_START);
-            PLACE(quad[3], TANGENT_END, -LIQUID_BEHIND_EDGE);
-            PLACE(quad[4], TANGENT_END, HEIGHT_END);
-            PLACE(quad[5], TANGENT_START, HEIGHT_START);
+            PLACE(*output++, TANGENT_START, -LIQUID_BEHIND_EDGE);
+            PLACE(*output++, TANGENT_END, -LIQUID_BEHIND_EDGE);
+            PLACE(*output++, TANGENT_START, HEIGHT_START);
+            PLACE(*output++, TANGENT_END, -LIQUID_BEHIND_EDGE);
+            PLACE(*output++, TANGENT_END, HEIGHT_END);
+            PLACE(*output++, TANGENT_START, HEIGHT_START);
         }
     }
 

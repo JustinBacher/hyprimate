@@ -9,7 +9,7 @@ struct SLiquidCloseData {
     std::optional<hyprimate::EdgeFrame> frame;
     bool splash = true;
     hyprimate::TransitionParams params{};
-    bool hasLiquid = false;
-    bool verticesStale = false;
-    hyprimate::Box liquidDevice{};
+    bool has_liquid = false;
+    bool vertices_stale = false;
+    hyprimate::Box liquid_device{};
 };

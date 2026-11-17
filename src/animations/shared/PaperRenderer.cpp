@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
-#include <utility>
+#include <ranges>
 #include <vector>
 
 #include <GLES3/gl32.h>
@@ -30,13 +30,13 @@ namespace {
     constexpr double SHADOW_STRENGTH = 0.6;  // peak black alpha for k = -1
     constexpr double HIGHLIGHT_STRENGTH = 0.45;  // peak white alpha for k = +1
 
-    uint8_t rampByte(double unit) noexcept {
+    uint8_t ramp_byte(double unit) noexcept {
         return static_cast<uint8_t>(std::lround(std::clamp(unit, 0.0, 1.0) * 255.0));
     }
 
     // Ramp U for a shade in [-1, 1]; the centre texel is neutral. Continuous, so a triangle's
     // corners interpolate.
-    float shadeU(double shade) noexcept {
+    float shade_u(double shade) noexcept {
         const double TEXEL = RAMP_CENTRE + (std::clamp(shade, -1.0, 1.0) * RAMP_SPAN);
         return static_cast<float>((TEXEL + 0.5) / RAMP_SIZE);
     }
@@ -48,50 +48,57 @@ SP<Render::ITexture> CPaperShade::texture() {
     }
 
     // Premultiplied; memory order is B, G, R, A for DRM_FORMAT_ARGB8888.
-    std::array<uint8_t, RAMP_SIZE * 4> pixels{};
-    for (int i = 0; i < RAMP_SIZE; ++i) {
-        const double RAMP_COORD = std::clamp((i - RAMP_CENTRE) / RAMP_SPAN, -1.0, 1.0);
+    static_assert(sizeof(std::array<uint8_t, 4>) == 4);
+    std::array<std::array<uint8_t, 4>, RAMP_SIZE> pixels{};
+    int pixel_index = 0;
+    for (auto &pixel : pixels) {
+        const double RAMP_COORD = std::max((pixel_index - RAMP_CENTRE) / RAMP_SPAN, -1.0);
         uint8_t colour =
             0;  // black for shadow; white highlight is premultiplied, so colour equals alpha
         uint8_t alpha = 0;
         if (RAMP_COORD < 0.0) {
-            alpha = rampByte(-RAMP_COORD * SHADOW_STRENGTH);
+            alpha = ramp_byte(-RAMP_COORD * SHADOW_STRENGTH);
         } else if (RAMP_COORD > 0.0) {
-            colour = alpha = rampByte(RAMP_COORD * HIGHLIGHT_STRENGTH);
+            colour = alpha = ramp_byte(RAMP_COORD * HIGHLIGHT_STRENGTH);
         }
 
-        pixels[(i * 4) + 0] = colour;
-        pixels[(i * 4) + 1] = colour;
-        pixels[(i * 4) + 2] = colour;
-        pixels[(i * 4) + 3] = alpha;
+        std::get<0>(pixel) = colour;
+        std::get<1>(pixel) = colour;
+        std::get<2>(pixel) = colour;
+        std::get<3>(pixel) = alpha;
+        ++pixel_index;
     }
 
-    m_texture = g_pHyprRenderer->createTexture(
-        DRM_FORMAT_ARGB8888, pixels.data(), RAMP_SIZE * 4, Vector2D{RAMP_SIZE, 1}, false, false);
+    m_texture = g_pHyprRenderer->createTexture(DRM_FORMAT_ARGB8888,
+        pixels.front().data(),
+        RAMP_SIZE * 4,
+        Vector2D{RAMP_SIZE, 1},
+        false,
+        false);
     return m_texture;
 }
 
-CBox sheetExtents(const hyprimate::SheetFrame &frame, const CBox &logicalBox) {
-    double minX = std::numeric_limits<double>::infinity();
-    double minY = std::numeric_limits<double>::infinity();
-    double maxX = -std::numeric_limits<double>::infinity();
-    double maxY = -std::numeric_limits<double>::infinity();
+CBox sheet_extents(const hyprimate::SheetFrame &frame, const CBox &logical_box) {
+    double min_x = std::numeric_limits<double>::infinity();
+    double min_y = std::numeric_limits<double>::infinity();
+    double max_x = -std::numeric_limits<double>::infinity();
+    double max_y = -std::numeric_limits<double>::infinity();
     for (const auto &sheet_point : frame.position) {
-        const double POS_X = logicalBox.x + (logicalBox.w * (0.5 + sheet_point.x));
-        const double POS_Y = logicalBox.y + (logicalBox.h * (0.5 + sheet_point.y));
-        minX = std::min(minX, POS_X);
-        minY = std::min(minY, POS_Y);
-        maxX = std::max(maxX, POS_X);
-        maxY = std::max(maxY, POS_Y);
+        const double POS_X = logical_box.x + (logical_box.w * (0.5 + sheet_point.x));
+        const double POS_Y = logical_box.y + (logical_box.h * (0.5 + sheet_point.y));
+        min_x = std::min(min_x, POS_X);
+        min_y = std::min(min_y, POS_Y);
+        max_x = std::max(max_x, POS_X);
+        max_y = std::max(max_y, POS_Y);
     }
-    return CBox{minX, minY, std::max(1.0, maxX - minX), std::max(1.0, maxY - minY)};
+    return CBox{min_x, min_y, std::max(1.0, max_x - min_x), std::max(1.0, max_y - min_y)};
 }
 
-void fillSheetMeshes(const hyprimate::SheetFrame &frame,
-    const CBox &sourceDevice,
-    const CBox &outputDevice,
-    hyprimate::Vec2 textureOrigin,
-    hyprimate::Vec2 textureSize,
+void fill_sheet_meshes(const hyprimate::SheetFrame &frame,
+    const CBox &source_device,
+    const CBox &output_device,
+    hyprimate::Vec2 texture_origin,
+    hyprimate::Vec2 texture_size,
     std::vector<SMeshRenderVertex> &window,
     std::vector<SMeshRenderVertex> &shade) {
     if (window.size() != PAPER_VERTEX_COUNT) {
@@ -101,44 +108,44 @@ void fillSheetMeshes(const hyprimate::SheetFrame &frame,
         shade.resize(PAPER_VERTEX_COUNT);
     }
 
-    const double CENTRE_X = sourceDevice.x + (0.5 * sourceDevice.w);
-    const double CENTRE_Y = sourceDevice.y + (0.5 * sourceDevice.h);
-    std::size_t output_index = 0;
-    for (std::size_t slot = 0; slot < hyprimate::PAPER_TRIANGLES; ++slot) {
-        const std::size_t TRI = frame.order[slot];
-        const auto &corners = hyprimate::sheetTriangle(TRI);
-        for (std::size_t corner = 0; corner < 3; ++corner) {
-            const std::size_t VERTEX = corners[corner];
-            const auto &sheet_point = frame.position[VERTEX];
-            const auto TEX_COORD = hyprimate::sheetUv(VERTEX);
+    const double CENTRE_X = source_device.x + (0.5 * source_device.w);
+    const double CENTRE_Y = source_device.y + (0.5 * source_device.h);
+    auto window_vertex = window.begin();
+    auto shade_vertex = shade.begin();
+    for (const std::size_t TRI : frame.order) {
+        const auto &corners = hyprimate::sheet_triangle(TRI);
+        for (auto &&[vertex_index, corner_shade] : std::views::zip(corners, frame.shade[TRI])) {
+            const auto &sheet_point = frame.position[vertex_index];
+            const auto TEX_COORD = hyprimate::sheet_uv(vertex_index);
             const auto POS_X = static_cast<float>(
-                (CENTRE_X + (sheet_point.x * sourceDevice.w) - outputDevice.x) / outputDevice.w);
+                (CENTRE_X + (sheet_point.x * source_device.w) - output_device.x) / output_device.w);
             const auto POS_Y = static_cast<float>(
-                (CENTRE_Y + (sheet_point.y * sourceDevice.h) - outputDevice.y) / outputDevice.h);
+                (CENTRE_Y + (sheet_point.y * source_device.h) - output_device.y) / output_device.h);
 
-            window[output_index] = {
+            *window_vertex = {
                 .x = POS_X,
                 .y = POS_Y,
                 .u = static_cast<float>(
-                    (sourceDevice.x + (sourceDevice.w * TEX_COORD.x) - textureOrigin.x) /
-                    textureSize.x),
+                    (source_device.x + (source_device.w * TEX_COORD.x) - texture_origin.x) /
+                    texture_size.x),
                 .v = static_cast<float>(
-                    (sourceDevice.y + (sourceDevice.h * TEX_COORD.y) - textureOrigin.y) /
-                    textureSize.y),
+                    (source_device.y + (source_device.h * TEX_COORD.y) - texture_origin.y) /
+                    texture_size.y),
             };
-            shade[output_index] = {
+            *shade_vertex = {
                 .x = POS_X,
                 .y = POS_Y,
-                .u = shadeU(frame.shade[TRI][corner]),
+                .u = shade_u(corner_shade),
                 .v = 0.5F,
             };
-            ++output_index;
+            ++window_vertex;
+            ++shade_vertex;
         }
     }
 }
 
-const std::vector<SMeshRenderVertex> &paperCanvasQuad() {
-    static const std::vector<SMeshRenderVertex> quad{
+const std::vector<SMeshRenderVertex> &paper_canvas_quad() {
+    static const std::vector<SMeshRenderVertex> QUAD{
         {.x = 0.F, .y = 0.F, .u = 0.F, .v = 0.F},
         {.x = 0.F, .y = 1.F, .u = 0.F, .v = 1.F},
         {.x = 1.F, .y = 0.F, .u = 1.F, .v = 0.F},
@@ -146,12 +153,12 @@ const std::vector<SMeshRenderVertex> &paperCanvasQuad() {
         {.x = 0.F, .y = 1.F, .u = 0.F, .v = 1.F},
         {.x = 1.F, .y = 1.F, .u = 1.F, .v = 1.F},
     };
-    return quad;
+    return QUAD;
 }
 
-SP<Render::IFramebuffer> renderPaper(Render::CRenderContext &ctx, const SPaperDraw &d) {
-    if (!d.window || (d.windowVertices == nullptr) || d.windowVertices->empty() ||
-        !(d.canvas.x > 0.0 && d.canvas.y > 0.0)) {
+SP<Render::IFramebuffer> render_paper(Render::CRenderContext &ctx, const SPaperDraw &draw) {
+    if (!draw.window || (draw.window_vertices == nullptr) || draw.window_vertices->empty() ||
+        (!(draw.canvas.x > 0.0) || !(draw.canvas.y > 0.0))) {
         return nullptr;
     }
 
@@ -159,30 +166,31 @@ SP<Render::IFramebuffer> renderPaper(Render::CRenderContext &ctx, const SPaperDr
     // queried for it. Hyprland sets blend factors only through its wrapper, which never separates
     // RGB from alpha.
     const bool ENTRY_BLEND = Render::GL::g_pHyprOpenGL->blendEnabled();
-    GLint entrySrc = 0;
-    GLint entryDst = 0;
-    glGetIntegerv(GL_BLEND_SRC_RGB, &entrySrc);
-    glGetIntegerv(GL_BLEND_DST_RGB, &entryDst);
+    GLint entry_src = 0;
+    GLint entry_dst = 0;
+    glGetIntegerv(GL_BLEND_SRC_RGB, &entry_src);
+    glGetIntegerv(GL_BLEND_DST_RGB, &entry_dst);
 
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     const auto STATE = ctx.saveDrawState();
     auto &data = ctx.m_data;
 
-    auto paperLayer = g_pHyprRenderer->getWorkBuffer(ctx, d.canvas);
-    if (!paperLayer) {
+    auto paper_layer = g_pHyprRenderer->getWorkBuffer(ctx, draw.canvas);
+    if (!paper_layer) {
         return nullptr;
     }
 
-    // Requested while paperLayer is held, so the pool cannot return the same buffer twice.
-    const bool LIT = d.shade && (d.shadeVertices != nullptr) && !d.shadeVertices->empty();
+    // Requested while paper_layer is held, so the pool cannot return the same buffer twice.
+    const bool LIT =
+        draw.shade && (draw.shade_vertices != nullptr) && !draw.shade_vertices->empty();
     const auto SHADE_LAYER =
-        LIT ? g_pHyprRenderer->getWorkBuffer(ctx, d.canvas) : SP<Render::IFramebuffer>{};
+        LIT ? g_pHyprRenderer->getWorkBuffer(ctx, draw.canvas) : SP<Render::IFramebuffer>{};
 
-    // Binds fb as the target and clears it to transparent under the canvas damage.
-    const auto BEGIN_TARGET = [&](const SP<Render::IFramebuffer> &fb) {
-        g_pHyprRenderer->bindFB(ctx, fb);
-        data.damage = CRegion{0.0, 0.0, d.canvas.x, d.canvas.y};
-        data.fbSize = d.canvas;
+    // Binds the framebuffer as the target and clears it under the canvas damage.
+    const auto BEGIN_TARGET = [&](const SP<Render::IFramebuffer> &framebuffer) {
+        g_pHyprRenderer->bindFB(ctx, framebuffer);
+        data.damage = CRegion{0.0, 0.0, draw.canvas.x, draw.canvas.y};
+        data.fbSize = draw.canvas;
         g_pHyprRenderer->setProjectionType(ctx, Render::RPT_EXPORT);
         g_pHyprRenderer->draw(ctx, CClearPassElement::SClearData{CHyprColor(0, 0, 0, 0)});
     };
@@ -199,7 +207,7 @@ SP<Render::IFramebuffer> renderPaper(Render::CRenderContext &ctx, const SPaperDr
         Render::GL::g_pHyprOpenGL->blend(false);
         texture_data.a = 1.F;
         Render::GL::g_pHyprOpenGL->renderTextureMesh(
-            ctx, d.shade, d.meshBox, *d.shadeVertices, texture_data);
+            ctx, draw.shade, draw.mesh_box, *draw.shade_vertices, texture_data);
         Render::GL::g_pHyprOpenGL->blend(WAS_BLEND);
     }
 
@@ -207,11 +215,11 @@ SP<Render::IFramebuffer> renderPaper(Render::CRenderContext &ctx, const SPaperDr
     // takes the frontmost triangle only. Paper is opaque: with blending, a translucent window let
     // the layers folded behind show through, and the crumple read as tissue. The window's own
     // translucency against what is behind it is kept.
-    BEGIN_TARGET(paperLayer);
+    BEGIN_TARGET(paper_layer);
     Render::GL::g_pHyprOpenGL->blend(false);
-    texture_data.a = d.alpha;
+    texture_data.a = draw.alpha;
     Render::GL::g_pHyprOpenGL->renderTextureMesh(
-        ctx, d.window, d.meshBox, *d.windowVertices, texture_data);
+        ctx, draw.window, draw.mesh_box, *draw.window_vertices, texture_data);
     Render::GL::g_pHyprOpenGL->blend(true);
 
     // Tint: DST_ALPHA weights the shade by window coverage, so transparent pixels stay transparent
@@ -221,15 +229,15 @@ SP<Render::IFramebuffer> renderPaper(Render::CRenderContext &ctx, const SPaperDr
         texture_data.a = 1.F;
         Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx,
             SHADE_LAYER->getTexture(),
-            CBox{0.0, 0.0, d.canvas.x, d.canvas.y},
-            paperCanvasQuad(),
+            CBox{0.0, 0.0, draw.canvas.x, draw.canvas.y},
+            paper_canvas_quad(),
             texture_data);
     }
 
     // Restore the entry blend state through the wrapper so its cached factors stay in sync with GL.
     Render::GL::g_pHyprOpenGL->blend(ENTRY_BLEND);
     Render::GL::g_pHyprOpenGL->blendFunc(
-        static_cast<GLenum>(entrySrc), static_cast<GLenum>(entryDst));
+        static_cast<GLenum>(entry_src), static_cast<GLenum>(entry_dst));
 
-    return paperLayer;
+    return paper_layer;
 }

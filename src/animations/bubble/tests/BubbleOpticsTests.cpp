@@ -1,21 +1,22 @@
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 
 #include "Check.hpp"
 #include "animations/bubble/BubbleOptics.hpp"
 
 int main() {
-    const auto TABLE = hyprimate::bubbleThinFilmTable(301, 33, 1500);
-    CHECK(TABLE.rgb.size() == 301 * 33 * 3);
-    const auto SAMPLE = [&](int d, int c, int channel) {
-        return TABLE.rgb[(3 * ((c * 301) + (d / 5))) + channel];
+    const auto TABLE = hyprimate::bubble_thin_film_table(301, 33, 1500);
+    CHECK(TABLE.rgb.size() == static_cast<std::size_t>(301) * 33 * 3);
+    const auto SAMPLE = [&](int thickness, int cosine, int channel) {
+        return TABLE.rgb[(3 * ((cosine * 301) + (thickness / 5))) + channel];
     };
     for (const float VALUE : TABLE.rgb) {
         CHECK(std::isfinite(VALUE) && VALUE >= 0 && VALUE <= 1.05);
     }
-    for (int cosineSample = 0; cosineSample < 33; ++cosineSample) {
+    for (int cosine_sample = 0; cosine_sample < 33; ++cosine_sample) {
         for (int k = 0; k < 3; ++k) {
-            CHECK(SAMPLE(0, cosineSample, k) == 0);
+            CHECK(SAMPLE(0, cosine_sample, k) == 0);
         }
     }
     for (int k = 0; k < 3; ++k) {
@@ -29,12 +30,12 @@ int main() {
                 (0.0722F * SAMPLE(thickness_index, 32, 2)));
     }
     CHECK(maximum > 0.06 && maximum < 0.09);
-    const auto SPREAD = [&](int d) {
-        const auto [MINIMUM, MAXIMUM] =
-            std::minmax({SAMPLE(d, 32, 0), SAMPLE(d, 32, 1), SAMPLE(d, 32, 2)});
+    const auto SPREAD = [&](int thickness) {
+        const auto [MINIMUM, MAXIMUM] = std::minmax(
+            {SAMPLE(thickness, 32, 0), SAMPLE(thickness, 32, 1), SAMPLE(thickness, 32, 2)});
         return MAXIMUM - MINIMUM;
     };
     CHECK(std::max(SPREAD(450), SPREAD(500)) > SPREAD(200));
-    CHECK(hyprimate::bubbleThinFilmTable(1, 2, 100).rgb.empty());
+    CHECK(hyprimate::bubble_thin_film_table(1, 2, 100).rgb.empty());
     return g_failures == 0 ? 0 : 1;
 }

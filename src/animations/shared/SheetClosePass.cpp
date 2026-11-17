@@ -21,10 +21,10 @@ std::vector<UP<IPassElement>> CPaperClosePassElement::draw(Render::CRenderContex
         return {};
     }
 
-    Render::GL::CHyprOpenGLImpl::STextureRenderData textureData{};
-    textureData.damage = &m_data.damage;
-    textureData.a = m_data.alpha;
-    textureData.allowCustomUV = true;
+    Render::GL::CHyprOpenGLImpl::STextureRenderData texture_data{};
+    texture_data.damage = &m_data.damage;
+    texture_data.a = m_data.alpha;
+    texture_data.allowCustomUV = true;
 
     // Shade the sheet in its own layer so the tint covers only its pixels; without a layer it draws
     // unlit.
@@ -33,31 +33,31 @@ std::vector<UP<IPassElement>> CPaperClosePassElement::draw(Render::CRenderContex
         .window = m_data.tex,
         .shade = m_data.shade,
         .canvas = CANVAS,
-        .meshBox = CBox{0.0, 0.0, m_data.box.w, m_data.box.h},
-        .windowVertices = m_data.vertices,
-        .shadeVertices = m_data.shadeVertices,
+        .mesh_box = CBox{0.0, 0.0, m_data.box.w, m_data.box.h},
+        .window_vertices = m_data.vertices,
+        .shade_vertices = m_data.shade_vertices,
         .alpha = 1.F,
     };
-    const auto LAYER = renderPaper(ctx, PAPER);
+    const auto LAYER = render_paper(ctx, PAPER);
     if (!LAYER) {
         Render::GL::g_pHyprOpenGL->renderTextureMesh(
-            ctx, m_data.tex, m_data.box, *m_data.vertices, textureData);
+            ctx, m_data.tex, m_data.box, *m_data.vertices, texture_data);
         return {};
     }
 
     Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx,
         LAYER->getTexture(),
         CBox{m_data.box.x, m_data.box.y, CANVAS.x, CANVAS.y},
-        paperCanvasQuad(),
-        textureData);
+        paper_canvas_quad(),
+        texture_data);
     return {};
 }
 
-bool CPaperClosePassElement::needsLiveBlur(Render::CRenderContext &) {
+bool CPaperClosePassElement::needsLiveBlur([[maybe_unused]] Render::CRenderContext &ctx) {
     return false;
 }
 
-bool CPaperClosePassElement::needsPrecomputeBlur(Render::CRenderContext &) {
+bool CPaperClosePassElement::needsPrecomputeBlur([[maybe_unused]] Render::CRenderContext &ctx) {
     return false;
 }
 
@@ -69,10 +69,11 @@ ePassElementType CPaperClosePassElement::type() {
     return EK_CUSTOM;
 }
 
-std::optional<CBox> CPaperClosePassElement::boundingBox(Render::CRenderContext &) {
+std::optional<CBox> CPaperClosePassElement::boundingBox(
+    [[maybe_unused]] Render::CRenderContext &ctx) {
     return m_data.box.copy().scale(1.0 / m_data.scale).round();
 }
 
-CRegion CPaperClosePassElement::opaqueRegion(Render::CRenderContext &) {
+CRegion CPaperClosePassElement::opaqueRegion([[maybe_unused]] Render::CRenderContext &ctx) {
     return {};
 }

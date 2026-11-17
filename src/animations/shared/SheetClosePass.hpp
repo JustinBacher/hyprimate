@@ -10,7 +10,7 @@ class CPaperClosePassElement final : public IPassElement {
         SP<Render::ITexture> shade;  // lit tint layer; null draws unlit
         CBox box;  // output box, monitor-local device px
         const std::vector<SMeshRenderVertex> *vertices = nullptr;
-        const std::vector<SMeshRenderVertex> *shadeVertices = nullptr;
+        const std::vector<SMeshRenderVertex> *shade_vertices = nullptr;
         float alpha = 1.F;
         double scale = 1.0;
         CRegion damage;

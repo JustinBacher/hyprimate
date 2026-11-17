@@ -7,13 +7,13 @@
 struct SBubbleWallpaper {
     SP<Render::IFramebuffer> framebuffer;
     Vector2D origin;
-    Vector2D axisX;
-    Vector2D axisY;
+    Vector2D axis_x;
+    Vector2D axis_y;
     bool queued = false;
 };
 
-void queueBubbleWallpaper(Render::CRenderContext &,
-    const SP<SBubbleWallpaper> &,
+void queue_bubble_wallpaper(Render::CRenderContext &ctx,
+    const SP<SBubbleWallpaper> &wallpaper,
     const CBox &source,
     bool live,
     const CBox &bounds);

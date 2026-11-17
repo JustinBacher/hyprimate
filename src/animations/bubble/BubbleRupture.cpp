@@ -3,6 +3,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
+#include <numbers>
 #include <span>
 
 #include "animations/bubble/Bubble.hpp"
@@ -13,7 +15,7 @@
 
 namespace hyprimate {
     namespace {
-        constexpr double PI_VALUE = 3.14159265358979323846;
+        constexpr double PI_VALUE = std::numbers::pi;
 
         Vec3 cross(Vec3 lhs, Vec3 rhs) {
             return {
@@ -43,7 +45,7 @@ namespace hyprimate {
         }
     }  // namespace
 
-    double bubbleHoleAzimuth(const BubbleHole &hole, Vec3 point, bool spherical) {
+    double bubble_hole_azimuth(const BubbleHole &hole, Vec3 point, bool spherical) {
         if (!spherical) {
             return std::atan2(point.y - hole.centre.y, point.x - hole.centre.x);
         }
@@ -53,10 +55,12 @@ namespace hyprimate {
         return std::atan2(dot(point, basis_second), dot(point, basis_first));
     }
 
-    double bubbleHoleBoundary(const BubbleHole &hole, double phi) {
+    double bubble_hole_boundary(const BubbleHole &hole, double phi) {
         double factor = 1;
-        for (std::size_t i = 0; i < kBubbleRimModes.size(); ++i) {
-            factor += hole.amplitude[i] * std::cos((kBubbleRimModes[i] * phi) + hole.phase[i]);
+        const auto *amplitude = hole.amplitude.begin();
+        const auto *phase = hole.phase.begin();
+        for (const auto MODE : K_BUBBLE_RIM_MODES) {
+            factor += *amplitude++ * std::cos((MODE * phi) + *phase++);
         }
         return hole.radius * factor;
     }
@@ -78,15 +82,17 @@ namespace hyprimate {
 
         const CollapseCache &collapse(const BubbleSurface &surface) {
             static thread_local std::array<CollapseCache, 2> cache;
-            auto &entry = cache[surface.spherical ? 1 : 0];
-            const auto HOLE_COUNT = std::min(surface.holeCount, kBubbleHoles);
+            auto &entry = surface.spherical ? cache.back() : cache.front();
+            const auto HOLE_COUNT = std::min(surface.hole_count, K_BUBBLE_HOLES);
             bool same = entry.valid && entry.key.speed == surface.speed &&
-                        entry.key.holeCount == surface.holeCount &&
-                        entry.key.halfSize.x == surface.halfSize.x &&
-                        entry.key.halfSize.y == surface.halfSize.y;
+                        entry.key.hole_count == surface.hole_count &&
+                        entry.key.half_size.x == surface.half_size.x &&
+                        entry.key.half_size.y == surface.half_size.y;
+            const auto *cached = entry.key.holes.begin();
+            const auto *current = surface.holes.begin();
             for (std::size_t i = 0; same && i < HOLE_COUNT; ++i) {
-                const auto &cached_hole = entry.key.holes[i];
-                const auto &current_hole = surface.holes[i];
+                const auto &cached_hole = *cached++;
+                const auto &current_hole = *current++;
                 same = cached_hole.start == current_hole.start &&
                        cached_hole.centre.x == current_hole.centre.x &&
                        cached_hole.centre.y == current_hole.centre.y &&
@@ -103,8 +109,7 @@ namespace hyprimate {
             entry.valid = true;
             const auto CANDIDATE = [&](Vec3 point) {
                 double first = 1;
-                for (std::size_t i = 0; i < HOLE_COUNT; ++i) {
-                    const auto &hole = surface.holes[i];
+                for (const auto &hole : std::span(surface.holes).first(HOLE_COUNT)) {
                     const double CANDIDATE_DISTANCE =
                         surface.spherical
                             ? std::acos(std::clamp(dot(point, hole.centre), -1.0, 1.0))
@@ -129,30 +134,37 @@ namespace hyprimate {
                      }) {
                     CANDIDATE(AXIS);
                 }
-                for (std::size_t i = 0; i < HOLE_COUNT; ++i) {
+                for (const auto &hole : std::span(surface.holes).first(HOLE_COUNT)) {
                     CANDIDATE({
-                        .x = -surface.holes[i].centre.x,
-                        .y = -surface.holes[i].centre.y,
-                        .z = -surface.holes[i].centre.z,
+                        .x = -hole.centre.x,
+                        .y = -hole.centre.y,
+                        .z = -hole.centre.z,
                     });
                 }
                 entry.position = {
-                    .x = entry.position.x * surface.halfSize.x,
-                    .y = entry.position.y * surface.halfSize.x,
-                    .z = entry.position.z * surface.halfSize.x,
+                    .x = entry.position.x * surface.half_size.x,
+                    .y = entry.position.y * surface.half_size.x,
+                    .z = entry.position.z * surface.half_size.x,
                 };
             } else {
                 for (int col = -1; col <= 1; ++col) {
                     for (int row = -1; row <= 1; ++row) {
-                        CANDIDATE(
-                            {.x = col * surface.halfSize.x, .y = row * surface.halfSize.y, .z = 0});
+                        CANDIDATE({
+                            .x = col * surface.half_size.x,
+                            .y = row * surface.half_size.y,
+                            .z = 0,
+                        });
                     }
                 }
             }
-            for (std::size_t i = 0; i < HOLE_COUNT; ++i) {
-                for (std::size_t j = i + 1; j < HOLE_COUNT; ++j) {
-                    const auto &first_hole = surface.holes[i];
-                    const auto &second_hole = surface.holes[j];
+            const auto *first_hole_it = surface.holes.begin();
+            auto *merge = entry.merges.begin();
+            for (std::size_t i = 0; i < HOLE_COUNT; ++i, ++first_hole_it) {
+                const auto *second_hole_it = first_hole_it;
+                ++second_hole_it;
+                for (std::size_t j = i + 1; j < HOLE_COUNT; ++j, ++second_hole_it) {
+                    const auto &first_hole = *first_hole_it;
+                    const auto &second_hole = *second_hole_it;
                     const double DISTANCE =
                         surface.spherical
                             ? std::acos(
@@ -200,29 +212,30 @@ namespace hyprimate {
                         } else {
                             origin = normalize(origin);
                         }
-                    } else if (std::abs(origin.x) > surface.halfSize.x ||
-                               std::abs(origin.y) > surface.halfSize.y) {
+                    } else if (std::abs(origin.x) > surface.half_size.x ||
+                               std::abs(origin.y) > surface.half_size.y) {
                         continue;
                     }
                     bool consumed = false;
-                    for (std::size_t k = 0; k < HOLE_COUNT; ++k) {
-                        if (k == i || k == j || end_time <= surface.holes[k].start) {
+                    const auto *hole_it = surface.holes.begin();
+                    for (std::size_t k = 0; k < HOLE_COUNT; ++k, ++hole_it) {
+                        if (k == i || k == j || end_time <= hole_it->start) {
                             continue;
                         }
-                        BubbleHole other = surface.holes[k];
+                        BubbleHole other = *hole_it;
                         other.radius = radius_at(surface, other, end_time);
                         const double ONSET = smoothstep(.012, .045, end_time - other.start);
-                        for (std::size_t mode = 0; mode < other.amplitude.size(); ++mode) {
-                            other.amplitude[mode] =
-                                ONSET * (.014 - (.002 * static_cast<double>(mode)));
+                        std::size_t mode = 0;
+                        for (auto &amplitude : other.amplitude) {
+                            amplitude = ONSET * (.014 - (.002 * static_cast<double>(mode++)));
                         }
                         const double OTHER_DISTANCE =
                             surface.spherical
                                 ? std::acos(std::clamp(dot(origin, other.centre), -1.0, 1.0))
                                 : std::hypot(origin.x - other.centre.x, origin.y - other.centre.y);
                         if (OTHER_DISTANCE <
-                            bubbleHoleBoundary(
-                                other, bubbleHoleAzimuth(other, origin, surface.spherical))) {
+                            bubble_hole_boundary(
+                                other, bubble_hole_azimuth(other, origin, surface.spherical))) {
                             consumed = true;
                         }
                     }
@@ -231,16 +244,18 @@ namespace hyprimate {
                     }
                     if (surface.spherical) {
                         origin = {
-                            .x = origin.x * surface.halfSize.x,
-                            .y = origin.y * surface.halfSize.x,
-                            .z = origin.z * surface.halfSize.x,
+                            .x = origin.x * surface.half_size.x,
+                            .y = origin.y * surface.half_size.x,
+                            .z = origin.z * surface.half_size.x,
                         };
                     }
-                    entry.merges[entry.merge_count++] = {
+                    *merge = {
                         .position = origin,
                         .time = end_time,
                         .id = static_cast<std::uint32_t>(1000 + (20 * i) + (5 * j)),
                     };
+                    ++merge;
+                    ++entry.merge_count;
                 }
             }
             return entry;
@@ -260,10 +275,10 @@ namespace hyprimate {
         }
         Vec3 sheet_material(
             const BubbleSurface &surface, const BubbleHole &hole, double phi, double fraction) {
-            const double RADIUS = std::min(surface.halfSize.x, surface.halfSize.y);
-            const double BOUNDARY = bubbleHoleBoundary(hole, phi);
+            const double RADIUS = std::min(surface.half_size.x, surface.half_size.y);
+            const double BOUNDARY = bubble_hole_boundary(hole, phi);
             const double WIDTH =
-                bubbleCurlSection(surface, hole, BOUNDARY * (surface.spherical ? RADIUS : 1), phi)
+                bubble_curl_section(surface, hole, BOUNDARY * (surface.spherical ? RADIUS : 1), phi)
                     .width;
             const double DISTANCE =
                 BOUNDARY + ((1 - fraction) * WIDTH / (surface.spherical ? RADIUS : 1));
@@ -304,24 +319,24 @@ namespace hyprimate {
         }
     }  // namespace
 
-    bool bubbleSheetContains(
+    bool bubble_sheet_contains(
         const BubbleSurface &surface, const BubbleSheet &sheet, Vec3 material) {
-        if (sheet.hole >= std::min(surface.holeCount, kBubbleHoles)) {
+        if (sheet.hole >= std::min(surface.hole_count, K_BUBBLE_HOLES)) {
             return false;
         }
         const auto HOLE = sheet_hole(surface, sheet, sheet.hole);
-        const double RADIUS = std::min(surface.halfSize.x, surface.halfSize.y);
+        const double RADIUS = std::min(surface.half_size.x, surface.half_size.y);
         if (RADIUS <= 0) {
             return false;
         }
-        const double PHI = bubbleHoleAzimuth(HOLE, material, surface.spherical);
-        const double HOLE_BOUNDARY = bubbleHoleBoundary(HOLE, PHI);
+        const double PHI = bubble_hole_azimuth(HOLE, material, surface.spherical);
+        const double HOLE_BOUNDARY = bubble_hole_boundary(HOLE, PHI);
         const double HOLE_DISTANCE =
             surface.spherical ? std::acos(std::clamp(dot(material, HOLE.centre), -1.0, 1.0))
                               : std::hypot(material.x - HOLE.centre.x, material.y - HOLE.centre.y);
-        const double CURL_WIDTH =
-            bubbleCurlSection(surface, HOLE, HOLE_BOUNDARY * (surface.spherical ? RADIUS : 1), PHI)
-                .width;
+        const double CURL_WIDTH = bubble_curl_section(
+            surface, HOLE, HOLE_BOUNDARY * (surface.spherical ? RADIUS : 1), PHI)
+                                      .width;
         if (CURL_WIDTH <= 0) {
             return false;
         }
@@ -330,25 +345,26 @@ namespace hyprimate {
         if (FRACTION < 0 || FRACTION > 1) {
             return false;
         }
-        const double LIMIT =
-            sheet.halfAngle * (.82 + (.14 * std::sin(PI_VALUE * FRACTION)) +
-                                  (.04 * std::sin((3 * PI_VALUE * FRACTION) + HOLE.phase[0])));
+        const double LIMIT = sheet.half_angle *
+                             (.82 + (.14 * std::sin(PI_VALUE * FRACTION)) +
+                                 (.04 * std::sin((3 * PI_VALUE * FRACTION) + HOLE.phase.front())));
         if (std::abs(std::remainder(PHI - sheet.phi, 2 * PI_VALUE)) > LIMIT) {
             return false;
         }
         const double OWN_RANK = 1 - FRACTION;
-        for (std::size_t i = 0; i < std::min(surface.holeCount, kBubbleHoles); ++i) {
-            if (i == sheet.hole || sheet.radii[i] <= 0) {
+        const auto *radius = sheet.radii.begin();
+        for (std::size_t i = 0; i < std::min(surface.hole_count, K_BUBBLE_HOLES); ++i, ++radius) {
+            if (i == sheet.hole || *radius <= 0) {
                 continue;
             }
             const auto OTHER = sheet_hole(surface, sheet, i);
-            const double OTHER_PHI = bubbleHoleAzimuth(OTHER, material, surface.spherical);
-            const double BOUNDARY = bubbleHoleBoundary(OTHER, OTHER_PHI);
+            const double OTHER_PHI = bubble_hole_azimuth(OTHER, material, surface.spherical);
+            const double BOUNDARY = bubble_hole_boundary(OTHER, OTHER_PHI);
             const double DISTANCE =
                 surface.spherical
                     ? std::acos(std::clamp(dot(material, OTHER.centre), -1.0, 1.0))
                     : std::hypot(material.x - OTHER.centre.x, material.y - OTHER.centre.y);
-            const double WIDTH = bubbleCurlSection(
+            const double WIDTH = bubble_curl_section(
                 surface, OTHER, BOUNDARY * (surface.spherical ? RADIUS : 1), OTHER_PHI)
                                      .width;
             if (WIDTH <= 0) {
@@ -363,10 +379,10 @@ namespace hyprimate {
         return true;
     }
 
-    BubbleCurlSample bubbleSheetSample(
+    BubbleCurlSample bubble_sheet_sample(
         const BubbleSurface &surface, const BubbleSheet &sheet, double phi, double fraction) {
         auto sample =
-            bubblePeelSample(surface, sheet_hole(surface, sheet, sheet.hole), phi, fraction);
+            bubble_peel_sample(surface, sheet_hole(surface, sheet, sheet.hole), phi, fraction);
         Vec3 relative{
             .x = sample.position.x - sheet.pivot.x,
             .y = sample.position.y - sheet.pivot.y,
@@ -382,9 +398,9 @@ namespace hyprimate {
         return sample;
     }
 
-    std::size_t bubbleSheets(const BubbleSurface &surface, std::span<BubbleSheet> out) {
-        const std::size_t HOLE_COUNT = std::min(surface.holeCount, kBubbleHoles);
-        const double RADIUS = std::min(surface.halfSize.x, surface.halfSize.y);
+    std::size_t bubble_sheets(const BubbleSurface &surface, std::span<BubbleSheet> out) {
+        const std::size_t HOLE_COUNT = std::min(surface.hole_count, K_BUBBLE_HOLES);
+        const double RADIUS = std::min(surface.half_size.x, surface.half_size.y);
         if (!surface.closing || HOLE_COUNT == 0 || surface.speed <= 0 || surface.rate <= 0 ||
             RADIUS <= 0 || out.empty()) {
             return 0;
@@ -404,17 +420,17 @@ namespace hyprimate {
                 other = ((event.id - 1000) % 20) / 5;
             } else {
                 double first = 1e100;
-                for (std::size_t i = 0; i < HOLE_COUNT; ++i) {
+                std::size_t index = 0;
+                for (const auto &hole : std::span(surface.holes).first(HOLE_COUNT)) {
+                    const std::size_t HOLE_INDEX = index++;
                     const double ARRIVAL_DISTANCE =
                         surface.spherical
-                            ? std::acos(std::clamp(dot(POINT, surface.holes[i].centre), -1.0, 1.0))
-                            : std::hypot(POINT.x - surface.holes[i].centre.x,
-                                  POINT.y - surface.holes[i].centre.y);
-                    const double ARRIVAL =
-                        surface.holes[i].start + (ARRIVAL_DISTANCE / surface.speed);
+                            ? std::acos(std::clamp(dot(POINT, hole.centre), -1.0, 1.0))
+                            : std::hypot(POINT.x - hole.centre.x, POINT.y - hole.centre.y);
+                    const double ARRIVAL = hole.start + (ARRIVAL_DISTANCE / surface.speed);
                     if (ARRIVAL < first) {
                         first = ARRIVAL;
-                        source = i;
+                        source = HOLE_INDEX;
                     }
                 }
             }
@@ -426,10 +442,10 @@ namespace hyprimate {
                     current_hole.amplitude[mode] =
                         ONSET * (.014 - (.002 * static_cast<double>(mode)));
                 }
-                const double PHI = bubbleHoleAzimuth(current_hole, POINT, surface.spherical);
-                return bubbleCurlSection(surface,
+                const double PHI = bubble_hole_azimuth(current_hole, POINT, surface.spherical);
+                return bubble_curl_section(surface,
                     current_hole,
-                    bubbleHoleBoundary(current_hole, PHI) * (surface.spherical ? RADIUS : 1),
+                    bubble_hole_boundary(current_hole, PHI) * (surface.spherical ? RADIUS : 1),
                     PHI)
                     .width;
             };
@@ -441,38 +457,44 @@ namespace hyprimate {
                 event.time - (.55 * width / (surface.speed * (surface.spherical ? RADIUS : 1))));
             return Candidate{.event = &event, .birth = BIRTH, .source = source, .other = other};
         };
-        std::array<Candidate, kBubbleMaxSheets> candidates{};
+        std::array<Candidate, K_BUBBLE_MAX_SHEETS> candidates{};
         std::size_t total = 0;
         const auto INSERT = [&](const BurstEvent &event) {
             const auto CANDIDATE = CANDIDATE_FOR(event);
-            std::size_t index = total++;
-            while (index > 0 && (candidates[index - 1].birth > CANDIDATE.birth ||
-                                    (candidates[index - 1].birth == CANDIDATE.birth &&
-                                        candidates[index - 1].event->id > CANDIDATE.event->id))) {
-                candidates[index] = candidates[index - 1];
-                --index;
+            auto *cursor = std::next(candidates.begin(), static_cast<std::ptrdiff_t>(total++));
+            while (cursor != candidates.begin()) {
+                auto *const PREVIOUS = std::prev(cursor);
+                if (!(PREVIOUS->birth > CANDIDATE.birth) &&
+                    !(PREVIOUS->birth == CANDIDATE.birth &&
+                        PREVIOUS->event->id > CANDIDATE.event->id)) {
+                    break;
+                }
+                *cursor = *PREVIOUS;
+                cursor = PREVIOUS;
             }
-            candidates[index] = CANDIDATE;
+            *cursor = CANDIDATE;
         };
-        for (std::size_t i = 0; i < std::min(events.merge_count, events.merges.size()); ++i) {
-            INSERT(events.merges[i]);
+        for (const auto &merge :
+            std::span(events.merges).first(std::min(events.merge_count, events.merges.size()))) {
+            INSERT(merge);
         }
         const BurstEvent FINAL{.position = events.position, .time = events.time, .id = 1200};
         INSERT(FINAL);
-        const auto SHEETS = out.first(std::min(out.size(), kBubbleMaxSheets));
+        const auto SHEETS = out.first(std::min(out.size(), K_BUBBLE_MAX_SHEETS));
         std::size_t count = 0;
+        auto sheet_out = SHEETS.begin();
         // Try the other side of a neck only if the first owns no visible material.
         for (std::size_t attempt = 0; attempt < total * 2 && count < SHEETS.size(); ++attempt) {
             const auto &candidate = candidates[attempt / 2];
             const auto &event = *candidate.event;
             const bool ALTERNATE = attempt % 2 != 0;
             if (ALTERNATE &&
-                (event.id == 1200 || (count > 0 && SHEETS[count - 1].id == event.id))) {
+                (event.id == 1200 || (count > 0 && std::prev(sheet_out)->id == event.id))) {
                 continue;
             }
             const Vec3 POINT = surface.spherical ? normalize(event.position) : event.position;
             const std::size_t SOURCE = ALTERNATE ? candidate.other : candidate.source;
-            double phi = bubbleHoleAzimuth(surface.holes[SOURCE], POINT, surface.spherical);
+            double phi = bubble_hole_azimuth(surface.holes[SOURCE], POINT, surface.spherical);
             BubbleSheet sheet;
             sheet.id = event.id;
             sheet.hole = SOURCE;
@@ -481,41 +503,46 @@ namespace hyprimate {
                 continue;
             }
             sheet.phi = phi;
-            for (std::size_t i = 0; i < HOLE_COUNT; ++i) {
-                sheet.radii[i] = radius_at(surface, surface.holes[i], sheet.birth);
-                sheet.onsets[i] = smoothstep(.012, .045, sheet.birth - surface.holes[i].start);
+            auto *radius = sheet.radii.begin();
+            auto *onset = sheet.onsets.begin();
+            for (const auto &hole : std::span(surface.holes).first(HOLE_COUNT)) {
+                *radius = radius_at(surface, hole, sheet.birth);
+                ++radius;
+                *onset = smoothstep(.012, .045, sheet.birth - hole.start);
+                ++onset;
             }
             const auto HOLE = sheet_hole(surface, sheet, SOURCE);
-            const double BOUNDARY = bubbleHoleBoundary(HOLE, phi);
+            const double BOUNDARY = bubble_hole_boundary(HOLE, phi);
             const double WIDTH =
-                bubbleCurlSection(surface, HOLE, BOUNDARY * (surface.spherical ? RADIUS : 1), phi)
+                bubble_curl_section(surface, HOLE, BOUNDARY * (surface.spherical ? RADIUS : 1), phi)
                     .width;
             if (WIDTH <= 0 || (surface.spherical && BOUNDARY >= PI_VALUE)) {
                 continue;
             }
-            sheet.halfAngle = std::min(.35,
+            sheet.half_angle = std::min(.35,
                 std::clamp(.11 * RADIUS, 16.0, 40.0) /
                     std::max((BOUNDARY * (surface.spherical ? RADIUS : 1)) + (.5 * WIDTH), 1.0));
             bool available = false;
             // Centre the piece on surviving material, not on an occluded sliver's empty pivot.
             for (const double OFFSET : {0.0, -1.0 / 3, 1.0 / 3, -2.0 / 3, 2.0 / 3}) {
-                const double TRIAL_PHI = phi + (sheet.halfAngle * OFFSET);
+                const double TRIAL_PHI = phi + (sheet.half_angle * OFFSET);
                 const Vec3 MATERIAL_POINT = sheet_material(surface, HOLE, TRIAL_PHI, .5);
                 if (!surface.spherical) {
                     const double CORNER = std::clamp(surface.corner, 0.0, RADIUS);
                     const double CORNER_X =
-                        std::max(std::abs(MATERIAL_POINT.x) - (surface.halfSize.x - CORNER), 0.0);
+                        std::max(std::abs(MATERIAL_POINT.x) - (surface.half_size.x - CORNER), 0.0);
                     const double CORNER_Y =
-                        std::max(std::abs(MATERIAL_POINT.y) - (surface.halfSize.y - CORNER), 0.0);
-                    if (std::abs(MATERIAL_POINT.x) > surface.halfSize.x ||
-                        std::abs(MATERIAL_POINT.y) > surface.halfSize.y ||
+                        std::max(std::abs(MATERIAL_POINT.y) - (surface.half_size.y - CORNER), 0.0);
+                    if (std::abs(MATERIAL_POINT.x) > surface.half_size.x ||
+                        std::abs(MATERIAL_POINT.y) > surface.half_size.y ||
                         (CORNER_X * CORNER_X) + (CORNER_Y * CORNER_Y) > CORNER * CORNER) {
                         continue;
                     }
                 }
-                bool valid = bubbleSheetContains(surface, sheet, MATERIAL_POINT);
-                for (std::size_t i = 0; i < HOLE_COUNT && valid; ++i) {
-                    if (i == SOURCE || sheet.radii[i] <= 0) {
+                bool valid = bubble_sheet_contains(surface, sheet, MATERIAL_POINT);
+                const auto *radius = sheet.radii.begin();
+                for (std::size_t i = 0; i < HOLE_COUNT && valid; ++i, ++radius) {
+                    if (i == SOURCE || *radius <= 0) {
                         continue;
                     }
                     const auto PRIOR = sheet_hole(surface, sheet, i);
@@ -525,14 +552,15 @@ namespace hyprimate {
                             : std::hypot(MATERIAL_POINT.x - PRIOR.centre.x,
                                   MATERIAL_POINT.y - PRIOR.centre.y);
                     const double PRIOR_PHI =
-                        bubbleHoleAzimuth(PRIOR, MATERIAL_POINT, surface.spherical);
-                    if (DISTANCE < bubbleHoleBoundary(PRIOR, PRIOR_PHI)) {
+                        bubble_hole_azimuth(PRIOR, MATERIAL_POINT, surface.spherical);
+                    if (DISTANCE < bubble_hole_boundary(PRIOR, PRIOR_PHI)) {
                         valid = false;
                     }
                 }
-                for (std::size_t i = 0; i < count && valid; ++i) {
-                    if (SHEETS[i].birth <= sheet.birth &&
-                        bubbleSheetContains(surface, SHEETS[i], MATERIAL_POINT)) {
+                auto prior = SHEETS.begin();
+                for (std::size_t i = 0; i < count && valid; ++i, ++prior) {
+                    if (prior->birth <= sheet.birth &&
+                        bubble_sheet_contains(surface, *prior, MATERIAL_POINT)) {
                         valid = false;
                     }
                 }
@@ -545,9 +573,9 @@ namespace hyprimate {
             if (!available) {
                 continue;
             }
-            sheet.pivot = bubblePeelSample(surface, HOLE, phi, .5).position;
-            const Vec3 BEFORE = bubblePeelSample(surface, HOLE, phi - .001, .5).position;
-            const Vec3 AFTER = bubblePeelSample(surface, HOLE, phi + .001, .5).position;
+            sheet.pivot = bubble_peel_sample(surface, HOLE, phi, .5).position;
+            const Vec3 BEFORE = bubble_peel_sample(surface, HOLE, phi - .001, .5).position;
+            const Vec3 AFTER = bubble_peel_sample(surface, HOLE, phi + .001, .5).position;
             sheet.axis = normalize(
                 {.x = AFTER.x - BEFORE.x, .y = AFTER.y - BEFORE.y, .z = AFTER.z - BEFORE.z});
             sheet.age = std::max(0.0, (surface.clock - sheet.birth) / surface.rate);
@@ -556,7 +584,7 @@ namespace hyprimate {
                 sheet.life > 0 ? std::clamp(sheet.age / sheet.life, 0.0, 1.0) : 1;
             sheet.scale = 1 - smoothstep(0, 1, LIFE_FRACTION);
             sheet.rotation = 2.2 * LIFE_FRACTION;
-            const auto ROOT = bubblePeelSample(surface, HOLE, phi, 0).position;
+            const auto ROOT = bubble_peel_sample(surface, HOLE, phi, 0).position;
             const Vec3 OUTWARD = normalize({
                 .x = ROOT.x - (surface.spherical ? HOLE.centre.x * RADIUS : HOLE.centre.x),
                 .y = ROOT.y - (surface.spherical ? HOLE.centre.y * RADIUS : HOLE.centre.y),
@@ -568,15 +596,16 @@ namespace hyprimate {
                 .y = (OUTWARD.y * TRAVEL) + (.04 * RADIUS * LIFE_FRACTION * LIFE_FRACTION),
                 .z = (OUTWARD.z * TRAVEL) + (.05 * RADIUS * LIFE_FRACTION),
             };
-            SHEETS[count++] = sheet;
+            *sheet_out++ = sheet;
+            ++count;
         }
         return count;
     }
     namespace {
         struct ImpactCache {
             BubbleSurface key{};
-            std::array<BubbleImpact, kBubbleMaxImpacts> impacts{};
-            std::array<std::uint32_t, kBubbleMaxImpacts> ids{};
+            std::array<BubbleImpact, K_BUBBLE_MAX_IMPACTS> impacts{};
+            std::array<std::uint32_t, K_BUBBLE_MAX_IMPACTS> ids{};
             std::size_t count = 0;
             bool valid = false;
         };
@@ -590,13 +619,14 @@ namespace hyprimate {
         bool impact_mode,
         std::span<std::uint32_t> impact_ids = {}) {
         if (!surface.closing || surface.speed <= 0 || surface.rate <= 0 ||
-            surface.halfSize.x <= 0 || surface.halfSize.y <= 0) {
+            surface.half_size.x <= 0 || surface.half_size.y <= 0) {
             return 0;
         }
         if (!impact_mode) {
             bool started = false;
-            for (std::size_t i = 0; i < std::min(surface.holeCount, kBubbleHoles); ++i) {
-                started |= surface.clock > surface.holes[i].start;
+            for (const auto &hole :
+                std::span(surface.holes).first(std::min(surface.hole_count, K_BUBBLE_HOLES))) {
+                started |= surface.clock > hole.start;
             }
             if (!started) {
                 return 0;
@@ -604,18 +634,20 @@ namespace hyprimate {
         }
         const ImpactCache *selected = impact_mode ? nullptr : &impact_cache(surface);
         std::size_t count = 0;
-        for (std::size_t hi = 0; hi < std::min(surface.holeCount, kBubbleHoles); ++hi) {
-            const auto &hole = surface.holes[hi];
-            const double MIN_HALF = std::min(surface.halfSize.x, surface.halfSize.y);
+        std::size_t hole_index = 0;
+        for (const auto &hole :
+            std::span(surface.holes).first(std::min(surface.hole_count, K_BUBBLE_HOLES))) {
+            const std::size_t HOLE_INDEX = hole_index++;
+            const double MIN_HALF = std::min(surface.half_size.x, surface.half_size.y);
             const double THRESHOLD =
-                std::max(24.0, .08 * MIN_HALF) / (surface.spherical ? surface.halfSize.x : 1);
+                std::max(24.0, .08 * MIN_HALF) / (surface.spherical ? surface.half_size.x : 1);
             if (!impact_mode && hole.radius < THRESHOLD) {
                 continue;
             }
             const double TRANSIENT = surface.spherical ? .05 : .075;
-            const double UNITS_PER_PIXEL = surface.spherical ? 1 / surface.halfSize.x : 1;
+            const double UNITS_PER_PIXEL = surface.spherical ? 1 / surface.half_size.x : 1;
             std::uint64_t hole_rng =
-                surface.debris ^ (hi * 0x9e3779b97f4a7c15ULL) ^ 0x94d049bb133111ebULL;
+                surface.debris ^ (HOLE_INDEX * 0x9e3779b97f4a7c15ULL) ^ 0x94d049bb133111ebULL;
             const int FINGER_COUNT = 14 + static_cast<int>(13 * unit_draw(hole_rng));
             Vec3 basis_first{};
             Vec3 basis_second{};
@@ -626,7 +658,7 @@ namespace hyprimate {
                 if (impact_mode && count >= (surface.spherical ? 3U : 2U)) {
                     break;
                 }
-                std::uint64_t rng = surface.debris ^ (hi * 0x9e3779b97f4a7c15ULL) ^
+                std::uint64_t rng = surface.debris ^ (HOLE_INDEX * 0x9e3779b97f4a7c15ULL) ^
                                     (finger * 0xbf58476d1ce4e5b9ULL);
                 if (unit_draw(rng) < .27) {
                     continue;
@@ -660,11 +692,13 @@ namespace hyprimate {
                                 : Vec3{.x = COS_PHI, .y = SIN_PHI, .z = 0};
                 double corrugation = 0;
                 double current_corrugation = 0;
-                for (std::size_t rim_mode = 0; rim_mode < kBubbleRimModes.size(); ++rim_mode) {
-                    const double WAVE =
-                        std::cos((kBubbleRimModes[rim_mode] * PHI) + hole.phase[rim_mode]);
-                    corrugation += (.014 - (.002 * static_cast<double>(rim_mode))) * WAVE;
-                    current_corrugation += hole.amplitude[rim_mode] * WAVE;
+                const auto *phase = hole.phase.begin();
+                const auto *amplitude = hole.amplitude.begin();
+                std::size_t rim_mode = 0;
+                for (const auto MODE : K_BUBBLE_RIM_MODES) {
+                    const double WAVE = std::cos((MODE * PHI) + *phase++);
+                    corrugation += (.014 - (.002 * static_cast<double>(rim_mode++))) * WAVE;
+                    current_corrugation += *amplitude++ * WAVE;
                 }
                 const auto POINT_AT = [&](double radius) {
                     if (!surface.spherical) {
@@ -676,7 +710,7 @@ namespace hyprimate {
                     }
                     const double RADIUS_COSINE = std::cos(radius);
                     const double RADIUS_SINE = std::sin(radius);
-                    const double SCALE = surface.halfSize.x;
+                    const double SCALE = surface.half_size.x;
                     return Vec3{
                         .x =
                             SCALE * ((hole.centre.x * RADIUS_COSINE) + (DIRECTION.x * RADIUS_SINE)),
@@ -690,7 +724,7 @@ namespace hyprimate {
                     BubbleHole frozen = hole;
                     frozen.radius = boundary;
                     frozen.amplitude = {};
-                    return bubblePeelSample(surface, frozen, PHI, 1).position;
+                    return bubble_peel_sample(surface, frozen, PHI, 1).position;
                 };
                 const auto TIP_AT = [&](double boundary, Vec3 root) {
                     const Vec3 BASE = POINT_AT(boundary);
@@ -729,31 +763,31 @@ namespace hyprimate {
                         const Vec3 ROOT = POINT_AT(CURRENT_RADIUS);
                         bool on_film = surface.spherical
                                            ? CURRENT_RADIUS < PI_VALUE
-                                           : std::abs(ROOT.x) <= surface.halfSize.x &&
-                                                 std::abs(ROOT.y) <= surface.halfSize.y;
-                        const Vec3 POSITION = surface.spherical ? Vec3{.x = ROOT.x / surface.halfSize.x,
-                                                                .y = ROOT.y / surface.halfSize.x,
-                                                                .z = ROOT.z / surface.halfSize.x,}
+                                           : std::abs(ROOT.x) <= surface.half_size.x &&
+                                                 std::abs(ROOT.y) <= surface.half_size.y;
+                        const Vec3 POSITION = surface.spherical ? Vec3{.x = ROOT.x / surface.half_size.x,
+                                                                .y = ROOT.y / surface.half_size.x,
+                                                                .z = ROOT.z / surface.half_size.x,}
                                                           : ROOT;
+                        const auto *prior_hole = surface.holes.begin();
                         for (std::size_t other = 0;
-                            on_film && other < std::min(surface.holeCount, kBubbleHoles);
-                            ++other) {
-                            if (other == hi || surface.holes[other].radius <= 0) {
+                            on_film && other < std::min(surface.hole_count, K_BUBBLE_HOLES);
+                            ++other, ++prior_hole) {
+                            if (other == HOLE_INDEX || prior_hole->radius <= 0) {
                                 continue;
                             }
-                            const auto &prior = surface.holes[other];
+                            const auto &prior = *prior_hole;
                             if (surface.spherical) {
                                 const double ALIGNMENT = dot(POSITION, prior.centre);
                                 if (prior.radius * .94 >= PI_VALUE ||
                                     (prior.radius * .94 < PI_VALUE &&
-                                        ALIGNMENT > std::cos(prior.radius * .94))) {
-                                    on_film = false;
-                                } else if ((prior.radius * 1.06 >= PI_VALUE ||
-                                               ALIGNMENT > std::cos(prior.radius * 1.06)) &&
-                                           ALIGNMENT > std::cos(std::min(PI_VALUE,
-                                                           bubbleHoleBoundary(prior,
-                                                               bubbleHoleAzimuth(
-                                                                   prior, POSITION, true))))) {
+                                        ALIGNMENT > std::cos(prior.radius * .94)) ||
+                                    ((prior.radius * 1.06 >= PI_VALUE ||
+                                         ALIGNMENT > std::cos(prior.radius * 1.06)) &&
+                                        ALIGNMENT > std::cos(std::min(PI_VALUE,
+                                                        bubble_hole_boundary(prior,
+                                                            bubble_hole_azimuth(
+                                                                prior, POSITION, true)))))) {
                                     on_film = false;
                                 }
                             } else {
@@ -761,8 +795,8 @@ namespace hyprimate {
                                 const double ROOT_DELTA_Y = ROOT.y - prior.centre.y;
                                 const double DISTANCE = std::hypot(ROOT_DELTA_X, ROOT_DELTA_Y);
                                 if (DISTANCE < prior.radius * 1.06 &&
-                                    DISTANCE < bubbleHoleBoundary(prior,
-                                                   bubbleHoleAzimuth(prior, POSITION, false))) {
+                                    DISTANCE < bubble_hole_boundary(prior,
+                                                   bubble_hole_azimuth(prior, POSITION, false))) {
                                     on_film = false;
                                 }
                             }
@@ -770,7 +804,7 @@ namespace hyprimate {
                         if (on_film) {
                             const double PROGRESS = 1 + (AGE / FORMING);
                             const double BEHIND = surface.spherical
-                                                      ? LENGTH * PROGRESS / surface.halfSize.x
+                                                      ? LENGTH * PROGRESS / surface.half_size.x
                                                       : LENGTH * PROGRESS;
                             const Vec3 BASE_TIP = POINT_AT(std::max(0.0, CURRENT_RADIUS - BEHIND));
                             const Vec3 CURLED = EDGE(CURRENT_RADIUS);
@@ -786,7 +820,7 @@ namespace hyprimate {
                             ligament.tail = {.x = CURLED.x, .y = CURLED.y};
                             ligament.radius =
                                 std::max(THREAD_RADIUS * 1.25, SIZE * (.6 + (.4 * PROGRESS)));
-                            ligament.tailRadius = THREAD_RADIUS;
+                            ligament.tail_radius = THREAD_RADIUS;
                             ligament.depth = (CURLED.z + BASE_TIP.z - ROOT.z) / MIN_HALF;
                             if (count < out.size()) {
                                 out[count++] = ligament;
@@ -794,7 +828,8 @@ namespace hyprimate {
                                 identified[count++] = {
                                     .particle = ligament,
                                     .id = static_cast<std::uint32_t>(
-                                        2000 + (hi * 104) + (finger * 4) + drop),
+                                        2000 + (HOLE_INDEX * 104) +
+                                        (static_cast<std::size_t>(finger) * 4) + drop),
                                 };
                             }
                         }
@@ -812,20 +847,21 @@ namespace hyprimate {
                         continue;
                     }
                     const Vec3 BASE = POINT_AT(BOUNDARY);
-                    if (!surface.spherical && (std::abs(BASE.x) > surface.halfSize.x ||
-                                                  std::abs(BASE.y) > surface.halfSize.y)) {
+                    if (!surface.spherical && (std::abs(BASE.x) > surface.half_size.x ||
+                                                  std::abs(BASE.y) > surface.half_size.y)) {
                         continue;
                     }
                     bool consumed = false;
-                    for (std::size_t other = 0; other < std::min(surface.holeCount, kBubbleHoles);
-                        ++other) {
-                        if (other == hi || BIRTH <= surface.holes[other].start) {
+                    std::size_t other = 0;
+                    for (const auto &source : std::span(surface.holes)
+                             .first(std::min(surface.hole_count, K_BUBBLE_HOLES))) {
+                        const std::size_t SOURCE_INDEX = other++;
+                        if (SOURCE_INDEX == HOLE_INDEX || BIRTH <= source.start) {
                             continue;
                         }
-                        const auto &source = surface.holes[other];
-                        const Vec3 POSITION = surface.spherical ? Vec3{.x = BASE.x / surface.halfSize.x,
-                                                                .y = BASE.y / surface.halfSize.x,
-                                                                .z = BASE.z / surface.halfSize.x,}
+                        const Vec3 POSITION = surface.spherical ? Vec3{.x = BASE.x / surface.half_size.x,
+                                                                .y = BASE.y / surface.half_size.x,
+                                                                .z = BASE.z / surface.half_size.x,}
                                                           : BASE;
                         const double UPPER = surface.speed * (BIRTH - source.start) * 1.06;
                         const double DELTA_X = BASE.x - source.centre.x;
@@ -841,9 +877,9 @@ namespace hyprimate {
                         BubbleHole prior = source;
                         prior.radius = radius_at(surface, prior, BIRTH);
                         const double PRIOR_ONSET = smoothstep(.012, .045, BIRTH - prior.start);
-                        for (std::size_t mode = 0; mode < prior.amplitude.size(); ++mode) {
-                            prior.amplitude[mode] =
-                                PRIOR_ONSET * (.014 - (.002 * static_cast<double>(mode)));
+                        std::size_t mode = 0;
+                        for (auto &amplitude : prior.amplitude) {
+                            amplitude = PRIOR_ONSET * (.014 - (.002 * static_cast<double>(mode++)));
                         }
                         const double DISTANCE =
                             surface.spherical
@@ -858,13 +894,13 @@ namespace hyprimate {
                                           std::cos(std::min(PI_VALUE, prior.radius * .94)) ||
                                       ((prior.radius * 1.06 >= PI_VALUE ||
                                            ALIGNMENT > std::cos(prior.radius * 1.06)) &&
-                                          ALIGNMENT >
-                                              std::cos(std::min(PI_VALUE,
-                                                  bubbleHoleBoundary(prior,
-                                                      bubbleHoleAzimuth(prior, POSITION, true))))))
+                                          ALIGNMENT > std::cos(std::min(PI_VALUE,
+                                                          bubble_hole_boundary(prior,
+                                                              bubble_hole_azimuth(
+                                                                  prior, POSITION, true))))))
                                 : (DISTANCE < prior.radius * 1.06 &&
-                                      DISTANCE < bubbleHoleBoundary(prior,
-                                                     bubbleHoleAzimuth(prior, POSITION, false)));
+                                      DISTANCE < bubble_hole_boundary(prior,
+                                                     bubble_hole_azimuth(prior, POSITION, false)));
                         if (INSIDE) {
                             consumed = true;
                             break;
@@ -882,7 +918,7 @@ namespace hyprimate {
                     const double VELOCITY = RIM_VELOCITY * FACTOR;
                     const double COSINE = surface.spherical ? std::cos(BOUNDARY) : 1;
                     const double SINE = surface.spherical ? std::sin(BOUNDARY) : 0;
-                    const double SCALE = surface.spherical ? surface.halfSize.x : 1;
+                    const double SCALE = surface.spherical ? surface.half_size.x : 1;
                     const Vec3 TANGENT{
                         .x = SCALE * ((DIRECTION.x * COSINE) - (hole.centre.x * SINE)),
                         .y = SCALE * ((DIRECTION.y * COSINE) - (hole.centre.y * SINE)),
@@ -890,7 +926,7 @@ namespace hyprimate {
                     };
                     const double VELOCITY_X = TANGENT.x * VELOCITY;
                     const double VELOCITY_Y = TANGENT.y * VELOCITY;
-                    const double MIN_HALF = std::min(surface.halfSize.x, surface.halfSize.y);
+                    const double MIN_HALF = std::min(surface.half_size.x, surface.half_size.y);
                     const double MAGNITUDE =
                         surface.spherical ? std::hypot(VELOCITY_X, VELOCITY_Y) : VELOCITY;
                     const double TAU =
@@ -900,16 +936,18 @@ namespace hyprimate {
                     const double PLANE = (surface.spherical ? MIN_HALF * 1.01 : MIN_HALF * .10) +
                                          (2 * MAX_WIDTH / 1.7);
                     const double DISTANCE = PLANE - POINT.z;
-                    const auto SOURCE_ID =
-                        static_cast<std::uint32_t>((hi * 104) + (finger * 4) + drop);
-                    const bool CANDIDATE =
-                        drop == 0 &&
-                        (impact_mode || std::find(selected->ids.begin(),
-                                            selected->ids.begin() + selected->count,
-                                            SOURCE_ID) != selected->ids.begin() + selected->count);
+                    const auto SOURCE_ID = static_cast<std::uint32_t>(
+                        (HOLE_INDEX * 104) + (static_cast<std::size_t>(finger) * 4) + drop);
+                    const bool CANDIDATE = drop == 0 && (impact_mode || [&] {
+                        const auto IDS = std::span(selected->ids).first(selected->count);
+                        return std::ranges::find(IDS, SOURCE_ID) != IDS.end();
+                    }());
+                    double impact_velocity_factor = .3;
+                    if (CANDIDATE) {
+                        impact_velocity_factor = surface.spherical ? 2.8 : 1.4;
+                    }
                     const double VELOCITY_Z =
-                        (TANGENT.z * VELOCITY) +
-                        (MAGNITUDE * (CANDIDATE ? (surface.spherical ? 2.8 : 1.4) : .3));
+                        (TANGENT.z * VELOCITY) + (MAGNITUDE * impact_velocity_factor);
                     const double FRACTION =
                         CANDIDATE && VELOCITY_Z > 0 ? DISTANCE / (VELOCITY_Z * TAU) : 2;
                     const double HIT_AGE =
@@ -917,7 +955,7 @@ namespace hyprimate {
                     const double HIT_RADIUS = SIZE * (1 - (HIT_AGE / LIFETIME)) * 1.5;
                     const bool HITS = HIT_AGE < LIFETIME && HIT_RADIUS >= 1.5 && HIT_RADIUS <= 3.5;
                     if (impact_mode) {
-                        if (HITS && count < impacts.size() && count < kBubbleMaxImpacts) {
+                        if (HITS && count < impacts.size() && count < K_BUBBLE_MAX_IMPACTS) {
                             const double TRAVEL = TAU * (1 - std::exp(-HIT_AGE / TAU));
                             const double SAG_LIMIT = .05 * MIN_HALF;
                             const double SAG =
@@ -960,43 +998,46 @@ namespace hyprimate {
                     const Vec3 TAIL_BASE = POINT_AT(CURRENT_BOUNDARY);
                     bool tail_on_film = surface.spherical
                                             ? CURRENT_BOUNDARY < PI_VALUE
-                                            : std::abs(TAIL_BASE.x) <= surface.halfSize.x &&
-                                                  std::abs(TAIL_BASE.y) <= surface.halfSize.y;
-                    const Vec3 TAIL_POSITION = surface.spherical ? Vec3{.x = TAIL_BASE.x / surface.halfSize.x,
-                                                                 .y = TAIL_BASE.y / surface.halfSize.x,
-                                                                 .z = TAIL_BASE.z / surface.halfSize.x,}
+                                            : std::abs(TAIL_BASE.x) <= surface.half_size.x &&
+                                                  std::abs(TAIL_BASE.y) <= surface.half_size.y;
+                    const Vec3 TAIL_POSITION = surface.spherical ? Vec3{.x = TAIL_BASE.x / surface.half_size.x,
+                                                                 .y = TAIL_BASE.y / surface.half_size.x,
+                                                                 .z = TAIL_BASE.z / surface.half_size.x,}
                                                            : TAIL_BASE;
+                    const auto *prior_hole = surface.holes.begin();
                     for (std::size_t other = 0;
-                        tail_on_film && other < std::min(surface.holeCount, kBubbleHoles);
-                        ++other) {
-                        if (other == hi || surface.holes[other].radius <= 0) {
+                        tail_on_film && other < std::min(surface.hole_count, K_BUBBLE_HOLES);
+                        ++other, ++prior_hole) {
+                        if (other == HOLE_INDEX || prior_hole->radius <= 0) {
                             continue;
                         }
-                        const auto &prior = surface.holes[other];
+                        const auto &prior = *prior_hole;
                         const double DISTANCE =
                             surface.spherical
                                 ? std::acos(std::clamp(dot(TAIL_POSITION, prior.centre), -1.0, 1.0))
                                 : std::hypot(
                                       TAIL_BASE.x - prior.centre.x, TAIL_BASE.y - prior.centre.y);
                         if (DISTANCE <
-                            bubbleHoleBoundary(prior,
-                                bubbleHoleAzimuth(prior, TAIL_POSITION, surface.spherical))) {
+                            bubble_hole_boundary(prior,
+                                bubble_hole_azimuth(prior, TAIL_POSITION, surface.spherical))) {
                             tail_on_film = false;
                         }
                     }
                     const Vec3 TAIL = AGE < DETACH && tail_on_film ? EDGE(CURRENT_BOUNDARY) : POINT;
                     particle.tail = AGE < DETACH && tail_on_film ? Vec2{.x = TAIL.x, .y = TAIL.y}
                                                                  : particle.centre;
-                    particle.tailRadius = AGE < DETACH && tail_on_film
-                                              ? SIZE * .3 * std::max(0.0, 1 - (AGE / DETACH))
-                                              : 0;
+                    particle.tail_radius = AGE < DETACH && tail_on_film
+                                               ? SIZE * .3 * std::max(0.0, 1 - (AGE / DETACH))
+                                               : 0;
                     if (!HITS || AGE < HIT_AGE) {
                         if (count < out.size()) {
                             out[count++] = particle;
                         } else if (count < identified.size()) {
                             identified[count++] = {
                                 .particle = particle,
-                                .id = static_cast<std::uint32_t>((hi * 104) + (finger * 4) + drop),
+                                .id = static_cast<std::uint32_t>(
+                                    (HOLE_INDEX * 104) + (static_cast<std::size_t>(finger) * 4) +
+                                    drop),
                             };
                         }
                     }
@@ -1025,21 +1066,25 @@ namespace hyprimate {
                             identified[count++] = {
                                 .particle = small,
                                 .id = static_cast<std::uint32_t>(
-                                    10000 + (((hi * 104) + (finger * 4) + drop) * 2) + satellite),
+                                    10000 +
+                                    (((HOLE_INDEX * 104) + (static_cast<std::size_t>(finger) * 4) +
+                                         drop) *
+                                        2) +
+                                    satellite),
                             };
                         }
                     }
                 }
             }
         }
-        if (!impact_mode && (surface.holeCount != 0U)) {
+        if (!impact_mode && (surface.hole_count != 0U)) {
             const auto BURST = [&](Vec3 origin, double birth, std::uint32_t particle_id) {
                 const double AGE = surface.clock - birth;
                 const double LIFE = std::min(.22 * surface.rate, .995 - birth);
                 if (AGE < 0 || AGE >= LIFE) {
                     return;
                 }
-                const double REACH = .12 * std::min(surface.halfSize.x, surface.halfSize.y);
+                const double REACH = .12 * std::min(surface.half_size.x, surface.half_size.y);
                 for (std::uint32_t i = 0; i < 4; ++i) {
                     const double PHI = 2 * PI_VALUE * (i + (.13 * (particle_id % 7))) / 4;
                     const double MOTION = REACH * (1 - std::exp(-AGE / .09));
@@ -1050,7 +1095,7 @@ namespace hyprimate {
                     };
                     new_particle.tail = new_particle.centre;
                     new_particle.radius = (2.5 + (.35 * i)) * (1 - (AGE / LIFE));
-                    new_particle.depth = surface.spherical ? origin.z / surface.halfSize.x : 0;
+                    new_particle.depth = surface.spherical ? origin.z / surface.half_size.x : 0;
                     if (count < out.size()) {
                         out[count++] = new_particle;
                     } else if (count < identified.size()) {
@@ -1059,8 +1104,8 @@ namespace hyprimate {
                 }
             };
             const auto &events = collapse(surface);
-            for (std::size_t i = 0; i < events.merge_count; ++i) {
-                BURST(events.merges[i].position, events.merges[i].time, events.merges[i].id);
+            for (const auto &merge : std::span(events.merges).first(events.merge_count)) {
+                BURST(merge.position, merge.time, merge.id);
             }
             BURST(events.position, events.time, 1200);
         }
@@ -1070,17 +1115,19 @@ namespace hyprimate {
     namespace {
         const ImpactCache &impact_cache(const BubbleSurface &surface) {
             static thread_local std::array<ImpactCache, 2> cache;
-            auto &entry = cache[surface.spherical ? 1 : 0];
-            const auto HOLE_COUNT = std::min(surface.holeCount, kBubbleHoles);
+            auto &entry = surface.spherical ? cache.back() : cache.front();
+            const auto HOLE_COUNT = std::min(surface.hole_count, K_BUBBLE_HOLES);
             bool same = entry.valid && entry.key.speed == surface.speed &&
                         entry.key.rate == surface.rate && entry.key.debris == surface.debris &&
                         entry.key.aureole == surface.aureole &&
-                        entry.key.holeCount == surface.holeCount &&
-                        entry.key.halfSize.x == surface.halfSize.x &&
-                        entry.key.halfSize.y == surface.halfSize.y;
+                        entry.key.hole_count == surface.hole_count &&
+                        entry.key.half_size.x == surface.half_size.x &&
+                        entry.key.half_size.y == surface.half_size.y;
+            const auto *cached = entry.key.holes.begin();
+            const auto *current = surface.holes.begin();
             for (std::size_t i = 0; same && i < HOLE_COUNT; ++i) {
-                const auto &cached_hole = entry.key.holes[i];
-                const auto &current_hole = surface.holes[i];
+                const auto &cached_hole = *cached++;
+                const auto &current_hole = *current++;
                 same = cached_hole.start == current_hole.start &&
                        cached_hole.centre.x == current_hole.centre.x &&
                        cached_hole.centre.y == current_hole.centre.y &&
@@ -1098,25 +1145,26 @@ namespace hyprimate {
         }
     }  // namespace
 
-    std::size_t bubbleParticles(const BubbleSurface &surface, std::span<BubbleParticle> out) {
+    std::size_t bubble_particles(const BubbleSurface &surface, std::span<BubbleParticle> out) {
         return debris(surface, out, {}, {}, false);
     }
 
-    std::size_t bubbleImpacts(const BubbleSurface &surface, std::span<BubbleImpact> out) {
+    std::size_t bubble_impacts(const BubbleSurface &surface, std::span<BubbleImpact> out) {
         if (!surface.closing || surface.speed <= 0 || surface.rate <= 0 ||
-            surface.halfSize.x <= 0 || surface.halfSize.y <= 0) {
+            surface.half_size.x <= 0 || surface.half_size.y <= 0) {
             return 0;
         }
         const auto &entry = impact_cache(surface);
         const auto OUTPUT_COUNT = std::min(out.size(), entry.count);
-        for (std::size_t i = 0; i < OUTPUT_COUNT; ++i) {
-            out[i] = entry.impacts[i];
-            out[i].delay -= surface.clock / surface.rate;
+        const auto *impact = entry.impacts.begin();
+        for (auto &output : out.first(OUTPUT_COUNT)) {
+            output = *impact++;
+            output.delay -= surface.clock / surface.rate;
         }
         return OUTPUT_COUNT;
     }
 
-    std::size_t detail::bubbleParticlesWithIds(
+    std::size_t detail::bubble_particles_with_ids(
         const BubbleSurface &surface, std::span<IdentifiedParticle> out) {
         return debris(surface, {}, {}, out, false);
     }

@@ -25,38 +25,38 @@ class CPaperShade {
     SP<Render::ITexture> m_texture;
 };
 
-// Logical box that bounds every displayed sheet vertex. `logicalBox` is the rest window box in
+// Logical box that bounds every displayed sheet vertex. `logical_box` is the rest window box in
 // logical pixels; the result is in the same space. Width and height are at least 1.
-CBox sheetExtents(const hyprimate::SheetFrame &frame, const CBox &logicalBox);
+CBox sheet_extents(const hyprimate::SheetFrame &frame, const CBox &logical_box);
 
 // Fills the window mesh (triangles in frame.order, uv into the source texture) and the shade mesh
-// (same positions, uv into the shade ramp). `sourceDevice` is the rest window box in device pixels
-// and `outputDevice` is the output box in device pixels. Positions are normalised to the rest size,
-// so no scale is needed. Both vectors are resized to PAPER_VERTEX_COUNT only when their size
+// (same positions, uv into the shade ramp). `source_device` is the rest window box in device pixels
+// and `output_device` is the output box in device pixels. Positions are normalised to the rest
+// size, so no scale is needed. Both vectors are resized to PAPER_VERTEX_COUNT only when their size
 // differs.
-void fillSheetMeshes(const hyprimate::SheetFrame &frame,
-    const CBox &sourceDevice,
-    const CBox &outputDevice,
-    hyprimate::Vec2 textureOrigin,
-    hyprimate::Vec2 textureSize,
+void fill_sheet_meshes(const hyprimate::SheetFrame &frame,
+    const CBox &source_device,
+    const CBox &output_device,
+    hyprimate::Vec2 texture_origin,
+    hyprimate::Vec2 texture_size,
     std::vector<SMeshRenderVertex> &window,
     std::vector<SMeshRenderVertex> &shade);
 
 // Six vertices covering a unit box with uv equal to position. Draws a full-canvas texture as a
 // mesh.
-const std::vector<SMeshRenderVertex> &paperCanvasQuad();
+const std::vector<SMeshRenderVertex> &paper_canvas_quad();
 
 struct SPaperDraw {
     SP<Render::ITexture> window;
     SP<Render::ITexture> shade;  // ramp texture from CPaperShade; null draws unlit
     Vector2D canvas;  // work buffer size in device pixels
-    CBox meshBox;  // box the meshes are normalised to, in canvas pixels
-    const std::vector<SMeshRenderVertex> *windowVertices = nullptr;
-    const std::vector<SMeshRenderVertex> *shadeVertices = nullptr;
+    CBox mesh_box;  // box the meshes are normalised to, in canvas pixels
+    const std::vector<SMeshRenderVertex> *window_vertices = nullptr;
+    const std::vector<SMeshRenderVertex> *shade_vertices = nullptr;
     float alpha = 1.F;
 };
 
 // Renders the paper into a work buffer and returns it, or nullptr when the work buffer or inputs
 // are unavailable. Must be called during rendering; it binds and restores the framebuffer and draw
 // state itself.
-SP<Render::IFramebuffer> renderPaper(Render::CRenderContext &ctx, const SPaperDraw &d);
+SP<Render::IFramebuffer> render_paper(Render::CRenderContext &ctx, const SPaperDraw &draw);

@@ -3,6 +3,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <numbers>
+#include <span>
 
 #include "animations/bubble/Bubble.hpp"
 #include "animations/bubble/BubbleMotion.hpp"
@@ -26,26 +28,26 @@ namespace hyprimate {
         BubbleFrame neutral(Vec2 size) {
             BubbleFrame frame{};
             frame.size = size;
-            frame.window.halfSize = {.x = size.x * .5, .y = size.y * .5};
+            frame.window.half_size = {.x = size.x * .5, .y = size.y * .5};
             frame.window.visibility = 1;
             return frame;
         }
 
         void update_rupture(BubbleSurface &surface) {
-            for (std::size_t i = 0; i < surface.holeCount; ++i) {
-                auto &hole = surface.holes[i];
+            for (std::size_t hole_index = 0; hole_index < surface.hole_count; ++hole_index) {
+                auto &hole = surface.holes[hole_index];
                 const double AGE = std::max(0.0, surface.clock - hole.start);
                 const double TRANSIENT = surface.spherical ? .05 : .075;
                 hole.radius =
                     surface.speed * (AGE - (TRANSIENT * (1 - std::exp(-AGE / TRANSIENT))));
                 hole.precursor = 1 - smoothstep(hole.start, hole.start + .018, surface.clock);
-                hole.precursor *=
-                    smoothstep(hole.start - (i == 0 ? (surface.spherical ? .10 : .15) : .06),
-                        hole.start,
-                        surface.clock);
+                hole.precursor *= smoothstep(
+                    hole.start - (hole_index == 0 ? (surface.spherical ? .10 : .15) : .06),
+                    hole.start,
+                    surface.clock);
                 hole.rim = std::clamp(
                     1.2 + (.12 * std::sqrt(
-                                     hole.radius * (surface.spherical ? surface.halfSize.x : 1))),
+                                     hole.radius * (surface.spherical ? surface.half_size.x : 1))),
                     1.2,
                     4.5);
                 const double FINGERS = smoothstep(.012, .045, AGE);
@@ -63,26 +65,26 @@ namespace hyprimate {
             surface.rate = 1 / duration;
             surface.debris = seed;
             surface.aureole = 1;
-            surface.ruptureVisibility = surface.visibility;
-            surface.holeCount = 3;
+            surface.rupture_visibility = surface.visibility;
+            surface.hole_count = 3;
             if (!sphere && surface.thickness <= 0) {
                 surface.thickness = 380 + (270 * unit_draw(seed));
             }
             const double SPOT_X = spot.x;
             const double SPOT_Y = spot.y;
             if (sphere) {
-                surface.holes[0].centre = {
+                std::get<0>(surface.holes).centre = {
                     .x = SPOT_X,
                     .y = -.55,
                     .z = std::sqrt(std::max(0.0, 1 - SPOT_X * SPOT_X - .55 * .55)),
                 };
                 const double TURN = (unit_draw(seed) - .5) * .5;
-                surface.holes[1].centre = {
+                std::get<1>(surface.holes).centre = {
                     .x = (-.5 * std::cos(TURN)) - (.45 * std::sin(TURN)),
                     .y = (-.5 * std::sin(TURN)) + (.45 * std::cos(TURN)),
                     .z = -.74,
                 };
-                surface.holes[2].centre = {
+                std::get<2>(surface.holes).centre = {
                     .x = (.55 * std::cos(TURN)) - (.35 * std::sin(TURN)),
                     .y = (.55 * std::sin(TURN)) + (.35 * std::cos(TURN)),
                     .z = -.76,
@@ -101,48 +103,48 @@ namespace hyprimate {
                 }
                 surface.speed = 12.5;
             } else {
-                surface.holes[0].centre = {
-                    .x = SPOT_X * surface.halfSize.x,
-                    .y = -std::abs(SPOT_Y) * surface.halfSize.y,
+                std::get<0>(surface.holes).centre = {
+                    .x = SPOT_X * surface.half_size.x,
+                    .y = -std::abs(SPOT_Y) * surface.half_size.y,
                     .z = 0,
                 };
                 const double FIRST = .72 + (.04 * unit_draw(seed));
                 const double SECOND = .72 + (.04 * unit_draw(seed));
                 const double CROSS1 = .5 + (.1 * unit_draw(seed));
                 const double CROSS2 = .5 + (.1 * unit_draw(seed));
-                if (surface.halfSize.x >= surface.halfSize.y) {
-                    surface.holes[1].centre = {
-                        .x = -surface.halfSize.x * FIRST,
-                        .y = surface.halfSize.y * CROSS1,
+                if (surface.half_size.x >= surface.half_size.y) {
+                    std::get<1>(surface.holes).centre = {
+                        .x = -surface.half_size.x * FIRST,
+                        .y = surface.half_size.y * CROSS1,
                         .z = 0,
                     };
-                    surface.holes[2].centre = {
-                        .x = surface.halfSize.x * SECOND,
-                        .y = surface.halfSize.y * CROSS2,
+                    std::get<2>(surface.holes).centre = {
+                        .x = surface.half_size.x * SECOND,
+                        .y = surface.half_size.y * CROSS2,
                         .z = 0,
                     };
                 } else {
-                    surface.holes[1].centre = {
-                        .x = surface.halfSize.x * CROSS1,
-                        .y = surface.halfSize.y * FIRST,
+                    std::get<1>(surface.holes).centre = {
+                        .x = surface.half_size.x * CROSS1,
+                        .y = surface.half_size.y * FIRST,
                         .z = 0,
                     };
-                    surface.holes[2].centre = {
-                        .x = -surface.halfSize.x * CROSS2,
-                        .y = -surface.halfSize.y * SECOND,
+                    std::get<2>(surface.holes).centre = {
+                        .x = -surface.half_size.x * CROSS2,
+                        .y = -surface.half_size.y * SECOND,
                         .z = 0,
                     };
                 }
                 const double FARTHEST =
-                    std::hypot(surface.halfSize.x + std::abs(surface.holes[0].centre.x),
-                        surface.halfSize.y + std::abs(surface.holes[0].centre.y));
+                    std::hypot(surface.half_size.x + std::abs(std::get<0>(surface.holes).centre.x),
+                        surface.half_size.y + std::abs(std::get<0>(surface.holes).centre.y));
                 surface.speed = FARTHEST * 2.5;
             }
-            surface.holes[0].start = sphere ? .31 : .15;
-            surface.holes[1].start = sphere ? .38 : .25;
-            surface.holes[2].start = sphere ? .42 : .31;
-            for (std::size_t i = 0; i < surface.holeCount; ++i) {
-                for (double &phase : surface.holes[i].phase) {
+            std::get<0>(surface.holes).start = sphere ? .31 : .15;
+            std::get<1>(surface.holes).start = sphere ? .38 : .25;
+            std::get<2>(surface.holes).start = sphere ? .42 : .31;
+            for (auto &hole : std::span(surface.holes).first(surface.hole_count)) {
+                for (double &phase : hole.phase) {
                     phase = 6.283185307179586 * unit_draw(seed);
                 }
             }
@@ -157,50 +159,50 @@ namespace hyprimate {
             reset();
             return;
         }
-        const bool FROM_OPENING = direction == Transition::Close && active_ && opening_;
+        const bool FROM_OPENING = direction == Transition::Close && m_active && m_opening;
         // A close takes over the film as it is: mid-opening, or still deformed by movement.
-        const bool INHERIT = FROM_OPENING || (direction == Transition::Close && motion_.stirred());
+        const bool INHERIT = FROM_OPENING || (direction == Transition::Close && m_motion.stirred());
         const auto START = INHERIT ? frame(size) : neutral(size);
         const double MATERIAL_SEED = FROM_OPENING ? START.seed : unit_draw(seed);
         const double SPOT_X = (.16 + (.12 * unit_draw(seed))) * (unit_draw(seed) < .5 ? -1 : 1);
         const double SPOT_Y = (.12 + (.12 * unit_draw(seed))) * (unit_draw(seed) < .5 ? -1 : 1);
-        initial_ = START;
-        size_ = size;
-        duration_ = std::clamp(duration, .01, 60.0);
-        elapsed_ = 0;
-        seed_ = MATERIAL_SEED;
-        rupture_ = {.x = SPOT_X, .y = SPOT_Y};
-        flow_ = 0;
+        m_initial = START;
+        m_size = size;
+        m_duration = std::clamp(duration, .01, 60.0);
+        m_elapsed = 0;
+        m_seed = MATERIAL_SEED;
+        m_rupture = {.x = SPOT_X, .y = SPOT_Y};
+        m_flow = 0;
         // A closing window no longer moves; its deformation now lives in the close's start frame.
         if (direction == Transition::Close) {
-            motion_.reset();
+            m_motion.reset();
         }
-        if (direction == Transition::Close && initial_.window.visibility > 0 &&
-            !initial_.window.closing) {
-            start_rupture(initial_.window,
-                rupture_,
-                static_cast<std::uint64_t>(seed_ * 0x1p53),
-                duration_,
+        if (direction == Transition::Close && m_initial.window.visibility > 0 &&
+            !m_initial.window.closing) {
+            start_rupture(m_initial.window,
+                m_rupture,
+                static_cast<std::uint64_t>(m_seed * 0x1p53),
+                m_duration,
                 false);
         }
-        active_ = true;
-        opening_ = direction == Transition::Open;
-        closed_ = false;
+        m_active = true;
+        m_opening = direction == Transition::Open;
+        m_closed = false;
     }
 
     void Bubble::advance(double elapsed) {
-        if (!active_ || !std::isfinite(elapsed) || elapsed <= 0) {
+        if (!m_active || !std::isfinite(elapsed) || elapsed <= 0) {
             return;
         }
         // A stalled compositor should not skip the animation in a single frame.
-        elapsed_ = std::min(duration_, elapsed_ + std::min(elapsed, STALL_SECONDS));
-        if (opening_) {
-            flow_ = elapsed_ * 2;
+        m_elapsed = std::min(m_duration, m_elapsed + std::min(elapsed, STALL_SECONDS));
+        if (m_opening) {
+            m_flow = m_elapsed * 2;
         }
-        if (elapsed_ >= duration_ - (duration_ * 1e-12)) {
-            elapsed_ = duration_;
-            active_ = false;
-            closed_ = !opening_;
+        if (m_elapsed >= m_duration - (m_duration * 1e-12)) {
+            m_elapsed = m_duration;
+            m_active = false;
+            m_closed = !m_opening;
         }
     }
 
@@ -210,77 +212,78 @@ namespace hyprimate {
         }
         const bool SETTLING = opening();
         advance(elapsed);
-        if (closed_ || (active_ && !opening_)) {
+        if (m_closed || (m_active && !m_opening)) {
             return;
         }
-        transparency_ = std::clamp(params.transparency, 0.0, 1.0);
-        motion_.advance(elapsed, size, body, params);
+        m_transparency = std::clamp(params.transparency, 0.0, 1.0);
+        m_motion.advance(elapsed, size, body, params);
         // Once landed, the film keeps flowing at the pace the movement stirs it.
         if (!SETTLING) {
-            flow_ += std::min(elapsed, STALL_SECONDS) * (.6 + std::min(motion_.speed() / 800, 3.0));
+            m_flow +=
+                std::min(elapsed, STALL_SECONDS) * (.6 + std::min(m_motion.speed() / 800, 3.0));
         }
     }
 
     void Bubble::reset() {
-        initial_ = {};
-        size_ = {};
-        duration_ = elapsed_ = seed_ = 0;
-        rupture_ = {};
-        active_ = opening_ = closed_ = false;
+        m_initial = {};
+        m_size = {};
+        m_duration = m_elapsed = m_seed = 0;
+        m_rupture = {};
+        m_active = m_opening = m_closed = false;
     }
 
     void Bubble::drive(Vec2 displacement, bool carried) {
-        motion_.drive(displacement, carried);
+        m_motion.drive(displacement, carried);
     }
 
-    void Bubble::seedMotion(std::uint64_t seed) {
-        motion_.seed(seed);
+    void Bubble::seed_motion(std::uint64_t seed) {
+        m_motion.seed(seed);
     }
 
-    void Bubble::stopMotion() {
-        motion_.reset();
+    void Bubble::stop_motion() {
+        m_motion.reset();
     }
 
     bool Bubble::landed() const {
-        return active_ && opening_ && elapsed_ >= .68 * duration_;
+        return m_active && m_opening && m_elapsed >= .68 * m_duration;
     }
 
     bool Bubble::stirred() const {
-        return motion_.stirred();
+        return m_motion.stirred();
     }
 
     const BubbleMotion &Bubble::motion() const {
-        return motion_;
+        return m_motion;
     }
 
-    void Bubble::clearEmissions() {
-        motion_.clearEmissions();
+    void Bubble::clear_emissions() {
+        m_motion.clear_emissions();
     }
 
-    void Bubble::applyMotion(BubbleFrame &frame) const {
-        if (!motion_.stirred()) {
+    void Bubble::apply_motion(BubbleFrame &frame) const {
+        if (!m_motion.stirred()) {
             return;
         }
         auto &window = frame.window;
-        window.motion = motion_.deformation();
-        window.transparency = transparency_;
-        const Vec2 CORE = motion_.core();
+        window.motion = m_motion.deformation();
+        window.transparency = m_transparency;
+        const Vec2 CORE = m_motion.core();
         window.core = {.x = window.core.x + CORE.x, .y = window.core.y + CORE.y};
         if (window.thickness <= 0) {
             window.thickness = 450;
         }
-        window.flow = flow_;
-        frame.microCount = motion_.microbubbles(frame.micro);
+        window.flow = m_flow;
+        frame.micro_count = m_motion.microbubbles(frame.micro);
     }
 
     bool Bubble::active() const {
-        return active_;
+        return m_active;
     }
     bool Bubble::opening() const {
-        return active_ && opening_;
+        return m_active && m_opening;
     }
     bool Bubble::closed() const {
-        return closed_;
+        return m_closed;
     }
 
     BubbleFrame Bubble::frame(Vec2 size) const {
@@ -288,30 +291,30 @@ namespace hyprimate {
             return {};
         }
         BubbleFrame result_frame = neutral(size);
-        if (!active_) {
-            if (closed_) {
+        if (!m_active) {
+            if (m_closed) {
                 result_frame.window.visibility = 0;
             } else {
-                applyMotion(result_frame);
+                apply_motion(result_frame);
             }
             return result_frame;
         }
-        const double PROGRESS = std::clamp(elapsed_ / duration_, 0.0, 1.0);
-        result_frame.seed = seed_;
-        if (opening_) {
+        const double PROGRESS = std::clamp(m_elapsed / m_duration, 0.0, 1.0);
+        result_frame.seed = m_seed;
+        if (m_opening) {
             const double SHORT_SIDE = std::min(size.x, size.y);
             auto &shell = result_frame.shell;
             const double RADIUS = SHORT_SIDE * mix(.08, .46, smoothstep(0, .30, PROGRESS));
-            shell.halfSize = {.x = RADIUS, .y = RADIUS};
+            shell.half_size = {.x = RADIUS, .y = RADIUS};
             shell.corner = shell.depth = RADIUS;
             shell.content = .55 * smoothstep(.04, .26, PROGRESS);
             shell.film = 1;
             shell.visibility = smoothstep(0, .13, PROGRESS);
             shell.spherical = true;
             shell.thickness = std::min(1500.0, 450 * std::pow(SHORT_SIDE * .46 / RADIUS, 2));
-            shell.flow = elapsed_ * 2;
+            shell.flow = m_elapsed * 2;
             start_rupture(
-                shell, rupture_, static_cast<std::uint64_t>(seed_ * 0x1p53), duration_, true);
+                shell, m_rupture, static_cast<std::uint64_t>(m_seed * 0x1p53), m_duration, true);
             shell.clock = PROGRESS;
             update_rupture(shell);
             if (PROGRESS >= .55) {
@@ -324,7 +327,7 @@ namespace hyprimate {
             const double FLATTEN = smoothstep(.52, .68, PROGRESS);
             const double SPLAT =
                 .045 * smoothstep(.55, .68, PROGRESS) * (1 - smoothstep(.68, .76, PROGRESS));
-            window.halfSize = {
+            window.half_size = {
                 .x = mix(WINDOW_RADIUS, size.x * .5, FLATTEN) + (size.x * .5 * SPLAT),
                 .y = mix(WINDOW_RADIUS, size.y * .5, FLATTEN) + (size.y * .5 * SPLAT),
             };
@@ -333,7 +336,7 @@ namespace hyprimate {
             const double SETTLE = std::clamp((PROGRESS - .64) / .36, 0.0, 1.0);
             const double ENVELOPE = SHORT_SIDE * .20 * smoothstep(.48, .64, PROGRESS) *
                                     std::exp(-2.0 * SETTLE) * (1 - smoothstep(.92, 1.0, PROGRESS));
-            constexpr double PI_VALUE = 3.14159265358979323846;
+            constexpr double PI_VALUE = std::numbers::pi;
             window.core = {
                 .x = ENVELOPE * (std::cos(3 * PI_VALUE * SETTLE) +
                                     (2 * std::sin(3 * PI_VALUE * SETTLE) / (3 * PI_VALUE))),
@@ -344,26 +347,26 @@ namespace hyprimate {
             // the pop; the window's imagery develops as the film flattens and lands.
             window.content = smoothstep(.50, .78, PROGRESS);
             window.thickness = 450;
-            window.flow = elapsed_ * 2;
+            window.flow = m_elapsed * 2;
             window.visibility = smoothstep(.36, .42, PROGRESS);
             window.ripple = SHORT_SIDE * .012 * smoothstep(.56, .68, PROGRESS) *
                             (1 - smoothstep(.68, .76, PROGRESS));
             window.time = PROGRESS;
-            applyMotion(result_frame);
+            apply_motion(result_frame);
             return result_frame;
         }
-        result_frame = initial_;
+        result_frame = m_initial;
         result_frame.size = size;
-        result_frame.seed = seed_;
-        const double SCALE_X = size.x / size_.x;
-        const double SCALE_Y = size.y / size_.y;
+        result_frame.seed = m_seed;
+        const double SCALE_X = size.x / m_size.x;
+        const double SCALE_Y = size.y / m_size.y;
         const double SCALE = std::min(SCALE_X, SCALE_Y);
         const auto CLOSE = [&](BubbleSurface &surface, bool spherical) {
             const double X_SCALE = spherical ? SCALE : SCALE_X;
             const double Y_SCALE = spherical ? SCALE : SCALE_Y;
-            surface.halfSize = {
-                .x = surface.halfSize.x * X_SCALE,
-                .y = surface.halfSize.y * Y_SCALE,
+            surface.half_size = {
+                .x = surface.half_size.x * X_SCALE,
+                .y = surface.half_size.y * Y_SCALE,
             };
             surface.corner *= SCALE;
             surface.depth *= SCALE;
@@ -373,10 +376,14 @@ namespace hyprimate {
             // The film relaxes from the movement's deformation as it starts to tear.
             auto &motion = surface.motion;
             motion.drag = {.x = motion.drag.x * DAMPING, .y = motion.drag.y * DAMPING};
-            for (std::size_t i = 0; i < motion.waveCos.size(); ++i) {
-                motion.waveCos[i] *= DAMPING;
-                motion.waveSin[i] *= DAMPING;
-            }
+            std::get<0>(motion.wave_cos) *= DAMPING;
+            std::get<0>(motion.wave_sin) *= DAMPING;
+            std::get<1>(motion.wave_cos) *= DAMPING;
+            std::get<1>(motion.wave_sin) *= DAMPING;
+            std::get<2>(motion.wave_cos) *= DAMPING;
+            std::get<2>(motion.wave_sin) *= DAMPING;
+            std::get<3>(motion.wave_cos) *= DAMPING;
+            std::get<3>(motion.wave_sin) *= DAMPING;
             motion.sheen *= 1 - smoothstep(0, .5, PROGRESS);
             // A bubble that closes while contracted bursts that way: its shape is the film being
             // torn.
@@ -386,13 +393,12 @@ namespace hyprimate {
                     return;
                 }
                 start_rupture(surface,
-                    rupture_,
-                    static_cast<std::uint64_t>(seed_ * 0x1p53),
-                    duration_,
+                    m_rupture,
+                    static_cast<std::uint64_t>(m_seed * 0x1p53),
+                    m_duration,
                     spherical);
             } else {
-                for (std::size_t i = 0; i < surface.holeCount; ++i) {
-                    auto &hole = surface.holes[i];
+                for (auto &hole : std::span(surface.holes).first(surface.hole_count)) {
                     if (!spherical) {
                         hole.centre.x *= X_SCALE;
                         hole.centre.y *= Y_SCALE;
@@ -403,15 +409,14 @@ namespace hyprimate {
                     surface.speed *= std::max(SCALE_X, SCALE_Y);
                 }
             }
-            surface.clock += elapsed_ * surface.rate;
-            surface.flow += elapsed_;
+            surface.clock += m_elapsed * surface.rate;
+            surface.flow += m_elapsed;
             update_rupture(surface);
         };
         CLOSE(result_frame.window, false);
         CLOSE(result_frame.shell, true);
         // Microbubbles on the window's film burst with it.
-        for (std::size_t i = 0; i < result_frame.microCount; ++i) {
-            auto &microbubble = result_frame.micro[i];
+        for (auto &microbubble : std::span(result_frame.micro).first(result_frame.micro_count)) {
             microbubble.centre = {
                 .x = microbubble.centre.x * SCALE_X,
                 .y = microbubble.centre.y * SCALE_Y,
@@ -426,24 +431,29 @@ namespace hyprimate {
     }
 
     Box Bubble::bounds(Vec2 size) const {
-        if (!usable(size) || closed_) {
+        if (!usable(size) || m_closed) {
             return {};
         }
         const auto FRAME = frame(size);
         // Each membrane's box around where it is drawn; a carried film is offset from the window.
         const auto EXTENT = [](const BubbleSurface &surface) {
             double reach = std::hypot(surface.motion.drag.x, surface.motion.drag.y);
-            for (std::size_t i = 0; i < surface.motion.waveCos.size(); ++i) {
-                reach += std::hypot(surface.motion.waveCos[i], surface.motion.waveSin[i]);
-            }
+            reach += std::hypot(
+                std::get<0>(surface.motion.wave_cos), std::get<0>(surface.motion.wave_sin));
+            reach += std::hypot(
+                std::get<1>(surface.motion.wave_cos), std::get<1>(surface.motion.wave_sin));
+            reach += std::hypot(
+                std::get<2>(surface.motion.wave_cos), std::get<2>(surface.motion.wave_sin));
+            reach += std::hypot(
+                std::get<3>(surface.motion.wave_cos), std::get<3>(surface.motion.wave_sin));
             // A contracted membrane may reach past its rectangle where its shape bulges; one
             // overshooting back swells slightly past it everywhere.
-            const Vec2 ROUND = bubbleRoundHalf(surface.halfSize, surface.motion);
+            const Vec2 ROUND = bubble_round_half(surface.half_size, surface.motion);
             reach += std::max(0.0, -surface.motion.round) *
-                     std::max(surface.halfSize.x, surface.halfSize.y);
+                     std::max(surface.half_size.x, surface.half_size.y);
             const Vec2 BASE{
-                .x = std::max(surface.halfSize.x, ROUND.x),
-                .y = std::max(surface.halfSize.y, ROUND.y),
+                .x = std::max(surface.half_size.x, ROUND.x),
+                .y = std::max(surface.half_size.y, ROUND.y),
             };
             const double MARGIN = 8 + std::abs(surface.ripple) + reach +
                                   (surface.closing ? 1.2 * std::min(BASE.x, BASE.y) : 0);
@@ -458,25 +468,24 @@ namespace hyprimate {
         };
         auto box = EXTENT(FRAME.window);
         const auto SHELL = EXTENT(FRAME.shell);
-        for (std::size_t i = 0; i < 2; ++i) {
-            box[i] = std::min(box[i], SHELL[i]);
-            box[i + 2] = std::max(box[i + 2], SHELL[i + 2]);
-        }
-        for (std::size_t i = 0; i < FRAME.microCount; ++i) {
-            const auto &microbubble = FRAME.micro[i];
+        std::get<0>(box) = std::min(std::get<0>(box), std::get<0>(SHELL));
+        std::get<2>(box) = std::max(std::get<2>(box), std::get<2>(SHELL));
+        std::get<1>(box) = std::min(std::get<1>(box), std::get<1>(SHELL));
+        std::get<3>(box) = std::max(std::get<3>(box), std::get<3>(SHELL));
+        for (const auto &microbubble : std::span(FRAME.micro).first(FRAME.micro_count)) {
             const double RADIUS = (microbubble.radius * 1.4) + 3;
             box = {
-                std::min(box[0], microbubble.centre.x - RADIUS),
-                std::min(box[1], microbubble.centre.y - RADIUS),
-                std::max(box[2], microbubble.centre.x + RADIUS),
-                std::max(box[3], microbubble.centre.y + RADIUS),
+                std::min(std::get<0>(box), microbubble.centre.x - RADIUS),
+                std::min(std::get<1>(box), microbubble.centre.y - RADIUS),
+                std::max(std::get<2>(box), microbubble.centre.x + RADIUS),
+                std::max(std::get<3>(box), microbubble.centre.y + RADIUS),
             };
         }
         return {
-            .x = (size.x * .5) + box[0],
-            .y = (size.y * .5) + box[1],
-            .w = box[2] - box[0],
-            .h = box[3] - box[1],
+            .x = (size.x * .5) + std::get<0>(box),
+            .y = (size.y * .5) + std::get<1>(box),
+            .w = std::get<2>(box) - std::get<0>(box),
+            .h = std::get<3>(box) - std::get<1>(box),
         };
     }
 

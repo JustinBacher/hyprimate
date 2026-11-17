@@ -10,9 +10,9 @@
 namespace hyprimate {
 
     // Microbubbles one window's film can carry at once.
-    inline constexpr std::size_t kBubbleMicroCapacity = 10;
+    inline constexpr std::size_t K_BUBBLE_MICRO_CAPACITY = 10;
     // Trail points and released microbubbles one movement step can hand to the screen.
-    inline constexpr std::size_t kBubbleEmissions = 8;
+    inline constexpr std::size_t K_BUBBLE_EMISSIONS = 8;
 
     // What surface tension pulls a moving window into: a soft pillow (rounded corners, gently
     // bulging sides, its proportions kept), an ellipse of the same proportions, or a disc.
@@ -24,15 +24,15 @@ namespace hyprimate {
         double trail = 0;  // 0..1 how much film the moving window leaves behind
         double roundness = 0;  // 0..1 how far a moving window contracts toward its shape
         BubbleShape shape = BubbleShape::Pillow;
-        double shapeSpeed = 1200;  // px/s at which the contraction is full; slower is less
+        double shape_speed = 1200;  // px/s at which the contraction is full; slower is less
         double transparency = .88;  // window transparency in bubble form, not at rest
     };
 
     // The movement's share of a flat membrane's shape, in logical px. The renderer carries every
-    // point of the undeformed membrane by bubbleMotionPoint; the GPU material mirrors it.
+    // point of the undeformed membrane by bubble_motion_point; the GPU material mirrors it.
     struct BubbleDeformation {
         Vec2 drag{};  // displacement of the trailing film: it points at the side that lags
-        std::array<double, 4> waveCos{}, waveSin{};  // outward capillary modes n = 2..5
+        std::array<double, 4> wave_cos{}, wave_sin{};  // outward capillary modes n = 2..5
         double sheen = 0;  // 0..1 interference colour on the stressed film near the outline
         // How far surface tension has pulled the membrane toward its moving shape: 0 its
         // rectangle, 1 the elliptical-grid image of the rectangle on the ellipse of half extents
@@ -43,22 +43,22 @@ namespace hyprimate {
         // than a bubble travels, so the film follows it from where it was.
         Vec2 carry{};
 
-        bool still() const noexcept;
+        [[nodiscard]] bool still() const noexcept;
     };
 
     // The membrane's half size at the given roundness: its rectangle's, moving toward `extent`.
-    Vec2 bubbleRoundHalf(Vec2 half_size, const BubbleDeformation &deformation);
+    Vec2 bubble_round_half(Vec2 half_size, const BubbleDeformation &deformation);
     // Where contraction carries a point of the rectangle (logical px from its centre, y down): its
     // position on the ellipse of half extents `extent` under the elliptical-grid square-to-disc
     // map, mixed in by `round`. The corners pull in first, the edges bow outward, and the content
     // goes with them.
-    Vec2 bubbleRoundPoint(Vec2 half_size, const BubbleDeformation &deformation, Vec2 point);
+    Vec2 bubble_round_point(Vec2 half_size, const BubbleDeformation &deformation, Vec2 point);
     // Displacement of a point of the (possibly rounded) membrane, whose half size is roundHalf. The
     // leading edge stays with the window; the trailing film lags by drag and narrows across the
     // motion, and the capillary modes ripple the outline while the centre stays put.
-    Vec2 bubbleMotionOffset(Vec2 half_size, const BubbleDeformation &deformation, Vec2 point);
+    Vec2 bubble_motion_offset(Vec2 half_size, const BubbleDeformation &deformation, Vec2 point);
     // Where movement carries a point of the undeformed membrane: rounded, displaced, then carried.
-    Vec2 bubbleMotionPoint(Vec2 half_size, const BubbleDeformation &deformation, Vec2 point);
+    Vec2 bubble_motion_point(Vec2 half_size, const BubbleDeformation &deformation, Vec2 point);
 
     // A soap microbubble as drawn: attached ones in frame coordinates, free ones in the coordinates
     // of the wake that carries them.
@@ -78,7 +78,7 @@ namespace hyprimate {
     struct BubbleTrailPoint {
         Vec2 position{};
         Vec2 direction{};  // unit direction of travel
-        double halfWidth = 0;  // logical px
+        double half_width = 0;  // logical px
         double density = 0;  // 0..1 how much film it holds
         bool start = false;  // first point of a stroke: earlier points belong to another trail
     };
@@ -106,19 +106,19 @@ namespace hyprimate {
         void seed(std::uint64_t seed) noexcept;
 
         // False once every disturbance has died out: the window is drawn exactly as at rest.
-        bool stirred() const noexcept;
-        BubbleDeformation deformation() const noexcept;
+        [[nodiscard]] bool stirred() const noexcept;
+        [[nodiscard]] BubbleDeformation deformation() const noexcept;
         // Interior pressure and radial recoil, added to the surface's core.
-        Vec2 core() const noexcept;
+        [[nodiscard]] Vec2 core() const noexcept;
         // Speed of the window, px/s, as the fluid feels it.
-        double speed() const noexcept;
+        [[nodiscard]] double speed() const noexcept;
         // The attached microbubbles; returns the number written.
-        std::size_t microbubbles(std::span<BubbleMicro> out) const;
+        [[nodiscard]] std::size_t microbubbles(std::span<BubbleMicro> out) const;
 
         // Film and microbubbles handed to the screen since the previous take, oldest first.
-        std::span<const BubbleTrailPoint> trail() const noexcept;
-        std::span<const BubbleRelease> releases() const noexcept;
-        void clearEmissions() noexcept;
+        [[nodiscard]] std::span<const BubbleTrailPoint> trail() const noexcept;
+        [[nodiscard]] std::span<const BubbleRelease> releases() const noexcept;
+        void clear_emissions() noexcept;
 
       private:
         enum class Fate : std::uint8_t { Detach, Merge, Collapse };
@@ -141,15 +141,15 @@ namespace hyprimate {
             Vec2 point{}, normal{}, tangent{};
             double stretch = 0;  // px per radian of the parameter
         };
-        Outline outline(double angle) const noexcept;
-        BubbleMicro draw(const Attached &attached_bubble) const noexcept;
+        [[nodiscard]] Outline outline(double angle) const noexcept;
+        [[nodiscard]] BubbleMicro draw(const Attached &attached_bubble) const noexcept;
         void step(double step_seconds, Vec2 acceleration, double speed_rate);
         void nucleate(double elapsed, Vec2 acceleration);
         void migrate(double elapsed, Vec2 acceleration);
         void emit_trail(double elapsed, Vec2 acceleration);
-        double trailing_angle() const noexcept;
-        double reference() const noexcept;
-        double drag_limit() const noexcept;
+        [[nodiscard]] double trailing_angle() const noexcept;
+        [[nodiscard]] double reference() const noexcept;
+        [[nodiscard]] double drag_limit() const noexcept;
         double draw01() noexcept;
         void reshape() noexcept;
 
@@ -176,13 +176,13 @@ namespace hyprimate {
         std::uint64_t m_random = 0x9E3779B97F4A7C15ULL;
         double m_spawn = 0;  // accumulated nucleation hazard
         double m_threshold = 1;  // hazard at which the next microbubble forms
-        std::array<Attached, kBubbleMicroCapacity> m_attached{};
+        std::array<Attached, K_BUBBLE_MICRO_CAPACITY> m_attached{};
         std::size_t m_attached_count = 0;
         double m_travel = 0;  // px since the last trail point
         bool m_trailing = false;
-        std::array<BubbleTrailPoint, kBubbleEmissions> m_trail{};
+        std::array<BubbleTrailPoint, K_BUBBLE_EMISSIONS> m_trail{};
         std::size_t m_trail_count = 0;
-        std::array<BubbleRelease, kBubbleEmissions> m_releases{};
+        std::array<BubbleRelease, K_BUBBLE_EMISSIONS> m_releases{};
         std::size_t m_release_count = 0;
         bool m_stirred = false;
     };

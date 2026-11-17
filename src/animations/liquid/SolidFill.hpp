@@ -9,7 +9,7 @@
 class CSolidFill {
   public:
     // Refreshed from config before every frame; cheap when unchanged.
-    void setColor(const CHyprColor &color) noexcept {
+    void set_color(const CHyprColor &color) noexcept {
         m_color = color;
     }
 

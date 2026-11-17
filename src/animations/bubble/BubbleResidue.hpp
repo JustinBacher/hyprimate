@@ -43,7 +43,7 @@ class CBubbleResidue {
     // Advances the monitor's residue; once per frame, before it renders.
     void tick(std::chrono::steady_clock::time_point now, const PHLMONITOR &monitor);
     // Before a window renders: the wakes it left, beneath it.
-    void queueUnder(Render::CRenderContext &ctx,
+    void queue_under(Render::CRenderContext &ctx,
         const PHLMONITOR &monitor,
         const PHLWINDOW &window,
         const SP<CBubbleRenderer> &renderer);
@@ -51,8 +51,8 @@ class CBubbleResidue {
     void queue(Render::CRenderContext &ctx,
         const PHLMONITOR &monitor,
         const SP<CBubbleRenderer> &renderer);
-    bool active(const PHLMONITOR &monitor) const;
-    void setEnabled(bool enabled);
+    [[nodiscard]] bool active(const PHLMONITOR &monitor) const;
+    void set_enabled(bool enabled);
     void clear();
 
   private:
@@ -60,7 +60,7 @@ class CBubbleResidue {
         PHLMONITORREF monitor;
         Vector2D position;
         double radius;
-        double impactRadius;
+        double impact_radius;
         Vector2D drift;
         double lifetime;
         std::chrono::steady_clock::time_point
@@ -77,9 +77,9 @@ class CBubbleResidue {
         std::chrono::steady_clock::time_point last;
         bool queued = false;  // drawn in the monitor's current frame
     };
-    Wake *wakeFor(const PHLMONITOR &monitor, std::uint64_t id);
-    Wake &beginWake(const PHLMONITOR &monitor, const PHLWINDOW &owner);
-    void queueWake(Render::CRenderContext &ctx,
+    Wake *wake_for(const PHLMONITOR &monitor, std::uint64_t wake_id);
+    Wake &begin_wake(const PHLMONITOR &monitor, const PHLWINDOW &owner);
+    static void queue_wake(Render::CRenderContext &ctx,
         const PHLMONITOR &monitor,
         Wake &wake,
         const SP<CBubbleRenderer> &renderer);
@@ -87,5 +87,5 @@ class CBubbleResidue {
     bool m_enabled = true;
     std::vector<Deposit> m_deposits;
     std::vector<Wake> m_wakes;
-    std::uint64_t m_nextWake = 1;
+    std::uint64_t m_next_wake = 1;
 };

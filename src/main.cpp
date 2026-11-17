@@ -8,7 +8,7 @@
 #include "PluginRuntime.hpp"
 
 namespace {
-    constexpr char MISMATCH_MESSAGE[] =
+    constexpr const char *MISMATCH_MESSAGE =
         "[hyprimate] Hyprland/header version mismatch; rebuild against the running compositor";
 
     // Owned only while the plugin is loaded. Constructed after every compatibility check passes.

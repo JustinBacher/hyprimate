@@ -18,13 +18,13 @@ struct SBubbleDraw {
     hyprimate::BubbleFrame frame;
     Vector2D canvas;
     CBox source;
-    hyprimate::Vec2 textureOrigin;
-    hyprimate::Vec2 textureSize;
-    hyprimate::Vec2 outputOrigin;
-    std::array<hyprimate::BubbleParticle, hyprimate::kBubbleMaxImpacts> glassParticles{};
-    std::size_t glassCount = 0;
-    bool onGlass = false;  // screen-space residue: no window imagery, frame is the deposit's box
-    std::optional<hyprimate::BubbleWakeView> wake{};  // on the glass: a film trail to draw
+    hyprimate::Vec2 texture_origin;
+    hyprimate::Vec2 texture_size;
+    hyprimate::Vec2 output_origin;
+    std::array<hyprimate::BubbleParticle, hyprimate::K_BUBBLE_MAX_IMPACTS> glass_particles{};
+    std::size_t glass_count = 0;
+    bool on_glass = false;  // screen-space residue: no window imagery, frame is the deposit's box
+    std::optional<hyprimate::BubbleWakeView> wake;  // on the glass: a film trail to draw
 };
 
 class CBubbleRenderer {
@@ -35,15 +35,15 @@ class CBubbleRenderer {
     CBubbleRenderer &operator=(const CBubbleRenderer &) = delete;
     CBubbleRenderer(CBubbleRenderer &&) = delete;
     CBubbleRenderer &operator=(CBubbleRenderer &&) = delete;
-    SP<Render::IFramebuffer> render(Render::CRenderContext &, const SBubbleDraw &);
+    SP<Render::IFramebuffer> render(Render::CRenderContext &ctx, const SBubbleDraw &draw);
     // Compiles the material ahead of the first bubble. Compilation takes long enough to read as a
     // frame stall, which would otherwise cancel the opening that first needs it. Safe to call
     // often; only the first call does work.
-    void warmUp();
+    void warm_up();
 
   private:
     CBubbleMaterial m_material;
-    std::array<hyprimate::BubbleParticle, 2 * hyprimate::kBubbleMaxParticles> m_particles{};
+    std::array<hyprimate::BubbleParticle, 2 * hyprimate::K_BUBBLE_MAX_PARTICLES> m_particles{};
     bool m_warmed = false;
 };
 
@@ -58,13 +58,13 @@ class CBubblePassElement final : public IPassElement {
         CRegion damage;
     };
     explicit CBubblePassElement(SData data);
-    std::vector<UP<IPassElement>> draw(Render::CRenderContext &) override;
-    bool needsLiveBlur(Render::CRenderContext &) override;
-    bool needsPrecomputeBlur(Render::CRenderContext &) override;
+    std::vector<UP<IPassElement>> draw(Render::CRenderContext &ctx) override;
+    bool needsLiveBlur(Render::CRenderContext &ctx) override;
+    bool needsPrecomputeBlur(Render::CRenderContext &ctx) override;
     const char *passName() override;
     ePassElementType type() override;
-    std::optional<CBox> boundingBox(Render::CRenderContext &) override;
-    CRegion opaqueRegion(Render::CRenderContext &) override;
+    std::optional<CBox> boundingBox(Render::CRenderContext &ctx) override;
+    CRegion opaqueRegion(Render::CRenderContext &ctx) override;
 
   private:
     SData m_data;

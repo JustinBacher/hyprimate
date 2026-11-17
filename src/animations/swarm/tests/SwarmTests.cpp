@@ -1,10 +1,13 @@
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
+#include <iterator>
 #include <limits>
 #include <numbers>
+#include <utility>
 #include <vector>
 
 #include "Check.hpp"
@@ -47,50 +50,57 @@ namespace {
         return edge_set;
     }
     // Runs until the model stops or `seconds` pass; returns the time used.
-    double run(Swarm &m, double seconds, double step = FRAME) {
+    double run(Swarm &swarm, double seconds) {
         double elapsed = 0.0;
-        while (elapsed < seconds && m.active()) {
-            m.advance(step);
-            elapsed += step;
+        while (elapsed < seconds && swarm.active()) {
+            swarm.advance(FRAME);
+            elapsed += FRAME;
         }
         return elapsed;
     }
     // Agent position in the placement's space, for a window that has not moved.
-    Vec2 on_screen(const SwarmAgent &a) {
-        return {.x = CAPTURE.x + a.position.x, .y = CAPTURE.y + a.position.y};
+    Vec2 on_screen(const SwarmAgent &agent) {
+        return {.x = CAPTURE.x + agent.position.x, .y = CAPTURE.y + agent.position.y};
     }
-    bool in_formation(const Swarm &m) {
-        return m.rounding() == 0.0 && std::ranges::all_of(m.agents(), [](const SwarmAgent &a) {
-            return a.docked && a.lock == 1.0 && a.turn == 0.0 && a.position.x == a.home.x &&
-                   a.position.y == a.home.y;
-        });
+    bool in_formation(const Swarm &swarm) {
+        return swarm.rounding() == 0.0 &&
+               std::ranges::all_of(swarm.agents(), [](const SwarmAgent &agent) {
+                   return agent.docked && agent.lock == 1.0 && agent.turn == 0.0 &&
+                          agent.position.x == agent.home.x && agent.position.y == agent.home.y;
+               });
     }
     // Pearson correlation of two equally long series.
-    double correlation(const std::vector<double> &a, const std::vector<double> &b) {
+    double correlation(const std::vector<double> &first, const std::vector<double> &second) {
         double mean_a = 0.0;
         double mean_b = 0.0;
-        for (std::size_t i = 0; i < a.size(); ++i) {
-            mean_a += a[i] / a.size(), mean_b += b[i] / b.size();
+        auto b_it = second.begin();
+        for (const double VALUE : first) {
+            mean_a += VALUE / static_cast<double>(first.size()),
+                mean_b += *b_it++ / static_cast<double>(second.size());
         }
         double cross_sum = 0.0;
         double square_sum_a = 0.0;
         double square_sum_b = 0.0;
-        for (std::size_t i = 0; i < a.size(); ++i) {
-            cross_sum += (a[i] - mean_a) * (b[i] - mean_b);
-            square_sum_a += (a[i] - mean_a) * (a[i] - mean_a);
-            square_sum_b += (b[i] - mean_b) * (b[i] - mean_b);
+        b_it = second.begin();
+        for (const double VALUE : first) {
+            cross_sum += (VALUE - mean_a) * (*b_it - mean_b);
+            square_sum_a += (VALUE - mean_a) * (VALUE - mean_a);
+            square_sum_b += (*b_it - mean_b) * (*b_it - mean_b);
+            ++b_it;
         }
         return cross_sum / std::sqrt(square_sum_a * square_sum_b);
     }
     // When each agent of an opening first docks, in seconds; the model is run to its end.
-    std::vector<double> landings(Swarm &m) {
-        std::vector<double> landing_times(m.agents().size(), -1.0);
-        for (double elapsed = 0.0; m.active() && elapsed < 30.0; elapsed += FRAME) {
-            m.advance(FRAME);
-            for (std::size_t i = 0; i < landing_times.size(); ++i) {
-                if (landing_times[i] < 0.0 && m.agents()[i].docked) {
-                    landing_times[i] = elapsed;
+    std::vector<double> landings(Swarm &swarm) {
+        std::vector<double> landing_times(swarm.agents().size(), -1.0);
+        for (double elapsed = 0.0; swarm.active() && elapsed < 30.0; elapsed += FRAME) {
+            swarm.advance(FRAME);
+            auto agent = swarm.agents().begin();
+            for (double &landing_time : landing_times) {
+                if (landing_time < 0.0 && agent->docked) {
+                    landing_time = elapsed;
                 }
+                ++agent;
             }
         }
         return landing_times;
@@ -101,8 +111,8 @@ namespace {
             Swarm partition_swarm;
             SwarmParams partition_params;
             partition_params.count = COUNT;
-            partition_swarm.beginMovement(partition_params, 1, placement());
-            CHECK(static_cast<int>(partition_swarm.agents().size()) == COUNT);
+            partition_swarm.begin_movement(partition_params, 1, placement());
+            CHECK(std::cmp_equal(partition_swarm.agents().size(), COUNT));
             double area = 0.0;
             double min_x = 1e9;
             double min_y = 1e9;
@@ -125,14 +135,14 @@ namespace {
                       tile_agent.home.y >= 20.0 && tile_agent.home.y <= 620.0);
             }
             // Same total area and same outline as the capture: the tiles cover it without overlap.
-            CHECK(std::abs(area - CAPTURE.w * CAPTURE.h) < 1e-6);
+            CHECK(std::abs(area - (CAPTURE.w * CAPTURE.h)) < 1e-6);
             CHECK(min_x == 0.0 && min_y == 0.0 && max_x == CAPTURE.w && max_y == CAPTURE.h);
         }
         // Near-square pieces: 80 agents on a 3:2 body.
         Swarm swarm;
         SwarmParams params;
         params.count = 80;
-        swarm.beginMovement(params, 1, placement());
+        swarm.begin_movement(params, 1, placement());
         for (const SwarmAgent &agent : swarm.agents()) {
             CHECK(agent.fit > 30.0 && agent.fit < 60.0);
         }
@@ -152,7 +162,8 @@ namespace {
 
         run(swarm, 0.8);
         CHECK(swarm.active());
-        CHECK(std::ranges::any_of(swarm.agents(), [](const SwarmAgent &a) { return a.visible; }));
+        CHECK(std::ranges::any_of(
+            swarm.agents(), [](const SwarmAgent &agent) { return agent.visible; }));
         CHECK(swarm.bounds().w > 0.0);
 
         // Well inside the point at which stragglers are placed by force.
@@ -178,11 +189,13 @@ namespace {
         const auto OTHER_SEED_RUN = MID_FLIGHT(4);
         bool same = true;
         bool differs = false;
-        for (std::size_t i = 0; i < FIRST_RUN.size(); ++i) {
-            same = same && FIRST_RUN[i].x == SAME_SEED_RUN[i].x &&
-                   FIRST_RUN[i].y == SAME_SEED_RUN[i].y;
-            differs = differs || FIRST_RUN[i].x != OTHER_SEED_RUN[i].x ||
-                      FIRST_RUN[i].y != OTHER_SEED_RUN[i].y;
+        auto same_sample = SAME_SEED_RUN.begin();
+        auto other_sample = OTHER_SEED_RUN.begin();
+        for (const auto &sample : FIRST_RUN) {
+            same = same && sample.x == same_sample->x && sample.y == same_sample->y;
+            differs = differs || sample.x != other_sample->x || sample.y != other_sample->y;
+            ++same_sample;
+            ++other_sample;
         }
         CHECK(same);
         CHECK(differs);
@@ -243,8 +256,8 @@ namespace {
         CHECK(std::abs(correlation(entry, row)) < 0.2);
         const double TOP = *std::ranges::min_element(entry);
         const double BOTTOM = *std::ranges::max_element(entry);
-        CHECK(CAPTURE.y + TOP < SCREEN.y + 0.1 * SCREEN.h &&
-              CAPTURE.y + BOTTOM > SCREEN.y + 0.9 * SCREEN.h);
+        CHECK(CAPTURE.y + TOP < SCREEN.y + (0.1 * SCREEN.h) &&
+              CAPTURE.y + BOTTOM > SCREEN.y + (0.9 * SCREEN.h));
         const std::vector<double> LANDED = landings(swarm);
         CHECK(in_formation(swarm));
         CHECK(std::abs(correlation(LANDED, column)) < 0.25);
@@ -272,7 +285,7 @@ namespace {
         for (const bool MOVEMENT : {false, true}) {
             Swarm swarm;
             if (MOVEMENT) {
-                swarm.beginMovement({}, 17, placement());
+                swarm.begin_movement({}, 17, placement());
                 CHECK(swarm.rounding() == 0.0);
                 for (int i = 0; i < 120; ++i) {
                     swarm.advance(1.0 / 120.0, true);
@@ -285,8 +298,9 @@ namespace {
             bool saw_handoff = false;
             for (int frame = 0; frame < 1200 && swarm.active(); ++frame) {
                 swarm.advance(1.0 / 120.0);
-                const bool WHOLE = std::ranges::all_of(swarm.agents(),
-                    [](const SwarmAgent &a) { return a.docked && a.turn == 0.0 && a.lock == 1.0; });
+                const bool WHOLE = std::ranges::all_of(swarm.agents(), [](const SwarmAgent &agent) {
+                    return agent.docked && agent.turn == 0.0 && agent.lock == 1.0;
+                });
                 if (!WHOLE) {
                     saw_joining = true;
                     CHECK(swarm.rounding() == 1.0);
@@ -326,9 +340,10 @@ namespace {
         CHECK(swarm.active() && !swarm.opening());
         CHECK(swarm.rounding() == ROUNDING);
         // Agents carry on from where they were instead of jumping into formation.
-        for (std::size_t i = 0; i < before.size(); ++i) {
-            CHECK(swarm.agents()[i].position.x == before[i].x &&
-                  swarm.agents()[i].position.y == before[i].y);
+        auto agent_it = swarm.agents().begin();
+        for (const Vec2 &position : before) {
+            const auto &agent = *agent_it++;
+            CHECK(agent.position.x == position.x && agent.position.y == position.y);
         }
         run(swarm, 8.0);
         CHECK(swarm.closed());
@@ -352,7 +367,7 @@ namespace {
 
     void movement_without_motion_finishes_immediately() {
         Swarm swarm;
-        swarm.beginMovement({}, 2, placement());
+        swarm.begin_movement({}, 2, placement());
         CHECK(swarm.rounding() == 0.0);
         swarm.advance(1.0 / 120.0);
         CHECK(!swarm.active() && in_formation(swarm));
@@ -360,10 +375,10 @@ namespace {
 
     void slow_movement_keeps_the_window_whole() {
         Swarm swarm;
-        swarm.beginMovement({}, 2, placement());
+        swarm.begin_movement({}, 2, placement());
         CHECK(swarm.moving());
         // 30 px/s is under every agent's grip, so the window never comes apart.
-        swarm.updateMovement(placement({.x = 30.0 * FRAME, .y = 0.0}));
+        swarm.update_movement(placement({.x = 30.0 * FRAME, .y = 0.0}));
         swarm.advance(FRAME);
         CHECK(!swarm.active());
         CHECK(in_formation(swarm));
@@ -379,11 +394,11 @@ namespace {
             for (const bool INCOMING : {false, true}) {
                 Swarm swarm;
                 Vec2 offset = INCOMING ? Vec2{.x = -TRAVEL.x, .y = -TRAVEL.y} : Vec2{};
-                swarm.beginMovement({}, 2, placement(offset));
+                swarm.begin_movement({}, 2, placement(offset));
                 for (int frame = 0; frame < 40; ++frame) {
                     offset.x += TRAVEL.x / 40.0;
                     offset.y += TRAVEL.y / 40.0;
-                    swarm.updateMovement(placement(offset));
+                    swarm.update_movement(placement(offset));
                     swarm.advance(FRAME);
                 }
                 // The native slide is over, but independently moving creatures are still flying.
@@ -397,9 +412,11 @@ namespace {
                 }
                 run(swarm, 0.1);
                 double flight = 0.0;
-                for (std::size_t i = 0; i < before.size(); ++i) {
-                    flight += std::hypot(swarm.agents()[i].position.x - before[i].x,
-                        swarm.agents()[i].position.y - before[i].y);
+                auto agent = swarm.agents().begin();
+                for (const auto &position : before) {
+                    flight +=
+                        std::hypot(agent->position.x - position.x, agent->position.y - position.y);
+                    ++agent;
                 }
                 CHECK(flight / before.size() > 1.0);
                 run(swarm, 8.0);
@@ -423,13 +440,13 @@ namespace {
             {Vec2{.x = -300, .y = 40}, Vec2{.x = 500, .y = -80}, Vec2{.x = -200, .y = 40}}) {
             offset.x += DELTA.x;
             offset.y += DELTA.y;
-            moved.updateMovement(placement(offset));
+            moved.update_movement(placement(offset));
             // Apply the coordinate change without consuming a physics substep.
             moved.advance(1e-6);
             CHECK(moved.opening());
-            for (std::size_t i = 0; i < moved.agents().size(); ++i) {
-                const auto &moved_agent = moved.agents()[i];
-                const auto &baseline_agent = baseline.agents()[i];
+            auto baseline_agent_it = baseline.agents().begin();
+            for (const auto &moved_agent : moved.agents()) {
+                const auto &baseline_agent = *baseline_agent_it++;
                 CHECK(
                     std::abs(moved_agent.position.x + offset.x - baseline_agent.position.x) < 1e-8);
                 CHECK(
@@ -442,11 +459,11 @@ namespace {
 
     void fast_movement_scatters_then_regroups() {
         Swarm swarm;
-        swarm.beginMovement({}, 2, placement());
+        swarm.begin_movement({}, 2, placement());
         Vec2 shift{};
         for (int i = 0; i < 40; ++i) {  // 3000 px/s to the left for ~0.28 s
             shift.x -= 3000.0 * FRAME;
-            swarm.updateMovement(placement(shift));
+            swarm.update_movement(placement(shift));
             swarm.advance(FRAME);
         }
         CHECK(swarm.active());
@@ -473,7 +490,7 @@ namespace {
             Swarm swarm;
             SwarmParams params;
             params.wander = WANDER;
-            swarm.beginMovement(params, 23, placement());
+            swarm.begin_movement(params, 23, placement());
             // No translations at all, including a pause longer than the forced-settle deadline.
             for (int interval = 0; interval < 20; ++interval) {
                 const std::vector<SwarmAgent> BEFORE(swarm.agents().begin(), swarm.agents().end());
@@ -481,11 +498,12 @@ namespace {
                     swarm.advance(1.0 / 120.0, true);
                 }
                 CHECK(swarm.moving());
-                for (std::size_t i = 0; i < BEFORE.size(); ++i) {
-                    const auto &agent = swarm.agents()[i];
+                auto agent_it = swarm.agents().begin();
+                for (const SwarmAgent &previous : BEFORE) {
+                    const auto &agent = *agent_it++;
                     CHECK(!agent.docked);
-                    CHECK(agent.travel > BEFORE[i].travel + 0.01);
-                    CHECK(agent.walk > BEFORE[i].walk);
+                    CHECK(agent.travel > previous.travel + 0.01);
+                    CHECK(agent.walk > previous.walk);
                     CHECK(std::isfinite(agent.position.x) && std::isfinite(agent.position.y));
                 }
             }
@@ -501,7 +519,7 @@ namespace {
             SwarmParams params;
             params.count = 1;
             params.wander = wander;
-            swarm.beginMovement(params, 23, placement());
+            swarm.begin_movement(params, 23, placement());
             for (int frame = 0; frame < 600; ++frame) {
                 swarm.advance(1.0 / 120.0, true);
             }
@@ -509,7 +527,7 @@ namespace {
                 CHECK(!swarm.active());
                 CHECK(in_formation(swarm));
             }
-            return swarm.agents()[0].travel;
+            return swarm.agents().front().travel;
         };
         CHECK(DISTANCE(0.0) == 0.0);
         CHECK(DISTANCE(1.0) > DISTANCE(0.1) * 2.0);
@@ -526,7 +544,7 @@ namespace {
             opening_swarm.advance(2.0 * FRAME);
             // The first to go goes at once, so the animation never opens on a wait.
             CHECK(std::ranges::any_of(
-                opening_swarm.agents(), [](const SwarmAgent &a) { return a.visible; }));
+                opening_swarm.agents(), [](const SwarmAgent &agent) { return agent.visible; }));
             std::vector<double> landing_times = landings(opening_swarm);
             std::ranges::sort(landing_times);
             return landing_times[landing_times.size() * 9 / 10] -
@@ -539,7 +557,7 @@ namespace {
             closing_swarm.begin(Transition::Close, params, 5, placement(), sides({Edge::Bottom}));
             run(closing_swarm, seconds);
             return std::ranges::count_if(
-                closing_swarm.agents(), [](const SwarmAgent &a) { return a.docked; });
+                closing_swarm.agents(), [](const SwarmAgent &agent) { return agent.docked; });
         };
         const long ALL = SwarmParams{}.count;
         const double FIRST = 2.0 * FRAME;  // long enough for one simulation step
@@ -554,15 +572,15 @@ namespace {
 
         // Movement: agents shaken loose do not all give chase in the same instant.
         Swarm swarm;
-        swarm.beginMovement({}, 2, placement());
+        swarm.begin_movement({}, 2, placement());
         Vec2 shift{};
         for (int i = 0; i < 12; ++i) {  // 3000 px/s for ~0.08 s
             shift.x -= 3000.0 * FRAME;
-            swarm.updateMovement(placement(shift));
+            swarm.update_movement(placement(shift));
             swarm.advance(FRAME);
         }
         const auto WAITING = std::ranges::count_if(
-            swarm.agents(), [](const SwarmAgent &a) { return a.travel == 0.0; });
+            swarm.agents(), [](const SwarmAgent &agent) { return agent.travel == 0.0; });
         CHECK(WAITING > ALL / 4 && WAITING < ALL);
     }
 
@@ -584,10 +602,11 @@ namespace {
             run(swarm, 10.0);
             CHECK(in_formation(swarm));
             double total = 0.0;
-            for (std::size_t i = 0; i < straight.size(); ++i) {
-                total += swarm.agents()[i].travel / straight[i];
+            auto agent = swarm.agents().begin();
+            for (const double DISTANCE : straight) {
+                total += agent++->travel / DISTANCE;
             }
-            return total / straight.size();
+            return total / static_cast<double>(straight.size());
         };
         // With neither meander nor per-agent arcs an agent walks straight home; each of the two
         // bends its path.
@@ -606,34 +625,34 @@ namespace {
             params.separation = separation;
             swarm.begin(Transition::Open, params, 21, placement(), sides({Edge::Left}));
             const double FAR = 5.0 * std::sqrt(BODY.w * BODY.h / params.count);
-            const auto IN_TRANSIT = [&](const SwarmAgent &a) {
-                return a.visible && !a.docked &&
-                       std::hypot(a.position.x - a.home.x, a.position.y - a.home.y) > FAR;
+            const auto IN_TRANSIT = [&](const SwarmAgent &agent) {
+                return agent.visible && !agent.docked &&
+                       std::hypot(
+                           agent.position.x - agent.home.x, agent.position.y - agent.home.y) > FAR;
             };
             long encounters = 0;
             long overlaps = 0;
             while (swarm.active()) {
                 swarm.advance(FRAME);
                 const auto AGENTS = swarm.agents();
-                for (std::size_t i = 0; i < AGENTS.size(); ++i) {
-                    if (!IN_TRANSIT(AGENTS[i])) {
+                for (auto first = AGENTS.begin(); first != AGENTS.end(); ++first) {
+                    if (!IN_TRANSIT(*first)) {
                         continue;
                     }
-                    for (std::size_t j = i + 1; j < AGENTS.size(); ++j) {
-                        if (!IN_TRANSIT(AGENTS[j])) {
+                    for (auto second = std::next(first); second != AGENTS.end(); ++second) {
+                        if (!IN_TRANSIT(*second)) {
                             continue;
                         }
-                        const double DISTANCE =
-                            std::hypot(AGENTS[i].position.x - AGENTS[j].position.x,
-                                AGENTS[i].position.y - AGENTS[j].position.y);
-                        const double BODIES = kSwarmBodyShare * (AGENTS[i].fit + AGENTS[j].fit);
+                        const double DISTANCE = std::hypot(first->position.x - second->position.x,
+                            first->position.y - second->position.y);
+                        const double BODIES = K_SWARM_BODY_SHARE * (first->fit + second->fit);
                         encounters += DISTANCE < 2.0 * BODIES;
                         overlaps += DISTANCE < 0.75 * BODIES;
                     }
                 }
             }
             CHECK(encounters > 1000);
-            return static_cast<double>(overlaps) / std::max(1L, encounters);
+            return static_cast<double>(overlaps) / static_cast<double>(std::max(1L, encounters));
         };
         // Free to cross, agents walk through each other all the time; with solid bodies it is rare.
         CHECK(OVERLAPPING(0.0) > 0.08);
@@ -659,12 +678,12 @@ namespace {
         SwarmPlacement bigger = placement();
         bigger.capture.w += 300.0;
         bigger.body.w += 300.0;
-        swarm.updateMovement(bigger);
+        swarm.update_movement(bigger);
         double area = 0.0;
         for (const SwarmAgent &agent : swarm.agents()) {
             area += agent.tile.w * agent.tile.h;
         }
-        CHECK(std::abs(area - bigger.capture.w * bigger.capture.h) < 1e-6);
+        CHECK(std::abs(area - (bigger.capture.w * bigger.capture.h)) < 1e-6);
         run(swarm, 8.0);
         CHECK(!swarm.active() && in_formation(swarm));
     }
@@ -678,10 +697,10 @@ namespace {
             .body = {.x = 400, .y = 200, .w = 824, .h = 600},
             .screen = SCREEN,
         };
-        swarm.beginMovement(params, 2, box);
+        swarm.begin_movement(params, 2, box);
         box.capture.x -= 100.0;
         box.body.x -= 100.0;
-        swarm.updateMovement(box);
+        swarm.update_movement(box);
         swarm.advance(1.0 / 60.0);
         std::vector<Vec2> homes;
         for (const auto &agent : swarm.agents()) {
@@ -689,10 +708,11 @@ namespace {
         }
         box.capture.w -= 2.0;
         box.body.w -= 2.0;
-        swarm.updateMovement(box);
-        for (std::size_t i = 0; i < homes.size(); ++i) {
-            const auto &home = swarm.agents()[i].home;
-            CHECK(std::hypot(home.x - homes[i].x, home.y - homes[i].y) < 3.0);
+        swarm.update_movement(box);
+        auto agent_it = swarm.agents().begin();
+        for (const Vec2 &previous_home : homes) {
+            const auto &home = agent_it++->home;
+            CHECK(std::hypot(home.x - previous_home.x, home.y - previous_home.y) < 3.0);
         }
         run(swarm, 8.0);
         CHECK(!swarm.active() && in_formation(swarm));
@@ -702,26 +722,27 @@ namespace {
         Swarm swarm;
         SwarmParams params;
         params.stagger = 1.5;
-        swarm.beginMovement(params, 7, placement());
-        swarm.updateMovement(placement({.x = -200.0, .y = 0.0}));
+        swarm.begin_movement(params, 7, placement());
+        swarm.update_movement(placement({.x = -200.0, .y = 0.0}));
         swarm.advance(1.0 / 60.0);
         std::vector<double> arrived(swarm.agents().size(), -1.0);
         int delayed = 0;
         for (double elapsed = 0.0; elapsed < 6.0 && swarm.active(); elapsed += FRAME) {
             swarm.advance(FRAME);
-            for (std::size_t i = 0; i < arrived.size(); ++i) {
-                const auto &agent = swarm.agents()[i];
-                if (arrived[i] < 0.0 && !agent.docked &&
+            auto agent_it = swarm.agents().begin();
+            for (auto &arrival : arrived) {
+                const auto &agent = *agent_it++;
+                if (arrival < 0.0 && !agent.docked &&
                     std::hypot(agent.position.x - agent.home.x, agent.position.y - agent.home.y) <
                         1.5 &&
                     std::hypot(agent.velocity.x, agent.velocity.y) < 60.0) {
-                    arrived[i] = elapsed;
+                    arrival = elapsed;
                 }
-                if (arrived[i] >= 0.0 && agent.docked) {
-                    if (elapsed - arrived[i] > 0.25) {
+                if (arrival >= 0.0 && agent.docked) {
+                    if (elapsed - arrival > 0.25) {
                         ++delayed;
                     }
-                    arrived[i] = -2.0;
+                    arrival = -2.0;
                 }
             }
         }
@@ -746,10 +767,11 @@ namespace {
 
         swarm.begin(Transition::Open, {}, 1, placement(), sides({Edge::Left}));
         run(swarm, 0.3);
-        const Vec2 BEFORE = swarm.agents()[0].position;
+        const Vec2 BEFORE = swarm.agents().front().position;
         CHECK(swarm.advance(std::numeric_limits<double>::quiet_NaN()));
         CHECK(swarm.advance(-1.0));
-        CHECK(swarm.agents()[0].position.x == BEFORE.x && swarm.agents()[0].position.y == BEFORE.y);
+        CHECK(swarm.agents().front().position.x == BEFORE.x &&
+              swarm.agents().front().position.y == BEFORE.y);
         // A stalled frame is clamped rather than integrated whole.
         swarm.advance(30.0);
         for (const SwarmAgent &agent : swarm.agents()) {
@@ -763,52 +785,55 @@ namespace {
         // A disc of radius 20 at (40, 60) with a thin leg reaching right to x = 110, in a 128 px
         // frame.
         constexpr int SIDE = 128;
-        std::vector<std::uint8_t> alpha(SIDE * SIDE, 0);
+        std::vector<std::uint8_t> alpha(static_cast<std::size_t>(SIDE) * SIDE, 0);
+        auto pixel = alpha.begin();
         for (int row = 0; row < SIDE; ++row) {
-            for (int col = 0; col < SIDE; ++col) {
+            for (int col = 0; col < SIDE; ++col, ++pixel) {
                 if (std::hypot(col + 0.5 - 40.0, row + 0.5 - 60.0) <= 20.0 ||
                     (row >= 59 && row <= 60 && col >= 40 && col < 110)) {
-                    alpha[(row * SIDE) + col] = 255;
+                    *pixel = 255;
                 }
             }
         }
-        const SpriteFrame FRAME_INFO = measureSprite(alpha, SIDE);
-        CHECK(std::abs(FRAME_INFO.centre.x * SIDE - 40.0) <= 1.5 &&
-              std::abs(FRAME_INFO.centre.y * SIDE - 60.0) <= 1.5);
-        CHECK(std::abs(FRAME_INFO.core * SIDE - 20.0) <= 1.5);
-        CHECK(std::abs(FRAME_INFO.reach * SIDE - 70.0) <= 2.0);
+        const SpriteFrame FRAME_INFO = measure_sprite(alpha, SIDE);
+        CHECK(std::abs((FRAME_INFO.centre.x * SIDE) - 40.0) <= 1.5 &&
+              std::abs((FRAME_INFO.centre.y * SIDE) - 60.0) <= 1.5);
+        CHECK(std::abs((FRAME_INFO.core * SIDE) - 20.0) <= 1.5);
+        CHECK(std::abs((FRAME_INFO.reach * SIDE) - 70.0) <= 2.0);
 
-        const SpriteFrame EMPTY = measureSprite(std::vector<std::uint8_t>(SIDE * SIDE, 0), SIDE);
+        const SpriteFrame EMPTY = measure_sprite(
+            std::vector<std::uint8_t>(static_cast<std::size_t>(SIDE) * SIDE, 0), SIDE);
         CHECK(EMPTY.core == 0.0 && EMPTY.reach == 0.0);
-        CHECK(spriteSize(EMPTY, 40.0, 60.0, 0.5) == 0.0);
+        CHECK(sprite_size(EMPTY, 40.0, 60.0, 0.5) == 0.0);
 
         // Loose, the whole silhouette fits; locked, the solid core covers the tile; it only grows
         // in between.
-        CHECK(std::abs(FRAME_INFO.reach * spriteSize(FRAME_INFO, 40.0, 60.0, 0.0) - 40.0) < 1e-9);
-        CHECK(FRAME_INFO.core * spriteSize(FRAME_INFO, 40.0, 60.0, 1.0) >= 60.0);
+        CHECK(
+            std::abs((FRAME_INFO.reach * sprite_size(FRAME_INFO, 40.0, 60.0, 0.0)) - 40.0) < 1e-9);
+        CHECK(FRAME_INFO.core * sprite_size(FRAME_INFO, 40.0, 60.0, 1.0) >= 60.0);
         double previous = 0.0;
         for (double lock = 0.0; lock <= 1.0; lock += 0.1) {
-            const double SIZE = spriteSize(FRAME_INFO, 40.0, 60.0, lock);
+            const double SIZE = sprite_size(FRAME_INFO, 40.0, 60.0, lock);
             CHECK(SIZE > previous);
             previous = SIZE;
         }
     }
 
     void walk_cycle_follows_distance() {
-        CHECK(walkFrame(0.0, 80.0, 8) == 0);
-        CHECK(walkFrame(45.0, 80.0, 8) == 4);
-        CHECK(walkFrame(79.9, 80.0, 8) == 7);
-        CHECK(walkFrame(80.0 * 12 + 15.0, 80.0, 8) == 1);
-        CHECK(walkFrame(100.0, 0.0, 8) == 0);
-        CHECK(walkFrame(100.0, 80.0, 1) == 0);
+        CHECK(walk_frame(0.0, 80.0, 8) == 0);
+        CHECK(walk_frame(45.0, 80.0, 8) == 4);
+        CHECK(walk_frame(79.9, 80.0, 8) == 7);
+        CHECK(walk_frame((80.0 * 12) + 15.0, 80.0, 8) == 1);
+        CHECK(walk_frame(100.0, 0.0, 8) == 0);
+        CHECK(walk_frame(100.0, 80.0, 1) == 0);
         // Facing up in the sheet and heading right is a quarter turn clockwise; half-turned is half
         // of it; the long way round is never taken.
         const double UP_ANGLE = -std::numbers::pi / 2;
-        CHECK(std::abs(spriteRotation(0.0, UP_ANGLE, 1.0) - std::numbers::pi / 2) < 1e-12);
-        CHECK(std::abs(spriteRotation(0.0, UP_ANGLE, 0.5) - std::numbers::pi / 4) < 1e-12);
-        CHECK(spriteRotation(UP_ANGLE, UP_ANGLE, 1.0) == 0.0);
-        CHECK(std::abs(spriteRotation(std::numbers::pi * 0.9, -std::numbers::pi * 0.9, 1.0) +
-                       std::numbers::pi * 0.2) < 1e-12);
+        CHECK(std::abs(sprite_rotation(0.0, UP_ANGLE, 1.0) - (std::numbers::pi / 2)) < 1e-12);
+        CHECK(std::abs(sprite_rotation(0.0, UP_ANGLE, 0.5) - (std::numbers::pi / 4)) < 1e-12);
+        CHECK(sprite_rotation(UP_ANGLE, UP_ANGLE, 1.0) == 0.0);
+        CHECK(std::abs(sprite_rotation(std::numbers::pi * 0.9, -std::numbers::pi * 0.9, 1.0) +
+                       (std::numbers::pi * 0.2)) < 1e-12);
     }
 
     void moving_sprites_advance_at_a_visible_rate() {
@@ -823,12 +848,13 @@ namespace {
                 before.push_back(prior_agent.walk);
             }
             swarm.advance(1.0 / 60.0);
-            for (std::size_t i = 0; i < before.size(); ++i) {
-                const auto &agent = swarm.agents()[i];
-                if (agent.visible && !agent.docked && agent.walk > before[i]) {
+            auto agent_it = swarm.agents().begin();
+            for (const double PREVIOUS_WALK : before) {
+                const auto &agent = *agent_it++;
+                if (agent.visible && !agent.docked && agent.walk > PREVIOUS_WALK) {
                     observed = true;
                     // At 60 Hz, no more than a quarter of the shortest creature cycle per frame.
-                    CHECK(agent.walk - before[i] <= 0.25 * 1.1 * 2.0 * agent.fit);
+                    CHECK(agent.walk - PREVIOUS_WALK <= 0.25 * 1.1 * 2.0 * agent.fit);
                 }
             }
         }
@@ -842,11 +868,12 @@ namespace {
         for (int step = 0; step < 1200 && swarm.active(); ++step) {
             const std::vector<SwarmAgent> BEFORE(swarm.agents().begin(), swarm.agents().end());
             swarm.advance(1.0 / 120.0);
-            for (std::size_t i = 0; i < BEFORE.size(); ++i) {
-                const auto &agent = swarm.agents()[i];
-                if (BEFORE[i].docked && BEFORE[i].turn > agent.turn) {
+            auto agent_it = swarm.agents().begin();
+            for (const SwarmAgent &previous_agent : BEFORE) {
+                const auto &agent = *agent_it++;
+                if (previous_agent.docked && previous_agent.turn > agent.turn) {
                     observed = true;
-                    CHECK(agent.walk > BEFORE[i].walk);
+                    CHECK(agent.walk > previous_agent.walk);
                 }
             }
         }
@@ -857,7 +884,7 @@ namespace {
         for (const bool MOVEMENT : {false, true}) {
             Swarm swarm;
             if (MOVEMENT) {
-                swarm.beginMovement({}, 12, placement());
+                swarm.begin_movement({}, 12, placement());
                 for (int i = 0; i < 120; ++i) {
                     swarm.advance(FRAME, true);
                 }
@@ -869,17 +896,18 @@ namespace {
             for (int step = 0; step < 1200 && swarm.active(); ++step) {
                 const std::vector<SwarmAgent> BEFORE(swarm.agents().begin(), swarm.agents().end());
                 swarm.advance(FRAME);
-                for (std::size_t i = 0; i < BEFORE.size(); ++i) {
-                    const auto &agent = swarm.agents()[i];
-                    if (BEFORE[i].docked && BEFORE[i].turn == 0.0 && agent.lock > BEFORE[i].lock &&
-                        agent.lock < 1.0) {
+                auto agent_it = swarm.agents().begin();
+                for (const SwarmAgent &previous_agent : BEFORE) {
+                    const auto &agent = *agent_it++;
+                    if (previous_agent.docked && previous_agent.turn == 0.0 &&
+                        agent.lock > previous_agent.lock && agent.lock < 1.0) {
                         observed = true;
-                        CHECK(agent.walk > BEFORE[i].walk);
-                        changed_frame |= walkFrame(agent.walk, 2.0 * agent.fit, 8) !=
-                                         walkFrame(BEFORE[i].walk, 2.0 * agent.fit, 8);
+                        CHECK(agent.walk > previous_agent.walk);
+                        changed_frame |= walk_frame(agent.walk, 2.0 * agent.fit, 8) !=
+                                         walk_frame(previous_agent.walk, 2.0 * agent.fit, 8);
                     }
-                    if (BEFORE[i].lock == 1.0 && agent.lock == 1.0) {
-                        CHECK(agent.walk == BEFORE[i].walk);
+                    if (previous_agent.lock == 1.0 && agent.lock == 1.0) {
+                        CHECK(agent.walk == previous_agent.walk);
                     }
                 }
             }
@@ -892,39 +920,43 @@ namespace {
         const Box LEFT{.x = 0, .y = 0, .w = 960, .h = 1080};
         const Box RIGHT{.x = 960, .y = 0, .w = 960, .h = 1080};
         // Alone: the nearest edge; equidistant edges all count.
-        CHECK(resolveEdgeSides({100, 300, 400, 400}, SCREEN, {}) == sides({Edge::Left}));
-        CHECK(
-            resolveEdgeSides({660, 340, 600, 400}, SCREEN, {}) == sides({Edge::Top, Edge::Bottom}));
+        CHECK(resolve_edge_sides({100, 300, 400, 400}, SCREEN, {}) == sides({Edge::Left}));
+        CHECK(resolve_edge_sides({660, 340, 600, 400}, SCREEN, {}) ==
+              sides({Edge::Top, Edge::Bottom}));
         // Beside a neighbour: the edge away from it.
-        const Box ON_LEFT[] = {LEFT};
-        CHECK(resolveEdgeSides(RIGHT, SCREEN, ON_LEFT) == sides({Edge::Right}));
+        const std::array<Box, 1> ON_LEFT = {LEFT};
+        CHECK(resolve_edge_sides(RIGHT, SCREEN, ON_LEFT) == sides({Edge::Right}));
         // Below one neighbour and beside another of equal contact: both open edges.
-        const Box AROUND[] = {
-            {.x = 840, .y = 540, .w = 540, .h = 540},
-            {.x = 1380, .y = 0, .w = 540, .h = 540},
+        const std::array<Box, 2> AROUND = {
+            {
+                {.x = 840, .y = 540, .w = 540, .h = 540},
+                {.x = 1380, .y = 0, .w = 540, .h = 540},
+            },
         };
-        CHECK(resolveEdgeSides({1380, 540, 540, 540}, SCREEN, AROUND) ==
+        CHECK(resolve_edge_sides({1380, 540, 540, 540}, SCREEN, AROUND) ==
               sides({Edge::Right, Edge::Bottom}));
         // Wedged between two columns: the edges opposite its contacts are taken, so it uses the
         // free ones.
-        const Box COLUMNS[] = {
-            {.x = 0, .y = 0, .w = 640, .h = 1080},
-            {.x = 1280, .y = 0, .w = 640, .h = 1080},
+        const std::array<Box, 2> COLUMNS = {
+            {
+                {.x = 0, .y = 0, .w = 640, .h = 1080},
+                {.x = 1280, .y = 0, .w = 640, .h = 1080},
+            },
         };
-        CHECK(resolveEdgeSides({640, 0, 640, 1080}, SCREEN, COLUMNS) ==
+        CHECK(resolve_edge_sides({640, 0, 640, 1080}, SCREEN, COLUMNS) ==
               sides({Edge::Top, Edge::Bottom}));
-        CHECK(resolveEdgeSides({0, 0, 0, 0}, SCREEN, {}).empty());
+        CHECK(resolve_edge_sides({0, 0, 0, 0}, SCREEN, {}).empty());
     }
 
 }  // namespace
 
 int main() {
     // Bare names resolve under the sprite directory; explicit paths stay unchanged.
-    CHECK(hyprimate::spritePath("cat", "/sprites") == "/sprites/cat.png");
-    CHECK(hyprimate::spritePath("bird.png", "/sprites") == "/sprites/bird.png");
-    CHECK(hyprimate::spritePath("/tmp/custom.png", "/sprites") == "/tmp/custom.png");
-    CHECK(hyprimate::spritePath("./custom.png", "/sprites") == "./custom.png");
-    CHECK(hyprimate::spritePath("", "/sprites").empty());
+    CHECK(hyprimate::sprite_path("cat", "/sprites") == "/sprites/cat.png");
+    CHECK(hyprimate::sprite_path("bird.png", "/sprites") == "/sprites/bird.png");
+    CHECK(hyprimate::sprite_path("/tmp/custom.png", "/sprites") == "/tmp/custom.png");
+    CHECK(hyprimate::sprite_path("./custom.png", "/sprites") == "./custom.png");
+    CHECK(hyprimate::sprite_path("", "/sprites").empty());
     tiles_partition_the_capture();
     opening_enters_from_its_sides_and_settles_exactly();
     equal_seeds_give_equal_motion();

@@ -15,10 +15,10 @@ class CLiquidClosePassElement final : public IPassElement {
         double scale = 1.0;
         CRegion damage;
         // Edge liquid: drawn before the window mesh, sampling `solid` over `liquid` vertices in
-        // `liquidBox`.
+        // `liquid_box`.
         SP<Render::ITexture> solid;
         const std::vector<SMeshRenderVertex> *liquid = nullptr;
-        CBox liquidBox;
+        CBox liquid_box;
     };
 
     explicit CLiquidClosePassElement(SData data);

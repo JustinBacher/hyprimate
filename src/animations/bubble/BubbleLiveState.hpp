@@ -50,10 +50,10 @@ class CBubbleImpactLease {
         }
         m_clock.reset();
     }
-    bool running() const {
-        return bool(m_clock);
+    [[nodiscard]] bool running() const {
+        return static_cast<bool>(m_clock);
     }
-    const SP<SBubbleImpactClock> &clock() const {
+    [[nodiscard]] const SP<SBubbleImpactClock> &clock() const {
         return m_clock;
     }
 
@@ -66,8 +66,8 @@ struct SBubbleStyle {
     SP<CBubbleRenderer> renderer;
     SP<SBubbleWallpaper> wallpaper;
     SP<CBubbleResidue> residue;
-    bool shellImpactsDeposited = false;
-    bool windowImpactsDeposited = false;
+    bool shell_impacts_deposited = false;
+    bool window_impacts_deposited = false;
     CBubbleImpactLease impacts;
     std::uint64_t wake = 0;  // the residue wake this window's movement is laying down
     PHLWINDOWREF window;  // the window the film belongs to; its wakes lie under it
@@ -77,7 +77,7 @@ struct SBubbleStyle {
 // Pending beads land when the transition's shared clock reaches them, so they neither lead their
 // droplets nor outlive an aborted opening. Callers exclude capture and read-only passes. centre is
 // the frame centre in monitor-local logical coordinates.
-inline void depositBubbleImpacts(SBubbleStyle &state,
+inline void deposit_bubble_impacts(SBubbleStyle &state,
     const hyprimate::BubbleFrame &frame,
     const PHLMONITOR &monitor,
     Vector2D centre) {
@@ -89,18 +89,18 @@ inline void depositBubbleImpacts(SBubbleStyle &state,
             return;
         }
         const auto HOLES =
-            std::span(surface.holes).first(std::min(surface.holeCount, surface.holes.size()));
+            std::span(surface.holes).first(std::min(surface.hole_count, surface.holes.size()));
         if (std::ranges::none_of(
                 HOLES, [](const hyprimate::BubbleHole &hole) { return hole.radius > 0; })) {
             return;
         }
-        std::array<hyprimate::BubbleImpact, hyprimate::kBubbleMaxImpacts> found{};
-        const auto COUNT = hyprimate::bubbleImpacts(surface, found);
+        std::array<hyprimate::BubbleImpact, hyprimate::K_BUBBLE_MAX_IMPACTS> found{};
+        const auto COUNT = hyprimate::bubble_impacts(surface, found);
         // A disabled residue declines the beads; they are not retried later.
         state.residue->deposit(
             monitor, centre, std::span(found).first(COUNT), state.impacts.clock());
         done = true;
     };
-    DEPOSIT(frame.shell, state.shellImpactsDeposited);
-    DEPOSIT(frame.window, state.windowImpactsDeposited);
+    DEPOSIT(frame.shell, state.shell_impacts_deposited);
+    DEPOSIT(frame.window, state.window_impacts_deposited);
 }

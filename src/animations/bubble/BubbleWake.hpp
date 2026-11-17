@@ -8,24 +8,24 @@
 
 namespace hyprimate {
 
-    inline constexpr std::size_t kBubbleWakeNodes = 48;
-    inline constexpr std::size_t kBubbleWakeBubbles = 12;
+    inline constexpr std::size_t K_BUBBLE_WAKE_NODES = 48;
+    inline constexpr std::size_t K_BUBBLE_WAKE_BUBBLES = 12;
 
     // A wake as a renderer draws it: positions in logical px from the centre of its bounds.
     struct BubbleWakeView {
         struct Node {
             Vec2 position{};
             Vec2 direction{};  // unit tangent of the ribbon
-            double halfWidth = 0;  // logical px
+            double half_width = 0;  // logical px
             double arc = 0;  // logical px along the ribbon from its first point
             double fade = 0;  // 0 fresh .. 1 gone
             double density = 0;
         };
         Vec2 size{};
-        std::array<Node, kBubbleWakeNodes> nodes{};
-        std::size_t nodeCount = 0;
-        std::array<BubbleMicro, kBubbleWakeBubbles> bubbles{};
-        std::size_t bubbleCount = 0;
+        std::array<Node, K_BUBBLE_WAKE_NODES> nodes{};
+        std::size_t node_count = 0;
+        std::array<BubbleMicro, K_BUBBLE_WAKE_BUBBLES> bubbles{};
+        std::size_t bubble_count = 0;
         double seed = 0;
     };
 
@@ -43,13 +43,13 @@ namespace hyprimate {
         void advance(double elapsed) noexcept;
         // Ages the film faster, for a wake that has to make room.
         void hurry() noexcept;
-        bool done() const noexcept;
-        bool full() const noexcept;
+        [[nodiscard]] bool done() const noexcept;
+        [[nodiscard]] bool full() const noexcept;
         // Every pixel the wake may draw, monitor-local logical px; empty when done.
-        Box bounds() const noexcept;
+        [[nodiscard]] Box bounds() const noexcept;
         void view(BubbleWakeView &out) const noexcept;
         // The newest ribbon point, to continue a stroke in another wake.
-        const BubbleTrailPoint *last() const noexcept;
+        [[nodiscard]] const BubbleTrailPoint *last() const noexcept;
 
       private:
         struct Node {
@@ -65,13 +65,13 @@ namespace hyprimate {
             double life = 0;
             double thickness = 0;
         };
-        std::array<Node, kBubbleWakeNodes> nodes_{};
-        std::size_t first_ = 0, count_ = 0;  // live nodes: [first_, first_ + count_)
-        std::array<Free, kBubbleWakeBubbles> bubbles_{};
-        std::size_t bubbleCount_ = 0;
-        std::uint64_t random_;
-        double seed_ = 0;
-        double pace_ = 1;
+        std::array<Node, K_BUBBLE_WAKE_NODES> nodes{};
+        std::size_t first = 0, count = 0;  // live nodes: [first, first + count)
+        std::array<Free, K_BUBBLE_WAKE_BUBBLES> bubbles{};
+        std::size_t bubble_count = 0;
+        std::uint64_t random;
+        double seed = 0;
+        double pace = 1;
     };
 
 }  // namespace hyprimate

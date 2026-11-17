@@ -25,67 +25,70 @@
 #include "config_generated.hpp"
 using hyprimate::Vec2;
 
-CBox liveExtents(const SPaperStyle &state, const CBox &box) {
-    return liveSheetExtents(state.sheet, box);
+CBox live_extents(const SPaperStyle &state, const CBox &box) {
+    return live_sheet_extents(state.sheet, box);
 }
 
-Render::SWindowTransformBuffer renderLive(SPaperStyle &state,
+Render::SWindowTransformBuffer render_live(SPaperStyle &state,
     Render::CRenderContext &ctx,
-    const Render::SWindowTransformBuffer &in,
-    const Render::SWindowTransformContext &,
+    const Render::SWindowTransformBuffer &input,
+    [[maybe_unused]] const Render::SWindowTransformContext &context,
     const SLiveRenderGeometry &geometry,
-    const SP<CSolidFill> &,
+    [[maybe_unused]] const SP<CSolidFill> &solid,
     const SP<CPaperShade> &shade,
-    const SP<CSwarmSprites> &) {
-    return renderLiveSheet(
-        state.sheet, state.crumple.opacity(), state.crumple.shaded(), ctx, in, geometry, shade);
+    [[maybe_unused]] const SP<CSwarmSprites> &sprites) {
+    return render_live_sheet(
+        state.sheet, state.crumple.opacity(), state.crumple.shaded(), ctx, input, geometry, shade);
 }
 
-bool SPaperLiveStyle::open(
-    CPluginRuntime &runtime, CPluginRuntime::STracked &, const PHLWINDOW &window) {
+bool SPaperLiveStyle::open(CPluginRuntime &runtime,
+    [[maybe_unused]] CPluginRuntime::STracked &tracked,
+    const PHLWINDOW &window) {
     const CBox CAPTURE = window->getFullWindowBoundingBox();
     const auto &paper = runtime.m_config.open.paper;
-    auto *transformer = runtime.acquireTransformer(window);
+    auto *transformer = runtime.acquire_transformer(window);
     auto &state = std::get<SPaperStyle>(transformer->m_style);
     state.crumple.reset();
     state.crumple.begin(hyprimate::Transition::Open,
-        {.duration = paper.duration,
+        {
+            .duration = paper.duration,
             .crumpliness = paper.crumpliness,
             .shading = paper.shading,
-            .variation = paper.variation},
-        runtime.m_nextSeed++);
-    state.sheet.captureSize = {.x = CAPTURE.w, .y = CAPTURE.h};
-    state.crumple.frame(state.sheet.captureSize, *state.sheet.frame);
+            .variation = paper.variation,
+        },
+        runtime.m_next_seed++);
+    state.sheet.capture_size = {.x = CAPTURE.w, .y = CAPTURE.h};
+    state.crumple.frame(state.sheet.capture_size, *state.sheet.frame);
     return true;
 }
 
-void SPaperLiveStyle::movement(CPluginRuntime &,
-    CAnimationTransformer &,
-    const PHLWINDOW &,
-    const hyprimate::TrackDecision &,
-    double,
-    bool,
-    bool) {
+void SPaperLiveStyle::movement([[maybe_unused]] CPluginRuntime &runtime,
+    [[maybe_unused]] CAnimationTransformer &transformer,
+    [[maybe_unused]] const PHLWINDOW &window,
+    [[maybe_unused]] const hyprimate::TrackDecision &decision,
+    [[maybe_unused]] double elapsed,
+    [[maybe_unused]] bool enabled,
+    [[maybe_unused]] bool moving) {
 }
 
 void SPaperLiveStyle::snapshot(
-    const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &s) {
+    const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &snapshot) {
     if (transformer != nullptr) {
         const auto *paper = std::get_if<SPaperStyle>(&transformer->m_style);
-        s.transition_busy = (paper != nullptr) && paper->crumple.active();
+        snapshot.transition_busy = (paper != nullptr) && paper->crumple.active();
     }
 }
 
-void SPaperLiveStyle::step(CPluginRuntime &,
+void SPaperLiveStyle::step([[maybe_unused]] CPluginRuntime &runtime,
     CAnimationTransformer &transformer,
     double elapsed,
     hyprimate::Vec2 size,
-    bool) {
+    [[maybe_unused]] bool enabled) {
     auto &paper = std::get<SPaperStyle>(transformer.m_style);
     if (!paper.crumple.active()) {
         return;
     }
-    paper.sheet.captureSize = size;
+    paper.sheet.capture_size = size;
     paper.crumple.advance(elapsed);
     paper.crumple.frame(size, *paper.sheet.frame);
 }
@@ -97,34 +100,35 @@ void SPaperLiveStyle::cancelOpening(CAnimationTransformer &transformer) {
     }
 }
 
-void SPaperLiveStyle::cancelMovement(CAnimationTransformer &) {
+void SPaperLiveStyle::cancelMovement([[maybe_unused]] CAnimationTransformer &transformer) {
 }
 
 bool SPaperLiveStyle::deforming(const SPaperStyle &state) noexcept {
     return state.crumple.active();
 }
 
-bool SPaperLiveStyle::builtFor(const SPaperStyle &,
+bool SPaperLiveStyle::builtFor([[maybe_unused]] const SPaperStyle &state,
     hyprimate::config::Style style,
-    hyprimate::MaterialParams,
-    hyprimate::ClothMovementParams) noexcept {
+    [[maybe_unused]] hyprimate::MaterialParams material,
+    [[maybe_unused]] hyprimate::ClothMovementParams cloth) noexcept {
     return style == hyprimate::config::Style::Paper;
 }
 
 bool SPaperLiveStyle::available(const SPaperStyle &state) noexcept {
-    return bool(state.sheet.frame);
+    return static_cast<bool>(state.sheet.frame);
 }
 
-SStyleState SPaperLiveStyle::initial(
-    hyprimate::MaterialParams, hyprimate::ClothMovementParams, std::uint64_t) {
+SStyleState SPaperLiveStyle::initial([[maybe_unused]] hyprimate::MaterialParams material,
+    [[maybe_unused]] hyprimate::ClothMovementParams cloth,
+    [[maybe_unused]] std::uint64_t seed) {
     return SPaperStyle{};
 }
 
-double SPaperLiveStyle::strength(const CPluginRuntime &) {
+double SPaperLiveStyle::strength([[maybe_unused]] const CPluginRuntime &runtime) {
     return 0.0;
 }
 bool SPaperLiveStyle::usable(const CPluginRuntime &runtime) {
-    const auto PARAMS = runtime.effectiveMaterialParams();
+    const auto PARAMS = runtime.effective_material_params();
     return std::isfinite(PARAMS.viscosity) && std::isfinite(PARAMS.elasticity) &&
            std::isfinite(PARAMS.momentum) && std::isfinite(PARAMS.variation);
 }

@@ -22,7 +22,7 @@ class CSwarmSprites {
         std::vector<hyprimate::SpriteFrame> frames;  // one per walk frame, in cycle order
         double forward = 0.0;  // heading the creature faces in the sheet
         double stride = 1.0;  // body lengths walked per cycle
-        double coreShare = 0.0;  // solid body radius / fit, shared by every animated frame
+        double core_share = 0.0;  // solid body radius / fit, shared by every animated frame
     };
 
     // The creature's measurements; null when its sheet cannot be decoded. Touches no GL state.
@@ -53,25 +53,25 @@ class CSwarmSprites {
 
 // The box either half of the layer covers: `source` grown to whole device pixels, so its texels are
 // the window texture's own.
-CBox swarmLayerBox(const CBox &source);
+CBox swarm_layer_box(const CBox &source);
 // The size of the whole layer for that box.
-Vector2D swarmLayerSize(const CBox &source);
+Vector2D swarm_layer_size(const CBox &source);
 
 // Refills the meshes. `source` is the window's capture box inside its texture and `output` the box
 // the pieces mesh is normalised to, both in device px of one space; `textureOrigin` is that space's
 // position of the texture's first texel and `textureSize` the texture's size.
-void fillSwarmMeshes(const hyprimate::Swarm &swarm,
+void fill_swarm_meshes(const hyprimate::Swarm &swarm,
     const CSwarmSprites::SSheet &sheet,
     const CBox &source,
     const CBox &output,
-    hyprimate::Vec2 textureOrigin,
-    hyprimate::Vec2 textureSize,
+    hyprimate::Vec2 texture_origin,
+    hyprimate::Vec2 texture_size,
     SSwarmMeshes &meshes);
 
-// Renders the layer into a work buffer of `size` (swarmLayerSize) and returns it, or nullptr when
+// Renders the layer into a work buffer of `size` (swarm_layer_size) and returns it, or nullptr when
 // the work buffer or an input is unavailable. Must be called during rendering; it binds and
 // restores the framebuffer, the draw state and the blend state itself.
-SP<Render::IFramebuffer> renderSwarmLayer(Render::CRenderContext &ctx,
+SP<Render::IFramebuffer> render_swarm_layer(Render::CRenderContext &ctx,
     const SP<Render::ITexture> &window,
     const SP<Render::ITexture> &atlas,
     const Vector2D &size,
@@ -85,7 +85,7 @@ class CSwarmClosePassElement final : public IPassElement {
         SP<Render::ITexture> tex;  // the closing window's snapshot
         SP<Render::ITexture> atlas;  // creature masks
         SP<CSwarmSprites> sprites;  // retains the surface filter through the render pass
-        Vector2D layerSize;
+        Vector2D layer_size;
         CBox box;  // box the pieces mesh spans, monitor-local device px
         const SSwarmMeshes *meshes = nullptr;
         float alpha = 1.F;

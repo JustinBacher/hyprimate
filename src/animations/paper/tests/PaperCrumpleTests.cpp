@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -53,20 +54,24 @@ namespace {
 
     double max_position_delta(const SheetFrame &first, const SheetFrame &second) {
         double best = 0.0;
-        for (std::size_t vertex = 0; vertex < hyprimate::PAPER_GRID_VERTICES; ++vertex) {
-            best = std::max(best, std::abs(first.position[vertex].x - second.position[vertex].x));
-            best = std::max(best, std::abs(first.position[vertex].y - second.position[vertex].y));
+        const auto *other = second.position.cbegin();
+        for (const Vec2 &point : first.position) {
+            best = std::max(best, std::abs(point.x - other->x));
+            best = std::max(best, std::abs(point.y - other->y));
+            ++other;
         }
         return best;
     }
 
     bool is_identity(const SheetFrame &frame, double tolerance) {
-        for (std::size_t vertex = 0; vertex < hyprimate::PAPER_GRID_VERTICES; ++vertex) {
-            const Vec2 TEX_COORD = hyprimate::sheetUv(vertex);
-            if (std::abs(frame.position[vertex].x - (TEX_COORD.x - 0.5)) > tolerance ||
-                std::abs(frame.position[vertex].y - (TEX_COORD.y - 0.5)) > tolerance) {
+        std::size_t vertex = 0;
+        for (const Vec2 &point : frame.position) {
+            const Vec2 TEX_COORD = hyprimate::sheet_uv(vertex);
+            if (std::abs(point.x - (TEX_COORD.x - 0.5)) > tolerance ||
+                std::abs(point.y - (TEX_COORD.y - 0.5)) > tolerance) {
                 return false;
             }
+            ++vertex;
         }
         for (const auto &shade : frame.shade) {
             for (const float SHADE : shade) {
@@ -294,13 +299,15 @@ namespace {
                 model.advance(1e-4);
                 const SheetFrame FRAME = frame_of(model, SIZE);
                 double worst = 0.0;
-                for (std::size_t vertex = 0; vertex < hyprimate::PAPER_GRID_VERTICES; ++vertex) {
-                    const Vec2 TEX_COORD = hyprimate::sheetUv(vertex);
+                std::size_t vertex = 0;
+                for (const Vec2 &point : FRAME.position) {
+                    const Vec2 TEX_COORD = hyprimate::sheet_uv(vertex);
                     worst = std::max({
                         worst,
-                        std::abs(FRAME.position[vertex].x - (TEX_COORD.x - 0.5)) * SIZE.x,
-                        std::abs(FRAME.position[vertex].y - (TEX_COORD.y - 0.5)) * SIZE.y,
+                        std::abs(point.x - (TEX_COORD.x - 0.5)) * SIZE.x,
+                        std::abs(point.y - (TEX_COORD.y - 0.5)) * SIZE.y,
                     });
+                    ++vertex;
                 }
                 CHECK(worst < 1.0);  // under a pixel
             }
@@ -326,9 +333,9 @@ namespace {
     // sort never drifts from a fresh sort. Each take plays forward (open) and back (close).
     void test_order_matches_fresh_sort_along_playback() {
         using hyprimate::PAPER_TRIANGLES;
-        const int FRAMES = hyprimate::paperTakeFrames();
+        const int FRAMES = hyprimate::paper_take_frames();
         SheetFrame out{};
-        for (int take = 0; take < hyprimate::paperTakeCount(); ++take) {
+        for (int take = 0; take < hyprimate::paper_take_count(); ++take) {
             std::vector<int> path;
             for (int frame_index = 0; frame_index < FRAMES; ++frame_index) {
                 path.push_back(frame_index);
@@ -340,12 +347,16 @@ namespace {
                 hyprimate::SheetGrid world{};
                 std::size_t vertex = 0;
                 for (auto &point : world) {
-                    double position[3];
-                    hyprimate::paperTakeVertex(take, FRAME_INDEX, vertex, position);
-                    point = {.x = position[0], .y = position[1], .z = position[2]};
+                    std::array<double, 3> position;
+                    hyprimate::paper_take_vertex(take, FRAME_INDEX, vertex, position);
+                    point = {
+                        .x = std::get<0>(position),
+                        .y = std::get<1>(position),
+                        .z = std::get<2>(position),
+                    };
                     ++vertex;
                 }
-                hyprimate::projectSheet(
+                hyprimate::project_sheet(
                     world, SIZE, 0.7, hyprimate::SheetLighting::PaperCreases, out);
 
                 // Independent recomputation: mean z per triangle with the same arithmetic, then a
@@ -354,16 +365,20 @@ namespace {
                 keyed.reserve(PAPER_TRIANGLES);
                 for (std::size_t triangle_index = 0; triangle_index < PAPER_TRIANGLES;
                     ++triangle_index) {
-                    const auto &corners = hyprimate::sheetTriangle(triangle_index);
+                    const auto &corners = hyprimate::sheet_triangle(triangle_index);
                     const double DEPTH =
-                        (world[corners[0]].z + world[corners[1]].z + world[corners[2]].z) / 3.0;
+                        (world[std::get<0>(corners)].z + world[std::get<1>(corners)].z +
+                            world[std::get<2>(corners)].z) /
+                        3.0;
                     keyed.emplace_back(DEPTH, static_cast<std::uint16_t>(triangle_index));
                 }
-                std::sort(keyed.begin(), keyed.end());
+                std::ranges::sort(keyed);
 
                 bool same = true;
-                for (std::size_t i = 0; i < PAPER_TRIANGLES; ++i) {
-                    same = same && out.order[i] == keyed[i].second;
+                auto expected = keyed.cbegin();
+                for (const auto TRIANGLE : out.order) {
+                    same = same && TRIANGLE == expected->second;
+                    ++expected;
                 }
                 CHECK(same);
                 if (!same) {

@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <iterator>
 #include <limits>
 
 #include "Check.hpp"
@@ -24,7 +25,7 @@ namespace {
     constexpr double NA_N = std::numeric_limits<double>::quiet_NaN();
     constexpr double POSITIVE_INFINITY = std::numeric_limits<double>::infinity();
 
-    std::size_t node(unsigned column, unsigned row) {
+    constexpr std::size_t node(unsigned column, unsigned row) {
         return (static_cast<std::size_t>(row) * 9) + column;
     }
 
@@ -42,9 +43,11 @@ namespace {
 
     double max_difference(const std::array<Vec2, 81> &first, const std::array<Vec2, 81> &second) {
         double result = 0.0;
-        for (std::size_t i = 0; i < first.size(); ++i) {
-            result = std::max(result,
-                magnitude(Vec2{.x = first[i].x - second[i].x, .y = first[i].y - second[i].y}));
+        const auto *other = second.begin();
+        for (const Vec2 &point : first) {
+            result =
+                std::max(result, magnitude(Vec2{.x = point.x - other->x, .y = point.y - other->y}));
+            ++other;
         }
         return result;
     }
@@ -66,13 +69,19 @@ namespace {
         Vec2 size) {
         std::array<Vec2, 3> rest{};
         std::array<Vec2, 3> deformed{};
-        for (std::size_t k = 0; k < 3; ++k) {
-            rest[k] = Vec2{.x = size.x * corners[k].x / 8.0, .y = size.y * corners[k].y / 8.0};
-            const Vec2 DISP = displacements[node(corners[k].x, corners[k].y)];
-            deformed[k] = Vec2{.x = rest[k].x + DISP.x, .y = rest[k].y + DISP.y};
+        auto *rest_point = rest.begin();
+        auto *deformed_point = deformed.begin();
+        for (const Corner &corner : corners) {
+            *rest_point = Vec2{.x = size.x * corner.x / 8.0, .y = size.y * corner.y / 8.0};
+            const Vec2 DISP = displacements[node(corner.x, corner.y)];
+            *deformed_point = Vec2{.x = rest_point->x + DISP.x, .y = rest_point->y + DISP.y};
+            ++rest_point;
+            ++deformed_point;
         }
-        const double REST_AREA = signed_area(rest[0], rest[1], rest[2]);
-        const double AREA = signed_area(deformed[0], deformed[1], deformed[2]);
+        const double REST_AREA =
+            signed_area(std::get<0>(rest), std::get<1>(rest), std::get<2>(rest));
+        const double AREA =
+            signed_area(std::get<0>(deformed), std::get<1>(deformed), std::get<2>(deformed));
         return std::isfinite(AREA) && AREA / REST_AREA >= 0.2;
     }
 
@@ -113,14 +122,14 @@ namespace {
         return true;
     }
 
-    // Render-mesh validity: the 32x32-cell mesh sampled from sampleDisplacement keeps every
+    // Render-mesh validity: the 32x32-cell mesh sampled from sample_displacement keeps every
     // triangle oriented.
     bool render_valid(const LiquidMesh &mesh, Vec2 size) {
         constexpr unsigned CELLS = 32;
         const auto POSITION = [&](unsigned column, unsigned row) {
             const double TEX_U = static_cast<double>(column) / CELLS;
             const double TEX_V = static_cast<double>(row) / CELLS;
-            const Vec2 DISPLACEMENT = mesh.sampleDisplacement(TEX_U, TEX_V);
+            const Vec2 DISPLACEMENT = mesh.sample_displacement(TEX_U, TEX_V);
             if (!std::isfinite(DISPLACEMENT.x) || !std::isfinite(DISPLACEMENT.y)) {
                 return Vec2{.x = NA_N, .y = NA_N};
             }
@@ -145,14 +154,16 @@ namespace {
                 const std::array<std::array<Vec2, 3>, 2> DEFORMED{
                     {{P00, P01, P10}, {P10, P01, P11}},
                 };
-                for (std::size_t triangle = 0; triangle < 2; ++triangle) {
+                const auto *deformed = DEFORMED.begin();
+                for (const auto &rest : REST) {
                     const double REST_AREA =
-                        signed_area(REST[triangle][0], REST[triangle][1], REST[triangle][2]);
+                        signed_area(std::get<0>(rest), std::get<1>(rest), std::get<2>(rest));
                     const double AREA = signed_area(
-                        DEFORMED[triangle][0], DEFORMED[triangle][1], DEFORMED[triangle][2]);
+                        std::get<0>(*deformed), std::get<1>(*deformed), std::get<2>(*deformed));
                     if (!std::isfinite(AREA) || !(AREA / REST_AREA >= 0.2)) {
                         return false;
                     }
+                    ++deformed;
                 }
             }
         }
@@ -164,7 +175,7 @@ namespace {
         // Extreme translation is bounded and keeps every triangle oriented.
         {
             LiquidMesh mesh{};
-            mesh.recordTranslation(Vec2{.x = 5000.0, .y = 0.0}, WINDOW, STRENGTH);
+            mesh.record_translation(Vec2{.x = 5000.0, .y = 0.0}, WINDOW, STRENGTH);
             CHECK(lattice_valid(mesh, WINDOW));
             for (int initial_frame = 0; initial_frame < 30; ++initial_frame) {
                 mesh.advance(1.0 / 60.0, WINDOW);
@@ -183,7 +194,7 @@ namespace {
                 Vec2{.x = 56.0, .y = 56.0},
             };
             for (const Vec2 &impulse : IMPULSES) {
-                mesh.recordTranslation(impulse, WINDOW, STRENGTH);
+                mesh.record_translation(impulse, WINDOW, STRENGTH);
                 CHECK(lattice_valid(mesh, WINDOW));
                 for (int frame_index = 0; frame_index < 3; ++frame_index) {
                     mesh.advance(1.0 / 60.0, WINDOW);
@@ -196,8 +207,8 @@ namespace {
         {
             LiquidMesh mesh{};
             const Vec2 TINY{.x = 16.0, .y = 16.0};
-            mesh.recordTranslation(Vec2{.x = 80.0, .y = 0.0}, TINY, STRENGTH);
-            CHECK(max_magnitude(mesh.displacements()) <= 0.2 * 16.0 + 1e-9);
+            mesh.record_translation(Vec2{.x = 80.0, .y = 0.0}, TINY, STRENGTH);
+            CHECK(max_magnitude(mesh.displacements()) <= (0.2 * 16.0) + 1e-9);
             CHECK(lattice_valid(mesh, TINY));
             for (int frame = 0; frame < 30; ++frame) {
                 mesh.advance(1.0 / 60.0, TINY);
@@ -208,7 +219,7 @@ namespace {
         // A 1000 ms pause exceeds the 250 ms gap limit and resets to the undeformed state.
         {
             LiquidMesh mesh{};
-            mesh.recordTranslation(Vec2{.x = 80.0, .y = 0.0}, WINDOW, STRENGTH);
+            mesh.record_translation(Vec2{.x = 80.0, .y = 0.0}, WINDOW, STRENGTH);
             CHECK(!mesh.advance(1.0, WINDOW));
             CHECK(mesh.settled());
             CHECK(max_magnitude(mesh.displacements()) == 0.0);
@@ -217,7 +228,7 @@ namespace {
         // Zero strength bypasses deformation entirely.
         {
             LiquidMesh mesh{};
-            mesh.recordTranslation(Vec2{.x = 80.0, .y = 0.0}, WINDOW, 0.0);
+            mesh.record_translation(Vec2{.x = 80.0, .y = 0.0}, WINDOW, 0.0);
             CHECK(mesh.settled());
             CHECK(!mesh.advance(1.0 / 60.0, WINDOW));
             CHECK(max_magnitude(mesh.displacements()) == 0.0);
@@ -226,25 +237,26 @@ namespace {
         // NaN strength is invalid input and resets.
         {
             LiquidMesh mesh{};
-            mesh.recordTranslation(Vec2{.x = 80.0, .y = 0.0}, WINDOW, STRENGTH);
-            mesh.recordTranslation(Vec2{.x = 80.0, .y = 0.0}, WINDOW, NA_N);
+            mesh.record_translation(Vec2{.x = 80.0, .y = 0.0}, WINDOW, STRENGTH);
+            mesh.record_translation(Vec2{.x = 80.0, .y = 0.0}, WINDOW, NA_N);
             CHECK(mesh.settled());
         }
 
         // Zero delta does not excite, even though the field is still constrained.
         {
             LiquidMesh mesh{};
-            mesh.recordTranslation(Vec2{.x = 0.0, .y = 0.0}, WINDOW, STRENGTH);
+            mesh.record_translation(Vec2{.x = 0.0, .y = 0.0}, WINDOW, STRENGTH);
             CHECK(mesh.settled());
         }
 
         // Empty geometry resets, whether it arrives with a translation or with advance().
         {
             LiquidMesh mesh{};
-            mesh.recordTranslation(Vec2{.x = 80.0, .y = 0.0}, Vec2{.x = 0.0, .y = 400.0}, STRENGTH);
+            mesh.record_translation(
+                Vec2{.x = 80.0, .y = 0.0}, Vec2{.x = 0.0, .y = 400.0}, STRENGTH);
             CHECK(mesh.settled());
 
-            mesh.recordTranslation(Vec2{.x = 80.0, .y = 0.0}, WINDOW, STRENGTH);
+            mesh.record_translation(Vec2{.x = 80.0, .y = 0.0}, WINDOW, STRENGTH);
             CHECK(!mesh.settled());
             CHECK(!mesh.advance(1.0 / 60.0, Vec2{600.0, 0.0}));
             CHECK(mesh.settled());
@@ -253,23 +265,23 @@ namespace {
         // Nonfinite translation, size, elapsed time, or excitation resets.
         {
             LiquidMesh mesh{};
-            mesh.recordTranslation(Vec2{.x = NA_N, .y = 0.0}, WINDOW, STRENGTH);
+            mesh.record_translation(Vec2{.x = NA_N, .y = 0.0}, WINDOW, STRENGTH);
             CHECK(mesh.settled());
 
-            mesh.recordTranslation(
+            mesh.record_translation(
                 Vec2{.x = 80.0, .y = 0.0}, Vec2{.x = NA_N, .y = 400.0}, STRENGTH);
             CHECK(mesh.settled());
 
-            mesh.recordTranslation(Vec2{.x = 80.0, .y = 0.0}, WINDOW, STRENGTH);
+            mesh.record_translation(Vec2{.x = 80.0, .y = 0.0}, WINDOW, STRENGTH);
             CHECK(!mesh.advance(NA_N, WINDOW));
             CHECK(mesh.settled());
 
-            mesh.recordTranslation(Vec2{.x = 80.0, .y = 0.0}, WINDOW, STRENGTH);
+            mesh.record_translation(Vec2{.x = 80.0, .y = 0.0}, WINDOW, STRENGTH);
             CHECK(!mesh.advance(POSITIVE_INFINITY, WINDOW));
             CHECK(mesh.settled());
 
             // Overflowing excitation becomes nonfinite and must reset rather than propagate.
-            mesh.recordTranslation(Vec2{.x = 1e308, .y = 0.0}, WINDOW, STRENGTH);
+            mesh.record_translation(Vec2{.x = 1e308, .y = 0.0}, WINDOW, STRENGTH);
             CHECK(lattice_valid(mesh, WINDOW));
             mesh.advance(1.0 / 60.0, WINDOW);
             CHECK(lattice_valid(mesh, WINDOW));
@@ -279,17 +291,17 @@ namespace {
         // stepping.
         {
             LiquidMesh mesh{};
-            mesh.recordTranslation(Vec2{.x = 80.0, .y = 0.0}, WINDOW, STRENGTH);
-            mesh.recordTranslation(
+            mesh.record_translation(Vec2{.x = 80.0, .y = 0.0}, WINDOW, STRENGTH);
+            mesh.record_translation(
                 Vec2{.x = 0.0, .y = 0.0}, Vec2{.x = 100.0, .y = 100.0}, STRENGTH);
-            CHECK(max_magnitude(mesh.displacements()) <= 0.2 * 100.0 + 1e-9);
+            CHECK(max_magnitude(mesh.displacements()) <= (0.2 * 100.0) + 1e-9);
             CHECK(lattice_valid(mesh, Vec2{100.0, 100.0}));
         }
         {
             LiquidMesh mesh{};
-            mesh.recordTranslation(Vec2{.x = 80.0, .y = 0.0}, WINDOW, STRENGTH);
+            mesh.record_translation(Vec2{.x = 80.0, .y = 0.0}, WINDOW, STRENGTH);
             mesh.advance(0.0, Vec2{.x = 100.0, .y = 100.0});
-            CHECK(max_magnitude(mesh.displacements()) <= 0.2 * 100.0 + 1e-9);
+            CHECK(max_magnitude(mesh.displacements()) <= (0.2 * 100.0) + 1e-9);
             CHECK(lattice_valid(mesh, Vec2{100.0, 100.0}));
         }
     }
@@ -307,7 +319,7 @@ namespace {
     void drive_frame(
         LiquidMesh &mesh, Vec2 velocity, double frequency, Vec2 size, double strength) {
         const double STEP_SECONDS = 1.0 / frequency;
-        mesh.recordTranslation(
+        mesh.record_translation(
             Vec2{.x = velocity.x * STEP_SECONDS, .y = velocity.y * STEP_SECONDS}, size, strength);
         mesh.advance(STEP_SECONDS, size);
     }
@@ -319,7 +331,7 @@ namespace {
 
     // Trailing-edge displacement along x for a +x drag: negative while lagging behind the window.
     double trailing_x(const LiquidMesh &mesh) {
-        return mesh.displacements()[node(0, 4)].x;
+        return std::get<36>(mesh.displacements()).x;
     }
 
     struct StopTrace {
@@ -329,13 +341,18 @@ namespace {
         double settle_seconds = 1e9;  // time from stop until settled(); 1e9 if never
     };
 
+    struct StopTraceOptions {
+        double frequency = 60.0;
+        std::uint64_t seed = 0;
+    };
+
     // Drags at 2000 px/s for 0.25 s at 60 Hz, then stops and records the trailing response.
-    StopTrace trace_stop(
-        const MaterialParams &params, double frequency = 60.0, std::uint64_t seed = 0) {
-        LiquidMesh mesh{params, seed};
-        for (int frame_index = 0; frame_index < static_cast<int>(std::lround(frequency * 0.25));
+    StopTrace trace_stop(const MaterialParams &params, StopTraceOptions options = {}) {
+        LiquidMesh mesh{params, options.seed};
+        for (int frame_index = 0;
+            frame_index < static_cast<int>(std::lround(options.frequency * 0.25));
             ++frame_index) {
-            drive_frame(mesh, Vec2{.x = 2000.0, .y = 0.0}, frequency, WINDOW, STRENGTH);
+            drive_frame(mesh, Vec2{.x = 2000.0, .y = 0.0}, options.frequency, WINDOW, STRENGTH);
         }
 
         StopTrace trace{};
@@ -345,13 +362,15 @@ namespace {
         int best_frame = -1;
         std::array<double, 400> series{};
         int frames = 0;
-        for (int frame = 1; frame <= static_cast<int>(frequency * 2.0); ++frame) {
-            coast_frame(mesh, frequency, WINDOW);
-            series[static_cast<std::size_t>(frame - 1)] = trailing_x(mesh);
+        auto *sample = series.begin();
+        for (int frame = 1; frame <= static_cast<int>(options.frequency * 2.0); ++frame) {
+            coast_frame(mesh, options.frequency, WINDOW);
+            *sample = trailing_x(mesh);
+            ++sample;
             frames = frame;
             if (mesh.settled()) {
                 if (trace.settle_seconds > 1e8) {
-                    trace.settle_seconds = frame / frequency;
+                    trace.settle_seconds = frame / options.frequency;
                 }
                 break;
             }
@@ -362,9 +381,9 @@ namespace {
         }
         trace.overshoot = best_overshoot;
         if (best_frame >= 0) {
-            for (int k = best_frame; k < frames; ++k) {
-                trace.later_negative =
-                    std::max(trace.later_negative, -series[static_cast<std::size_t>(k)]);
+            const auto *sample_at_peak = std::next(series.begin(), best_frame);
+            for (int k = best_frame; k < frames; ++k, ++sample_at_peak) {
+                trace.later_negative = std::max(trace.later_negative, -*sample_at_peak);
             }
         }
         return trace;
@@ -402,7 +421,7 @@ namespace {
             CHECK(render_valid(mesh, WINDOW));
         }
         const double TRAILING = -trailing_x(mesh);
-        const double LEADING = std::abs(mesh.displacements()[node(8, 4)].x);
+        const double LEADING = std::abs(std::get<44>(mesh.displacements()).x);
         double transverse = 0.0;
         for (const Vec2 &displacement : mesh.displacements()) {
             transverse = std::max(transverse, std::abs(displacement.y));
@@ -455,7 +474,7 @@ namespace {
         for (int frame = 0; frame < 30; ++frame) {
             drive_frame(mesh, Vec2{.x = -2000.0, .y = 0.0}, 60.0, WINDOW, STRENGTH);
             CHECK(render_valid(mesh, WINDOW));
-            if (cross_frame < 0 && mesh.displacements()[(4 * 9) + 4].x > 0.0) {
+            if (cross_frame < 0 && std::get<40>(mesh.displacements()).x > 0.0) {
                 cross_frame = frame;
             }
         }
@@ -542,7 +561,7 @@ namespace {
         CHECK(BIG.overshoot > STANDARD.overshoot);
     }
 
-    // sampleDisplacement: exact at nodes, clamped outside [0, 1], and C1 across cell boundaries.
+    // sample_displacement: exact at nodes, clamped outside [0, 1], and C1 across cell boundaries.
     void test_sample_displacement() {
         LiquidMesh mesh{};
         for (int frame = 0; frame < 15; ++frame) {
@@ -550,30 +569,31 @@ namespace {
         }
         const auto &offsets = mesh.displacements();
 
+        const auto *expected = offsets.begin();
         for (unsigned row = 0; row < 9; ++row) {
-            for (unsigned col = 0; col < 9; ++col) {
-                const Vec2 SAMPLE = mesh.sampleDisplacement(col / 8.0, row / 8.0);
-                CHECK(std::abs(SAMPLE.x - offsets[node(col, row)].x) <= 1e-9);
-                CHECK(std::abs(SAMPLE.y - offsets[node(col, row)].y) <= 1e-9);
+            for (unsigned col = 0; col < 9; ++col, ++expected) {
+                const Vec2 SAMPLE = mesh.sample_displacement(col / 8.0, row / 8.0);
+                CHECK(std::abs(SAMPLE.x - expected->x) <= 1e-9);
+                CHECK(std::abs(SAMPLE.y - expected->y) <= 1e-9);
             }
         }
 
-        const Vec2 CLAMPED_U = mesh.sampleDisplacement(-1.0, 2.0);
-        CHECK(std::abs(CLAMPED_U.x - offsets[node(0, 8)].x) <= 1e-9);
-        const Vec2 CLAMPED_V = mesh.sampleDisplacement(2.0, -1.0);
-        CHECK(std::abs(CLAMPED_V.x - offsets[node(8, 0)].x) <= 1e-9);
-        const Vec2 NONFINITE = mesh.sampleDisplacement(NA_N, 0.5);
+        const Vec2 CLAMPED_U = mesh.sample_displacement(-1.0, 2.0);
+        CHECK(std::abs(CLAMPED_U.x - std::get<node(0, 8)>(offsets).x) <= 1e-9);
+        const Vec2 CLAMPED_V = mesh.sample_displacement(2.0, -1.0);
+        CHECK(std::abs(CLAMPED_V.x - std::get<node(8, 0)>(offsets).x) <= 1e-9);
+        const Vec2 NONFINITE = mesh.sample_displacement(NA_N, 0.5);
         CHECK(NONFINITE.x == 0.0 && NONFINITE.y == 0.0);
 
         // C1: the slope from each side of an interior cell boundary matches.
         constexpr double EPSILON = 1e-5;
         for (const double TEX_V : {0.2, 0.55}) {
             const double TEX_U = 3.0 / 8.0;
-            const double LEFT = (mesh.sampleDisplacement(TEX_U, TEX_V).x -
-                                    mesh.sampleDisplacement(TEX_U - EPSILON, TEX_V).x) /
+            const double LEFT = (mesh.sample_displacement(TEX_U, TEX_V).x -
+                                    mesh.sample_displacement(TEX_U - EPSILON, TEX_V).x) /
                                 EPSILON;
-            const double RIGHT = (mesh.sampleDisplacement(TEX_U + EPSILON, TEX_V).x -
-                                     mesh.sampleDisplacement(TEX_U, TEX_V).x) /
+            const double RIGHT = (mesh.sample_displacement(TEX_U + EPSILON, TEX_V).x -
+                                     mesh.sample_displacement(TEX_U, TEX_V).x) /
                                  EPSILON;
             CHECK(std::abs(LEFT - RIGHT) <= 1e-3 * std::max(1.0, std::abs(LEFT)));
         }
@@ -630,7 +650,7 @@ namespace {
         LiquidMesh thick{one};
         CHECK(low.viscosity() == 0.0 && high.viscosity() == 1.0);
         for (auto *mesh : {&low, &thin, &high, &thick}) {
-            mesh->recordTranslation(Vec2{.x = 80.0, .y = 0.0}, WINDOW, STRENGTH);
+            mesh->record_translation(Vec2{.x = 80.0, .y = 0.0}, WINDOW, STRENGTH);
         }
         for (int step = 0; step < 24; ++step) {
             for (auto *mesh : {&low, &thin, &high, &thick}) {
@@ -644,7 +664,7 @@ namespace {
             MaterialParams bad{};
             bad.viscosity = INVALID;
             LiquidMesh mesh{bad};
-            mesh.recordTranslation(Vec2{.x = 80.0, .y = 0.0}, WINDOW, STRENGTH);
+            mesh.record_translation(Vec2{.x = 80.0, .y = 0.0}, WINDOW, STRENGTH);
             CHECK(mesh.settled());
             CHECK(!mesh.advance(1.0 / 240.0, WINDOW));
             CHECK(max_magnitude(mesh.displacements()) == 0.0);
@@ -660,15 +680,16 @@ namespace {
             drive_frame(mesh, Vec2{.x = 2000.0, .y = 0.0}, 60.0, WINDOW, STRENGTH);
         }
         const double CENTRE = -trailing_x(mesh);
-        const double CORNER = -mesh.displacements()[node(0, 0)].x;
-        const double TAPER = std::abs(mesh.displacements()[node(0, 0)].y);
+        const double CORNER = -std::get<0>(mesh.displacements()).x;
+        const double TAPER = std::abs(std::get<0>(mesh.displacements()).y);
         CHECK(CENTRE > 20.0);
         CHECK(CENTRE / CORNER >= 1.5);
         CHECK(TAPER >= 0.15 * CENTRE);
         CHECK(TAPER <= 0.20 * CENTRE);
         double previous = TAPER;
-        for (unsigned row = 1; row <= 4; ++row) {
-            const double EDGE = std::abs(mesh.displacements()[node(0, row)].y);
+        const auto *edge = std::next(mesh.displacements().begin(), 9);
+        for (unsigned row = 1; row <= 4; ++row, std::advance(edge, 9)) {
+            const double EDGE = std::abs(edge->y);
             CHECK(EDGE < previous);
             previous = EDGE;
         }
@@ -689,7 +710,7 @@ namespace {
         while (!mesh.settled() && elapsed < 2.0) {
             mesh.advance(1.0 / 60.0, WINDOW);
             elapsed += 1.0 / 60.0;
-            bulge = std::max(bulge, mesh.displacements()[node(8, 4)].x);
+            bulge = std::max(bulge, std::get<44>(mesh.displacements()).x);
             surge = std::max(surge, trailing_x(mesh));
         }
         CHECK(bulge >= 0.02 * MIN_SIDE);
@@ -726,7 +747,7 @@ namespace {
             const double REPORTED = visible(k, TIME);
             const double DELTA = K_SPEED * (REPORTED - previous_reported);
             previous_reported = REPORTED;
-            mesh.recordTranslation(Vec2{.x = DELTA, .y = 0.0}, WINDOW, STRENGTH);
+            mesh.record_translation(Vec2{.x = DELTA, .y = 0.0}, WINDOW, STRENGTH);
             mesh.advance(STEP_SECONDS, WINDOW);
             if (k < WARMUP_FRAMES) {
                 continue;
@@ -738,7 +759,7 @@ namespace {
             previous_lag = LAG;
             sum_lag += LAG;
             ++count;
-            stats.bulge = std::max(stats.bulge, mesh.displacements()[node(8, 4)].x);
+            stats.bulge = std::max(stats.bulge, std::get<44>(mesh.displacements()).x);
         }
         stats.lag_mean = sum_lag / count;
         return stats;
@@ -830,7 +851,7 @@ namespace {
                 CHECK(mesh.settled());
 
                 if (MOMENTUM == 0.0) {
-                    const StopTrace TRACE = trace_stop(params, 60.0, seed);
+                    const StopTrace TRACE = trace_stop(params, {.frequency = 60.0, .seed = seed});
                     CHECK(TRACE.overshoot <= 0.02 * TRACE.peak_lag);
                 }
             }

@@ -153,17 +153,21 @@ namespace hyprimate {
         // approaches limit. The outward component of velocity is scaled by sech^2 of the tanh, the
         // derivative of the map above the knee, so saturation does not inject energy. Below the
         // knee nothing changes.
-        void soft_saturate(
-            Vec2 &displacement, Vec2 &velocity, double magnitude, double limit) noexcept {
-            const double KNEE = 0.75 * limit;
-            if (magnitude <= KNEE) {
+        struct SaturationRange {
+            double magnitude;
+            double limit;
+        };
+
+        void soft_saturate(Vec2 &displacement, Vec2 &velocity, SaturationRange range) noexcept {
+            const double KNEE = 0.75 * range.limit;
+            if (range.magnitude <= KNEE) {
                 return;
             }
-            const double SPAN = limit - KNEE;
-            const double CURVE = std::tanh((magnitude - KNEE) / SPAN);
+            const double SPAN = range.limit - KNEE;
+            const double CURVE = std::tanh((range.magnitude - KNEE) / SPAN);
             const double MAPPED = KNEE + (SPAN * CURVE);
-            const double NORMAL_X = displacement.x / magnitude;
-            const double NORMAL_Y = displacement.y / magnitude;
+            const double NORMAL_X = displacement.x / range.magnitude;
+            const double NORMAL_Y = displacement.y / range.magnitude;
             const double RADIAL_VELOCITY = (velocity.x * NORMAL_X) + (velocity.y * NORMAL_Y);
             const double SECH2 = 1.0 - (CURVE * CURVE);
             velocity.x -= (1.0 - SECH2) * RADIAL_VELOCITY * NORMAL_X;
@@ -172,12 +176,8 @@ namespace hyprimate {
         }
 
         bool is_zero(const Field &field) noexcept {
-            for (const Vec2 &position : field) {
-                if (position.x != 0.0 || position.y != 0.0) {
-                    return false;
-                }
-            }
-            return true;
+            return !std::ranges::any_of(
+                field, [](const Vec2 &position) { return position.x != 0.0 || position.y != 0.0; });
         }
 
         bool is_zero(Vec2 value) noexcept {
@@ -194,28 +194,34 @@ namespace hyprimate {
         }
 
         // Corners of the two triangles in the given cell, in renderer order.
-        std::array<GridPoint, 3> triangle_corners(
-            unsigned column, unsigned row, unsigned triangle) noexcept {
+        std::array<GridPoint, 3> triangle_corners(GridPoint cell, unsigned triangle) noexcept {
             if (triangle == 0) {
                 return {
-                    GridPoint{.x = column, .y = row},
-                    GridPoint{.x = column, .y = row + 1},
-                    GridPoint{.x = column + 1, .y = row},
+                    GridPoint{.x = cell.x, .y = cell.y},
+                    GridPoint{.x = cell.x, .y = cell.y + 1},
+                    GridPoint{.x = cell.x + 1, .y = cell.y},
                 };
             }
             return {
-                GridPoint{.x = column + 1, .y = row},
-                GridPoint{.x = column, .y = row + 1},
-                GridPoint{.x = column + 1, .y = row + 1},
+                GridPoint{.x = cell.x + 1, .y = cell.y},
+                GridPoint{.x = cell.x, .y = cell.y + 1},
+                GridPoint{.x = cell.x + 1, .y = cell.y + 1},
             };
         }
 
-        bool is_quiet(const Field &displacements, const Field &velocities) noexcept {
+        struct MotionFields {
+            const Field &displacements;
+            const Field &velocities;
+        };
+
+        bool is_quiet(MotionFields fields) noexcept {
+            const Field &displacements = fields.displacements;
+            const Field &velocities = fields.velocities;
             constexpr double MAX_DISPLACEMENT2 = QUIET_DISPLACEMENT * QUIET_DISPLACEMENT;
             constexpr double MAX_VELOCITY2 = QUIET_VELOCITY * QUIET_VELOCITY;
-            for (std::size_t i = 0; i < displacements.size(); ++i) {
-                const Vec2 &displacement = displacements[i];
-                const Vec2 &velocity = velocities[i];
+            const auto *velocity_it = velocities.begin();
+            for (const Vec2 &displacement : displacements) {
+                const Vec2 &velocity = *velocity_it++;
                 if ((displacement.x * displacement.x) + (displacement.y * displacement.y) >=
                         MAX_DISPLACEMENT2 ||
                     (velocity.x * velocity.x) + (velocity.y * velocity.y) >= MAX_VELOCITY2) {
@@ -283,66 +289,69 @@ namespace hyprimate {
 
     LiquidMesh::LiquidMesh(MaterialParams params, std::uint64_t seed) noexcept
         : m_params(normalize_params(params)),
-          m_shearDamping(
+          m_shear_damping(
               LIQUID_SHEAR_DAMPING_MIN + (LIQUID_SHEAR_DAMPING_RANGE * m_params.viscosity)),
           m_rng(seed) {
-        rollCharacter();
+        roll_character();
     }
 
-    double LiquidMesh::drawUnit() noexcept {
+    double LiquidMesh::draw_unit() noexcept {
         // Uniform in [-1, 1) from the top 53 bits of m_rng.
         return (2.0 * unit_draw(m_rng)) - 1.0;
     }
 
-    void LiquidMesh::rollCharacter() noexcept {
+    void LiquidMesh::roll_character() noexcept {
         // Nonfinite variation is rejected before integration; draw neutral so the gains stay finite
         // meanwhile.
         const double AMOUNT = std::isfinite(m_params.variation) ? m_params.variation : 0.0;
         // Always draw every factor, so the stream position never depends on the variation amount.
         std::array<double, 9> draws{};
         for (double &value : draws) {
-            value = AMOUNT * drawUnit();
+            value = AMOUNT * draw_unit();
         }
 
-        const double OMEGA = LIQUID_BASE_OMEGA *
-                             std::exp2(m_params.elasticity - 0.5 + (VARY_OMEGA_OCTAVES * draws[0]));
+        const double OMEGA =
+            LIQUID_BASE_OMEGA *
+            std::exp2(m_params.elasticity - 0.5 + (VARY_OMEGA_OCTAVES * std::get<0>(draws)));
         double zeta = damping_ratio(m_params.momentum);
         if (zeta < 1.0) {
-            zeta = std::clamp(zeta * (1.0 + (VARY_DAMPING * draws[1])), MIN_DAMPING_RATIO, 1.0);
+            zeta = std::clamp(
+                zeta * (1.0 + (VARY_DAMPING * std::get<1>(draws))), MIN_DAMPING_RATIO, 1.0);
         }
-        m_bodyStiffness = OMEGA * OMEGA;
-        m_bodyDamping = 2.0 * zeta * OMEGA;
-        m_headStiffness = LIQUID_HEAD_STIFFNESS_SCALE * m_bodyStiffness;
+        m_body_stiffness = OMEGA * OMEGA;
+        m_body_damping = 2.0 * zeta * OMEGA;
+        m_head_stiffness = LIQUID_HEAD_STIFFNESS_SCALE * m_body_stiffness;
         // Head is always critically damped, so its damping is 2 * sqrt(stiffness).
-        m_headDamping = 2.0 * std::sqrt(m_headStiffness);
+        m_head_damping = 2.0 * std::sqrt(m_head_stiffness);
 
-        m_lagGain = 1.0 + (VARY_LAG * draws[2]);
-        m_bowDepth = LIQUID_BOW_DEPTH + (VARY_BOW_DEPTH * draws[3]);
-        m_taperRatio = LIQUID_TAPER_RATIO * (1.0 + (VARY_TAPER * draws[4]));
-        m_skew = VARY_SKEW * draws[5];
-        m_lean = VARY_LEAN * draws[6];
-        m_kickGain = 1.0 + (VARY_KICK * draws[7]);
-        m_velocitySeconds = LIQUID_VELOCITY_SECONDS * (1.0 + (VARY_VELOCITY_SECONDS * draws[8]));
+        m_lag_gain = 1.0 + (VARY_LAG * std::get<2>(draws));
+        m_bow_depth = LIQUID_BOW_DEPTH + (VARY_BOW_DEPTH * std::get<3>(draws));
+        m_taper_ratio = LIQUID_TAPER_RATIO * (1.0 + (VARY_TAPER * std::get<4>(draws)));
+        m_skew = VARY_SKEW * std::get<5>(draws);
+        m_lean = VARY_LEAN * std::get<6>(draws);
+        m_kick_gain = 1.0 + (VARY_KICK * std::get<7>(draws));
+        m_velocity_seconds =
+            LIQUID_VELOCITY_SECONDS * (1.0 + (VARY_VELOCITY_SECONDS * std::get<8>(draws)));
     }
 
     void LiquidMesh::reset() noexcept {
         m_displacements.fill(Vec2{});
         m_velocities.fill(Vec2{});
         m_grip.fill(0.0);
-        m_pendingDelta = {};
-        m_windowVelocity = {};
-        m_smoothDelta = {};
-        m_smoothTime = 0.0;
+        m_pending_delta = {};
+        m_window_velocity = {};
+        m_smooth_delta = {};
+        m_smooth_time = 0.0;
         m_inertia = {};
-        m_slowDelta = {};
-        m_slowTime = 0.0;
-        m_slowVelocity = {};
+        m_slow_delta = {};
+        m_slow_time = 0.0;
+        m_slow_velocity = {};
         m_strength = 0.0;
         m_accumulator = 0.0;
-        m_quietSteps = 0;
+        m_quiet_steps = 0;
     }
 
-    void LiquidMesh::recordTranslation(Vec2 delta, Vec2 size, double strength) noexcept {
+    void LiquidMesh::record_translation(Vec2 delta, Vec2 size, double strength) noexcept {
         // A nonfinite Liquid parameter has no defined response, so the field must not be excited.
         if (!is_finite(delta) || !is_valid_size(size) || !std::isfinite(strength) ||
             strength <= 0.0 || !has_finite_params(m_params)) {
@@ -360,12 +369,12 @@ namespace hyprimate {
             // Each movement from rest gets its own character, so meshes moved by the same delta
             // still differ.
             if (settled()) {
-                rollCharacter();
+                roll_character();
             }
-            m_pendingDelta.x += delta.x;
-            m_pendingDelta.y += delta.y;
+            m_pending_delta.x += delta.x;
+            m_pending_delta.y += delta.y;
             m_strength = strength;
-            m_quietSteps = 0;
+            m_quiet_steps = 0;
         }
 
         // Applies bounds and triangle protection to the field, including for zero delta.
@@ -379,7 +388,7 @@ namespace hyprimate {
     // continuous body. When motion stops the lag field returns to zero, so the trailing mass surges
     // forward and rings down. Divergence and every acceleration read only old state, so the update
     // is simultaneous.
-    void LiquidMesh::integrateLiquidSubstep(Vec2 size) noexcept {
+    void LiquidMesh::integrate_liquid_substep(Vec2 size) noexcept {
         Field &displacements = m_displacements;
         Field &velocities = m_velocities;
         Field &accelerations = m_accelerations;
@@ -410,19 +419,19 @@ namespace hyprimate {
         }
 
         // Lag magnitude in px: quadratic in speed for slow drags, about linear for fast ones.
-        const double SPEED = std::hypot(m_windowVelocity.x, m_windowVelocity.y);
-        const double LAG = SPEED > 0.0 ? LIQUID_LAG_SECONDS * m_lagGain * m_strength * SPEED *
+        const double SPEED = std::hypot(m_window_velocity.x, m_window_velocity.y);
+        const double LAG = SPEED > 0.0 ? LIQUID_LAG_SECONDS * m_lag_gain * m_strength * SPEED *
                                              SPEED / (SPEED + LIQUID_LAG_SPEED)
                                        : 0.0;
         // With no motion the lag is zero, so the direction is unused and any unit vector serves.
-        const double DIR_X = SPEED > 0.0 ? m_windowVelocity.x / SPEED : 1.0;
-        const double DIR_Y = SPEED > 0.0 ? m_windowVelocity.y / SPEED : 0.0;
+        const double DIR_X = SPEED > 0.0 ? m_window_velocity.x / SPEED : 1.0;
+        const double DIR_Y = SPEED > 0.0 ? m_window_velocity.y / SPEED : 0.0;
         const double PERP_X = -DIR_Y;
         const double PERP_Y = DIR_X;
         // A unit direction has |dx| + |dy| >= 1, so this normalizer is always positive.
         const double NORMALIZER = 0.5 * (std::abs(DIR_X) + std::abs(DIR_Y));
         const double GRIP_BLEND = 1.0 - std::exp(-SUBSTEP_SECONDS / LIQUID_GRIP_RELAX_SECONDS);
-        const double SHEAR_DAMPING = m_shearDamping;
+        const double SHEAR_DAMPING = m_shear_damping;
         // The bow's deepest point sits at s = m_skew; dividing by 1 + |skew| keeps the far corner's
         // lag at (1 - bow depth) of the deepest point, so a skewed bow never turns a trailing
         // corner forward.
@@ -450,15 +459,15 @@ namespace hyprimate {
                     GRIP_BLEND;
                 const double GRIP = GRIP_FIELD[col, row];
                 const double STIFFNESS =
-                    (m_bodyStiffness * (1.0 - GRIP)) + (m_headStiffness * GRIP);
+                    (m_body_stiffness * (1.0 - GRIP)) + (m_head_stiffness * GRIP);
                 const double LEAD = std::max(ALONG_MOTION, 0.0);
                 const double TRAIL = std::max(-ALONG_MOTION, 0.0);
                 // Inertia weights: the leading face carries the push forward and the trailing edge
                 // a weaker share.
                 const double KICK_WEIGHT =
-                    LIQUID_STOP_KICK * m_kickGain * m_params.momentum *
+                    LIQUID_STOP_KICK * m_kick_gain * m_params.momentum *
                     ((LEAD * LEAD) + (LIQUID_STOP_TRAIL_RATIO * TRAIL * TRAIL));
-                const double DAMPING = (m_bodyDamping * (1.0 - GRIP)) + (m_headDamping * GRIP);
+                const double DAMPING = (m_body_damping * (1.0 - GRIP)) + (m_head_damping * GRIP);
 
                 // t: 1 at the trailing edge, 0 at the leading face. The trailing edge bows back at
                 // its middle and the trailing corners taper cross-axis; both follow t^2 so the side
@@ -467,9 +476,9 @@ namespace hyprimate {
                 const double TAIL_BLEND = 0.5 * (1.0 - ALONG_MOTION);
                 const double TAIL_BLEND_SQUARED = TAIL_BLEND * TAIL_BLEND;
                 const double OFFSET = (ACROSS_MOTION - m_skew) * SKEW_SCALE;
-                const double BOW = TAIL_BLEND_SQUARED * (1.0 - (m_bowDepth * OFFSET * OFFSET));
+                const double BOW = TAIL_BLEND_SQUARED * (1.0 - (m_bow_depth * OFFSET * OFFSET));
                 const double TAPER =
-                    LAG * TAIL_BLEND_SQUARED * ((m_taperRatio * ACROSS_MOTION) + m_lean);
+                    LAG * TAIL_BLEND_SQUARED * ((m_taper_ratio * ACROSS_MOTION) + m_lean);
                 const Vec2 LAG_FIELD{
                     .x = -((LAG * BOW * DIR_X) + (TAPER * PERP_X)),
                     .y = -((LAG * BOW * DIR_Y) + (TAPER * PERP_Y)),
@@ -528,13 +537,16 @@ namespace hyprimate {
         // Its change between ticks gives the inertia pseudo-force: only deceleration or reversal
         // along the previous motion is carried forward.
         if (elapsed_seconds > 0.0) {
-            const double DECAY = std::exp(-elapsed_seconds / m_velocitySeconds);
-            m_smoothDelta = {
-                .x = (m_smoothDelta.x * DECAY) + m_pendingDelta.x,
-                .y = (m_smoothDelta.y * DECAY) + m_pendingDelta.y,
+            const double DECAY = std::exp(-elapsed_seconds / m_velocity_seconds);
+            m_smooth_delta = {
+                .x = (m_smooth_delta.x * DECAY) + m_pending_delta.x,
+                .y = (m_smooth_delta.y * DECAY) + m_pending_delta.y,
             };
-            m_smoothTime = (m_smoothTime * DECAY) + elapsed_seconds;
-            Vec2 velocity{.x = m_smoothDelta.x / m_smoothTime, .y = m_smoothDelta.y / m_smoothTime};
+            m_smooth_time = (m_smooth_time * DECAY) + elapsed_seconds;
+            Vec2 velocity{
+                .x = m_smooth_delta.x / m_smooth_time,
+                .y = m_smooth_delta.y / m_smooth_time,
+            };
             if (!is_finite(velocity)) {
                 reset();
                 return false;
@@ -549,14 +561,14 @@ namespace hyprimate {
             // arrivals from reading as deceleration, so only a real stop or reversal pushes the
             // leading face.
             const double SLOW_DECAY = std::exp(-elapsed_seconds / LIQUID_INERTIA_SECONDS);
-            m_slowDelta = {
-                .x = (m_slowDelta.x * SLOW_DECAY) + m_pendingDelta.x,
-                .y = (m_slowDelta.y * SLOW_DECAY) + m_pendingDelta.y,
+            m_slow_delta = {
+                .x = (m_slow_delta.x * SLOW_DECAY) + m_pending_delta.x,
+                .y = (m_slow_delta.y * SLOW_DECAY) + m_pending_delta.y,
             };
-            m_slowTime = (m_slowTime * SLOW_DECAY) + elapsed_seconds;
+            m_slow_time = (m_slow_time * SLOW_DECAY) + elapsed_seconds;
             const Vec2 SLOW_VELOCITY{
-                .x = m_slowDelta.x / m_slowTime,
-                .y = m_slowDelta.y / m_slowTime,
+                .x = m_slow_delta.x / m_slow_time,
+                .y = m_slow_delta.y / m_slow_time,
             };
             if (!is_finite(SLOW_VELOCITY)) {
                 reset();
@@ -564,26 +576,26 @@ namespace hyprimate {
             }
             // Raw deceleration along the previous slow motion; zero on acceleration or steady drag.
             Vec2 raw_decel{};
-            const double PREVIOUS_SLOW_SPEED = std::hypot(m_slowVelocity.x, m_slowVelocity.y);
+            const double PREVIOUS_SLOW_SPEED = std::hypot(m_slow_velocity.x, m_slow_velocity.y);
             if (PREVIOUS_SLOW_SPEED > 0.0) {
-                const double DIR_X = m_slowVelocity.x / PREVIOUS_SLOW_SPEED;
-                const double DIR_Y = m_slowVelocity.y / PREVIOUS_SLOW_SPEED;
-                const double DVX = (SLOW_VELOCITY.x - m_slowVelocity.x) / elapsed_seconds;
-                const double DVY = (SLOW_VELOCITY.y - m_slowVelocity.y) / elapsed_seconds;
+                const double DIR_X = m_slow_velocity.x / PREVIOUS_SLOW_SPEED;
+                const double DIR_Y = m_slow_velocity.y / PREVIOUS_SLOW_SPEED;
+                const double DVX = (SLOW_VELOCITY.x - m_slow_velocity.x) / elapsed_seconds;
+                const double DVY = (SLOW_VELOCITY.y - m_slow_velocity.y) / elapsed_seconds;
                 const double DECEL = -((DVX * DIR_X) + (DVY * DIR_Y));
                 if (DECEL > 0.0) {
                     raw_decel = {.x = DIR_X * DECEL, .y = DIR_Y * DECEL};
                 }
             }
-            m_slowVelocity = SLOW_VELOCITY;
+            m_slow_velocity = SLOW_VELOCITY;
             // Tick-start rate of an exponential pseudo-force whose integral over this tick equals
             // the velocity change: R0 * tau * (1 - exp(-dt/tau)) = raw_decel * dt. Substeps decay
             // it, so cadence does not change the push.
             const double TICK_SHAPE = -std::expm1(-elapsed_seconds / LIQUID_INERTIA_SECONDS);
             const double TICK_GAIN = elapsed_seconds / (LIQUID_INERTIA_SECONDS * TICK_SHAPE);
             m_inertia = {.x = raw_decel.x * TICK_GAIN, .y = raw_decel.y * TICK_GAIN};
-            m_windowVelocity = velocity;
-            m_pendingDelta = {};
+            m_window_velocity = velocity;
+            m_pending_delta = {};
         }
 
         // Applies the current geometry's bounds even when no substep runs.
@@ -593,7 +605,7 @@ namespace hyprimate {
 
         if (settled()) {
             m_accumulator = 0.0;
-            m_quietSteps = 0;
+            m_quiet_steps = 0;
             return false;
         }
 
@@ -608,20 +620,21 @@ namespace hyprimate {
             m_accumulator -= SUBSTEP_SECONDS;
             ++steps;
 
-            integrateLiquidSubstep(size);
+            integrate_liquid_substep(size);
 
             if (!constrain(size)) {
                 return false;
             }
 
-            const bool QUIET = is_quiet(m_displacements, m_velocities);
+            const bool QUIET =
+                is_quiet({.displacements = m_displacements, .velocities = m_velocities});
             if (QUIET) {
-                if (++m_quietSteps >= QUIET_SUBSTEPS) {
+                if (++m_quiet_steps >= QUIET_SUBSTEPS) {
                     reset();
                     return false;
                 }
             } else {
-                m_quietSteps = 0;
+                m_quiet_steps = 0;
             }
         }
 
@@ -632,10 +645,10 @@ namespace hyprimate {
         if (!is_zero(m_displacements) || !is_zero(m_velocities)) {
             return false;
         }
-        return is_zero(m_windowVelocity) && is_zero(m_pendingDelta);
+        return is_zero(m_window_velocity) && is_zero(m_pending_delta);
     }
 
-    Vec2 LiquidMesh::sampleDisplacement(
+    Vec2 LiquidMesh::sample_displacement(
         double horizontal_fraction, double vertical_fraction) const noexcept {
         if (!std::isfinite(horizontal_fraction) || !std::isfinite(vertical_fraction)) {
             return {};
@@ -659,13 +672,14 @@ namespace hyprimate {
 
         // Interpolate along x for the four rows around the sample, then along y.
         std::array<Vec2, 4> column{};
-        for (int k = 0; k < 4; ++k) {
-            const int ROW_INDEX = ROW - 1 + k;
+        int row_offset = 0;
+        for (auto &sample : column) {
+            const int ROW_INDEX = ROW - 1 + row_offset++;
             const Vec2 SAMPLE_BACK = NODE(COL - 1, ROW_INDEX);
             const Vec2 SAMPLE_LEFT = NODE(COL, ROW_INDEX);
             const Vec2 SAMPLE_RIGHT = NODE(COL + 1, ROW_INDEX);
             const Vec2 SAMPLE_NEXT = NODE(COL + 2, ROW_INDEX);
-            column[k] = {
+            sample = {
                 .x = catmull_rom(
                     SAMPLE_BACK.x, SAMPLE_LEFT.x, SAMPLE_RIGHT.x, SAMPLE_NEXT.x, FRACTION_X),
                 .y = catmull_rom(
@@ -673,8 +687,16 @@ namespace hyprimate {
             };
         }
         return {
-            .x = catmull_rom(column[0].x, column[1].x, column[2].x, column[3].x, FRACTION_Y),
-            .y = catmull_rom(column[0].y, column[1].y, column[2].y, column[3].y, FRACTION_Y),
+            .x = catmull_rom(std::get<0>(column).x,
+                std::get<1>(column).x,
+                std::get<2>(column).x,
+                std::get<3>(column).x,
+                FRACTION_Y),
+            .y = catmull_rom(std::get<0>(column).y,
+                std::get<1>(column).y,
+                std::get<2>(column).y,
+                std::get<3>(column).y,
+                FRACTION_Y),
         };
     }
 
@@ -692,12 +714,12 @@ namespace hyprimate {
             Vec2 &velocity = m_velocities[i];
             const double MAGNITUDE = std::hypot(displacement.x, displacement.y);
             if (MAGNITUDE > 0.0) {
-                soft_saturate(displacement, velocity, MAGNITUDE, LIMIT);
+                soft_saturate(displacement, velocity, {.magnitude = MAGNITUDE, .limit = LIMIT});
             }
         }
 
         for (unsigned halvings = 0;; ++halvings) {
-            if (validTriangles(size)) {
+            if (valid_triangles(size)) {
                 return true;
             }
             if (halvings == MAX_HALVINGS) {
@@ -716,30 +738,37 @@ namespace hyprimate {
         return false;
     }
 
-    bool LiquidMesh::validTriangles(Vec2 size) const noexcept {
+    bool LiquidMesh::valid_triangles(Vec2 size) const noexcept {
         const ConstFieldView FIELD{m_displacements.data()};
         for (unsigned cell_row = 0; cell_row < CELLS; ++cell_row) {
             for (unsigned cell_column = 0; cell_column < CELLS; ++cell_column) {
                 for (unsigned triangle = 0; triangle < 2; ++triangle) {
-                    const auto CORNERS = triangle_corners(cell_column, cell_row, triangle);
+                    const auto CORNERS =
+                        triangle_corners({.x = cell_column, .y = cell_row}, triangle);
                     std::array<Vec2, 3> rest{};
                     std::array<Vec2, 3> deformed{};
-                    for (std::size_t k = 0; k < 3; ++k) {
-                        rest[k] = rest_position(CORNERS[k], size);
-                        const Vec2 DISPLACEMENT = FIELD[CORNERS[k].x, CORNERS[k].y];
-                        deformed[k] = {
-                            .x = rest[k].x + DISPLACEMENT.x,
-                            .y = rest[k].y + DISPLACEMENT.y,
+                    auto *rest_point = rest.begin();
+                    auto *deformed_point = deformed.begin();
+                    for (const GridPoint &corner : CORNERS) {
+                        *rest_point = rest_position(corner, size);
+                        const Vec2 DISPLACEMENT = FIELD[corner.x, corner.y];
+                        *deformed_point = {
+                            .x = rest_point->x + DISPLACEMENT.x,
+                            .y = rest_point->y + DISPLACEMENT.y,
                         };
+                        ++rest_point;
+                        ++deformed_point;
                     }
 
                     // Rest orientation is the same sign for all triangles, so the ratio is positive
                     // while orientation is kept and negative or zero after a foldover or collapse.
-                    const double REST_AREA = signed_area(rest[0], rest[1], rest[2]);
+                    const double REST_AREA =
+                        signed_area(std::get<0>(rest), std::get<1>(rest), std::get<2>(rest));
                     if (!std::isfinite(REST_AREA) || REST_AREA == 0.0) {
                         return false;
                     }
-                    const double AREA = signed_area(deformed[0], deformed[1], deformed[2]);
+                    const double AREA = signed_area(
+                        std::get<0>(deformed), std::get<1>(deformed), std::get<2>(deformed));
                     if (!(AREA / REST_AREA >= MIN_AREA_RATIO)) {
                         return false;
                     }

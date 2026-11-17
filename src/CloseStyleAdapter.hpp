@@ -7,8 +7,8 @@ namespace close_style {
     using Pending = CAnimationCloseRenderer::SPending;
 
     inline CBox project(const CBox &extents, const CBox &box, const Vector2D &size) {
-        return toCBox(
-            hyprimate::projectToOutput(toBox(extents), toBox(box), {.x = size.x, .y = size.y}));
+        return to_cbox(
+            hyprimate::project_to_output(to_box(extents), to_box(box), {.x = size.x, .y = size.y}));
     }
 
 }  // namespace close_style

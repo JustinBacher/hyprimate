@@ -13,13 +13,13 @@ class CNativeFadeoutPass {
     CNativeFadeoutPass(Render::CRenderContext &ctx, PHLMONITOR monitor);
 
     // The region a native fadeout is clipped to: the whole monitor.
-    CRegion damage() const;
+    [[nodiscard]] CRegion damage() const;
 
     // Dim-around and pre-blur, drawn behind the fadeout's pixels while it is live.
-    void drawBackdrop(const Desktop::SFadeoutRenderEffects &effects);
+    void draw_backdrop(const Desktop::SFadeoutRenderEffects &effects);
 
     // The fadeout's texture at its native box, with its native texture blur.
-    void drawTexture(const Desktop::IFadeout &fadeout,
+    void draw_texture(const Desktop::IFadeout &fadeout,
         const SP<Render::ITexture> &tex,
         const Desktop::SFadeoutRenderEffects &effects);
 

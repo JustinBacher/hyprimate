@@ -36,19 +36,19 @@ LIVE_STYLE_OPERATIONS(SClothLiveStyle, SClothStyle)
 LIVE_STYLE_OPERATIONS(SSwarmLiveStyle, SSwarmStyle)
 LIVE_STYLE_OPERATIONS(SBubbleLiveStyle, SBubbleStyle)
 
-inline SLiquidLiveStyle live_style_for(const SLiquidStyle &) {
+inline SLiquidLiveStyle live_style_for([[maybe_unused]] const SLiquidStyle &state) {
     return {};
 }
-inline SPaperLiveStyle live_style_for(const SPaperStyle &) {
+inline SPaperLiveStyle live_style_for([[maybe_unused]] const SPaperStyle &state) {
     return {};
 }
-inline SClothLiveStyle live_style_for(const SClothStyle &) {
+inline SClothLiveStyle live_style_for([[maybe_unused]] const SClothStyle &state) {
     return {};
 }
-inline SSwarmLiveStyle live_style_for(const SSwarmStyle &) {
+inline SSwarmLiveStyle live_style_for([[maybe_unused]] const SSwarmStyle &state) {
     return {};
 }
-inline SBubbleLiveStyle live_style_for(const SBubbleStyle &) {
+inline SBubbleLiveStyle live_style_for([[maybe_unused]] const SBubbleStyle &state) {
     return {};
 }
 #undef LIVE_STYLE_OPERATIONS

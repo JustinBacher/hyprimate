@@ -36,7 +36,7 @@ static_assert(offsetof(SMeshRenderVertex, y) == offsetof(hyprimate::LiquidVertex
 static_assert(offsetof(SMeshRenderVertex, u) == offsetof(hyprimate::LiquidVertex, u));
 static_assert(offsetof(SMeshRenderVertex, v) == offsetof(hyprimate::LiquidVertex, v));
 
-SStyleState initialStyle(hyprimate::config::Style style,
+SStyleState initial_style(hyprimate::config::Style style,
     hyprimate::MaterialParams liquid,
     hyprimate::ClothMovementParams cloth,
     std::uint64_t seed) {
@@ -55,7 +55,7 @@ CAnimationTransformer::CAnimationTransformer(PHLWINDOWREF window,
       m_sprites(std::move(sprites)) {
 }
 
-bool CAnimationTransformer::builtFor(hyprimate::config::Style style,
+bool CAnimationTransformer::built_for(hyprimate::config::Style style,
     hyprimate::MaterialParams liquid,
     hyprimate::ClothMovementParams cloth) const noexcept {
     return std::visit(
@@ -65,11 +65,11 @@ bool CAnimationTransformer::builtFor(hyprimate::config::Style style,
         m_style);
 }
 
-void CAnimationTransformer::cancelOpening() {
+void CAnimationTransformer::cancel_opening() {
     std::visit([&](const auto &state) { live_style_for(state).cancelOpening(*this); }, m_style);
 }
 
-void CAnimationTransformer::cancelMovement() {
+void CAnimationTransformer::cancel_movement() {
     std::visit([&](const auto &state) { live_style_for(state).cancelMovement(*this); }, m_style);
 }
 
@@ -105,7 +105,7 @@ CBox CAnimationTransformer::transformedExtents(const CBox &current_box) const {
         return current_box;
     }
 
-    return std::visit([&](const auto &state) { return liveExtents(state, current_box); }, m_style);
+    return std::visit([&](const auto &state) { return live_extents(state, current_box); }, m_style);
 }
 
 CBox CAnimationTransformer::sourceBoxForOutput(
@@ -144,7 +144,7 @@ SWindowTransformBuffer CAnimationTransformer::transform(CRenderContext &ctx,
     const auto TEX_SIZE = input.framebuffer->getTexture()->m_size;
     const double TEX_W = TEX_SIZE.x;
     const double TEX_H = TEX_SIZE.y;
-    if (!(TEX_W > 0.0 && TEX_H > 0.0)) {
+    if (!(TEX_W > 0.0) || !(TEX_H > 0.0)) {
         return input;
     }
 
@@ -152,24 +152,24 @@ SWindowTransformBuffer CAnimationTransformer::transform(CRenderContext &ctx,
         .canvas = OUTPUTCANVAS,
         .source = SOURCEBOX,
         .output = OUTPUTBOX,
-        .localOutput = LOCALOUTPUTBOX,
+        .local_output = LOCALOUTPUTBOX,
         .scale = SCALE,
-        .textureSize = {.x = TEX_W, .y = TEX_H},
+        .texture_size = {.x = TEX_W, .y = TEX_H},
     };
     return std::visit(
         [&](auto &state) {
-            return renderLive(state, ctx, input, context, GEOMETRY, m_solid, m_shade, m_sprites);
+            return render_live(state, ctx, input, context, GEOMETRY, m_solid, m_shade, m_sprites);
         },
         m_style);
 }
 
-void CAnimationTransformer::markDetached() {
+void CAnimationTransformer::mark_detached() {
     m_detached = true;
     // A close may have moved a sheet state into its retained record.
     if (!std::visit(
             [&](const auto &state) { return live_style_for(state).available(state); }, m_style)) {
         return;
     }
-    cancelOpening();
-    cancelMovement();
+    cancel_opening();
+    cancel_movement();
 }

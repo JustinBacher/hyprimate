@@ -109,10 +109,11 @@ namespace hyprimate {
 
         Colour linear_srgb(const Colour &xyz) {
             Colour result{};
-            for (int channel = 0; channel < COLOUR_CHANNELS; ++channel) {
-                const auto &row = XYZ_TO_LINEAR_SRGB[channel];
-                result[channel] = (row[0] * xyz[0]) + (row[1] * xyz[1]) + (row[2] * xyz[2]);
-            }
+            std::ranges::transform(XYZ_TO_LINEAR_SRGB, result.begin(), [&xyz](const Colour &row) {
+                return (std::get<0>(row) * std::get<0>(xyz)) +
+                       (std::get<1>(row) * std::get<1>(xyz)) +
+                       (std::get<2>(row) * std::get<2>(xyz));
+            });
             return result;
         }
 
@@ -121,7 +122,7 @@ namespace hyprimate {
         }
     }  // namespace
 
-    BubbleThinFilmTable bubbleThinFilmTable(
+    BubbleThinFilmTable bubble_thin_film_table(
         int thickness_samples, int cosine_samples, double max_thickness) {
         constexpr int K_MINIMUM_GRID_SAMPLES = 2;  // Both endpoints must be represented.
         if (thickness_samples < K_MINIMUM_GRID_SAMPLES || cosine_samples < K_MINIMUM_GRID_SAMPLES ||
@@ -129,24 +130,31 @@ namespace hyprimate {
             return {};
         }
         BubbleThinFilmTable table{
-            .thicknessSamples = thickness_samples,
-            .cosineSamples = cosine_samples,
-            .maxThickness = max_thickness,
+            .thickness_samples = thickness_samples,
+            .cosine_samples = cosine_samples,
+            .max_thickness = max_thickness,
             .rgb = std::vector<float>(
                 static_cast<std::size_t>(thickness_samples) * cosine_samples * COLOUR_CHANNELS),
         };
         // Colour matching is evaluated once per wavelength, not once per table cell.
         std::array<Colour, WAVELENGTH_SAMPLES> matching_by_wavelength{};
         Colour equal_energy_white_xyz{};
-        for (int i = 0; i < WAVELENGTH_SAMPLES; ++i) {
-            matching_by_wavelength[i] = colour_matching(wavelength_nm(i));
-            for (int channel = 0; channel < COLOUR_CHANNELS; ++channel) {
-                equal_energy_white_xyz[channel] += matching_by_wavelength[i][channel];
+        int wavelength_index = 0;
+        for (auto &matching : matching_by_wavelength) {
+            matching = colour_matching(wavelength_nm(wavelength_index++));
+            auto *white = equal_energy_white_xyz.begin();
+            for (const auto MATCH_VALUE : matching) {
+                *white += MATCH_VALUE;
+                ++white;
             }
         }
         // Normalize each channel against a perfect reflector under an equal-energy spectrum.
         const auto PERFECT_MIRROR_RGB = linear_srgb(equal_energy_white_xyz);
+        auto output = table.rgb.begin();
         for (int row = 0; row < cosine_samples; ++row) {
+            ++output;
+            ++output;
+            ++output;
             const double INCIDENCE_COSINE = static_cast<double>(row) / (cosine_samples - 1);
             // Snell's law, with air's refractive index treated as one.
             const double TRANSMISSION_COSINE =
@@ -162,10 +170,11 @@ namespace hyprimate {
             for (int col = 1; col < thickness_samples; ++col) {
                 const double THICKNESS_NM = max_thickness * col / (thickness_samples - 1);
                 Colour reflected_xyz{};
-                for (int i = 0; i < WAVELENGTH_SAMPLES; ++i) {
-                    const double ROUND_TRIP_PHASE = ROUND_TRIP_PHASE_FACTOR *
-                                                    FILM_REFRACTIVE_INDEX * THICKNESS_NM *
-                                                    TRANSMISSION_COSINE / wavelength_nm(i);
+                int spectral_index = 0;
+                for (const auto &matching : matching_by_wavelength) {
+                    const double ROUND_TRIP_PHASE =
+                        ROUND_TRIP_PHASE_FACTOR * FILM_REFRACTIVE_INDEX * THICKNESS_NM *
+                        TRANSMISSION_COSINE / wavelength_nm(spectral_index++);
                     const double HALF_PHASE_SINE = std::sin(ROUND_TRIP_PHASE * 0.5);
                     // Airy interference terms for each polarization of an air/film/air layer.
                     const double S_INTERFERENCE = 4 * S_REFLECTION_AMPLITUDE *
@@ -183,17 +192,17 @@ namespace hyprimate {
                         ((S_INTERFERENCE / ((S_TRANSMISSION * S_TRANSMISSION) + S_INTERFERENCE)) +
                             (P_INTERFERENCE /
                                 ((P_TRANSMISSION * P_TRANSMISSION) + P_INTERFERENCE)));
-                    for (int channel = 0; channel < COLOUR_CHANNELS; ++channel) {
-                        reflected_xyz[channel] += matching_by_wavelength[i][channel] * REFLECTANCE;
+                    auto *reflected = reflected_xyz.begin();
+                    for (const auto MATCH_VALUE : matching) {
+                        *reflected += MATCH_VALUE * REFLECTANCE;
+                        ++reflected;
                     }
                 }
                 const auto REFLECTED_RGB = linear_srgb(reflected_xyz);
-                for (int channel = 0; channel < COLOUR_CHANNELS; ++channel) {
-                    table.rgb[(COLOUR_CHANNELS *
-                                  ((static_cast<std::size_t>(row) * thickness_samples) + col)) +
-                              channel] =
-                        static_cast<float>(std::clamp(
-                            REFLECTED_RGB[channel] / PERFECT_MIRROR_RGB[channel], 0.0, 1.0));
+                const auto *mirror = PERFECT_MIRROR_RGB.begin();
+                for (const auto REFLECTED_VALUE : REFLECTED_RGB) {
+                    *output++ =
+                        static_cast<float>(std::clamp(REFLECTED_VALUE / *mirror++, 0.0, 1.0));
                 }
             }
         }

@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <numbers>
 #include <span>
 
 #include "animations/bubble/BubbleMotion.hpp"
@@ -11,7 +12,7 @@
 namespace hyprimate {
     namespace {
 
-        constexpr double PI_VALUE = 3.14159265358979323846, TAU = 2 * PI_VALUE;
+        constexpr double PI_VALUE = std::numbers::pi, TAU = 2 * PI_VALUE;
         constexpr std::array<int, 4> MODES{2, 3, 4, 5};
         // The trailing fluid: one damped mode, underdamped enough to overshoot once when the window
         // stops (about 16%) and quiet again within roughly half a second.
@@ -61,9 +62,8 @@ namespace hyprimate {
             }
             return mul(value, limit * std::tanh(SPEED / limit) / SPEED);
         }
-        double mode_frequency(std::size_t index) {
-            const double MODE = MODES[index];
-            return WAVE_FREQUENCY * std::sqrt(((MODE * MODE * MODE) - MODE) / 6.0);
+        double mode_frequency(double mode) {
+            return WAVE_FREQUENCY * std::sqrt(((mode * mode * mode) - mode) / 6.0);
         }
         double mode_decay(std::size_t index) {
             return 3.5 + (1.6 * static_cast<double>(index));
@@ -83,21 +83,23 @@ namespace hyprimate {
     bool BubbleDeformation::still() const noexcept {
         return drag.x == 0 && drag.y == 0 && sheen == 0 && round == 0 && carry.x == 0 &&
                carry.y == 0 &&
-               std::ranges::all_of(waveCos, [](double component) { return component == 0; }) &&
-               std::ranges::all_of(waveSin, [](double value) { return value == 0; });
+               std::ranges::all_of(wave_cos, [](double component) { return component == 0; }) &&
+               std::ranges::all_of(wave_sin, [](double value) { return value == 0; });
     }
 
-    Vec2 bubbleRoundHalf(Vec2 half_size, const BubbleDeformation &deformation) {
+    Vec2 bubble_round_half(Vec2 half_size, const BubbleDeformation &deformation) {
         const Vec2 HALF{.x = std::max(half_size.x, 1.0), .y = std::max(half_size.y, 1.0)};
         const Vec2 EXTENT{
-            .x = std::max(deformation.extent.x, 1.0), .y = std::max(deformation.extent.y, 1.0)};
+            .x = std::max(deformation.extent.x, 1.0),
+            .y = std::max(deformation.extent.y, 1.0),
+        };
         return {
             .x = HALF.x + ((EXTENT.x - HALF.x) * deformation.round),
             .y = HALF.y + ((EXTENT.y - HALF.y) * deformation.round),
         };
     }
 
-    Vec2 bubbleRoundPoint(Vec2 half_size, const BubbleDeformation &deformation, Vec2 point) {
+    Vec2 bubble_round_point(Vec2 half_size, const BubbleDeformation &deformation, Vec2 point) {
         if (deformation.round == 0) {
             return point;
         }
@@ -111,15 +113,15 @@ namespace hyprimate {
         return add(point, mul(sub(DISC, point), deformation.round));
     }
 
-    Vec2 bubbleMotionPoint(Vec2 half_size, const BubbleDeformation &deformation, Vec2 point) {
-        const Vec2 ROUNDED = bubbleRoundPoint(half_size, deformation, point);
-        return add(
-            add(ROUNDED,
-                bubbleMotionOffset(bubbleRoundHalf(half_size, deformation), deformation, ROUNDED)),
+    Vec2 bubble_motion_point(Vec2 half_size, const BubbleDeformation &deformation, Vec2 point) {
+        const Vec2 ROUNDED = bubble_round_point(half_size, deformation, point);
+        return add(add(ROUNDED,
+                       bubble_motion_offset(
+                           bubble_round_half(half_size, deformation), deformation, ROUNDED)),
             deformation.carry);
     }
 
-    Vec2 bubbleMotionOffset(Vec2 half_size, const BubbleDeformation &deformation, Vec2 point) {
+    Vec2 bubble_motion_offset(Vec2 half_size, const BubbleDeformation &deformation, Vec2 point) {
         const Vec2 HALF{.x = std::max(half_size.x, 1.0), .y = std::max(half_size.y, 1.0)};
         Vec2 offset{};
         const double DRAG = length(deformation.drag);
@@ -147,9 +149,10 @@ namespace hyprimate {
                 1.25);
             const double PHI = std::atan2(NORMALIZED.y, NORMALIZED.x);
             double radial = 0;
-            for (std::size_t i = 0; i < MODES.size(); ++i) {
-                radial += (deformation.waveCos[i] * std::cos(MODES[i] * PHI)) +
-                          (deformation.waveSin[i] * std::sin(MODES[i] * PHI));
+            const auto *cosine = deformation.wave_cos.begin();
+            const auto *sine = deformation.wave_sin.begin();
+            for (const double MODE : MODES) {
+                radial += (*cosine++ * std::cos(MODE * PHI)) + (*sine++ * std::sin(MODE * PHI));
             }
             const Vec2 SQUARE{
                 .x = SQUARED.x * NORMALIZED.x / HALF.x,
@@ -239,10 +242,14 @@ namespace hyprimate {
         }
         m_shape.drag = soften(m_lag, drag_limit());
         const double CAP = std::clamp(.035 * reference(), 1.0, 24.0);
-        for (std::size_t i = 0; i < m_wave.size(); ++i) {
-            const Vec2 WAVE = soften(m_wave[i], CAP);
-            m_shape.waveCos[i] = WAVE.x;
-            m_shape.waveSin[i] = WAVE.y;
+        auto *cosine = m_shape.wave_cos.begin();
+        auto *sine = m_shape.wave_sin.begin();
+        for (const Vec2 SHAPE_WAVE : m_wave) {
+            const Vec2 WAVE = soften(SHAPE_WAVE, CAP);
+            *cosine = WAVE.x;
+            ++cosine;
+            *sine = WAVE.y;
+            ++sine;
         }
         m_shape.sheen = m_sheen;
         m_shape.carry = m_carry;
@@ -276,7 +283,7 @@ namespace hyprimate {
         if (!std::isfinite(elapsed) || elapsed <= 0) {
             return;
         }
-        if (!(std::isfinite(size.x) && std::isfinite(size.y) && size.x > 0 && size.y > 0)) {
+        if (!std::isfinite(size.x) || !std::isfinite(size.y) || !(size.x > 0) || !(size.y > 0)) {
             reset();
             return;
         }
@@ -290,7 +297,7 @@ namespace hyprimate {
             .trail = std::clamp(params.trail, 0.0, 1.0),
             .roundness = std::clamp(params.roundness, 0.0, 1.0),
             .shape = params.shape,
-            .shapeSpeed = std::max(params.shapeSpeed, 100.0),
+            .shape_speed = std::max(params.shape_speed, 100.0),
         };
         const double DELTA_TIME = std::min(elapsed, STALL_SECONDS);
         // The film behind a layout-animated window closes in on it; what the window is seen to do
@@ -330,7 +337,7 @@ namespace hyprimate {
         // not flicker between shapes.
         const double ASK =
             m_params.strength > 0
-                ? m_params.roundness * smoothstep(PAUSE_SPEED, m_params.shapeSpeed, m_speed)
+                ? m_params.roundness * smoothstep(PAUSE_SPEED, m_params.shape_speed, m_speed)
                 : 0.0;
         if (ASK >= m_hold) {
             m_hold = ASK;
@@ -371,9 +378,10 @@ namespace hyprimate {
 
         double wave_rest = 0;
         double wave_rate = 0;
-        for (std::size_t i = 0; i < m_wave.size(); ++i) {
-            wave_rest = std::max(wave_rest, length(m_wave[i]));
-            wave_rate = std::max(wave_rate, length(m_wave_rate[i]));
+        const auto *rate = m_wave_rate.begin();
+        for (const Vec2 SHAPE_WAVE : m_wave) {
+            wave_rest = std::max(wave_rest, length(SHAPE_WAVE));
+            wave_rate = std::max(wave_rate, length(*rate++));
         }
         const bool QUIET = m_speed < 2 && length(m_response) < 2 && length(m_lag) < .05 &&
                            length(m_lag_rate) < .5 && wave_rest < .02 && wave_rate < .5 &&
@@ -428,21 +436,31 @@ namespace hyprimate {
         constexpr std::array<double, 4> GAIN{8.0, 21.0, 30.0, 40.0};
         constexpr std::array<double, 4> GUST{150.0, 340.0, 460.0, 520.0};
         const double TIME = m_clock + m_substep;
-        for (std::size_t i = 0; i < m_wave.size(); ++i) {
-            const double MODE = MODES[i];
-            const double FREQUENCY = mode_frequency(i);
-            const double DECAY = mode_decay(i);
-            const double DRIFT = (.43 * FREQUENCY * TIME) + m_phase[i];
+        const auto *mode = MODES.begin();
+        const auto *gain = GAIN.begin();
+        const auto *gust = GUST.begin();
+        const auto *phase = m_phase.begin();
+        auto *rate = m_wave_rate.begin();
+        std::size_t wave_index = 0;
+        for (auto &wave : m_wave) {
+            const double MODE = *mode++;
+            const double FREQUENCY = mode_frequency(MODE);
+            const double DECAY = mode_decay(wave_index);
+            const double DRIFT = (.43 * FREQUENCY * TIME) + *phase++;
             const Vec2 FORCE{
-                .x = (GAIN[i] * SCALE * SLOSH * std::cos(MODE * THETA)) +
-                     (BUFFET * GUST[i] * std::sin(DRIFT)),
-                .y = (GAIN[i] * SCALE * SLOSH * std::sin(MODE * THETA)) +
-                     (BUFFET * GUST[i] * std::cos((1.13 * DRIFT) + m_phase[(i + 1) % 4])),
+                .x = (*gain * SCALE * SLOSH * std::cos(MODE * THETA)) +
+                     (BUFFET * *gust * std::sin(DRIFT)),
+                .y = (*gain * SCALE * SLOSH * std::sin(MODE * THETA)) +
+                     (BUFFET * *gust * std::cos((1.13 * DRIFT) + m_phase[(wave_index + 1) % 4])),
             };
-            const Vec2 ACCEL = sub(
-                sub(FORCE, mul(m_wave[i], FREQUENCY * FREQUENCY)), mul(m_wave_rate[i], 2 * DECAY));
-            m_wave_rate[i] = add(m_wave_rate[i], mul(ACCEL, step_seconds));
-            m_wave[i] = add(m_wave[i], mul(m_wave_rate[i], step_seconds));
+            const Vec2 ACCEL =
+                sub(sub(FORCE, mul(wave, FREQUENCY * FREQUENCY)), mul(*rate, 2 * DECAY));
+            *rate = add(*rate, mul(ACCEL, step_seconds));
+            wave = add(wave, mul(*rate, step_seconds));
+            ++gain;
+            ++gust;
+            ++rate;
+            ++wave_index;
         }
 
         // The fluid compresses while the window gathers speed and rebounds when it sheds it.
@@ -481,7 +499,7 @@ namespace hyprimate {
                 std::pow(std::abs(COSINE), 12.0) + std::pow(std::abs(SINE), 12.0), -1.0 / 12.0);
             const Vec2 POINT =
                 add(CENTRE, Vec2{.x = HALF.x * COSINE * FACTOR, .y = HALF.y * SINE * FACTOR});
-            return bubbleMotionPoint(MEMBRANE, m_shape, POINT);
+            return bubble_motion_point(MEMBRANE, m_shape, POINT);
         };
         constexpr double EPSILON = .01;
         Outline outline_result;
@@ -529,8 +547,9 @@ namespace hyprimate {
 
     std::size_t BubbleMotion::microbubbles(std::span<BubbleMicro> out) const {
         const std::size_t COUNT = std::min(m_attached_count, out.size());
-        for (std::size_t i = 0; i < COUNT; ++i) {
-            out[i] = draw(m_attached[i]);
+        const auto *attached = m_attached.begin();
+        for (auto &micro : out.first(COUNT)) {
+            micro = draw(*attached++);
         }
         return COUNT;
     }
@@ -566,7 +585,13 @@ namespace hyprimate {
             attached.thickness = 320 + (520 * draw01());
             attached.seed = draw01();
             const double FATE = draw01();
-            attached.fate = FATE < .5 ? Fate::Detach : FATE < .72 ? Fate::Merge : Fate::Collapse;
+            if (FATE < .5) {
+                attached.fate = Fate::Detach;
+            } else if (FATE < .72) {
+                attached.fate = Fate::Merge;
+            } else {
+                attached.fate = Fate::Collapse;
+            }
             m_attached[m_attached_count++] = attached;
         }
     }
@@ -574,8 +599,9 @@ namespace hyprimate {
     void BubbleMotion::migrate(double elapsed, Vec2 acceleration) {
         const double TRAILING = trailing_angle();
         std::size_t kept = 0;
-        for (std::size_t i = 0; i < m_attached_count; ++i) {
-            auto attached = m_attached[i];
+        auto *destination = m_attached.begin();
+        for (const auto &current : std::span(m_attached).first(m_attached_count)) {
+            auto attached = current;
             attached.age += elapsed;
             const auto OUTLINE = outline(attached.angle);
             // In the window's frame the bubble feels the opposite of its acceleration, and the air
@@ -618,7 +644,9 @@ namespace hyprimate {
                     continue;
                 }
             }
-            m_attached[kept++] = attached;
+            *destination = attached;
+            ++destination;
+            ++kept;
         }
         m_attached_count = kept;
     }
@@ -657,7 +685,7 @@ namespace hyprimate {
         m_trail[m_trail_count++] = {
             .position = OUTLINE.point,
             .direction = DIR,
-            .halfWidth = WIDTH * (.22 + (.3 * DENSITY)),
+            .half_width = WIDTH * (.22 + (.3 * DENSITY)),
             .density = DENSITY,
             .start = !m_trailing,
         };
@@ -672,7 +700,7 @@ namespace hyprimate {
         return std::span(m_releases).first(m_release_count);
     }
 
-    void BubbleMotion::clearEmissions() noexcept {
+    void BubbleMotion::clear_emissions() noexcept {
         m_trail_count = m_release_count = 0;
     }
 

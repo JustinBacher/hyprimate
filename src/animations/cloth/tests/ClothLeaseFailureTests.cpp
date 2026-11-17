@@ -6,8 +6,11 @@
 #include <new>
 
 #include <pthread.h>
+#include <stdlib.h>
+#include <time.h>
 
 #include "animations/cloth/ClothFlutter.hpp"
+#include "animations/shared/Core.hpp"
 
 namespace {
     struct Attempt {
@@ -235,7 +238,7 @@ namespace {
 
     void start(ClothFlutter &cloth, Startup startup) {
         if (startup == Startup::Movement) {
-            cloth.beginMovement((ClothMovementParams{}), 123, WINDOW);
+            cloth.begin_movement((ClothMovementParams{}), 123, WINDOW);
         } else {
             cloth.begin(Transition::Open, (ClothParams{}), 123, WINDOW, {});
         }
@@ -266,17 +269,19 @@ namespace {
             current_attempt() = nullptr;
             allocations = attempt.allocations;
             if (fail_at == 0) {
-                real_simulation = startup == Startup::Movement ? cloth.waitForSnapshots(2)
-                                                               : cloth.waitForRecording();
+                real_simulation = startup == Startup::Movement ? cloth.wait_for_snapshots(2)
+                                                               : cloth.wait_for_recording();
             }
             active = cloth.active();
             cloth.reset();
         }
-        return {.active = active,
+        return {
+            .active = active,
             .real_simulation = real_simulation,
             .threw = threw,
             .remaining = wait_for_reclamation(attempt),
-            .allocations = allocations};
+            .allocations = allocations,
+        };
     }
 }  // namespace
 
@@ -284,7 +289,7 @@ int main() {
     // Attempts outlive physics shutdown, including any timed-out worker cleanup.
     std::array<std::array<Attempt, MAX_ALLOCATIONS + 1>, 2> attempts{};
     Attempt warm_attempt;
-    const ClothPhysics physics;
+    const ClothPhysics PHYSICS;
     // Filling 16 slots establishes capacity; reaping the first run leaves one free slot.
     // The warm attempt can own retained registry storage and must outlive physics.
     {

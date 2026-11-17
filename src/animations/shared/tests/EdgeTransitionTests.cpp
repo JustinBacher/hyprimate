@@ -32,7 +32,7 @@ namespace {
         bool first,
         std::span<const hyprimate::Box> neighbours = {},
         hyprimate::Box screen = DEFAULT_SCREEN) {
-        const auto FRAME = hyprimate::resolveEdgeFrame(
+        const auto FRAME = hyprimate::resolve_edge_frame(
             body, with_shadow(body), screen, neighbours, fallback, first);
         return FRAME ? std::optional{FRAME->edge} : std::nullopt;
     }
@@ -62,18 +62,21 @@ namespace {
 
     void test_frame_geometry() {
         const hyprimate::Box BODY{.x = 972, .y = 548, .w = 924, .h = 508};
-        const auto FRAME = hyprimate::resolveEdgeFrame(
+        const auto FRAME = hyprimate::resolve_edge_frame(
             BODY, with_shadow(BODY), DEFAULT_SCREEN, {}, hyprimate::Edge::Bottom, false);
         CHECK(FRAME && FRAME->edge == hyprimate::Edge::Bottom);
+        if (!FRAME) {
+            return;
+        }
         // Capture centre (1434, 802): 278 px above the bottom edge; capture half height 266.
-        CHECK(std::abs(FRAME->edgeDistance - 278.0) < 1e-9 &&
-              std::abs(FRAME->captureFar - 544.0) < 1e-9);
-        CHECK(std::abs(FRAME->bodyNear - 24.0) < 1e-9 && std::abs(FRAME->bodyFar - 532.0) < 1e-9);
-        CHECK(std::abs(FRAME->bodyT0 + 462.0) < 1e-9 && std::abs(FRAME->bodyT1 - 462.0) < 1e-9);
+        CHECK(std::abs(FRAME->edge_distance - 278.0) < 1e-9 &&
+              std::abs(FRAME->capture_far - 544.0) < 1e-9);
+        CHECK(std::abs(FRAME->body_near - 24.0) < 1e-9 && std::abs(FRAME->body_far - 532.0) < 1e-9);
+        CHECK(std::abs(FRAME->body_t0 + 462.0) < 1e-9 && std::abs(FRAME->body_t1 - 462.0) < 1e-9);
         // The frame maps round-trip, and n grows into the screen.
-        const hyprimate::Vec2 POINT = hyprimate::edgePoint(*FRAME, 40.0, 100.0);
-        CHECK(std::abs(hyprimate::edgeNormal(*FRAME, POINT) - 100.0) < 1e-9 &&
-              std::abs(hyprimate::edgeTangent(*FRAME, POINT) - 40.0) < 1e-9);
+        const hyprimate::Vec2 POINT = hyprimate::edge_point(*FRAME, 40.0, 100.0);
+        CHECK(std::abs(hyprimate::edge_normal(*FRAME, POINT) - 100.0) < 1e-9 &&
+              std::abs(hyprimate::edge_tangent(*FRAME, POINT) - 40.0) < 1e-9);
         CHECK(std::abs(POINT.y - 178.0) < 1e-9);  // 278 - 100, y down from the capture centre
     }
 
@@ -182,7 +185,7 @@ namespace {
         const Box BODY{.x = 972, .y = 548, .w = 924, .h = 508};
         const std::array<Box, 1> LEFT{{{.x = 600, .y = 548, .w = 308, .h = 508}}};
         const auto CLOSE = [&](CloseSide side, std::optional<Edge> origin = std::nullopt) {
-            const auto FRAME = hyprimate::resolveCloseEdgeFrame(
+            const auto FRAME = hyprimate::resolve_close_edge_frame(
                 BODY, with_shadow(BODY), DEFAULT_SCREEN, LEFT, Edge::Bottom, side, origin);
             return FRAME ? std::optional{FRAME->edge} : std::nullopt;
         };
@@ -190,7 +193,7 @@ namespace {
         CHECK(CLOSE(CloseSide::Nearest) == Edge::Bottom);  // ignores tiled contact
         CHECK(CLOSE(CloseSide::Origin, Edge::Top) == Edge::Top);
         CHECK(CLOSE(CloseSide::Origin) == CLOSE(CloseSide::Auto));
-        const auto LAST = hyprimate::resolveCloseEdgeFrame(BODY,
+        const auto LAST = hyprimate::resolve_close_edge_frame(BODY,
             with_shadow(BODY),
             DEFAULT_SCREEN,
             {},
@@ -199,7 +202,7 @@ namespace {
             std::nullopt,
             true);
         CHECK(LAST && LAST->edge == Edge::Top);
-        const auto NEAREST = hyprimate::resolveCloseEdgeFrame(BODY,
+        const auto NEAREST = hyprimate::resolve_close_edge_frame(BODY,
             with_shadow(BODY),
             DEFAULT_SCREEN,
             {},
@@ -222,7 +225,7 @@ namespace {
         }
 
         const Box CROSSING_BOTTOM{.x = 500, .y = 900, .w = 400, .h = 300};
-        const auto FALLBACK = hyprimate::resolveCloseEdgeFrame(CROSSING_BOTTOM,
+        const auto FALLBACK = hyprimate::resolve_close_edge_frame(CROSSING_BOTTOM,
             with_shadow(CROSSING_BOTTOM),
             DEFAULT_SCREEN,
             {},
@@ -230,7 +233,7 @@ namespace {
             CloseSide::Bottom);
         CHECK(FALLBACK &&
               FALLBACK->edge == Edge::Left);  // fixed preference invalid: normal resolver fallback
-        const auto ORIGIN_FALLBACK = hyprimate::resolveCloseEdgeFrame(CROSSING_BOTTOM,
+        const auto ORIGIN_FALLBACK = hyprimate::resolve_close_edge_frame(CROSSING_BOTTOM,
             with_shadow(CROSSING_BOTTOM),
             DEFAULT_SCREEN,
             {},
@@ -245,9 +248,9 @@ namespace {
         using hyprimate::CloseSide;
         using hyprimate::Edge;
         const Box BODY{.x = 760, .y = 340, .w = 400, .h = 400};
-        const auto SCREEN = hyprimate::resolveCloseEdgeFrame(
+        const auto SCREEN = hyprimate::resolve_close_edge_frame(
             BODY, with_shadow(BODY), DEFAULT_SCREEN, {}, Edge::Bottom, CloseSide::Nearest);
-        const auto WORK = hyprimate::resolveCloseEdgeFrame(BODY,
+        const auto WORK = hyprimate::resolve_close_edge_frame(BODY,
             with_shadow(BODY),
             {.x = 0, .y = 100, .w = 1920, .h = 980},
             {},
@@ -268,9 +271,9 @@ namespace {
                  CloseSide::Left,
                  CloseSide::Right,
              }) {
-            const auto BASE_FRAME = hyprimate::resolveCloseEdgeFrame(
+            const auto BASE_FRAME = hyprimate::resolve_close_edge_frame(
                 BODY, with_shadow(BODY), DEFAULT_SCREEN, {}, Edge::Bottom, side, Edge::Right);
-            const auto SHIFTED_FRAME = hyprimate::resolveCloseEdgeFrame(SHIFTED_BODY,
+            const auto SHIFTED_FRAME = hyprimate::resolve_close_edge_frame(SHIFTED_BODY,
                 with_shadow(SHIFTED_BODY),
                 {.x = -1920, .y = -200, .w = 1920, .h = 1080},
                 {},
@@ -279,11 +282,11 @@ namespace {
                 Edge::Right);
             CHECK(BASE_FRAME && SHIFTED_FRAME && BASE_FRAME->edge == SHIFTED_FRAME->edge);
             CHECK(BASE_FRAME && SHIFTED_FRAME &&
-                  std::abs(BASE_FRAME->edgeDistance - SHIFTED_FRAME->edgeDistance) < 1e-9);
+                  std::abs(BASE_FRAME->edge_distance - SHIFTED_FRAME->edge_distance) < 1e-9);
         }
-        CHECK(!hyprimate::resolveCloseEdgeFrame(
+        CHECK(!hyprimate::resolve_close_edge_frame(
             BODY, with_shadow(BODY), {}, {}, Edge::Bottom, CloseSide::Auto));
-        CHECK(!hyprimate::resolveCloseEdgeFrame({-10, -10, 1940, 1100},
+        CHECK(!hyprimate::resolve_close_edge_frame({-10, -10, 1940, 1100},
             DEFAULT_SCREEN,
             DEFAULT_SCREEN,
             {},
@@ -300,8 +303,12 @@ namespace {
     EdgeFrame frame_for(hyprimate::Box body,
         hyprimate::Edge fallback = hyprimate::Edge::Bottom,
         bool first = false) {
-        return *hyprimate::resolveEdgeFrame(
+        const auto FRAME = hyprimate::resolve_edge_frame(
             body, with_shadow(body), DEFAULT_SCREEN, {}, fallback, first);
+        if (!FRAME) {
+            throw std::bad_optional_access{};
+        }
+        return *FRAME;
     }
     const EdgeFrame QUARTER = frame_for({.x = 972, .y = 548, .w = 924, .h = 508});  // Bottom edge
     // Capture (decorated + shadow) size of QUARTER: 948 x 532, half extents 474 x 266.
@@ -316,7 +323,7 @@ namespace {
     double fit_gain(const LiquidMesh &mesh,
         const EdgeTransition &edge_transition,
         Vec2 comp = {.x = 1.0, .y = 1.0}) {
-        return hyprimate::fitLiquidPoseGain(
+        return hyprimate::fit_liquid_pose_gain(
             hyprimate::LiquidPose{
                 .mesh = mesh,
                 .transition = edge_transition,
@@ -330,19 +337,19 @@ namespace {
     // behind the edge).
     double centre_inward(const EdgeTransition &transition) {
         const Vec2 CENTRE = centre_of(transition);
-        const Vec2 INWARD = hyprimate::inwardNormal(transition.frame().edge);
+        const Vec2 INWARD = hyprimate::inward_normal(transition.frame().edge);
         return (CENTRE.x * INWARD.x) + (CENTRE.y * INWARD.y);
     }
 
     // Displayed n (into the screen) of the body near side at the body's tangential centre.
     double near_side(const EdgeTransition &transition) {
         const EdgeFrame &edge_frame = transition.frame();
-        const Vec2 POINT = hyprimate::edgePoint(
-            edge_frame, 0.5 * (edge_frame.bodyT0 + edge_frame.bodyT1), edge_frame.bodyNear);
-        return hyprimate::edgeNormal(edge_frame, transition.map(POINT, CAPTURE));
+        const Vec2 POINT = hyprimate::edge_point(
+            edge_frame, 0.5 * (edge_frame.body_t0 + edge_frame.body_t1), edge_frame.body_near);
+        return hyprimate::edge_normal(edge_frame, transition.map(POINT, CAPTURE));
     }
     double centre_t(const EdgeFrame &frame) {
-        return 0.5 * (frame.bodyT0 + frame.bodyT1);
+        return 0.5 * (frame.body_t0 + frame.body_t1);
     }
 
     void test_open_starts_hidden_and_settles_exactly() {
@@ -352,11 +359,11 @@ namespace {
         // Hidden start: every capture corner is on the far side of the edge (n <= 0).
         for (const double SIGN_X : {-1.0, 1.0}) {
             for (const double SIGN_Y : {-1.0, 1.0}) {
-                CHECK(hyprimate::edgeNormal(QUARTER,
+                CHECK(hyprimate::edge_normal(QUARTER,
                           transition.map({SIGN_X * 474.0, SIGN_Y * 266.0}, CAPTURE)) <= 1e-6);
             }
         }
-        const Vec2 FIRST = transition.takeTravel();
+        const Vec2 FIRST = transition.take_travel();
         CHECK(FIRST.x == 0.0 && FIRST.y == 0.0);  // begin is not travel
         double max_inward = -1e9;
         for (int i = 0; i < 960 && transition.active(); ++i) {
@@ -389,9 +396,9 @@ namespace {
             if (i < 240 || !transition.active()) {
                 continue;  // from 1 s of 240 Hz steps the spring is within a fraction of a pixel
             }
-            const double FAR = hyprimate::edgeNormal(
+            const double FAR = hyprimate::edge_normal(
                 QUARTER, transition.map({.x = 0.0, .y = -0.5 * K_LIVE.y}, K_LIVE));
-            const double NEAR = hyprimate::edgeNormal(
+            const double NEAR = hyprimate::edge_normal(
                 QUARTER, transition.map({.x = 0.0, .y = 0.5 * K_LIVE.y}, K_LIVE));
             worst = std::max(worst, std::abs((FAR - NEAR) - K_LIVE.y));
             ++checked;
@@ -406,30 +413,43 @@ namespace {
         EdgeTransition transition;
         transition.begin(Transition::Open, QUARTER, TransitionParams{}, STRENGTH);
         constexpr int K_SIDE = 33;
+        static_assert(K_SIDE > 0 && K_SIDE <= std::numeric_limits<int>::max() / K_SIDE);
         for (int frame = 0; frame < 240 && transition.active(); ++frame) {
             transition.advance(STEP);
             if (!transition.active()) {
                 break;
             }
-            std::array<Vec2, K_SIDE * K_SIDE> mapped{};
-            for (int j = 0; j < K_SIDE; ++j) {
-                for (int i = 0; i < K_SIDE; ++i) {
-                    const double TEX_U = static_cast<double>(i) / (K_SIDE - 1);
-                    const double TEX_V = static_cast<double>(j) / (K_SIDE - 1);
-                    mapped[(j * K_SIDE) + i] = transition.map(
+            std::array<std::array<Vec2, K_SIDE>, K_SIDE> mapped{};
+            int row_index = 0;
+            for (auto &row : mapped) {
+                int column_index = 0;
+                for (Vec2 &point : row) {
+                    const double TEX_U = static_cast<double>(column_index) / (K_SIDE - 1);
+                    const double TEX_V = static_cast<double>(row_index) / (K_SIDE - 1);
+                    point = transition.map(
                         {.x = (TEX_U - 0.5) * CAPTURE.x, .y = (TEX_V - 0.5) * CAPTURE.y}, CAPTURE);
+                    ++column_index;
                 }
+                ++row_index;
             }
-            for (int j = 0; j + 1 < K_SIDE; ++j) {
-                for (int i = 0; i + 1 < K_SIDE; ++i) {
-                    const Vec2 TOP_LEFT = mapped[(j * K_SIDE) + i];
-                    const Vec2 TOP_RIGHT = mapped[(j * K_SIDE) + i + 1];
-                    const Vec2 BOTTOM_LEFT = mapped[((j + 1) * K_SIDE) + i];
+            const auto *bottom = mapped.cbegin();
+            ++bottom;
+            for (const auto &top : std::span(mapped).first<K_SIDE - 1>()) {
+                const auto *top_right = top.cbegin();
+                ++top_right;
+                const auto *bottom_left = bottom->cbegin();
+                for (const Vec2 &top_left : std::span(top).first<K_SIDE - 1>()) {
+                    const Vec2 TOP_LEFT = top_left;
+                    const Vec2 TOP_RIGHT = *top_right;
+                    const Vec2 BOTTOM_LEFT = *bottom_left;
                     const double AREA =
                         ((TOP_RIGHT.x - TOP_LEFT.x) * (BOTTOM_LEFT.y - TOP_LEFT.y)) -
                         ((TOP_RIGHT.y - TOP_LEFT.y) * (BOTTOM_LEFT.x - TOP_LEFT.x));
                     CHECK(AREA > 0.0);
+                    ++top_right;
+                    ++bottom_left;
                 }
+                ++bottom;
             }
         }
     }
@@ -451,7 +471,8 @@ namespace {
                 TransitionParams{},
                 STRENGTH);
             const Vec2 CENTRE = centre_of(transition);
-            CHECK(CENTRE.x * SIGN.x + CENTRE.y * SIGN.y > 200.0);  // starts hidden beyond that edge
+            CHECK((CENTRE.x * SIGN.x) + (CENTRE.y * SIGN.y) >
+                  200.0);  // starts hidden beyond that edge
         }
     }
 
@@ -463,11 +484,11 @@ namespace {
         bool tucked = false;
         bool saw_zero_after_snap = false;
         bool second_lobe = false;
-        double prev_peak = transition.meniscusPeak();
+        double prev_peak = transition.meniscus_peak();
         double prev_near = near_side(transition);
         for (int i = 0; i < 480 && transition.active(); ++i) {
             transition.advance(STEP);
-            const double PEAK = transition.meniscusPeak();
+            const double PEAK = transition.meniscus_peak();
             const double NEAR_SIDE = near_side(transition);
             CHECK(PEAK >= 0.0);
             // Tolerance 8 px: the recoil spring legitimately moves ~5 px per substep. Snaps to or
@@ -477,10 +498,9 @@ namespace {
             if (NEAR_SIDE >= 0.0 && PEAK > NEAR_SIDE + 1.0) {
                 tucked = true;  // tip under the window
             }
-            if (tucked && PEAK < NEAR_SIDE - 1.0 && snaps == 0) {
-                ++snaps;  // gap opened: snapped
-            } else if (snaps == 1 && PEAK > NEAR_SIDE + 1.0) {
-                ++snaps;  // must never re-attach
+            if ((tucked && PEAK < NEAR_SIDE - 1.0 && snaps == 0) ||
+                (snaps == 1 && PEAK > NEAR_SIDE + 1.0)) {
+                ++snaps;  // Count the initial gap or any forbidden re-attachment.
             }
             if (snaps == 1 && PEAK == 0.0) {
                 saw_zero_after_snap = true;
@@ -494,7 +514,7 @@ namespace {
         CHECK(tucked);
         CHECK(snaps == 1);
         CHECK(second_lobe);
-        CHECK(transition.meniscusPeak() == 0.0);
+        CHECK(transition.meniscus_peak() == 0.0);
     }
 
     void test_meniscus_shape_bounds() {
@@ -502,16 +522,16 @@ namespace {
         transition.begin(Transition::Open, QUARTER, TransitionParams{}, STRENGTH);
         for (int i = 0; i < 240 && transition.active(); ++i) {
             transition.advance(STEP);
-            const double LOW = transition.meniscusLow();
-            const double HIGH = transition.meniscusHigh();
+            const double LOW = transition.meniscus_low();
+            const double HIGH = transition.meniscus_high();
             CHECK(LOW <= HIGH);
             CHECK(transition.meniscus(LOW - 1.0) == 0.0 && transition.meniscus(HIGH + 1.0) == 0.0);
             for (int sample = 0; sample <= 64; ++sample) {
-                CHECK(transition.meniscus(LOW + (HIGH - LOW) * sample / 64.0) <=
-                      transition.meniscusPeak() + 1e-9);
+                CHECK(transition.meniscus(LOW + ((HIGH - LOW) * sample / 64.0)) <=
+                      transition.meniscus_peak() + 1e-9);
             }
             CHECK(transition.meniscus(centre_t(QUARTER)) ==
-                  transition.meniscusPeak());  // peak at the window centre column
+                  transition.meniscus_peak());  // peak at the window centre column
         }
     }
 
@@ -529,7 +549,7 @@ namespace {
                 at144_hz.advance(1.0 / 144.0);
             }
             CHECK(std::abs(centre_of(at240_hz).y - centre_of(at144_hz).y) < 0.5);
-            CHECK(std::abs(at240_hz.meniscusPeak() - at144_hz.meniscusPeak()) < 0.5);
+            CHECK(std::abs(at240_hz.meniscus_peak() - at144_hz.meniscus_peak()) < 0.5);
         }
     }
 
@@ -538,12 +558,12 @@ namespace {
     void test_open_travel_sums_to_centre_displacement() {
         EdgeTransition transition;
         transition.begin(Transition::Open, QUARTER, TransitionParams{}, STRENGTH);
-        const Vec2 INWARD = hyprimate::inwardNormal(QUARTER.edge);
+        const Vec2 INWARD = hyprimate::inward_normal(QUARTER.edge);
         const double START = centre_inward(transition);
         double sum = 0.0;
         for (int i = 0; i < 960 && transition.active(); ++i) {
             transition.advance(STEP);
-            const Vec2 TRAVEL = transition.takeTravel();
+            const Vec2 TRAVEL = transition.take_travel();
             sum += (TRAVEL.x * INWARD.x) + (TRAVEL.y * INWARD.y);
         }
         CHECK(std::abs(sum - (0.0 - START)) < 0.5);  // from the start displacement back to rest
@@ -568,7 +588,7 @@ namespace {
             prev = centre_inward(transition);  // always toward the edge
         }
         CHECK(transition.closed());
-        CHECK(transition.meniscusPeak() == 0.0);
+        CHECK(transition.meniscus_peak() == 0.0);
     }
 
     // Shrinking into a bead must not brake to a hover before the dive.
@@ -584,8 +604,8 @@ namespace {
             bool continuous = true;
             for (int i = 0; i < 100; ++i) {
                 transition.advance(STEP);
-                const Vec2 TRAVEL = transition.takeTravel();
-                const Vec2 INWARD = hyprimate::inwardNormal(QUARTER.edge);
+                const Vec2 TRAVEL = transition.take_travel();
+                const Vec2 INWARD = hyprimate::inward_normal(QUARTER.edge);
                 const double OUTWARD = -((TRAVEL.x * INWARD.x) + (TRAVEL.y * INWARD.y));
                 if (i >= 24) {
                     continuous = continuous && OUTWARD > 0.0 && OUTWARD >= 0.95 * previous_travel;
@@ -603,7 +623,7 @@ namespace {
             transition.advance(STEP);
         }
         const Vec2 BEFORE = centre_of(transition);
-        const double PEAK_BEFORE = transition.meniscusPeak();
+        const double PEAK_BEFORE = transition.meniscus_peak();
         const auto OTHER = frame_for({.x = 24, .y = 24, .w = 900, .h = 500},
             hyprimate::Edge::Left,
             true);  // different edge: ignored
@@ -611,7 +631,7 @@ namespace {
         CHECK(transition.frame().edge == hyprimate::Edge::Bottom);
         CHECK(std::abs(centre_of(transition).x - BEFORE.x) < 1e-9 &&
               std::abs(centre_of(transition).y - BEFORE.y) < 1e-9);
-        CHECK(std::abs(transition.meniscusPeak() - PEAK_BEFORE) <
+        CHECK(std::abs(transition.meniscus_peak() - PEAK_BEFORE) <
               1e-9);  // Open->Close begin is continuous
         for (int i = 0; i < 480 && transition.active(); ++i) {
             transition.advance(STEP);
@@ -627,7 +647,7 @@ namespace {
         transition.begin(Transition::Close, QUARTER, TransitionParams{}, STRENGTH);
         for (int i = 1; i < K_DRAIN_STEP && transition.active(); ++i) {
             transition.advance(STEP);
-            CHECK(transition.meniscusPeak() == 0.0);
+            CHECK(transition.meniscus_peak() == 0.0);
         }
     }
 
@@ -642,9 +662,9 @@ namespace {
             high.advance(STEP);
         }
         const double LOW_NORMAL =
-            hyprimate::edgeNormal(QUARTER, low.map({.x = 0, .y = 0}, CAPTURE));
+            hyprimate::edge_normal(QUARTER, low.map({.x = 0, .y = 0}, CAPTURE));
         const double HIGH_NORMAL =
-            hyprimate::edgeNormal(QUARTER, high.map({.x = 0, .y = 0}, CAPTURE));
+            hyprimate::edge_normal(QUARTER, high.map({.x = 0, .y = 0}, CAPTURE));
         CHECK(HIGH_NORMAL < LOW_NORMAL);
     }
 
@@ -659,8 +679,8 @@ namespace {
             if (!transition.active()) {
                 break;
             }
-            const Vec2 BEAD_CENTRE = transition.beadCentre();
-            const Vec2 BEAD_HALF = transition.beadHalf(CAPTURE);
+            const Vec2 BEAD_CENTRE = transition.bead_centre();
+            const Vec2 BEAD_HALF = transition.bead_half(CAPTURE);
             const Vec2 TOP = transition.map({.x = 0.0, .y = -0.5 * CAPTURE.y}, CAPTURE);
             const Vec2 BOTTOM = transition.map({.x = 0.0, .y = 0.5 * CAPTURE.y}, CAPTURE);
             const Vec2 LEFT = transition.map({.x = -0.5 * CAPTURE.x, .y = 0.0}, CAPTURE);
@@ -674,8 +694,8 @@ namespace {
             });
         }
         CHECK(worst < 1e-6);
-        const Vec2 CENTRE = transition.beadCentre();
-        const Vec2 HALF_SIZE = transition.beadHalf(CAPTURE);
+        const Vec2 CENTRE = transition.bead_centre();
+        const Vec2 HALF_SIZE = transition.bead_half(CAPTURE);
         CHECK(CENTRE.x == 0.0 && CENTRE.y == 0.0);
         CHECK(HALF_SIZE.x == 0.5 * CAPTURE.x && HALF_SIZE.y == 0.5 * CAPTURE.y);
     }
@@ -693,7 +713,7 @@ namespace {
         CHECK(fit_gain(fresh, transition) == 1.0);  // settled mesh: no gain reduction
 
         LiquidMesh moving;
-        moving.recordTranslation({.x = 40.0, .y = 0.0}, CAPTURE, STRENGTH);
+        moving.record_translation({.x = 40.0, .y = 0.0}, CAPTURE, STRENGTH);
         for (int i = 0; i < 24; ++i) {
             moving.advance(STEP, CAPTURE);
         }
@@ -717,11 +737,11 @@ namespace {
             .transition = edge_transition,
             .compensation = centre,
         };
-        pose.displacementGain = gain;
+        pose.displacement_gain = gain;
         hyprimate::LiquidPoseGrid grid;
         std::vector<hyprimate::LiquidVertex> out;
         const hyprimate::Box LOGICAL{.x = 0.0, .y = 0.0, .w = size.x, .h = size.y};
-        hyprimate::fillLiquidRenderMesh(pose,
+        hyprimate::fill_liquid_render_mesh(pose,
             LOGICAL,
             1.0,
             hyprimate::Box{.x = 0.0, .y = 0.0, .w = 1.0, .h = 1.0},
@@ -750,9 +770,13 @@ namespace {
                        (static_cast<double>(third.x) - first.x));
         };
         double worst = 1.0;
+        auto base = BASE.cbegin();
         for (std::size_t triangle = 0; triangle + 2 < BASE.size();
             triangle += 3) {  // six vertices per cell: two triangles of three
-            const double REF = AREA(BASE[triangle], BASE[triangle + 1], BASE[triangle + 2]);
+            const auto &base_first = *base++;
+            const auto &base_second = *base++;
+            const auto &base_third = *base++;
+            const double REF = AREA(base_first, base_second, base_third);
             if (std::abs(REF) < 1e-9) {
                 continue;  // degenerate at rest: nothing to fold
             }
@@ -772,7 +796,7 @@ namespace {
             transition.advance(STEP);  // mid-grow
         }
         for (int i = 0; i < 12; ++i) {
-            mesh.recordTranslation({.x = -60.0, .y = 0.0}, CAPTURE, STRENGTH);
+            mesh.record_translation({.x = -60.0, .y = 0.0}, CAPTURE, STRENGTH);
             mesh.advance(STEP, CAPTURE);
         }
         for (const double COMPENSATION : {1.0, 1.5, 2.0}) {
@@ -788,13 +812,13 @@ namespace {
     void test_close_returns_final_travel() {
         EdgeTransition transition;
         transition.begin(Transition::Close, QUARTER, TransitionParams{}, STRENGTH, false);
-        const Vec2 INWARD = hyprimate::inwardNormal(QUARTER.edge);
+        const Vec2 INWARD = hyprimate::inward_normal(QUARTER.edge);
         bool saw_closed = false;
         double closing_travel = 0.0;
         for (int i = 0; i < 480 && transition.active(); ++i) {
             transition.advance(STEP);
             const bool REACHED = transition.closed();
-            const Vec2 TRAVEL = transition.takeTravel();
+            const Vec2 TRAVEL = transition.take_travel();
             if (REACHED && !saw_closed) {
                 saw_closed = true;
                 closing_travel = (TRAVEL.x * INWARD.x) + (TRAVEL.y * INWARD.y);
@@ -802,7 +826,7 @@ namespace {
         }
         CHECK(saw_closed);
         CHECK(std::abs(closing_travel) > 1e-3);
-        const Vec2 AFTER = transition.takeTravel();
+        const Vec2 AFTER = transition.take_travel();
         CHECK(AFTER.x == 0.0 && AFTER.y == 0.0);
     }
 
@@ -812,10 +836,10 @@ namespace {
         EdgeTransition transition;
         transition.begin(Transition::Open, QUARTER, TransitionParams{}, STRENGTH);
         transition.begin(Transition::Close, QUARTER, TransitionParams{}, STRENGTH);
-        CHECK(transition.meniscusPeak() == 0.0);
+        CHECK(transition.meniscus_peak() == 0.0);
         for (int i = 1; i < DRAIN_SUBSTEP && transition.active(); ++i) {
             transition.advance(STEP);
-            CHECK(transition.meniscusPeak() == 0.0);
+            CHECK(transition.meniscus_peak() == 0.0);
         }
     }
 
@@ -826,15 +850,24 @@ namespace {
     std::vector<double> lobe_centres(const EdgeTransition &transition, double centre, double peak) {
         constexpr int K_HALF = 100;
         std::vector<double> heights((2 * K_HALF) + 1);
-        for (int k = -K_HALF; k <= K_HALF; ++k) {
-            heights[k + K_HALF] = transition.meniscus(centre + (k * 0.02 * BEAD_RADIUS));
+        int sample = -K_HALF;
+        for (double &height : heights) {
+            height = transition.meniscus(centre + (sample * 0.02 * BEAD_RADIUS));
+            ++sample;
         }
         std::vector<double> centres;
-        for (int k = 1; k + 1 < static_cast<int>(heights.size()); ++k) {
-            if (heights[k] > 0.05 * peak && heights[k] > heights[k - 1] &&
-                heights[k] >= heights[k + 1]) {
-                centres.push_back(centre + ((k - K_HALF) * 0.02 * BEAD_RADIUS));
+        auto previous = heights.cbegin();
+        auto next = heights.cbegin();
+        ++next;
+        ++next;
+        int sample_index = 1;
+        for (const double HEIGHT : std::span(heights).subspan(1, heights.size() - 2)) {
+            if (HEIGHT > 0.05 * peak && HEIGHT > *previous && HEIGHT >= *next) {
+                centres.push_back(centre + ((sample_index - K_HALF) * 0.02 * BEAD_RADIUS));
             }
+            ++previous;
+            ++next;
+            ++sample_index;
         }
         return centres;
     }
@@ -853,7 +886,7 @@ namespace {
         bool one_centred_lobe = false;
         for (int i = 1; i <= 600 && transition.active(); ++i) {
             transition.advance(STEP);
-            const double PEAK = transition.meniscusPeak();
+            const double PEAK = transition.meniscus_peak();
             const double NEAR_SIDE = near_side(transition);
             CHECK(std::abs(PEAK - prev_peak) <= std::abs(NEAR_SIDE - prev_near) + 8.0);
             prev_peak = PEAK;
@@ -868,7 +901,7 @@ namespace {
                 splash_peak = PEAK;
                 const auto LOBES = lobe_centres(transition, CENTRE, PEAK);
                 one_centred_lobe =
-                    LOBES.size() == 1 && std::abs(LOBES[0] - CENTRE) < 0.1 * BEAD_RADIUS;
+                    LOBES.size() == 1 && std::abs(LOBES.front() - CENTRE) < 0.1 * BEAD_RADIUS;
             }
         }
         CHECK(splash_peak > 0.3 * BEAD_RADIUS);
@@ -876,7 +909,7 @@ namespace {
         CHECK(first_splash >= DRAIN_SUBSTEP);
         CHECK(last_splash - first_splash >= 95 &&
               last_splash - first_splash <= 110);  // 0.42 s = ~101 substeps
-        CHECK(transition.meniscusPeak() == 0.0);
+        CHECK(transition.meniscus_peak() == 0.0);
         CHECK(transition.closed());
     }
 
@@ -887,7 +920,7 @@ namespace {
         int closed_at = -1;
         for (int i = 1; i <= 480 && transition.active(); ++i) {
             transition.advance(STEP);
-            CHECK(transition.meniscusPeak() == 0.0);
+            CHECK(transition.meniscus_peak() == 0.0);
             if (transition.closed() && closed_at < 0) {
                 closed_at = i;
             }
@@ -900,18 +933,18 @@ namespace {
     void test_close_interrupting_open_neck_decays_then_splashes() {
         EdgeTransition transition;
         transition.begin(Transition::Open, QUARTER, TransitionParams{}, STRENGTH);
-        for (int i = 0; i < 240 && transition.active() && transition.meniscusPeak() < 5.0; ++i) {
+        for (int i = 0; i < 240 && transition.active() && transition.meniscus_peak() < 5.0; ++i) {
             transition.advance(STEP);
         }
-        CHECK(transition.meniscusPeak() >= 5.0);
+        CHECK(transition.meniscus_peak() >= 5.0);
         transition.begin(Transition::Close, QUARTER, TransitionParams{}, STRENGTH);
-        double prev_peak = transition.meniscusPeak();
+        double prev_peak = transition.meniscus_peak();
         double prev_near = near_side(transition);
         bool saw_quiet = false;
         bool splash_after_quiet = false;
         for (int i = 0; i < 960 && transition.active(); ++i) {
             transition.advance(STEP);
-            const double PEAK = transition.meniscusPeak();
+            const double PEAK = transition.meniscus_peak();
             const double NEAR_SIDE = near_side(transition);
             CHECK(std::abs(PEAK - prev_peak) <= std::abs(NEAR_SIDE - prev_near) + 8.0);
             prev_peak = PEAK;
@@ -939,7 +972,7 @@ namespace {
             for (int i = 0; i < 12; ++i) {
                 at144_hz.advance(1.0 / 144.0);
             }
-            CHECK(std::abs(at60_hz.meniscusPeak() - at144_hz.meniscusPeak()) < 0.5);
+            CHECK(std::abs(at60_hz.meniscus_peak() - at144_hz.meniscus_peak()) < 0.5);
         }
     }
 

@@ -10,6 +10,7 @@
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/render/gl/GLFramebuffer.hpp>
 #include <hyprland/src/render/pass/PassElement.hpp>
+#include <hyprland/src/render/types.hpp>
 #include <hyprutils/math/Box.hpp>
 #include <hyprutils/memory/UniquePtr.hpp>
 
@@ -36,7 +37,7 @@ namespace {
                 return {};
             }
             const auto SOURCE = ctx.m_data.currentFB;
-            if (!SOURCE || !SOURCE->getTexture() || (SOURCE->getTexture()->m_texID == 0u) ||
+            if (!SOURCE || !SOURCE->getTexture() || (SOURCE->getTexture()->m_texID == 0U) ||
                 m_source.empty()) {
                 return {};
             }
@@ -45,10 +46,13 @@ namespace {
             CBox box = m_source;
             ctx.m_data.renderModif.applyToBox(box);
             const auto MATRIX = g_pHyprRenderer->projectBoxToTarget(ctx, box).getMatrix();
-            const auto PROJECT = [&](double u, double v) {
-                return Vector2D{(0.5 + (0.5 * ((MATRIX[0] * u) + (MATRIX[1] * v) + MATRIX[2]))) *
-                                    SOURCE->m_size.x,
-                    (0.5 + (0.5 * ((MATRIX[3] * u) + (MATRIX[4] * v) + MATRIX[5]))) *
+            const auto PROJECT = [&](double coord_x, double coord_y) {
+                return Vector2D{
+                    (0.5 + (0.5 * ((std::get<0>(MATRIX) * coord_x) +
+                                      (std::get<1>(MATRIX) * coord_y) + std::get<2>(MATRIX)))) *
+                        SOURCE->m_size.x,
+                    (0.5 + (0.5 * ((std::get<3>(MATRIX) * coord_x) +
+                                      (std::get<4>(MATRIX) * coord_y) + std::get<5>(MATRIX)))) *
                         SOURCE->m_size.y};
             };
             const auto ORIGIN = PROJECT(0, 0);
@@ -57,12 +61,14 @@ namespace {
             CBox bounds = m_bounds;
             ctx.m_data.renderModif.applyToBox(bounds);
             const auto BOUNDS_MATRIX = g_pHyprRenderer->projectBoxToTarget(ctx, bounds).getMatrix();
-            const auto PROJECT_BOUNDS = [&](double u, double v) {
-                return Vector2D{(0.5 + (0.5 * ((BOUNDS_MATRIX[0] * u) + (BOUNDS_MATRIX[1] * v) +
-                                                  BOUNDS_MATRIX[2]))) *
+            const auto PROJECT_BOUNDS = [&](double coord_x, double coord_y) {
+                return Vector2D{(0.5 + (0.5 * ((std::get<0>(BOUNDS_MATRIX) * coord_x) +
+                                                  (std::get<1>(BOUNDS_MATRIX) * coord_y) +
+                                                  std::get<2>(BOUNDS_MATRIX)))) *
                                     SOURCE->m_size.x,
-                    (0.5 + (0.5 * ((BOUNDS_MATRIX[3] * u) + (BOUNDS_MATRIX[4] * v) +
-                                      BOUNDS_MATRIX[5]))) *
+                    (0.5 + (0.5 * ((std::get<3>(BOUNDS_MATRIX) * coord_x) +
+                                      (std::get<4>(BOUNDS_MATRIX) * coord_y) +
+                                      std::get<5>(BOUNDS_MATRIX)))) *
                         SOURCE->m_size.y};
             };
             const auto BOUNDS_ORIGIN = PROJECT_BOUNDS(0, 0);
@@ -78,7 +84,7 @@ namespace {
             const double TOP = std::min(SOURCE->m_size.y,
                 std::ceil(std::max({BOUNDS_ORIGIN.y, BOUNDS_X.y, BOUNDS_Y.y, BXY.y})) + 1.0);
             const Vector2D EXTENT{RIGHT - LEFT, TOP - CLIP_TOP};
-            if (!(EXTENT.x > 0 && EXTENT.y > 0) || !std::isfinite(EXTENT.x) ||
+            if (!(EXTENT.x > 0) || !(EXTENT.y > 0) || !std::isfinite(EXTENT.x) ||
                 !std::isfinite(EXTENT.y)) {
                 return {};
             }
@@ -99,7 +105,7 @@ namespace {
                 return {};
             }
 
-            const bool SCISSOR = glIsEnabled(GL_SCISSOR_TEST) != 0u;
+            const bool SCISSOR = glIsEnabled(GL_SCISSOR_TEST) != 0U;
             renderer.setCapStatus(GL_SCISSOR_TEST, false);
             renderer.bindFramebuffer(GL_READ_FRAMEBUFFER,
                 static_cast<Render::GL::CGLFramebuffer *>(SOURCE.get())->getFBID());
@@ -117,16 +123,16 @@ namespace {
                 GL_NEAREST);
             renderer.setCapStatus(GL_SCISSOR_TEST, SCISSOR);
             m_wallpaper->origin = (ORIGIN - Vector2D{LEFT, CLIP_TOP}) / EXTENT;
-            m_wallpaper->axisX = (AXIS_X - ORIGIN) / EXTENT;
-            m_wallpaper->axisY = (AXIS_Y - ORIGIN) / EXTENT;
+            m_wallpaper->axis_x = (AXIS_X - ORIGIN) / EXTENT;
+            m_wallpaper->axis_y = (AXIS_Y - ORIGIN) / EXTENT;
             m_wallpaper->framebuffer = DESTINATION;
             return {};
         }
 
-        bool needsLiveBlur(Render::CRenderContext &) override {
+        bool needsLiveBlur([[maybe_unused]] Render::CRenderContext &ctx) override {
             return false;
         }
-        bool needsPrecomputeBlur(Render::CRenderContext &) override {
+        bool needsPrecomputeBlur([[maybe_unused]] Render::CRenderContext &ctx) override {
             return false;
         }
         const char *passName() override {
@@ -136,10 +142,10 @@ namespace {
             return EK_CUSTOM;
         }
         // Reconstruct the entire lower scene, including pixels hidden by opaque windows.
-        bool disableSimplification(Render::CRenderContext &) override {
+        bool disableSimplification([[maybe_unused]] Render::CRenderContext &ctx) override {
             return true;
         }
-        bool requiresFullDamage(Render::CRenderContext &) override {
+        bool requiresFullDamage([[maybe_unused]] Render::CRenderContext &ctx) override {
             return true;
         }
 
@@ -151,7 +157,7 @@ namespace {
     };
 }  // namespace
 
-void queueBubbleWallpaper(Render::CRenderContext &ctx,
+void queue_bubble_wallpaper(Render::CRenderContext &ctx,
     const SP<SBubbleWallpaper> &wallpaper,
     const CBox &source,
     bool live,

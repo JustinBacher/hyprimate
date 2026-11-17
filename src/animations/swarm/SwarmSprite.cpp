@@ -11,7 +11,7 @@
 #include "animations/swarm/SwarmSprite.hpp"
 
 namespace hyprimate {
-    std::string spritePath(std::string_view value, std::string_view directory) {
+    std::string sprite_path(std::string_view value, std::string_view directory) {
         if (value.empty() || value.contains('/')) {
             return std::string(value);
         }
@@ -32,61 +32,62 @@ namespace hyprimate {
             1.06;  // the core overshoots its tile slightly, so coverage is complete before lock 1
 
         // One pass of the exact squared Euclidean distance transform (lower envelope of parabolas)
-        // over n samples with the given stride. `v` and `z` are scratch of n and n + 1 entries,
-        // `out` of n.
+        // over n samples with the given stride. `sites` and `boundaries` are scratch of n and n + 1
+        // entries, `out` of n.
         void distance_pass(std::span<double> field,
             std::size_t offset,
             std::size_t stride,
             int n,
-            std::vector<int> &v,
-            std::vector<double> &z,
+            std::vector<int> &sites,
+            std::vector<double> &boundaries,
             std::vector<double> &out) {
-            const auto SAMPLE = [&](int i) {
-                return field[offset + static_cast<std::size_t>(i) * stride];
+            const auto SAMPLE = [&](int index) {
+                return field[offset + (static_cast<std::size_t>(index) * stride)];
             };
             int envelope_index = 0;
-            v[0] = 0;
-            z[0] = -FAR;
-            z[1] = FAR;
+            sites[0] = 0;
+            boundaries[0] = -FAR;
+            boundaries[1] = FAR;
             for (int candidate_index = 1; candidate_index < n; ++candidate_index) {
                 double intersection = 0.0;
                 while (true) {
-                    const int PREVIOUS_SITE = v[envelope_index];
+                    const int PREVIOUS_SITE = sites[envelope_index];
                     intersection = ((SAMPLE(candidate_index) +
                                         (static_cast<double>(candidate_index) * candidate_index)) -
                                        (SAMPLE(PREVIOUS_SITE) +
                                            (static_cast<double>(PREVIOUS_SITE) * PREVIOUS_SITE))) /
                                    (2.0 * (candidate_index - PREVIOUS_SITE));
-                    if (intersection > z[envelope_index] || envelope_index == 0) {
+                    if (intersection > boundaries[envelope_index] || envelope_index == 0) {
                         break;
                     }
                     --envelope_index;
                 }
-                if (intersection > z[envelope_index]) {
+                if (intersection > boundaries[envelope_index]) {
                     ++envelope_index;
                 }
-                v[envelope_index] = candidate_index;
-                z[envelope_index] = intersection;
-                z[envelope_index + 1] = FAR;
+                sites[envelope_index] = candidate_index;
+                boundaries[envelope_index] = intersection;
+                boundaries[envelope_index + 1] = FAR;
             }
             envelope_index = 0;
             for (int query_index = 0; query_index < n; ++query_index) {
-                while (z[envelope_index + 1] < query_index) {
+                while (boundaries[envelope_index + 1] < query_index) {
                     ++envelope_index;
                 }
-                const int SITE_INDEX = v[envelope_index];
+                const int SITE_INDEX = sites[envelope_index];
                 out[query_index] =
                     (static_cast<double>(query_index - SITE_INDEX) * (query_index - SITE_INDEX)) +
                     SAMPLE(SITE_INDEX);
             }
             for (int sample_index = 0; sample_index < n; ++sample_index) {
-                field[offset + static_cast<std::size_t>(sample_index) * stride] = out[sample_index];
+                field[offset + (static_cast<std::size_t>(sample_index) * stride)] =
+                    out[sample_index];
             }
         }
 
     }  // namespace
 
-    SpriteFrame measureSprite(std::span<const std::uint8_t> alpha, int side) {
+    SpriteFrame measure_sprite(std::span<const std::uint8_t> alpha, int side) {
         SpriteFrame frame;
         if (side <= 0 || alpha.size() < static_cast<std::size_t>(side) * side) {
             return frame;
@@ -163,7 +164,7 @@ namespace hyprimate {
         return frame;
     }
 
-    int walkFrame(double travel, double stride, int frames) noexcept {
+    int walk_frame(double travel, double stride, int frames) noexcept {
         if (frames <= 1 || !(stride > 0.0) || !std::isfinite(travel)) {
             return 0;
         }
@@ -171,11 +172,11 @@ namespace hyprimate {
         return std::clamp(static_cast<int>((CYCLES - std::floor(CYCLES)) * frames), 0, frames - 1);
     }
 
-    double spriteRotation(double heading, double from, double turn) noexcept {
+    double sprite_rotation(double heading, double from, double turn) noexcept {
         return std::clamp(turn, 0.0, 1.0) * std::remainder(heading - from, 2.0 * std::numbers::pi);
     }
 
-    double spriteSize(const SpriteFrame &frame, double fit, double cover, double lock) noexcept {
+    double sprite_size(const SpriteFrame &frame, double fit, double cover, double lock) noexcept {
         if (!(frame.reach > 0.0) || !(frame.core > 0.0) || !(fit > 0.0)) {
             return 0.0;
         }

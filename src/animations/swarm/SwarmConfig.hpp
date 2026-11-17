@@ -4,8 +4,9 @@
 
 // The swarm settings as the simulation and the sprite layer take them.
 template <typename SwarmConfig>
-inline hyprimate::SwarmParams swarmParams(const SwarmConfig &swarm) {
-    return {.count = swarm.count,
+inline hyprimate::SwarmParams swarm_params(const SwarmConfig &swarm) {
+    return {
+        .count = swarm.count,
         .speed = swarm.speed,
         .stagger = swarm.stagger,
         .cohesion = swarm.cohesion,
@@ -13,15 +14,16 @@ inline hyprimate::SwarmParams swarmParams(const SwarmConfig &swarm) {
         .responsiveness = swarm.agility,
         .settling = swarm.settling,
         .wander = swarm.wander,
-        .variation = swarm.variation};
+        .variation = swarm.variation,
+    };
 }
 
 template <typename SwarmConfig>
-inline const std::string &swarmCreature(const SwarmConfig &swarm) {
+inline const std::string &swarm_creature(const SwarmConfig &swarm) {
     return swarm.sprite;
 }
 
-inline hyprimate::EdgeSet swarmSides(
+inline hyprimate::EdgeSet swarm_sides(
     hyprimate::config::Flags<hyprimate::config::LoneWindowSides> sides) {
     using hyprimate::Edge;
     using hyprimate::config::LoneWindowSides;

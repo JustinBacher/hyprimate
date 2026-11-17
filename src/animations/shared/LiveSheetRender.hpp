@@ -4,38 +4,38 @@
 
 #include "LiveRender.hpp"
 
-inline CBox liveSheetExtents(const SSheetBuffers &sheet, const CBox &box) {
-    CBox extents = sheetExtents(*sheet.frame, box);
+inline CBox live_sheet_extents(const SSheetBuffers &sheet, const CBox &box) {
+    CBox extents = sheet_extents(*sheet.frame, box);
     extents.expand(4.0);
     return extents;
 }
 
-inline Render::SWindowTransformBuffer renderLiveSheet(SSheetBuffers &sheet,
+inline Render::SWindowTransformBuffer render_live_sheet(SSheetBuffers &sheet,
     double opacity,
     bool shaded,
     Render::CRenderContext &ctx,
-    const Render::SWindowTransformBuffer &in,
-    const SLiveRenderGeometry &g,
+    const Render::SWindowTransformBuffer &input,
+    const SLiveRenderGeometry &geometry,
     const SP<CPaperShade> &shade) {
-    fillSheetMeshes(*sheet.frame,
-        g.source,
-        g.output,
-        {.x = in.box.x, .y = in.box.y},
-        g.textureSize,
+    fill_sheet_meshes(*sheet.frame,
+        geometry.source,
+        geometry.output,
+        {.x = input.box.x, .y = input.box.y},
+        geometry.texture_size,
         sheet.window,
         sheet.shade);
-    const auto LAYER = renderPaper(ctx,
+    const auto LAYER = render_paper(ctx,
         SPaperDraw{
-            .window = in.framebuffer->getTexture(),
+            .window = input.framebuffer->getTexture(),
             .shade = shaded && shade ? shade->texture() : SP<Render::ITexture>{},
-            .canvas = g.canvas.size(),
-            .meshBox = g.localOutput,
-            .windowVertices = &sheet.window,
-            .shadeVertices = &sheet.shade,
+            .canvas = geometry.canvas.size(),
+            .mesh_box = geometry.local_output,
+            .window_vertices = &sheet.window,
+            .shade_vertices = &sheet.shade,
             .alpha = static_cast<float>(opacity),
         });
     if (!LAYER) {
-        return {.framebuffer = in.framebuffer, .box = in.box, .success = false};
+        return {.framebuffer = input.framebuffer, .box = input.box, .success = false};
     }
-    return {.framebuffer = LAYER, .box = g.canvas};
+    return {.framebuffer = LAYER, .box = geometry.canvas};
 }

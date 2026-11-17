@@ -10,6 +10,7 @@
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/render/transformer/Transformer.hpp>
 #include <hyprutils/math/Box.hpp>
+#include <hyprutils/memory/SharedPtr.hpp>
 
 #include "AnimationTransformer.hpp"
 #include "LiveRender.hpp"
@@ -29,7 +30,7 @@
 #include "config_generated.hpp"
 
 namespace {
-    hyprimate::BubbleShape bubbleShape(hyprimate::config::Shape shape) {
+    hyprimate::BubbleShape bubble_shape(hyprimate::config::Shape shape) {
         switch (shape) {
             case hyprimate::config::Shape::Ellipse:
                 return hyprimate::BubbleShape::Ellipse;
@@ -42,42 +43,45 @@ namespace {
     }
 }  // namespace
 
-CBox liveExtents(const SBubbleStyle &state, const CBox &box) {
+CBox live_extents(const SBubbleStyle &state, const CBox &box) {
     const auto BOUNDS = state.bubble.bounds({.x = box.w, .y = box.h});
     return CBox{box.x + BOUNDS.x, box.y + BOUNDS.y, BOUNDS.w, BOUNDS.h}.expand(2.0);
 }
 
-Render::SWindowTransformBuffer renderLive(SBubbleStyle &state,
+Render::SWindowTransformBuffer render_live(SBubbleStyle &state,
     Render::CRenderContext &ctx,
-    const Render::SWindowTransformBuffer &in,
+    const Render::SWindowTransformBuffer &input,
     const Render::SWindowTransformContext &context,
-    const SLiveRenderGeometry &g,
-    const SP<CSolidFill> &,
-    const SP<CPaperShade> &,
-    const SP<CSwarmSprites> &) {
+    const SLiveRenderGeometry &geometry,
+    [[maybe_unused]] const SP<CSolidFill> &solid_fill,
+    [[maybe_unused]] const SP<CPaperShade> &shade,
+    [[maybe_unused]] const SP<CSwarmSprites> &sprites) {
     if (!state.renderer) {
-        return {.framebuffer = in.framebuffer, .box = in.box, .success = false};
+        return {.framebuffer = input.framebuffer, .box = input.box, .success = false};
     }
-    const hyprimate::Vec2 SIZE{.x = g.source.w / g.scale, .y = g.source.h / g.scale};
+    const hyprimate::Vec2 SIZE{
+        .x = geometry.source.w / geometry.scale,
+        .y = geometry.source.h / geometry.scale,
+    };
     const auto FRAME = state.bubble.frame(SIZE);
     const auto LAYER = state.renderer->render(ctx,
         SBubbleDraw{
-            .window = in.framebuffer->getTexture(),
+            .window = input.framebuffer->getTexture(),
             .wallpaper = state.wallpaper,
             .frame = FRAME,
-            .canvas = g.canvas.size(),
-            .source = g.source,
-            .textureOrigin = {.x = in.box.x, .y = in.box.y},
-            .textureSize = g.textureSize,
-            .outputOrigin = {.x = g.canvas.x, .y = g.canvas.y},
+            .canvas = geometry.canvas.size(),
+            .source = geometry.source,
+            .texture_origin = {.x = input.box.x, .y = input.box.y},
+            .texture_size = geometry.texture_size,
+            .output_origin = {.x = geometry.canvas.x, .y = geometry.canvas.y},
         });
     if (!LAYER) {
-        return {.framebuffer = in.framebuffer, .box = in.box, .success = false};
+        return {.framebuffer = input.framebuffer, .box = input.box, .success = false};
     }
     if (!ctx.readOnlyEffects() && !ctx.m_renderingCapture && !ctx.m_renderingSnapshot) {
         const auto MONITOR = context.monitor.lock();
         const auto CENTRE = context.currentBox.middle();
-        depositBubbleImpacts(state, FRAME, MONITOR, CENTRE);
+        deposit_bubble_impacts(state, FRAME, MONITOR, CENTRE);
         // Film and microbubbles the movement shed since the last frame stay where they were laid,
         // relative to the window drawn now.
         const auto &motion = state.bubble.motion();
@@ -90,10 +94,10 @@ Render::SWindowTransformBuffer renderLive(SBubbleStyle &state,
                     motion.trail(),
                     motion.releases());
             }
-            state.bubble.clearEmissions();
+            state.bubble.clear_emissions();
         }
     }
-    return {.framebuffer = LAYER, .box = g.canvas};
+    return {.framebuffer = LAYER, .box = geometry.canvas};
 }
 
 bool SBubbleLiveStyle::open(
@@ -101,25 +105,27 @@ bool SBubbleLiveStyle::open(
     const CBox CURRENT = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
     const CBox GOAL = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
     const CBox CAPTURE = window->getFullWindowBoundingBox();
-    const hyprimate::Box REST{.x = GOAL.x + CAPTURE.x - CURRENT.x,
+    const hyprimate::Box REST{
+        .x = GOAL.x + CAPTURE.x - CURRENT.x,
         .y = GOAL.y + CAPTURE.y - CURRENT.y,
         .w = GOAL.w + CAPTURE.w - CURRENT.w,
-        .h = GOAL.h + CAPTURE.h - CURRENT.h};
-    if (!hyprimate::is_usable(toBox(GOAL)) || !hyprimate::is_usable(REST)) {
+        .h = GOAL.h + CAPTURE.h - CURRENT.h,
+    };
+    if (!hyprimate::is_usable(to_box(GOAL)) || !hyprimate::is_usable(REST)) {
         return false;
     }
-    auto *transformer = runtime.acquireTransformer(window);
+    auto *transformer = runtime.acquire_transformer(window);
     auto &state = std::get<SBubbleStyle>(transformer->m_style);
     state.bubble.begin(hyprimate::Transition::Open,
         runtime.m_config.open.bubble.duration,
-        runtime.m_nextSeed++,
+        runtime.m_next_seed++,
         {.x = REST.w, .y = REST.h});
     if (!state.bubble.active()) {
         return false;
     }
     state.wallpaper = makeShared<SBubbleWallpaper>();
-    state.residue = runtime.m_bubbleResidue;
-    state.shellImpactsDeposited = state.windowImpactsDeposited = false;
+    state.residue = runtime.m_bubble_residue;
+    state.shell_impacts_deposited = state.window_impacts_deposited = false;
     state.impacts.start();
     // Bubble owns formation, placement and opacity. Keep focus/workspace/user alpha factors intact.
     g_pHyprRenderer->damageBox(CAPTURE);
@@ -127,16 +133,16 @@ bool SBubbleLiveStyle::open(
     window->sizeAnimation()->setValueAndWarp(GOAL.size());
     auto &fade = window->presentation().alpha(Desktop::View::WINDOW_ALPHA_FADE);
     fade->setValueAndWarp(fade->goal());
-    runtime.rebaseline(entry, window);
+    CPluginRuntime::rebaseline(entry, window);
     return true;
 }
 
-void SBubbleLiveStyle::movement(CPluginRuntime &,
+void SBubbleLiveStyle::movement([[maybe_unused]] CPluginRuntime &runtime,
     CAnimationTransformer &transformer,
     const PHLWINDOW &window,
     const hyprimate::TrackDecision &decision,
-    double,
-    bool,
+    [[maybe_unused]] double elapsed,
+    [[maybe_unused]] bool enabled,
     bool moving) {
     if (!moving) {
         return;
@@ -146,17 +152,21 @@ void SBubbleLiveStyle::movement(CPluginRuntime &,
     const auto &current = decision.current_box;
     const auto &was = decision.previous_box;
     std::get<SBubbleStyle>(transformer.m_style)
-        .bubble.drive({.x = current.x + (current.w * .5) - (was.x + (was.w * .5)),
-                          .y = current.y + (current.h * .5) - (was.y + (was.h * .5))},
+        .bubble.drive(
+            {
+                .x = current.x + (current.w * .5) - (was.x + (was.w * .5)),
+                .y = current.y + (current.h * .5) - (was.y + (was.h * .5)),
+            },
             !decision.workspace_moving && window->positionAnimation()->isBeingAnimated());
 }
 
 void SBubbleLiveStyle::snapshot(
-    const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &s) {
+    const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &snapshot) {
     const auto *state =
         (transformer != nullptr) ? std::get_if<SBubbleStyle>(&transformer->m_style) : nullptr;
     // A landed opening is already the window's film: movement acts on it while it settles.
-    s.transition_busy = (state != nullptr) && state->bubble.active() && !state->bubble.landed();
+    snapshot.transition_busy =
+        (state != nullptr) && state->bubble.active() && !state->bubble.landed();
 }
 
 void SBubbleLiveStyle::step(CPluginRuntime &runtime,
@@ -173,10 +183,12 @@ void SBubbleLiveStyle::step(CPluginRuntime &runtime,
     if (const auto WINDOW = transformer.m_window.lock()) {
         const CBox CURRENT = WINDOW->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
         const CBox CAPTURE = WINDOW->getFullWindowBoundingBox();
-        body = {.x = CURRENT.x - CAPTURE.middle().x,
+        body = {
+            .x = CURRENT.x - CAPTURE.middle().x,
             .y = CURRENT.y - CAPTURE.middle().y,
             .w = CURRENT.w,
-            .h = CURRENT.h};
+            .h = CURRENT.h,
+        };
     }
     const auto &options = runtime.m_config.movement.bubble;
     state.bubble.advance(elapsed,
@@ -186,9 +198,9 @@ void SBubbleLiveStyle::step(CPluginRuntime &runtime,
                       .microbubbles = options.microbubbles,
                       .trail = options.trail,
                       .roundness = options.roundness,
-                      .shape = bubbleShape(options.shape),
-                      .shapeSpeed = options.shapeSpeed,
-                      .transparency = options.transparency}
+                      .shape = bubble_shape(options.shape),
+                      .shape_speed = options.shapeSpeed,
+                      .transparency = options.transparency,}
                 : hyprimate::BubbleMotionParams{});
     state.impacts.advance(elapsed);
     if (!state.bubble.active()) {
@@ -208,12 +220,12 @@ void SBubbleLiveStyle::cancelOpening(CAnimationTransformer &transformer) {
 void SBubbleLiveStyle::cancelMovement(CAnimationTransformer &transformer) {
     auto &state = std::get<SBubbleStyle>(transformer.m_style);
     // Film already on the glass dissolves on its own; the window's film comes to rest at once.
-    state.bubble.stopMotion();
+    state.bubble.stop_motion();
     state.wake = 0;
 }
 
 bool SBubbleLiveStyle::available(const SBubbleStyle &state) noexcept {
-    return bool(state.renderer);
+    return static_cast<bool>(state.renderer);
 }
 
 bool SBubbleLiveStyle::deforming(const SBubbleStyle &state) noexcept {
@@ -221,23 +233,24 @@ bool SBubbleLiveStyle::deforming(const SBubbleStyle &state) noexcept {
     return bubble.active() || bubble.stirred();
 }
 
-bool SBubbleLiveStyle::builtFor(const SBubbleStyle &,
+bool SBubbleLiveStyle::builtFor([[maybe_unused]] const SBubbleStyle &state,
     hyprimate::config::Style style,
-    hyprimate::MaterialParams,
-    hyprimate::ClothMovementParams) noexcept {
+    [[maybe_unused]] hyprimate::MaterialParams material,
+    [[maybe_unused]] hyprimate::ClothMovementParams cloth_movement) noexcept {
     return style == hyprimate::config::Style::Bubble;
 }
 
-SStyleState SBubbleLiveStyle::initial(
-    hyprimate::MaterialParams, hyprimate::ClothMovementParams, std::uint64_t seed) {
+SStyleState SBubbleLiveStyle::initial([[maybe_unused]] hyprimate::MaterialParams material,
+    [[maybe_unused]] hyprimate::ClothMovementParams cloth_movement,
+    std::uint64_t seed) {
     SBubbleStyle state;
-    state.bubble.seedMotion(seed);
+    state.bubble.seed_motion(seed);
     return state;
 }
 
 double SBubbleLiveStyle::strength(const CPluginRuntime &runtime) {
     return runtime.m_config.movement.bubble.strength;
 }
-bool SBubbleLiveStyle::usable(const CPluginRuntime &) {
+bool SBubbleLiveStyle::usable([[maybe_unused]] const CPluginRuntime &runtime) {
     return true;
 }

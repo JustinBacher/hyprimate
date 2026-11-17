@@ -1,7 +1,9 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <numbers>
 
 #include "animations/bubble/Bubble.hpp"
 
@@ -15,10 +17,10 @@ namespace hyprimate {
         Vec3 position{}, normal{};
     };
 
-    inline BubbleCurlSection bubbleCurlSection(
+    inline BubbleCurlSection bubble_curl_section(
         const BubbleSurface &surface, const BubbleHole &hole, double physical_radius, double phi) {
-        constexpr double PI_VALUE = 3.14159265358979323846;
-        const double RADIUS = std::min(surface.halfSize.x, surface.halfSize.y);
+        constexpr double PI_VALUE = std::numbers::pi;
+        const double RADIUS = std::min(surface.half_size.x, surface.half_size.y);
         if (RADIUS <= 0) {
             return {};
         }
@@ -33,14 +35,14 @@ namespace hyprimate {
             .width = width,
             .turn = std::max(.8,
                 1 + 3.8 * FRACTION * FRACTION * (3 - 2 * FRACTION) +
-                    .65 * std::sin((3 * phi) + hole.phase[0]) +
-                    .35 * std::sin((7 * phi) + hole.phase[1])),
+                    .65 * std::sin((3 * phi) + std::get<0>(hole.phase)) +
+                    .35 * std::sin((7 * phi) + std::get<1>(hole.phase))),
         };
     }
 
-    inline BubbleCurlSample bubbleCurlSample(
-        Vec3 base, Vec3 outward, Vec3 normal, BubbleCurlSection section, double u) {
-        const double THETA = u * section.turn;
+    inline BubbleCurlSample bubble_curl_sample(
+        Vec3 base, Vec3 outward, Vec3 normal, BubbleCurlSection section, double fraction) {
+        const double THETA = fraction * section.turn;
         const double ARC_RADIUS = section.turn != 0 ? section.width / section.turn : 0;
         const double ALONG = -ARC_RADIUS * std::sin(THETA);
         const double LIFT = ARC_RADIUS * (1 - std::cos(THETA));
@@ -62,12 +64,12 @@ namespace hyprimate {
         };
     }
 
-    inline BubbleCurlSample bubblePeelSample(
-        const BubbleSurface &surface, const BubbleHole &hole, double phi, double u) {
-        const double RADIUS = std::min(surface.halfSize.x, surface.halfSize.y);
-        const double BOUNDARY = bubbleHoleBoundary(hole, phi);
+    inline BubbleCurlSample bubble_peel_sample(
+        const BubbleSurface &surface, const BubbleHole &hole, double phi, double fraction) {
+        const double RADIUS = std::min(surface.half_size.x, surface.half_size.y);
+        const double BOUNDARY = bubble_hole_boundary(hole, phi);
         const auto SECTION =
-            bubbleCurlSection(surface, hole, BOUNDARY * (surface.spherical ? RADIUS : 1), phi);
+            bubble_curl_section(surface, hole, BOUNDARY * (surface.spherical ? RADIUS : 1), phi);
         Vec3 direction{.x = std::cos(phi), .y = std::sin(phi), .z = 0};
         Vec3 normal{.x = 0, .y = 0, .z = 1};
         Vec3 base{};
@@ -119,7 +121,7 @@ namespace hyprimate {
                 .z = 0,
             };
         }
-        return bubbleCurlSample(base, direction, normal, SECTION, u);
+        return bubble_curl_sample(base, direction, normal, SECTION, fraction);
     }
 
 }  // namespace hyprimate

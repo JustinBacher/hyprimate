@@ -1,6 +1,7 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 #include "animations/paper/PaperTakes.hpp"
 #include "animations/shared/SheetFrame.hpp"
@@ -13,11 +14,11 @@ namespace hyprimate {
 #embed "assets/paper_takes.bin"
         };
 
-        constexpr std::uint32_t u32(std::size_t at) noexcept {
-            return static_cast<std::uint32_t>(ASSET[at]) |
-                   static_cast<std::uint32_t>(ASSET[at + 1]) << 8 |
-                   static_cast<std::uint32_t>(ASSET[at + 2]) << 16 |
-                   static_cast<std::uint32_t>(ASSET[at + 3]) << 24;
+        constexpr std::uint32_t u32(std::size_t offset) noexcept {
+            return static_cast<std::uint32_t>(ASSET[offset]) |
+                   static_cast<std::uint32_t>(ASSET[offset + 1]) << 8U |
+                   static_cast<std::uint32_t>(ASSET[offset + 2]) << 16U |
+                   static_cast<std::uint32_t>(ASSET[offset + 3]) << 24U;
         }
 
         constexpr double POSITION_SCALE = 1.0 / 16384.0;
@@ -38,33 +39,35 @@ namespace hyprimate {
         static_assert(sizeof(ASSET) == DATA + (static_cast<std::size_t>(TAKES) * TAKE_BYTES),
             "paper take asset is truncated");
 
-        double i16(std::size_t at) noexcept {
-            return static_cast<double>(
-                       static_cast<std::int16_t>(static_cast<std::uint16_t>(ASSET[at]) |
-                                                 static_cast<std::uint16_t>(ASSET[at + 1]) << 8)) *
+        double i16(std::size_t offset) noexcept {
+            return static_cast<double>(static_cast<std::int16_t>(
+                       static_cast<std::uint32_t>(ASSET[offset]) |
+                       static_cast<std::uint32_t>(ASSET[offset + 1]) << 8U)) *
                    POSITION_SCALE;
         }
 
     }  // namespace
 
-    int paperTakeCount() noexcept {
+    int paper_take_count() noexcept {
         return TAKES;
     }
 
-    int paperTakeFrames() noexcept {
+    int paper_take_frames() noexcept {
         return FRAMES;
     }
 
-    double paperTakeAspect(int take) noexcept {
+    double paper_take_aspect(int take) noexcept {
         return std::bit_cast<float>(u32(ASPECTS + (4 * static_cast<std::size_t>(take))));
     }
 
-    void paperTakeVertex(int take, int frame, std::size_t vertex, double out[3]) noexcept {
+    void paper_take_vertex(
+        int take, int frame, std::size_t vertex, std::span<double, 3> out) noexcept {
         const std::size_t OFFSET = DATA + (static_cast<std::size_t>(take) * TAKE_BYTES) +
                                    (((static_cast<std::size_t>(frame) * VERTICES) + vertex) * 6);
-        out[0] = i16(OFFSET);
-        out[1] = i16(OFFSET + 2);
-        out[2] = i16(OFFSET + 4);
+        auto output = out.begin();
+        *output++ = i16(OFFSET);
+        *output++ = i16(OFFSET + 2);
+        *output = i16(OFFSET + 4);
     }
 
 }  // namespace hyprimate

@@ -27,10 +27,10 @@
 #include "config_generated.hpp"
 
 // Converts between the plugin's CBox and the core's hyprimate::Box at the renderer boundary.
-inline hyprimate::Box toBox(const CBox &box) {
+inline hyprimate::Box to_box(const CBox &box) {
     return {.x = box.x, .y = box.y, .w = box.w, .h = box.h};
 }
-inline CBox toCBox(const hyprimate::Box &box) {
+inline CBox to_cbox(const hyprimate::Box &box) {
     return CBox{box.x, box.y, box.w, box.h};
 }
 
@@ -39,7 +39,7 @@ using SStyleState = std::variant<SLiquidStyle, SPaperStyle, SClothStyle, SSwarmS
 
 // The state a window starts from in `style`. `liquid`, `cloth`, and `seed` are the settings it is
 // built for.
-SStyleState initialStyle(hyprimate::config::Style style,
+SStyleState initial_style(hyprimate::config::Style style,
     hyprimate::MaterialParams liquid,
     hyprimate::ClothMovementParams cloth,
     std::uint64_t seed);
@@ -66,28 +66,28 @@ class CAnimationTransformer final : public Render::IWindowTransformer {
     int priority() const override;
     bool active() const override;
     bool blocksDirectScanout() const override;
-    CBox transformedExtents(const CBox &currentBox) const override;
-    CBox sourceBoxForOutput(const CBox &outputBox, const CBox &inputBox) const override;
+    CBox transformedExtents(const CBox &current_box) const override;
+    CBox sourceBoxForOutput(const CBox &output_box, const CBox &input_box) const override;
 
     // True when the state was built for these settings; a mismatch means the runtime rebuilds the
     // transformer.
-    bool builtFor(hyprimate::config::Style style,
+    bool built_for(hyprimate::config::Style style,
         hyprimate::MaterialParams liquid,
         hyprimate::ClothMovementParams cloth) const noexcept;
 
-    void cancelOpening();
-    void cancelMovement();
+    void cancel_opening();
+    void cancel_movement();
 
     // Close staging inspects or transfers the state before detaching the transformer.
-    SStyleState &styleState() noexcept {
+    SStyleState &style_state() noexcept {
         return m_style;
     }
-    const SStyleState &styleState() const noexcept {
+    const SStyleState &style_state() const noexcept {
         return m_style;
     }
 
     // Set by the runtime right before this transformer is removed from its owner list.
-    void markDetached();
+    void mark_detached();
 
   private:
     friend struct SLiquidLiveStyle;

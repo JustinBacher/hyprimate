@@ -20,7 +20,7 @@ CRegion CNativeFadeoutPass::damage() const {
     return CRegion{0, 0, m_monitor->m_transformedSize.x, m_monitor->m_transformedSize.y};
 }
 
-void CNativeFadeoutPass::drawBackdrop(const Desktop::SFadeoutRenderEffects &effects) {
+void CNativeFadeoutPass::draw_backdrop(const Desktop::SFadeoutRenderEffects &effects) {
     if (effects.dimAroundAlpha > 0.F) {
         CRectPassElement::SRectData data;
         data.box = {0, 0, m_monitor->m_transformedSize.x, m_monitor->m_transformedSize.y};
@@ -41,7 +41,7 @@ void CNativeFadeoutPass::drawBackdrop(const Desktop::SFadeoutRenderEffects &effe
     }
 }
 
-void CNativeFadeoutPass::drawTexture(const Desktop::IFadeout &fadeout,
+void CNativeFadeoutPass::draw_texture(const Desktop::IFadeout &fadeout,
     const SP<Render::ITexture> &tex,
     const Desktop::SFadeoutRenderEffects &effects) {
     CTexPassElement::SRenderData data;

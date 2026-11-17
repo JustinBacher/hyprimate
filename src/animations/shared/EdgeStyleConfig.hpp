@@ -4,7 +4,7 @@
 #include "config_generated.hpp"
 
 namespace hyprimate {
-    inline CloseSide closeSide(config::Side side) noexcept {
+    inline CloseSide close_side(config::Side side) noexcept {
         switch (side) {
             case config::Side::Auto:
                 return CloseSide::Auto;
@@ -24,7 +24,7 @@ namespace hyprimate {
         return CloseSide::Auto;
     }
 
-    inline Edge configuredEdge(config::DefaultAnimationEdge edge) noexcept {
+    inline Edge configured_edge(config::DefaultAnimationEdge edge) noexcept {
         switch (edge) {
             case config::DefaultAnimationEdge::Top:
                 return Edge::Top;
@@ -39,26 +39,26 @@ namespace hyprimate {
     }
 
     template <typename StyleConfig>
-    std::optional<EdgeFrame> resolveStyleOpenEdge(
+    std::optional<EdgeFrame> resolve_style_open_edge(
         const EdgeInput &input, const StyleConfig &style) noexcept {
-        return resolveEdgeFrame(input.body,
+        return resolve_edge_frame(input.body,
             input.capture,
-            style.edgeBounds == config::EdgeBounds::WorkArea ? input.workArea : input.screen,
+            style.edgeBounds == config::EdgeBounds::WorkArea ? input.work_area : input.screen,
             input.neighbours,
-            configuredEdge(style.defaultAnimationEdge),
-            input.lastWindow);
+            configured_edge(style.defaultAnimationEdge),
+            input.last_window);
     }
 
     template <typename StyleConfig>
-    std::optional<EdgeFrame> resolveStyleCloseEdge(
+    std::optional<EdgeFrame> resolve_style_close_edge(
         const EdgeInput &input, const StyleConfig &style) noexcept {
-        return resolveCloseEdgeFrame(input.body,
+        return resolve_close_edge_frame(input.body,
             input.capture,
-            style.edgeBounds == config::EdgeBounds::WorkArea ? input.workArea : input.screen,
+            style.edgeBounds == config::EdgeBounds::WorkArea ? input.work_area : input.screen,
             input.neighbours,
-            configuredEdge(style.defaultAnimationEdge),
-            closeSide(style.side),
+            configured_edge(style.defaultAnimationEdge),
+            close_side(style.side),
             input.origin,
-            input.lastWindow);
+            input.last_window);
     }
 }  // namespace hyprimate

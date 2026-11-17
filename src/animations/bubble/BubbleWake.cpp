@@ -20,11 +20,11 @@ namespace hyprimate {
         }
     }  // namespace
 
-    BubbleWake::BubbleWake(std::uint64_t seed) noexcept : random_(seed), seed_(unit_draw(random_)) {
+    BubbleWake::BubbleWake(std::uint64_t seed) noexcept : random(seed), seed(unit_draw(random)) {
     }
 
     bool BubbleWake::full() const noexcept {
-        return first_ + count_ >= nodes_.size();
+        return first + count >= nodes.size();
     }
 
     bool BubbleWake::extend(const BubbleTrailPoint &point, Vec2 origin) noexcept {
@@ -32,27 +32,27 @@ namespace hyprimate {
             return false;
         }
         const Vec2 POSITION{.x = origin.x + point.position.x, .y = origin.y + point.position.y};
-        if (!finite(POSITION) || !finite(point.direction) || !std::isfinite(point.halfWidth) ||
-            !std::isfinite(point.density) || point.halfWidth <= 0 || point.density <= 0) {
+        if (!finite(POSITION) || !finite(point.direction) || !std::isfinite(point.half_width) ||
+            !std::isfinite(point.density) || point.half_width <= 0 || point.density <= 0) {
             return true;
         }
         Node node;
         node.point = point;
         node.point.position = POSITION;
         node.point.density = std::clamp(point.density, 0.0, 1.0);
-        if (count_ > 0) {
-            const auto &previous = nodes_[first_ + count_ - 1];
+        if (count > 0) {
+            const auto &previous = std::span{nodes}.subspan(first, count).back();
             node.arc = previous.arc + std::hypot(POSITION.x - previous.point.position.x,
                                           POSITION.y - previous.point.position.y);
         }
         // Denser film lasts longer; every patch keeps its own time so it does not vanish in step.
-        node.life = (.45 + (.55 * node.point.density)) * (.8 + (.4 * unit_draw(random_)));
-        nodes_[first_ + count_++] = node;
+        node.life = (.45 + (.55 * node.point.density)) * (.8 + (.4 * unit_draw(random)));
+        nodes[first + count++] = node;
         return true;
     }
 
     bool BubbleWake::release(const BubbleRelease &bubble, Vec2 origin) noexcept {
-        if (bubbleCount_ >= bubbles_.size()) {
+        if (bubble_count >= bubbles.size()) {
             return false;
         }
         Free free;
@@ -71,33 +71,33 @@ namespace hyprimate {
             !std::isfinite(free.life)) {
             return true;
         }
-        bubbles_[bubbleCount_++] = free;
+        bubbles[bubble_count++] = free;
         return true;
     }
 
     void BubbleWake::hurry() noexcept {
-        pace_ = 4;
+        pace = 4;
     }
 
     void BubbleWake::advance(double elapsed) noexcept {
         if (!std::isfinite(elapsed) || elapsed <= 0) {
             return;
         }
-        const double DELTA_TIME = std::min(elapsed, STALL_SECONDS) * pace_;
-        for (auto &node : std::span{nodes_}.subspan(first_, count_)) {
+        const double DELTA_TIME = std::min(elapsed, STALL_SECONDS) * pace;
+        for (auto &node : std::span{nodes}.subspan(first, count)) {
             node.age += DELTA_TIME;
         }
-        while (count_ > 0 && nodes_[first_].age >= nodes_[first_].life) {
-            ++first_;
-            --count_;
+        while (count > 0 && std::span{nodes}.subspan(first, count).front().age >=
+                                std::span{nodes}.subspan(first, count).front().life) {
+            ++first;
+            --count;
         }
-        if (count_ == 0) {
-            first_ = 0;
+        if (count == 0) {
+            first = 0;
         }
 
-        std::size_t kept = 0;
-        for (std::size_t i = 0; i < bubbleCount_; ++i) {
-            auto wake_bubble = bubbles_[i];
+        auto *kept = bubbles.begin();
+        for (auto wake_bubble : std::span{bubbles}.first(bubble_count)) {
             // Air brakes the bubble within a fraction of a second; it then sinks very slowly.
             wake_bubble.velocity.x *= std::exp(-DELTA_TIME / .25);
             wake_bubble.velocity.y =
@@ -114,13 +114,14 @@ namespace hyprimate {
             if (wake_bubble.micro.collapse >= 1) {
                 continue;
             }
-            bubbles_[kept++] = wake_bubble;
+            *kept = wake_bubble;
+            ++kept;
         }
-        bubbleCount_ = kept;
+        bubble_count = static_cast<std::size_t>(kept - bubbles.begin());
     }
 
     bool BubbleWake::done() const noexcept {
-        return count_ == 0 && bubbleCount_ == 0;
+        return count == 0 && bubble_count == 0;
     }
 
     Box BubbleWake::bounds() const noexcept {
@@ -134,13 +135,13 @@ namespace hyprimate {
             max_x = std::max(max_x, centre_point.x + extent_radius);
             max_y = std::max(max_y, centre_point.y + extent_radius);
         };
-        for (const auto &node : std::span{nodes_}.subspan(first_, count_)) {
-            INCLUDE(node.point.position, (node.point.halfWidth * FRAY) + 2);
+        for (const auto &node : std::span{nodes}.subspan(first, count)) {
+            INCLUDE(node.point.position, (node.point.half_width * FRAY) + 2);
         }
-        for (const auto &bubble : std::span{bubbles_}.first(bubbleCount_)) {
+        for (const auto &bubble : std::span{bubbles}.first(bubble_count)) {
             INCLUDE(bubble.micro.centre, (bubble.micro.radius * 1.4) + 3);
         }
-        if (!(max_x > min_x && max_y > min_y)) {
+        if (!(max_x > min_x) || !(max_y > min_y)) {
             return {};
         }
         return {.x = min_x, .y = min_y, .w = max_x - min_x, .h = max_y - min_y};
@@ -149,43 +150,52 @@ namespace hyprimate {
     void BubbleWake::view(BubbleWakeView &out) const noexcept {
         const auto BOX = bounds();
         out.size = {.x = BOX.w, .y = BOX.h};
-        out.seed = seed_;
-        out.nodeCount = count_;
-        out.bubbleCount = bubbleCount_;
+        out.seed = seed;
+        out.node_count = count;
+        out.bubble_count = bubble_count;
         const Vec2 CENTRE{.x = BOX.x + (BOX.w * .5), .y = BOX.y + (BOX.h * .5)};
-        for (std::size_t i = 0; i < count_; ++i) {
-            const auto &node = nodes_[first_ + i];
-            auto &output_node = out.nodes[i];
+        const auto ACTIVE_NODES = std::span{nodes}.subspan(first, count);
+        auto current = ACTIVE_NODES.begin();
+        auto previous = current;
+        auto *output = out.nodes.begin();
+        for (std::size_t i = 0; i < count; ++i, ++current, ++output) {
+            const auto &node = *current;
+            auto &output_node = *output;
             output_node.position = {
                 .x = node.point.position.x - CENTRE.x,
                 .y = node.point.position.y - CENTRE.y,
             };
             // The ribbon turns with its path: the tangent spans the neighbouring points.
-            const auto &before = nodes_[first_ + (i > 0 ? i - 1 : i)].point.position;
-            const auto &after = nodes_[first_ + std::min(i + 1, count_ - 1)].point.position;
+            auto next = current;
+            ++next;
+            const auto &before = (i > 0 ? *previous : node).point.position;
+            const auto &after = (i + 1 < count ? *next : node).point.position;
+            previous = current;
             const Vec2 SPAN{.x = after.x - before.x, .y = after.y - before.y};
             const double SPAN_LENGTH = std::hypot(SPAN.x, SPAN.y);
             output_node.direction = SPAN_LENGTH > 1e-6
                                         ? Vec2{.x = SPAN.x / SPAN_LENGTH, .y = SPAN.y / SPAN_LENGTH}
                                         : node.point.direction;
             output_node.fade = std::clamp(node.age / node.life, 0.0, 1.0);
-            output_node.halfWidth = node.point.halfWidth * (1 - (.35 * output_node.fade));
+            output_node.half_width = node.point.half_width * (1 - (.35 * output_node.fade));
             output_node.arc = node.arc;
             output_node.density = node.point.density;
         }
-        for (std::size_t i = 0; i < bubbleCount_; ++i) {
-            auto microbubble = bubbles_[i].micro;
+        auto *bubble_output = out.bubbles.begin();
+        for (const auto &bubble : std::span{bubbles}.first(bubble_count)) {
+            auto microbubble = bubble.micro;
             microbubble.centre = {
                 .x = microbubble.centre.x - CENTRE.x,
                 .y = microbubble.centre.y - CENTRE.y,
             };
             microbubble.anchor = microbubble.centre;
-            out.bubbles[i] = microbubble;
+            *bubble_output = microbubble;
+            ++bubble_output;
         }
     }
 
     const BubbleTrailPoint *BubbleWake::last() const noexcept {
-        return count_ > 0 ? &nodes_[first_ + count_ - 1].point : nullptr;
+        return count > 0 ? &std::span{nodes}.subspan(first, count).back().point : nullptr;
     }
 
 }  // namespace hyprimate

@@ -9,7 +9,7 @@
 namespace hyprimate {
 
     // A sheet is the window drawn as a (PAPER_CELLS + 1)^2 vertex grid of lit triangles. Paper and
-    // cloth both animate the grid in 3D and project it through projectSheet; the paper renderer
+    // cloth both animate the grid in 3D and project it through project_sheet; the paper renderer
     // draws the result.
     inline constexpr int PAPER_CELLS = 56;
     inline constexpr std::size_t PAPER_TRIANGLES =
@@ -24,8 +24,8 @@ namespace hyprimate {
 
     enum class SheetLighting { PaperCreases, ClothSmooth };
 
-    // The projected sheet, reused across frames. Triangle t has grid corners sheetTriangle(t), uv
-    // sheetUv(corner).
+    // The projected sheet, reused across frames. Triangle t has grid corners sheet_triangle(t), uv
+    // sheet_uv(corner).
     struct SheetFrame {
         SheetFrame() noexcept;  // identity draw order, so the first projection starts from a valid
                                 // permutation
@@ -41,18 +41,18 @@ namespace hyprimate {
     };
 
     // Grid corners of triangle t, in the order matching shade[t] and the uv of each corner.
-    const std::array<std::size_t, 3> &sheetTriangle(std::size_t t) noexcept;
+    const std::array<std::size_t, 3> &sheet_triangle(std::size_t triangle) noexcept;
 
     // Rest uv of a grid vertex in [0,1] over the rest capture.
-    Vec2 sheetUv(std::size_t vertex) noexcept;
+    Vec2 sheet_uv(std::size_t vertex) noexcept;
 
     // The window at rest: every vertex in place, identity order, unlit.
-    void flatSheet(SheetFrame &out) noexcept;
+    void flat_sheet(SheetFrame &out) noexcept;
 
     // Projects `world` onto the screen with a fixed perspective (eye 3 * sqrt(W * H) in front of
     // the sheet), orders the triangles back to front and lights them. `size` is the rest capture
     // size in logical pixels; `shading` in [0, 1] scales the lighting and 0 draws unlit.
-    void projectSheet(const SheetGrid &world,
+    void project_sheet(const SheetGrid &world,
         Vec2 size,
         double shading,
         SheetLighting lighting,

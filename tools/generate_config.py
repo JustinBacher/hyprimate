@@ -250,7 +250,8 @@ def emit_struct(types, name, emitted, out):
             emit_struct(types, typ, emitted, out)
     out.append(f'struct {name} {{')
     for field, (kind, typ) in types[name].items():
-        out.append(f'    {typ} {camel(field)}{{}};')
+        initializer = '' if typ == 'std::string' else '{}'
+        out.append(f'    {typ} {camel(field)}{initializer};')
     out.append('};')
     out.append('')
 
@@ -386,8 +387,10 @@ def config_header(settings):
             shared = by_path['.'.join(('window', 'options', *parts[3:]))]
             shared_source = f'values.{shared["member"]}->value()'
             if shared.get('optional'):
-                shared_source = f'(values.{shared["member"]}Set.setByUser() ? {shared_source} : {source})'
-            source = f'(values.{item["member"]}Set.setByUser() ? {source} : {shared_source})'
+                source = (f'(values.{item["member"]}Set.setByUser() || '
+                          f'!values.{shared["member"]}Set.setByUser() ? {source} : {shared_source})')
+            else:
+                source = f'(values.{item["member"]}Set.setByUser() ? {source} : {shared_source})'
         if item['type'] == 'int':
             value = f'detail::clamp_int({source}, {item["min"]}, {item["max"]})'
         elif item['type'] == 'set':

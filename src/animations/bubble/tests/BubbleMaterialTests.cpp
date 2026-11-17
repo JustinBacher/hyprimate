@@ -7,15 +7,24 @@
 #include <vector>
 
 #include <EGL/egl.h>
+#include <EGL/eglplatform.h>
 #include <GLES3/gl32.h>
 
 #include "Check.hpp"
+#include "animations/bubble/Bubble.hpp"
 #include "animations/bubble/BubbleMaterial.hpp"
+#include "animations/bubble/BubbleMotion.hpp"
+#include "animations/shared/Core.hpp"
 
 namespace {
-    constexpr int width = 256, height = 256;
+    constexpr int WIDTH = 256, HEIGHT = 256;
     using Pixel = std::array<unsigned char, 4>;
     using Image = std::vector<Pixel>;
+
+    struct TexturePair {
+        GLuint image;
+        GLuint backdrop;
+    };
 
     GLuint texture(const Image &pixels) {
         GLuint texture_id = 0;
@@ -26,99 +35,104 @@ namespace {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTexImage2D(
-            GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+            GL_TEXTURE_2D, 0, GL_RGBA8, WIDTH, HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
         return texture_id;
     }
 
     struct Fixture {
         CBubbleMaterial material;
-        GLuint window = 0, otherWindow = 0, scene = 0, black = 0;
+        GLuint window = 0, other_window = 0, scene = 0, black = 0;
 
         Fixture() {
-            Image content(width * height);
-            Image alternative(width * height);
-            Image background(width * height);
-            Image dark(width * height);
-            for (int row = 0; row < height; ++row) {
-                for (int col = 0; col < width; ++col) {
-                    const auto PIXEL_INDEX = (row * width) + col;
+            Image content(static_cast<std::size_t>(WIDTH) * HEIGHT);
+            Image alternative(static_cast<std::size_t>(WIDTH) * HEIGHT);
+            Image background(static_cast<std::size_t>(WIDTH) * HEIGHT);
+            Image dark(static_cast<std::size_t>(WIDTH) * HEIGHT);
+            auto content_pixel = content.begin();
+            auto alternative_pixel = alternative.begin();
+            auto background_pixel = background.begin();
+            auto dark_pixel = dark.begin();
+            for (int row = 0; row < HEIGHT; ++row) {
+                for (int col = 0; col < WIDTH; ++col) {
                     // A recognizable, asymmetric client image, distinct from the desktop.
-                    content[PIXEL_INDEX] = {
+                    *content_pixel++ = {
                         static_cast<unsigned char>(40 + (col / 4)),
                         30,
                         static_cast<unsigned char>(110 + (row / 4)),
                         255,
                     };
-                    alternative[PIXEL_INDEX] = {20, 120, 30, 255};
+                    *alternative_pixel++ = {20, 120, 30, 255};
                     // Red increases to the right, green upwards, blue marks an off-centre window
                     // behind.
-                    background[PIXEL_INDEX] = {
+                    *background_pixel++ = {
                         static_cast<unsigned char>(25 + (col * 3 / 4)),
                         static_cast<unsigned char>(25 + (row * 3 / 4)),
                         static_cast<unsigned char>(col > 130 && row > 100 ? 210 : 20),
                         255,
                     };
-                    dark[PIXEL_INDEX] = {0, 0, 0, 255};
+                    *dark_pixel++ = {0, 0, 0, 255};
                 }
             }
             window = texture(content);
-            otherWindow = texture(alternative);
+            other_window = texture(alternative);
             scene = texture(background);
             black = texture(dark);
             CHECK(material.initialize());
         }
         ~Fixture() {
             material.release();
-            const GLuint TEXTURES[] = {window, otherWindow, scene, black};
-            glDeleteTextures(4, TEXTURES);
+            const std::array<GLuint, 4> TEXTURES{window, other_window, scene, black};
+            glDeleteTextures(4, TEXTURES.data());
         }
         Image render(const hyprimate::BubbleFrame &frame,
-            GLuint image,
-            GLuint backdrop,
+            TexturePair textures,
             hyprimate::Vec2 pos,
             hyprimate::Vec2 size) {
             SBubbleTarget const TARGET{
-                .canvas = {.x = width, .y = height},
+                .canvas = {.x = WIDTH, .y = HEIGHT},
                 .origin = {.x = 0, .y = 0},
-                .sourcePos = pos,
-                .sourceSize = size,
+                .source_pos = pos,
+                .source_size = size,
             };
             SBubbleImages images{};
-            images.window = image;
-            images.textureOrigin = {.x = 0, .y = 0};
-            images.textureSize = {.x = width, .y = height};
-            images.wallpaper = backdrop;
+            images.window = textures.image;
+            images.texture_origin = {.x = 0, .y = 0};
+            images.texture_size = {.x = WIDTH, .y = HEIGHT};
+            images.wallpaper = textures.backdrop;
             // Frame unit coordinates map to the scene at the physical source position.
-            images.wallpaperOrigin = {.x = pos.x / width, .y = pos.y / height};
-            images.wallpaperX = {.x = size.x / width, .y = 0};
-            images.wallpaperY = {.x = 0, .y = size.y / height};
-            images.wallpaperPixel = {.x = 1.0 / width, .y = 1.0 / height};
-            glViewport(0, 0, width, height);
+            images.wallpaper_origin = {.x = pos.x / WIDTH, .y = pos.y / HEIGHT};
+            images.wallpaper_x = {.x = size.x / WIDTH, .y = 0};
+            images.wallpaper_y = {.x = 0, .y = size.y / HEIGHT};
+            images.wallpaper_pixel = {.x = 1.0 / WIDTH, .y = 1.0 / HEIGHT};
+            glViewport(0, 0, WIDTH, HEIGHT);
             glDisable(GL_BLEND);
             glClearColor(0, 0, 0, 0);
             glClear(GL_COLOR_BUFFER_BIT);
-            material.drawMembranes(frame, TARGET, images);
-            Image result(width * height);
-            glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, result.data());
+            material.draw_membranes(frame, TARGET, images);
+            Image result(static_cast<std::size_t>(WIDTH) * HEIGHT);
+            glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, result.data());
             CHECK(glGetError() == GL_NO_ERROR);
             return result;
         }
     };
 
-    int diff(const Pixel &a, const Pixel &b, int channel) {
-        return static_cast<int>(a[channel]) - static_cast<int>(b[channel]);
+    int diff(const Pixel &first, const Pixel &second, int channel) {
+        return static_cast<int>(first[channel]) - static_cast<int>(second[channel]);
     }
-    const Pixel &at(const Image &image, int x, int y) {
-        return image[(y * width) + x];
+    const Pixel &at(const Image &image, int column, int row) {
+        return image[(row * WIDTH) + column];
     }
 
-    void testSettled(Fixture &f) {
+    void test_settled(Fixture &fixture) {
         hyprimate::BubbleFrame frame{};
         frame.size = {.x = 120, .y = 80};
-        frame.window.halfSize = {.x = 60, .y = 40};
+        frame.window.half_size = {.x = 60, .y = 40};
         frame.window.visibility = 1;
         frame.window.transparency = 1;
-        const auto RESULT = f.render(frame, f.window, f.scene, {.x = 50, .y = 70}, frame.size);
+        const auto RESULT = fixture.render(frame,
+            {.image = fixture.window, .backdrop = fixture.scene},
+            {.x = 50, .y = 70},
+            frame.size);
         // Exact native pixels, including a location away from the centre and the outer clear area.
         for (const auto [PIXEL_X, PIXEL_Y] :
             std::array<std::array<int, 2>, 3>{{{55, 75}, {100, 110}, {165, 145}}}) {
@@ -130,23 +144,28 @@ namespace {
             };
             CHECK(at(RESULT, PIXEL_X, PIXEL_Y) == EXPECTED);
         }
-        CHECK(at(RESULT, 40, 60)[3] == 0);
+        CHECK(std::get<3>(at(RESULT, 40, 60)) == 0);
     }
 
-    void testSettling(Fixture &f) {
+    void test_settling(Fixture &fixture) {
         hyprimate::BubbleFrame frame{};
         frame.size = {.x = 160, .y = 100};
-        frame.window.halfSize = {.x = 80, .y = 50};
+        frame.window.half_size = {.x = 80, .y = 50};
         frame.window.visibility = 1;
         frame.window.thickness = 400;
         frame.window.motion.extent = {.x = 76, .y = 48};
-        const auto SETTLED = f.render(frame, f.window, f.scene, {.x = 48, .y = 78}, frame.size);
+        const auto SETTLED = fixture.render(frame,
+            {.image = fixture.window, .backdrop = fixture.scene},
+            {.x = 48, .y = 78},
+            frame.size);
         // Crossing from a tiny remaining contraction into the native fast path must
         // restore client pixels continuously, not abruptly swap scene and window.
         for (double const ROUND : {.004, .002, .001}) {
             frame.window.motion.round = ROUND;
-            const auto SETTLING =
-                f.render(frame, f.window, f.scene, {.x = 48, .y = 78}, frame.size);
+            const auto SETTLING = fixture.render(frame,
+                {.image = fixture.window, .backdrop = fixture.scene},
+                {.x = 48, .y = 78},
+                frame.size);
             for (const auto [PIXEL_X, PIXEL_Y] :
                 std::array<std::array<int, 2>, 3>{{{90, 110}, {128, 128}, {170, 145}}}) {
                 for (int channel = 0; channel < 4; ++channel) {
@@ -158,41 +177,62 @@ namespace {
         }
     }
 
-    void testTransparency(Fixture &f) {
+    void test_transparency(Fixture &fixture) {
         hyprimate::BubbleFrame frame{};
         frame.size = {.x = 160, .y = 100};
-        frame.window.halfSize = {.x = 80, .y = 50};
+        frame.window.half_size = {.x = 80, .y = 50};
         frame.window.visibility = 1;
         frame.window.thickness = 400;
         frame.window.motion.round = .5;
         frame.window.motion.extent = {.x = 76, .y = 48};
         const hyprimate::Vec2 POS{.x = 48, .y = 78};
         frame.window.transparency = 0;
-        const auto OPAQUE = f.render(frame, f.window, f.scene, POS, frame.size);
-        CHECK(OPAQUE == f.render(frame, f.window, f.black, POS, frame.size));
+        const auto OPAQUE = fixture.render(
+            frame, {.image = fixture.window, .backdrop = fixture.scene}, POS, frame.size);
+        CHECK(OPAQUE ==
+              fixture.render(frame, (TexturePair{fixture.window, fixture.black}), POS, frame.size));
         frame.window.transparency = 1;
-        const auto CLEAR = f.render(frame, f.window, f.scene, POS, frame.size);
-        CHECK(CLEAR == f.render(frame, f.otherWindow, f.scene, POS, frame.size));
+        const auto CLEAR = fixture.render(
+            frame, {.image = fixture.window, .backdrop = fixture.scene}, POS, frame.size);
+        CHECK(CLEAR ==
+              fixture.render(
+                  frame, (TexturePair{fixture.other_window, fixture.scene}), POS, frame.size));
         frame.window.transparency = .5;
-        const auto HALFWAY = f.render(frame, f.window, f.scene, POS, frame.size);
-        for (int channel = 0; channel < 3; ++channel) {
-            const int AVERAGE =
-                (static_cast<int>(at(OPAQUE, 128, 128)[channel]) + at(CLEAR, 128, 128)[channel]) /
-                2;
-            CHECK(std::abs(int(at(HALFWAY, 128, 128)[channel]) - AVERAGE) <= 1);
+        const auto HALFWAY = fixture.render(
+            frame, {.image = fixture.window, .backdrop = fixture.scene}, POS, frame.size);
+        const auto *opaque_channel = at(OPAQUE, 128, 128).begin();
+        const auto *clear_channel = at(CLEAR, 128, 128).begin();
+        const auto *halfway_channel = at(HALFWAY, 128, 128).begin();
+        for (int channel = 0; channel < 3; ++channel, ++halfway_channel) {
+            const int AVERAGE = (static_cast<int>(*opaque_channel++) + *clear_channel++) / 2;
+            CHECK(std::abs(int(*halfway_channel) - AVERAGE) <= 1);
         }
         CHECK(OPAQUE != CLEAR);
         // This changes the transmitted imagery, not the geometry or film coverage.
-        for (std::size_t i = 0; i < OPAQUE.size(); ++i) {
-            CHECK(OPAQUE[i][3] == CLEAR[i][3]);
+        auto clear_pixel = CLEAR.begin();
+        for (const auto &pixel : OPAQUE) {
+            CHECK(std::get<3>(pixel) == std::get<3>(*clear_pixel));
+            ++clear_pixel;
         }
     }
 
-    void testMoving(Fixture &f, int w, int h, double round, hyprimate::Vec2 extent) {
-        const hyprimate::Vec2 POS{.x = (width - w) / 2.0, .y = (height - h) / 2.0};
+    struct WindowDimensions {
+        int width;
+        int height;
+    };
+
+    void test_moving(
+        Fixture &fixture, WindowDimensions dimensions, double round, hyprimate::Vec2 extent) {
+        const hyprimate::Vec2 POS{
+            .x = (WIDTH - dimensions.width) / 2.0,
+            .y = (HEIGHT - dimensions.height) / 2.0,
+        };
         hyprimate::BubbleFrame frame{};
-        frame.size = {.x = static_cast<double>(w), .y = static_cast<double>(h)};
-        frame.window.halfSize = {.x = w / 2.0, .y = h / 2.0};
+        frame.size = {
+            .x = static_cast<double>(dimensions.width),
+            .y = static_cast<double>(dimensions.height),
+        };
+        frame.window.half_size = {.x = dimensions.width / 2.0, .y = dimensions.height / 2.0};
         frame.window.corner = 4;
         frame.window.visibility = 1;
         frame.window.thickness = 400;
@@ -200,30 +240,33 @@ namespace {
         frame.window.motion.extent = extent;
         frame.window.motion.drag = {.x = 5, .y = -3};
         frame.window.motion.carry = {.x = 3, .y = 2};
-        const auto DESKTOP = f.render(frame, f.window, f.scene, POS, frame.size);
-        const auto DARK = f.render(frame, f.window, f.black, POS, frame.size);
-        const auto DIFFERENT_WINDOW = f.render(frame, f.otherWindow, f.scene, POS, frame.size);
-        const int CENTER_X = (width / 2) + 3;
-        const int CENTER_Y = (height / 2) + 2;
+        const auto DESKTOP = fixture.render(
+            frame, {.image = fixture.window, .backdrop = fixture.scene}, POS, frame.size);
+        const auto DARK = fixture.render(
+            frame, {.image = fixture.window, .backdrop = fixture.black}, POS, frame.size);
+        const auto DIFFERENT_WINDOW = fixture.render(
+            frame, {.image = fixture.other_window, .backdrop = fixture.scene}, POS, frame.size);
+        const int CENTER_X = (WIDTH / 2) + 3;
+        const int CENTER_Y = (HEIGHT / 2) + 2;
         // A changing desktop behind the same client must be visible in the moving film.
-        int desktopResponse = 0;
-        int windowResponse = 0;
+        int desktop_response = 0;
+        int window_response = 0;
         for (int channel = 0; channel < 3; ++channel) {
-            desktopResponse += std::abs(
+            desktop_response += std::abs(
                 diff(at(DESKTOP, CENTER_X, CENTER_Y), at(DARK, CENTER_X, CENTER_Y), channel));
-            windowResponse += std::abs(diff(at(DESKTOP, CENTER_X, CENTER_Y),
+            window_response += std::abs(diff(at(DESKTOP, CENTER_X, CENTER_Y),
                 at(DIFFERENT_WINDOW, CENTER_X, CENTER_Y),
                 channel));
         }
-        CHECK(desktopResponse > 8);
-        CHECK(windowResponse > 8);
-        CHECK(desktopResponse > windowResponse);
+        CHECK(desktop_response > 8);
+        CHECK(window_response > 8);
+        CHECK(desktop_response > window_response);
         // Source orientation: compare the response to the scene, cancelling the unchanged window
         // and film.
-        const int SAMPLE_OFFSET_X = int(extent.x * .32);
-        const int SAMPLE_OFFSET_Y = int(extent.y * .32);
-        const auto RESPONSE = [&](int x, int y, int c) {
-            return diff(at(DESKTOP, x, y), at(DARK, x, y), c);
+        const int SAMPLE_OFFSET_X = static_cast<int>(extent.x * .32);
+        const int SAMPLE_OFFSET_Y = static_cast<int>(extent.y * .32);
+        const auto RESPONSE = [&](int column, int row, int channel) {
+            return diff(at(DESKTOP, column, row), at(DARK, column, row), channel);
         };
         CHECK(RESPONSE(CENTER_X + SAMPLE_OFFSET_X, CENTER_Y, 0) >
               RESPONSE(CENTER_X - SAMPLE_OFFSET_X, CENTER_Y, 0) + 2);
@@ -233,13 +276,17 @@ namespace {
         CHECK(RESPONSE(CENTER_X + SAMPLE_OFFSET_X, CENTER_Y + SAMPLE_OFFSET_Y, 2) >
               RESPONSE(CENTER_X - SAMPLE_OFFSET_X, CENTER_Y + SAMPLE_OFFSET_Y, 2) + 20);
         // Colour changes cannot alter the silhouette; interior and well outside remain distinct.
-        CHECK(at(DESKTOP, CENTER_X, CENTER_Y)[3] > 128);
+        CHECK(std::get<3>(at(DESKTOP, CENTER_X, CENTER_Y)) > 128);
         // Moving the same film over the screen changes the desktop under its centre.
         const hyprimate::Vec2 SHIFTED{.x = POS.x - 20, .y = POS.y - 20};
-        const auto SHIFTED_SCENE = f.render(frame, f.otherWindow, f.scene, SHIFTED, frame.size);
-        const auto SHIFTED_DARK = f.render(frame, f.otherWindow, f.black, SHIFTED, frame.size);
-        const auto ORIGINAL_SCENE = f.render(frame, f.otherWindow, f.scene, POS, frame.size);
-        const auto ORIGINAL_DARK = f.render(frame, f.otherWindow, f.black, POS, frame.size);
+        const auto SHIFTED_SCENE = fixture.render(
+            frame, {.image = fixture.other_window, .backdrop = fixture.scene}, SHIFTED, frame.size);
+        const auto SHIFTED_DARK = fixture.render(
+            frame, {.image = fixture.other_window, .backdrop = fixture.black}, SHIFTED, frame.size);
+        const auto ORIGINAL_SCENE = fixture.render(
+            frame, {.image = fixture.other_window, .backdrop = fixture.scene}, POS, frame.size);
+        const auto ORIGINAL_DARK = fixture.render(
+            frame, {.image = fixture.other_window, .backdrop = fixture.black}, POS, frame.size);
         CHECK(
             diff(at(ORIGINAL_SCENE, CENTER_X, CENTER_Y), at(ORIGINAL_DARK, CENTER_X, CENTER_Y), 0) >
             diff(at(SHIFTED_SCENE, CENTER_X - 20, CENTER_Y - 20),
@@ -252,29 +299,30 @@ namespace {
                 at(SHIFTED_DARK, CENTER_X - 20, CENTER_Y - 20),
                 1) +
                 2);
-        CHECK(at(DESKTOP, 2, 2)[3] == 0);
-        bool sameSilhouette = true;
-        for (std::size_t i = 0; i < DESKTOP.size(); ++i) {
-            sameSilhouette &= (DESKTOP[i][3] > 8) == (DARK[i][3] > 8);
+        CHECK(std::get<3>(at(DESKTOP, 2, 2)) == 0);
+        bool same_silhouette = true;
+        auto dark_pixel = DARK.begin();
+        for (const auto &pixel : DESKTOP) {
+            same_silhouette &= (std::get<3>(pixel) > 8) == (std::get<3>(*dark_pixel++) > 8);
         }
-        CHECK(sameSilhouette);
+        CHECK(same_silhouette);
         // The GPU outline must still enclose the CPU motion model's axis-edge points.
         for (int axis = 0; axis < 2; ++axis) {
             for (int const SIGN : {-1, 1}) {
                 hyprimate::Vec2 edge{};
                 if (axis == 0) {
-                    edge.x = SIGN * frame.window.halfSize.x;
+                    edge.x = SIGN * frame.window.half_size.x;
                 } else {
-                    edge.y = SIGN * frame.window.halfSize.y;
+                    edge.y = SIGN * frame.window.half_size.y;
                 }
-                const auto MAPPED =
-                    hyprimate::bubbleMotionPoint(frame.window.halfSize, frame.window.motion, edge);
-                const int PIXEL_X = static_cast<int>(std::lround((width / 2.0) + MAPPED.x));
-                const int PIXEL_Y = static_cast<int>(std::lround((height / 2.0) + MAPPED.y));
+                const auto MAPPED = hyprimate::bubble_motion_point(
+                    frame.window.half_size, frame.window.motion, edge);
+                const int PIXEL_X = static_cast<int>(std::lround((WIDTH / 2.0) + MAPPED.x));
+                const int PIXEL_Y = static_cast<int>(std::lround((HEIGHT / 2.0) + MAPPED.y));
                 const int OFFSET_X = axis == 0 ? SIGN * 8 : 0;
                 const int OFFSET_Y = axis == 1 ? SIGN * 8 : 0;
-                CHECK(at(DESKTOP, PIXEL_X - OFFSET_X, PIXEL_Y - OFFSET_Y)[3] > 128);
-                CHECK(at(DESKTOP, PIXEL_X + OFFSET_X, PIXEL_Y + OFFSET_Y)[3] < 8);
+                CHECK(std::get<3>(at(DESKTOP, PIXEL_X - OFFSET_X, PIXEL_Y - OFFSET_Y)) > 128);
+                CHECK(std::get<3>(at(DESKTOP, PIXEL_X + OFFSET_X, PIXEL_Y + OFFSET_Y)) < 8);
             }
         }
     }
@@ -289,7 +337,7 @@ int main() {
         std::fprintf(stderr, "Cannot initialize offscreen EGL (try EGL_PLATFORM=surfaceless)\n");
         return 1;
     }
-    const EGLint CONFIG_ATTRS[] = {
+    const std::array<EGLint, 13> CONFIG_ATTRS{
         EGL_SURFACE_TYPE,
         EGL_PBUFFER_BIT,
         EGL_RENDERABLE_TYPE,
@@ -306,13 +354,13 @@ int main() {
     };
     EGLConfig config{};
     EGLint count = 0;
-    if ((eglChooseConfig(display, CONFIG_ATTRS, &config, 1, &count) == 0U) || count != 1) {
+    if ((eglChooseConfig(display, CONFIG_ATTRS.data(), &config, 1, &count) == 0U) || count != 1) {
         return 1;
     }
-    const EGLint SURFACE_ATTRS[] = {EGL_WIDTH, width, EGL_HEIGHT, height, EGL_NONE};
-    const EGLint CONTEXT_ATTRS[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
-    EGLSurface surface = eglCreatePbufferSurface(display, config, SURFACE_ATTRS);
-    EGLContext context = eglCreateContext(display, config, EGL_NO_CONTEXT, CONTEXT_ATTRS);
+    const std::array<EGLint, 5> SURFACE_ATTRS{EGL_WIDTH, WIDTH, EGL_HEIGHT, HEIGHT, EGL_NONE};
+    const std::array<EGLint, 3> CONTEXT_ATTRS{EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
+    EGLSurface surface = eglCreatePbufferSurface(display, config, SURFACE_ATTRS.data());
+    EGLContext context = eglCreateContext(display, config, EGL_NO_CONTEXT, CONTEXT_ATTRS.data());
     if (surface == EGL_NO_SURFACE || context == EGL_NO_CONTEXT ||
         (eglMakeCurrent(display, surface, surface, context) == 0U)) {
         std::fprintf(stderr, "Cannot create GLES 3 offscreen context\n");
@@ -320,12 +368,14 @@ int main() {
     }
     {
         Fixture fixture;
-        testSettled(fixture);
-        testSettling(fixture);
-        testTransparency(fixture);
-        testMoving(fixture, 160, 100, .35, {.x = 76, .y = 48});  // pillow, wide
-        testMoving(fixture, 100, 160, .75, {.x = 46, .y = 74});  // ellipse, tall
-        testMoving(fixture, 150, 90, .85, {.x = 48, .y = 48});  // disc
+        test_settled(fixture);
+        test_settling(fixture);
+        test_transparency(fixture);
+        test_moving(
+            fixture, {.width = 160, .height = 100}, .35, {.x = 76, .y = 48});  // pillow, wide
+        test_moving(
+            fixture, {.width = 100, .height = 160}, .75, {.x = 46, .y = 74});  // ellipse, tall
+        test_moving(fixture, {.width = 150, .height = 90}, .85, {.x = 48, .y = 48});  // disc
     }
     eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     eglDestroyContext(display, context);

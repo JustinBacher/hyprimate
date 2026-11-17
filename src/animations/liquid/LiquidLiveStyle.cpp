@@ -35,126 +35,134 @@
 using namespace Render;
 using hyprimate::Vec2;
 namespace {
-    void refreshPose(SLiquidStyle &state, Vec2 captureSize);
-    void restoreBox(SLiquidStyle &state, const PHLWINDOWREF &window);
-    void driveBox(SLiquidStyle &state, const PHLWINDOWREF &window);
+    void refresh_pose(SLiquidStyle &state, Vec2 capture_size);
+    void restore_box(SLiquidStyle &state, const PHLWINDOWREF &window_ref);
+    void drive_box(SLiquidStyle &state, const PHLWINDOWREF &window_ref);
 }  // namespace
 
-hyprimate::LiquidPose livePose(const SLiquidStyle &state) {
-    if (!state.boxDriven) {
-        return {.mesh = state.mesh,
+hyprimate::LiquidPose live_pose(const SLiquidStyle &state) {
+    if (!state.box_driven) {
+        return {
+            .mesh = state.mesh,
             .transition = state.transition,
             .compensation = {.x = 1.0, .y = 1.0},
-            .openOffset = {.x = 0.0, .y = 0.0},
-            .displacementGain = state.displacementGain,
-            .boxPose = false};
+            .open_offset = {.x = 0.0, .y = 0.0},
+            .displacement_gain = state.displacement_gain,
+            .box_pose = false,
+        };
     }
-    const Vec2 BEAD = state.transition.beadCentre();
-    return {.mesh = state.mesh,
+    const Vec2 BEAD = state.transition.bead_centre();
+    return {
+        .mesh = state.mesh,
         .transition = state.transition,
         .compensation = {.x = 1.0, .y = 1.0},
-        .openOffset = {.x = -BEAD.x, .y = -BEAD.y},
-        .displacementGain = state.displacementGain,
-        .boxPose = true};
+        .open_offset = {.x = -BEAD.x, .y = -BEAD.y},
+        .displacement_gain = state.displacement_gain,
+        .box_pose = true,
+    };
 }
 
-CBox liveExtents(const SLiquidStyle &state, const CBox &box) {
-    const auto POSE = livePose(state);
-    const auto LOGICAL = toBox(box);
-    auto extents = hyprimate::liquidRenderExtents(POSE, LOGICAL, state.grid);
-    hyprimate::expandBox(extents, 4.0);
-    if (const auto VISIBLE = hyprimate::liquidVisibleBox(POSE, LOGICAL)) {
-        extents = hyprimate::intersectBoxes(extents, *VISIBLE);
+CBox live_extents(const SLiquidStyle &state, const CBox &box) {
+    const auto POSE = live_pose(state);
+    const auto LOGICAL = to_box(box);
+    auto extents = hyprimate::liquid_render_extents(POSE, LOGICAL, state.grid);
+    hyprimate::expand_box(extents, 4.0);
+    if (const auto VISIBLE = hyprimate::liquid_visible_box(POSE, LOGICAL)) {
+        extents = hyprimate::intersect_boxes(extents, *VISIBLE);
     }
-    return toCBox(extents);
+    return to_cbox(extents);
 }
 
-SWindowTransformBuffer renderLive(SLiquidStyle &state,
+SWindowTransformBuffer render_live(SLiquidStyle &state,
     CRenderContext &ctx,
-    const SWindowTransformBuffer &in,
+    const SWindowTransformBuffer &input,
     const SWindowTransformContext &context,
-    const SLiveRenderGeometry &g,
-    const SP<CSolidFill> &solidFill,
-    const SP<CPaperShade> &,
-    const SP<CSwarmSprites> &) {
-    const auto OUT = g_pHyprRenderer->getWorkBuffer(ctx, g.canvas.size());
+    const SLiveRenderGeometry &geometry,
+    const SP<CSolidFill> &solid_fill,
+    [[maybe_unused]] const SP<CPaperShade> &shade,
+    [[maybe_unused]] const SP<CSwarmSprites> &sprites) {
+    const auto OUT = g_pHyprRenderer->getWorkBuffer(ctx, geometry.canvas.size());
     if (!OUT) {
-        return {.framebuffer = in.framebuffer, .box = in.box, .success = false};
+        return {.framebuffer = input.framebuffer, .box = input.box, .success = false};
     }
 
-    const auto POSE = livePose(state);
-    const auto LOGICAL = toBox(context.currentBox);
-    const auto VISIBLE = hyprimate::liquidVisibleBox(POSE, LOGICAL);
-    const auto MENISCUS = hyprimate::liquidMeniscusExtents(POSE, LOGICAL);
-    const SP<ITexture> SOLID = MENISCUS && solidFill ? solidFill->texture() : SP<ITexture>{};
-    const CBox LIQUID_BOX = MENISCUS ? pixelBoxForLogical(toCBox(*MENISCUS), g.scale) : CBox{};
-    hyprimate::fillLiquidRenderMesh(POSE,
-        toBox(g.source),
-        g.scale,
-        toBox(g.output),
-        Vec2{.x = in.box.x, .y = in.box.y},
-        g.textureSize,
+    const auto POSE = live_pose(state);
+    const auto LOGICAL = to_box(context.currentBox);
+    const auto VISIBLE = hyprimate::liquid_visible_box(POSE, LOGICAL);
+    const auto MENISCUS = hyprimate::liquid_meniscus_extents(POSE, LOGICAL);
+    const SP<ITexture> SOLID = MENISCUS && solid_fill ? solid_fill->texture() : SP<ITexture>{};
+    const CBox LIQUID_BOX =
+        MENISCUS ? pixelBoxForLogical(to_cbox(*MENISCUS), geometry.scale) : CBox{};
+    hyprimate::fill_liquid_render_mesh(POSE,
+        to_box(geometry.source),
+        geometry.scale,
+        to_box(geometry.output),
+        Vec2{.x = input.box.x, .y = input.box.y},
+        geometry.texture_size,
         state.grid,
         state.vertices);
     if (SOLID) {
-        hyprimate::fillLiquidMeniscusMesh(
-            POSE, toBox(g.source), g.scale, toBox(LIQUID_BOX), state.meniscusVertices);
+        hyprimate::fill_liquid_meniscus_mesh(POSE,
+            to_box(geometry.source),
+            geometry.scale,
+            to_box(LIQUID_BOX),
+            state.meniscus_vertices);
     }
 
     const GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     const auto DRAW_STATE = ctx.saveDrawState();
-    auto &renderData = ctx.m_data;
+    auto &render_data = ctx.m_data;
     g_pHyprRenderer->bindFB(ctx, OUT);
-    renderData.damage = CRegion{0.0, 0.0, g.canvas.w, g.canvas.h};
-    renderData.fbSize = g.canvas.size();
+    render_data.damage = CRegion{0.0, 0.0, geometry.canvas.w, geometry.canvas.h};
+    render_data.fbSize = geometry.canvas.size();
     g_pHyprRenderer->setProjectionType(ctx, RPT_EXPORT);
     g_pHyprRenderer->draw(ctx, CClearPassElement::SClearData{CHyprColor(0, 0, 0, 0)});
     if (VISIBLE) {
-        CBox clip = pixelBoxForLogical(toCBox(*VISIBLE), g.scale);
-        clip.translate(-g.canvas.pos());
-        renderData.damage.intersect(CRegion{clip});
+        CBox clip = pixelBoxForLogical(to_cbox(*VISIBLE), geometry.scale);
+        clip.translate(-geometry.canvas.pos());
+        render_data.damage.intersect(CRegion{clip});
     }
-    GL::CHyprOpenGLImpl::STextureRenderData textureData{};
-    textureData.damage = &renderData.damage;
-    textureData.a = 1.F;
-    textureData.allowCustomUV = true;
+    GL::CHyprOpenGLImpl::STextureRenderData texture_data{};
+    texture_data.damage = &render_data.damage;
+    texture_data.a = 1.F;
+    texture_data.allowCustomUV = true;
     if (SOLID) {
         GL::g_pHyprOpenGL->renderTextureMesh(ctx,
             SOLID,
-            LIQUID_BOX.copy().translate(-g.canvas.pos()),
-            state.meniscusVertices,
-            textureData);
+            LIQUID_BOX.copy().translate(-geometry.canvas.pos()),
+            state.meniscus_vertices,
+            texture_data);
     }
     GL::g_pHyprOpenGL->renderTextureMesh(
-        ctx, in.framebuffer->getTexture(), g.localOutput, state.vertices, textureData);
-    return {.framebuffer = OUT, .box = g.canvas};
+        ctx, input.framebuffer->getTexture(), geometry.local_output, state.vertices, texture_data);
+    return {.framebuffer = OUT, .box = geometry.canvas};
 }
 
 bool SLiquidLiveStyle::open(
     CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window) {
-    const auto FRAME = hyprimate::resolveStyleOpenEdge(
-        runtime.edgeInputFor(window, true), runtime.m_config.open.liquid);
+    const auto FRAME = hyprimate::resolve_style_open_edge(
+        runtime.edge_input_for(window, true), runtime.m_config.open.liquid);
     if (!FRAME) {
         return false;
     }
-    entry.openEdge = FRAME->edge;
+    entry.open_edge = FRAME->edge;
     const auto &open = runtime.m_config.open.liquid;
     if (open.strength <= 0.0) {
         return false;
     }
-    auto *transformer = runtime.acquireTransformer(window);
+    auto *transformer = runtime.acquire_transformer(window);
     const CBox CAPTURE = window->getFullWindowBoundingBox();
     auto &state = std::get<SLiquidStyle>(transformer->m_style);
     state.transition.begin(hyprimate::Transition::Open,
         *FRAME,
         {.elasticity = open.elasticity, .momentum = open.momentum},
         open.strength);
-    state.boxDriven = state.transition.active();
+    state.box_driven = state.transition.active();
     state.warped = false;
-    if (state.boxDriven) {
-        state.goalBody = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
+    if (state.box_driven) {
+        state.goal_body = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
     }
-    refreshPose(state, {.x = CAPTURE.w, .y = CAPTURE.h});
+    refresh_pose(state, {.x = CAPTURE.w, .y = CAPTURE.h});
     return true;
 }
 
@@ -162,30 +170,30 @@ void SLiquidLiveStyle::movement(CPluginRuntime &runtime,
     CAnimationTransformer &transformer,
     const PHLWINDOW &window,
     const hyprimate::TrackDecision &decision,
-    double,
+    [[maybe_unused]] double elapsed,
     bool enabled,
     bool moving) {
     const CBox CAPTURE = window->getFullWindowBoundingBox();
     const auto &current = decision.current_box;
     auto &state = std::get<SLiquidStyle>(transformer.m_style);
     if (moving) {
-        state.mesh.recordTranslation(
+        state.mesh.record_translation(
             {.x = current.x - decision.previous_box.x, .y = current.y - decision.previous_box.y},
             {.x = CAPTURE.w, .y = CAPTURE.h},
-            runtime.movementStrength());
+            runtime.movement_strength());
     } else if (enabled) {
         state.mesh.advance(0.0, {.x = CAPTURE.w, .y = CAPTURE.h});
     } else {
         state.mesh.reset();
     }
-    refreshPose(state, {.x = CAPTURE.w, .y = CAPTURE.h});
+    refresh_pose(state, {.x = CAPTURE.w, .y = CAPTURE.h});
 }
 
 void SLiquidLiveStyle::snapshot(
-    const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &s) {
+    const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &snapshot) {
     const auto *state =
         (transformer != nullptr) ? std::get_if<SLiquidStyle>(&transformer->m_style) : nullptr;
-    s.transition_busy = (state != nullptr) && state->transition.active();
+    snapshot.transition_busy = (state != nullptr) && state->transition.active();
 }
 
 void SLiquidLiveStyle::step(CPluginRuntime &runtime,
@@ -197,53 +205,53 @@ void SLiquidLiveStyle::step(CPluginRuntime &runtime,
     if (!enabled) {
         state.mesh.reset();
     }
-    hyprimate::advanceLiquidPose(state.mesh,
+    hyprimate::advance_liquid_pose(state.mesh,
         state.transition,
         state.grid,
         elapsed,
         size,
-        runtime.movementStrength(),
-        enabled ? runtime.m_config.open.liquid.emergeDrag : 0.0);
-    refreshPose(state, size);
-    driveBox(state, transformer.m_window);
+        hyprimate::LiquidStrength{runtime.movement_strength()},
+        hyprimate::LiquidDrive{enabled ? runtime.m_config.open.liquid.emergeDrag : 0.0});
+    refresh_pose(state, size);
+    drive_box(state, transformer.m_window);
 }
 namespace {
-    void restoreBox(SLiquidStyle &state, const PHLWINDOWREF &windowRef) {
-        if (!state.boxDriven || !state.warped) {
+    void restore_box(SLiquidStyle &state, const PHLWINDOWREF &window_ref) {
+        if (!state.box_driven || !state.warped) {
             return;
         }
         state.warped = false;
-        const auto WINDOW = windowRef.lock();
-        if (!WINDOW || !(state.goalBody.w > 0.0 && state.goalBody.h > 0.0)) {
+        const auto WINDOW = window_ref.lock();
+        if (!WINDOW || !(state.goal_body.w > 0.0) || !(state.goal_body.h > 0.0)) {
             return;
         }
-        WINDOW->positionAnimation()->setValueAndWarp(state.goalBody.pos());
-        WINDOW->sizeAnimation()->setValueAndWarp(state.goalBody.size());
+        WINDOW->positionAnimation()->setValueAndWarp(state.goal_body.pos());
+        WINDOW->sizeAnimation()->setValueAndWarp(state.goal_body.size());
     }
 
-    void driveBox(SLiquidStyle &state, const PHLWINDOWREF &windowRef) {
-        if (!state.boxDriven) {
+    void drive_box(SLiquidStyle &state, const PHLWINDOWREF &window_ref) {
+        if (!state.box_driven) {
             return;
         }
         if (!state.transition.active()) {
-            restoreBox(state, windowRef);
-            state.boxDriven = false;
+            restore_box(state, window_ref);
+            state.box_driven = false;
             return;
         }
-        const auto WINDOW = windowRef.lock();
+        const auto WINDOW = window_ref.lock();
         if (!WINDOW) {
             return;
         }
 
-        auto &positionVar = WINDOW->positionAnimation();
-        auto &sizeVar = WINDOW->sizeAnimation();
+        auto &position_var = WINDOW->positionAnimation();
+        auto &size_var = WINDOW->sizeAnimation();
         // The layout retargets the real box through the same variables. A goal other than the one
         // this wrote is the layout's.
         if (state.warped &&
-            (positionVar->goal() != state.warpPosition || sizeVar->goal() != state.warpSize)) {
-            state.goalBody = CBox{positionVar->goal(), sizeVar->goal()};
+            (position_var->goal() != state.warp_position || size_var->goal() != state.warp_size)) {
+            state.goal_body = CBox{position_var->goal(), size_var->goal()};
         }
-        if (!(state.goalBody.w > 0.0 && state.goalBody.h > 0.0)) {
+        if (!(state.goal_body.w > 0.0) || !(state.goal_body.h > 0.0)) {
             return;
         }
 
@@ -260,12 +268,12 @@ namespace {
             return;
         }
 
-        const CBox REST = {state.goalBody.x - LEFT,
-            state.goalBody.y - TOP,
-            state.goalBody.w + LEFT + RIGHT,
-            state.goalBody.h + TOP + BOTTOM};
-        const Vec2 HALF = state.transition.beadHalf({.x = REST.w, .y = REST.h});
-        const Vec2 CENTRE = state.transition.beadCentre();
+        const CBox REST = {state.goal_body.x - LEFT,
+            state.goal_body.y - TOP,
+            state.goal_body.w + LEFT + RIGHT,
+            state.goal_body.h + TOP + BOTTOM};
+        const Vec2 HALF = state.transition.bead_half({.x = REST.w, .y = REST.h});
+        const Vec2 CENTRE = state.transition.bead_centre();
         const double CENTRE_X = REST.x + (0.5 * REST.w) + CENTRE.x;
         const double CENTRE_Y = REST.y + (0.5 * REST.h) + CENTRE.y;
         constexpr double MIN_SIDE = 2.0;
@@ -274,32 +282,34 @@ namespace {
         const Vector2D POSITION{CENTRE_X - HALF.x + LEFT, CENTRE_Y - HALF.y + TOP};
         const Vector2D SIZE{WIDTH, HEIGHT};
 
-        positionVar->setValueAndWarp(POSITION);
-        sizeVar->setValueAndWarp(SIZE);
-        state.warpPosition = POSITION;
-        state.warpSize = SIZE;
+        position_var->setValueAndWarp(POSITION);
+        size_var->setValueAndWarp(SIZE);
+        state.warp_position = POSITION;
+        state.warp_size = SIZE;
         state.warped = true;
     }
-    void refreshPose(SLiquidStyle &state, Vec2 captureSize) {
+    void refresh_pose(SLiquidStyle &state, Vec2 capture_size) {
         // Gain only: the shared grid is built by the pose that draws it, so nothing is pre-filled
         // here.
-        const hyprimate::LiquidPose FIT{.mesh = state.mesh,
+        const hyprimate::LiquidPose FIT{
+            .mesh = state.mesh,
             .transition = state.transition,
             .compensation = {.x = 1.0, .y = 1.0},
-            .openOffset = {.x = 0.0, .y = 0.0},
-            .displacementGain = 1.0,
-            .boxPose = state.boxDriven};
-        state.displacementGain = hyprimate::fitLiquidPoseGain(FIT, captureSize, nullptr);
+            .open_offset = {.x = 0.0, .y = 0.0},
+            .displacement_gain = 1.0,
+            .box_pose = state.box_driven,
+        };
+        state.displacement_gain = hyprimate::fit_liquid_pose_gain(FIT, capture_size, nullptr);
         state.grid.invalidate();
     }
 }  // namespace
 
 void SLiquidLiveStyle::cancelOpening(CAnimationTransformer &transformer) {
     auto &state = std::get<SLiquidStyle>(transformer.m_style);
-    restoreBox(state, transformer.m_window);
+    restore_box(state, transformer.m_window);
     state.transition.reset();
-    state.boxDriven = false;
-    state.displacementGain = 1.0;
+    state.box_driven = false;
+    state.displacement_gain = 1.0;
     state.grid.invalidate();
 }
 
@@ -310,22 +320,23 @@ void SLiquidLiveStyle::cancelMovement(CAnimationTransformer &transformer) {
 }
 
 bool SLiquidLiveStyle::deforming(const SLiquidStyle &state) noexcept {
-    return !(state.mesh.settled() && !state.transition.active());
+    return !state.mesh.settled() || state.transition.active();
 }
 
 bool SLiquidLiveStyle::builtFor(const SLiquidStyle &state,
     hyprimate::config::Style style,
     hyprimate::MaterialParams liquid,
-    hyprimate::ClothMovementParams) noexcept {
+    [[maybe_unused]] hyprimate::ClothMovementParams cloth) noexcept {
     return style == hyprimate::config::Style::Liquid && state.mesh.params() == liquid;
 }
 
-bool SLiquidLiveStyle::available(const SLiquidStyle &) noexcept {
+bool SLiquidLiveStyle::available([[maybe_unused]] const SLiquidStyle &state) noexcept {
     return true;
 }
 
-SStyleState SLiquidLiveStyle::initial(
-    hyprimate::MaterialParams liquid, hyprimate::ClothMovementParams, std::uint64_t seed) {
+SStyleState SLiquidLiveStyle::initial(hyprimate::MaterialParams liquid,
+    [[maybe_unused]] hyprimate::ClothMovementParams cloth,
+    std::uint64_t seed) {
     return SLiquidStyle{.mesh = hyprimate::LiquidMesh{liquid, seed}};
 }
 
@@ -333,7 +344,7 @@ double SLiquidLiveStyle::strength(const CPluginRuntime &runtime) {
     return runtime.m_config.movement.liquid.strength;
 }
 bool SLiquidLiveStyle::usable(const CPluginRuntime &runtime) {
-    const auto PARAMS = runtime.effectiveMaterialParams();
+    const auto PARAMS = runtime.effective_material_params();
     return std::isfinite(PARAMS.viscosity) && std::isfinite(PARAMS.elasticity) &&
            std::isfinite(PARAMS.momentum) && std::isfinite(PARAMS.variation);
 }

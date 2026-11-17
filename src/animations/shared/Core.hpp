@@ -24,10 +24,10 @@ namespace hyprimate {
         constexpr void add(Edge edge) noexcept {
             bits |= static_cast<std::uint8_t>(1U << static_cast<unsigned>(edge));
         }
-        constexpr bool has(Edge edge) const noexcept {
-            return ((bits >> static_cast<unsigned>(edge)) & 1U) != 0;
+        [[nodiscard]] constexpr bool has(Edge edge) const noexcept {
+            return ((static_cast<unsigned>(bits) >> static_cast<unsigned>(edge)) & 1U) != 0;
         }
-        constexpr bool empty() const noexcept {
+        [[nodiscard]] constexpr bool empty() const noexcept {
             return bits == 0;
         }
         constexpr bool operator==(const EdgeSet &) const = default;
@@ -58,14 +58,14 @@ namespace hyprimate {
     // splitmix64 step: equal seeds give equal streams; neighbouring seeds give unrelated ones.
     inline std::uint64_t splitmix64(std::uint64_t &state) noexcept {
         std::uint64_t mixed = (state += 0x9E3779B97F4A7C15ULL);
-        mixed = (mixed ^ (mixed >> 30)) * 0xBF58476D1CE4E5B9ULL;
-        mixed = (mixed ^ (mixed >> 27)) * 0x94D049BB133111EBULL;
-        return mixed ^ (mixed >> 31);
+        mixed = (mixed ^ (mixed >> 30U)) * 0xBF58476D1CE4E5B9ULL;
+        mixed = (mixed ^ (mixed >> 27U)) * 0x94D049BB133111EBULL;
+        return mixed ^ (mixed >> 31U);
     }
 
     // Uniform in [0, 1) from a splitmix64 stream: the top 53 bits.
     inline double unit_draw(std::uint64_t &state) noexcept {
-        return static_cast<double>(splitmix64(state) >> 11) * 0x1.0p-53;
+        return static_cast<double>(splitmix64(state) >> 11U) * 0x1.0p-53;
     }
 
     // C1 smoothstep: 0 at lower_bound, 1 at upper_bound, clamped outside that interval.

@@ -20,25 +20,25 @@ std::vector<UP<IPassElement>> CLiquidClosePassElement::draw(Render::CRenderConte
         return {};
     }
 
-    Render::GL::CHyprOpenGLImpl::STextureRenderData textureData{};
-    textureData.damage = &m_data.damage;
-    textureData.a = m_data.alpha;
-    textureData.allowCustomUV = true;
+    Render::GL::CHyprOpenGLImpl::STextureRenderData texture_data{};
+    texture_data.damage = &m_data.damage;
+    texture_data.a = m_data.alpha;
+    texture_data.allowCustomUV = true;
     // Edge liquid first, so the window mesh draws over the meniscus where they meet.
     if ((m_data.liquid != nullptr) && m_data.solid) {
         Render::GL::g_pHyprOpenGL->renderTextureMesh(
-            ctx, m_data.solid, m_data.liquidBox, *m_data.liquid, textureData);
+            ctx, m_data.solid, m_data.liquid_box, *m_data.liquid, texture_data);
     }
     Render::GL::g_pHyprOpenGL->renderTextureMesh(
-        ctx, m_data.tex, m_data.box, *m_data.vertices, textureData);
+        ctx, m_data.tex, m_data.box, *m_data.vertices, texture_data);
     return {};
 }
 
-bool CLiquidClosePassElement::needsLiveBlur(Render::CRenderContext &) {
+bool CLiquidClosePassElement::needsLiveBlur([[maybe_unused]] Render::CRenderContext &ctx) {
     return false;
 }
 
-bool CLiquidClosePassElement::needsPrecomputeBlur(Render::CRenderContext &) {
+bool CLiquidClosePassElement::needsPrecomputeBlur([[maybe_unused]] Render::CRenderContext &ctx) {
     return false;
 }
 
@@ -50,20 +50,21 @@ ePassElementType CLiquidClosePassElement::type() {
     return EK_CUSTOM;
 }
 
-std::optional<CBox> CLiquidClosePassElement::boundingBox(Render::CRenderContext &) {
+std::optional<CBox> CLiquidClosePassElement::boundingBox(
+    [[maybe_unused]] Render::CRenderContext &ctx) {
     // Same convention as CTexPassElement: monitor-local logical coordinates. The edge liquid widens
     // the box.
     CBox box = m_data.box;
     if ((m_data.liquid != nullptr) && m_data.solid) {
-        const double MIN_X = std::min(box.x, m_data.liquidBox.x);
-        const double MIN_Y = std::min(box.y, m_data.liquidBox.y);
-        const double MAX_X = std::max(box.x + box.w, m_data.liquidBox.x + m_data.liquidBox.w);
-        const double MAX_Y = std::max(box.y + box.h, m_data.liquidBox.y + m_data.liquidBox.h);
+        const double MIN_X = std::min(box.x, m_data.liquid_box.x);
+        const double MIN_Y = std::min(box.y, m_data.liquid_box.y);
+        const double MAX_X = std::max(box.x + box.w, m_data.liquid_box.x + m_data.liquid_box.w);
+        const double MAX_Y = std::max(box.y + box.h, m_data.liquid_box.y + m_data.liquid_box.h);
         box = CBox{MIN_X, MIN_Y, MAX_X - MIN_X, MAX_Y - MIN_Y};
     }
     return box.copy().scale(1.0 / m_data.scale).round();
 }
 
-CRegion CLiquidClosePassElement::opaqueRegion(Render::CRenderContext &) {
+CRegion CLiquidClosePassElement::opaqueRegion([[maybe_unused]] Render::CRenderContext &ctx) {
     return {};
 }

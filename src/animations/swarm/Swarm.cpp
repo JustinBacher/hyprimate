@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <numbers>
 #include <span>
@@ -143,8 +144,10 @@ namespace hyprimate {
         Vec2 turned(Vec2 vector, double angle) noexcept {
             const double COSINE = std::cos(angle);
             const double SINE = std::sin(angle);
-            return {.x = (vector.x * COSINE) - (vector.y * SINE),
-                .y = (vector.x * SINE) + (vector.y * COSINE)};
+            return {
+                .x = (vector.x * COSINE) - (vector.y * SINE),
+                .y = (vector.x * SINE) + (vector.y * COSINE),
+            };
         }
 
         double wrap_angle(double angle) noexcept {
@@ -195,10 +198,12 @@ namespace hyprimate {
         }
 
         std::uint32_t bucket(Vec2 position, double cell) noexcept {
-            const auto CELL_X =
-                static_cast<std::int64_t>(std::floor(position.x / cell)) & (HASH_SIDE - 1);
-            const auto CELL_Y =
-                static_cast<std::int64_t>(std::floor(position.y / cell)) & (HASH_SIDE - 1);
+            const auto CELL_X = static_cast<std::uint64_t>(
+                                    static_cast<std::int64_t>(std::floor(position.x / cell))) &
+                                static_cast<std::uint64_t>(HASH_SIDE - 1);
+            const auto CELL_Y = static_cast<std::uint64_t>(
+                                    static_cast<std::int64_t>(std::floor(position.y / cell))) &
+                                static_cast<std::uint64_t>(HASH_SIDE - 1);
             return static_cast<std::uint32_t>((CELL_Y * HASH_SIDE) + CELL_X);
         }
 
@@ -243,7 +248,7 @@ namespace hyprimate {
         const auto COLUMNS_OF = [&](int row) {
             return ((row + 1) * COUNT / ROWS) - (row * COUNT / ROWS);
         };
-        int index = 0;
+        auto agent_it = m_agents.begin();
         for (int tile_row = 0; tile_row < ROWS; ++tile_row) {
             const int COLUMNS = COLUMNS_OF(tile_row);
             const double TOP = m_body.y + (m_body.h * tile_row / ROWS);
@@ -251,7 +256,7 @@ namespace hyprimate {
             for (int col = 0; col < COLUMNS; ++col) {
                 const double LEFT = m_body.x + (m_body.w * col / COLUMNS);
                 const double RIGHT = m_body.x + (m_body.w * (col + 1) / COLUMNS);
-                SwarmAgent &agent = m_agents[static_cast<std::size_t>(index++)];
+                SwarmAgent &agent = *agent_it++;
                 // Outermost tiles extend over the decoration margin to the capture's edge.
                 const double TX0 = col == 0 ? 0.0 : LEFT;
                 const double TX1 = col == COLUMNS - 1 ? m_size.x : RIGHT;
@@ -333,9 +338,12 @@ namespace hyprimate {
         const double CRUISE = m_params.speed;
         std::array<Edge, 4> allowed{};
         std::size_t edges = 0;
+        auto *allowed_it = allowed.begin();
         for (const Edge CANDIDATE_EDGE : EDGES) {
             if (sides.has(CANDIDATE_EDGE)) {
-                allowed[edges++] = CANDIDATE_EDGE;
+                *allowed_it = CANDIDATE_EDGE;
+                ++allowed_it;
+                ++edges;
             }
         }
 
@@ -343,8 +351,8 @@ namespace hyprimate {
         for (SwarmAgent &entering_agent : m_agents) {
             // A random point beyond a random one of the edges: where an agent comes from, or goes
             // to, says nothing about where its tile is.
-            const Edge EDGE =
-                allowed[std::min(edges - 1, static_cast<std::size_t>(unit_draw(m_rng) * edges))];
+            const Edge EDGE = allowed[std::min(edges - 1,
+                static_cast<std::size_t>(unit_draw(m_rng) * static_cast<double>(edges)))];
             const bool HORIZONTAL = horizontal(EDGE);
             const double ALONG = (HORIZONTAL ? m_screen.x : m_screen.y) +
                                  ((HORIZONTAL ? m_screen.w : m_screen.h) * unit_draw(m_rng));
@@ -413,7 +421,7 @@ namespace hyprimate {
         }
     }
 
-    void Swarm::beginMovement(
+    void Swarm::begin_movement(
         const SwarmParams &params, std::uint64_t seed, const SwarmPlacement &placement) {
         if (m_phase != Phase::Idle || !is_usable(placement.capture) ||
             !is_usable(placement.screen) || !finite(params)) {
@@ -423,7 +431,7 @@ namespace hyprimate {
         m_phase = Phase::Movement;
     }
 
-    void Swarm::updateMovement(const SwarmPlacement &placement) {
+    void Swarm::update_movement(const SwarmPlacement &placement) {
         if ((m_phase != Phase::Opening && m_phase != Phase::Movement) ||
             !is_usable(placement.capture) || !is_usable(placement.screen)) {
             return;
@@ -459,7 +467,7 @@ namespace hyprimate {
         min_y = std::max(min_y, m_screen.y);
         max_x = std::min(max_x, m_screen.x + m_screen.w);
         max_y = std::min(max_y, m_screen.y + m_screen.h);
-        if (!(max_x > min_x && max_y > min_y)) {
+        if (!(max_x > min_x) || !(max_y > min_y)) {
             return {};
         }
         return {.x = min_x, .y = min_y, .w = max_x - min_x, .h = max_y - min_y};
@@ -538,27 +546,34 @@ namespace hyprimate {
         const double CELL = NEIGHBOUR_RADIUS * m_spacing;
         m_cell_start.assign(HASH_CELLS + 1, 0);
         m_cell_of.assign(m_agents.size(), NO_CELL);
-        for (std::size_t i = 0; i < m_agents.size(); ++i) {
-            const SwarmAgent &agent = m_agents[i];
+        auto cell = m_cell_of.begin();
+        for (const SwarmAgent &agent : m_agents) {
+            auto &agent_cell = *cell++;
             if (agent.docked || agent.gone || !agent.visible) {
                 continue;
             }
-            m_cell_of[i] = bucket(agent.position, CELL);
-            ++m_cell_start[m_cell_of[i] + 1];
+            agent_cell = bucket(agent.position, CELL);
+            ++m_cell_start[agent_cell + 1];
         }
-        for (int bucket_index = 0; bucket_index < HASH_CELLS; ++bucket_index) {
-            m_cell_start[bucket_index + 1] += m_cell_start[bucket_index];
+        auto previous = m_cell_start.begin();
+        auto current = std::next(previous);
+        for (int bucket_index = 0; bucket_index < HASH_CELLS;
+            ++bucket_index, ++previous, ++current) {
+            *current += *previous;
         }
         m_cell_items.resize(m_cell_start.back());
         // Filling from each bucket's end leaves m_cell_start pointing at the bucket starts again.
-        for (std::size_t i = m_agents.size(); i-- > 0;) {
-            if (m_cell_of[i] != NO_CELL) {
-                m_cell_items[--m_cell_start[m_cell_of[i] + 1]] = static_cast<std::uint32_t>(i);
+        auto reverse_cell = m_cell_of.rbegin();
+        for (std::size_t i = m_agents.size(); i-- > 0; ++reverse_cell) {
+            if (*reverse_cell != NO_CELL) {
+                m_cell_items[--m_cell_start[*reverse_cell + 1]] = static_cast<std::uint32_t>(i);
             }
         }
         // Each start slid down one bucket; shift them back.
-        for (int cell_index = 0; cell_index < HASH_CELLS; ++cell_index) {
-            m_cell_start[cell_index] = m_cell_start[cell_index + 1];
+        auto destination = m_cell_start.begin();
+        auto source = std::next(destination);
+        for (int cell_index = 0; cell_index < HASH_CELLS; ++cell_index, ++destination, ++source) {
+            *destination = *source;
         }
         m_cell_start.back() = static_cast<std::uint32_t>(m_cell_items.size());
     }
@@ -568,7 +583,7 @@ namespace hyprimate {
         const double CELL = NEIGHBOUR_RADIUS * m_spacing;
         const double NEAR = SEPARATION_RADIUS * m_spacing;
         const double LOOK = AVOID_RADIUS * m_spacing;
-        const double BODY = kSwarmBodyShare * subject_agent.fit;
+        const double BODY = K_SWARM_BODY_SHARE * subject_agent.fit;
         // How much an agent is still in transit: 0 at its home, where it neither blocks others nor
         // is blocked, so arrivals can settle while the rest of the crowd walks through.
         const auto TRANSIT = [&](const SwarmAgent &agent) {
@@ -591,8 +606,11 @@ namespace hyprimate {
         for (std::int64_t dy = -1; dy <= 1; ++dy) {
             for (std::int64_t dx = -1; dx <= 1; ++dx) {
                 const auto BUCKET_INDEX =
-                    static_cast<std::size_t>((((CELL_Y + dy) & (HASH_SIDE - 1)) * HASH_SIDE) +
-                                             ((CELL_X + dx) & (HASH_SIDE - 1)));
+                    static_cast<std::size_t>(((static_cast<std::uint64_t>(CELL_Y + dy) &
+                                                  static_cast<std::uint64_t>(HASH_SIDE - 1)) *
+                                                 HASH_SIDE) +
+                                             (static_cast<std::uint64_t>(CELL_X + dx) &
+                                                 static_cast<std::uint64_t>(HASH_SIDE - 1)));
                 const std::uint32_t BEGIN = m_cell_start[BUCKET_INDEX];
                 const std::uint32_t END = m_cell_start[BUCKET_INDEX + 1];
                 for (const std::uint32_t NEIGHBOUR_INDEX :
@@ -615,7 +633,7 @@ namespace hyprimate {
 
                     // Bodies in transit do not pass through each other: each of the two backs out
                     // of half the overlap and gives up half the speed they were closing with.
-                    const double OVERLAP = BODY + (kSwarmBodyShare * neighbour.fit) - DISTANCE;
+                    const double OVERLAP = BODY + (K_SWARM_BODY_SHARE * neighbour.fit) - DISTANCE;
                     const double AHEAD = -dot(NORMAL, forward);
                     const bool IN_WAY = DISTANCE < LOOK && AHEAD > 0.0 && CLOSING > 0.0;
                     const double SOLID =
@@ -673,8 +691,9 @@ namespace hyprimate {
         const bool OVERDUE = !CLOSING && !wandering && m_still > PATIENCE + PATIENCE_DEADLINE;
         const double SOLID = std::min(1.0, m_params.separation / CONTACT_FULL) * (1.0 - URGENCY);
 
-        for (std::size_t i = 0; i < m_agents.size(); ++i) {
-            SwarmAgent &moving_agent = m_agents[i];
+        std::size_t agent_counter = 0;
+        for (SwarmAgent &moving_agent : m_agents) {
+            const std::size_t AGENT_INDEX = agent_counter++;
             if (moving_agent.gone) {
                 continue;
             }
@@ -727,7 +746,7 @@ namespace hyprimate {
                                            .x = std::cos(moving_agent.heading),
                                            .y = std::sin(moving_agent.heading),
                                        };
-            const Crowd CROWD = this->crowd(i, FORWARD, LIMIT);
+            const Crowd CROWD = this->crowd(AGENT_INDEX, FORWARD, LIMIT);
             moving_agent.position = moving_agent.position + CROWD.shove * SOLID;
             if (moving_agent.pause > 0.0) {
                 // Shaken loose and not yet giving chase: the window leaves it behind, and
@@ -841,7 +860,10 @@ namespace hyprimate {
                 if (m_phase == Phase::Movement && moving_agent.settle_wait < 0.0) {
                     moving_agent.settle_wait = m_params.stagger * unit_draw(m_rng);
                 }
-                if (m_phase != Phase::Movement || (moving_agent.settle_wait -= STEP) <= 0.0) {
+                if (m_phase == Phase::Movement) {
+                    moving_agent.settle_wait -= STEP;
+                }
+                if (m_phase != Phase::Movement || moving_agent.settle_wait <= 0.0) {
                     moving_agent.docked = true;
                     moving_agent.position = moving_agent.home;
                     moving_agent.velocity = {};

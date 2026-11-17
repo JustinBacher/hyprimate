@@ -29,7 +29,7 @@ namespace hyprimate {
     // An agent's body, which other agents cannot walk through: a disc of this share of its `fit`.
     // Smaller than the creature drawn, so legs may cross, and small enough that neighbours in
     // formation never touch.
-    inline constexpr double kSwarmBodyShare = 0.6;
+    inline constexpr double K_SWARM_BODY_SHARE = 0.6;
 
     // Where a window sits, in one logical-pixel space. `capture` is the decorated box including its
     // shadow, `body` the window inside it, `screen` the monitor the swarm enters and leaves
@@ -104,12 +104,12 @@ namespace hyprimate {
             const SwarmPlacement &placement,
             EdgeSet sides);
         // Starts in formation, ready to follow the window. Ignored unless idle.
-        void beginMovement(
+        void begin_movement(
             const SwarmParams &params, std::uint64_t seed, const SwarmPlacement &placement);
         // The window is now at `placement` in screen space. Translation is applied on the next
         // advance: loose agents keep their screen positions and chase their moving homes.
         // A new size re-cuts the tiles. Ignored unless opening or moving.
-        void updateMovement(const SwarmPlacement &placement);
+        void update_movement(const SwarmPlacement &placement);
         // Steps the simulation. Non-finite or negative time counts as zero; more than STALL_SECONDS
         // is clamped to it. While a movement gesture is held, wander keeps agents loose even when
         // the window is stationary; releasing it lets them regroup. Returns active().
@@ -117,36 +117,36 @@ namespace hyprimate {
         // Back to idle, in formation.
         void reset() noexcept;
 
-        bool active() const noexcept {
+        [[nodiscard]] bool active() const noexcept {
             return m_phase != Phase::Idle && m_phase != Phase::Closed;
         }
-        bool opening() const noexcept {
+        [[nodiscard]] bool opening() const noexcept {
             return m_phase == Phase::Opening;
         }
-        bool moving() const noexcept {
+        [[nodiscard]] bool moving() const noexcept {
             return m_phase == Phase::Movement;
         }
-        bool closed() const noexcept {
+        [[nodiscard]] bool closed() const noexcept {
             return m_phase == Phase::Closed;
         }
 
-        const SwarmParams &params() const noexcept {
+        [[nodiscard]] const SwarmParams &params() const noexcept {
             return m_params;
         }
-        std::span<const SwarmAgent> agents() const noexcept {
+        [[nodiscard]] std::span<const SwarmAgent> agents() const noexcept {
             return m_agents;
         }
         // Global surface rounding: 1 while assembling, 0 at native-window handoff.
-        double rounding() const noexcept {
+        [[nodiscard]] double rounding() const noexcept {
             return m_rounding;
         }
         // Size of the capture box the tiles are cut from.
-        Vec2 size() const noexcept {
+        [[nodiscard]] Vec2 size() const noexcept {
             return m_size;
         }
         // Box around every visible agent's tile at any rotation, relative to the capture box's
         // top-left corner and clipped to the screen. Zero-sized when nothing is visible.
-        Box bounds() const noexcept;
+        [[nodiscard]] Box bounds() const noexcept;
 
       private:
         enum class Phase { Idle, Opening, Movement, Closing, Closed };
@@ -162,7 +162,7 @@ namespace hyprimate {
             Vec2 shove;  // displacement out of the bodies it overlaps
             Vec2 check;  // velocity change that stops it closing on those bodies
         };
-        Crowd crowd(std::size_t index, Vec2 forward, double force) const;
+        [[nodiscard]] Crowd crowd(std::size_t index, Vec2 forward, double force) const;
 
         Phase m_phase = Phase::Idle;
         SwarmParams m_params{};

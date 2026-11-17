@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -162,25 +163,25 @@ namespace hyprimate {
         // Takes are landscape; a portrait window plays one with its axes swapped.
         m_transpose = aspect < 1.0;
         const double LANDSCAPE = m_transpose ? 1.0 / aspect : aspect;
-        const int TAKES = paperTakeCount();
+        const int TAKES = paper_take_count();
         // Nearest baked aspect on a log scale, then the seeded pick among the takes baked at that
         // aspect.
         double nearest = 0.0;
         double best_distance = INFINITY;
         for (int candidate = 0; candidate < TAKES; ++candidate) {
-            const double DISTANCE = std::abs(std::log(paperTakeAspect(candidate) / LANDSCAPE));
+            const double DISTANCE = std::abs(std::log(paper_take_aspect(candidate) / LANDSCAPE));
             if (DISTANCE < best_distance) {
                 best_distance = DISTANCE;
-                nearest = paperTakeAspect(candidate);
+                nearest = paper_take_aspect(candidate);
             }
         }
         int family = 0;
         for (int family_take = 0; family_take < TAKES; ++family_take) {
-            family += static_cast<int>(paperTakeAspect(family_take) == nearest);
+            family += static_cast<int>(paper_take_aspect(family_take) == nearest);
         }
         int wanted = static_cast<int>(m_take_pick * family);
         for (int take = 0; take < TAKES; ++take) {
-            if (paperTakeAspect(take) != nearest) {
+            if (paper_take_aspect(take) != nearest) {
                 continue;
             }
             if (wanted-- == 0) {
@@ -192,7 +193,7 @@ namespace hyprimate {
 
     void PaperCrumple::frame(Vec2 size, SheetFrame &out) const noexcept {
         if (m_phase == Phase::Idle) {
-            flatSheet(out);
+            flat_sheet(out);
             return;
         }
 
@@ -205,7 +206,7 @@ namespace hyprimate {
         // goes. Frames are joined by a Catmull-Rom spline, so vertex velocities stay continuous
         // across baked frames; linear blending would kink every vertex's path at every frame, which
         // reads as judder.
-        const int FRAMES = paperTakeFrames();
+        const int FRAMES = paper_take_frames();
         const double END = LOOSEST_END + ((1.0 - LOOSEST_END) * m_params.crumpliness);
         const double FRAME_POS = std::clamp(m_s, 0.0, 1.0) * END * (FRAMES - 1);
         const int FRAME_START = std::min(static_cast<int>(FRAME_POS), FRAMES - 2);
@@ -224,7 +225,7 @@ namespace hyprimate {
         // The take's sheet has its own aspect; stretch it to the window's, keeping area, so rest
         // maps to rest exactly.
         const double WINDOW_LANDSCAPE = m_transpose ? HEIGHT / WIDTH : WIDTH / HEIGHT;
-        const double TAKE_ASPECT = paperTakeAspect(m_take);
+        const double TAKE_ASPECT = paper_take_aspect(m_take);
         const double STRETCH_X = std::sqrt(WINDOW_LANDSCAPE / TAKE_ASPECT);
         const double STRETCH_Y = 1.0 / STRETCH_X;
 
@@ -248,32 +249,40 @@ namespace hyprimate {
                     source_row = PAPER_CELLS - source_row;
                 }
                 const std::size_t TAKE = grid_index(source_col, source_row);
-                double pos_back[3];
-                double pos_start[3];
-                double pos_end[3];
-                double pos_next[3];
-                paperTakeVertex(m_take, F_BACK, TAKE, pos_back);
-                paperTakeVertex(m_take, FRAME_START, TAKE, pos_start);
-                paperTakeVertex(m_take, FRAME_START + 1, TAKE, pos_end);
-                paperTakeVertex(m_take, F_NEXT, TAKE, pos_next);
-                double blended_pos[3];
-                for (int k = 0; k < 3; ++k) {
-                    blended_pos[k] = (WEIGHT_BACK * pos_back[k]) + (WEIGHT_START * pos_start[k]) +
-                                     (WEIGHT_END * pos_end[k]) + (WEIGHT_NEXT * pos_next[k]);
+                std::array<double, 3> pos_back;
+                std::array<double, 3> pos_start;
+                std::array<double, 3> pos_end;
+                std::array<double, 3> pos_next;
+                paper_take_vertex(m_take, F_BACK, TAKE, pos_back);
+                paper_take_vertex(m_take, FRAME_START, TAKE, pos_start);
+                paper_take_vertex(m_take, FRAME_START + 1, TAKE, pos_end);
+                paper_take_vertex(m_take, F_NEXT, TAKE, pos_next);
+                std::array<double, 3> blended_pos;
+                const auto *back = pos_back.cbegin();
+                const auto *start = pos_start.cbegin();
+                const auto *end = pos_end.cbegin();
+                const auto *next = pos_next.cbegin();
+                for (double &component : blended_pos) {
+                    component = (WEIGHT_BACK * *back) + (WEIGHT_START * *start) +
+                                (WEIGHT_END * *end) + (WEIGHT_NEXT * *next);
+                    ++back;
+                    ++start;
+                    ++end;
+                    ++next;
                 }
-                double pos_x = blended_pos[0] * STRETCH_X * (m_mirror_x ? -1.0 : 1.0);
-                double pos_y = blended_pos[1] * STRETCH_Y * (m_mirror_y ? -1.0 : 1.0);
+                double pos_x = std::get<0>(blended_pos) * STRETCH_X * (m_mirror_x ? -1.0 : 1.0);
+                double pos_y = std::get<1>(blended_pos) * STRETCH_Y * (m_mirror_y ? -1.0 : 1.0);
                 if (m_transpose) {
                     std::swap(pos_x, pos_y);
                 }
                 WORLD_GRID[i, j] = {
                     .x = LENGTH_SCALE * SHRINK * pos_x,
                     .y = LENGTH_SCALE * SHRINK * pos_y,
-                    .z = LENGTH_SCALE * SHRINK * blended_pos[2],
+                    .z = LENGTH_SCALE * SHRINK * std::get<2>(blended_pos),
                 };
             }
         }
-        projectSheet(
+        project_sheet(
             world, {.x = WIDTH, .y = HEIGHT}, m_params.shading, SheetLighting::PaperCreases, out);
     }
 

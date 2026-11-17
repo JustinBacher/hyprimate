@@ -6,52 +6,58 @@
 #include "animations/shared/EdgeStyleConfig.hpp"
 
 namespace close_style {
-    inline bool closeEnabled(const SClothCloseData &, const hyprimate::config::SConfig &) {
+    inline bool close_enabled([[maybe_unused]] const SClothCloseData &data,
+        [[maybe_unused]] const hyprimate::config::SConfig &config) {
         return true;
     }
-    inline CBox footprint(const SClothStyle &, const Record &record) {
-        return project(record.extentsDevice, record.renderBox, record.snapshotSize);
+    inline CBox footprint([[maybe_unused]] const SClothStyle &style, const Record &record) {
+        return project(record.extents_device, record.render_box, record.snapshot_size);
     }
     inline bool stage(SClothStyle &style,
         Pending &pending,
         const PHLWINDOW &window,
-        bool,
+        [[maybe_unused]] bool state_active,
         const hyprimate::config::SConfig &config,
-        hyprimate::MaterialParams,
-        const std::function<hyprimate::EdgeInput()> &edgeInput,
+        [[maybe_unused]] hyprimate::MaterialParams material,
+        const std::function<hyprimate::EdgeInput()> &edge_input,
         const std::function<std::span<const hyprimate::Box>()> &obstacles,
-        const std::function<std::uint64_t()> &nextSeed,
-        const std::function<hyprimate::EdgeSet()> &) {
-        const auto INPUT = edgeInput();
-        const auto FRAME = hyprimate::resolveStyleCloseEdge(INPUT, config.close.cloth);
+        const std::function<std::uint64_t()> &next_seed,
+        [[maybe_unused]] const std::function<hyprimate::EdgeSet()> &swarm_sides) {
+        const auto INPUT = edge_input();
+        const auto FRAME = hyprimate::resolve_style_close_edge(INPUT, config.close.cloth);
         const auto MONITOR = window->m_monitor.lock();
         const auto BOXES = obstacles();
-        const auto SEED = nextSeed();
+        const auto SEED = next_seed();
         if (!FRAME || !MONITOR) {
             return false;
         }
         const auto &cloth_config = config.close.cloth;
         SClothCloseData data;
-        data.params = {.duration = cloth_config.duration,
+        data.params = {
+            .duration = cloth_config.duration,
             .flutter = cloth_config.flutter,
             .shading = cloth_config.shading,
             .variation = cloth_config.variation,
-            .shine = cloth_config.shine};
+            .shine = cloth_config.shine,
+        };
         data.seed = SEED;
-        data.capture = toBox(window->getFullWindowBoundingBox());
+        data.capture = to_box(window->getFullWindowBoundingBox());
         data.obstacles.assign(BOXES.begin(), BOXES.end());
         data.geometry = hyprimate::ClothCloseGeometry{
-            .edge = FRAME->edge, .screen = toBox(MONITOR->logicalBox())};
-        pending.closeData = std::move(data);
+            .edge = FRAME->edge,
+            .screen = to_box(MONITOR->logicalBox()),
+        };
+        pending.close_data = std::move(data);
         pending.style = std::move(style);
         return true;
     }
-    inline bool valid(const SClothStyle &, const Pending &pending, bool blur) {
-        return !blur && std::get<SClothCloseData>(pending.closeData).geometry.has_value();
+    inline bool valid(
+        [[maybe_unused]] const SClothStyle &style, const Pending &pending, bool blur) {
+        return !blur && std::get<SClothCloseData>(pending.close_data).geometry.has_value();
     }
-    inline void begin(SClothStyle &style, const Pending &pending, bool) {
-        style.sheet.captureSize = pending.captureLogical;
-        const auto &data = std::get<SClothCloseData>(pending.closeData);
+    inline void begin(SClothStyle &style, const Pending &pending, [[maybe_unused]] bool blur) {
+        style.sheet.capture_size = pending.capture_logical;
+        const auto &data = std::get<SClothCloseData>(pending.close_data);
         style.cloth.begin(hyprimate::Transition::Close,
             data.params,
             data.seed,
@@ -65,36 +71,39 @@ namespace close_style {
     inline bool finished(const SClothStyle &style) {
         return style.cloth.closed();
     }
-    inline bool needsOwned(const SClothStyle &) {
+    inline bool needs_owned([[maybe_unused]] const SClothStyle &style) {
         return true;
     }
-    inline void advance(SClothStyle &style, Record &, double elapsed, bool) {
+    inline void advance(SClothStyle &style,
+        [[maybe_unused]] const Record &record,
+        double elapsed,
+        [[maybe_unused]] bool native) {
         style.cloth.advance(elapsed);
     }
-    inline bool settled(const SClothStyle &) {
+    inline bool settled([[maybe_unused]] const SClothStyle &style) {
         return true;
     }
-    inline bool renderNative(SClothStyle &,
-        Record &,
-        Render::CRenderContext &,
-        const SP<Desktop::IFadeout> &,
-        const SP<Render::ITexture> &,
-        CRegion) {
+    inline bool render_native([[maybe_unused]] const SClothStyle &style,
+        [[maybe_unused]] const Record &record,
+        [[maybe_unused]] const Render::CRenderContext &ctx,
+        [[maybe_unused]] const SP<Desktop::IFadeout> &fadeout,
+        [[maybe_unused]] const SP<Render::ITexture> &tex,
+        [[maybe_unused]] CRegion damage) {
         return false;
     }
     inline void fill(SClothStyle &style, Record &record) {
-        style.cloth.frame(style.sheet.captureSize, *style.sheet.frame);
-        fillSheet(style.sheet, record);
+        style.cloth.frame(style.sheet.capture_size, *style.sheet.frame);
+        fill_sheet(style.sheet, record);
     }
     inline void render(const SClothStyle &style,
         const Record &record,
         Render::CRenderContext &ctx,
         const PHLMONITOR &monitor,
         const SP<Render::ITexture> &tex,
-        const SP<CSolidFill> &,
+        [[maybe_unused]] const SP<CSolidFill> &solid_fill,
         const SP<CPaperShade> &shade,
-        const SP<CSwarmSprites> &) {
-        renderSheet(style.sheet,
+        [[maybe_unused]] const SP<CSwarmSprites> &sprites) {
+        render_sheet(style.sheet,
             style.cloth.shaded(),
             style.cloth.opacity(),
             record,

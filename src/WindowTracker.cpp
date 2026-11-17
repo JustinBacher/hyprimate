@@ -109,21 +109,27 @@ namespace hyprimate {
             return decision;
         }
 
-        const Vec2 DELTA{.x = decision.current_box.x - decision.previous_box.x,
-            .y = decision.current_box.y - decision.previous_box.y};
+        const Vec2 DELTA{
+            .x = decision.current_box.x - decision.previous_box.x,
+            .y = decision.current_box.y - decision.previous_box.y,
+        };
         decision.translated = DELTA.x != 0.0 || DELTA.y != 0.0;
         decision.resized = !same_size(snapshot.current, decision.previous_box);
         decision.capture_changed = decision.current_capture.x != decision.previous_capture.x ||
                                    decision.current_capture.y != decision.previous_capture.y ||
                                    !same_size(snapshot.capture, decision.previous_capture);
-        const double LARGEST = std::max({snapshot.current.w,
+        const double LARGEST = std::max({
+            snapshot.current.w,
             snapshot.current.h,
             decision.previous_box.w,
-            decision.previous_box.h});
+            decision.previous_box.h,
+        });
         // Only client geometry can teleport. A legitimate workspace slide may travel several
         // window widths between frames, particularly for small windows on a large monitor.
         const Vec2 LAYOUT_DELTA{
-            .x = snapshot.current.x - m_last_box.x, .y = snapshot.current.y - m_last_box.y};
+            .x = snapshot.current.x - m_last_box.x,
+            .y = snapshot.current.y - m_last_box.y,
+        };
         adopt(snapshot, true);
 
         if (std::hypot(LAYOUT_DELTA.x, LAYOUT_DELTA.y) > MAX_JUMP_FACTOR * LARGEST) {

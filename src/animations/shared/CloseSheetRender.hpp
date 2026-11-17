@@ -4,21 +4,21 @@
 #include "SheetClosePass.hpp"
 
 namespace close_style {
-    inline void fillSheet(SSheetBuffers &sheet, Record &record) {
-        const CBox LOGICAL = record.sourceDevice.copy().scale(1.0 / record.scale);
-        CBox extents = sheetExtents(*sheet.frame, LOGICAL);
+    inline void fill_sheet(SSheetBuffers &sheet, Record &record) {
+        const CBox LOGICAL = record.source_device.copy().scale(1.0 / record.scale);
+        CBox extents = sheet_extents(*sheet.frame, LOGICAL);
         extents.expand(16.0);
-        record.extentsDevice = extents.copy().scale(record.scale);
-        fillSheetMeshes(*sheet.frame,
-            record.sourceDevice,
-            record.extentsDevice,
+        record.extents_device = extents.copy().scale(record.scale);
+        fill_sheet_meshes(*sheet.frame,
+            record.source_device,
+            record.extents_device,
             hyprimate::Vec2{.x = 0.0, .y = 0.0},
-            hyprimate::Vec2{.x = record.snapshotSize.x, .y = record.snapshotSize.y},
+            hyprimate::Vec2{.x = record.snapshot_size.x, .y = record.snapshot_size.y},
             sheet.window,
             sheet.shade);
     }
 
-    inline void renderSheet(const SSheetBuffers &sheet,
+    inline void render_sheet(const SSheetBuffers &sheet,
         bool shaded,
         double opacity,
         const Record &record,
@@ -26,16 +26,16 @@ namespace close_style {
         const PHLMONITOR &monitor,
         const SP<Render::ITexture> &tex,
         const SP<CPaperShade> &shade) {
-        const float ALPHA = record.sourceAlpha * static_cast<float>(opacity);
+        const float ALPHA = record.source_alpha * static_cast<float>(opacity);
         if (ALPHA <= 0.F) {
             return;
         }
         CPaperClosePassElement::SData data;
         data.tex = tex;
         data.shade = shaded && shade ? shade->texture() : nullptr;
-        data.box = project(record.extentsDevice, record.renderBox, record.snapshotSize);
+        data.box = project(record.extents_device, record.render_box, record.snapshot_size);
         data.vertices = &sheet.window;
-        data.shadeVertices = &sheet.shade;
+        data.shade_vertices = &sheet.shade;
         data.alpha = ALPHA;
         data.scale = record.scale;
         data.damage = CRegion{

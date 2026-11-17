@@ -40,7 +40,7 @@ namespace hyprimate {
 
         // Deterministic worker starvation control for model tests. Does not affect already
         // published snapshots.
-        static void pauseWorkersForTesting(bool pause, int after_snapshots_count = 0) noexcept;
+        static void pause_workers_for_testing(bool pause, int after_snapshots_count = 0) noexcept;
     };
 
     // A fully simulated 57x57 fabric panel with a weighted hem, suspended along its entire top
@@ -51,8 +51,8 @@ namespace hyprimate {
       public:
         ClothFlutter();
         ~ClothFlutter();
-        ClothFlutter(const ClothFlutter &);
-        ClothFlutter &operator=(const ClothFlutter &);
+        ClothFlutter(const ClothFlutter &other);
+        ClothFlutter &operator=(const ClothFlutter &other);
         ClothFlutter(ClothFlutter &&) noexcept;
         ClothFlutter &operator=(ClothFlutter &&) noexcept;
         // Coordinates are logical pixels. Overlapping obstacles are ignored. Close inherits an
@@ -67,9 +67,9 @@ namespace hyprimate {
             std::optional<ClothCloseGeometry> geometry = std::nullopt);
         // Geometry updates only set a target; advance() sends one timestamped target per rendered
         // frame, including stationary frames while the sheet settles.
-        void beginMovement(
+        void begin_movement(
             const ClothMovementParams &params, std::uint64_t seed, const Box &capture);
-        void updateMovement(const Box &capture, double elapsed_seconds) noexcept;
+        void update_movement(const Box &capture, double elapsed_seconds) noexcept;
         [[nodiscard]] bool moving() const noexcept;
         bool advance(double elapsed_seconds) noexcept;
         void reset() noexcept;
@@ -82,10 +82,10 @@ namespace hyprimate {
         // Model diagnostics: wait off the compositor path for a complete recording; sample the
         // displayed normalized sheet (x right, y up from the top, z towards viewer) and its
         // velocity per real second.
-        [[nodiscard]] bool waitForRecording(double timeout_seconds = 10.0) const noexcept;
-        [[nodiscard]] bool waitForSnapshots(
+        [[nodiscard]] bool wait_for_recording(double timeout_seconds = 10.0) const noexcept;
+        [[nodiscard]] bool wait_for_snapshots(
             int count, double timeout_seconds = 10.0) const noexcept;
-        void sampleVertices(SheetGrid &positions, SheetGrid &velocities) const noexcept;
+        void sample_vertices(SheetGrid &positions, SheetGrid &velocities) const noexcept;
 
         struct Run;
         struct Fallback;
@@ -93,14 +93,14 @@ namespace hyprimate {
 
       private:
         enum class Phase { Idle, Opening, Movement, Closing, Closed };
-        void startFallback() noexcept;
+        void start_fallback() noexcept;
 
         Phase m_phase = Phase::Idle;
         ClothParams m_params{};
         double m_t = 0, m_rate = 0;
-        double m_startupWait = 0, m_fallbackTime = 0, m_initialOpacity = 1;
-        int m_startupRecorded = 0;
-        bool m_transitionHeld = false;
+        double m_startup_wait = 0, m_fallback_time = 0, m_initial_opacity = 1;
+        int m_startup_recorded = 0;
+        bool m_transition_held = false;
         std::shared_ptr<Run> m_run;
         std::shared_ptr<Fallback> m_fallback;
         std::unique_ptr<MovementPlayback> m_movement;

@@ -8,19 +8,19 @@ struct SLiveRenderGeometry {
     CBox canvas;
     CBox source;
     CBox output;
-    CBox localOutput;
+    CBox local_output;
     double scale;
-    hyprimate::Vec2 textureSize;
+    hyprimate::Vec2 texture_size;
 };
 
-hyprimate::LiquidPose livePose(const SLiquidStyle &state);
-CBox liveExtents(const SLiquidStyle &state, const CBox &box);
-CBox liveExtents(const SPaperStyle &state, const CBox &box);
-CBox liveExtents(const SClothStyle &state, const CBox &box);
-CBox liveExtents(const SSwarmStyle &state, const CBox &box);
-CBox liveExtents(const SBubbleStyle &state, const CBox &box);
+hyprimate::LiquidPose live_pose(const SLiquidStyle &state);
+CBox live_extents(const SLiquidStyle &state, const CBox &box);
+CBox live_extents(const SPaperStyle &state, const CBox &box);
+CBox live_extents(const SClothStyle &state, const CBox &box);
+CBox live_extents(const SSwarmStyle &state, const CBox &box);
+CBox live_extents(const SBubbleStyle &state, const CBox &box);
 
-Render::SWindowTransformBuffer renderLive(SLiquidStyle &state,
+Render::SWindowTransformBuffer render_live(SLiquidStyle &state,
     Render::CRenderContext &ctx,
     const Render::SWindowTransformBuffer &input,
     const Render::SWindowTransformContext &context,
@@ -29,7 +29,7 @@ Render::SWindowTransformBuffer renderLive(SLiquidStyle &state,
     const SP<CPaperShade> &shade,
     const SP<CSwarmSprites> &sprites);
 
-Render::SWindowTransformBuffer renderLive(SPaperStyle &state,
+Render::SWindowTransformBuffer render_live(SPaperStyle &state,
     Render::CRenderContext &ctx,
     const Render::SWindowTransformBuffer &input,
     const Render::SWindowTransformContext &context,
@@ -38,7 +38,7 @@ Render::SWindowTransformBuffer renderLive(SPaperStyle &state,
     const SP<CPaperShade> &shade,
     const SP<CSwarmSprites> &sprites);
 
-Render::SWindowTransformBuffer renderLive(SClothStyle &state,
+Render::SWindowTransformBuffer render_live(SClothStyle &state,
     Render::CRenderContext &ctx,
     const Render::SWindowTransformBuffer &input,
     const Render::SWindowTransformContext &context,
@@ -47,7 +47,7 @@ Render::SWindowTransformBuffer renderLive(SClothStyle &state,
     const SP<CPaperShade> &shade,
     const SP<CSwarmSprites> &sprites);
 
-Render::SWindowTransformBuffer renderLive(SSwarmStyle &state,
+Render::SWindowTransformBuffer render_live(SSwarmStyle &state,
     Render::CRenderContext &ctx,
     const Render::SWindowTransformBuffer &input,
     const Render::SWindowTransformContext &context,
@@ -56,7 +56,7 @@ Render::SWindowTransformBuffer renderLive(SSwarmStyle &state,
     const SP<CPaperShade> &shade,
     const SP<CSwarmSprites> &sprites);
 
-Render::SWindowTransformBuffer renderLive(SBubbleStyle &state,
+Render::SWindowTransformBuffer render_live(SBubbleStyle &state,
     Render::CRenderContext &ctx,
     const Render::SWindowTransformBuffer &input,
     const Render::SWindowTransformContext &context,

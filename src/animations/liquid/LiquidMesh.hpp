@@ -34,11 +34,11 @@ namespace hyprimate {
             return m_params.viscosity;
         }
         void reset() noexcept;
-        void recordTranslation(Vec2 delta, Vec2 size, double strength) noexcept;
+        void record_translation(Vec2 delta, Vec2 size, double strength) noexcept;
         bool advance(double elapsed_seconds, Vec2 size) noexcept;
         [[nodiscard]] bool settled() const noexcept;
         // C1-smooth interpolation of the 9x9 lattice field; both fractions are clamped to [0, 1].
-        [[nodiscard]] Vec2 sampleDisplacement(
+        [[nodiscard]] Vec2 sample_displacement(
             double horizontal_fraction, double vertical_fraction) const noexcept;
         [[nodiscard]] const std::array<Vec2, 81> &displacements() const noexcept {
             return m_displacements;
@@ -46,31 +46,31 @@ namespace hyprimate {
 
       private:
         bool constrain(Vec2 size) noexcept;
-        [[nodiscard]] bool validTriangles(Vec2 size) const noexcept;
-        void integrateLiquidSubstep(Vec2 size) noexcept;
+        [[nodiscard]] bool valid_triangles(Vec2 size) const noexcept;
+        void integrate_liquid_substep(Vec2 size) noexcept;
         // Draws a new Liquid character (gains and shape) scaled by params.variation; neutral when
         // variation is 0.
-        void rollCharacter() noexcept;
-        double drawUnit() noexcept;  // uniform in [-1, 1] from m_rng
+        void roll_character() noexcept;
+        double draw_unit() noexcept;  // uniform in [-1, 1] from m_rng
 
         MaterialParams m_params;
         // Viscosity-derived velocity coefficient for internal shear flow.
-        double m_shearDamping;
+        double m_shear_damping;
         // Liquid body and head spring gains, derived from elasticity, momentum and the current
         // character.
-        double m_bodyStiffness = 0;
-        double m_bodyDamping = 0;
-        double m_headStiffness = 0;
-        double m_headDamping = 0;
-        // Liquid character, redrawn by rollCharacter at each motion onset; all neutral when
+        double m_body_stiffness = 0;
+        double m_body_damping = 0;
+        double m_head_stiffness = 0;
+        double m_head_damping = 0;
+        // Liquid character, redrawn by roll_character at each motion onset; all neutral when
         // variation is 0.
-        double m_lagGain = 1;  // trailing lag multiplier
-        double m_bowDepth = 0;  // trailing-edge bow depth (corner lag share removed)
-        double m_taperRatio = 0;  // cross-axis tail taper per unit lag
+        double m_lag_gain = 1;  // trailing lag multiplier
+        double m_bow_depth = 0;  // trailing-edge bow depth (corner lag share removed)
+        double m_taper_ratio = 0;  // cross-axis tail taper per unit lag
         double m_skew = 0;  // cross-axis offset of the bow's deepest point, in s units
         double m_lean = 0;  // sideways tail shear per unit lag
-        double m_kickGain = 1;  // stop-kick multiplier
-        double m_velocitySeconds = 0;  // window-velocity filter time constant (response latency)
+        double m_kick_gain = 1;  // stop-kick multiplier
+        double m_velocity_seconds = 0;  // window-velocity filter time constant (response latency)
         std::uint64_t m_rng = 0;  // splitmix64 state
 
         std::array<Vec2, 81> m_displacements{};
@@ -84,21 +84,22 @@ namespace hyprimate {
         std::array<double, 81> m_grip{};
         // Liquid-only: translation recorded since the last advance, and the window velocity it
         // implies.
-        Vec2 m_pendingDelta{};
-        Vec2 m_windowVelocity{};
-        Vec2 m_smoothDelta{};  // exponentially weighted translation (px), decays with the velocity
-                               // time constant
-        double m_smoothTime = 0;  // exponentially weighted time (s), same weights as m_smoothDelta
-        Vec2 m_slowDelta{};  // slower (inertia) estimate of translation (px), averages over
-                             // zero-delta frames
-        double m_slowTime = 0;  // matching slower time (s)
-        Vec2 m_slowVelocity{};  // slower velocity the inertia is differentiated from
+        Vec2 m_pending_delta{};
+        Vec2 m_window_velocity{};
+        Vec2 m_smooth_delta{};  // exponentially weighted translation (px), decays with the velocity
+                                // time constant
+        double m_smooth_time =
+            0;  // exponentially weighted time (s), same weights as m_smooth_delta
+        Vec2 m_slow_delta{};  // slower (inertia) estimate of translation (px), averages over
+                              // zero-delta frames
+        double m_slow_time = 0;  // matching slower time (s)
+        Vec2 m_slow_velocity{};  // slower velocity the inertia is differentiated from
         Vec2 m_inertia{};  // pseudo-force from smoothed deceleration, applied on every substep of
                            // one advance
         double m_strength = 0;
 
         double m_accumulator = 0;
-        unsigned m_quietSteps = 0;
+        unsigned m_quiet_steps = 0;
     };
 
 }  // namespace hyprimate
