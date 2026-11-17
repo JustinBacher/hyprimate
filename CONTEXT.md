@@ -16,13 +16,19 @@ _Avoid_: mode, material (as separate per-direction choices).
 
 **Take**: one baked paper crumple, a flat sheet crumpling into a ball. A paper transition plays a take forward (close) or backward (open).
 
-**Bubble**: a window's soap-film surface. Opening grows one bubble continuously into the window among smaller companion bubbles that linger as it settles; closing ruptures the window's film where it is.
+**Bubble**: a window's soap-film surface. Opening grows the window bubble out of a raft of small bubbles; closing ruptures the window's film where it is.
 
 **Transmission** (bubble): the desktop seen through an opening or moving film, including wallpaper and windows behind it. The window's own image returns continuously as the film settles.
 
 **Interference** (bubble): the film's shifting colours, produced by its changing thickness and viewing angle. Curved edges reflect more strongly while the centre remains clear, independent of whether the outline is circular or window-shaped.
 
-**Splat**: the bubble's brief outward stretch on reaching the screen plane, followed by elastic settlement.
+**Bubble formation**: the opening, as air blown into soapy liquid under the window's place. Small bubbles surface at irregular moments, ride the liquid's flow, cling together, coalesce (conserving their air) and burst as their films drain; they hold the stage for about the first half. Air then goes into the bubble over the inlet, which grows by inflation and by swallowing neighbours until it becomes the window bubble. Window-edge contact starts flattening the main bubble's rounded ends and accelerates inflation into the free space, without speeding up the settling oscillator. Small bubbles are pushed aside, slide along it, merge into it or burst, and can linger outside the window's edges after it lands.
+
+**Foam** (bubble): a raft of small bubbles on a liquid, simulated together: contact, adhesion, coalescence, drainage, rupture and the liquid's flow. Opening companions are a foam; movement's bubbles are meant to become one.
+
+**Small bubble** (bubble): one material for every bubble smaller than the window bubble. A clear film around air: it neither lenses nor tints what lies behind it, its outline comes from grazing reflection, and its colour from its own film thickness. Detail its projected size cannot resolve is filtered, not removed.
+
+**Landing** (bubble): the window bubble reaching the window's shape and position while its companions may still remain.
 
 **Rupture**: holes that open at thinning (black-film) spots and grow at constant speed until their rims have consumed a membrane; never a reversed inflation.
 
@@ -38,7 +44,7 @@ _Avoid_: mode, material (as separate per-direction choices).
 
 **Carry** (bubble): how far a window's film is drawn from the window itself while it follows a layout-animated move. It starts at the whole jump and closes in critically damped, so the bubble travels where the layout only jumps.
 
-**Microbubble**: a small soap bubble that swells out of a moving window's film, rides its outline toward the trailing side, and then detaches, merges back or collapses.
+**Microbubble**: a small bubble that swells out of a moving window's film, rides its outline toward the trailing side, and then detaches, merges back or collapses.
 
 **Wake**: the soap film a moving bubble leaves on the screen, with the microbubbles that detached into it. Like glass beads it stays at its screen position and drains, breaks up and disappears on its own.
 

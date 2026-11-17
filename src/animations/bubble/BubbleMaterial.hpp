@@ -50,8 +50,9 @@ class CBubbleMaterial {
         hyprimate::Vec2 frameSize,
         const SBubbleTarget &,
         bool onGlass);
-    // Draws soap microbubbles (logical px from the frame centre) over the bound framebuffer.
-    // Requires premultiplied blending.
+    // Draws small soap bubbles (logical px from the frame centre) over the bound framebuffer: the
+    // movement's microbubbles, a wake's free bubbles and the opening's companions share this one
+    // material. Requires premultiplied blending; drawMembranes draws companions itself.
     void drawMicrobubbles(
         std::span<const hyprimate::BubbleMicro>, hyprimate::Vec2 frameSize, const SBubbleTarget &);
     // Draws a wake's film ribbon and its free microbubbles, the frame being the wake's bounds.
@@ -66,7 +67,7 @@ class CBubbleMaterial {
            m_particleVao = 0, m_microVao = 0, m_instance = 0, m_microInstance = 0, m_lut = 0;
     // Per membrane: 13 fields, 4 holes of 6, then the movement's 8.
     static constexpr std::size_t kSurfaceUniforms = 13 + 4 * 6 + 8;
-    std::array<GLint, 15> m_membraneUniforms{};
+    std::array<GLint, 14> m_membraneUniforms{};
     std::array<std::array<GLint, kSurfaceUniforms>, 2> m_surfaceUniforms{};
     std::array<GLint, kSurfaceUniforms> m_curlSurfaceUniforms{};
     std::array<GLint, 15> m_curlUniforms{};

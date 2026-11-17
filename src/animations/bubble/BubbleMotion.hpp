@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <span>
 
+#include "animations/bubble/BubbleFoam.hpp"
 #include "animations/shared/Core.hpp"
 
 namespace hyprimate {
@@ -59,19 +60,6 @@ namespace hyprimate {
     Vec2 bubbleMotionOffset(Vec2 roundHalf, const BubbleDeformation &deformation, Vec2 point);
     // Where movement carries a point of the undeformed membrane: rounded, displaced, then carried.
     Vec2 bubbleMotionPoint(Vec2 halfSize, const BubbleDeformation &deformation, Vec2 point);
-
-    // A soap microbubble as drawn: attached ones in frame coordinates, free ones in the coordinates
-    // of the wake that carries them.
-    struct BubbleMicro {
-        Vec2 centre{};  // logical px
-        double radius = 0;  // logical px
-        double growth = 0;  // 0 a swelling of the parent film .. 1 a formed bubble
-        Vec2 anchor{};  // where its neck meets the parent film
-        double attach = 0;  // 0..1 strength of that neck; 0 once free
-        double collapse = 0;  // 0..1 rupture of its film
-        double thickness = 0;  // film thickness, nm
-        double seed = 0;  // 0..1
-    };
 
     // A point of film the moving window leaves behind, from its trailing outline. Frame
     // coordinates.

@@ -87,7 +87,10 @@ class ConfigGeneratorTests(unittest.TestCase):
 
     def test_every_animation_style_setting_has_a_shared_key(self):
         paths = {item['path'] for item in SCHEMA}
-        for path in paths:
+        for item in SCHEMA:
+            path = item['path']
+            if not item.get('inherit', True):
+                continue
             parts = path.split('.')
             if len(parts) == 5 and parts[1] in ('open', 'close', 'movement') and parts[2] == 'options':
                 with self.subTest(path=path):
@@ -166,7 +169,7 @@ class ConfigGeneratorTests(unittest.TestCase):
         block = GEN.documentation(SCHEMA)
         for style, opening, closing in [('paper', '0.6', '0.5'),
                                         ('cloth', '1.0', '0.9'),
-                                        ('bubble', '0.62', '0.42')]:
+                                        ('bubble', '1.0', '0.42')]:
             row = next(line for line in block.splitlines()
                        if line.startswith(f'| `window:options:{style}:duration` |'))
             self.assertIn(f'open `{opening}`', row)
