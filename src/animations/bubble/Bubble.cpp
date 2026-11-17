@@ -73,12 +73,12 @@ namespace hyprimate {
                 s.holes[0].centre = {
                     .x = x, .y = -.55, .z = std::sqrt(std::max(0.0, 1 - x * x - .55 * .55))};
                 const double turn = (unit_draw(seed) - .5) * .5;
-                s.holes[1].centre = {(-.5 * std::cos(turn)) - (.45 * std::sin(turn)),
-                    (-.5 * std::sin(turn)) + (.45 * std::cos(turn)),
-                    -.74};
-                s.holes[2].centre = {(.55 * std::cos(turn)) - (.35 * std::sin(turn)),
-                    (.55 * std::sin(turn)) + (.35 * std::cos(turn)),
-                    -.76};
+                s.holes[1].centre = {.x = (-.5 * std::cos(turn)) - (.45 * std::sin(turn)),
+                    .y = (-.5 * std::sin(turn)) + (.45 * std::cos(turn)),
+                    .z = -.74};
+                s.holes[2].centre = {.x = (.55 * std::cos(turn)) - (.35 * std::sin(turn)),
+                    .y = (.55 * std::sin(turn)) + (.35 * std::cos(turn)),
+                    .z = -.76};
                 for (auto &h : s.holes) {
                     const double n =
                         std::sqrt((h.centre.x * h.centre.x) + (h.centre.y * h.centre.y) +
@@ -91,10 +91,10 @@ namespace hyprimate {
             } else {
                 s.holes[0].centre = {
                     .x = x * s.halfSize.x, .y = -std::abs(y) * s.halfSize.y, .z = 0};
-                const double first = .72 + .04 * unit_draw(seed);
-                const double second = .72 + .04 * unit_draw(seed);
-                const double cross1 = .5 + .1 * unit_draw(seed);
-                const double cross2 = .5 + .1 * unit_draw(seed);
+                const double first = .72 + (.04 * unit_draw(seed));
+                const double second = .72 + (.04 * unit_draw(seed));
+                const double cross1 = .5 + (.1 * unit_draw(seed));
+                const double cross2 = .5 + (.1 * unit_draw(seed));
                 if (s.halfSize.x >= s.halfSize.y) {
                     s.holes[1].centre = {
                         .x = -s.halfSize.x * first, .y = s.halfSize.y * cross1, .z = 0};
@@ -422,7 +422,10 @@ namespace hyprimate {
                 std::max(box[2], m.centre.x + r),
                 std::max(box[3], m.centre.y + r)};
         }
-        return {(size.x * .5) + box[0], (size.y * .5) + box[1], box[2] - box[0], box[3] - box[1]};
+        return {.x = (size.x * .5) + box[0],
+            .y = (size.y * .5) + box[1],
+            .w = box[2] - box[0],
+            .h = box[3] - box[1]};
     }
 
 }  // namespace hyprimate

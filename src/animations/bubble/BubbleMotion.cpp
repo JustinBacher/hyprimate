@@ -66,7 +66,7 @@ namespace hyprimate {
             return kWaveFrequency * std::sqrt(((n * n * n) - n) / 6.0);
         }
         double modeDecay(std::size_t i) {
-            return 3.5 + (1.6 * double(i));
+            return 3.5 + (1.6 * static_cast<double>(i));
         }
         // 0..1 how sharply the window is turning: acceleration across its direction of travel.
         double turning(Vec2 velocity, double speed, Vec2 acceleration) {
@@ -139,8 +139,8 @@ namespace hyprimate {
                 radial += (m.waveCos[i] * std::cos(kModes[i] * phi)) +
                           (m.waveSin[i] * std::sin(kModes[i] * phi));
             }
-            const Vec2 square{u2.x * u.x / h.x, u2.y * u.y / h.y};
-            const Vec2 circle{u.x / h.x, u.y / h.y};
+            const Vec2 square{.x = u2.x * u.x / h.x, .y = u2.y * u.y / h.y};
+            const Vec2 circle{.x = u.x / h.x, .y = u.y / h.y};
             const Vec2 g = add(mul(square, (1 - round) / std::max(length(square), 1e-12)),
                 mul(circle, round / std::max(length(circle), 1e-12)));
             const double gl = length(g);
@@ -414,10 +414,10 @@ namespace hyprimate {
             const double w = modeFrequency(i);
             const double decay = modeDecay(i);
             const double drift = (.43 * w * time) + phase_[i];
-            const Vec2 force{(gain[i] * scale * slosh * std::cos(n * theta)) +
-                                 (buffet * gust[i] * std::sin(drift)),
-                (gain[i] * scale * slosh * std::sin(n * theta)) +
-                    (buffet * gust[i] * std::cos((1.13 * drift) + phase_[(i + 1) % 4]))};
+            const Vec2 force{.x = (gain[i] * scale * slosh * std::cos(n * theta)) +
+                                  (buffet * gust[i] * std::sin(drift)),
+                .y = (gain[i] * scale * slosh * std::sin(n * theta)) +
+                     (buffet * gust[i] * std::cos((1.13 * drift) + phase_[(i + 1) % 4]))};
             const Vec2 accel = sub(sub(force, mul(wave_[i], w * w)), mul(waveRate_[i], 2 * decay));
             waveRate_[i] = add(waveRate_[i], mul(accel, h));
             wave_[i] = add(wave_[i], mul(waveRate_[i], h));

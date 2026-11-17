@@ -321,7 +321,7 @@ namespace {
             const double x0 = a.bubbles[0].centre.x;
             wake.advance(DT);
             wake.view(b);
-            if (b.bubbleCount) {
+            if (b.bubbleCount != 0u) {
                 moved = b.bubbles[0].centre.x - x0;
             }
         }
@@ -341,12 +341,12 @@ namespace {
         BubbleWake full(1);
         std::size_t accepted = 0;
         for (int i = 0; i < 100; ++i) {
-            accepted += full.extend({.position = {.x = 0, .y = 0},
-                                        .direction = {.x = 1, .y = 0},
-                                        .halfWidth = 40,
-                                        .density = 1,
-                                        .start = false},
-                {.x = double(i), .y = 0});
+            accepted += static_cast<std::size_t>(full.extend({.position = {.x = 0, .y = 0},
+                                                                 .direction = {.x = 1, .y = 0},
+                                                                 .halfWidth = 40,
+                                                                 .density = 1,
+                                                                 .start = false},
+                {.x = static_cast<double>(i), .y = 0}));
         }
         CHECK(accepted == kBubbleWakeNodes && full.full());
     }
@@ -387,8 +387,8 @@ namespace {
         const auto m = b.frame(SIZE).window.motion;
         CHECK(m.round > .85 && m.round < 1);
         // Nearly circular: the corners have pulled in to the edges' distance, wide as it is.
-        const double side = reach(m, {SIZE.x / 2, 0});
-        const double top = reach(m, {0, SIZE.y / 2});
+        const double side = reach(m, {.x = SIZE.x / 2, .y = 0});
+        const double top = reach(m, {.x = 0, .y = SIZE.y / 2});
         const double corner = reach(m, {.x = SIZE.x / 2, .y = SIZE.y / 2});
         CHECK(std::abs(side - top) < .08 * side && std::abs(corner - side) < .12 * side);
         CHECK(side < SIZE.x / 2);
@@ -415,8 +415,8 @@ namespace {
                 [](double) { return Vec2{.x = 1500, .y = 0}; },
                 {.strength = .65, .microbubbles = .5, .trail = .5, .roundness = 1, .shape = shape});
             const auto m = b.frame(SIZE).window.motion;
-            const auto side = shaped(m, {SIZE.x / 2, 0});
-            const auto top = shaped(m, {0, SIZE.y / 2});
+            const auto side = shaped(m, {.x = SIZE.x / 2, .y = 0});
+            const auto top = shaped(m, {.x = 0, .y = SIZE.y / 2});
             const auto corner = shaped(m, {.x = SIZE.x / 2, .y = SIZE.y / 2});
             // As wide for its height as the window, and its sides bow gently outward.
             CHECK(std::abs(side.x / top.y - SIZE.x / SIZE.y) < .02);

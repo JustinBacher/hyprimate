@@ -37,14 +37,14 @@ namespace {
         const GLuint vs = compile(GL_VERTEX_SHADER, vertex);
         const GLuint fs = compile(GL_FRAGMENT_SHADER, fragment);
         GLuint result = 0;
-        if (vs && fs) {
+        if ((vs != 0u) && (fs != 0u)) {
             result = glCreateProgram();
             glAttachShader(result, vs);
             glAttachShader(result, fs);
             glLinkProgram(result);
             GLint ok = 0;
             glGetProgramiv(result, GL_LINK_STATUS, &ok);
-            if (!ok) {
+            if (ok == 0) {
                 char log[2048]{};
                 glGetProgramInfoLog(result, sizeof(log), nullptr, log);
                 std::fprintf(stderr, "bubble program: %s\n", log);
@@ -52,65 +52,71 @@ namespace {
                 result = 0;
             }
         }
-        if (vs) {
+        if (vs != 0u) {
             glDeleteShader(vs);
         }
-        if (fs) {
+        if (fs != 0u) {
             glDeleteShader(fs);
         }
         return result;
     }
     void vector(GLint location, hyprimate::Vec2 v) {
-        glUniform2f(location, float(v.x), float(v.y));
+        glUniform2f(location, static_cast<float>(v.x), static_cast<float>(v.y));
     }
     template <std::size_t N>
     void surface(const std::array<GLint, N> &u, const hyprimate::BubbleSurface &s) {
         static_assert(N == 13 + (4 * 6) + 8);
         vector(u[0], s.halfSize);
         vector(u[1], s.core);
-        glUniform1f(u[2], float(s.corner));
-        glUniform1f(u[3], float(s.depth));
-        glUniform1f(u[4], float(s.content));
-        glUniform1f(u[5], float(s.film));
-        glUniform1f(u[6], float(s.visibility));
-        glUniform1f(u[7], float(s.ripple));
-        glUniform1f(u[8], float(s.thickness));
-        glUniform1f(u[9], float(s.flow));
-        glUniform1f(u[10], float(s.aureole));
+        glUniform1f(u[2], static_cast<float>(s.corner));
+        glUniform1f(u[3], static_cast<float>(s.depth));
+        glUniform1f(u[4], static_cast<float>(s.content));
+        glUniform1f(u[5], static_cast<float>(s.film));
+        glUniform1f(u[6], static_cast<float>(s.visibility));
+        glUniform1f(u[7], static_cast<float>(s.ripple));
+        glUniform1f(u[8], static_cast<float>(s.thickness));
+        glUniform1f(u[9], static_cast<float>(s.flow));
+        glUniform1f(u[10], static_cast<float>(s.aureole));
         glUniform1i(u[11], s.spherical);
-        glUniform1i(u[12], int(std::min(s.holeCount, hyprimate::kBubbleHoles)));
+        glUniform1i(u[12], static_cast<int>(std::min(s.holeCount, hyprimate::kBubbleHoles)));
         for (std::size_t i = 0; i < std::min(s.holeCount, hyprimate::kBubbleHoles); ++i) {
             const auto &h = s.holes[i];
             const auto *loc = u.data() + 13 + (6 * i);
-            glUniform3f(loc[0], float(h.centre.x), float(h.centre.y), float(h.centre.z));
-            glUniform1f(loc[1], float(h.radius));
-            glUniform1f(loc[2], float(h.rim));
-            glUniform1f(loc[3], float(h.precursor));
+            glUniform3f(loc[0],
+                static_cast<float>(h.centre.x),
+                static_cast<float>(h.centre.y),
+                static_cast<float>(h.centre.z));
+            glUniform1f(loc[1], static_cast<float>(h.radius));
+            glUniform1f(loc[2], static_cast<float>(h.rim));
+            glUniform1f(loc[3], static_cast<float>(h.precursor));
             glUniform4f(loc[4],
-                float(h.amplitude[0]),
-                float(h.amplitude[1]),
-                float(h.amplitude[2]),
-                float(h.amplitude[3]));
-            glUniform4f(
-                loc[5], float(h.phase[0]), float(h.phase[1]), float(h.phase[2]), float(h.phase[3]));
+                static_cast<float>(h.amplitude[0]),
+                static_cast<float>(h.amplitude[1]),
+                static_cast<float>(h.amplitude[2]),
+                static_cast<float>(h.amplitude[3]));
+            glUniform4f(loc[5],
+                static_cast<float>(h.phase[0]),
+                static_cast<float>(h.phase[1]),
+                static_cast<float>(h.phase[2]),
+                static_cast<float>(h.phase[3]));
         }
         const auto &m = s.motion;
         vector(u[37], m.drag);
         glUniform4f(u[38],
-            float(m.waveCos[0]),
-            float(m.waveCos[1]),
-            float(m.waveCos[2]),
-            float(m.waveCos[3]));
+            static_cast<float>(m.waveCos[0]),
+            static_cast<float>(m.waveCos[1]),
+            static_cast<float>(m.waveCos[2]),
+            static_cast<float>(m.waveCos[3]));
         glUniform4f(u[39],
-            float(m.waveSin[0]),
-            float(m.waveSin[1]),
-            float(m.waveSin[2]),
-            float(m.waveSin[3]));
-        glUniform1f(u[40], float(m.sheen));
-        glUniform1f(u[41], float(m.round));
+            static_cast<float>(m.waveSin[0]),
+            static_cast<float>(m.waveSin[1]),
+            static_cast<float>(m.waveSin[2]),
+            static_cast<float>(m.waveSin[3]));
+        glUniform1f(u[40], static_cast<float>(m.sheen));
+        glUniform1f(u[41], static_cast<float>(m.round));
         vector(u[42], m.extent);
         vector(u[43], m.carry);
-        glUniform1f(u[44], float(s.transparency));
+        glUniform1f(u[44], static_cast<float>(s.transparency));
     }
     struct Instance {
         float values[8];
@@ -127,8 +133,9 @@ namespace {
 
 bool CBubbleMaterial::initialize() {
     if (m_tried) {
-        return m_membrane && m_curl && m_particles && m_film && m_micro && m_vao && m_particleVao &&
-               m_microVao && m_instance && m_microInstance && m_lut;
+        return (m_membrane != 0u) && (m_curl != 0u) && (m_particles != 0u) && (m_film != 0u) &&
+               (m_micro != 0u) && (m_vao != 0u) && (m_particleVao != 0u) && (m_microVao != 0u) &&
+               (m_instance != 0u) && (m_microInstance != 0u) && (m_lut != 0u);
     }
     m_tried = true;
     m_membrane = program(bubble_shader::VERTEX, bubble_shader::FRAGMENT);
@@ -136,7 +143,8 @@ bool CBubbleMaterial::initialize() {
     m_particles = program(bubble_shader::PARTICLE_VERTEX, bubble_shader::PARTICLE_FRAGMENT);
     m_film = program(bubble_shader::FILM_VERTEX, bubble_shader::FILM_FRAGMENT);
     m_micro = program(bubble_shader::MICROBUBBLE_VERTEX, bubble_shader::MICROBUBBLE_FRAGMENT);
-    if (!m_membrane || !m_curl || !m_particles || !m_film || !m_micro) {
+    if ((m_membrane == 0u) || (m_curl == 0u) || (m_particles == 0u) || (m_film == 0u) ||
+        (m_micro == 0u)) {
         release();
         m_tried = true;
         return false;
@@ -302,7 +310,8 @@ bool CBubbleMaterial::initialize() {
         glVertexAttribDivisor(i, 1);
     }
     const auto table = hyprimate::bubbleThinFilmTable();
-    std::vector<float> rgba(std::size_t(table.thicknessSamples) * table.cosineSamples * 4, 1.0F);
+    std::vector<float> rgba(
+        static_cast<std::size_t>(table.thicknessSamples) * table.cosineSamples * 4, 1.0F);
     for (std::size_t i = 0; i < table.rgb.size() / 3; ++i) {
         std::copy_n(table.rgb.data() + (i * 3), 3, rgba.data() + (i * 4));
     }
@@ -322,40 +331,41 @@ bool CBubbleMaterial::initialize() {
         GL_RGBA,
         GL_FLOAT,
         rgba.data());
-    return m_vao && m_particleVao && m_microVao && m_instance && m_microInstance && m_lut;
+    return (m_vao != 0u) && (m_particleVao != 0u) && (m_microVao != 0u) && (m_instance != 0u) &&
+           (m_microInstance != 0u) && (m_lut != 0u);
 }
 void CBubbleMaterial::release() {
-    if (m_membrane) {
+    if (m_membrane != 0u) {
         glDeleteProgram(m_membrane);
     }
-    if (m_curl) {
+    if (m_curl != 0u) {
         glDeleteProgram(m_curl);
     }
-    if (m_particles) {
+    if (m_particles != 0u) {
         glDeleteProgram(m_particles);
     }
-    if (m_film) {
+    if (m_film != 0u) {
         glDeleteProgram(m_film);
     }
-    if (m_micro) {
+    if (m_micro != 0u) {
         glDeleteProgram(m_micro);
     }
-    if (m_vao) {
+    if (m_vao != 0u) {
         glDeleteVertexArrays(1, &m_vao);
     }
-    if (m_particleVao) {
+    if (m_particleVao != 0u) {
         glDeleteVertexArrays(1, &m_particleVao);
     }
-    if (m_microVao) {
+    if (m_microVao != 0u) {
         glDeleteVertexArrays(1, &m_microVao);
     }
-    if (m_instance) {
+    if (m_instance != 0u) {
         glDeleteBuffers(1, &m_instance);
     }
-    if (m_microInstance) {
+    if (m_microInstance != 0u) {
         glDeleteBuffers(1, &m_microInstance);
     }
-    if (m_lut) {
+    if (m_lut != 0u) {
         glDeleteTextures(1, &m_lut);
     }
     m_membrane = m_curl = m_particles = m_film = m_micro = m_vao = m_particleVao = m_microVao =
@@ -364,7 +374,7 @@ void CBubbleMaterial::release() {
 }
 void CBubbleMaterial::drawMembranes(
     const hyprimate::BubbleFrame &frame, const SBubbleTarget &t, const SBubbleImages &images) {
-    if (!m_membrane) {
+    if (m_membrane == 0u) {
         return;
     }
     glUseProgram(m_membrane);
@@ -380,7 +390,7 @@ void CBubbleMaterial::drawMembranes(
     vector(u[7], images.wallpaperX);
     vector(u[8], images.wallpaperY);
     vector(u[9], images.wallpaperPixel);
-    glUniform1i(u[10], images.wallpaper != 0);
+    glUniform1i(u[10], static_cast<GLint>(images.wallpaper != 0));
     glUniform1i(u[11], 0);
     glUniform1i(u[12], 1);
     glUniform1i(u[13], 2);
@@ -443,7 +453,7 @@ void CBubbleMaterial::drawMembranes(
     vector(c[8], images.wallpaperX);
     vector(c[9], images.wallpaperY);
     vector(c[10], images.wallpaperPixel);
-    glUniform1i(c[11], images.wallpaper != 0);
+    glUniform1i(c[11], static_cast<GLint>(images.wallpaper != 0));
     glUniform1i(c[12], 0);
     glUniform1i(c[13], 1);
     glUniform1i(c[14], 2);
@@ -456,37 +466,42 @@ void CBubbleMaterial::drawMembranes(
         for (std::size_t i = 0; i < count; ++i) {
             const auto &piece = sheets[index][i];
             const auto &m = m_sheetMaskUniforms[i];
-            glUniform4f(m[0], float(piece.hole), float(piece.phi), float(piece.halfAngle), 0);
+            glUniform4f(m[0],
+                static_cast<float>(piece.hole),
+                static_cast<float>(piece.phi),
+                static_cast<float>(piece.halfAngle),
+                0);
             glUniform4f(m[1],
-                float(piece.radii[0]),
-                float(piece.radii[1]),
-                float(piece.radii[2]),
-                float(piece.radii[3]));
+                static_cast<float>(piece.radii[0]),
+                static_cast<float>(piece.radii[1]),
+                static_cast<float>(piece.radii[2]),
+                static_cast<float>(piece.radii[3]));
             glUniform4f(m[2],
-                float(piece.onsets[0]),
-                float(piece.onsets[1]),
-                float(piece.onsets[2]),
-                float(piece.onsets[3]));
+                static_cast<float>(piece.onsets[0]),
+                static_cast<float>(piece.onsets[1]),
+                static_cast<float>(piece.onsets[2]),
+                static_cast<float>(piece.onsets[3]));
         }
         glUniform1i(m_sheetUniforms[0], 0);
-        glUniform1i(m_sheetUniforms[1], int(count));
+        glUniform1i(m_sheetUniforms[1], static_cast<int>(count));
         surface(m_curlSurfaceUniforms, *s);
         if (active(*s)) {
             glDrawArraysInstanced(GL_TRIANGLES,
                 0,
                 96 * 12 * 6,
-                GLsizei(std::min(s->holeCount, hyprimate::kBubbleHoles)));
+                static_cast<GLsizei>(std::min(s->holeCount, hyprimate::kBubbleHoles)));
         }
         // Detached material outlives its consumed parent; only the sheet's own contraction ends it.
-        glUniform1f(m_curlSurfaceUniforms[6], float(s->ruptureVisibility));
+        glUniform1f(m_curlSurfaceUniforms[6], static_cast<float>(s->ruptureVisibility));
         for (std::size_t i = 0; i < count; ++i) {
             const auto &piece = sheets[index][i];
             if (piece.scale <= 0) {
                 continue;
             }
             for (std::size_t h = 0; h < hyprimate::kBubbleHoles; ++h) {
-                glUniform1f(m_curlSurfaceUniforms[14 + (h * 6)], float(piece.radii[h]));
-                const float onset = float(piece.onsets[h]);
+                glUniform1f(
+                    m_curlSurfaceUniforms[14 + (h * 6)], static_cast<float>(piece.radii[h]));
+                const auto onset = static_cast<float>(piece.onsets[h]);
                 glUniform4f(m_curlSurfaceUniforms[17 + (h * 6)],
                     onset * .014f,
                     onset * .012f,
@@ -494,29 +509,35 @@ void CBubbleMaterial::drawMembranes(
                     onset * .008f);
             }
             glUniform1i(m_sheetUniforms[0], 1);
-            glUniform1i(m_sheetUniforms[1], int(i));
-            glUniform1i(m_sheetUniforms[2], int(piece.hole));
-            glUniform2f(m_sheetUniforms[3], float(piece.phi), float(piece.halfAngle));
+            glUniform1i(m_sheetUniforms[1], static_cast<int>(i));
+            glUniform1i(m_sheetUniforms[2], static_cast<int>(piece.hole));
+            glUniform2f(m_sheetUniforms[3],
+                static_cast<float>(piece.phi),
+                static_cast<float>(piece.halfAngle));
             glUniform3f(m_sheetUniforms[4],
-                float(piece.pivot.x),
-                float(piece.pivot.y),
-                float(piece.pivot.z));
-            glUniform3f(
-                m_sheetUniforms[5], float(piece.axis.x), float(piece.axis.y), float(piece.axis.z));
+                static_cast<float>(piece.pivot.x),
+                static_cast<float>(piece.pivot.y),
+                static_cast<float>(piece.pivot.z));
+            glUniform3f(m_sheetUniforms[5],
+                static_cast<float>(piece.axis.x),
+                static_cast<float>(piece.axis.y),
+                static_cast<float>(piece.axis.z));
             glUniform3f(m_sheetUniforms[6],
-                float(piece.translation.x),
-                float(piece.translation.y),
-                float(piece.translation.z));
-            glUniform1f(m_sheetUniforms[7], float(piece.rotation));
-            glUniform1f(m_sheetUniforms[8], float(piece.scale));
-            glUniform1f(m_sheetUniforms[9], float(std::clamp(1.0 - (piece.age / .05), 0.0, 1.0)));
+                static_cast<float>(piece.translation.x),
+                static_cast<float>(piece.translation.y),
+                static_cast<float>(piece.translation.z));
+            glUniform1f(m_sheetUniforms[7], static_cast<float>(piece.rotation));
+            glUniform1f(m_sheetUniforms[8], static_cast<float>(piece.scale));
+            glUniform1f(m_sheetUniforms[9],
+                static_cast<float>(std::clamp(1.0 - (piece.age / .05), 0.0, 1.0)));
             // Preserve the attached mesh's vertices when a sector becomes a free sheet.
             constexpr double twoPi = 6.283185307179586;
             constexpr int slices = 96;
             constexpr int verticesPerSlice = 12 * 6;
             const double phi = std::fmod(piece.phi + twoPi, twoPi);
-            const int first = int(std::floor((phi - piece.halfAngle) * slices / twoPi));
-            const int last = int(std::ceil((phi + piece.halfAngle) * slices / twoPi));
+            const int first =
+                static_cast<int>(std::floor((phi - piece.halfAngle) * slices / twoPi));
+            const int last = static_cast<int>(std::ceil((phi + piece.halfAngle) * slices / twoPi));
             const int start = (first + slices) % slices;
             const int length = last - first;
             const int head = std::min(length, slices - start);
@@ -527,7 +548,7 @@ void CBubbleMaterial::drawMembranes(
         }
     }
     glBlendFuncSeparate(srcRgb, dstRgb, srcAlpha, dstAlpha);
-    if (!blending) {
+    if (blending == 0u) {
         glDisable(GL_BLEND);
     }
 }
@@ -535,21 +556,21 @@ void CBubbleMaterial::drawParticles(std::span<const hyprimate::BubbleParticle> p
     hyprimate::Vec2 size,
     const SBubbleTarget &t,
     bool onGlass) {
-    if (!m_particles || particles.empty()) {
+    if ((m_particles == 0u) || particles.empty()) {
         return;
     }
     std::array<Instance, 2 * hyprimate::kBubbleMaxParticles> data;
     const auto count = std::min(particles.size(), data.size());
     for (std::size_t i = 0; i < count; ++i) {
         const auto &p = particles[i];
-        data[i] = {{float(p.centre.x),
-            float(p.centre.y),
-            float(p.tail.x),
-            float(p.tail.y),
-            float(p.radius),
-            float(p.tailRadius),
-            float(p.depth),
-            float(p.blur)}};
+        data[i] = {{static_cast<float>(p.centre.x),
+            static_cast<float>(p.centre.y),
+            static_cast<float>(p.tail.x),
+            static_cast<float>(p.tail.y),
+            static_cast<float>(p.radius),
+            static_cast<float>(p.tailRadius),
+            static_cast<float>(p.depth),
+            static_cast<float>(p.blur)}};
     }
     glUseProgram(m_particles);
     glBindVertexArray(m_particleVao);
@@ -562,28 +583,28 @@ void CBubbleMaterial::drawParticles(std::span<const hyprimate::BubbleParticle> p
     vector(u[2], t.sourcePos);
     vector(u[3], t.sourceSize);
     vector(u[4], size);
-    glUniform1i(u[5], onGlass);
-    glDrawArraysInstanced(GL_TRIANGLES, 0, 3, GLsizei(count));
+    glUniform1i(u[5], static_cast<GLint>(onGlass));
+    glDrawArraysInstanced(GL_TRIANGLES, 0, 3, static_cast<GLsizei>(count));
 }
 void CBubbleMaterial::drawMicrobubbles(
     std::span<const hyprimate::BubbleMicro> bubbles, hyprimate::Vec2 size, const SBubbleTarget &t) {
-    if (!m_micro || bubbles.empty()) {
+    if ((m_micro == 0u) || bubbles.empty()) {
         return;
     }
     std::array<MicroInstance, kMicroInstances> data;
     const auto count = std::min(bubbles.size(), data.size());
     for (std::size_t i = 0; i < count; ++i) {
         const auto &b = bubbles[i];
-        data[i] = {{float(b.centre.x),
-            float(b.centre.y),
-            float(b.radius),
-            float(b.growth),
-            float(b.anchor.x),
-            float(b.anchor.y),
-            float(b.attach),
-            float(b.collapse),
-            float(b.thickness),
-            float(b.seed),
+        data[i] = {{static_cast<float>(b.centre.x),
+            static_cast<float>(b.centre.y),
+            static_cast<float>(b.radius),
+            static_cast<float>(b.growth),
+            static_cast<float>(b.anchor.x),
+            static_cast<float>(b.anchor.y),
+            static_cast<float>(b.attach),
+            static_cast<float>(b.collapse),
+            static_cast<float>(b.thickness),
+            static_cast<float>(b.seed),
             0.F,
             0.F}};
     }
@@ -600,10 +621,10 @@ void CBubbleMaterial::drawMicrobubbles(
     glUniform1i(u[5], 2);
     glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_2D, m_lut);
-    glDrawArraysInstanced(GL_TRIANGLES, 0, 3, GLsizei(count));
+    glDrawArraysInstanced(GL_TRIANGLES, 0, 3, static_cast<GLsizei>(count));
 }
 void CBubbleMaterial::drawWake(const hyprimate::BubbleWakeView &wake, const SBubbleTarget &t) {
-    if (!m_film) {
+    if (m_film == 0u) {
         return;
     }
     if (wake.nodeCount >= 2) {
@@ -612,14 +633,14 @@ void CBubbleMaterial::drawWake(const hyprimate::BubbleWakeView &wake, const SBub
         const auto count = std::min(wake.nodeCount, hyprimate::kBubbleWakeNodes);
         for (std::size_t i = 0; i < count; ++i) {
             const auto &n = wake.nodes[i];
-            nodes[(4 * i) + 0] = float(n.position.x);
-            nodes[(4 * i) + 1] = float(n.position.y);
-            nodes[(4 * i) + 2] = float(n.halfWidth);
-            nodes[(4 * i) + 3] = float(n.arc);
-            state[(4 * i) + 0] = float(n.direction.x);
-            state[(4 * i) + 1] = float(n.direction.y);
-            state[(4 * i) + 2] = float(n.fade);
-            state[(4 * i) + 3] = float(n.density);
+            nodes[(4 * i) + 0] = static_cast<float>(n.position.x);
+            nodes[(4 * i) + 1] = static_cast<float>(n.position.y);
+            nodes[(4 * i) + 2] = static_cast<float>(n.halfWidth);
+            nodes[(4 * i) + 3] = static_cast<float>(n.arc);
+            state[(4 * i) + 0] = static_cast<float>(n.direction.x);
+            state[(4 * i) + 1] = static_cast<float>(n.direction.y);
+            state[(4 * i) + 2] = static_cast<float>(n.fade);
+            state[(4 * i) + 3] = static_cast<float>(n.density);
         }
         glUseProgram(m_film);
         glBindVertexArray(m_vao);
@@ -629,14 +650,16 @@ void CBubbleMaterial::drawWake(const hyprimate::BubbleWakeView &wake, const SBub
         vector(u[2], t.sourcePos);
         vector(u[3], t.sourceSize);
         vector(u[4], wake.size);
-        glUniform4fv(u[5], GLsizei(count), nodes.data());
-        glUniform4fv(u[6], GLsizei(count), state.data());
-        glUniform1f(u[7], float(wake.seed));
+        glUniform4fv(u[5], static_cast<GLsizei>(count), nodes.data());
+        glUniform4fv(u[6], static_cast<GLsizei>(count), state.data());
+        glUniform1f(u[7], static_cast<float>(wake.seed));
         glUniform1i(u[8], 2);
-        glUniform2f(u[9], float(wake.nodes[0].arc), float(wake.nodes[count - 1].arc));
+        glUniform2f(u[9],
+            static_cast<float>(wake.nodes[0].arc),
+            static_cast<float>(wake.nodes[count - 1].arc));
         glActiveTexture(GL_TEXTURE2);
         glBindTexture(GL_TEXTURE_2D, m_lut);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, GLsizei(2 * count));
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, static_cast<GLsizei>(2 * count));
     }
     drawMicrobubbles(std::span(wake.bubbles).first(std::min(wake.bubbleCount, wake.bubbles.size())),
         wake.size,

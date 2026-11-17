@@ -153,9 +153,10 @@ void SBubbleLiveStyle::movement(CPluginRuntime &,
 
 void SBubbleLiveStyle::snapshot(
     const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &s) {
-    const auto *state = transformer ? std::get_if<SBubbleStyle>(&transformer->m_style) : nullptr;
+    const auto *state =
+        (transformer != nullptr) ? std::get_if<SBubbleStyle>(&transformer->m_style) : nullptr;
     // A landed opening is already the window's film: movement acts on it while it settles.
-    s.transition_busy = state && state->bubble.active() && !state->bubble.landed();
+    s.transition_busy = (state != nullptr) && state->bubble.active() && !state->bubble.landed();
 }
 
 void SBubbleLiveStyle::step(CPluginRuntime &runtime,

@@ -361,7 +361,7 @@ namespace {
         auto n = bubbleParticles(s, particles);
         std::size_t ligaments = 0;
         for (std::size_t i = 0; i < n; ++i) {
-            ligaments += particles[i].tailRadius > 0;
+            ligaments += static_cast<std::size_t>(particles[i].tailRadius > 0);
         }
         CHECK(ligaments > 0);
         advanceFor(b, .42 * .42);
@@ -462,7 +462,7 @@ namespace {
                 for (std::size_t i = 0; i < count; ++i) {
                     CHECK(impacts[i].radius >= 1.5 && impacts[i].radius <= 3.5);
                 }
-                if (!count) {
+                if (count == 0u) {
                     continue;
                 }
                 CHECK(impacts[0].delay > .00002);
@@ -594,9 +594,9 @@ namespace {
         BubbleHole hole;
         hole.phase = {.2, -.4, 0, 0};
         const auto section = bubbleCurlSection(surface, hole, 100, .7);
-        const Vec3 base{100, 20, 0};
-        const Vec3 outward{1, 0, 0};
-        const Vec3 normal{0, 0, 1};
+        const Vec3 base{.x = 100, .y = 20, .z = 0};
+        const Vec3 outward{.x = 1, .y = 0, .z = 0};
+        const Vec3 normal{.x = 0, .y = 0, .z = 1};
         const auto root = bubbleCurlSample(base, outward, normal, section, 0);
         CHECK(root.position.x == base.x && root.position.y == base.y && root.position.z == base.z);
         CHECK(root.normal.x == 0 && root.normal.y == 0 && root.normal.z == 1);

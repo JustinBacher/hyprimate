@@ -113,7 +113,7 @@ namespace hyprimate {
             .cosineSamples = cosineSamples,
             .maxThickness = maxThickness,
             .rgb = std::vector<float>(
-                std::size_t(thicknessSamples) * cosineSamples * kColourChannels)};
+                static_cast<std::size_t>(thicknessSamples) * cosineSamples * kColourChannels)};
         // Colour matching is evaluated once per wavelength, not once per table cell.
         std::array<Colour, kWavelengthSamples> matchingByWavelength{};
         Colour equalEnergyWhiteXyz{};
@@ -126,7 +126,7 @@ namespace hyprimate {
         // Normalize each channel against a perfect reflector under an equal-energy spectrum.
         const auto perfectMirrorRgb = linearSrgb(equalEnergyWhiteXyz);
         for (int y = 0; y < cosineSamples; ++y) {
-            const double incidenceCosine = double(y) / (cosineSamples - 1);
+            const double incidenceCosine = static_cast<double>(y) / (cosineSamples - 1);
             // Snell's law, with air's refractive index treated as one.
             const double transmissionCosine =
                 std::sqrt(1.0 - ((1.0 - (incidenceCosine * incidenceCosine)) /
@@ -163,9 +163,10 @@ namespace hyprimate {
                 }
                 const auto reflectedRgb = linearSrgb(reflectedXyz);
                 for (int channel = 0; channel < kColourChannels; ++channel) {
-                    table.rgb[(kColourChannels * ((std::size_t(y) * thicknessSamples) + x)) +
+                    table.rgb[(kColourChannels *
+                                  ((static_cast<std::size_t>(y) * thicknessSamples) + x)) +
                               channel] =
-                        float(std::clamp(
+                        static_cast<float>(std::clamp(
                             reflectedRgb[channel] / perfectMirrorRgb[channel], 0.0, 1.0));
                 }
             }

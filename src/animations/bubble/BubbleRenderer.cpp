@@ -78,7 +78,7 @@ void CBubbleRenderer::warmUp() {
 SP<Render::IFramebuffer> CBubbleRenderer::render(
     Render::CRenderContext &ctx, const SBubbleDraw &d) {
     if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL ||
-        (!d.onGlass && (!d.window || !d.window->m_texID ||
+        (!d.onGlass && (!d.window || (d.window->m_texID == 0u) ||
                            (d.window->m_type != Render::TEXTURE_RGBA &&
                                d.window->m_type != Render::TEXTURE_RGBX) ||
                            !(d.textureSize.x >= 1 && d.textureSize.y >= 1))) ||
@@ -120,10 +120,10 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
     glGetIntegerv(GL_BLEND_SRC_ALPHA, &srcAlpha);
     glGetIntegerv(GL_BLEND_DST_ALPHA, &dstAlpha);
     glGetBooleanv(GL_COLOR_WRITEMASK, mask);
-    const bool scissor = glIsEnabled(GL_SCISSOR_TEST);
-    const bool stencil = glIsEnabled(GL_STENCIL_TEST);
-    const bool depthTest = glIsEnabled(GL_DEPTH_TEST);
-    const bool cull = glIsEnabled(GL_CULL_FACE);
+    const bool scissor = glIsEnabled(GL_SCISSOR_TEST) != 0u;
+    const bool stencil = glIsEnabled(GL_STENCIL_TEST) != 0u;
+    const bool depthTest = glIsEnabled(GL_DEPTH_TEST) != 0u;
+    const bool cull = glIsEnabled(GL_CULL_FACE) != 0u;
     const bool blend = gl.blendEnabled();
     for (int i = 0; i < 4; ++i) {
         gl.setActiveTexture(GL_TEXTURE0 + i);
@@ -242,10 +242,12 @@ std::vector<UP<IPassElement>> CBubblePassElement::draw(Render::CRenderContext &c
                              d.textureSize.x > 0 && d.textureSize.y > 0)) {
             return {};
         }
-        const float u0 = float((d.source.x - d.textureOrigin.x) / d.textureSize.x);
-        const float v0 = float((d.source.y - d.textureOrigin.y) / d.textureSize.y);
-        const float u1 = float((d.source.x + d.source.w - d.textureOrigin.x) / d.textureSize.x);
-        const float v1 = float((d.source.y + d.source.h - d.textureOrigin.y) / d.textureSize.y);
+        const auto u0 = static_cast<float>((d.source.x - d.textureOrigin.x) / d.textureSize.x);
+        const auto v0 = static_cast<float>((d.source.y - d.textureOrigin.y) / d.textureSize.y);
+        const auto u1 =
+            static_cast<float>((d.source.x + d.source.w - d.textureOrigin.x) / d.textureSize.x);
+        const auto v1 =
+            static_cast<float>((d.source.y + d.source.h - d.textureOrigin.y) / d.textureSize.y);
         const CBox box{m_data.box.x + ((d.source.x - d.outputOrigin.x) * m_data.box.w / d.canvas.x),
             m_data.box.y + ((d.source.y - d.outputOrigin.y) * m_data.box.h / d.canvas.y),
             d.source.w * m_data.box.w / d.canvas.x,

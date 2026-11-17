@@ -36,7 +36,7 @@ namespace {
                 return {};
             }
             const auto source = ctx.m_data.currentFB;
-            if (!source || !source->getTexture() || !source->getTexture()->m_texID ||
+            if (!source || !source->getTexture() || (source->getTexture()->m_texID == 0u) ||
                 m_source.empty()) {
                 return {};
             }
@@ -97,7 +97,7 @@ namespace {
                 return {};
             }
 
-            const bool scissor = glIsEnabled(GL_SCISSOR_TEST);
+            const bool scissor = glIsEnabled(GL_SCISSOR_TEST) != 0u;
             gl.setCapStatus(GL_SCISSOR_TEST, false);
             gl.bindFramebuffer(GL_READ_FRAMEBUFFER,
                 static_cast<Render::GL::CGLFramebuffer *>(source.get())->getFBID());
