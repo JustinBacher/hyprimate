@@ -81,17 +81,17 @@ bool CAnimationTransformer::deforming() const noexcept {
 }
 
 bool CAnimationTransformer::active() const {
-    const auto window = m_window.lock();
-    if (m_detached || !window || !window->mapped() ||
-        Fullscreen::controller()->isFullscreen(window)) {
+    const auto WINDOW = m_window.lock();
+    if (m_detached || !WINDOW || !WINDOW->mapped() ||
+        Fullscreen::controller()->isFullscreen(WINDOW)) {
         return false;
     }
     if (!deforming()) {
         return false;
     }
-    const auto box = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
-    return std::isfinite(box.x) && std::isfinite(box.y) && std::isfinite(box.w) &&
-           std::isfinite(box.h) && !box.empty();
+    const auto BOX = WINDOW->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+    return std::isfinite(BOX.x) && std::isfinite(BOX.y) && std::isfinite(BOX.w) &&
+           std::isfinite(BOX.h) && !BOX.empty();
 }
 
 int CAnimationTransformer::priority() const {
@@ -141,22 +141,22 @@ SWindowTransformBuffer CAnimationTransformer::transform(
     if (OUTPUTCANVAS.empty() || SOURCEBOX.empty() || OUTPUTBOX.empty()) {
         return in;
     }
-    const auto texSize = in.framebuffer->getTexture()->m_size;
-    const double texW = texSize.x;
-    const double texH = texSize.y;
-    if (!(texW > 0.0 && texH > 0.0)) {
+    const auto TEX_SIZE = in.framebuffer->getTexture()->m_size;
+    const double TEX_W = TEX_SIZE.x;
+    const double TEX_H = TEX_SIZE.y;
+    if (!(TEX_W > 0.0 && TEX_H > 0.0)) {
         return in;
     }
 
-    const SLiveRenderGeometry geometry{.canvas = OUTPUTCANVAS,
+    const SLiveRenderGeometry GEOMETRY{.canvas = OUTPUTCANVAS,
         .source = SOURCEBOX,
         .output = OUTPUTBOX,
         .localOutput = LOCALOUTPUTBOX,
         .scale = SCALE,
-        .textureSize = {.x = texW, .y = texH}};
+        .textureSize = {.x = TEX_W, .y = TEX_H}};
     return std::visit(
         [&](auto &state) {
-            return renderLive(state, ctx, in, context, geometry, m_solid, m_shade, m_sprites);
+            return renderLive(state, ctx, in, context, GEOMETRY, m_solid, m_shade, m_sprites);
         },
         m_style);
 }

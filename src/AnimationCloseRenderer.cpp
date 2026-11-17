@@ -122,14 +122,14 @@ namespace {
 
     // Outward rounding keeps every pixel in the style's footprint inside the damaged box.
     CBox drawnBoxOf(const CAnimationCloseRenderer::SClosing &record, const PHLMONITOR &monitor) {
-        const CBox device = std::visit(
+        const CBox DEVICE = std::visit(
             [&](const auto &style) { return close_style::footprint(style, record); }, record.style);
 
-        const double scale = record.scale;
-        const double x0 = std::floor((device.x / scale) + monitor->m_position.x);
-        const double y0 = std::floor((device.y / scale) + monitor->m_position.y);
-        const double x1 = std::ceil(((device.x + device.w) / scale) + monitor->m_position.x);
-        const double y1 = std::ceil(((device.y + device.h) / scale) + monitor->m_position.y);
+        const double SCALE = record.scale;
+        const double x0 = std::floor((DEVICE.x / SCALE) + monitor->m_position.x);
+        const double y0 = std::floor((DEVICE.y / SCALE) + monitor->m_position.y);
+        const double x1 = std::ceil(((DEVICE.x + DEVICE.w) / SCALE) + monitor->m_position.x);
+        const double y1 = std::ceil(((DEVICE.y + DEVICE.h) / SCALE) + monitor->m_position.y);
         return CBox{x0, y0, x1 - x0, y1 - y0};
     }
 
@@ -148,8 +148,8 @@ namespace {
         if (!record.workspaceBound) {
             return true;
         }
-        const auto captured = record.workspace.lock();
-        return captured && captured == workspace;
+        const auto CAPTURED = record.workspace.lock();
+        return CAPTURED && CAPTURED == workspace;
     }
 
     bool sameMonitor(const PHLMONITORREF &ref, const PHLMONITOR &monitor) {
@@ -328,11 +328,11 @@ void CAnimationCloseRenderer::stage(const PHLWINDOW &window,
     const std::function<std::uint64_t()> &nextSeed,
     const std::function<hyprimate::EdgeSet()> &swarmSides) {
     auto pending = pendingFor(window);
-    const bool canStage = pending.has_value();
+    const bool CAN_STAGE = pending.has_value();
     if (!pending) {
         pending.emplace();
     }
-    const bool staged = std::visit(
+    const bool STAGED = std::visit(
         [&](auto &style) {
             return close_style::stage(style,
                 *pending,
@@ -346,7 +346,7 @@ void CAnimationCloseRenderer::stage(const PHLWINDOW &window,
                 swarmSides);
         },
         state);
-    if (staged && canStage) {
+    if (STAGED && CAN_STAGE) {
         push(std::move(*pending));
     }
 }
@@ -357,38 +357,38 @@ std::optional<CAnimationCloseRenderer::SPending> CAnimationCloseRenderer::pendin
         return std::nullopt;
     }
 
-    const auto monitor = window->m_monitor.lock();
-    if (!monitor) {
+    const auto MONITOR = window->m_monitor.lock();
+    if (!MONITOR) {
         return std::nullopt;
     }
 
-    const double scale = monitor->m_scale;
-    if (!std::isfinite(scale) || scale <= 0.0) {
+    const double SCALE = MONITOR->m_scale;
+    if (!std::isfinite(SCALE) || SCALE <= 0.0) {
         return std::nullopt;
     }
 
-    const CBox capture = window->getFullWindowBoundingBox();
-    if (capture.empty()) {
+    const CBox CAPTURE = window->getFullWindowBoundingBox();
+    if (CAPTURE.empty()) {
         return std::nullopt;
     }
 
     // Window position inside the snapshot: the snapshot's presentation offsets, then monitor-local
     // device px.
-    const auto presentation = Render::resolveWindowSnapshotPresentation(
+    const auto PRESENTATION = Render::resolveWindowSnapshotPresentation(
         window->presentation().renderPresentation(Render::eSceneMode::MONITOR));
-    const CBox source = capture.copy()
-                            .translate(presentation.workspaceOffset + presentation.floatingOffset)
-                            .translate(-monitor->m_position)
-                            .scale(scale);
-    if (source.empty()) {
+    const CBox SOURCE = CAPTURE.copy()
+                            .translate(PRESENTATION.workspaceOffset + PRESENTATION.floatingOffset)
+                            .translate(-MONITOR->m_position)
+                            .scale(SCALE);
+    if (SOURCE.empty()) {
         return std::nullopt;
     }
 
     SPending pending;
     pending.window = PHLWINDOWREF{window};
-    pending.sourceDevice = source;
-    pending.scale = scale;
-    pending.captureLogical = Vec2{.x = capture.w, .y = capture.h};
+    pending.sourceDevice = SOURCE;
+    pending.scale = SCALE;
+    pending.captureLogical = Vec2{.x = CAPTURE.w, .y = CAPTURE.h};
     pending.staged = clock::now();
     return pending;
 }
@@ -418,9 +418,9 @@ void CAnimationCloseRenderer::onFadeoutCreated(
         return;
     }
 
-    const auto monitor = created->monitor().lock();
-    const auto snapshot = created->framebuffer(Render::eSceneMode::MONITOR);
-    if (!monitor || !snapshot || !snapshot->getTexture() || monitor->m_scale != pending.scale) {
+    const auto MONITOR = created->monitor().lock();
+    const auto SNAPSHOT = created->framebuffer(Render::eSceneMode::MONITOR);
+    if (!MONITOR || !SNAPSHOT || !SNAPSHOT->getTexture() || MONITOR->m_scale != pending.scale) {
         return;
     }
     // Retained records and their snapshots are bounded by the batch scratch they must fit in;
@@ -438,10 +438,10 @@ void CAnimationCloseRenderer::onFadeoutCreated(
     }
 
     auto record = std::make_unique<SClosing>();
-    const SP<Desktop::IFadeout> base = created;
-    record->fadeout = WP<Desktop::IFadeout>{base};
-    record->snapshot = snapshot;
-    record->monitor = PHLMONITORREF{monitor};
+    const SP<Desktop::IFadeout> BASE = created;
+    record->fadeout = WP<Desktop::IFadeout>{BASE};
+    record->snapshot = SNAPSHOT;
+    record->monitor = PHLMONITORREF{MONITOR};
     record->workspace = created->workspace();
     record->workspaceBound = bool(record->workspace.lock());
     record->plane = Render::sceneFadeoutPlane(
@@ -453,12 +453,12 @@ void CAnimationCloseRenderer::onFadeoutCreated(
     record->sourceDevice = pending.sourceDevice;
     record->scale = pending.scale;
     record->captureLogical = pending.captureLogical;
-    record->snapshotSize = snapshot->getTexture()->m_size;
+    record->snapshotSize = SNAPSHOT->getTexture()->m_size;
     record->lastAdvance = clock::now();
 
-    const bool textureBlur = created->effects().textureBlur.enabled;
+    const bool TEXTURE_BLUR = created->effects().textureBlur.enabled;
     std::visit(
-        [&](auto &style) { close_style::begin(style, pending, textureBlur); }, record->style);
+        [&](auto &style) { close_style::begin(style, pending, TEXTURE_BLUR); }, record->style);
     record->closeData = std::move(pending.closeData);
     record->owned = running(record->style) && record->sourceAlpha > 0.F;
     if (!record->owned &&
@@ -492,11 +492,11 @@ void CAnimationCloseRenderer::tick(
     });
 
     std::erase_if(m_records, [&](const std::unique_ptr<SClosing> &record) {
-        const auto fadeout = record->fadeout.lock();
-        const bool nativeAlive = fadeout && !fadeout->done();
-        const auto monitor = record->monitor.lock();
+        const auto FADEOUT = record->fadeout.lock();
+        const bool NATIVE_ALIVE = FADEOUT && !FADEOUT->done();
+        const auto MONITOR = record->monitor.lock();
 
-        if (!monitor || monitor->m_scale != record->scale) {
+        if (!MONITOR || MONITOR->m_scale != record->scale) {
             releaseDrawn(*record, damage);
             return true;
         }
@@ -506,22 +506,22 @@ void CAnimationCloseRenderer::tick(
             // native fadeout ends.
             if (finished(record->style)) {
                 releaseDrawn(*record, damage);
-                return !nativeAlive;
+                return !NATIVE_ALIVE;
             }
 
-            if (nativeAlive && !std::holds_alternative<SBubbleStyle>(record->style)) {
+            if (NATIVE_ALIVE && !std::holds_alternative<SBubbleStyle>(record->style)) {
                 record->renderBox = ownedRenderBox(
-                    record->sourceDevice, fadeout->renderBox(), record->snapshotSize);
+                    record->sourceDevice, FADEOUT->renderBox(), record->snapshotSize);
             }
 
             bool advanced = false;
-            if (monitor == rendering) {
-                const double elapsed =
+            if (MONITOR == rendering) {
+                const double ELAPSED =
                     std::clamp(std::chrono::duration<double>(now - record->lastAdvance).count(),
                         0.0,
                         STALL_SECONDS);
                 std::visit(
-                    [&](auto &style) { close_style::advance(style, *record, elapsed, true); },
+                    [&](auto &style) { close_style::advance(style, *record, ELAPSED, true); },
                     record->style);
                 fillVertices(*record);
                 record->lastAdvance = now;
@@ -530,17 +530,17 @@ void CAnimationCloseRenderer::tick(
 
             // An advancing record damages its box every frame, which also schedules its next frame.
             // A record that did not advance only damages when the native fadeout moved its box.
-            const CBox current = drawnBoxOf(*record, monitor);
-            if (advanced || !sameBox(current, record->drawnBox)) {
+            const CBox CURRENT = drawnBoxOf(*record, MONITOR);
+            if (advanced || !sameBox(CURRENT, record->drawnBox)) {
                 appendDamage(damage, record->drawnBox);
-                appendDamage(damage, current);
+                appendDamage(damage, CURRENT);
             }
-            record->drawnBox = current;
+            record->drawnBox = CURRENT;
             return false;
         }
 
         // Unowned closes contribute no damage: the native fadeout damages its own box.
-        if (!nativeAlive) {
+        if (!NATIVE_ALIVE) {
             return true;
         }
 
@@ -548,13 +548,13 @@ void CAnimationCloseRenderer::tick(
         // fadeout keeps scheduling its own alpha frames and the settled mesh is still substituted.
         if (std::visit(
                 [](const auto &style) { return close_style::settled(style); }, record->style) ||
-            monitor != rendering) {
+            MONITOR != rendering) {
             return false;
         }
 
-        const double elapsed = std::clamp(
+        const double ELAPSED = std::clamp(
             std::chrono::duration<double>(now - record->lastAdvance).count(), 0.0, STALL_SECONDS);
-        std::visit([&](auto &style) { close_style::advance(style, *record, elapsed, false); },
+        std::visit([&](auto &style) { close_style::advance(style, *record, ELAPSED, false); },
             record->style);
         record->lastAdvance = now;
         return false;
@@ -616,16 +616,16 @@ bool CAnimationCloseRenderer::renderBatch(Render::CRenderContext &ctx,
             continue;
         }
 
-        const auto source = fadeout->source();
-        if (!ctx.shouldRenderContent(source.noScreenShare)) {
+        const auto SOURCE = fadeout->source();
+        if (!ctx.shouldRenderContent(SOURCE.noScreenShare)) {
             continue;
         }
         if (Render::sceneFadeoutPlane(
-                Render::eSceneMode::MONITOR, fadeout->plane(), source.pinned) != plane) {
+                Render::eSceneMode::MONITOR, fadeout->plane(), SOURCE.pinned) != plane) {
             continue;
         }
-        const auto fadeoutWorkspace = fadeout->workspace().lock();
-        if (fadeoutWorkspace && fadeoutWorkspace != workspace) {
+        const auto FADEOUT_WORKSPACE = fadeout->workspace().lock();
+        if (FADEOUT_WORKSPACE && FADEOUT_WORKSPACE != workspace) {
             continue;
         }
 
@@ -655,8 +655,8 @@ bool CAnimationCloseRenderer::renderBatch(Render::CRenderContext &ctx,
             !ctx.shouldRenderContent(record->noScreenShare)) {
             continue;
         }
-        const auto fadeout = record->fadeout.lock();
-        if (fadeout && !fadeout->done()) {
+        const auto FADEOUT = record->fadeout.lock();
+        if (FADEOUT && !FADEOUT->done()) {
             continue;
         }
 
@@ -680,12 +680,12 @@ bool CAnimationCloseRenderer::renderBatch(Render::CRenderContext &ctx,
             if (finished(record->style)) {
                 continue;
             }
-            const float alpha = record->sourceAlpha;
-            if (alpha <= 0.F) {
+            const float ALPHA = record->sourceAlpha;
+            if (ALPHA <= 0.F) {
                 continue;
             }
-            const auto tex = record->snapshot ? record->snapshot->getTexture() : nullptr;
-            if (!tex) {
+            const auto TEX = record->snapshot ? record->snapshot->getTexture() : nullptr;
+            if (!TEX) {
                 continue;
             }
 
@@ -697,7 +697,7 @@ bool CAnimationCloseRenderer::renderBatch(Render::CRenderContext &ctx,
             std::visit(
                 [&](auto &style) {
                     close_style::render(
-                        style, *record, ctx, monitor, tex, m_solid, m_shade, m_sprites);
+                        style, *record, ctx, monitor, TEX, m_solid, m_shade, m_sprites);
                 },
                 record->style);
             continue;
@@ -714,24 +714,24 @@ bool CAnimationCloseRenderer::renderBatch(Render::CRenderContext &ctx,
             continue;
         }
 
-        const auto effects = fadeout->effects();
-        native.drawBackdrop(effects);
+        const auto EFFECTS = fadeout->effects();
+        native.drawBackdrop(EFFECTS);
 
-        const auto tex = FB->getTexture();
+        const auto TEX = FB->getTexture();
         // Texture blur rides on a stock element; the mesh path only replaces the plain texture
         // draw.
-        if (record && sameMonitor(record->monitor, monitor) && !effects.textureBlur.enabled &&
-            tex->m_size.x == record->snapshotSize.x && tex->m_size.y == record->snapshotSize.y) {
+        if (record && sameMonitor(record->monitor, monitor) && !EFFECTS.textureBlur.enabled &&
+            TEX->m_size.x == record->snapshotSize.x && TEX->m_size.y == record->snapshotSize.y) {
             if (std::visit(
                     [&](auto &style) {
                         return close_style::renderNative(
-                            style, *record, ctx, fadeout, tex, native.damage());
+                            style, *record, ctx, fadeout, TEX, native.damage());
                     },
                     record->style))
                 continue;
         }
 
-        native.drawTexture(*fadeout, tex, effects);
+        native.drawTexture(*fadeout, TEX, EFFECTS);
     }
     batch.clear();
     return true;
