@@ -198,6 +198,10 @@ def enum_name(item):
     return pascal(item['path'].split('.')[-1])
 
 
+def _parse_name(item):
+    return 'parse_' + re.sub(r'(?<!^)(?=[A-Z])', '_', enum_name(item)).lower()
+
+
 def enums(settings):
     found = {}
     for item in settings:
@@ -270,45 +274,45 @@ def config_header(settings):
     out.append('')
     out.append('namespace detail {')
     out.append('// Non-finite values read as the schema minimum, which turns a strength or drain off.')
-    out.append('inline double clampFloat(float value, double low, double high) noexcept {')
+    out.append('inline double clamp_float(float value, double low, double high) noexcept {')
     out.append('    return std::isfinite(value) ? std::clamp(static_cast<double>(value), low, high) : low;')
     out.append('}')
     out.append('')
-    out.append('inline int clampInt(long long value, long long low, long long high) noexcept {')
+    out.append('inline int clamp_int(long long value, long long low, long long high) noexcept {')
     out.append('    return static_cast<int>(std::clamp(value, low, high));')
     out.append('}')
     out.append('')
     for name, item in enum_items.items():
         if item['type'] == 'set':
-            out.append(f'inline std::optional<Flags<{name}>> parse{name}(const std::string& text) noexcept {{')
+            out.append(f'inline std::optional<Flags<{name}>> {_parse_name(item)}(const std::string& text) noexcept {{')
             out.append(f'    Flags<{name}> result;')
             out.append('    std::size_t start = 0;')
             out.append('    while (true) {')
-            out.append("        const auto end = text.find(',', start);")
-            out.append('        const auto first = text.find_first_not_of(" \\t", start);')
-            out.append('        if (first == std::string::npos || (end != std::string::npos && first >= end)) {')
+            out.append("        const auto END = text.find(',', start);")
+            out.append('        const auto FIRST = text.find_first_not_of(" \\t", start);')
+            out.append('        if (FIRST == std::string::npos || (END != std::string::npos && FIRST >= END)) {')
             out.append('            return std::nullopt;')
             out.append('        }')
-            out.append('        const auto last = text.find_last_not_of(" \\t", end == std::string::npos ? end : end - 1);')
-            out.append('        const auto length = (last - first) + 1;')
-            out.append(f'        if (text.compare(first, length, {literal(item["all"])}) == 0) {{')
+            out.append('        const auto LAST = text.find_last_not_of(" \\t", END == std::string::npos ? END : END - 1);')
+            out.append('        const auto LENGTH = (LAST - FIRST) + 1;')
+            out.append(f'        if (text.compare(FIRST, LENGTH, {literal(item["all"])}) == 0) {{')
             out.append(f'            result.bits = {(1 << len(item["choices"])) - 1};')
             for i, choice in enumerate(item['choices']):
-                out.append(f'        }} else if (text.compare(first, length, {literal(choice)}) == 0) {{')
+                out.append(f'        }} else if (text.compare(FIRST, LENGTH, {literal(choice)}) == 0) {{')
                 out.append(f'            result.bits |= {1 << i}U;')
             out.append('        } else {')
             out.append('            return std::nullopt;')
             out.append('        }')
-            out.append('        if (end == std::string::npos) {')
+            out.append('        if (END == std::string::npos) {')
             out.append('            break;')
             out.append('        }')
-            out.append('        start = end + 1;')
+            out.append('        start = END + 1;')
             out.append('    }')
             out.append('    return result;')
             out.append('}')
             out.append('')
             continue
-        out.append(f'inline {name} parse{name}(const std::string& text) noexcept {{')
+        out.append(f'inline {name} {_parse_name(item)}(const std::string& text) noexcept {{')
         for choice in item['choices']:
             out.append(f'    if (text == {literal(choice)}) {{')
             out.append(f'        return {name}::{pascal(choice)};')
@@ -352,7 +356,7 @@ def config_header(settings):
                 conditions = ' || '.join(f'value == {literal(choice)}' for choice in item['choices'])
                 error = name + ' must be one of: ' + ', '.join(item['choices'])
             else:
-                conditions = f'detail::parse{enum_name(item)}(value)'
+                conditions = f'detail::{_parse_name(item)}(value)'
                 error = name + ' must be a comma-separated list of: ' + ', '.join(item['choices'] + [item['all']])
             out.append(f'    values.{member} = makeShared<Config::Values::{cls}>({literal(name)}, {desc}, {literal(default)},')
             out.append('        Config::Values::SStringValueOptions{.validator = [](const Config::STRING& value) -> std::expected<void, std::string> {')
@@ -385,16 +389,16 @@ def config_header(settings):
                 shared_source = f'(values.{shared["member"]}Set.setByUser() ? {shared_source} : {source})'
             source = f'(values.{item["member"]}Set.setByUser() ? {source} : {shared_source})'
         if item['type'] == 'int':
-            value = f'detail::clampInt({source}, {item["min"]}, {item["max"]})'
+            value = f'detail::clamp_int({source}, {item["min"]}, {item["max"]})'
         elif item['type'] == 'set':
             tokens = [token.strip(' \t') for token in item['default'].split(',')]
             bits = ((1 << len(item['choices'])) - 1 if item['all'] in tokens else
                     sum(1 << i for i, choice in enumerate(item['choices']) if choice in tokens))
-            value = f'detail::parse{enum_name(item)}({source}).value_or(Flags<{enum_name(item)}>{{{bits}}})'
+            value = f'detail::{_parse_name(item)}({source}).value_or(Flags<{enum_name(item)}>{{{bits}}})'
         elif item['type'] == 'float':
-            value = f'detail::clampFloat({source}, {float_literal(item["min"])}, {float_literal(item["max"])})'
+            value = f'detail::clamp_float({source}, {float_literal(item["min"])}, {float_literal(item["max"])})'
         elif item['type'] == 'string' and 'choices' in item:
-            value = f'detail::parse{enum_name(item)}({source})'
+            value = f'detail::{_parse_name(item)}({source})'
         elif item['type'] == 'color':
             value = f'static_cast<std::uint32_t>({source})'
         else:
