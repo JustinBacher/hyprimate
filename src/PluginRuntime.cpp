@@ -140,9 +140,8 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     // tick re-fires every millisecond.
     m_listenRenderPre = Event::bus()->m_events.render.pre.listen(
         [this](PHLMONITOR monitor) { onRenderPre(monitor); });
-    // Requests made in render.pre can be consumed by the current commit. Request the next frame
-    // while rendering is active so Hyprland retains it; stop as soon as the last transformer on
-    // this monitor settles.
+    // Requests made in render.pre can be consumed by the current commit. Keep requesting frames
+    // after rendering while live animations, retained closes, or residue need them.
     m_listenRenderPost =
         Event::bus()->m_events.render.stage.listen([this](const Event::SRenderStageEvent &event) {
             if (event.stage == RENDER_POST_WALLPAPER && event.context) {
@@ -179,7 +178,8 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                 return;
             }
             if (event.stage != RENDER_POST) return;
-            if (event.monitor && m_bubbleResidue->active(event.monitor))
+            if (event.monitor &&
+                (m_bubbleResidue->active(event.monitor) || m_close->needsFrame(event.monitor)))
                 event.monitor->scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_ANIMATION);
             for (const auto &entry : m_tracked) {
                 const auto window = entry.window.lock();

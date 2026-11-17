@@ -98,6 +98,9 @@ class CAnimationCloseRenderer {
     // (finished or pruned) contributes its last drawn box.
     void tick(clock::time_point now, const PHLMONITOR &rendering, std::vector<CBox> &damage);
 
+    // Owned closes need post-render frame requests until their last pixels have been cleared.
+    bool needsFrame(const PHLMONITOR &monitor) const;
+
     // Drops pending handoffs and records (topology or config change).
     void clear();
 

@@ -483,6 +483,14 @@ void CAnimationCloseRenderer::tick(
     });
 }
 
+bool CAnimationCloseRenderer::needsFrame(const PHLMONITOR &monitor) const {
+    if (!monitor) return false;
+    return std::ranges::any_of(m_records, [&](const auto &record) {
+        return record->owned && sameMonitor(record->monitor, monitor) &&
+               (!finished(record->style) || !record->drawnBox.empty());
+    });
+}
+
 CAnimationCloseRenderer::SClosing *CAnimationCloseRenderer::recordFor(
     const SP<Desktop::IFadeout> &fadeout) const {
     for (const auto &record : m_records) {
