@@ -35,10 +35,11 @@ namespace hyprimate {
         }
         void reset() noexcept;
         void recordTranslation(Vec2 delta, Vec2 size, double strength) noexcept;
-        bool advance(double elapsedSeconds, Vec2 size) noexcept;
+        bool advance(double elapsed_seconds, Vec2 size) noexcept;
         bool settled() const noexcept;
-        // C1-smooth interpolation of the 9x9 lattice field; u and v are clamped to [0, 1].
-        Vec2 sampleDisplacement(double u, double v) const noexcept;
+        // C1-smooth interpolation of the 9x9 lattice field; both fractions are clamped to [0, 1].
+        Vec2 sampleDisplacement(
+            double horizontal_fraction, double vertical_fraction) const noexcept;
         const std::array<Vec2, 81> &displacements() const noexcept {
             return m_displacements;
         }

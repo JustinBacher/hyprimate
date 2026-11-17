@@ -26,29 +26,29 @@ namespace hyprimate {
         // looser, larger ball.
         constexpr double LOOSEST_END = 0.7;
 
-        double clampUnit(double v) noexcept {
-            return std::clamp(v, 0.0, 1.0);
+        double clamp_unit(double value) noexcept {
+            return std::clamp(value, 0.0, 1.0);
         }
 
         // Validates and clamps params in place. False when any input is nonfinite or the duration
         // is not positive.
-        bool sanitize(PaperParams &p) noexcept {
-            if (!std::isfinite(p.duration) || !std::isfinite(p.crumpliness) ||
-                !std::isfinite(p.shading) || !std::isfinite(p.variation)) {
+        bool sanitize(PaperParams &params) noexcept {
+            if (!std::isfinite(params.duration) || !std::isfinite(params.crumpliness) ||
+                !std::isfinite(params.shading) || !std::isfinite(params.variation)) {
                 return false;
             }
-            if (!(p.duration > 0.0)) {
+            if (!(params.duration > 0.0)) {
                 return false;
             }
-            p.duration = std::clamp(p.duration, MIN_DURATION, MAX_DURATION);
-            p.crumpliness = clampUnit(p.crumpliness);
-            p.shading = clampUnit(p.shading);
-            p.variation = clampUnit(p.variation);
+            params.duration = std::clamp(params.duration, MIN_DURATION, MAX_DURATION);
+            params.crumpliness = clamp_unit(params.crumpliness);
+            params.shading = clamp_unit(params.shading);
+            params.variation = clamp_unit(params.variation);
             return true;
         }
 
-        std::size_t gridIndex(int i, int j) noexcept {
-            return (static_cast<std::size_t>(j) * GRID) + static_cast<std::size_t>(i);
+        std::size_t grid_index(int col, int row) noexcept {
+            return (static_cast<std::size_t>(row) * GRID) + static_cast<std::size_t>(col);
         }
 
     }  // namespace
@@ -83,9 +83,9 @@ namespace hyprimate {
         rollShape(seed);
     }
 
-    bool PaperCrumple::advance(double elapsedSeconds) noexcept {
-        if (!std::isfinite(elapsedSeconds) || elapsedSeconds < 0.0 ||
-            elapsedSeconds > STALL_SECONDS) {
+    bool PaperCrumple::advance(double elapsed_seconds) noexcept {
+        if (!std::isfinite(elapsed_seconds) || elapsed_seconds < 0.0 ||
+            elapsed_seconds > STALL_SECONDS) {
             if (m_phase == Phase::Opening) {
                 reset();
             } else if (m_phase == Phase::Closing) {
@@ -94,7 +94,7 @@ namespace hyprimate {
             }
             return active();
         }
-        const double STEP = std::min(elapsedSeconds, MAX_PLAYED_STEP);
+        const double STEP = std::min(elapsed_seconds, MAX_PLAYED_STEP);
         if (m_phase == Phase::Opening) {
             m_s -= m_rate * STEP;
             if (m_s <= 0.0) {
@@ -165,11 +165,11 @@ namespace hyprimate {
         // Nearest baked aspect on a log scale, then the seeded pick among the takes baked at that
         // aspect.
         double nearest = 0.0;
-        double bestDistance = INFINITY;
+        double best_distance = INFINITY;
         for (int candidate = 0; candidate < TAKES; ++candidate) {
             const double DISTANCE = std::abs(std::log(paperTakeAspect(candidate) / LANDSCAPE));
-            if (DISTANCE < bestDistance) {
-                bestDistance = DISTANCE;
+            if (DISTANCE < best_distance) {
+                best_distance = DISTANCE;
                 nearest = paperTakeAspect(candidate);
             }
         }
@@ -244,7 +244,7 @@ namespace hyprimate {
                 if (m_mirrorY) {
                     source_row = PAPER_CELLS - source_row;
                 }
-                const std::size_t TAKE = gridIndex(source_col, source_row);
+                const std::size_t TAKE = grid_index(source_col, source_row);
                 double pos_back[3];
                 double pos_start[3];
                 double pos_end[3];
@@ -263,9 +263,11 @@ namespace hyprimate {
                 if (m_transpose) {
                     std::swap(pos_x, pos_y);
                 }
-                world[gridIndex(i, j)] = {.x = LENGTH_SCALE * SHRINK * pos_x,
+                world[grid_index(i, j)] = {
+                    .x = LENGTH_SCALE * SHRINK * pos_x,
                     .y = LENGTH_SCALE * SHRINK * pos_y,
-                    .z = LENGTH_SCALE * SHRINK * blended_pos[2]};
+                    .z = LENGTH_SCALE * SHRINK * blended_pos[2],
+                };
             }
         }
         projectSheet(

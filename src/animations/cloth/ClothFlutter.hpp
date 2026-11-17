@@ -40,7 +40,7 @@ namespace hyprimate {
 
         // Deterministic worker starvation control for model tests. Does not affect already
         // published snapshots.
-        static void pauseWorkersForTesting(bool pause, int afterSnapshots = 0) noexcept;
+        static void pauseWorkersForTesting(bool pause, int after_snapshots_count = 0) noexcept;
     };
 
     // A fully simulated 57x57 fabric panel with a weighted hem, suspended along its entire top
@@ -64,14 +64,14 @@ namespace hyprimate {
             std::uint64_t seed,
             const Box &window,
             std::span<const Box> obstacles,
-            std::optional<ClothCloseGeometry> closeGeometry = std::nullopt);
+            std::optional<ClothCloseGeometry> geometry = std::nullopt);
         // Geometry updates only set a target; advance() sends one timestamped target per rendered
         // frame, including stationary frames while the sheet settles.
         void beginMovement(
             const ClothMovementParams &params, std::uint64_t seed, const Box &capture);
-        void updateMovement(const Box &capture, double elapsedSeconds) noexcept;
+        void updateMovement(const Box &capture, double elapsed_seconds) noexcept;
         bool moving() const noexcept;
-        bool advance(double elapsedSeconds) noexcept;
+        bool advance(double elapsed_seconds) noexcept;
         void reset() noexcept;
         bool active() const noexcept;
         bool closed() const noexcept;
@@ -82,8 +82,8 @@ namespace hyprimate {
         // Model diagnostics: wait off the compositor path for a complete recording; sample the
         // displayed normalized sheet (x right, y up from the top, z towards viewer) and its
         // velocity per real second.
-        bool waitForRecording(double timeoutSeconds = 10.0) const noexcept;
-        bool waitForSnapshots(int count, double timeoutSeconds = 10.0) const noexcept;
+        bool waitForRecording(double timeout_seconds = 10.0) const noexcept;
+        bool waitForSnapshots(int count, double timeout_seconds = 10.0) const noexcept;
         void sampleVertices(SheetGrid &positions, SheetGrid &velocities) const noexcept;
 
         struct Run;
