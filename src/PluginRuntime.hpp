@@ -72,12 +72,10 @@ class CPluginRuntime {
     bool eligible(const PHLWINDOW &window) const;
 
     // Edge pop-out placement and configuration.
-    hyprimate::Edge defaultAnimationEdge(bool opening) const;
     bool workspaceHasOtherWindows(const PHLWINDOW &window) const;
     void gatherNeighbours(const PHLWINDOW &window) const;
     void gatherClothObstacles(const PHLWINDOW &window) const;
-    CBox edgeBoundsBox(const PHLMONITOR &monitor, bool opening) const;
-    std::optional<hyprimate::EdgeFrame> edgeFrameFor(const PHLWINDOW &window,
+    hyprimate::EdgeInput edgeInputFor(const PHLWINDOW &window,
         bool opening,
         std::optional<hyprimate::Edge> origin = std::nullopt) const;
     // Screen sides a swarm enters from (opening) or leaves through: the configured sides for a

@@ -47,26 +47,6 @@ namespace {
 
     namespace cfg = hyprimate::config;
 
-    hyprimate::CloseSide closeSide(cfg::Side side) {
-        switch (side) {
-            case cfg::Side::Auto:
-                return hyprimate::CloseSide::Auto;
-            case cfg::Side::Nearest:
-                return hyprimate::CloseSide::Nearest;
-            case cfg::Side::Origin:
-                return hyprimate::CloseSide::Origin;
-            case cfg::Side::Top:
-                return hyprimate::CloseSide::Top;
-            case cfg::Side::Bottom:
-                return hyprimate::CloseSide::Bottom;
-            case cfg::Side::Left:
-                return hyprimate::CloseSide::Left;
-            case cfg::Side::Right:
-                return hyprimate::CloseSide::Right;
-        }
-        return hyprimate::CloseSide::Auto;
-    }
-
 }  // namespace
 
 CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
@@ -109,7 +89,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                     bubble->residue = m_bubbleResidue;
                 }
 
-                const auto edge = [&] { return edgeFrameFor(window, false, entry->openEdge); };
+                const auto edge = [&] { return edgeInputFor(window, false, entry->openEdge); };
                 const auto obstacles = [&]() -> std::span<const hyprimate::Box> {
                     m_neighbours.clear();
                     gatherClothObstacles(window);
@@ -286,22 +266,6 @@ bool CPluginRuntime::bubbleResidueEnabled() const {
            m_config.style == hyprimate::config::Style::Bubble;
 }
 
-hyprimate::Edge CPluginRuntime::defaultAnimationEdge(bool opening) const {
-    const auto edge = opening ? m_config.open.liquid.defaultAnimationEdge
-                              : m_config.close.liquid.defaultAnimationEdge;
-    switch (edge) {
-        case cfg::DefaultAnimationEdge::Top:
-            return hyprimate::Edge::Top;
-        case cfg::DefaultAnimationEdge::Left:
-            return hyprimate::Edge::Left;
-        case cfg::DefaultAnimationEdge::Right:
-            return hyprimate::Edge::Right;
-        case cfg::DefaultAnimationEdge::Bottom:
-            return hyprimate::Edge::Bottom;
-    }
-    return hyprimate::Edge::Bottom;
-}
-
 bool CPluginRuntime::workspaceHasOtherWindows(const PHLWINDOW &window) const {
     for (const auto &other : Desktop::windowState()->windows()) {
         if (other && other.get() != window.get() && other->m_workspace == window->m_workspace &&
@@ -333,17 +297,10 @@ void CPluginRuntime::gatherClothObstacles(const PHLWINDOW &window) const {
     }
 }
 
-CBox CPluginRuntime::edgeBoundsBox(const PHLMONITOR &monitor, bool opening) const {
-    const auto bounds =
-        opening ? m_config.open.liquid.edgeBounds : m_config.close.liquid.edgeBounds;
-    if (bounds == cfg::EdgeBounds::WorkArea) return monitor->logicalBoxMinusReserved();
-    return monitor->logicalBox();
-}
-
-std::optional<hyprimate::EdgeFrame> CPluginRuntime::edgeFrameFor(
+hyprimate::EdgeInput CPluginRuntime::edgeInputFor(
     const PHLWINDOW &window, bool opening, std::optional<hyprimate::Edge> origin) const {
     const auto monitor = window->m_monitor.lock();
-    if (!monitor) return std::nullopt;
+    if (!monitor) return {};
     const CBox current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
     const CBox body =
         opening ? window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL) : current;
@@ -358,21 +315,13 @@ std::optional<hyprimate::EdgeFrame> CPluginRuntime::edgeFrameFor(
 
     m_neighbours.clear();
     if (!window->isFloating()) gatherNeighbours(window);
-    if (!opening)
-        return hyprimate::resolveCloseEdgeFrame(box(body),
-            box(rest),
-            box(edgeBoundsBox(monitor, false)),
-            m_neighbours,
-            defaultAnimationEdge(false),
-            closeSide(m_config.close.liquid.side),
-            origin,
-            !workspaceHasOtherWindows(window));
-    return hyprimate::resolveEdgeFrame(box(body),
+    return {box(body),
         box(rest),
-        box(edgeBoundsBox(monitor, opening)),
+        box(monitor->logicalBox()),
+        box(monitor->logicalBoxMinusReserved()),
         m_neighbours,
-        defaultAnimationEdge(true),
-        !workspaceHasOtherWindows(window));
+        origin,
+        !workspaceHasOtherWindows(window)};
 }
 
 bool CPluginRuntime::materialUsable() const {

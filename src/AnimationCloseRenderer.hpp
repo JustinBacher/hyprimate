@@ -86,7 +86,7 @@ class CAnimationCloseRenderer {
         bool stateActive,
         const hyprimate::config::SConfig &config,
         hyprimate::MaterialParams material,
-        const std::function<std::optional<hyprimate::EdgeFrame>()> &edgeFrame,
+        const std::function<hyprimate::EdgeInput()> &edgeInput,
         const std::function<std::span<const hyprimate::Box>()> &obstacles,
         const std::function<std::uint64_t()> &nextSeed,
         const std::function<hyprimate::EdgeSet()> &swarmSides);
