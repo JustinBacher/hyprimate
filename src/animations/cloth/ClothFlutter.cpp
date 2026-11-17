@@ -168,9 +168,6 @@ namespace hyprimate {
         std::stop_source stop;
         std::thread worker;  // only the registry reaper joins it
 
-        double playable() const noexcept {
-            return std::max(0, recorded.load(std::memory_order_acquire) - 1) * DT;
-        }
         bool pinned(int j) const noexcept {
             return j == 0;
         }

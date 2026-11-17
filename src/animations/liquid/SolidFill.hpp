@@ -12,9 +12,6 @@ class CSolidFill {
     void setColor(const CHyprColor &color) noexcept {
         m_color = color;
     }
-    const CHyprColor &color() const noexcept {
-        return m_color;
-    }
 
     // nullptr when alpha is 0: no liquid to draw.
     SP<Render::ITexture> texture();
