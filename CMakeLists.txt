@@ -238,6 +238,10 @@ if(BUILD_TESTING)
     target_include_directories(cloth-flutter-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME cloth-flutter-tests COMMAND cloth-flutter-tests)
 
+    add_executable(cloth-lease-failure-tests src/animations/cloth/tests/ClothLeaseFailureTests.cpp)
+    target_link_libraries(cloth-lease-failure-tests PRIVATE hyprimate-core Jolt)
+    add_test(NAME cloth-lease-failure-tests COMMAND cloth-lease-failure-tests)
+
     add_executable(swarm-tests src/animations/swarm/tests/SwarmTests.cpp)
     target_link_libraries(swarm-tests PRIVATE hyprimate-core)
     target_include_directories(swarm-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)

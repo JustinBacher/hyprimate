@@ -1219,6 +1219,7 @@ namespace hyprimate {
             if (RUN->worker.joinable()) {
                 RUN->worker.join();
             }
+            RUN->released.store(true, std::memory_order_release);
             reset();
             return;
         }
@@ -1401,6 +1402,7 @@ namespace hyprimate {
             if (RUN->worker.joinable()) {
                 RUN->worker.join();
             }
+            RUN->released.store(true, std::memory_order_release);
             reset();
             return;
         }
