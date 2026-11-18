@@ -65,7 +65,7 @@ namespace close_style {
         [[maybe_unused]] const Render::CRenderContext &ctx,
         [[maybe_unused]] const SP<Desktop::IFadeout> &fadeout,
         [[maybe_unused]] const SP<Render::ITexture> &tex,
-        [[maybe_unused]] CRegion damage) {
+        [[maybe_unused]] const CRegion &damage) {
         return false;
     }
 

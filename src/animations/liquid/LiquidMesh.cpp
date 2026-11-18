@@ -260,18 +260,31 @@ namespace hyprimate {
             return LEFT + RIGHT - (2.0 * sample(index));
         }
 
+        struct LatticeColumn {
+            unsigned value;
+        };
+        struct LatticeRow {
+            unsigned value;
+        };
+        struct ShearWeightX {
+            double value;
+        };
+        struct ShearWeightY {
+            double value;
+        };
+
         // Anisotropic index-space Laplacian of one Vec2 component; weights scale each axis.
         double shear_laplacian(ConstFieldView field,
             double Vec2::*component,
-            unsigned column,
-            unsigned row,
-            double weight_x,
-            double weight_y) noexcept {
+            LatticeColumn column,
+            LatticeRow row,
+            ShearWeightX weight_x,
+            ShearWeightY weight_y) noexcept {
             const double LAPLACE_X = line_laplacian(
-                [&](unsigned index) { return field[index, row].*component; }, column);
+                [&](unsigned index) { return field[index, row.value].*component; }, column.value);
             const double LAPLACE_Y = line_laplacian(
-                [&](unsigned index) { return field[column, index].*component; }, row);
-            return (weight_x * LAPLACE_X) + (weight_y * LAPLACE_Y);
+                [&](unsigned index) { return field[column.value, index].*component; }, row.value);
+            return (weight_x.value * LAPLACE_X) + (weight_y.value * LAPLACE_Y);
         }
 
         // Catmull-Rom cubic from start to end as fraction runs from 0 to 1.
@@ -491,15 +504,35 @@ namespace hyprimate {
 
                 const double COUPLED_X =
                     (LIQUID_SHEAR_STIFFNESS *
-                        shear_laplacian(FIELD, &Vec2::x, col, row, WEIGHT_X, WEIGHT_Y)) +
+                        shear_laplacian(FIELD,
+                            &Vec2::x,
+                            LatticeColumn{col},
+                            LatticeRow{row},
+                            ShearWeightX{WEIGHT_X},
+                            ShearWeightY{WEIGHT_Y})) +
                     (SHEAR_DAMPING *
-                        shear_laplacian(VELOCITY_FIELD, &Vec2::x, col, row, WEIGHT_X, WEIGHT_Y)) +
+                        shear_laplacian(VELOCITY_FIELD,
+                            &Vec2::x,
+                            LatticeColumn{col},
+                            LatticeRow{row},
+                            ShearWeightX{WEIGHT_X},
+                            ShearWeightY{WEIGHT_Y})) +
                     (WAVE_SPEED2 * GRAD_X);
                 const double COUPLED_Y =
                     (LIQUID_SHEAR_STIFFNESS *
-                        shear_laplacian(FIELD, &Vec2::y, col, row, WEIGHT_X, WEIGHT_Y)) +
+                        shear_laplacian(FIELD,
+                            &Vec2::y,
+                            LatticeColumn{col},
+                            LatticeRow{row},
+                            ShearWeightX{WEIGHT_X},
+                            ShearWeightY{WEIGHT_Y})) +
                     (SHEAR_DAMPING *
-                        shear_laplacian(VELOCITY_FIELD, &Vec2::y, col, row, WEIGHT_X, WEIGHT_Y)) +
+                        shear_laplacian(VELOCITY_FIELD,
+                            &Vec2::y,
+                            LatticeColumn{col},
+                            LatticeRow{row},
+                            ShearWeightX{WEIGHT_X},
+                            ShearWeightY{WEIGHT_Y})) +
                     (WAVE_SPEED2 * GRAD_Y);
 
                 ACCELERATION_FIELD[col, row] = {
@@ -518,10 +551,10 @@ namespace hyprimate {
         m_inertia = {.x = m_inertia.x * INERTIA_DECAY, .y = m_inertia.y * INERTIA_DECAY};
 
         for (std::size_t i = 0; i < displacements.size(); ++i) {
-            velocities[i].x += accelerations[i].x * SUBSTEP_SECONDS;
-            velocities[i].y += accelerations[i].y * SUBSTEP_SECONDS;
-            displacements[i].x += velocities[i].x * SUBSTEP_SECONDS;
-            displacements[i].y += velocities[i].y * SUBSTEP_SECONDS;
+            velocities.at(i).x += accelerations.at(i).x * SUBSTEP_SECONDS;
+            velocities.at(i).y += accelerations.at(i).y * SUBSTEP_SECONDS;
+            displacements.at(i).x += velocities.at(i).x * SUBSTEP_SECONDS;
+            displacements.at(i).y += velocities.at(i).y * SUBSTEP_SECONDS;
         }
     }
 
@@ -702,7 +735,7 @@ namespace hyprimate {
 
     bool LiquidMesh::constrain(Vec2 size) noexcept {
         for (std::size_t i = 0; i < m_displacements.size(); ++i) {
-            if (!is_finite(m_displacements[i]) || !is_finite(m_velocities[i])) {
+            if (!is_finite(m_displacements.at(i)) || !is_finite(m_velocities.at(i))) {
                 reset();
                 return false;
             }
@@ -710,8 +743,8 @@ namespace hyprimate {
 
         const double LIMIT = displacement_limit(size);
         for (std::size_t i = 0; i < m_displacements.size(); ++i) {
-            Vec2 &displacement = m_displacements[i];
-            Vec2 &velocity = m_velocities[i];
+            Vec2 &displacement = m_displacements.at(i);
+            Vec2 &velocity = m_velocities.at(i);
             const double MAGNITUDE = std::hypot(displacement.x, displacement.y);
             if (MAGNITUDE > 0.0) {
                 soft_saturate(displacement, velocity, {.magnitude = MAGNITUDE, .limit = LIMIT});
@@ -726,11 +759,11 @@ namespace hyprimate {
                 break;
             }
             for (std::size_t i = 0; i < m_displacements.size(); ++i) {
-                m_displacements[i] = {
-                    .x = m_displacements[i].x * 0.5,
-                    .y = m_displacements[i].y * 0.5,
+                m_displacements.at(i) = {
+                    .x = m_displacements.at(i).x * 0.5,
+                    .y = m_displacements.at(i).y * 0.5,
                 };
-                m_velocities[i] = {.x = m_velocities[i].x * 0.5, .y = m_velocities[i].y * 0.5};
+                m_velocities.at(i) = {.x = m_velocities.at(i).x * 0.5, .y = m_velocities.at(i).y * 0.5};
             }
         }
 

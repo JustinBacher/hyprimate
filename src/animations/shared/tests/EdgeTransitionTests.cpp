@@ -727,15 +727,19 @@ namespace {
     // Render mesh the renderer draws at displacement gain g, filled through the same LiquidPose
     // path. Output is in logical px (unit output device), so triangle-area ratios equal those in
     // device px.
+    struct RenderCompensation {
+        Vec2 value;
+    };
+
     std::vector<hyprimate::LiquidVertex> render_mesh(const EdgeTransition &edge_transition,
         const LiquidMesh &mesh,
         double gain,
         Vec2 size,
-        Vec2 centre) {
+        RenderCompensation compensation) {
         hyprimate::LiquidPose pose{
             .mesh = mesh,
             .transition = edge_transition,
-            .compensation = centre,
+            .compensation = compensation.value,
         };
         pose.displacement_gain = gain;
         hyprimate::LiquidPoseGrid grid;
@@ -759,8 +763,8 @@ namespace {
         double gain,
         Vec2 size,
         Vec2 centre) {
-        const auto BASE = render_mesh(transition, mesh, 0.0, size, centre);
-        const auto MOVED = render_mesh(transition, mesh, gain, size, centre);
+        const auto BASE = render_mesh(transition, mesh, 0.0, size, RenderCompensation{centre});
+        const auto MOVED = render_mesh(transition, mesh, gain, size, RenderCompensation{centre});
         const auto AREA = [](const hyprimate::LiquidVertex &first,
                               const hyprimate::LiquidVertex &box,
                               const hyprimate::LiquidVertex &third) {

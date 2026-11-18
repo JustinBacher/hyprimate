@@ -23,6 +23,11 @@ namespace {
             : m_wallpaper(std::move(wallpaper)), m_source(source), m_bounds(bounds), m_live(live) {
         }
 
+        CBubbleWallpaperPass(const CBubbleWallpaperPass &) = delete;
+        CBubbleWallpaperPass &operator=(const CBubbleWallpaperPass &) = delete;
+        CBubbleWallpaperPass(CBubbleWallpaperPass &&) = delete;
+        CBubbleWallpaperPass &operator=(CBubbleWallpaperPass &&) = delete;
+
         ~CBubbleWallpaperPass() override {
             // A live capture must be refreshed; a discarded capture is not completed.
             if (m_live || !m_wallpaper->framebuffer) {

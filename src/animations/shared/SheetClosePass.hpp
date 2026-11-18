@@ -17,7 +17,6 @@ class CPaperClosePassElement final : public IPassElement {
     };
 
     explicit CPaperClosePassElement(SData data);
-    ~CPaperClosePassElement() override = default;
 
     std::vector<UP<IPassElement>> draw(Render::CRenderContext &ctx) override;
     bool needsLiveBlur(Render::CRenderContext &ctx) override;

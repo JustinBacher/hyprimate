@@ -22,7 +22,6 @@ class CLiquidClosePassElement final : public IPassElement {
     };
 
     explicit CLiquidClosePassElement(SData data);
-    ~CLiquidClosePassElement() override = default;
 
     std::vector<UP<IPassElement>> draw(Render::CRenderContext &ctx) override;
     bool needsLiveBlur(Render::CRenderContext &ctx) override;

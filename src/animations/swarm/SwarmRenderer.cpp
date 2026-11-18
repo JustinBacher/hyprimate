@@ -187,15 +187,20 @@ namespace {
         double x = 0.0, y = 0.0, u = 0.0, v = 0.0;
     };
 
+    struct PolygonPointCount {
+        std::size_t value;
+    };
+
     // Clips a convex polygon of `count` points to an axis-aligned box, in place, carrying its
     // texture coordinates along. Returns the new count; a quad clipped to a box has at most eight
     // points.
     std::size_t clip_to_box(std::array<SMaskPoint, 8> &polygon,
-        std::size_t count,
+        PolygonPointCount initial_count,
         double left,
         double top,
         double right,
         double bottom) {
+        std::size_t count = initial_count.value;
         // One pass keeps the points on one side of one of the box's edges.
         const auto PASS = [&](bool along_x, double limit, bool keep_below) {
             std::array<SMaskPoint, 8> kept;
@@ -423,7 +428,12 @@ void fill_swarm_meshes(const hyprimate::Swarm &swarm,
                 FRAME_POINT(LOW, HIGH),
             };
             const std::size_t POINTS =
-                SIDE > 0.0 ? clip_to_box(polygon, 4, TILE_LEFT, TILE_TOP, TILE_RIGHT, TILE_BOTTOM)
+                SIDE > 0.0 ? clip_to_box(polygon,
+                                 PolygonPointCount{4},
+                                 TILE_LEFT,
+                                 TILE_TOP,
+                                 TILE_RIGHT,
+                                 TILE_BOTTOM)
                            : 0;
             const auto VERTEX = [&](const SMaskPoint &point) {
                 return SMeshRenderVertex{

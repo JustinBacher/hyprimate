@@ -347,7 +347,7 @@ namespace {
                 hyprimate::SheetGrid world{};
                 std::size_t vertex = 0;
                 for (auto &point : world) {
-                    std::array<double, 3> position;
+                    std::array<double, 3> position{};
                     hyprimate::paper_take_vertex(take, FRAME_INDEX, vertex, position);
                     point = {
                         .x = std::get<0>(position),

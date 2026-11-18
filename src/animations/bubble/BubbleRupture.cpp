@@ -268,7 +268,7 @@ namespace hyprimate {
             BubbleHole hole = surface.holes[index];
             hole.radius = sheet.radii[index];
             for (std::size_t mode = 0; mode < hole.amplitude.size(); ++mode) {
-                hole.amplitude[mode] =
+                hole.amplitude.at(mode) =
                     sheet.onsets[index] * (.014 - (.002 * static_cast<double>(mode)));
             }
             return hole;
@@ -439,7 +439,7 @@ namespace hyprimate {
                 current_hole.radius = radius_at(surface, current_hole, event.time);
                 const double ONSET = smoothstep(.012, .045, event.time - current_hole.start);
                 for (std::size_t mode = 0; mode < current_hole.amplitude.size(); ++mode) {
-                    current_hole.amplitude[mode] =
+                    current_hole.amplitude.at(mode) =
                         ONSET * (.014 - (.002 * static_cast<double>(mode)));
                 }
                 const double PHI = bubble_hole_azimuth(current_hole, POINT, surface.spherical);
@@ -464,13 +464,14 @@ namespace hyprimate {
             auto *cursor = std::next(candidates.begin(), static_cast<std::ptrdiff_t>(total++));
             while (cursor != candidates.begin()) {
                 auto *const PREVIOUS = std::prev(cursor);
-                if (!(PREVIOUS->birth > CANDIDATE.birth ||
-                        (PREVIOUS->birth == CANDIDATE.birth &&
-                            PREVIOUS->event->id > CANDIDATE.event->id))) {
+                if (PREVIOUS->birth > CANDIDATE.birth ||
+                    (PREVIOUS->birth == CANDIDATE.birth &&
+                        PREVIOUS->event->id > CANDIDATE.event->id)) {
+                    *cursor = *PREVIOUS;
+                    cursor = PREVIOUS;
+                } else {
                     break;
                 }
-                *cursor = *PREVIOUS;
-                cursor = PREVIOUS;
             }
             *cursor = CANDIDATE;
         };
@@ -1156,7 +1157,7 @@ namespace hyprimate {
         }
         const auto &entry = impact_cache(surface);
         const auto OUTPUT_COUNT = std::min(out.size(), entry.count);
-        const auto *impact = entry.impacts.begin();
+        auto impact = std::span(entry.impacts).first(OUTPUT_COUNT).begin();
         for (auto &output : out.first(OUTPUT_COUNT)) {
             output = *impact++;
             output.delay -= surface.clock / surface.rate;

@@ -962,8 +962,8 @@ namespace {
     }
 
     struct TrajectoryInput {
-        double cadence;
-        std::uint64_t seed;
+        double cadence = 0;
+        std::uint64_t seed = 0;
         bool irregular = false;
     };
     Pose movement_trajectory(TrajectoryInput input) {

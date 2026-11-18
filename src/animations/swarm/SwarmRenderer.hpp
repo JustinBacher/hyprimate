@@ -94,7 +94,6 @@ class CSwarmClosePassElement final : public IPassElement {
     };
 
     explicit CSwarmClosePassElement(SData data);
-    ~CSwarmClosePassElement() override = default;
 
     std::vector<UP<IPassElement>> draw(Render::CRenderContext &ctx) override;
     bool needsLiveBlur(Render::CRenderContext &ctx) override;

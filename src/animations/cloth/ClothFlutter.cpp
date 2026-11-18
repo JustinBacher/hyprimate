@@ -352,6 +352,12 @@ namespace hyprimate {
     namespace {
         using Run = ClothFlutter::Run;
         struct Lease {
+            Lease() = default;
+            Lease(const Lease &) = delete;
+            Lease &operator=(const Lease &) = delete;
+            Lease(Lease &&) = delete;
+            Lease &operator=(Lease &&) = delete;
+
             std::shared_ptr<Run> run;
             ~Lease() {
                 run->stop.request_stop();
@@ -659,7 +665,7 @@ namespace hyprimate {
                 run.overflow.store(true, std::memory_order_release);
                 return false;
             }
-            auto &snapshot = run.snapshots[HEAD % Run::OUTPUT_CAPACITY];
+            auto &snapshot = run.snapshots.at(HEAD % Run::OUTPUT_CAPACITY);
             snapshot.time = time;
             snapshot.rigid_velocity = run.snapshot_rigid_velocity;
             std::size_t vertex_index = 0;
@@ -801,7 +807,7 @@ namespace hyprimate {
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
                     continue;
                 }
-                const Run::Target TARGET = run.targets[TAIL % Run::INPUT_CAPACITY];
+                const Run::Target TARGET = run.targets.at(TAIL % Run::INPUT_CAPACITY);
                 run.input_tail.store(TAIL + 1, std::memory_order_release);
                 while (time + STEP_SECONDS <= TARGET.time + 1e-10 && good && !STOPPED()) {
                     const double NEXT_TIME = time + STEP_SECONDS;
@@ -937,7 +943,9 @@ namespace hyprimate {
                 return;
             }
             run.samples = std::make_unique<Run::Frame[]>(static_cast<std::size_t>(run.frames));
-            constexpr ObjectLayer STATIC = 0, CLOTH = 1, LAYERS = 2;
+            constexpr ObjectLayer STATIC = 0;
+            constexpr ObjectLayer CLOTH = 1;
+            constexpr ObjectLayer LAYERS = 2;
             ObjectLayerPairFilterTable pairs(LAYERS);
             pairs.EnableCollision(STATIC, CLOTH);
             BroadPhaseLayerInterfaceTable broad_phase(LAYERS, 2);
@@ -1548,7 +1556,7 @@ namespace hyprimate {
                     Run::INPUT_CAPACITY) {
                     m_run->overflow.store(true, std::memory_order_release);
                 } else {
-                    m_run->targets[HEAD % Run::INPUT_CAPACITY] = {
+                    m_run->targets.at(HEAD % Run::INPUT_CAPACITY) = {
                         .time = m_t,
                         .box = playback.target,
                     };
@@ -1563,7 +1571,7 @@ namespace hyprimate {
             const bool PROGRESSED = tail != HEAD && playback.b.time < WANTED;
             for (; tail != HEAD && playback.b.time < WANTED; ++tail) {
                 playback.a = playback.b;
-                playback.b = m_run->snapshots[tail % Run::OUTPUT_CAPACITY];
+                playback.b = m_run->snapshots.at(tail % Run::OUTPUT_CAPACITY);
             }
             m_run->output_tail.store(tail, std::memory_order_release);
             playback.time =

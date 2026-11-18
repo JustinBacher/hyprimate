@@ -9,7 +9,7 @@ struct SLiveRenderGeometry {
     CBox source;
     CBox output;
     CBox local_output;
-    double scale;
+    double scale = 0;
     hyprimate::Vec2 texture_size;
 };
 

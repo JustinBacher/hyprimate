@@ -249,15 +249,15 @@ namespace hyprimate {
                     source_row = PAPER_CELLS - source_row;
                 }
                 const std::size_t TAKE = grid_index(source_col, source_row);
-                std::array<double, 3> pos_back;
-                std::array<double, 3> pos_start;
-                std::array<double, 3> pos_end;
-                std::array<double, 3> pos_next;
+                std::array<double, 3> pos_back{};
+                std::array<double, 3> pos_start{};
+                std::array<double, 3> pos_end{};
+                std::array<double, 3> pos_next{};
                 paper_take_vertex(m_take, F_BACK, TAKE, pos_back);
                 paper_take_vertex(m_take, FRAME_START, TAKE, pos_start);
                 paper_take_vertex(m_take, FRAME_START + 1, TAKE, pos_end);
                 paper_take_vertex(m_take, F_NEXT, TAKE, pos_next);
-                std::array<double, 3> blended_pos;
+                std::array<double, 3> blended_pos{};
                 const auto *back = pos_back.cbegin();
                 const auto *start = pos_start.cbegin();
                 const auto *end = pos_end.cbegin();
