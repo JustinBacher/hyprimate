@@ -23,6 +23,7 @@
 #include "animations/shared/Core.hpp"
 #include "animations/shared/PaperRenderer.hpp"
 #include "animations/swarm/SwarmLiveState.hpp"
+#include "animations/smoke/SmokeLiveState.hpp"
 #include "animations/swarm/SwarmRenderer.hpp"
 #include "config_generated.hpp"
 
@@ -35,7 +36,8 @@ inline CBox to_cbox(const hyprimate::Box &box) {
 }
 
 // The one style a window's transformer or close record carries.
-using SStyleState = std::variant<SLiquidStyle, SPaperStyle, SClothStyle, SSwarmStyle, SBubbleStyle>;
+using SStyleState =
+    std::variant<SLiquidStyle, SPaperStyle, SClothStyle, SSwarmStyle, SBubbleStyle, SSmokeStyle>;
 
 // The state a window starts from in `style`. `liquid`, `cloth`, and `seed` are the settings it is
 // built for.
@@ -95,6 +97,7 @@ class CAnimationTransformer final : public Render::IWindowTransformer {
     friend struct SClothLiveStyle;
     friend struct SSwarmLiveStyle;
     friend struct SBubbleLiveStyle;
+    friend struct SSmokeLiveStyle;
 
     // Whether the active style is still deforming the window.
     bool deforming() const;

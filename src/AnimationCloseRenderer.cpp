@@ -46,6 +46,7 @@
 #include "animations/shared/Core.hpp"
 #include "animations/shared/EdgeTransition.hpp"
 #include "animations/shared/PaperRenderer.hpp"
+#include "animations/smoke/SmokeCloseStyle.hpp"
 #include "animations/swarm/SwarmCloseStyle.hpp"
 #include "animations/swarm/SwarmCloseStyleData.hpp"
 #include "animations/swarm/SwarmRenderer.hpp"
@@ -245,6 +246,8 @@ bool close_animation_enabled(const hyprimate::config::SConfig &config) {
             return close_style::close_enabled(SSwarmCloseData{}, config);
         case Style::Bubble:
             return close_style::close_enabled(SBubbleCloseData{}, config);
+        case Style::Smoke:
+            return close_style::close_enabled(SSmokeCloseData{}, config);
     }
     return false;
 }
@@ -476,10 +479,10 @@ void CAnimationCloseRenderer::on_fadeout_created(
         return;
     }
     if (record->owned) {
-        // A soap membrane ruptures where the snapshot was taken, independent of native slide/pop
-        // geometry.
+        // Material-state closes stay at the captured position, independent of native slide/pop.
         record->render_box =
-            std::holds_alternative<SBubbleStyle>(record->style)
+            (std::holds_alternative<SBubbleStyle>(record->style) ||
+                std::holds_alternative<SSmokeStyle>(record->style))
                 ? CBox{0.0, 0.0, record->snapshot_size.x, record->snapshot_size.y}
                 : owned_render_box(
                       record->source_device, created->renderBox(), record->snapshot_size);
@@ -519,7 +522,8 @@ void CAnimationCloseRenderer::tick(
                 return !NATIVE_ALIVE;
             }
 
-            if (NATIVE_ALIVE && !std::holds_alternative<SBubbleStyle>(record->style)) {
+            if (NATIVE_ALIVE && !std::holds_alternative<SBubbleStyle>(record->style) &&
+                !std::holds_alternative<SSmokeStyle>(record->style)) {
                 record->render_box = owned_render_box(
                     record->source_device, FADEOUT->renderBox(), record->snapshot_size);
             }

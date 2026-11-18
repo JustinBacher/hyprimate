@@ -37,6 +37,7 @@ LIVE_STYLE_OPERATIONS(SPaperLiveStyle, SPaperStyle)
 LIVE_STYLE_OPERATIONS(SClothLiveStyle, SClothStyle)
 LIVE_STYLE_OPERATIONS(SSwarmLiveStyle, SSwarmStyle)
 LIVE_STYLE_OPERATIONS(SBubbleLiveStyle, SBubbleStyle)
+LIVE_STYLE_OPERATIONS(SSmokeLiveStyle, SSmokeStyle)
 
 inline SLiquidLiveStyle live_style_for([[maybe_unused]] const SLiquidStyle &state) {
     return {};
@@ -51,6 +52,9 @@ inline SSwarmLiveStyle live_style_for([[maybe_unused]] const SSwarmStyle &state)
     return {};
 }
 inline SBubbleLiveStyle live_style_for([[maybe_unused]] const SBubbleStyle &state) {
+    return {};
+}
+inline SSmokeLiveStyle live_style_for([[maybe_unused]] const SSmokeStyle &state) {
     return {};
 }
 #undef LIVE_STYLE_OPERATIONS
@@ -68,6 +72,8 @@ decltype(auto) with_live_style(hyprimate::config::Style style, F &&operation) {
             return std::forward<F>(operation)(SSwarmLiveStyle{});
         case Bubble:
             return std::forward<F>(operation)(SBubbleLiveStyle{});
+        case Smoke:
+            return std::forward<F>(operation)(SSmokeLiveStyle{});
         case Liquid:
             return std::forward<F>(operation)(SLiquidLiveStyle{});
     }

@@ -37,6 +37,7 @@ class CPluginRuntime {
     friend struct SClothLiveStyle;
     friend struct SSwarmLiveStyle;
     friend struct SBubbleLiveStyle;
+    friend struct SSmokeLiveStyle;
 
   private:
     using Clock = std::chrono::steady_clock;
@@ -124,6 +125,7 @@ class CPluginRuntime {
     SP<CPaperShade> m_shade = makeShared<CPaperShade>();
     SP<CSwarmSprites> m_sprites = makeShared<CSwarmSprites>();
     SP<CBubbleRenderer> m_bubble = makeShared<CBubbleRenderer>();
+    SP<CSmokeRenderer> m_smoke = makeShared<CSmokeRenderer>();
     SP<CBubbleResidue> m_bubble_residue = makeShared<CBubbleResidue>();
     std::vector<PHLMONITORREF> m_residue_inhibited;
     std::unique_ptr<CAnimationCloseRenderer> m_close;

@@ -116,6 +116,9 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                     bubble->renderer = m_bubble;
                     bubble->residue = m_bubble_residue;
                 }
+                if (auto *smoke = std::get_if<SSmokeStyle>(&state)) {
+                    smoke->renderer = m_smoke;
+                }
 
                 const auto EDGE = [&] { return edge_input_for(window, false, entry->open_edge); };
                 const auto OBSTACLES = [&] -> std::span<const hyprimate::Box> {
@@ -500,6 +503,9 @@ void CPluginRuntime::on_render_pre(const PHLMONITOR &monitor) {
     if (m_config.style == hyprimate::config::Style::Bubble) {
         m_bubble->warm_up();
     }
+    if (m_config.style == hyprimate::config::Style::Smoke) {
+        m_smoke->warm_up();
+    }
     const bool RESIDUE_ENABLED = bubble_residue_enabled();
     m_bubble_residue->set_enabled(RESIDUE_ENABLED);
     if (!RESIDUE_ENABLED) {
@@ -632,7 +638,8 @@ void CPluginRuntime::record_movement(STracked &entry,
     const hyprimate::TrackDecision &decision,
     double elapsed) {
     const bool ENABLED = movement_enabled();
-    const bool MOVING = decision.translated && ENABLED;
+    const bool MOVING = ENABLED &&
+        (decision.translated || (decision.resized && m_config.style == hyprimate::config::Style::Smoke));
     auto *transformer = transformer_of(window);
     if (!MOVING && (transformer == nullptr)) {
         return;
@@ -744,6 +751,9 @@ CAnimationTransformer *CPluginRuntime::acquire_transformer(const PHLWINDOW &wind
     if (auto *bubble = std::get_if<SBubbleStyle>(&state)) {
         bubble->renderer = m_bubble;
         bubble->residue = m_bubble_residue;
+    }
+    if (auto *smoke = std::get_if<SSmokeStyle>(&state)) {
+        smoke->renderer = m_smoke;
     }
     return list->emplace<CAnimationTransformer>(
         window->m_self, std::move(state), m_open_solid, m_shade, m_sprites);

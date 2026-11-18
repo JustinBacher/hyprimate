@@ -27,9 +27,10 @@
 #include "animations/shared/EdgeTransition.hpp"
 #include "animations/shared/PaperRenderer.hpp"
 #include "animations/swarm/SwarmCloseStyleData.hpp"
+#include "animations/smoke/SmokeCloseStyleData.hpp"
 bool close_animation_enabled(const hyprimate::config::SConfig &config);
-using SCloseStyleData = std::
-    variant<SLiquidCloseData, SPaperCloseData, SClothCloseData, SSwarmCloseData, SBubbleCloseData>;
+using SCloseStyleData = std::variant<SLiquidCloseData,
+    SPaperCloseData, SClothCloseData, SSwarmCloseData, SBubbleCloseData, SSmokeCloseData>;
 
 // Deforms the native window-close fadeout through two narrow hooks, each selected by exact
 // demangled signature:

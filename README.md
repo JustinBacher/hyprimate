@@ -97,6 +97,15 @@ hl.config({
                         transparency = 0.88,
                         -- duration = 1.0,
                     },
+                    smoke = {
+                        strength = 0.85,
+                        turbulence = 0.65,
+                        trail = 0.65,
+                        -- duration = 1.4,
+                        -- direction = "inside",
+                        density = 1,
+                        variation = 0.5,
+                    },
                     paper = {
                         -- duration = 0.6,
                         crumpliness = 0.6,
@@ -122,6 +131,14 @@ hl.config({
                 movement = {
                     enabled = true,
                     workspace_movement = true,
+                    options = {
+                        smoke = {
+                            reform = 0.48,
+                            settle_speed = 1,
+                            mass = 0.45,
+                            roundness = 0.7,
+                        },
+                    },
                 },
                 open = {
                     enabled = true,
@@ -174,6 +191,9 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `window:options:bubble:roundness` | float / animation defaults: `1` | 0–1 | How far a window moving at shape_speed contracts toward its bubble shape before returning to a rectangle when stopped. Zero keeps it rectangular. |
 | `window:options:bubble:shape_speed` | float / animation defaults: `1200` | 100–6000 | Window speed in logical pixels per second at which bubble shape contraction reaches its full amount. Slower windows contract proportionally less. |
 | `window:options:bubble:transparency` | float / animation defaults: `0.88` | 0–1 | Window transparency while in bubble form. Zero keeps the window imagery opaque; one shows only the refracted desktop through the film. Highlights and iridescence remain visible. The normal window is unchanged when movement settles. |
+| `window:options:smoke:strength` | float / animation defaults: `0.85` | 0–1.5 | How readily motion unravels the window into flowing smoke. Zero disables movement transformation without affecting opening or closing. |
+| `window:options:smoke:turbulence` | float / animation defaults: `0.65` | 0–1 | Movement: Strength of evolving smoke folds and smaller curling structures. Shared with opening and closing unless overridden. Open: Strength of rolling folds and curling filaments during smoke materialization. Close: Strength of rolling folds and curling filaments during smoke disintegration. |
+| `window:options:smoke:trail` | float / animation defaults: `0.65` | 0–1 | Amount of short-lived, content-coloured filaments shed into the wake. Zero stops new wake emission; existing wisps diffuse naturally. |
 | `window:options:liquid:color` | color / animation defaults: `0xff000000` | — | Open: Colour of the liquid at the opening edge, in ARGB. Zero alpha draws no liquid. Close: Colour of the liquid at the closing edge, in ARGB. Zero alpha draws no liquid. |
 | `window:options:liquid:default_animation_edge` | string / animation defaults: `"bottom"` | — | Open: Preferred opening edge for the first window on a workspace. Later windows use their placement. Invalid edges fall back to a valid edge. Close: Preferred closing edge for the last window on a workspace when side is auto. Other windows use their placement. Invalid edges fall back to a valid edge. Allowed: `bottom`, `top`, `left`, `right`. |
 | `window:options:liquid:edge_bounds` | string / animation defaults: `"screen"` | — | Open: Choose monitor edges (screen) or edges inside reserved areas (work_area) for the liquid pop-out. Close: Choose monitor edges (screen) or edges inside reserved areas (work_area) for the liquid exit. Allowed: `screen`, `work_area`. |
@@ -187,11 +207,13 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `window:options:cloth:edge_bounds` | string / animation defaults: `"screen"` | — | Open: Choose monitor edges (screen) or edges inside reserved areas (work_area) for the cloth opening origin. Close: Choose monitor edges (screen) or edges inside reserved areas (work_area) for cloth edge selection. Cloth travels beyond the actual screen before disappearing. Allowed: `screen`, `work_area`. |
 | `window:options:swarm:lone_window_sides` | set / animation defaults: `"all"` | — | Open: Screen sides swarm creatures enter from for the first window on a workspace. Later windows use the side where they appear (see Edge choice). Close: Screen sides swarm creatures leave through for the last window on a workspace. Otherwise they use the side where the window sits (see Edge choice). Comma-separated list of: `top`, `bottom`, `left`, `right`; `all` selects every one and overrides the rest. |
 | `window:options:bubble:duration` | float / animation defaults: open `1.0`, close `0.42` | 0.1–3 | Open: Time in seconds for the opening: small bubbles surface and interact for about the first half, the window bubble grows out of them, then inflates into the window's shape and settles. Close: Time in seconds for the bubble film to thin, tear, retract into strands and droplets, and for the droplets to evaporate. |
+| `window:options:smoke:duration` | float / animation defaults: open `1.4`, close `1.6` | 0.2–3 | Open: Time in seconds for smoke to gather, grow into a mass and condense into the window's full-resolution contents. Close: Time in seconds for the window to gather into a smoke mass and leave. Trailing wisps may decay briefly afterward. |
+| `window:options:smoke:direction` | string / animation defaults: open `"inside"`, close `"bottom"` | — | Open: Where opening smoke comes from. Inside grows the window from a faint wisp at a random point within it; an edge streams the smoke in from that screen edge. An edge the window does not face falls back to the opening-edge choice of liquid. Invalid names are rejected. Close: Where closing smoke leaves. Inside collapses the window into a swirling mass at a random point within it that dissipates; an edge gathers a mass on the opposite side, rears and turns it toward that screen edge and pulls the rest of the window after it. An edge the window does not face falls back to the closing-edge choice of liquid. Invalid names are rejected. Allowed: `inside`, `top`, `bottom`, `left`, `right`. |
 | `window:options:liquid:side` | string / animation defaults: `"auto"` | — | Liquid exit edge: the side of appearance (auto), nearest valid edge, opening origin, or a fixed edge. Invalid preferred edges fall back to the normal edge selection. Allowed: `auto`, `nearest`, `origin`, `top`, `bottom`, `left`, `right`. |
 | `window:options:liquid:splash` | boolean / animation defaults: `true` | — | Show a small edge-liquid splash where a window closes. When false, it closes without liquid. |
 | `window:options:cloth:side` | string / animation defaults: `"auto"` | — | Cloth exit edge: the side of appearance (auto), nearest valid edge, opening origin, or a fixed edge. Invalid preferred edges fall back to the normal edge selection. Allowed: `auto`, `nearest`, `origin`, `top`, `bottom`, `left`, `right`. |
 | `window:enabled` | boolean / `true` | — | Enable window movement, opening and closing effects. When false, none of these effects run. |
-| `window:style` | string / `"liquid"` | — | Choose the material for movement, opening and closing. Liquid deforms the edges; paper crumples into a ball and moves without deformation; cloth drapes and flutters; swarm breaks the window into creature-shaped pieces; bubble inflates a soap film, sloshes while moving and bursts on close. Invalid names are rejected. Allowed: `liquid`, `paper`, `cloth`, `swarm`, `bubble`. |
+| `window:style` | string / `"liquid"` | — | Choose the material for movement, opening and closing. Liquid deforms the edges; paper crumples into a ball and moves without deformation; cloth drapes and flutters; swarm breaks the window into creature-shaped pieces; bubble inflates a soap film, sloshes while moving and bursts on close; smoke gathers, unravels into flowing content-coloured volumes while moving, reforms at rest and dissipates on close. Invalid names are rejected. Allowed: `liquid`, `paper`, `cloth`, `swarm`, `bubble`, `smoke`. |
 | `window:options:swarm:sprite` | string / `"spider"` | — | Swarm sprite name in the sprites directory, with or without .png, or an explicit PNG path. The sheet has four columns and two rows of frames; transparency defines the silhouette. |
 | `window:options:swarm:count` | int / `250` | 1–400 | Number of swarm creatures per window. Each carries a piece of the window, so fewer creatures mean larger pieces. |
 | `window:options:swarm:speed` | float / `1400` | 100–6000 | Swarm creature travel speed in logical pixels per second. |
@@ -202,8 +224,14 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `window:options:swarm:settling` | float / `0.5` | 0–1 | How quickly swarm creatures regroup and merge back into the window. Lower values make them mill about longer. |
 | `window:options:swarm:wander` | float / `0.5` | 0–1 | How much swarm creatures wander and hesitate while travelling. Zero makes them follow their routes steadily. |
 | `window:options:swarm:variation` | float / `0.5` | 0–1 | Variation in each swarm creature's speed, grip and route curvature. Zero makes them travel straight and alike. |
+| `window:options:smoke:density` | float / `1` | 0.25–2 | Optical thickness of the smoke body when moving, opening and closing. Higher values build a denser, more layered interior while thin outer smoke stays translucent; lower values give a lighter, wispier body. |
+| `window:options:smoke:variation` | float / `0.5` | 0–1 | Randomness of smoke between windows and animations: where smoke gathers or leaves, how it turns and swirls, and how its density and wisps vary. Zero makes every animation alike while the smoke still moves naturally. Configured directions are always respected. |
 | `window:movement:enabled` | boolean / `true` | — | Deform windows while they move. This does not affect opening or closing effects. |
 | `window:movement:workspace_movement` | boolean / `true` | — | Let workspace slides trigger movement effects. When false, ordinary movement, opening and closing are unaffected. |
+| `window:movement:options:smoke:reform` | float / `0.48` | 0.15–1.5 | Time scale in seconds for moving smoke to condense back into the exact window after movement stops. |
+| `window:movement:options:smoke:settle_speed` | float / `1` | 0.1–2 | Speed multiplier for the smoke body's expansion and condensation after movement or resizing stops. One preserves the reform time scale; higher values reform faster and lower values linger. Opening and closing durations are unchanged. |
+| `window:movement:options:smoke:mass` | float / `0.45` | 0.15–1 | Size of the moving smoke body as a fraction of the window's width and height. One keeps roughly the window's footprint; smaller values contract a moving window into a denser mass that expands back when it stops. |
+| `window:movement:options:smoke:roundness` | float / `0.7` | 0–1 | Shape of the moving smoke body, independent of its size. Zero keeps the window's rectangular proportions; higher values round its corners and even out its proportions toward a turbulent, roughly circular mass. |
 | `window:open:enabled` | boolean / `true` | — | Animate windows as they open using the selected style. When false, windows open without this effect; movement is unaffected. |
 | `window:open:options:bubble:count` | int / `140` | 0–160 | Opening-only budget for simultaneously living small bubbles, not a fixed population. Slots are reused as bubbles merge and burst. Zero disables them and the window bubble forms on its own. |
 | `window:open:options:bubble:birth_rate` | float / `1` | 0.25–2 | Opening-only multiplier for how often bubbles surface. Higher values produce a busier raft within the count budget. |

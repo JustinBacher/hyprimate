@@ -61,10 +61,22 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                         wander = 0.5,
 --                         variation = 0.5,
 --                     },
+--                     smoke = {
+--                         density = 1,
+--                         variation = 0.5,
+--                     },
 --                 },
 --                 movement = {
 --                     enabled = true,
 --                     workspace_movement = true,
+--                     options = {
+--                         smoke = {
+--                             reform = 0.48,
+--                             settle_speed = 1,
+--                             mass = 0.45,
+--                             roundness = 0.7,
+--                         },
+--                     },
 --                 },
 --                 open = {
 --                     enabled = true,

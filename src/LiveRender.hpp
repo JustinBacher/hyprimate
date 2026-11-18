@@ -19,6 +19,7 @@ CBox live_extents(const SPaperStyle &state, const CBox &box);
 CBox live_extents(const SClothStyle &state, const CBox &box);
 CBox live_extents(const SSwarmStyle &state, const CBox &box);
 CBox live_extents(const SBubbleStyle &state, const CBox &box);
+CBox live_extents(const SSmokeStyle &state, const CBox &box);
 
 Render::SWindowTransformBuffer render_live(SLiquidStyle &state,
     Render::CRenderContext &ctx,
@@ -57,6 +58,15 @@ Render::SWindowTransformBuffer render_live(SSwarmStyle &state,
     const SP<CSwarmSprites> &sprites);
 
 Render::SWindowTransformBuffer render_live(SBubbleStyle &state,
+    Render::CRenderContext &ctx,
+    const Render::SWindowTransformBuffer &input,
+    const Render::SWindowTransformContext &context,
+    const SLiveRenderGeometry &geometry,
+    const SP<CSolidFill> &solid,
+    const SP<CPaperShade> &shade,
+    const SP<CSwarmSprites> &sprites);
+
+Render::SWindowTransformBuffer render_live(SSmokeStyle &state,
     Render::CRenderContext &ctx,
     const Render::SWindowTransformBuffer &input,
     const Render::SWindowTransformContext &context,

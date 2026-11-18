@@ -107,6 +107,25 @@ add_custom_command(
     VERBATIM
 )
 add_custom_target(generate-swarm-shaders DEPENDS ${CONFIG_GENERATED_DIR}/swarm_shaders_generated.hpp)
+set(SMOKE_SHADER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/animations/smoke/shaders)
+add_custom_command(
+    OUTPUT ${CONFIG_GENERATED_DIR}/smoke_shaders_generated.hpp
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_bubble_shaders.py
+            --source-dir ${SMOKE_SHADER_DIR}
+            --output ${CONFIG_GENERATED_DIR}/smoke_shaders_generated.hpp
+            --namespace smoke_shader --shader VERTEX=smoke.vert --shader COMPOSITE=smoke.frag
+            --shader VELOCITY=velocity.frag --shader DIVERGENCE=divergence.frag
+            --shader PRESSURE=pressure.frag --shader PROJECT=project.frag
+            --shader ADVECT=advect.frag --shader DYE=dye.frag
+    DEPENDS ${SMOKE_SHADER_DIR}/smoke.vert ${SMOKE_SHADER_DIR}/smoke.frag
+            ${SMOKE_SHADER_DIR}/velocity.frag ${SMOKE_SHADER_DIR}/divergence.frag
+            ${SMOKE_SHADER_DIR}/pressure.frag ${SMOKE_SHADER_DIR}/project.frag
+            ${SMOKE_SHADER_DIR}/advect.frag
+            ${SMOKE_SHADER_DIR}/dye.frag ${SMOKE_SHADER_DIR}/common.glsl
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_bubble_shaders.py
+    VERBATIM
+)
+add_custom_target(generate-smoke-shaders DEPENDS ${CONFIG_GENERATED_DIR}/smoke_shaders_generated.hpp)
 add_custom_target(update-config-docs
     COMMAND ${Python3_EXECUTABLE} ${CONFIG_GENERATOR} --schema ${CONFIG_SCHEMA} --readme ${CMAKE_CURRENT_SOURCE_DIR}/README.md --lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/nested/hyprland.lua
     VERBATIM
@@ -132,6 +151,7 @@ add_library(hyprimate-core STATIC
     src/animations/bubble/BubbleMotion.cpp
     src/animations/bubble/BubbleWake.cpp
     src/WindowTracker.cpp
+    src/animations/smoke/Smoke.cpp
 )
 # PaperTakes.cpp #embeds the baked crumples; rebuild it whenever they are re-packed.
 set_source_files_properties(src/animations/paper/PaperTakes.cpp PROPERTIES OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/animations/paper/assets/paper_takes.bin)
@@ -155,6 +175,9 @@ add_library(hyprimate SHARED
     src/animations/bubble/BubbleMaterial.cpp
     src/animations/bubble/BubbleResidue.cpp
     src/animations/bubble/BubbleWallpaper.cpp
+    src/animations/smoke/SmokeLiveStyle.cpp
+    src/animations/smoke/SmokeRenderer.cpp
+    src/animations/smoke/SmokeMaterial.cpp
     src/animations/liquid/LiquidCloseStyle.cpp
     src/animations/shared/SheetClosePass.cpp
     src/AnimationTransformer.cpp
@@ -163,7 +186,7 @@ add_library(hyprimate SHARED
     src/animations/shared/PaperRenderer.cpp
 )
 set_target_properties(hyprimate PROPERTIES PREFIX "" INTERPROCEDURAL_OPTIMIZATION FALSE)
-add_dependencies(hyprimate generate-config generate-bubble-shaders generate-swarm-shaders)
+add_dependencies(hyprimate generate-config generate-bubble-shaders generate-swarm-shaders generate-smoke-shaders)
 target_include_directories(hyprimate PRIVATE ${CONFIG_GENERATED_DIR})
 target_compile_definitions(hyprimate PRIVATE HYPRIMATE_SPRITE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/animations/swarm/sprites")
 target_link_libraries(hyprimate PRIVATE PkgConfig::HYPRLAND Jolt hyprimate-core)
@@ -189,7 +212,7 @@ add_custom_target(clang-tidy-check
             --build-dir ${CMAKE_BINARY_DIR}
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     COMMENT "Checking project translation units with clang-tidy"
-    DEPENDS generate-config generate-bubble-shaders generate-swarm-shaders
+    DEPENDS generate-config generate-bubble-shaders generate-swarm-shaders generate-smoke-shaders
     VERBATIM
 )
 
@@ -274,6 +297,20 @@ if(BUILD_TESTING)
     add_test(NAME bubble-material-tests COMMAND bubble-material-tests)
     set_tests_properties(bubble-material-tests PROPERTIES ENVIRONMENT "EGL_PLATFORM=surfaceless")
 
+
+    add_executable(smoke-tests src/animations/smoke/tests/SmokeTests.cpp)
+    target_link_libraries(smoke-tests PRIVATE hyprimate-core)
+    target_include_directories(smoke-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    add_test(NAME smoke-tests COMMAND smoke-tests)
+
+    add_executable(smoke-material-tests
+        src/animations/smoke/tests/SmokeMaterialTests.cpp
+        src/animations/smoke/SmokeMaterial.cpp)
+    add_dependencies(smoke-material-tests generate-smoke-shaders)
+    target_include_directories(smoke-material-tests PRIVATE ${CONFIG_GENERATED_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_link_libraries(smoke-material-tests PRIVATE hyprimate-core PkgConfig::BUBBLE_TEST_EGL)
+    add_test(NAME smoke-material-tests COMMAND smoke-material-tests)
+    set_tests_properties(smoke-material-tests PROPERTIES ENVIRONMENT "EGL_PLATFORM=surfaceless")
     add_executable(window-tracker-tests tests/WindowTrackerTests.cpp)
     target_link_libraries(window-tracker-tests PRIVATE hyprimate-core)
     add_test(NAME window-tracker-tests COMMAND window-tracker-tests)
