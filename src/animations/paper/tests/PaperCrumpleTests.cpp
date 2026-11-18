@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <limits>
+#include <print>
 #include <utility>
 #include <vector>
 
@@ -382,7 +383,7 @@ namespace {
                 }
                 CHECK(same);
                 if (!same) {
-                    std::printf("order mismatch: take %d frame %d\n", take, FRAME_INDEX);
+                    std::println("order mismatch: take {} frame {}", take, FRAME_INDEX);
                     return;
                 }
             }

@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <iterator>
 #include <limits>
+#include <print>
 
 #include "Check.hpp"
 #include "animations/liquid/LiquidMesh.hpp"
@@ -883,9 +884,9 @@ int main() {
     test_variation_stays_valid_and_settles();
 
     if (g_failures == 0) {
-        std::printf("liquid-mesh-tests: all checks passed\n");
+        std::println("liquid-mesh-tests: all checks passed");
         return 0;
     }
-    std::fprintf(stderr, "liquid-mesh-tests: %d check(s) failed\n", g_failures);
+    std::println(stderr, "liquid-mesh-tests: {} check(s) failed", g_failures);
     return 1;
 }

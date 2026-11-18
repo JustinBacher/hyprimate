@@ -80,7 +80,7 @@ namespace hyprimate {
     }  // namespace
 
     Vec2 liquid_edge_point(const LiquidPose &pose, double tangent, double n) {
-        const Vec2 POSITION = edge_point(pose.transition.frame(), tangent, n);
+        const Vec2 POSITION = edge_point(pose.transition.get().frame(), tangent, n);
         return {.x = POSITION.x + pose.open_offset.x, .y = POSITION.y + pose.open_offset.y};
     }
 
@@ -91,8 +91,8 @@ namespace hyprimate {
         }
 
         const Vec2 COMPENSATION = pose.compensation;
-        const EdgeTransition::RestMap MAP =
-            pose.transition.rest_map({.x = size.x * COMPENSATION.x, .y = size.y * COMPENSATION.y});
+        const EdgeTransition::RestMap MAP = pose.transition.get().rest_map(
+            {.x = size.x * COMPENSATION.x, .y = size.y * COMPENSATION.y});
         for (int j = 0; j < LIQUID_POSE_SAMPLES; ++j) {
             const auto ROW = std::span{grid.offsets}.subspan(
                 static_cast<std::size_t>(j) * LIQUID_POSE_SAMPLES, LIQUID_POSE_SAMPLES);
@@ -104,7 +104,7 @@ namespace hyprimate {
                 *sample++ = sample_offset(pose,
                     MAP,
                     BASE,
-                    pose.mesh.sample_displacement(TEX_U, TEX_V),
+                    pose.mesh.get().sample_displacement(TEX_U, TEX_V),
                     pose.displacement_gain);
             }
         }
@@ -121,8 +121,8 @@ namespace hyprimate {
             }
             return gain;
         };
-        const EdgeTransition &transition = pose.transition;
-        if (!transition.active() || pose.mesh.settled()) {
+        const EdgeTransition &transition = pose.transition.get();
+        if (!transition.active() || pose.mesh.get().settled()) {
             return SETTLE(1.0);
         }
         const Vec2 COMPENSATION = pose.compensation;
@@ -156,7 +156,7 @@ namespace hyprimate {
                     .x = (TEX_U - 0.5) * rest_size.x,
                     .y = (TEX_V - 0.5) * rest_size.y,
                 };
-                FLOW_GRID[i, j] = pose.mesh.sample_displacement(TEX_U, TEX_V);
+                FLOW_GRID[i, j] = pose.mesh.get().sample_displacement(TEX_U, TEX_V);
                 MAP_ONLY_GRID[i, j] =
                     sample_offset(pose, MAP, BASE_VALUES[i, j], FLOW_VALUES[i, j], 0.0);
             }
@@ -233,11 +233,11 @@ namespace hyprimate {
     }
 
     std::optional<Box> liquid_visible_box(const LiquidPose &pose, const Box &logical_box) {
-        if (!pose.transition.active()) {
+        if (!pose.transition.get().active()) {
             return std::nullopt;
         }
 
-        const auto &frame = pose.transition.frame();
+        const auto &frame = pose.transition.get().frame();
         const Vec2 INWARD = inward_normal(frame.edge);
         const Vec2 EDGE = liquid_edge_point(pose, 0.0, 0.0);
         const double EDGE_X = logical_box.x + (0.5 * logical_box.w) + EDGE.x;
@@ -254,9 +254,9 @@ namespace hyprimate {
     }
 
     std::optional<Box> liquid_meniscus_extents(const LiquidPose &pose, const Box &logical_box) {
-        const double LOW = pose.transition.meniscus_low();
-        const double HIGH = pose.transition.meniscus_high();
-        const double PEAK = pose.transition.meniscus_peak();
+        const double LOW = pose.transition.get().meniscus_low();
+        const double HIGH = pose.transition.get().meniscus_high();
+        const double PEAK = pose.transition.get().meniscus_peak();
         if (!(PEAK > 0.0) || !(HIGH > LOW)) {
             return std::nullopt;
         }
@@ -313,7 +313,7 @@ namespace hyprimate {
             if (empty_box(extents)) {
                 // Nothing visible yet: a 1 px sliver on the screen side of the edge keeps the
                 // damage path valid.
-                const Vec2 INWARD = inward_normal(pose.transition.frame().edge);
+                const Vec2 INWARD = inward_normal(pose.transition.get().frame().edge);
                 const Vec2 EDGE = liquid_edge_point(pose, 0.0, 0.0);
                 extents = Box{
                     .x = CENTRE_X + EDGE.x + INWARD.x,

@@ -7,6 +7,7 @@
 #include <iterator>
 #include <limits>
 #include <optional>
+#include <print>
 #include <span>
 #include <vector>
 
@@ -1226,7 +1227,7 @@ int main() {
     }
     survivor.reset();
     if (g_failures != 0) {
-        std::fprintf(stderr, "%d cloth checks failed\n", g_failures);
+        std::println(stderr, "{} cloth checks failed", g_failures);
         return 1;
     }
     std::puts("cloth flutter tests passed");

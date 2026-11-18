@@ -179,8 +179,8 @@ namespace {
             try {
                 self->on_fadeout_created(window, created);
             } catch (...) {
-                // Association is best effort; the native fadeout is already created and must be
-                // returned intact.
+                // Association is best effort; return the already-created native fadeout intact.
+                return created;
             }
         }
         return created;

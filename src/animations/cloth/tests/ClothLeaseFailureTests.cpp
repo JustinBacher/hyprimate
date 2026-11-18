@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <new>
+#include <print>
 
 #include <pthread.h>
 #include <stdlib.h>
@@ -299,19 +300,19 @@ int main() {
         start(warm.front(), Startup::Movement);
         current_attempt() = nullptr;
         if (!warm.front().moving() || warm_attempt.tracker_exhausted) {
-            std::fprintf(stderr, "cloth registry warmup failed\n");
+            std::println(stderr, "cloth registry warmup failed");
             return 1;
         }
         for (std::size_t index = 1; index < warm.size(); ++index) {
             start(warm.at(index), Startup::Movement);
             if (!warm.at(index).moving()) {
-                std::fprintf(stderr, "cloth registry warmup failed\n");
+                std::println(stderr, "cloth registry warmup failed");
                 return 1;
             }
         }
         warm.front().reset();
         if (!wait_for_first_free(warm_attempt)) {
-            std::fprintf(stderr, "cloth registry warmup reclamation timed out\n");
+            std::println(stderr, "cloth registry warmup reclamation timed out");
             return 1;
         }
         for (std::size_t index = 1; index < warm.size(); ++index) {
@@ -330,9 +331,9 @@ int main() {
         if (!BASELINE.active || !BASELINE.real_simulation || BASELINE.threw ||
             BASELINE.remaining != 0 || cases.front().injected || cases.front().tracker_exhausted ||
             COUNT == 0 || COUNT > MAX_ALLOCATIONS) {
-            std::fprintf(stderr,
-                "%s baseline failed: active=%d real_simulation=%d threw=%d remaining=%u "
-                "allocations=%u tracker_exhausted=%d\n",
+            std::println(stderr,
+                "{} baseline failed: active={} real_simulation={} threw={} remaining={} "
+                "allocations={} tracker_exhausted={}",
                 NAME,
                 static_cast<int>(BASELINE.active),
                 static_cast<int>(BASELINE.real_simulation),
@@ -347,8 +348,8 @@ int main() {
             Attempt &attempt = cases.at(index);
             const Result RESULT = run_attempt(attempt, STARTUP, index);
             if (!attempt.injected || attempt.tracker_exhausted || RESULT.remaining != 0) {
-                std::fprintf(stderr,
-                    "%s allocation %u failed: injected=%d remaining=%u tracker_exhausted=%d\n",
+                std::println(stderr,
+                    "{} allocation {} failed: injected={} remaining={} tracker_exhausted={}",
                     NAME,
                     index,
                     static_cast<int>(attempt.injected),

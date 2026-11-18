@@ -73,7 +73,7 @@ class CAnimationTransformer final : public Render::IWindowTransformer {
     // transformer.
     bool built_for(hyprimate::config::Style style,
         hyprimate::MaterialParams liquid,
-        hyprimate::ClothMovementParams cloth) const noexcept;
+        hyprimate::ClothMovementParams cloth) const;
 
     void cancel_opening();
     void cancel_movement();
@@ -97,7 +97,7 @@ class CAnimationTransformer final : public Render::IWindowTransformer {
     friend struct SBubbleLiveStyle;
 
     // Whether the active style is still deforming the window.
-    bool deforming() const noexcept;
+    bool deforming() const;
 
     PHLWINDOWREF m_window;
     SStyleState m_style;

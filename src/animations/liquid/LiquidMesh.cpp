@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <mdspan>
 
 #include "animations/liquid/LiquidMesh.hpp"
@@ -210,13 +211,13 @@ namespace hyprimate {
         }
 
         struct MotionFields {
-            const Field &displacements;
-            const Field &velocities;
+            std::reference_wrapper<const Field> displacements;
+            std::reference_wrapper<const Field> velocities;
         };
 
         bool is_quiet(MotionFields fields) noexcept {
-            const Field &displacements = fields.displacements;
-            const Field &velocities = fields.velocities;
+            const Field &displacements = fields.displacements.get();
+            const Field &velocities = fields.velocities.get();
             constexpr double MAX_DISPLACEMENT2 = QUIET_DISPLACEMENT * QUIET_DISPLACEMENT;
             constexpr double MAX_VELOCITY2 = QUIET_VELOCITY * QUIET_VELOCITY;
             const auto *velocity_it = velocities.begin();

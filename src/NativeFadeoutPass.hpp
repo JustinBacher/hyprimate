@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 #include <hyprland/src/desktop/state/Fadeout.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/render/Texture.hpp>
@@ -24,6 +26,6 @@ class CNativeFadeoutPass {
         const Desktop::SFadeoutRenderEffects &effects);
 
   private:
-    Render::CRenderContext &m_ctx;
+    std::reference_wrapper<Render::CRenderContext> m_ctx;
     PHLMONITOR m_monitor;
 };

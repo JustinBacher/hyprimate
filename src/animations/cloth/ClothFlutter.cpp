@@ -1276,6 +1276,8 @@ namespace hyprimate {
                 try {
                     simulate_movement(*RUN, PHASE);
                 } catch (...) {
+                    RUN->finished.store(true, std::memory_order_release);
+                    return;
                 }
                 RUN->finished.store(true, std::memory_order_release);
             });
@@ -1457,6 +1459,8 @@ namespace hyprimate {
                 try {
                     simulate(*RUN, input);
                 } catch (...) {
+                    RUN->finished.store(true, std::memory_order_release);
+                    return;
                 }
                 RUN->finished.store(true, std::memory_order_release);
             });
