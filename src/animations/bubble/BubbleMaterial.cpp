@@ -696,7 +696,7 @@ void CBubbleMaterial::draw_particles(std::span<const hyprimate::BubbleParticle> 
         return;
     }
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): Every uploaded instance is fully assigned; the unused suffix is never read or uploaded.
-    std::array<Instance, 2 * hyprimate::K_BUBBLE_MAX_PARTICLES> data;
+    [[indeterminate]] std::array<Instance, 2 * hyprimate::K_BUBBLE_MAX_PARTICLES> data;
     const auto COUNT = std::min(particles.size(), data.size());
     const auto INPUT = particles.first(COUNT);
     auto input_it = INPUT.begin();
@@ -737,7 +737,7 @@ void CBubbleMaterial::draw_microbubbles(std::span<const hyprimate::BubbleMicro> 
         return;
     }
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): Every uploaded instance is fully assigned; the unused suffix is never read or uploaded.
-    std::array<MicroInstance, K_MICRO_INSTANCES> data;
+    [[indeterminate]] std::array<MicroInstance, K_MICRO_INSTANCES> data;
     std::size_t count = 0;
     for (const auto &bubble : bubbles) {
         if (count == data.size()) {
