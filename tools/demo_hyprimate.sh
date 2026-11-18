@@ -52,9 +52,9 @@ display_socket=$WAYLAND_DISPLAY
 
 # Use the existing isolated nested-compositor harness; it leaves the user's compositor untouched.
 # The supplied string is a Lua table merged into plugin.hyprimate by the harness.
-instance_log=$(mktemp)
-noctalia_log=$(mktemp)
-frames=$(mktemp -d)
+instance_log=$(mktemp "$root/.hyprimate-demo-instance.XXXXXX")
+noctalia_log=$(mktemp "$root/.hyprimate-demo-noctalia.XXXXXX")
+frames=$(mktemp -d "$root/.hyprimate-demo-frames.XXXXXX")
 existing=$(hyprctl instances -j | jq -r '.[].instance // empty' | sort)
 plugins_before=$(pgrep -f '/home/justin/.local/state/noctalia/plugins/materialized/' || true)
 run_pid=''
@@ -106,6 +106,17 @@ hc() { hyprctl -i "$instance" "$@"; }
 capture_display=$(hyprctl instances -j | jq -r --arg sig "$instance" '.[] | select(.instance == $sig) | .wl_socket')
 [[ -n $capture_display && $capture_display != null ]] || { echo "no Wayland socket found for nested instance $instance" >&2; exit 1; }
 
+wayland_ready=0
+for _ in $(seq 100); do
+    if env WAYLAND_DISPLAY="$capture_display" XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" \
+        grim >/dev/null 2>&1; then
+        wayland_ready=1
+        break
+    fi
+    sleep 0.2
+done
+(( wayland_ready )) || { echo "nested Wayland display $capture_display did not accept clients" >&2; exit 1; }
+
 # Run a second Noctalia in a transient systemd scope, attached to this nested Wayland socket.
 # The scope keeps its plugin helpers contained and lets cleanup stop only this demo instance.
 systemd-run --user --scope --unit="$noctalia_unit" --property=KillMode=control-group \
@@ -113,17 +124,46 @@ systemd-run --user --scope --unit="$noctalia_unit" --property=KillMode=control-g
     XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:?}" noctalia >"$noctalia_log" 2>&1 &
 noctalia_launcher_pid=$!
 wallpaper=''
+noctalia_ready=0
 for _ in $(seq 100); do
-    wallpaper=$(env WAYLAND_DISPLAY="$capture_display" HYPRLAND_INSTANCE_SIGNATURE="$instance" \
-        XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" noctalia msg wallpaper-get 2>/dev/null || true)
-    [[ -n $wallpaper ]] && break
+    if env WAYLAND_DISPLAY="$capture_display" HYPRLAND_INSTANCE_SIGNATURE="$instance" \
+        XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" noctalia msg status >/dev/null 2>&1; then
+        noctalia_ready=1
+        wallpaper=$(env WAYLAND_DISPLAY="$capture_display" HYPRLAND_INSTANCE_SIGNATURE="$instance" \
+            XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" noctalia msg wallpaper-get 2>/dev/null || true)
+        [[ -n $wallpaper ]] && break
+    fi
     sleep 0.2
 done
-[[ $wallpaper == /home/justin/Wallpapers/* ]] || {
+if (( ! noctalia_ready )); then
+    echo "nested Noctalia did not become ready on $capture_display; launcher log:" >&2
     cat "$noctalia_log" >&2
-    echo "nested Noctalia wallpaper is missing or outside /home/justin/Wallpapers: $wallpaper" >&2
     exit 1
-}
+fi
+if [[ $wallpaper != /home/justin/Wallpapers/* ]]; then
+    wallpaper=$(find /home/justin/Wallpapers -type f \
+        \( -iname '*.avif' -o -iname '*.bmp' -o -iname '*.gif' -o -iname '*.jpeg' \
+        -o -iname '*.jpg' -o -iname '*.png' -o -iname '*.webp' \) -print |
+        shuf -n 1)
+    [[ -n $wallpaper ]] || { echo 'no wallpapers found in /home/justin/Wallpapers' >&2; exit 1; }
+    set_error=''
+    set_done=0
+    for _ in $(seq 100); do
+        if set_error=$(env WAYLAND_DISPLAY="$capture_display" HYPRLAND_INSTANCE_SIGNATURE="$instance" \
+            XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" noctalia msg wallpaper-set "$wallpaper" 2>&1); then
+            set_done=1
+            break
+        fi
+        sleep 0.2
+    done
+    if (( ! set_done )); then
+        echo "failed to set nested wallpaper to $wallpaper:" >&2
+        echo "$set_error" >&2
+        echo 'nested Noctalia launcher log:' >&2
+        cat "$noctalia_log" >&2
+        exit 1
+    fi
+fi
 
 # Record only pixels rendered by the nested compositor's virtual output.
 record_frames() {
