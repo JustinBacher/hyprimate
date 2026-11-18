@@ -1,0 +1,36 @@
+{
+  "_comment": "Findings exempt from the 'new finding' ratchet. They stay in every count and report; they are never deleted from the baselines. Do not edit the listed call sites as tooling work.",
+  "frozen_files": [
+    "src/animations/bubble/BubbleMaterial.cpp"
+  ],
+  "deferred": [
+    {
+      "check": "cert-err33-c",
+      "paths": [
+        "*"
+      ],
+      "reason": "Earlier sessions reported 25 diagnostic-output (fprintf/printf) findings and 9 snprintf findings in BubbleMaterial.cpp and deferred them. Status unverified: at b3a5bd6 the working tree shows no cert-err33-c in BubbleMaterial.cpp (its snprintf result is checked); the remaining ones are in tests. Keep deferred until the owner confirms.",
+      "reported_earlier": {
+        "diagnostic_output_printf": 25,
+        "BubbleMaterial_snprintf": 9
+      }
+    }
+  ],
+  "approved": [],
+  "hot_functions": [
+    "hyprimate::resolve_edge_frame",
+    "hyprimate::resolve_close_edge_frame",
+    "hyprimate::resolve_edge_sides",
+    "hyprimate::EdgeTransition::",
+    "hyprimate::LiquidMesh::",
+    "hyprimate::Bubble(Motion|Formation|Foam|Wake|Rupture|Optics)?::",
+    "hyprimate::bubble_",
+    "hyprimate::Smoke::",
+    "hyprimate::smoke_",
+    "hyprimate::project_sheet",
+    "hyprimate::ClothFlutter::",
+    "hyprimate::Swarm::",
+    "hyprimate::PaperCrumple::"
+  ],
+  "_hot_functions": "Demangled-name regexes. compare-codegen lists changed functions matching these first; it never treats a change as a regression by itself."
+}

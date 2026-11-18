@@ -1,0 +1,12 @@
+# LeakSanitizer suppressions for third-party graphics/IPC libraries that leak during EGL initialisation
+# (eglInitialize -> driver). Verified with fast_unwind_on_malloc=0 on the material tests: every reported stack starts in
+# libEGL_nvidia/libnvidia-glsi/libdbus and the only project frame is main()'s eglInitialize call. A suppression hides a
+# leak whenever one of these libraries is anywhere in its stack, so a project-owned GL object leaked inside a driver
+# allocation would be hidden too; ASan itself (use-after-free, overflow) is unaffected.
+leak:libEGL_nvidia
+leak:libnvidia-glsi
+leak:libnvidia-eglcore
+leak:libdbus-1
+leak:libEGL_mesa
+leak:libgallium
+leak:libgbm

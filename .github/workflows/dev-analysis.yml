@@ -1,0 +1,43 @@
+# Heavier, advisory analysis: manual or weekly. Each job is independent and tolerates a missing optional tool.
+# Performance numbers (bench/profile) are deliberately not run here; use a quiet local machine.
+name: dev-analysis
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  analysis:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    strategy:
+      fail-fast: false
+      matrix:
+        command:
+          - analyze --all
+          - sanitize all
+          - memcheck
+          - coverage
+          - build-profile --core-only
+    steps:
+      - name: Install dependencies
+        run: pacman -Syu --noconfirm git cmake ninja clang llvm cppcheck valgrind python hyprland mesa libglvnd
+      - uses: actions/checkout@v4
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Cache Jolt download
+        uses: actions/cache@v4
+        with:
+          path: build/dev/_jolt-src
+          key: jolt-v5.6.0
+      - run: python3 tools/dev.py ${{ matrix.command }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dev-analysis-${{ strategy.job-index }}
+          path: |
+            build/dev/reports/
+            build/dev/logs/
+          retention-days: 14

@@ -1,0 +1,11 @@
+{
+ "schema": 1,
+ "observations": [
+  {
+   "function": "resolve_edge_frame",
+   "observation": "stack frame (sub rsp) 0xF8 -> 0x108 between two builds, reported in an earlier session",
+   "status": "reported; not re-measured by this toolchain. The 0xF8 side matches the unmodified build/hyprimate.so present at integration time. No benchmark evidence of a slowdown exists; the class is 'different generated code, no regression demonstrated' until `compare-codegen --run-bench` (scenario geometry.edge_resolve) says otherwise.",
+   "performance_evidence": null
+  }
+ ]
+}
