@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <functional>
 #include <mdspan>
 #include <optional>
 #include <vector>
@@ -30,11 +31,11 @@ namespace hyprimate {
         float x = 0.F, y = 0.F, u = 0.F, v = 0.F;
     };
 
-    // The pose a liquid window or closing snapshot is drawn with. Holds references: the mesh and
-    // transition are owned by the caller.
+    // The pose a liquid window or closing snapshot is drawn with. Borrows the mesh and
+    // transition, which are owned by the caller.
     struct LiquidPose {
-        const LiquidMesh &mesh;
-        const EdgeTransition &transition;
+        std::reference_wrapper<const LiquidMesh> mesh;
+        std::reference_wrapper<const EdgeTransition> transition;
         Vec2 compensation{.x = 1.0, .y = 1.0};
         Vec2 open_offset{.x = 0.0, .y = 0.0};
         double displacement_gain = 1.0;
@@ -192,8 +193,8 @@ namespace hyprimate {
 
         const double CENTRE_X = source_device.x + (0.5 * source_device.w);
         const double CENTRE_Y = source_device.y + (0.5 * source_device.h);
-        const double LOW = pose.transition.meniscus_low();
-        const double SPAN = pose.transition.meniscus_high() - LOW;
+        const double LOW = pose.transition.get().meniscus_low();
+        const double SPAN = pose.transition.get().meniscus_high() - LOW;
 
         const auto PLACE = [&](Vertex &vertex, double tangent, double n) {
             const Vec2 POSITION = liquid_edge_point(pose, tangent, n);
@@ -211,8 +212,8 @@ namespace hyprimate {
                 LOW + (SPAN * static_cast<double>(i) / LIQUID_MENISCUS_COLUMNS);
             const double TANGENT_END =
                 LOW + (SPAN * static_cast<double>(i + 1) / LIQUID_MENISCUS_COLUMNS);
-            const double HEIGHT_START = pose.transition.meniscus(TANGENT_START);
-            const double HEIGHT_END = pose.transition.meniscus(TANGENT_END);
+            const double HEIGHT_START = pose.transition.get().meniscus(TANGENT_START);
+            const double HEIGHT_END = pose.transition.get().meniscus(TANGENT_END);
 
             // Corners: a = behind edge at t0, b = behind edge at t1, c = crest at t0, d = crest at
             // t1. Triangles abc, bdc.

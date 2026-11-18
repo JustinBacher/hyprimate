@@ -80,6 +80,7 @@ namespace hyprimate {
             bool valid = false;
         };
 
+        // NOLINTNEXTLINE(readability-function-cognitive-complexity): Preserve cache and merge-event evaluation order.
         const CollapseCache &collapse(const BubbleSurface &surface) {
             static thread_local std::array<CollapseCache, 2> cache;
             auto &entry = surface.spherical ? cache.back() : cache.front();
@@ -398,6 +399,7 @@ namespace hyprimate {
         return sample;
     }
 
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity): Preserve candidate order and sheet geometry FP evaluation.
     std::size_t bubble_sheets(const BubbleSurface &surface, std::span<BubbleSheet> out) {
         const std::size_t HOLE_COUNT = std::min(surface.hole_count, K_BUBBLE_HOLES);
         const double RADIUS = std::min(surface.half_size.x, surface.half_size.y);
@@ -613,6 +615,7 @@ namespace hyprimate {
         const ImpactCache &impact_cache(const BubbleSurface &surface);
     }  // namespace
 
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity,misc-no-recursion): Preserve RNG and FP order; impact mode bypasses impact_cache.
     static std::size_t debris(const BubbleSurface &surface,
         std::span<BubbleParticle> out,
         std::span<BubbleImpact> impacts,
@@ -1114,6 +1117,7 @@ namespace hyprimate {
     }
 
     namespace {
+        // NOLINTNEXTLINE(misc-no-recursion): debris is called in impact mode, which bypasses impact_cache.
         const ImpactCache &impact_cache(const BubbleSurface &surface) {
             static thread_local std::array<ImpactCache, 2> cache;
             auto &entry = surface.spherical ? cache.back() : cache.front();

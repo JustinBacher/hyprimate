@@ -113,8 +113,10 @@ namespace {
             const bool SCISSOR = glIsEnabled(GL_SCISSOR_TEST) != 0U;
             renderer.setCapStatus(GL_SCISSOR_TEST, false);
             renderer.bindFramebuffer(GL_READ_FRAMEBUFFER,
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): RT_GL selects the GL framebuffer backend.
                 static_cast<Render::GL::CGLFramebuffer *>(SOURCE.get())->getFBID());
             renderer.bindFramebuffer(GL_DRAW_FRAMEBUFFER,
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): RT_GL selects the GL framebuffer backend.
                 static_cast<Render::GL::CGLFramebuffer *>(DESTINATION.get())->getFBID());
             glBlitFramebuffer(static_cast<GLint>(LEFT),
                 static_cast<GLint>(CLIP_TOP),

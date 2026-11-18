@@ -25,7 +25,7 @@ void CNativeFadeoutPass::draw_backdrop(const Desktop::SFadeoutRenderEffects &eff
         CRectPassElement::SRectData data;
         data.box = {0, 0, m_monitor->m_transformedSize.x, m_monitor->m_transformedSize.y};
         data.color = CHyprColor(0, 0, 0, effects.dimAroundAlpha);
-        Render::IHyprRenderer::addPassElement(m_ctx, makeUnique<CRectPassElement>(data));
+        Render::IHyprRenderer::addPassElement(m_ctx.get(), makeUnique<CRectPassElement>(data));
     }
 
     if (effects.preBlur) {
@@ -37,7 +37,7 @@ void CNativeFadeoutPass::draw_backdrop(const Desktop::SFadeoutRenderEffects &eff
         data.round = effects.preBlur->round;
         data.roundingPower = effects.preBlur->roundingPower;
         data.xray = effects.preBlur->xray;
-        Render::IHyprRenderer::addPassElement(m_ctx, makeUnique<CRectPassElement>(data));
+        Render::IHyprRenderer::addPassElement(m_ctx.get(), makeUnique<CRectPassElement>(data));
     }
 }
 
@@ -56,5 +56,5 @@ void CNativeFadeoutPass::draw_texture(const Desktop::IFadeout &fadeout,
     data.ignoreAlpha = effects.textureBlur.ignoreAlpha;
     data.blockBlurOptimization = effects.textureBlur.blockBlurOptimization;
 
-    Render::IHyprRenderer::addPassElement(m_ctx, makeUnique<CTexPassElement>(std::move(data)));
+    Render::IHyprRenderer::addPassElement(m_ctx.get(), makeUnique<CTexPassElement>(std::move(data)));
 }

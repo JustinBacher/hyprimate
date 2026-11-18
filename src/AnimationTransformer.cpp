@@ -57,7 +57,7 @@ CAnimationTransformer::CAnimationTransformer(PHLWINDOWREF window,
 
 bool CAnimationTransformer::built_for(hyprimate::config::Style style,
     hyprimate::MaterialParams liquid,
-    hyprimate::ClothMovementParams cloth) const noexcept {
+    hyprimate::ClothMovementParams cloth) const {
     return std::visit(
         [&](const auto &state) {
             return live_style_for(state).builtFor(state, style, liquid, cloth);
@@ -73,7 +73,7 @@ void CAnimationTransformer::cancel_movement() {
     std::visit([&](const auto &state) { live_style_for(state).cancelMovement(*this); }, m_style);
 }
 
-bool CAnimationTransformer::deforming() const noexcept {
+bool CAnimationTransformer::deforming() const {
     return std::visit(
         [&](const auto &state) { return live_style_for(state).deforming(state); }, m_style);
 }

@@ -11,7 +11,7 @@ inline void report(bool passed, const char *expression, const char *file, int li
         return;
     }
     ++g_failures;
-    std::fprintf(stderr, "%s:%d: check failed: %s\n", file, line, expression);
+    (void)std::fprintf(stderr, "%s:%d: check failed: %s\n", file, line, expression);
 }
 
 #define CHECK(expr) report(static_cast<bool>(expr), #expr, __FILE__, __LINE__)

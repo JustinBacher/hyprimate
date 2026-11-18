@@ -32,6 +32,7 @@ namespace {
 
     void advance_for(PaperCrumple &model, double seconds) {
         const double STEP = 0.01;
+        // NOLINTNEXTLINE(bugprone-float-loop-counter): Preserve the exact FP recurrence and final partial step.
         for (double time = 0.0; time + 1e-12 < seconds; time += STEP) {
             model.advance(std::min(STEP, seconds - time));
         }

@@ -340,6 +340,7 @@ namespace hyprimate {
         return runs_horizontally(frame.edge) ? point.x : point.y;
     }
 
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity): Edge selection preserves tie priority and FP/NaN evaluation order.
     std::optional<EdgeFrame> resolve_edge_frame(const Box &body,
         const Box &capture,
         const Box &screen,

@@ -10,6 +10,7 @@ namespace hyprimate {
     namespace {
 
         // Built by tools/pack.py; layout documented there.
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays): #embed infers the aligned asset's byte extent.
         alignas(4) constexpr unsigned char ASSET[] = {
 #embed "assets/paper_takes.bin"
         };

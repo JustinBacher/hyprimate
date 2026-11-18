@@ -202,7 +202,8 @@ namespace close_style {
         SLiquidCloseData data;
         if (active) {
             const auto POSE = close_pose(style, window);
-            pending.style = SLiquidStyle{.mesh = POSE.mesh, .transition = POSE.transition};
+            pending.style =
+                SLiquidStyle{.mesh = POSE.mesh.get(), .transition = POSE.transition.get()};
             data.compensation = POSE.compensation;
         } else {
             pending.style = SLiquidStyle{.mesh = hyprimate::LiquidMesh{material}};

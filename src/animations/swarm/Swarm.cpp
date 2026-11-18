@@ -304,6 +304,7 @@ namespace hyprimate {
         m_rounding = 0.0;
     }
 
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity): Preserve agent scheduling and RNG draw order.
     void Swarm::begin(Transition kind,
         const SwarmParams &params,
         std::uint64_t seed,
@@ -578,6 +579,7 @@ namespace hyprimate {
         m_cell_start.back() = static_cast<std::uint32_t>(m_cell_items.size());
     }
 
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity): Preserve hot neighbor traversal and FP accumulation order.
     Swarm::Crowd Swarm::crowd(std::size_t index, Vec2 forward, double force) const {
         const SwarmAgent &subject_agent = m_agents[index];
         const double CELL = NEIGHBOUR_RADIUS * m_spacing;
@@ -675,6 +677,7 @@ namespace hyprimate {
         return out;
     }
 
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity): Preserve per-agent mutation, RNG and FP order.
     void Swarm::step(bool wandering) {
         m_time += STEP;
         hash();

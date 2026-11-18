@@ -93,6 +93,7 @@ namespace {
     // When each agent of an opening first docks, in seconds; the model is run to its end.
     std::vector<double> landings(Swarm &swarm) {
         std::vector<double> landing_times(swarm.agents().size(), -1.0);
+        // NOLINTNEXTLINE(bugprone-float-loop-counter): Preserve FP recurrence; fixed-count replacement adds a register save in GCC -O2.
         for (double elapsed = 0.0; swarm.active() && elapsed < 30.0; elapsed += FRAME) {
             swarm.advance(FRAME);
             auto agent = swarm.agents().begin();
@@ -727,6 +728,7 @@ namespace {
         swarm.advance(1.0 / 60.0);
         std::vector<double> arrived(swarm.agents().size(), -1.0);
         int delayed = 0;
+        // NOLINTNEXTLINE(bugprone-float-loop-counter): Preserve the FP recurrence and its exact endpoint.
         for (double elapsed = 0.0; elapsed < 6.0 && swarm.active(); elapsed += FRAME) {
             swarm.advance(FRAME);
             auto agent_it = swarm.agents().begin();
@@ -816,6 +818,7 @@ namespace {
                   sprite_size(FRAME_INFO, SpriteFit{40.0}, SpriteCover{60.0}, SpriteLock{1.0}) >=
               60.0);
         double previous = 0.0;
+        // NOLINTNEXTLINE(bugprone-float-loop-counter): Preserve the FP recurrence and its exact endpoint.
         for (double lock = 0.0; lock <= 1.0; lock += 0.1) {
             const double SIZE =
                 sprite_size(FRAME_INFO, SpriteFit{40.0}, SpriteCover{60.0}, SpriteLock{lock});

@@ -161,10 +161,12 @@ namespace {
         return CAnimationCloseRenderer::s_active;
     }
 
+    // NOLINTNEXTLINE(performance-unnecessary-value-param): Pinned host hook ABI passes window by value.
     SP<Desktop::CWindowFadeout> hook_create(PHLWINDOW window,
         SP<Render::IFramebuffer> snapshot,
         float source_alpha,
         SP<Render::IFramebuffer> workspace_snapshot) {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): Hook SDK stores the original function as void*.
         auto *original = reinterpret_cast<CreateFn>(
             (active_renderer() != nullptr) ? active_renderer()->create_original() : nullptr);
         if (original == nullptr) {
@@ -174,13 +176,14 @@ namespace {
         // Never move from hooked by-value parameters: disassembly of the pinned host shows callers
         // keep the argument's control-block pointer in a register and release it after the call,
         // ignoring a moved-from slot.
+        // NOLINTNEXTLINE(performance-unnecessary-value-param): Pinned host releases both by-value snapshot slots after the call.
         auto created = original(window, snapshot, source_alpha, workspace_snapshot);
         if (auto *self = active_renderer()) {
             try {
                 self->on_fadeout_created(window, created);
             } catch (...) {
-                // Association is best effort; the native fadeout is already created and must be
-                // returned intact.
+                // Association is best effort; return the already-created native fadeout intact.
+                return created;
             }
         }
         return created;
@@ -188,8 +191,10 @@ namespace {
 
     void hook_render(Render::IHyprRenderer *self,
         Render::CRenderContext &ctx,
+        // NOLINTNEXTLINE(performance-unnecessary-value-param): Pinned host hook ABI passes monitor by value.
         PHLMONITOR monitor,
         Desktop::eFadeoutPlane plane,
+        // NOLINTNEXTLINE(performance-unnecessary-value-param): Pinned host hook ABI passes workspace by value.
         PHLWORKSPACE workspace,
         Render::eSceneMode mode) {
         auto *active = active_renderer();
@@ -211,6 +216,7 @@ namespace {
         }
 
         auto *original =
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): Hook SDK stores the original function as void*.
             reinterpret_cast<RenderFn>((active != nullptr) ? active->render_original() : nullptr);
         if (original != nullptr) {
             original(self, ctx, monitor, plane, workspace, mode);
@@ -272,8 +278,10 @@ bool CAnimationCloseRenderer::install(std::string &error) {
     m_batch.reserve(BATCH_CAPACITY);
     s_active = this;
     m_create_hook = HyprlandAPI::createFunctionHook(
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): Hook SDK requires a void* destination address.
         m_handle, create_address, reinterpret_cast<const void *>(&hook_create));
     m_render_hook = HyprlandAPI::createFunctionHook(
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): Hook SDK requires a void* destination address.
         m_handle, render_address, reinterpret_cast<const void *>(&hook_render));
     if ((m_create_hook == nullptr) || (m_render_hook == nullptr) || !m_create_hook->hook()) {
         shutdown();
@@ -597,6 +605,7 @@ bool CAnimationCloseRenderer::has_record_for(
     return false;
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): Batch hot path preserves collection, fallback and draw ordering without extra calls.
 bool CAnimationCloseRenderer::render_batch(Render::CRenderContext &ctx,
     const PHLMONITOR &monitor,
     Desktop::eFadeoutPlane plane,

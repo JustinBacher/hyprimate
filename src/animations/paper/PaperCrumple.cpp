@@ -191,6 +191,7 @@ namespace hyprimate {
         }
     }
 
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity): Per-vertex extraction risks FP register spills and SIMD loss.
     void PaperCrumple::frame(Vec2 size, SheetFrame &out) const noexcept {
         if (m_phase == Phase::Idle) {
             flat_sheet(out);

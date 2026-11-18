@@ -2,6 +2,7 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <limits>
 #include <optional>
 #include <span>
@@ -302,11 +303,13 @@ namespace {
 
     EdgeFrame frame_for(hyprimate::Box body,
         hyprimate::Edge fallback = hyprimate::Edge::Bottom,
-        bool first = false) {
+        bool first = false) noexcept {
         const auto FRAME = hyprimate::resolve_edge_frame(
             body, with_shadow(body), DEFAULT_SCREEN, {}, fallback, first);
         if (!FRAME) {
-            throw std::bad_optional_access{};
+            std::fputs(
+                "edge-transition-tests: frame_for could not resolve a valid edge frame\n", stderr);
+            std::abort();
         }
         return *FRAME;
     }
@@ -849,9 +852,14 @@ namespace {
 
     constexpr double BEAD_RADIUS = 0.14 * 508.0;  // QUARTER bead radius (px)
 
+    struct MeniscusPeak {
+        double value;
+    };
+
     // Local maxima of the meniscus above 5% of `peak`, sampled every 0.02 r across +-2 r of the
     // window centre `centre`.
-    std::vector<double> lobe_centres(const EdgeTransition &transition, double centre, double peak) {
+    std::vector<double> lobe_centres(
+        const EdgeTransition &transition, double centre, MeniscusPeak peak) {
         constexpr int K_HALF = 100;
         std::vector<double> heights((2 * K_HALF) + 1);
         int sample = -K_HALF;
@@ -866,7 +874,7 @@ namespace {
         ++next;
         int sample_index = 1;
         for (const double HEIGHT : std::span(heights).subspan(1, heights.size() - 2)) {
-            if (HEIGHT > 0.05 * peak && HEIGHT > *previous && HEIGHT >= *next) {
+            if (HEIGHT > 0.05 * peak.value && HEIGHT > *previous && HEIGHT >= *next) {
                 centres.push_back(centre + ((sample_index - K_HALF) * 0.02 * BEAD_RADIUS));
             }
             ++previous;
@@ -903,7 +911,7 @@ namespace {
             }
             if (PEAK > splash_peak) {
                 splash_peak = PEAK;
-                const auto LOBES = lobe_centres(transition, CENTRE, PEAK);
+                const auto LOBES = lobe_centres(transition, CENTRE, MeniscusPeak{PEAK});
                 one_centred_lobe =
                     LOBES.size() == 1 && std::abs(LOBES.front() - CENTRE) < 0.1 * BEAD_RADIUS;
             }
@@ -1005,7 +1013,7 @@ namespace {
 
 }  // namespace
 
-int main() {
+int main() try {
     test_edge_follows_dwindle_splits();
     test_edge_ties_and_validity();
     test_frame_geometry();
@@ -1040,4 +1048,7 @@ int main() {
     test_close_splash_agrees_across_refresh_rates();
     test_invalid_inputs();
     return g_failures == 0 ? 0 : 1;
+} catch (...) {
+    std::fputs("edge-transition-tests: unexpected exception\n", stderr);
+    std::abort();
 }

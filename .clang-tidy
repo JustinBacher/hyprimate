@@ -8,12 +8,26 @@ Checks: >
   performance-*,
   readability-*,
   misc-const-correctness,
-  misc-include-cleaner,
   misc-unused-*,
+  misc-no-recursion,
+  misc-use-internal-linkage,
+  misc-redundant-expression,
+  misc-definitions-in-headers,
+  misc-header-include-cycle,
+  misc-throw-by-value-catch-by-reference,
+  concurrency-mt-unsafe,
+  cert-err33-c,
   -cppcoreguidelines-avoid-magic-numbers,
   -readability-magic-numbers,
   -cppcoreguidelines-pro-type-vararg,
-  -modernize-use-trailing-return-type
+  -modernize-use-trailing-return-type,
+  -readability-trailing-comma,
+  -cppcoreguidelines-pro-type-union-access,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -performance-enum-size,
+  -modernize-use-std-print
 
 WarningsAsErrors: >
   bugprone-use-after-move,
@@ -66,3 +80,10 @@ CheckOptions:
   # Force explicit braces & clearer control flow
   - key: readability-braces-around-statements.ShortStatementLines
     value: 0
+
+  # Judgment-tuned thresholds: flag runs of three or more adjacent same-typed parameters, and
+  # functions above 30; justified exceptions carry an explanatory NOLINT.
+  - key: bugprone-easily-swappable-parameters.MinimumLength
+    value: 3
+  - key: readability-function-cognitive-complexity.Threshold
+    value: 30

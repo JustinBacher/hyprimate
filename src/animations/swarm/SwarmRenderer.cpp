@@ -293,6 +293,7 @@ Vector2D swarm_layer_size(const CBox &source) {
     return Vector2D{(2.0 * BOX.w) + LAYER_GAP, BOX.h};
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): Preserve hot geometry traversal, clipping and FP order.
 void fill_swarm_meshes(const hyprimate::Swarm &swarm,
     const CSwarmSprites::SSheet &sheet,
     const CBox &source,

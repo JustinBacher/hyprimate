@@ -158,6 +158,7 @@ namespace hyprimate {
         out.lit = false;
     }
 
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity): Projection keeps large scratch arrays in one frame and preserves shading order.
     void project_sheet(const SheetGrid &world,
         Vec2 size,
         double shading,

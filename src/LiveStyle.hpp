@@ -1,5 +1,7 @@
 #pragma once
 
+#include <utility>
+
 #include "PluginRuntime.hpp"
 
 // The configured style is selected once here; compositor orchestration invokes the same operations
@@ -59,16 +61,16 @@ decltype(auto) with_live_style(hyprimate::config::Style style, F &&operation) {
 
     switch (style) {
         case Paper:
-            return operation(SPaperLiveStyle{});
+            return std::forward<F>(operation)(SPaperLiveStyle{});
         case Cloth:
-            return operation(SClothLiveStyle{});
+            return std::forward<F>(operation)(SClothLiveStyle{});
         case Swarm:
-            return operation(SSwarmLiveStyle{});
+            return std::forward<F>(operation)(SSwarmLiveStyle{});
         case Bubble:
-            return operation(SBubbleLiveStyle{});
+            return std::forward<F>(operation)(SBubbleLiveStyle{});
         case Liquid:
-            return operation(SLiquidLiveStyle{});
+            return std::forward<F>(operation)(SLiquidLiveStyle{});
     }
 
-    return operation(SLiquidLiveStyle{});
+    return std::forward<F>(operation)(SLiquidLiveStyle{});
 }
