@@ -2,33 +2,35 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 #include <span>
 
 #include "animations/bubble/Bubble.hpp"
 
 namespace hyprimate {
     namespace {
-        constexpr double pi = 3.14159265358979323846;
-        constexpr double dt = 1.0 / 360.0;
-        constexpr double cornerArea = 4.0 - pi;
+        constexpr double PI_VALUE = std::numbers::pi;
+        constexpr double TIME_STEP = 1.0 / 360.0;
+        constexpr double CORNER_AREA = 4.0 - PI_VALUE;
         // Progress at which air starts going into the bubble over the inlet, the latest it may
         // take over as the window bubble, and when the window bubble must have filled the box.
-        constexpr double kFeed = .3, kLatestEmergence = .68, kLand = .88;
+        constexpr double FEED = .3, LATEST_EMERGENCE = .68, LAND = .88;
         // The window bubble's inflation keeps the profile tuned on its original timeline, from
         // .05 to the deadline .87 of that timeline, compressed into what remains after it forms.
-        constexpr double kTimelineStart = .05, kTimelineEnd = .87;
+        constexpr double TIMELINE_START = .05, TIMELINE_END = .87;
         struct Shape { double x, y, corner; };
 
-        bool usable(Vec2 s) {
-            return std::isfinite(s.x) && std::isfinite(s.y) && s.x > 0 && s.y > 0 &&
-                   s.x <= 1e9 && s.y <= 1e9;
+        bool usable(Vec2 size) {
+            return std::isfinite(size.x) && std::isfinite(size.y) && size.x > 0 && size.y > 0 &&
+                   size.x <= 1e9 && size.y <= 1e9;
         }
-        Vec2 add(Vec2 a, Vec2 b) { return {a.x + b.x, a.y + b.y}; }
-        Vec2 sub(Vec2 a, Vec2 b) { return {a.x - b.x, a.y - b.y}; }
-        Vec2 mul(Vec2 a, double b) { return {a.x * b, a.y * b}; }
+        Vec2 add(Vec2 lhs, Vec2 rhs) { return {.x = lhs.x + rhs.x, .y = lhs.y + rhs.y}; }
+        Vec2 sub(Vec2 lhs, Vec2 rhs) { return {.x = lhs.x - rhs.x, .y = lhs.y - rhs.y}; }
+        Vec2 mul(Vec2 vector, double scale) { return {.x = vector.x * scale, .y = vector.y * scale}; }
         double gaussian(std::uint64_t &random) {
-            const double u = std::max(1e-12, unit_draw(random)), v = unit_draw(random);
-            return std::sqrt(-2 * std::log(u)) * std::cos(2 * pi * v);
+            const double DRAW_U = std::max(1e-12, unit_draw(random));
+            const double DRAW_V = unit_draw(random);
+            return std::sqrt(-2 * std::log(DRAW_U)) * std::cos(2 * PI_VALUE * DRAW_V);
         }
 
         // The available half extents are measured from the actual centre to
@@ -36,18 +38,20 @@ namespace hyprimate {
         // rounded ends as well as extending the free axis. Projected area is
         // conserved; there is no capsule-only wait for the remaining walls.
         Shape shape(double area, double width, double height, Vec2 position) {
-            const double hx = std::max(1e-12, width * .5 - std::abs(position.x));
-            const double hy = std::max(1e-12, height * .5 - std::abs(position.y));
-            const double r = std::sqrt(std::max(0.0, area) / pi);
-            const double small = std::min(hx, hy), large = std::max(hx, hy);
-            if (r <= small) return {r, r, r};
-            const double contactArea = pi * small * small;
-            const double contactCorner = small * contactArea / area;
-            const double other = (area + cornerArea * contactCorner * contactCorner) / (4 * small);
-            if (other < large)
-                return hx < hy ? Shape{small, other, contactCorner} : Shape{other, small, contactCorner};
-            const double corner = std::sqrt(std::max(0.0, (4 * hx * hy - area) / cornerArea));
-            return {hx, hy, std::min(small, corner)};
+            const double HALF_X = std::max(1e-12, (width * .5) - std::abs(position.x));
+            const double HALF_Y = std::max(1e-12, (height * .5) - std::abs(position.y));
+            const double RADIUS = std::sqrt(std::max(0.0, area) / PI_VALUE);
+            const double SMALL = std::min(HALF_X, HALF_Y);
+            const double LARGE = std::max(HALF_X, HALF_Y);
+            if (RADIUS <= SMALL) { return {.x=RADIUS, .y=RADIUS, .corner=RADIUS}; }
+            const double CONTACT_AREA = PI_VALUE * SMALL * SMALL;
+            const double CONTACT_CORNER = SMALL * CONTACT_AREA / area;
+            const double OTHER = (area + (CORNER_AREA * CONTACT_CORNER * CONTACT_CORNER)) / (4 * SMALL);
+            if (OTHER < LARGE) {
+                return HALF_X < HALF_Y ? Shape{.x=SMALL, .y=OTHER, .corner=CONTACT_CORNER} : Shape{.x=OTHER, .y=SMALL, .corner=CONTACT_CORNER};
+            }
+            const double CORNER = std::sqrt(std::max(0.0, ((4 * HALF_X * HALF_Y) - area) / CORNER_AREA));
+            return {.x=HALF_X, .y=HALF_Y, .corner=std::min(SMALL, CORNER)};
         }
         // If both axes are exhausted, wall reaction must move the centre before
         // a rounded rectangle can contain the gas. Project only this infeasible
@@ -55,423 +59,430 @@ namespace hyprimate {
         Vec2 feasible(Vec2 position, double area, double width, double height) {
             position.x = std::clamp(position.x, -width * .5, width * .5);
             position.y = std::clamp(position.y, -height * .5, height * .5);
-            const auto available = [&](double fraction) {
-                return (width - 2 * std::abs(position.x) * fraction) *
-                       (height - 2 * std::abs(position.y) * fraction);
+            const auto AVAILABLE = [&](double fraction) {
+                return (width - (2 * std::abs(position.x) * fraction)) *
+                       (height - (2 * std::abs(position.y) * fraction));
             };
-            if (available(1) >= area) return position;
-            double lo = 0, hi = 1;
+            if (AVAILABLE(1) >= area) { return position; }
+            double lower = 0;
+            double upper = 1;
             for (int i = 0; i < 36; ++i) {
-                const double mid = (lo + hi) * .5;
-                if (available(mid) >= area) lo = mid;
-                else hi = mid;
+                const double MID = (lower + upper) * .5;
+                if (AVAILABLE(MID) >= area) { lower = MID;
+                } else { upper = MID; }
             }
-            return mul(position, lo);
+            return mul(position, lower);
         }
     }
 
     void BubbleFormation::begin(Vec2 size, std::uint64_t seed, const BubbleFormationParams &params) {
-        const BubbleFormationParams requested = params;
+        const BubbleFormationParams REQUESTED = params;
         *this = BubbleFormation{};
-        const auto bounded = [](double value, double fallback, double low, double high) {
+        const auto BOUNDED = [](double value, double fallback, double low, double high) {
             return std::isfinite(value) ? std::clamp(value, low, high) : fallback;
         };
-        params_.count = std::clamp(requested.count, 0, static_cast<int>(kBubbleFoamCapacity));
-        params_.birthRate = bounded(requested.birthRate, 1, .25, 2);
-        params_.sizeVariation = bounded(requested.sizeVariation, .75, 0, 1);
-        params_.growthVariation = bounded(requested.growthVariation, .6, 0, 1);
-        params_.interaction = bounded(requested.interaction, 1, .25, 2);
-        params_.damping = bounded(requested.damping, 1, .5, 2);
-        params_.buoyancy = bounded(requested.buoyancy, 1, 0, 2);
-        params_.linger = bounded(requested.linger, .5, 0, 1);
-        if (!usable(size)) return;
-        size_ = size;
-        random_ = seed;
-        foam_.reset(seed, {params_.interaction, params_.damping, params_.buoyancy, params_.linger},
-            static_cast<std::size_t>(params_.count));
-        const double shortSide = std::min(size.x, size.y);
-        const double width = size.x / shortSide, height = size.y / shortSide;
+        m_params.count = std::clamp(REQUESTED.count, 0, static_cast<int>(BUBBLE_FOAM_CAPACITY));
+        m_params.birthRate = BOUNDED(REQUESTED.birthRate, 1, .25, 2);
+        m_params.sizeVariation = BOUNDED(REQUESTED.sizeVariation, .75, 0, 1);
+        m_params.growthVariation = BOUNDED(REQUESTED.growthVariation, .6, 0, 1);
+        m_params.interaction = BOUNDED(REQUESTED.interaction, 1, .25, 2);
+        m_params.damping = BOUNDED(REQUESTED.damping, 1, .5, 2);
+        m_params.buoyancy = BOUNDED(REQUESTED.buoyancy, 1, 0, 2);
+        m_params.linger = BOUNDED(REQUESTED.linger, .5, 0, 1);
+        if (!usable(size)) { return; }
+        m_size = size;
+        m_random = seed;
+        m_foam.reset(seed, {.interaction=m_params.interaction, .damping=m_params.damping, .buoyancy=m_params.buoyancy, .linger=m_params.linger},
+            static_cast<std::size_t>(m_params.count));
+        const double SHORT_SIDE = std::min(size.x, size.y);
+        const double WIDTH = size.x / SHORT_SIDE;
+        const double HEIGHT = size.y / SHORT_SIDE;
         // The inlet wanders through the window's middle on two slow periods.
-        wander_[0] = {std::min(.12, width * .16), std::min(.12, height * .16)};
-        wander_[1] = {2 * pi * unit_draw(random_), 2 * pi * unit_draw(random_)};
+        m_wander[0] = {.x=std::min(.12, WIDTH * .16), .y=std::min(.12, HEIGHT * .16)};
+        m_wander[1] = {.x=2 * PI_VALUE * unit_draw(m_random), .y=2 * PI_VALUE * unit_draw(m_random)};
         for (int i = 0; i < 2; ++i) {
-            eddyCentre_[i] = {(unit_draw(random_) - .5) * .6 * width, (unit_draw(random_) - .5) * .6 * height};
-            eddySpin_[i] = (i == 0 ? 1 : -1) * (.1 + .08 * unit_draw(random_));
+            m_eddy_centre[i] = {.x=(unit_draw(m_random) - .5) * .6 * WIDTH, .y=(unit_draw(m_random) - .5) * .6 * HEIGHT};
+            m_eddy_spin[i] = (i == 0 ? 1 : -1) * (.1 + (.08 * unit_draw(m_random)));
         }
-        inlet_ = {wander_[0].x * std::sin(wander_[1].x), wander_[0].y * std::sin(wander_[1].y)};
-        for (std::size_t i = 0; i < plumes_.size(); ++i) {
+        m_inlet = {.x=m_wander[0].x * std::sin(m_wander[1].x), .y=m_wander[0].y * std::sin(m_wander[1].y)};
+        for (std::size_t i = 0; i < m_plumes.size(); ++i) {
             // The first stream is the straw itself; the others surface around it.
-            const double reach = i == 0 ? 0 : .08 + .18 * unit_draw(random_);
-            const double angle = 2 * pi * unit_draw(random_);
-            plumes_[i].offset = {reach * std::cos(angle), reach * std::sin(angle)};
-            plumes_[i].spin = (unit_draw(random_) < .5 ? -1 : 1) * (.5 + unit_draw(random_));
+            const double REACH = i == 0 ? 0 : .08 + (.18 * unit_draw(m_random));
+            const double ANGLE = 2 * PI_VALUE * unit_draw(m_random);
+            m_plumes[i].offset = {.x=REACH * std::cos(ANGLE), .y=REACH * std::sin(ANGLE)};
+            m_plumes[i].spin = (unit_draw(m_random) < .5 ? -1 : 1) * (.5 + unit_draw(m_random));
         }
-        birthThreshold_ = -std::log(1 - unit_draw(random_));
-        if (params_.count == 0) {
+        m_birth_threshold = -std::log(1 - unit_draw(m_random));
+        if (m_params.count == 0) {
             // No companions: the window bubble itself is the first film.
-            exists_ = true;
-            gas_ = .00045;
-            corner_ = std::sqrt(gas_ / pi);
-            position_ = {0, .025};
-            pace_ = (kTimelineEnd - kTimelineStart) / kLand;
+            m_exists = true;
+            m_gas = .00045;
+            m_corner = std::sqrt(m_gas / PI_VALUE);
+            m_position = {.x=0, .y=.025};
+            m_pace = (TIMELINE_END - TIMELINE_START) / LAND;
         }
     }
 
     void BubbleFormation::advance(double progress, Vec2 size) {
-        if (!usable(size) || !std::isfinite(progress)) return;
-        if (!usable(size_)) begin(size, random_, params_);
-        if (size.x != size_.x || size.y != size_.y) {
+        if (!usable(size) || !std::isfinite(progress)) { return; }
+        if (!usable(m_size)) { begin(size, m_random, m_params); }
+        if (size.x != m_size.x || size.y != m_size.y) {
             // Preserve fractional fill and normalized positions on resize.
-            const double oldShort = std::min(size_.x, size_.y);
-            const double newShort = std::min(size.x, size.y);
-            const double sx = (size.x / newShort) / (size_.x / oldShort);
-            const double sy = (size.y / newShort) / (size_.y / oldShort);
-            gas_ *= sx * sy;
-            reservoir_ *= sx * sy;
-            position_ = {position_.x * sx, position_.y * sy};
-            velocity_ = {velocity_.x * sx, velocity_.y * sy};
-            inlet_ = {inlet_.x * sx, inlet_.y * sy};
-            foam_.scale({sx, sy});
-            size_ = size;
+            const double OLD_SHORT = std::min(m_size.x, m_size.y);
+            const double NEW_SHORT = std::min(size.x, size.y);
+            const double SCALE_X = (size.x / NEW_SHORT) / (m_size.x / OLD_SHORT);
+            const double SCALE_Y = (size.y / NEW_SHORT) / (m_size.y / OLD_SHORT);
+            m_gas *= SCALE_X * SCALE_Y;
+            m_reservoir *= SCALE_X * SCALE_Y;
+            m_position = {.x=m_position.x * SCALE_X, .y=m_position.y * SCALE_Y};
+            m_velocity = {.x=m_velocity.x * SCALE_X, .y=m_velocity.y * SCALE_Y};
+            m_inlet = {.x=m_inlet.x * SCALE_X, .y=m_inlet.y * SCALE_Y};
+            m_foam.scale({.x=SCALE_X, .y=SCALE_Y});
+            m_size = size;
         }
-        const int target = static_cast<int>(std::floor(std::clamp(progress, 0.0, 1.0) * 360 + 1e-9));
-        while (ticks_ < target) {
-            ++ticks_;
-            progress_ = ticks_ * dt;
+        const int TARGET = static_cast<int>(std::floor((std::clamp(progress, 0.0, 1.0) * 360) + 1e-9));
+        while (m_ticks < TARGET) {
+            ++m_ticks;
+            m_progress = m_ticks * TIME_STEP;
             step();
         }
     }
 
-    void BubbleFormation::nucleate(double step, double t, double width, double height) {
+    void BubbleFormation::nucleate(double step, double progress, double width, double height) {
         // Air arrives in puffs through a few streams around the inlet; each surfaces as a tight
         // clump of bubbles, so the raft forms in groups rather than as an even scatter.
         double total = 0;
-        for (auto &plume : plumes_) {
+        for (auto &plume : m_plumes) {
             plume.clock -= step;
             if (plume.clock <= 0) {
-                plume.target = unit_draw(random_) < .35 ? 0 : .5 + unit_draw(random_);
-                plume.clock = .04 + .1 * unit_draw(random_);
+                plume.target = unit_draw(m_random) < .35 ? 0 : .5 + unit_draw(m_random);
+                plume.clock = .04 + (.1 * unit_draw(m_random));
             }
             plume.strength += (plume.target - plume.strength) * (1 - std::exp(-step / .02));
             // The streams wander with the liquid; a stream never moves far from the inlet.
-            const double turn = plume.spin * step;
-            plume.offset = {plume.offset.x * std::cos(turn) - plume.offset.y * std::sin(turn),
-                plume.offset.x * std::sin(turn) + plume.offset.y * std::cos(turn)};
+            const double TURN = plume.spin * step;
+            plume.offset = {.x=(plume.offset.x * std::cos(TURN)) - (plume.offset.y * std::sin(TURN)),
+                .y=(plume.offset.x * std::sin(TURN)) + (plume.offset.y * std::cos(TURN))};
             total += plume.strength;
         }
-        const double rate = 1100 * params_.birthRate * smoothstep(0, .03, t) *
-                            (1 - smoothstep(.5, .8, t)) * (exists_ ? .55 : 1) *
-                            total / plumes_.size();
-        birthHazard_ += rate * step;
-        const double shortReach = std::sqrt(gas_ / pi);
-        while (birthHazard_ >= birthThreshold_ && total > 0) {
-            birthHazard_ -= birthThreshold_;
-            birthThreshold_ = -std::log(1 - unit_draw(random_));
-            const double radius = std::clamp(
-                .011 * std::exp((.15 + .6 * params_.sizeVariation) * gaussian(random_)), .004, .06);
-            double pick = unit_draw(random_) * total;
+        const double RATE = 1100 * m_params.birthRate * smoothstep(0, .03, progress) *
+                            (1 - smoothstep(.5, .8, progress)) * (m_exists ? .55 : 1) *
+                            total / static_cast<double>(m_plumes.size());
+        m_birth_hazard += RATE * step;
+        const double SHORT_REACH = std::sqrt(m_gas / PI_VALUE);
+        while (m_birth_hazard >= m_birth_threshold && total > 0) {
+            m_birth_hazard -= m_birth_threshold;
+            m_birth_threshold = -std::log(1 - unit_draw(m_random));
+            const double RADIUS = std::clamp(
+                .011 * std::exp((.15 + (.6 * m_params.sizeVariation)) * gaussian(m_random)), .004, .06);
+            double pick = unit_draw(m_random) * total;
             std::size_t chosen = 0;
-            while (chosen + 1 < plumes_.size() && pick > plumes_[chosen].strength)
-                pick -= plumes_[chosen++].strength;
-            const Vec2 source = add(inlet_, Vec2{plumes_[chosen].offset.x * std::sqrt(width),
-                                                plumes_[chosen].offset.y * std::sqrt(height)});
-            const double clump = .02 + .03 * smoothstep(0, .45, t);
-            Vec2 at = add(source, Vec2{gaussian(random_) * clump, gaussian(random_) * clump});
-            // Air rising under the clump surfaces against a bubble already there.
-            const int neighbour = unit_draw(random_) < .7 ? foam_.nearest(at, .04) : -1;
-            if (neighbour >= 0) {
-                const auto &n = foam_.film(neighbour);
-                const double a = 2 * pi * unit_draw(random_);
-                at = add(n.position, mul(Vec2{std::cos(a), std::sin(a)}, n.radius + radius * .9));
+            while (chosen + 1 < m_plumes.size() && pick > m_plumes[chosen].strength) {
+                pick -= m_plumes[chosen++].strength;
             }
-            at.x = std::clamp(at.x, -width * .5 + radius, width * .5 - radius);
-            at.y = std::clamp(at.y, -height * .5 + radius, height * .5 - radius);
-            if (exists_) {
+            const Vec2 SOURCE = add(m_inlet, Vec2{.x=m_plumes[chosen].offset.x * std::sqrt(width),
+                                                .y=m_plumes[chosen].offset.y * std::sqrt(height)});
+            const double CLUMP = .02 + (.03 * smoothstep(0, .45, progress));
+            Vec2 point = add(SOURCE, Vec2{.x=gaussian(m_random) * CLUMP, .y=gaussian(m_random) * CLUMP});
+            // Air rising under the clump surfaces against a bubble already there.
+            const int NEIGHBOUR = unit_draw(m_random) < .7 ? m_foam.nearest(point, .04) : -1;
+            if (NEIGHBOUR >= 0) {
+                const auto &neighbour = m_foam.film(NEIGHBOUR);
+                const double ANGLE = 2 * PI_VALUE * unit_draw(m_random);
+                point = add(neighbour.position, mul(Vec2{.x=std::cos(ANGLE), .y=std::sin(ANGLE)}, neighbour.radius + (RADIUS * .9)));
+            }
+            point.x = std::clamp(point.x, (-width * .5) + RADIUS, (width * .5) - RADIUS);
+            point.y = std::clamp(point.y, (-height * .5) + RADIUS, (height * .5) - RADIUS);
+            if (m_exists) {
                 // Never inside the window bubble: air reaching it joins it.
-                const Vec2 offset = sub(at, position_);
-                const double d = std::hypot(offset.x, offset.y);
-                if (d < shortReach + radius) continue;
+                const Vec2 OFFSET = sub(point, m_position);
+                const double DISTANCE = std::hypot(OFFSET.x, OFFSET.y);
+                if (DISTANCE < SHORT_REACH + RADIUS) { continue; }
             }
             // Wall thickness is the film's own (formation, drainage), not its size.
-            const double thickness = 500 + 380 * unit_draw(random_);
-            const double life = (.22 + .45 * unit_draw(random_)) * (.7 + .6 * params_.linger);
-            const int slot = foam_.spawn(at, {}, radius, thickness, 0, life);
-            if (slot < 0) continue;
-            foam_.film(slot).surfaceRate *=
-                std::exp(1.4 * params_.growthVariation * (unit_draw(random_) - .5));
+            const double THICKNESS = 500 + (380 * unit_draw(m_random));
+            const double LIFE = (.22 + (.45 * unit_draw(m_random))) * (.7 + (.6 * m_params.linger));
+            const int SLOT = m_foam.spawn(point, {}, RADIUS, THICKNESS, 0, LIFE);
+            if (SLOT < 0) { continue; }
+            m_foam.film(SLOT).surface_rate *=
+                std::exp(1.4 * m_params.growthVariation * (unit_draw(m_random) - .5));
         }
     }
 
-    void BubbleFormation::feed(double step, double t) {
-        if (t < kFeed) return;
-        const auto valid = [&](int slot) {
-            if (slot < 0) return false;
-            const auto &f = foam_.film(slot);
-            return f.live && f.burst == 0 && f.into == -1;
+    void BubbleFormation::feed(double step, double progress) {
+        if (progress < FEED) { return; }
+        const auto VALID = [&](int slot) {
+            if (slot < 0) { return false; }
+            const auto &film = m_foam.film(slot);
+            return film.live && film.burst == 0 && film.into == -1;
         };
-        if (!valid(fed_)) {
-            if (fed_ >= 0 && foam_.film(fed_).live) foam_.setFed(fed_, false);
-            fed_ = foam_.nearest(inlet_, .015);
-            if (fed_ < 0)
-                fed_ = foam_.spawn(inlet_, {}, .03, 500 + 380 * unit_draw(random_), .3, 1);
-            if (fed_ < 0) return;
-            foam_.setFed(fed_, true);
+        if (!VALID(m_fed)) {
+            if (m_fed >= 0 && m_foam.film(m_fed).live) { m_foam.set_fed(m_fed, false); }
+            m_fed = m_foam.nearest(m_inlet, .015);
+            if (m_fed < 0) {
+                m_fed = m_foam.spawn(m_inlet, {}, .03, 500 + (380 * unit_draw(m_random)), .3, 1);
+            }
+            if (m_fed < 0) { return; }
+            m_foam.set_fed(m_fed, true);
         }
         // The air stream follows the bubble it fills; the stream's own wander still steers it.
-        auto &f = foam_.film(fed_);
-        const double ramp = smoothstep(kFeed, kFeed + .1, t);
+        auto &film = m_foam.film(m_fed);
+        const double RAMP = smoothstep(FEED, FEED + .1, progress);
         // A gentle stream: the bubble over the inlet grows mostly by swallowing the bubbles that
         // press on it, so its growth is seen to come from the mass around it.
-        foam_.inflate(fed_, .004 * ramp * pumpRate_ / 1.625 * step);
-        const Vec2 toInlet = sub(inlet_, f.position);
-        f.velocity = add(f.velocity, mul(toInlet, 4 * step));
+        m_foam.inflate(m_fed, .004 * RAMP * m_pump_rate / 1.625 * step);
+        const Vec2 TO_INLET = sub(m_inlet, film.position);
+        film.velocity = add(film.velocity, mul(TO_INLET, 4 * step));
     }
 
-    void BubbleFormation::emerge(double t) {
-        const auto film = foam_.take(fed_);
-        fed_ = -1;
-        exists_ = true;
-        emerged_ = t;
-        origin_ = film;
-        gas_ = pi * film.radius * film.radius;
-        corner_ = film.radius;
-        position_ = film.position;
-        velocity_ = film.velocity;
+    void BubbleFormation::emerge(double progress) {
+        const auto FILM = m_foam.take(m_fed);
+        m_fed = -1;
+        m_exists = true;
+        m_emerged = progress;
+        m_origin = FILM;
+        m_gas = PI_VALUE * FILM.radius * FILM.radius;
+        m_corner = FILM.radius;
+        m_position = FILM.position;
+        m_velocity = FILM.velocity;
         // Resume the inflation profile where a bubble of this size would be on its timeline, and
         // compress what remains of it into the time left. Its pump swells from the stream that
         // filled it, so neither the size nor the growth rate jumps.
-        const double shortSide = std::min(size_.x, size_.y);
-        const double capacity = size_.x / shortSide * (size_.y / shortSide);
-        tauStart_ = std::clamp(kTimelineStart + gas_ / (capacity * 1.625), kTimelineStart, .4);
-        pace_ = (kTimelineEnd - tauStart_) / std::max(.1, kLand - t);
-        inletRate_ = .2 * pumpRate_;
+        const double SHORT_SIDE = std::min(m_size.x, m_size.y);
+        const double CAPACITY = m_size.x / SHORT_SIDE * (m_size.y / SHORT_SIDE);
+        m_tau_start = std::clamp(TIMELINE_START + (m_gas / (CAPACITY * 1.625)), TIMELINE_START, .4);
+        m_pace = (TIMELINE_END - m_tau_start) / std::max(.1, LAND - progress);
+        m_inlet_rate = .2 * m_pump_rate;
     }
 
-    double BubbleFormation::inflate(double step, double t, double width, double height, BubbleFoamBody *body) {
-        const double capacity = width * height;
+    double BubbleFormation::inflate(double step, double progress, double width, double height, BubbleFoamBody *body) {
+        const double CAPACITY = width * height;
         // Air supply follows its tuned profile on the bubble's own timeline (tau), however late
         // the bubble formed. Contact dynamics and settling keep the transition's pace.
-        const double air = step * pace_;
-        const double tau = tauStart_ + (t - emerged_) * pace_;
+        const double AIR = step * m_pace;
+        const double TAU = m_tau_start + ((progress - m_emerged) * m_pace);
         // The new window bubble keeps the pace it grew at for a while, still among the
         // companions, before the full stream takes over.
-        const double swell = origin_.live ? .15 + .85 * smoothstep(emerged_, emerged_ + .16, t) : 1;
-        const double pump = pumpRate_ * swell;
+        const double SWELL = m_origin.live ? .15 + (.85 * smoothstep(m_emerged, m_emerged + .16, progress)) : 1;
+        const double PUMP = m_pump_rate * SWELL;
         // Confinement redirects the incoming air into the remaining free axis.
         // Ramp the supply and inlet together so the reservoir cannot starve
         // the faster morph. Free growth and the settling oscillator keep their pace.
-        const double contactRadius = std::max(1e-12, std::min(
-            width * .5 - std::abs(position_.x), height * .5 - std::abs(position_.y)));
-        const double contactArea = pi * contactRadius * contactRadius;
-        const double contactSpeed = 1 + smoothstep(contactArea, contactArea * 1.2, gas_);
+        const double CONTACT_RADIUS = std::max(1e-12, std::min(
+            (width * .5) - std::abs(m_position.x), (height * .5) - std::abs(m_position.y)));
+        const double CONTACT_AREA = PI_VALUE * CONTACT_RADIUS * CONTACT_RADIUS;
+        const double CONTACT_SPEED = 1 + smoothstep(CONTACT_AREA, CONTACT_AREA * 1.2, m_gas);
         // The reserve pump only engages as a late deficit develops; it ensures
         // even extreme settings have enough air without prescribing the shape.
-        const double recovery = 1.5 * smoothstep(.74, .85, tau);
-        const double reserveRate = std::max(recovery, smoothstep(.48, .70, tau) * 1.8 *
-            (capacity - gas_) / (capacity * std::max(.06, .90 - tau)));
-        reservoir_ += capacity * std::max(pump * contactSpeed, reserveRate) * air;
-        const Shape before = shape(std::min(gas_, capacity), width, height, position_);
+        const double RECOVERY = 1.5 * smoothstep(.74, .85, TAU);
+        const double RESERVE_RATE = std::max(RECOVERY, smoothstep(.48, .70, TAU) * 1.8 *
+            (CAPACITY - m_gas) / (CAPACITY * std::max(.06, .90 - TAU)));
+        m_reservoir += CAPACITY * std::max(PUMP * CONTACT_SPEED, RESERVE_RATE) * AIR;
+        const Shape BEFORE = shape(std::min(m_gas, CAPACITY), width, height, m_position);
         // Reservoir pressure, compression and the companions' push all influence the inlet. The
         // late pressure regulator supplies a deficit, not a geometry interpolation, and allows
         // the native area to be reached before the deadline.
-        const double pressure = reservoir_ / capacity;
-        const double deficitRate =
-            swell * (capacity - gas_) / (capacity * std::max(.04, kTimelineEnd - tau));
-        const double target = std::max({deficitRate, recovery,
-            (pump * contactSpeed + 2 * pressure) / (1 + std::abs(core_[0]) * 2)});
-        inletRate_ += (target - inletRate_) * (1 - std::exp(-air / .035));
-        const double inlet = std::min(reservoir_, capacity * air * std::max(0.0, inletRate_));
+        const double PRESSURE = m_reservoir / CAPACITY;
+        const double DEFICIT_RATE =
+            SWELL * (CAPACITY - m_gas) / (CAPACITY * std::max(.04, TIMELINE_END - TAU));
+        const double TARGET = std::max({DEFICIT_RATE, RECOVERY,
+            ((PUMP * CONTACT_SPEED) + (2 * PRESSURE)) / (1 + (std::abs(m_core[0]) * 2))});
+        m_inlet_rate += (TARGET - m_inlet_rate) * (1 - std::exp(-AIR / .035));
+        const double INLET = std::min(m_reservoir, CAPACITY * AIR * std::max(0.0, m_inlet_rate));
         // Finite membrane relaxation prevents the square-root area relation
         // from snapping the last rounded corner flat in one integration step.
         // Air waits in the reservoir while surface tension resists that change.
         // Surface tension flattens the last rounded corner at the transition's own pace, however
         // compressed the air supply's timeline is.
-        const double relaxedCorner = std::max(0.0, corner_ - step * contactSpeed * (2 + 2 * pressure));
-        const double availableGas = std::max(gas_, capacity - cornerArea * relaxedCorner * relaxedCorner);
-        const double accepted = std::min(inlet, std::max(0.0, availableGas - gas_));
-        gas_ += accepted;
-        reservoir_ -= accepted;
-        coreVelocity_[0] += 80 * accepted / capacity;
-        const Shape after = shape(gas_, width, height,
-            feasible(position_, gas_ + cornerArea * relaxedCorner * relaxedCorner, width, height));
-        body->centre = position_;
-        body->velocity = velocity_;
-        body->previousHalf = {before.x, before.y};
-        body->previousCorner = before.corner;
-        body->half = {after.x, after.y};
-        body->corner = after.corner;
-        body->mass = std::max(.035, gas_);
-        body->room = std::max(0.0, availableGas - gas_);
-        return relaxedCorner;
+        const double RELAXED_CORNER = std::max(0.0, m_corner - (step * CONTACT_SPEED * (2 + (2 * PRESSURE))));
+        const double AVAILABLE_GAS = std::max(m_gas, CAPACITY - (CORNER_AREA * RELAXED_CORNER * RELAXED_CORNER));
+        const double ACCEPTED = std::min(INLET, std::max(0.0, AVAILABLE_GAS - m_gas));
+        m_gas += ACCEPTED;
+        m_reservoir -= ACCEPTED;
+        m_core_velocity[0] += 80 * ACCEPTED / CAPACITY;
+        const Shape AFTER = shape(m_gas, width, height,
+            feasible(m_position, m_gas + (CORNER_AREA * RELAXED_CORNER * RELAXED_CORNER), width, height));
+        body->centre = m_position;
+        body->velocity = m_velocity;
+        body->previous_half = {.x=BEFORE.x, .y=BEFORE.y};
+        body->previous_corner = BEFORE.corner;
+        body->half = {.x=AFTER.x, .y=AFTER.y};
+        body->corner = AFTER.corner;
+        body->mass = std::max(.035, m_gas);
+        body->room = std::max(0.0, AVAILABLE_GAS - m_gas);
+        return RELAXED_CORNER;
     }
 
     void BubbleFormation::step() {
-        const double shortSide = std::min(size_.x, size_.y);
-        const double width = size_.x / shortSide, height = size_.y / shortSide;
-        const double capacity = width * height;
-        const double t = progress_;
+        const double SHORT_SIDE = std::min(m_size.x, m_size.y);
+        const double WIDTH = m_size.x / SHORT_SIDE;
+        const double HEIGHT = m_size.y / SHORT_SIDE;
+        const double CAPACITY = WIDTH * HEIGHT;
+        const double PROGRESS = m_progress;
         // Feed events change the pressure target, not positions. Both the pump
         // and inlet have inertia, so their changing flux remains continuous.
-        feedClock_ -= dt * (exists_ ? pace_ : 1);
-        if (feedClock_ <= 0) {
-            feedTarget_ = 1.625 + .95 * params_.growthVariation * (2 * unit_draw(random_) - 1);
-            feedClock_ += .045 + .09 * unit_draw(random_);
+        m_feed_clock -= TIME_STEP * (m_exists ? m_pace : 1);
+        if (m_feed_clock <= 0) {
+            m_feed_target = 1.625 + (.95 * m_params.growthVariation * ((2 * unit_draw(m_random)) - 1));
+            m_feed_clock += .045 + (.09 * unit_draw(m_random));
         }
-        pumpRate_ += (feedTarget_ - pumpRate_) * (1 - std::exp(-dt * (exists_ ? pace_ : 1) / .045));
+        m_pump_rate += (m_feed_target - m_pump_rate) * (1 - std::exp(-TIME_STEP * (m_exists ? m_pace : 1) / .045));
 
-        const Vec2 wander{wander_[0].x * std::sin(2 * pi * .6 * t + wander_[1].x),
-            wander_[0].y * std::sin(2 * pi * .45 * t + wander_[1].y)};
-        if (exists_) inlet_ = position_;
-        else if (fed_ >= 0 && foam_.film(fed_).live) inlet_ = foam_.film(fed_).position;
-        else inlet_ = add(inlet_, mul(sub(wander, inlet_), 1 - std::exp(-6 * dt)));
-        if (!exists_ && fed_ >= 0) {
+        const Vec2 WANDER{.x=m_wander[0].x * std::sin((2 * PI_VALUE * .6 * PROGRESS) + m_wander[1].x),
+            .y=m_wander[0].y * std::sin((2 * PI_VALUE * .45 * PROGRESS) + m_wander[1].y)};
+        if (m_exists) { m_inlet = m_position;
+        } else if (m_fed >= 0 && m_foam.film(m_fed).live) { m_inlet = m_foam.film(m_fed).position;
+        } else { m_inlet = add(m_inlet, mul(sub(WANDER, m_inlet), 1 - std::exp(-6 * TIME_STEP))); }
+        if (!m_exists && m_fed >= 0) {
             // The stream keeps wandering under the bubble it fills.
-            auto &f = foam_.film(fed_);
-            f.velocity = add(f.velocity, mul(sub(wander, f.position), 3 * dt));
+            auto &film = m_foam.film(m_fed);
+            film.velocity = add(film.velocity, mul(sub(WANDER, film.position), 3 * TIME_STEP));
         }
 
         // The liquid: outflow from where air enters, two slowly turning eddies, calming late.
         BubbleFoamFlow flow;
-        flow.source = inlet_;
-        flow.outflow = .012 * std::sqrt(params_.birthRate) * (1 - smoothstep(.55, .9, t));
-        flow.confine = {width * .5, height * .5};
-        const double calm = 1 - smoothstep(.7, 1, t);
+        flow.source = m_inlet;
+        flow.outflow = .012 * std::sqrt(m_params.birthRate) * (1 - smoothstep(.55, .9, PROGRESS));
+        flow.confine = {.x=WIDTH * .5, .y=HEIGHT * .5};
+        const double CALM = 1 - smoothstep(.7, 1, PROGRESS);
         for (int i = 0; i < 2; ++i) {
-            const double turn = 2 * pi * .25 * t * (i == 0 ? 1 : -1);
-            const Vec2 c = eddyCentre_[i];
+            const double TURN = 2 * PI_VALUE * .25 * PROGRESS * (i == 0 ? 1 : -1);
+            const Vec2 EDDY_CENTRE = m_eddy_centre[i];
             flow.eddies[static_cast<std::size_t>(i)] = {
-                {c.x * std::cos(turn) - c.y * std::sin(turn), c.x * std::sin(turn) + c.y * std::cos(turn)},
-                eddySpin_[i] * calm,
-                .18};
+                .centre={.x=(EDDY_CENTRE.x * std::cos(TURN)) - (EDDY_CENTRE.y * std::sin(TURN)), .y=(EDDY_CENTRE.x * std::sin(TURN)) + (EDDY_CENTRE.y * std::cos(TURN))},
+                .circulation=m_eddy_spin[i] * CALM,
+                .core=.18};
         }
 
-        if (params_.count > 0) nucleate(dt, t, width, height);
-        if (!exists_ && params_.count > 0) {
-            feed(dt, t);
-            if (fed_ >= 0) {
-                const double r = foam_.film(fed_).radius;
-                if ((r >= .1 && t >= .55) || t >= kLatestEmergence) emerge(t);
-            } else if (t >= kLatestEmergence) {
+        if (m_params.count > 0) { nucleate(TIME_STEP, PROGRESS, WIDTH, HEIGHT); }
+        if (!m_exists && m_params.count > 0) {
+            feed(TIME_STEP, PROGRESS);
+            if (m_fed >= 0) {
+                const double RADIUS = m_foam.film(m_fed).radius;
+                if ((RADIUS >= .1 && PROGRESS >= .55) || PROGRESS >= LATEST_EMERGENCE) { emerge(PROGRESS); }
+            } else if (PROGRESS >= LATEST_EMERGENCE) {
                 // Nothing to grow from (a tiny budget): air surfaces as a new bubble.
-                fed_ = foam_.spawn(inlet_, {}, .03, 450, .5, 1);
-                if (fed_ >= 0) emerge(t);
+                m_fed = m_foam.spawn(m_inlet, {}, .03, 450, .5, 1);
+                if (m_fed >= 0) { emerge(PROGRESS); }
             }
         }
-        if (!expired_ && t >= .72 + .12 * params_.linger) {
+        if (!m_expired && PROGRESS >= .72 + (.12 * m_params.linger)) {
             // Drainage catches up with every remaining companion before the transition ends.
-            foam_.expire(.975 - t);
-            expired_ = true;
+            m_foam.expire(.975 - PROGRESS);
+            m_expired = true;
         }
 
-        if (!exists_) {
-            foam_.step(dt, flow, nullptr);
+        if (!m_exists) {
+            m_foam.step(TIME_STEP, flow, nullptr);
             return;
         }
         BubbleFoamBody body;
-        const double relaxedCorner = inflate(dt, t, width, height, &body);
-        foam_.step(dt, flow, &body);
+        const double RELAXED_CORNER = inflate(TIME_STEP, PROGRESS, WIDTH, HEIGHT, &body);
+        m_foam.step(TIME_STEP, flow, &body);
         // The companions' push and merged air feed back into the window bubble.
-        velocity_ = body.velocity;
-        const double merged = std::min(body.absorbed, body.room);
-        gas_ += merged;
-        coreVelocity_[0] += body.stir;
-        coreVelocity_[1] += merged / capacity * 12;
-        waveVelocity_[0] += body.quadrupole.x;
-        waveVelocity_[1] += body.quadrupole.y;
+        m_velocity = body.velocity;
+        const double MERGED = std::min(body.absorbed, body.room);
+        m_gas += MERGED;
+        m_core_velocity[0] += body.stir;
+        m_core_velocity[1] += MERGED / CAPACITY * 12;
+        m_wave_velocity[0] += body.quadrupole.x;
+        m_wave_velocity[1] += body.quadrupole.y;
         // Wall pressure is a restoring force as soon as the unconstrained
         // circle reaches a wall. Only geometrically impossible excess needs
         // projection; before that the capsule deforms at its actual centre.
-        const double freeRadius = std::sqrt(gas_ / pi);
-        const double wallX = std::max(0.0, freeRadius + std::abs(position_.x) - width * .5);
-        const double wallY = std::max(0.0, freeRadius + std::abs(position_.y) - height * .5);
+        const double FREE_RADIUS = std::sqrt(m_gas / PI_VALUE);
+        const double WALL_X = std::max(0.0, FREE_RADIUS + std::abs(m_position.x) - (WIDTH * .5));
+        const double WALL_Y = std::max(0.0, FREE_RADIUS + std::abs(m_position.y) - (HEIGHT * .5));
         // Opposing walls cancel as the centre reaches equilibrium. A sign-only
         // restoring force would chatter across zero once both sides are pressed.
-        velocity_.x += 22 * dt *
-            (std::max(0.0, freeRadius - position_.x - width * .5) -
-                std::max(0.0, freeRadius + position_.x - width * .5));
-        velocity_.y += 22 * dt *
-            (std::max(0.0, freeRadius - position_.y - height * .5) -
-                std::max(0.0, freeRadius + position_.y - height * .5));
-        const double wallPressure = wallX + wallY;
-        coreVelocity_[0] += (wallPressure - wallPressure_) * 3;
-        wallPressure_ = wallPressure;
-        position_ = add(position_, mul(velocity_, dt));
-        velocity_ = mul(velocity_, std::exp(-2.2 * params_.damping * dt));
-        const Vec2 before = position_;
-        position_ = feasible(position_, gas_ + cornerArea * relaxedCorner * relaxedCorner, width, height);
-        corner_ = shape(gas_, width, height, position_).corner;
-        const Vec2 correction = sub(position_, before);
-        if (correction.x != 0) velocity_.x = correction.x / dt * .15;
-        if (correction.y != 0) velocity_.y = correction.y / dt * .15;
-        const double impact = std::hypot(correction.x, correction.y);
-        coreVelocity_[0] += impact * 20;
-        coreVelocity_[1] += impact * 12;
-        waveVelocity_[0] += (correction.x - correction.y) * 6;
+        m_velocity.x += 22 * TIME_STEP *
+            (std::max(0.0, FREE_RADIUS - m_position.x - (WIDTH * .5)) -
+                std::max(0.0, FREE_RADIUS + m_position.x - (WIDTH * .5)));
+        m_velocity.y += 22 * TIME_STEP *
+            (std::max(0.0, FREE_RADIUS - m_position.y - (HEIGHT * .5)) -
+                std::max(0.0, FREE_RADIUS + m_position.y - (HEIGHT * .5)));
+        const double WALL_PRESSURE = WALL_X + WALL_Y;
+        m_core_velocity[0] += (WALL_PRESSURE - m_wall_pressure) * 3;
+        m_wall_pressure = WALL_PRESSURE;
+        m_position = add(m_position, mul(m_velocity, TIME_STEP));
+        m_velocity = mul(m_velocity, std::exp(-2.2 * m_params.damping * TIME_STEP));
+        const Vec2 BEFORE = m_position;
+        m_position = feasible(m_position, m_gas + (CORNER_AREA * RELAXED_CORNER * RELAXED_CORNER), WIDTH, HEIGHT);
+        m_corner = shape(m_gas, WIDTH, HEIGHT, m_position).corner;
+        const Vec2 CORRECTION = sub(m_position, BEFORE);
+        if (CORRECTION.x != 0) { m_velocity.x = CORRECTION.x / TIME_STEP * .15; }
+        if (CORRECTION.y != 0) { m_velocity.y = CORRECTION.y / TIME_STEP * .15; }
+        const double IMPACT = std::hypot(CORRECTION.x, CORRECTION.y);
+        m_core_velocity[0] += IMPACT * 20;
+        m_core_velocity[1] += IMPACT * 12;
+        m_wave_velocity[0] += (CORRECTION.x - CORRECTION.y) * 6;
         for (int i = 0; i < 2; ++i) {
-            const double frequency = i == 0 ? 26 : 44;
-            coreVelocity_[i] += (-frequency * frequency * core_[i] - 11.2 * coreVelocity_[i]) * dt;
-            core_[i] += coreVelocity_[i] * dt;
-            waveVelocity_[i] += (-26 * 26 * wave_[i] - 11.2 * waveVelocity_[i]) * dt;
-            wave_[i] += waveVelocity_[i] * dt;
+            const double FREQUENCY = i == 0 ? 26 : 44;
+            m_core_velocity[i] += ((-FREQUENCY * FREQUENCY * m_core[i]) - (11.2 * m_core_velocity[i])) * TIME_STEP;
+            m_core[i] += m_core_velocity[i] * TIME_STEP;
+            m_wave_velocity[i] += ((-26 * 26 * m_wave[i]) - (11.2 * m_wave_velocity[i])) * TIME_STEP;
+            m_wave[i] += m_wave_velocity[i] * TIME_STEP;
         }
-        landed_ = gas_ >= capacity;
+        m_landed = m_gas >= CAPACITY;
     }
 
-    bool BubbleFormation::landed() const { return landed_; }
+    bool BubbleFormation::landed() const { return m_landed; }
 
     void BubbleFormation::writeFrame(BubbleFrame &frame) const {
-        if (!usable(frame.size) || !usable(size_)) return;
-        const double scale = std::min(frame.size.x, frame.size.y);
-        const double width = frame.size.x / scale, height = frame.size.y / scale;
-        const double capacity = width * height;
-        const double oldShort = std::min(size_.x, size_.y);
-        const double sx = width / (size_.x / oldShort);
-        const double sy = height / (size_.y / oldShort);
-        frame.formation_count = foam_.write(
-            std::span(frame.formation).first(kBubbleFoamCapacity), scale, {sx, sy}, progress_ * 2);
-        auto &w = frame.window;
-        w = {};
-        if (!exists_) {
-            w.content = 0;
-            w.motion.carry = {inlet_.x * sx * scale, inlet_.y * sy * scale};
+        if (!usable(frame.size) || !usable(m_size)) { return; }
+        const double SCALE = std::min(frame.size.x, frame.size.y);
+        const double WIDTH = frame.size.x / SCALE;
+        const double HEIGHT = frame.size.y / SCALE;
+        const double CAPACITY = WIDTH * HEIGHT;
+        const double OLD_SHORT = std::min(m_size.x, m_size.y);
+        const double SCALE_X = WIDTH / (m_size.x / OLD_SHORT);
+        const double SCALE_Y = HEIGHT / (m_size.y / OLD_SHORT);
+        frame.formation_count = m_foam.write(
+            std::span(frame.formation).first(BUBBLE_FOAM_CAPACITY), SCALE, {.x=SCALE_X, .y=SCALE_Y}, m_progress * 2);
+        auto &window = frame.window;
+        window = {};
+        if (!m_exists) {
+            window.content = 0;
+            window.motion.carry = {.x=m_inlet.x * SCALE_X * SCALE, .y=m_inlet.y * SCALE_Y * SCALE};
             return;
         }
-        const double projectedGas = gas_ * sx * sy;
-        const Vec2 centre = feasible({position_.x * sx, position_.y * sy},
-            std::min(projectedGas, capacity), width, height);
-        const Shape primary = shape(std::min(projectedGas, capacity), width, height, centre);
-        const double fill = std::clamp(projectedGas / capacity, 0.0, 1.0);
-        const double residual = 1 - smoothstep(.92, 1, progress_);
-        w.half_size = {primary.x * scale, primary.y * scale};
-        w.corner = primary.corner * scale;
-        w.motion.carry = mul(centre, scale);
-        w.depth = scale * std::min(primary.x, primary.y) * (1 - fill);
-        w.core = {core_[0] * scale * residual, core_[1] * scale * residual};
-        w.motion.wave_cos[0] = wave_[0] * scale * residual;
-        w.motion.wave_sin[0] = wave_[1] * scale * residual;
-        w.content = smoothstep(.02, .95, fill);
-        w.film = 1 - smoothstep(.8, 1, progress_);
+        const double PROJECTED_GAS = m_gas * SCALE_X * SCALE_Y;
+        const Vec2 CENTRE = feasible({.x=m_position.x * SCALE_X, .y=m_position.y * SCALE_Y},
+            std::min(PROJECTED_GAS, CAPACITY), WIDTH, HEIGHT);
+        const Shape PRIMARY = shape(std::min(PROJECTED_GAS, CAPACITY), WIDTH, HEIGHT, CENTRE);
+        const double FILL = std::clamp(PROJECTED_GAS / CAPACITY, 0.0, 1.0);
+        const double RESIDUAL = 1 - smoothstep(.92, 1, m_progress);
+        window.half_size = {.x=PRIMARY.x * SCALE, .y=PRIMARY.y * SCALE};
+        window.corner = PRIMARY.corner * SCALE;
+        window.motion.carry = mul(CENTRE, SCALE);
+        window.depth = SCALE * std::min(PRIMARY.x, PRIMARY.y) * (1 - FILL);
+        window.core = {.x=m_core[0] * SCALE * RESIDUAL, .y=m_core[1] * SCALE * RESIDUAL};
+        window.motion.wave_cos[0] = m_wave[0] * SCALE * RESIDUAL;
+        window.motion.wave_sin[0] = m_wave[1] * SCALE * RESIDUAL;
+        window.content = smoothstep(.02, .95, FILL);
+        window.film = 1 - smoothstep(.8, 1, m_progress);
         // The membrane takes over from the film it grew from; both show the same bubble.
-        const double takeover = params_.count > 0 ? smoothstep(emerged_, emerged_ + .1, progress_)
-                                                  : smoothstep(0, .09, progress_);
-        w.visibility = takeover;
-        const double settled = 720 - 270 * fill;
-        w.thickness = origin_.live ? origin_.thickness + (settled - origin_.thickness) * smoothstep(0, .35, fill)
-                                   : settled;
-        w.flow = progress_ * 2;
-        w.time = progress_;
-        if (origin_.live && takeover < 1) {
-            for (std::size_t i = frame.formation_count; i < kBubbleFoamCapacity; ++i)
+        const double TAKEOVER = m_params.count > 0 ? smoothstep(m_emerged, m_emerged + .1, m_progress)
+                                                  : smoothstep(0, .09, m_progress);
+        window.visibility = TAKEOVER;
+        const double SETTLED = 720 - (270 * FILL);
+        window.thickness = m_origin.live ? m_origin.thickness + ((SETTLED - m_origin.thickness) * smoothstep(0, .35, FILL))
+                                   : SETTLED;
+        window.flow = m_progress * 2;
+        window.time = m_progress;
+        if (m_origin.live && TAKEOVER < 1) {
+            for (std::size_t i = frame.formation_count; i < BUBBLE_FOAM_CAPACITY; ++i) {
                 frame.formation[i].visibility = 0;
-            auto &g = frame.formation[kBubbleFoamCapacity];
-            g = {};
-            g.centre = g.anchor = w.motion.carry;
-            g.radius = std::sqrt(std::min(projectedGas, capacity) / pi) * scale;
-            g.growth = 1;
-            g.thickness = origin_.thickness;
-            g.seed = origin_.seed;
-            g.flow = progress_ * 2 + origin_.phase + origin_.flow;
-            g.visibility = 1 - takeover;
+            }
+            auto &companion = frame.formation[BUBBLE_FOAM_CAPACITY];
+            companion = {};
+            companion.centre = companion.anchor = window.motion.carry;
+            companion.radius = std::sqrt(std::min(PROJECTED_GAS, CAPACITY) / PI_VALUE) * SCALE;
+            companion.growth = 1;
+            companion.thickness = m_origin.thickness;
+            companion.seed = m_origin.seed;
+            companion.flow = (m_progress * 2) + m_origin.phase + m_origin.flow;
+            companion.visibility = 1 - TAKEOVER;
             frame.formation_count = kBubbleFormationCapacity;
         }
     }

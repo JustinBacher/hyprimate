@@ -49,7 +49,7 @@ namespace hyprimate {
                     4.5);
                 const double FINGERS = smoothstep(.012, .045, AGE);
                 for (std::size_t mode = 0; mode < hole.amplitude.size(); ++mode) {
-                    hole.amplitude[mode] = FINGERS * (.014 - (.002 * static_cast<double>(mode)));
+                    hole.amplitude.at(mode) = FINGERS * (.014 - (.002 * static_cast<double>(mode)));
                 }
             }
         }
@@ -476,8 +476,8 @@ namespace hyprimate {
             if (microbubble.visibility <= 0) {
                 return;
             }
-            const double RADIUS = microbubble.radius *
-                (1.4 + std::abs(microbubble.squash.x) + std::abs(microbubble.squash.y)) + 3;
+            const double RADIUS = (microbubble.radius *
+                (1.4 + std::abs(microbubble.squash.x) + std::abs(microbubble.squash.y))) + 3;
             box = {
                 std::min(std::get<0>(box), microbubble.centre.x - RADIUS),
                 std::min(std::get<1>(box), microbubble.centre.y - RADIUS),

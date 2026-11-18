@@ -73,6 +73,7 @@ namespace {
 
 }  // namespace
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): Listener setup keeps callback lifetime and registration order together.
 CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     std::random_device entropy;
     m_next_seed = (std::uint64_t{entropy()} << 32U) | entropy();

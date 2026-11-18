@@ -33,11 +33,11 @@ namespace hyprimate {
         bool finite(Vec2 value) {
             return std::isfinite(value.x) && std::isfinite(value.y);
         }
-        Vec2 sub(Vec2 a, Vec2 b) {
-            return {.x = a.x - b.x, .y = a.y - b.y};
+        Vec2 sub(Vec2 left, Vec2 right) {
+            return {.x = left.x - right.x, .y = left.y - right.y};
         }
-        double distance(Vec2 a, Vec2 b) {
-            return std::hypot(a.x - b.x, a.y - b.y);
+        double distance(Vec2 left, Vec2 right) {
+            return std::hypot(left.x - right.x, left.y - right.y);
         }
     }  // namespace
 
@@ -51,9 +51,9 @@ namespace hyprimate {
         return node.evaporated >= node.thickness * DRY_MARGIN;
     }
 
-    BubbleWake::Strand *BubbleWake::strand(std::uint32_t id) noexcept {
+    BubbleWake::Strand *BubbleWake::strand(std::uint32_t strand_id) noexcept {
         for (auto &item : strands) {
-            if (item.count > 0 && item.id == id) {
+            if (item.count > 0 && item.id == strand_id) {
                 return &item;
             }
         }
@@ -68,7 +68,7 @@ namespace hyprimate {
         }
         Strand *current = strand(point.strand);
         if (current == nullptr) {
-            const auto FREE = std::ranges::find_if(strands, [](const Strand &item) { return item.count == 0; });
+            auto *const FREE = std::ranges::find_if(strands, [](const Strand &item) { return item.count == 0; });
             if (FREE == strands.end()) {
                 return false;
             }
@@ -83,23 +83,23 @@ namespace hyprimate {
         node.velocity = point.velocity;
         node.half_width = point.half_width;
         node.provisional = point.provisional && !point.last;
-        auto active = std::span{current->nodes}.first(current->count);
-        if (!active.empty() && active.back().provisional) {
+        const auto ACTIVE = std::span{current->nodes}.first(current->count);
+        if (!ACTIVE.empty() && ACTIVE.back().provisional) {
             // The window has moved on: its strand's newest point moves with it.
-            auto &head = active.back();
+            auto &head = ACTIVE.back();
             node.thickness = head.thickness;
             node.evaporation = head.evaporation;
             head = node;
         } else {
             if (current->count == current->nodes.size()) {
                 // The oldest film makes room; its free tail keeps the place it had retracted to.
-                current->tail = std::max(0.0, current->tail - distance(active[0].position, active[1].position));
-                std::move(active.begin() + 1, active.end(), active.begin());
+                current->tail = std::max(0.0, current->tail - distance(ACTIVE[0].position, ACTIVE[1].position));
+                std::move(ACTIVE.begin() + 1, ACTIVE.end(), ACTIVE.begin());
                 --current->count;
             }
             // Every patch dries at its own pace: thicker liquid lasts longer, threads go first.
-            node.thickness = point.thickness * (.85 + .3 * unit_draw(random));
-            const double SECONDS = (.75 + .75 * unit_draw(random)) * (current->thread ? .6 : 1);
+            node.thickness = point.thickness * (.85 + (.3 * unit_draw(random)));
+            const double SECONDS = (.75 + (.75 * unit_draw(random))) * (current->thread ? .6 : 1);
             node.evaporation = node.thickness / SECONDS;
             current->nodes[current->count++] = node;
         }
@@ -127,8 +127,10 @@ namespace hyprimate {
         film.phase = 0;
         film.flow = micro.flow;
         film.squash = micro.squash;
-        film.squashRate = finite(bubble.squash_rate) ? bubble.squash_rate : Vec2{};
-        necks[static_cast<std::size_t>(SLOT)] = {{.x = origin.x + micro.anchor.x, .y = origin.y + micro.anchor.y}, std::clamp(micro.attach, 0.0, 1.0)};
+        film.squash_rate = finite(bubble.squash_rate) ? bubble.squash_rate : Vec2{};
+        necks[static_cast<std::size_t>(SLOT)] = {
+            .anchor = {.x = origin.x + micro.anchor.x, .y = origin.y + micro.anchor.y},
+            .attach = std::clamp(micro.attach, 0.0, 1.0)};
         return true;
     }
 
@@ -140,17 +142,17 @@ namespace hyprimate {
         if (!std::isfinite(elapsed) || elapsed <= 0) {
             return;
         }
-        const double DT = std::min(elapsed, STALL_SECONDS) * pace;
-        const double BRAKE = std::exp(-DT / FILM_BRAKE);
-        const double STRAIGHTENING = .5 * (1 - std::exp(-DT / STRAIGHTEN));
+        const double DELTA_TIME = std::min(elapsed, STALL_SECONDS) * pace;
+        const double BRAKE = std::exp(-DELTA_TIME / FILM_BRAKE);
+        const double STRAIGHTENING = .5 * (1 - std::exp(-DELTA_TIME / STRAIGHTEN));
         for (auto &item : strands) {
             if (item.count == 0) {
                 continue;
             }
-            item.age += DT;
+            item.age += DELTA_TIME;
             // A strand the window stopped drawing without pinching it off (movement switched off,
             // the window gone) is free from here.
-            item.idle += DT;
+            item.idle += DELTA_TIME;
             auto active = std::span{item.nodes}.first(item.count);
             if (item.open && item.idle > .1) {
                 item.open = false;
@@ -160,12 +162,12 @@ namespace hyprimate {
                 if (node.provisional) {
                     continue;
                 }
-                node.position = {.x = node.position.x + node.velocity.x * (1 - BRAKE) * FILM_BRAKE,
-                    .y = node.position.y + node.velocity.y * (1 - BRAKE) * FILM_BRAKE};
+                node.position = {.x = node.position.x + (node.velocity.x * (1 - BRAKE) * FILM_BRAKE),
+                    .y = node.position.y + (node.velocity.y * (1 - BRAKE) * FILM_BRAKE)};
                 node.velocity = {.x = node.velocity.x * BRAKE, .y = node.velocity.y * BRAKE};
-                node.evaporated += node.evaporation * DT;
+                node.evaporated += node.evaporation * DELTA_TIME;
                 if (node.cut > 0) {
-                    node.cut = std::min(BREAK_GAP + .2 * node.half_width, node.cut + BREAK_SPEED * DT);
+                    node.cut = std::min(BREAK_GAP + (.2 * node.half_width), node.cut + (BREAK_SPEED * DELTA_TIME));
                 }
             }
             for (std::size_t i = 1; i + 1 < item.count; ++i) {
@@ -173,25 +175,26 @@ namespace hyprimate {
                 if (node.provisional) {
                     continue;
                 }
-                const Vec2 A = active[i - 1].position, B = active[i + 1].position;
-                node.position = {.x = node.position.x + ((A.x + B.x) * .5 - node.position.x) * STRAIGHTENING,
-                    .y = node.position.y + ((A.y + B.y) * .5 - node.position.y) * STRAIGHTENING};
+                const Vec2 BEFORE = active[i - 1].position;
+                const Vec2 AFTER = active[i + 1].position;
+                node.position = {.x = node.position.x + ((((BEFORE.x + AFTER.x) * .5) - node.position.x) * STRAIGHTENING),
+                    .y = node.position.y + ((((BEFORE.y + AFTER.y) * .5) - node.position.y) * STRAIGHTENING)};
             }
             // Free ends draw back into the film.
-            item.tail += RETRACT_SPEED * DT * std::min(1.0, item.age / .15);
+            item.tail += RETRACT_SPEED * DELTA_TIME * std::min(1.0, item.age / .15);
             if (!item.open) {
-                item.head += RETRACT_SPEED * DT;
+                item.head += RETRACT_SPEED * DELTA_TIME;
             }
             // A thread is unstable along its length (Rayleigh–Plateau): it breaks into pieces,
             // and now and then a break closes round a tiny bubble.
-            if (item.thread && item.count > 3 && item.age > .12 && unit_draw(random) < 3 * DT) {
-                const auto AT = 1 + static_cast<std::size_t>(unit_draw(random) * static_cast<double>(item.count - 2));
-                auto &node = active[AT];
+            if (item.thread && item.count > 3 && item.age > .12 && unit_draw(random) < 3 * DELTA_TIME) {
+                const auto INDEX = 1 + static_cast<std::size_t>(unit_draw(random) * static_cast<double>(item.count - 2));
+                auto &node = active[INDEX];
                 if (node.cut == 0 && !node.provisional && !dry(node)) {
                     node.cut = .01;
                     if (unit_draw(random) < .35) {
-                        foam.spawn(node.position, node.velocity, 1.5 + 2.5 * unit_draw(random),
-                            node.thickness, .4, .25 + .5 * unit_draw(random));
+                        foam.spawn(node.position, node.velocity, 1.5 + (2.5 * unit_draw(random)),
+                            node.thickness, .4, .25 + (.5 * unit_draw(random)));
                     }
                 }
             }
@@ -212,14 +215,14 @@ namespace hyprimate {
             }
         }
 
-        substep += DT;
+        substep += DELTA_TIME;
         const BubbleFoamFlow STILL{};
         while (substep >= STEP) {
             foam.step(STEP, STILL, nullptr);
             substep -= STEP;
         }
         // A neck left on a pinched-off bubble snaps back into it.
-        const double SNAP = std::exp(-DT / .05);
+        const double SNAP = std::exp(-DELTA_TIME / .05);
         for (std::size_t i = 0; i < necks.size(); ++i) {
             auto &neck = necks[i];
             const auto &film = foam.film(static_cast<int>(i));
@@ -227,17 +230,17 @@ namespace hyprimate {
                 neck = {};
                 continue;
             }
-            neck.attach *= std::exp(-DT / .06);
+            neck.attach *= std::exp(-DELTA_TIME / .06);
             if (neck.attach < .01) {
                 neck.attach = 0;
             }
-            neck.anchor = {.x = film.position.x + (neck.anchor.x - film.position.x) * SNAP,
-                .y = film.position.y + (neck.anchor.y - film.position.y) * SNAP};
+            neck.anchor = {.x = film.position.x + ((neck.anchor.x - film.position.x) * SNAP),
+                .y = film.position.y + ((neck.anchor.y - film.position.y) * SNAP)};
         }
     }
 
     bool BubbleWake::done() const noexcept {
-        return foam.liveCount() == 0 &&
+        return foam.live_count() == 0 &&
                std::ranges::all_of(strands, [](const Strand &item) { return item.count == 0; });
     }
 
@@ -262,7 +265,7 @@ namespace hyprimate {
             if (!film.live) {
                 continue;
             }
-            INCLUDE(film.position, film.radius * 1.5 + 3);
+            INCLUDE(film.position, (film.radius * 1.5) + 3);
             if (necks[i].attach > 0) {
                 INCLUDE(necks[i].anchor, 2);
             }
@@ -278,21 +281,21 @@ namespace hyprimate {
         out.size = {.x = BOX.w, .y = BOX.h};
         out.seed = seed;
         out.node_count = out.segment_count = 0;
-        const Vec2 CENTRE{.x = BOX.x + BOX.w * .5, .y = BOX.y + BOX.h * .5};
+        const Vec2 CENTRE{.x = BOX.x + (BOX.w * .5), .y = BOX.y + (BOX.h * .5)};
         for (const auto &item : strands) {
             if (item.count < 2) {
                 continue;
             }
             const std::size_t BASE = out.node_count;
             const auto ACTIVE = std::span{item.nodes}.first(item.count);
-            auto output = std::span{out.nodes}.subspan(BASE, item.count);
+            const auto OUTPUT = std::span{out.nodes}.subspan(BASE, item.count);
             double arc = 0;
             for (std::size_t i = 0; i < item.count; ++i) {
                 const auto &node = ACTIVE[i];
                 if (i > 0) {
                     arc += distance(node.position, ACTIVE[i - 1].position);
                 }
-                auto &view_node = output[i];
+                auto &view_node = OUTPUT[i];
                 view_node.position = sub(node.position, CENTRE);
                 // The strand turns with its path: the tangent spans the neighbouring points.
                 const auto &before = ACTIVE[i > 0 ? i - 1 : i].position;
@@ -307,30 +310,31 @@ namespace hyprimate {
             }
             out.node_count += item.count;
             // Runs of film between breaks and fully dried patches.
-            const auto CLOSE = [&](std::size_t first, std::size_t last, double from, double to) {
-                if (out.segment_count >= out.segments.size() || last <= first || to - from < 2) {
+            const auto CLOSE = [&](std::size_t first, std::size_t last, double from, double end) {
+                if (out.segment_count >= out.segments.size() || last <= first || end - from < 2) {
                     return;
                 }
-                out.segments[out.segment_count++] = {BASE + first, last - first + 1, from, to};
+                out.segments[out.segment_count++] = {
+                    .first = BASE + first, .count = last - first + 1, .from = from, .to = end};
             };
             std::size_t first = 0;
-            double from = output.front().arc + item.tail;
+            double from = OUTPUT.front().arc + item.tail;
             for (std::size_t i = 1; i < item.count; ++i) {
                 const auto &node = ACTIVE[i];
-                const double AT = output[i].arc;
+                const double ARC = OUTPUT[i].arc;
                 if (dry(node) && !node.provisional) {
-                    CLOSE(first, i, from, AT);
+                    CLOSE(first, i, from, ARC);
                     first = i;
-                    from = AT;
+                    from = ARC;
                 } else if (node.cut > 0 && i + 1 < item.count) {
-                    CLOSE(first, i, from, AT - node.cut);
+                    CLOSE(first, i, from, ARC - node.cut);
                     first = i;
-                    from = AT + node.cut;
+                    from = ARC + node.cut;
                 }
             }
-            CLOSE(first, item.count - 1, from, output.back().arc - item.head);
+            CLOSE(first, item.count - 1, from, OUTPUT.back().arc - item.head);
         }
-        out.bubble_count = foam.write(std::span(out.bubbles), 1, {1, 1}, 0);
+        out.bubble_count = foam.write(std::span(out.bubbles), 1, {.x = 1, .y = 1}, 0);
         for (std::size_t i = 0; i < out.bubble_count; ++i) {
             auto &micro = out.bubbles[i];
             if (micro.visibility <= 0) {

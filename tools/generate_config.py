@@ -342,6 +342,7 @@ def config_header(settings):
             out.append(f'    CConfigValue<Config::{storage}> {item["member"]}Set;')
     out.append('};')
     out.append('')
+    out.append('// NOLINTNEXTLINE(readability-function-cognitive-complexity): Schema-generated registration keeps each value and validator together.')
     out.append('inline void registerConfigValues(HANDLE handle, SConfigValues& values) {')
     for item in settings:
         member, kind = item['member'], item['type']
@@ -383,6 +384,7 @@ def config_header(settings):
             out.append(f'    values.{item["member"]}Set.bind({literal(key(item))});')
     out.append('}')
     out.append('')
+    out.append('// NOLINTNEXTLINE(readability-function-cognitive-complexity): Schema-generated reads include per-setting inheritance decisions.')
     out.append('inline SConfig readConfig(const SConfigValues& values) {')
     out.append('    SConfig config;')
     by_path = {item['path']: item for item in settings}

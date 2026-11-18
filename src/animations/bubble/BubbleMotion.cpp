@@ -60,7 +60,7 @@ namespace hyprimate {
         }
         // The outline quadrupole (cos 2phi, sin 2phi) that elongates a bubble along unit n.
         Vec2 mode(Vec2 direction) {
-            return {.x = direction.x * direction.x - direction.y * direction.y,
+            return {.x = (direction.x * direction.x) - (direction.y * direction.y),
                     .y = 2 * direction.x * direction.y};
         }
         // Magnitude-preserving soft limit: linear for small values, never beyond limit.
@@ -93,7 +93,8 @@ namespace hyprimate {
             const Vec2 SQUARE{.x = UNIT.x * UNIT.x * UNIT.x / half_size.x,
                               .y = UNIT.y * UNIT.y * UNIT.y / half_size.y};
             const Vec2 CIRCLE{.x = UNIT.x / half_size.x, .y = UNIT.y / half_size.y};
-            const double SQUARE_LENGTH = length(SQUARE), CIRCLE_LENGTH = length(CIRCLE);
+            const double SQUARE_LENGTH = length(SQUARE);
+            const double CIRCLE_LENGTH = length(CIRCLE);
             if (!(SQUARE_LENGTH > 1e-12) || !(CIRCLE_LENGTH > 1e-12)) {
                 return {};
             }
@@ -171,7 +172,7 @@ namespace hyprimate {
             // The middle of the trailing side lags most, so it bows out like a drop's tail while
             // the corners stay closer to the frame; the middle of the leading face is pressed back.
             const double SIDE = std::min(1.0, dot(ACROSS, ACROSS) / (BREADTH * BREADTH));
-            offset = sub(mul(deformation.drag, WEIGHT * (1 - .55 * SIDE) + LEAD_FLATTEN * LEAD * (1 - SIDE)),
+            offset = sub(mul(deformation.drag, (WEIGHT * (1 - (.55 * SIDE))) + (LEAD_FLATTEN * LEAD * (1 - SIDE))),
                 mul(ACROSS, .35 * DRAG / REACH * WEIGHT));
         }
         // Ripples run normal to the outline: a rounded rectangle's, turning into a circle's.
@@ -331,12 +332,13 @@ namespace hyprimate {
         }
         // The bubbles pressing hardest on the film swell it; the rest are too small to show.
         std::array<BubbleBud, K_BUBBLE_MICRO_CAPACITY> buds{};
+        // NOLINTNEXTLINE(misc-const-correctness): The cursor writes each bud below.
         auto *next_bud = buds.begin();
         for (const auto &attached : std::span(m_attached).first(m_attached_count)) {
             *next_bud++ = bud(attached);
         }
         std::partial_sort(buds.begin(), buds.begin() + K_BUBBLE_BUDS, buds.end(),
-            [](const BubbleBud &a, const BubbleBud &b) { return a.height > b.height; });
+            [](const BubbleBud &left, const BubbleBud &right) { return left.height > right.height; });
         std::copy_n(buds.begin(), K_BUBBLE_BUDS, m_shape.buds.begin());
     }
 
@@ -398,11 +400,12 @@ namespace hyprimate {
             if (length(m_behind) < .5) {
                 m_behind = BACK;
             } else {
-                const double TURN = std::atan2(m_behind.x * BACK.y - m_behind.y * BACK.x, dot(m_behind, BACK)) *
+                const double TURN = std::atan2((m_behind.x * BACK.y) - (m_behind.y * BACK.x), dot(m_behind, BACK)) *
                                     (1 - std::exp(-DELTA_TIME / BEHIND_TURN));
-                const double COSINE = std::cos(TURN), SINE = std::sin(TURN);
-                m_behind = {.x = m_behind.x * COSINE - m_behind.y * SINE,
-                            .y = m_behind.x * SINE + m_behind.y * COSINE};
+                const double COSINE = std::cos(TURN);
+                const double SINE = std::sin(TURN);
+                m_behind = {.x = (m_behind.x * COSINE) - (m_behind.y * SINE),
+                            .y = (m_behind.x * SINE) + (m_behind.y * COSINE)};
             }
         }
 
@@ -573,7 +576,8 @@ namespace hyprimate {
         constexpr double EPSILON = .01;
         Outline outline_result;
         outline_result.point = POINT_AT(angle);
-        const Vec2 BEFORE = POINT_AT(angle - EPSILON), AFTER = POINT_AT(angle + EPSILON);
+        const Vec2 BEFORE = POINT_AT(angle - EPSILON);
+        const Vec2 AFTER = POINT_AT(angle + EPSILON);
         const Vec2 SPAN = sub(AFTER, BEFORE);
         const double SPAN_LENGTH = length(SPAN);
         outline_result.stretch = SPAN_LENGTH / (2 * EPSILON);
@@ -603,9 +607,10 @@ namespace hyprimate {
     }
 
     BubbleBud BubbleMotion::bud(const Attached &attached_bubble) const noexcept {
-        const Vec2 CENTRE{.x = m_body.x + m_body.w * .5, .y = m_body.y + m_body.h * .5};
+        const Vec2 CENTRE{.x = m_body.x + (m_body.w * .5), .y = m_body.y + (m_body.h * .5)};
         const Vec2 HALF{.x = m_body.w * .5, .y = m_body.h * .5};
-        const double COSINE = std::cos(attached_bubble.angle), SINE = std::sin(attached_bubble.angle);
+        const double COSINE = std::cos(attached_bubble.angle);
+        const double SINE = std::sin(attached_bubble.angle);
         const double FACTOR = std::pow(std::pow(std::abs(COSINE), 12.0) + std::pow(std::abs(SINE), 12.0), -1.0 / 12.0);
         BubbleBud result;
         result.foot = bubble_round_point(
@@ -616,11 +621,11 @@ namespace hyprimate {
         double height = 0;
         switch (attached_bubble.stage) {
             case Stage::Bud:
-                height = attached_bubble.radius * (.5 * smoothstep(0, .45, attached_bubble.growth) - .28 * smoothstep(.45, 1, attached_bubble.growth));
+                height = attached_bubble.radius * ((.5 * smoothstep(0, .45, attached_bubble.growth)) - (.28 * smoothstep(.45, 1, attached_bubble.growth)));
                 break;
             case Stage::Ride: height = FORMED; break;
-            case Stage::Pinch: height = FORMED + .3 * attached_bubble.radius * attached_bubble.pinch; break;
-            case Stage::Merge: height = attached_bubble.radius * attached_bubble.growth * (.22 + .5 * (1 - attached_bubble.growth)); break;
+            case Stage::Pinch: height = FORMED + (.3 * attached_bubble.radius * attached_bubble.pinch); break;
+            case Stage::Merge: height = attached_bubble.radius * attached_bubble.growth * (.22 + (.5 * (1 - attached_bubble.growth))); break;
             case Stage::Pop: height = FORMED; break;
         }
         result.height = std::clamp(height * (1 - attached_bubble.collapse), 0.0, .5 * result.width);
@@ -630,13 +635,13 @@ namespace hyprimate {
     BubbleMicro BubbleMotion::draw(const Attached &attached_bubble) const noexcept {
         const auto OUTLINE = outline(attached_bubble.angle);
         const double GROWTH = smoothstep(0, 1, attached_bubble.growth);
-        const double RADIUS = attached_bubble.radius * (.35 + .65 * GROWTH);
+        const double RADIUS = attached_bubble.radius * (.35 + (.65 * GROWTH));
         BubbleMicro micro;
-        micro.centre = add(OUTLINE.point, mul(OUTLINE.normal, RADIUS * (-.55 + 1.4 * GROWTH + .9 * attached_bubble.pinch)));
+        micro.centre = add(OUTLINE.point, mul(OUTLINE.normal, RADIUS * (-.55 + (1.4 * GROWTH) + (.9 * attached_bubble.pinch))));
         micro.radius = RADIUS;
         micro.growth = attached_bubble.growth;
         micro.anchor = OUTLINE.point;
-        micro.attach = (1 - attached_bubble.collapse) * (1 - .8 * attached_bubble.pinch);
+        micro.attach = (1 - attached_bubble.collapse) * (1 - (.8 * attached_bubble.pinch));
         micro.collapse = attached_bubble.collapse;
         micro.thickness = attached_bubble.thickness;
         micro.seed = attached_bubble.seed;
@@ -648,7 +653,7 @@ namespace hyprimate {
 
     std::size_t BubbleMotion::microbubbles(std::span<BubbleMicro> out) const {
         const std::size_t COUNT = std::min(m_attached_count, out.size());
-        const auto *attached = m_attached.begin();
+        auto attached = std::span(m_attached).first(COUNT).begin();
         for (auto &micro : out.first(COUNT)) {
             micro = draw(*attached++);
         }
@@ -667,7 +672,7 @@ namespace hyprimate {
             return;
         }
         const double TURN = turning(m_velocity, m_speed, acceleration);
-        m_spawn += m_params.microbubbles * 40 * (TRAVEL * (.35 + STRETCH + TURN) + .8 * JOLT) * elapsed;
+        m_spawn += m_params.microbubbles * 40 * ((TRAVEL * (.35 + STRETCH + TURN)) + (.8 * JOLT)) * elapsed;
         while (m_spawn >= m_threshold) {
             m_spawn -= m_threshold;
             m_threshold = -std::log(1 - draw01());
@@ -677,11 +682,12 @@ namespace hyprimate {
             Attached attached;
             attached.radius = std::clamp(
                 13 * std::exp(.45 * gauss()) * std::clamp(reference() / 600, .85, 1.5), 4.0, 34.0);
-            double best = 0, total = 0;
+            double best = 0;
+            double total = 0;
             for (int i = 0; i < 6; ++i) {
                 const double ANGLE = TAU * draw01();
                 const double EXPOSURE = exposure(ANGLE);
-                const double WEIGHT = .12 + 1.6 * EXPOSURE * EXPOSURE + .5 * std::pow(std::abs(std::sin(2 * ANGLE)), 8.0);
+                const double WEIGHT = .12 + (1.6 * EXPOSURE * EXPOSURE) + (.5 * std::pow(std::abs(std::sin(2 * ANGLE)), 8.0));
                 total += WEIGHT;
                 if (draw01() * total < WEIGHT) {
                     best = ANGLE;
@@ -697,11 +703,11 @@ namespace hyprimate {
             if (CROWDED) {
                 continue;
             }
-            attached.grow = (.16 + .3 * draw01()) * std::pow(attached.radius / 8, .3);
-            attached.patience = .35 + 1.2 * draw01();
-            attached.hold = .25 + .85 * draw01();
-            attached.pinch_rate = 1 / (.1 + .14 * draw01());
-            attached.thickness = 300 + 550 * draw01();
+            attached.grow = (.16 + (.3 * draw01())) * std::pow(attached.radius / 8, .3);
+            attached.patience = .35 + (1.2 * draw01());
+            attached.hold = .25 + (.85 * draw01());
+            attached.pinch_rate = 1 / (.1 + (.14 * draw01()));
+            attached.thickness = 300 + (550 * draw01());
             attached.seed = draw01();
             attached.pops = draw01() < .35;
             m_attached[m_attached_count++] = attached;
@@ -715,10 +721,10 @@ namespace hyprimate {
         const auto OUTLINE = outline(attached.angle);
         BubbleRelease result;
         result.micro = draw(attached);
-        result.velocity = add(add(mul(m_velocity, .5 + .3 * draw01()), mul(OUTLINE.tangent, attached.slip * OUTLINE.stretch)),
-            mul(OUTLINE.normal, 25 + 35 * draw01()));
+        result.velocity = add(add(mul(m_velocity, .5 + (.3 * draw01())), mul(OUTLINE.tangent, attached.slip * OUTLINE.stretch)),
+            mul(OUTLINE.normal, 25 + (35 * draw01())));
         result.squash_rate = add(mul(attached.squash_rate, 1.0), mul(mode(OUTLINE.normal), -2.5));
-        result.life = .5 + .9 * draw01();
+        result.life = .5 + (.9 * draw01());
         m_releases[m_release_count++] = result;
         const auto FOOT = bud(attached).foot;
         const Vec2 HALF = bubble_round_half({.x = m_size.x * .5, .y = m_size.y * .5}, m_shape);
@@ -731,13 +737,14 @@ namespace hyprimate {
             ++rate;
             ++index;
         }
-        start_strand(attached.angle, std::max(1.0, .22 * attached.radius), 380 + 200 * draw01(), 20 + 40 * draw01());
+        start_strand(attached.angle, std::max(1.0, .22 * attached.radius), 380 + (200 * draw01()), 20 + (40 * draw01()));
     }
 
     void BubbleMotion::migrate(double elapsed, Vec2 acceleration) {
         const double TURN = turning(m_velocity, m_speed, acceleration);
         const double SLOW = m_speed < 80 ? 1 : 0;
         std::size_t kept = 0;
+        // NOLINTNEXTLINE(misc-const-correctness): The cursor writes retained bubbles below.
         auto *destination = m_attached.begin();
         for (const auto &current : std::span(m_attached).first(m_attached_count)) {
             auto attached = current;
@@ -746,7 +753,7 @@ namespace hyprimate {
             // In the window's frame the bubble feels the opposite of its acceleration, and the air
             // the film moves through combs it back; sharp corners trap it.
             const Vec2 FORCE = sub(mul(acceleration, -.05), mul(m_velocity, 1.1));
-            const double TRAP = 3.2 + 40 * std::min(1.0, OUTLINE.curvature * attached.radius);
+            const double TRAP = 3.2 + (40 * std::min(1.0, OUTLINE.curvature * attached.radius));
             attached.slip += dot(FORCE, OUTLINE.tangent) / std::max(OUTLINE.stretch, 1.0) * elapsed;
             attached.slip = std::clamp(attached.slip * std::exp(-TRAP * elapsed), -3.0, 3.0);
             attached.angle += attached.slip * elapsed;
@@ -764,21 +771,21 @@ namespace hyprimate {
                     }
                     break;
                 case Stage::Ride: {
-                    attached.patience -= elapsed * (SLOW ? 2.5 : .5);
+                    attached.patience -= elapsed * (SLOW != 0 ? 2.5 : .5);
                     if (attached.patience <= 0) {
                         attached.stage = attached.pops ? Stage::Pop : Stage::Merge;
                         break;
                     }
                     const double INSTABILITY =
-                        m_speed / 700 * std::sqrt(attached.radius / 8) * (.25 + exposure(attached.angle)) +
-                        length(acceleration) / 9000 + .5 * TURN;
+                        (m_speed / 700 * std::sqrt(attached.radius / 8) * (.25 + exposure(attached.angle))) +
+                        (length(acceleration) / 9000) + (.5 * TURN);
                     if (INSTABILITY > attached.hold && draw01() < 9 * (INSTABILITY - attached.hold) * elapsed) {
                         attached.stage = Stage::Pinch;
                     }
                     break;
                 }
                 case Stage::Pinch:
-                    attached.pinch = std::min(1.0, attached.pinch + attached.pinch_rate * elapsed);
+                    attached.pinch = std::min(1.0, attached.pinch + (attached.pinch_rate * elapsed));
                     if (attached.pinch >= 1) {
                         release(attached);
                         gone = true;
@@ -800,37 +807,38 @@ namespace hyprimate {
         }
         m_attached_count = kept;
         // Neighbours push apart; formed bubbles can coalesce.
-        auto active = std::span(m_attached).first(m_attached_count);
-        for (auto first = active.begin(); first != active.end(); ++first) {
-            auto &a = *first;
-            if (a.stage != Stage::Ride && a.stage != Stage::Bud) {
+        const auto ACTIVE = std::span(m_attached).first(m_attached_count);
+        for (auto first = ACTIVE.begin(); first != ACTIVE.end(); ++first) {
+            auto &first_bubble = *first;
+            if (first_bubble.stage != Stage::Ride && first_bubble.stage != Stage::Bud) {
                 continue;
             }
-            for (auto second = first + 1; second != active.end(); ++second) {
-                auto &b = *second;
-                if (b.stage != Stage::Ride && b.stage != Stage::Bud) {
+            for (auto second = first + 1; second != ACTIVE.end(); ++second) {
+                auto &second_bubble = *second;
+                if (second_bubble.stage != Stage::Ride && second_bubble.stage != Stage::Bud) {
                     continue;
                 }
-                const double GAP = std::remainder(b.angle - a.angle, TAU);
-                const double STRETCH = std::max(outline(a.angle).stretch, 1.0);
-                const double RA = a.radius * (.35 + .65 * a.growth), RB = b.radius * (.35 + .65 * b.growth);
-                const double OVERLAP = .95 * (RA + RB) - std::abs(GAP) * STRETCH;
+                const double GAP = std::remainder(second_bubble.angle - first_bubble.angle, TAU);
+                const double STRETCH = std::max(outline(first_bubble.angle).stretch, 1.0);
+                const double FIRST_RADIUS = first_bubble.radius * (.35 + (.65 * first_bubble.growth));
+                const double SECOND_RADIUS = second_bubble.radius * (.35 + (.65 * second_bubble.growth));
+                const double OVERLAP = (.95 * (FIRST_RADIUS + SECOND_RADIUS)) - (std::abs(GAP) * STRETCH);
                 if (OVERLAP <= 0) {
                     continue;
                 }
-                if (a.stage == Stage::Ride && b.stage == Stage::Ride &&
-                    draw01() < 4 * elapsed * OVERLAP / (RA + RB)) {
-                    auto &big = a.radius >= b.radius ? a : b;
-                    auto &small = &big == &a ? b : a;
-                    big.radius = std::max(big.radius, std::min(40.0, std::cbrt(big.radius * big.radius * big.radius +
-                        small.radius * small.radius * small.radius)));
+                if (first_bubble.stage == Stage::Ride && second_bubble.stage == Stage::Ride &&
+                    draw01() < 4 * elapsed * OVERLAP / (FIRST_RADIUS + SECOND_RADIUS)) {
+                    auto &big = first_bubble.radius >= second_bubble.radius ? first_bubble : second_bubble;
+                    auto &small = &big == &first_bubble ? second_bubble : first_bubble;
+                    big.radius = std::max(big.radius, std::min(40.0, std::cbrt((big.radius * big.radius * big.radius) +
+                        (small.radius * small.radius * small.radius))));
                     big.squash_rate = add(big.squash_rate, mul(mode(outline(big.angle).tangent), 3));
                     small.stage = Stage::Merge;
                     continue;
                 }
                 const double PUSH = 6 * OVERLAP / STRETCH * elapsed;
-                a.slip -= std::copysign(PUSH, GAP);
-                b.slip += std::copysign(PUSH, GAP);
+                first_bubble.slip -= std::copysign(PUSH, GAP);
+                second_bubble.slip += std::copysign(PUSH, GAP);
             }
         }
     }
@@ -861,7 +869,7 @@ namespace hyprimate {
         const double TURN = turning(m_velocity, m_speed, acceleration);
         const double DENSITY = std::clamp(
             2 * m_params.trail * std::pow(std::clamp((m_speed - TRAIL_SPEED) / 2200, 0.0, 1.0), .8) *
-                (.7 + .5 * STRETCH + .6 * TURN), 0.0, 1.0);
+                (.7 + (.5 * STRETCH) + (.6 * TURN)), 0.0, 1.0);
         if (DRAWING && TRAVEL > 0) {
             const bool SHEET = std::ranges::any_of(m_strands, [](const Strand &strand) { return strand.live && !strand.thread; });
             if (!SHEET && DENSITY > .04 && draw01() < 12 * elapsed) {
@@ -869,20 +877,22 @@ namespace hyprimate {
                 const Vec2 EXTENT = bubble_round_half({.x = m_size.x * .5, .y = m_size.y * .5}, m_shape);
                 const double ACROSS = std::abs(EXTENT.x * DIRECTION.y) + std::abs(EXTENT.y * DIRECTION.x);
                 start_strand(trailing_angle(),
-                    std::max(6.0, ACROSS * (.03 + .07 * DENSITY) * (.7 + .6 * draw01())),
-                    480 + 380 * DENSITY,
-                    (260 + 420 * draw01()) * (.6 + .8 * DENSITY));
+                    std::max(6.0, ACROSS * (.03 + (.07 * DENSITY)) * (.7 + (.6 * draw01()))),
+                    480 + (380 * DENSITY),
+                    (260 + (420 * draw01())) * (.6 + (.8 * DENSITY)));
             }
             m_thread_hazard += m_params.trail * 2.4 * TRAVEL * (1 + TURN) * elapsed;
             if (draw01() < m_thread_hazard * elapsed * 8) {
                 m_thread_hazard = 0;
                 const Vec2 DIRECTION = length(m_behind) > .5 ? m_behind : Vec2{.x = 1, .y = 0};
                 const Vec2 UNIT{.x = DIRECTION.x / std::max(m_body.w, 1.0), .y = DIRECTION.y / std::max(m_body.h, 1.0)};
-                const double SX = UNIT.x >= 0 ? 1 : -1, SY = UNIT.y >= 0 ? 1 : -1;
+                const double SIGN_X = UNIT.x >= 0 ? 1 : -1;
+                const double SIGN_Y = UNIT.y >= 0 ? 1 : -1;
                 const bool FLIP = std::abs(UNIT.x) > std::abs(UNIT.y);
                 const double PICK = draw01() < .5 ? 1 : -1;
-                const double CX = FLIP ? SX : PICK, CY = FLIP ? PICK : SY;
-                start_strand(std::atan2(CY, CX), 1.2 + 2.5 * draw01(), 350 + 400 * draw01(), 50 + 200 * draw01());
+                const double CORNER_X = FLIP ? SIGN_X : PICK;
+                const double CORNER_Y = FLIP ? PICK : SIGN_Y;
+                start_strand(std::atan2(CORNER_Y, CORNER_X), 1.2 + (2.5 * draw01()), 350 + (400 * draw01()), 50 + (200 * draw01()));
             }
         }
         const double TRAILING = trailing_angle();
@@ -909,7 +919,7 @@ namespace hyprimate {
                 BubbleTrailPoint point;
                 point.position = sub(OUTLINE.point, mul(OUTLINE.normal, std::min(2.0, strand.half_width)));
                 point.velocity = mul(m_velocity, FILM_INHERIT);
-                point.half_width = strand.half_width * (1 - (strand.thread ? .2 : .45) * std::min(1.0, strand.length / strand.reach));
+                point.half_width = strand.half_width * (1 - ((strand.thread ? .2 : .45) * std::min(1.0, strand.length / strand.reach)));
                 point.thickness = strand.thickness;
                 point.strand = strand.id;
                 point.provisional = !FIXED;

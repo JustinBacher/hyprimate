@@ -87,7 +87,7 @@ namespace hyprimate {
             Vec2 anchor{};
             double attach = 0;
         };
-        Strand *strand(std::uint32_t id) noexcept;
+        Strand *strand(std::uint32_t strand_id) noexcept;
         static bool dry(const Node &node) noexcept;
 
         std::array<Strand, K_BUBBLE_WAKE_STRANDS> strands{};

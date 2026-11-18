@@ -75,6 +75,7 @@ Render::SWindowTransformBuffer render_live(SBubbleStyle &state,
             .texture_origin = {.x = input.box.x, .y = input.box.y},
             .texture_size = geometry.texture_size,
             .output_origin = {.x = geometry.canvas.x, .y = geometry.canvas.y},
+            .wake = {},
         });
     if (!LAYER) {
         return {.framebuffer = input.framebuffer, .box = input.box, .success = false};
@@ -122,8 +123,10 @@ bool SBubbleLiveStyle::open(
         hyprimate::BubbleDuration{options.duration},
         runtime.m_next_seed++,
         {.x = REST.w, .y = REST.h},
-        {options.count, options.birthRate, options.sizeVariation, options.growthVariation,
-            options.interaction, options.damping, options.buoyancy, options.linger});
+        {.count = options.count, .birthRate = options.birthRate,
+            .sizeVariation = options.sizeVariation, .growthVariation = options.growthVariation,
+            .interaction = options.interaction, .damping = options.damping,
+            .buoyancy = options.buoyancy, .linger = options.linger});
     if (!state.bubble.active()) {
         return false;
     }

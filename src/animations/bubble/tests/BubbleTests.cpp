@@ -31,19 +31,25 @@ namespace {
 
     void formation_during_opening() {
         for (const Vec2 WINDOW_SIZE : {Vec2{.x = 320, .y = 900}, Vec2{.x = 1100, .y = 320}, Vec2{.x = 640, .y = 640}, SIZE}) {
-            Bubble b;
-            b.begin(Transition::Open, BubbleDuration{1}, 42, WINDOW_SIZE);
-            auto previous = b.frame(WINDOW_SIZE);
+            Bubble bubble;
+            bubble.begin(Transition::Open, BubbleDuration{1}, 42, WINDOW_SIZE);
+            auto previous = bubble.frame(WINDOW_SIZE);
             const double SHORT_HALF = std::min(WINDOW_SIZE.x, WINDOW_SIZE.y) / 2;
-            bool contact = false, deformed = false, lingered = false, late_birth = false;
+            bool contact = false;
+            bool deformed = false;
+            bool lingered = false;
+            bool late_birth = false;
             bool short_first = WINDOW_SIZE.x == WINDOW_SIZE.y;
-            bool early_morph = false, grew_from_companion = false;
+            bool early_morph = false;
+            bool grew_from_companion = false;
             double emerged = -1;
-            std::size_t peak_early = 0, births = 0;
-            double smallest = std::numeric_limits<double>::infinity(), largest = 0;
+            std::size_t peak_early = 0;
+            std::size_t births = 0;
+            double smallest = std::numeric_limits<double>::infinity();
+            double largest = 0;
             for (int i = 1; i <= 1000; ++i) {
-                b.advance(.001);
-                const auto FRAME = b.frame(WINDOW_SIZE);
+                bubble.advance(.001);
+                const auto FRAME = bubble.frame(WINDOW_SIZE);
                 CHECK(FRAME.formation_count <= FRAME.formation.size());
                 CHECK(FRAME.shell.visibility == 0 && FRAME.window.hole_count == 0);
                 // Visibility, size and position of the window bubble change continuously.
@@ -58,7 +64,7 @@ namespace {
                     emerged = i / 1000.0;
                     // It is the film it grew from, drawn at the same place and size while its
                     // membrane takes over, and that film was already there a moment before.
-                    const auto &origin = std::get<kBubbleFoamCapacity>(FRAME.formation);
+                    const auto &origin = std::get<BUBBLE_FOAM_CAPACITY>(FRAME.formation);
                     CHECK(FRAME.formation_count == kBubbleFormationCapacity && origin.visibility > .9);
                     CHECK(std::abs(origin.radius - FRAME.window.half_size.x) < 1e-6 * WINDOW_SIZE.x);
                     CHECK(origin.centre.x == FRAME.window.motion.carry.x && origin.centre.y == FRAME.window.motion.carry.y);
@@ -73,8 +79,8 @@ namespace {
                 if (FRAME.window.visibility > 0) {
                     const double X_EDGE = FRAME.window.half_size.x + std::abs(FRAME.window.motion.carry.x);
                     const double Y_EDGE = FRAME.window.half_size.y + std::abs(FRAME.window.motion.carry.y);
-                    const bool X_CONTACT = X_EDGE >= WINDOW_SIZE.x / 2 - SHORT_HALF * .02;
-                    const bool Y_CONTACT = Y_EDGE >= WINDOW_SIZE.y / 2 - SHORT_HALF * .02;
+                    const bool X_CONTACT = X_EDGE >= (WINDOW_SIZE.x / 2) - (SHORT_HALF * .02);
+                    const bool Y_CONTACT = Y_EDGE >= (WINDOW_SIZE.y / 2) - (SHORT_HALF * .02);
                     if (!contact && (X_CONTACT || Y_CONTACT)) {
                         short_first = WINDOW_SIZE.x == WINDOW_SIZE.y || (WINDOW_SIZE.x < WINDOW_SIZE.y ? X_CONTACT : Y_CONTACT);
                     }
@@ -85,12 +91,12 @@ namespace {
                     }
                     if (contact && !(X_CONTACT && Y_CONTACT)) {
                         const double SMALL = std::min(FRAME.window.half_size.x, FRAME.window.half_size.y);
-                        constexpr double PI = std::numbers::pi;
-                        const double AREA = 4 * FRAME.window.half_size.x * FRAME.window.half_size.y -
-                            (4 - PI) * FRAME.window.corner * FRAME.window.corner;
+                        constexpr double PI_VALUE = std::numbers::pi;
+                        const double AREA = (4 * FRAME.window.half_size.x * FRAME.window.half_size.y) -
+                            ((4 - PI_VALUE) * FRAME.window.corner * FRAME.window.corner);
                         // A modest amount of inflation after first contact must
                         // already flatten the ends, before the other walls arrive.
-                        if (AREA > 1.08 * PI * SMALL * SMALL) {
+                        if (AREA > 1.08 * PI_VALUE * SMALL * SMALL) {
                             CHECK(FRAME.window.corner < .97 * SMALL);
                             early_morph = true;
                         }
@@ -98,7 +104,7 @@ namespace {
                 }
                 std::size_t live = 0;
                 std::size_t index = 0;
-                auto previous_film = previous.formation.begin();
+                const auto *previous_film = previous.formation.begin();
                 for (const auto &film : std::span(FRAME.formation).first(FRAME.formation_count)) {
                     if (film.visibility > 0) {
                         ++live;
@@ -124,7 +130,7 @@ namespace {
                 if (i < 500) {
                     peak_early = std::max(peak_early, live);
                 }
-                lingered |= b.landed() && live > 0;
+                lingered |= bubble.landed() && live > 0;
                 previous = FRAME;
             }
             // Small bubbles hold the stage for the first half; the window bubble forms late.
@@ -136,7 +142,7 @@ namespace {
             if (WINDOW_SIZE.x != WINDOW_SIZE.y) {
                 CHECK(deformed && early_morph);
             }
-            CHECK(!b.active() && !b.closed());
+            CHECK(!bubble.active() && !bubble.closed());
             CHECK(previous.window.half_size.x == WINDOW_SIZE.x / 2 && previous.window.half_size.y == WINDOW_SIZE.y / 2);
             CHECK(previous.window.corner == 0 && previous.window.depth == 0);
             CHECK(previous.window.content == 1 && previous.window.visibility == 1);
@@ -156,9 +162,9 @@ namespace {
         const int SECOND = foam.spawn({.x = .075, .y = 0}, {}, .03, 600, 1, 10);
         const int FAR = foam.spawn({.x = .6, .y = 0}, {}, .03, 600, 1, 10);
         const double VOLUME = std::pow(.05, 3) + std::pow(.03, 3);
-        BubbleFoamFlow still;
+        const BubbleFoamFlow STILL;
         for (int i = 0; i < 360 && foam.film(SECOND).live; ++i) {
-            foam.step(1.0 / 360, still, nullptr);
+            foam.step(1.0 / 360, STILL, nullptr);
         }
         CHECK(foam.film(FIRST).live && !foam.film(SECOND).live);
         CHECK(std::abs(std::pow(foam.film(FIRST).radius, 3) - VOLUME) < VOLUME * .02);
@@ -173,15 +179,16 @@ namespace {
             foam.spawn({.x = i * .3, .y = 0}, {}, .02, 600, 1, 10);
         }
         foam.expire(.5);
-        BubbleFoamFlow still;
-        std::size_t previous = foam.liveCount(), distinct = 0;
+        const BubbleFoamFlow STILL;
+        std::size_t previous = foam.live_count();
+        std::size_t distinct = 0;
         for (int i = 0; i < 300; ++i) {
-            foam.step(1.0 / 360, still, nullptr);
-            if (foam.liveCount() != previous) {
+            foam.step(1.0 / 360, STILL, nullptr);
+            if (foam.live_count() != previous) {
                 ++distinct;
             }
-            CHECK(previous - foam.liveCount() <= 2);
-            previous = foam.liveCount();
+            CHECK(previous - foam.live_count() <= 2);
+            previous = foam.live_count();
         }
         CHECK(previous == 0 && distinct >= 4);
     }
@@ -190,36 +197,37 @@ namespace {
     // its companions keep pushing it while it grows.
     void formation_movement_depends_on_seed() {
         std::array<Vec2, 2> origins{};
-        auto origin = origins.begin();
+        auto *origin = origins.begin();
         for (int seed = 0; seed < 2; ++seed, ++origin) {
-            Bubble b;
-            b.begin(Transition::Open, BubbleDuration{1}, 40 + seed, SIZE);
-            bool emerged = false, pushed = false;
+            Bubble bubble;
+            bubble.begin(Transition::Open, BubbleDuration{1}, 40 + seed, SIZE);
+            bool emerged = false;
+            bool pushed = false;
             Vec2 previous{};
             for (int i = 0; i < 900; ++i) {
-                b.advance(.001);
-                const auto FRAME = b.frame(SIZE);
-                const auto &s = FRAME.window;
-                if (s.visibility <= 0) {
+                bubble.advance(.001);
+                const auto FRAME = bubble.frame(SIZE);
+                const auto &surface = FRAME.window;
+                if (surface.visibility <= 0) {
                     continue;
                 }
                 if (!emerged) {
                     emerged = true;
-                    *origin = s.motion.carry;
-                } else if (!b.landed()) {
+                    *origin = surface.motion.carry;
+                } else if (!bubble.landed()) {
                     bool touching = false;
-                    for (const auto &other : std::span(FRAME.formation).first(std::min(kBubbleFoamCapacity, FRAME.formation_count))) {
+                    for (const auto &other : std::span(FRAME.formation).first(std::min(BUBBLE_FOAM_CAPACITY, FRAME.formation_count))) {
                         if (other.visibility <= 0) {
                             continue;
                         }
-                        const double DISTANCE = std::hypot(s.motion.carry.x - other.centre.x,
-                            s.motion.carry.y - other.centre.y);
-                        touching |= DISTANCE <= std::max(s.half_size.x, s.half_size.y) + other.radius;
+                        const double DISTANCE = std::hypot(surface.motion.carry.x - other.centre.x,
+                            surface.motion.carry.y - other.centre.y);
+                        touching |= DISTANCE <= std::max(surface.half_size.x, surface.half_size.y) + other.radius;
                     }
-                    const double STEP = std::hypot(s.motion.carry.x - previous.x, s.motion.carry.y - previous.y);
+                    const double STEP = std::hypot(surface.motion.carry.x - previous.x, surface.motion.carry.y - previous.y);
                     pushed |= touching && STEP > 1e-3;
                 }
-                previous = s.motion.carry;
+                previous = surface.motion.carry;
             }
             CHECK(emerged && pushed);
         }
@@ -229,35 +237,39 @@ namespace {
     }
 
     void pressure_changes_inflation_and_settles() {
-        constexpr double PI = std::numbers::pi;
+        constexpr double PI_VALUE = std::numbers::pi;
         for (const Vec2 WINDOW_SIZE : {Vec2{.x = 320, .y = 900}, Vec2{.x = 1100, .y = 320}, Vec2{.x = 640, .y = 640}, SIZE}) {
-            Bubble b;
-            b.begin(Transition::Open, BubbleDuration{1}, 42, WINDOW_SIZE);
-            const auto AREA = [](const BubbleSurface &s) {
-                return 4 * s.half_size.x * s.half_size.y - (4 - PI) * s.corner * s.corner;
+            Bubble bubble;
+            bubble.begin(Transition::Open, BubbleDuration{1}, 42, WINDOW_SIZE);
+            const auto AREA = [](const BubbleSurface &surface) {
+                return (4 * surface.half_size.x * surface.half_size.y) - ((4 - PI_VALUE) * surface.corner * surface.corner);
             };
-            double previous_area = AREA(b.frame(WINDOW_SIZE).window);
-            double min_rate = std::numeric_limits<double>::infinity(), max_rate = 0;
-            double peak_core = 0, late_core = 0;
-            bool positive = false, negative = false;
-            double free_rate = 0, constrained_rate = 0;
+            double previous_area = AREA(bubble.frame(WINDOW_SIZE).window);
+            double min_rate = std::numeric_limits<double>::infinity();
+            double max_rate = 0;
+            double peak_core = 0;
+            double late_core = 0;
+            bool positive = false;
+            bool negative = false;
+            double free_rate = 0;
+            double constrained_rate = 0;
             int contact_step = 0;
             for (int i = 1; i <= 100; ++i) {
-                b.advance(.01);
-                const auto FRAME = b.frame(WINDOW_SIZE);
+                bubble.advance(.01);
+                const auto FRAME = bubble.frame(WINDOW_SIZE);
                 // Equal integration intervals avoid mistaking substep quantisation (or
                 // sqrt(area)'s changing radius rate) for variable air flow.
                 if (i % 5 == 0) {
                     const double CURRENT_AREA = AREA(FRAME.window);
                     const double RATE = CURRENT_AREA - previous_area;
-                    if (i >= 15 && !b.landed() && RATE > WINDOW_SIZE.x * WINDOW_SIZE.y * .001) {
+                    if (i >= 15 && !bubble.landed() && RATE > WINDOW_SIZE.x * WINDOW_SIZE.y * .001) {
                         min_rate = std::min(min_rate, RATE);
                         max_rate = std::max(max_rate, RATE);
                     }
                     if (std::max(WINDOW_SIZE.x, WINDOW_SIZE.y) > 2 * std::min(WINDOW_SIZE.x, WINDOW_SIZE.y)) {
-                        const double RADIUS = std::min(WINDOW_SIZE.x / 2 - std::abs(FRAME.window.motion.carry.x),
-                            WINDOW_SIZE.y / 2 - std::abs(FRAME.window.motion.carry.y));
-                        const double CONTACT_RATIO = CURRENT_AREA / (PI * RADIUS * RADIUS);
+                        const double RADIUS = std::min((WINDOW_SIZE.x / 2) - std::abs(FRAME.window.motion.carry.x),
+                            (WINDOW_SIZE.y / 2) - std::abs(FRAME.window.motion.carry.y));
+                        const double CONTACT_RATIO = CURRENT_AREA / (PI_VALUE * RADIUS * RADIUS);
                         if (contact_step == 0) {
                             if (CONTACT_RATIO < 1) {
                                 free_rate = RATE;
@@ -272,7 +284,7 @@ namespace {
                     }
                     previous_area = CURRENT_AREA;
                 }
-                if (b.landed()) {
+                if (bubble.landed()) {
                     peak_core = std::max(peak_core, std::hypot(FRAME.window.core.x, FRAME.window.core.y));
                     positive |= FRAME.window.core.x > .0001 * std::min(WINDOW_SIZE.x, WINDOW_SIZE.y);
                     negative |= FRAME.window.core.x < -.0001 * std::min(WINDOW_SIZE.x, WINDOW_SIZE.y);
@@ -289,7 +301,7 @@ namespace {
             CHECK(peak_core > .002 * std::min(WINDOW_SIZE.x, WINDOW_SIZE.y));
             CHECK(positive && negative);
             CHECK(late_core < peak_core * .1);
-            CHECK(b.frame(WINDOW_SIZE).window.core.x == 0 && b.frame(WINDOW_SIZE).window.core.y == 0);
+            CHECK(bubble.frame(WINDOW_SIZE).window.core.x == 0 && bubble.frame(WINDOW_SIZE).window.core.y == 0);
         }
     }
 
@@ -311,17 +323,21 @@ namespace {
         std::get<13>(cases).buoyancy = 2;
         std::get<14>(cases).linger = 0;
         std::get<15>(cases).linger = 1;
-        std::get<16>(cases) = {4, .25, 0, 0, .25, .5, 0, 0};
-        std::get<17>(cases) = {32, 2, 1, 1, 2, 2, 2, 1};
-        std::get<18>(cases) = {32, 2, 1, 1, 2, .5, 2, 1};
-        std::get<19>(cases) = {32, .25, 0, 0, .25, 2, 0, 1};
+        std::get<16>(cases) = {.count = 4, .birthRate = .25, .sizeVariation = 0, .growthVariation = 0,
+            .interaction = .25, .damping = .5, .buoyancy = 0, .linger = 0};
+        std::get<17>(cases) = {.count = 32, .birthRate = 2, .sizeVariation = 1, .growthVariation = 1,
+            .interaction = 2, .damping = 2, .buoyancy = 2, .linger = 1};
+        std::get<18>(cases) = {.count = 32, .birthRate = 2, .sizeVariation = 1, .growthVariation = 1,
+            .interaction = 2, .damping = .5, .buoyancy = 2, .linger = 1};
+        std::get<19>(cases) = {.count = 32, .birthRate = .25, .sizeVariation = 0, .growthVariation = 0,
+            .interaction = .25, .damping = 2, .buoyancy = 0, .linger = 1};
         for (const Vec2 WINDOW_SIZE : {Vec2{.x = 320, .y = 900}, Vec2{.x = 1100, .y = 320}, Vec2{.x = 640, .y = 640}}) {
             for (const auto &params : cases) {
-                Bubble b;
-                b.begin(Transition::Open, BubbleDuration{1}, 42, WINDOW_SIZE, params);
+                Bubble bubble;
+                bubble.begin(Transition::Open, BubbleDuration{1}, 42, WINDOW_SIZE, params);
                 for (int i = 0; i < 99; ++i) {
-                    b.advance(.01);
-                    const auto FRAME = b.frame(WINDOW_SIZE);
+                    bubble.advance(.01);
+                    const auto FRAME = bubble.frame(WINDOW_SIZE);
                     std::size_t visible = 0;
                     for (const auto &film : std::span(FRAME.formation).first(FRAME.formation_count)) {
                         if (film.visibility > 0) {
@@ -334,14 +350,14 @@ namespace {
                     CHECK(visible <= static_cast<std::size_t>(params.count) + 1);
                     CHECK(std::isfinite(FRAME.window.core.x) && std::isfinite(FRAME.window.core.y));
                 }
-                const auto BEFORE_END = b.frame(WINDOW_SIZE);
+                const auto BEFORE_END = bubble.frame(WINDOW_SIZE);
                 // The exact native endpoint must not hide a failed inflation solver.
-                CHECK(b.landed());
-                CHECK(std::abs(BEFORE_END.window.half_size.x - WINDOW_SIZE.x / 2) < .001 * WINDOW_SIZE.x);
-                CHECK(std::abs(BEFORE_END.window.half_size.y - WINDOW_SIZE.y / 2) < .001 * WINDOW_SIZE.y);
+                CHECK(bubble.landed());
+                CHECK(std::abs(BEFORE_END.window.half_size.x - (WINDOW_SIZE.x / 2)) < .001 * WINDOW_SIZE.x);
+                CHECK(std::abs(BEFORE_END.window.half_size.y - (WINDOW_SIZE.y / 2)) < .001 * WINDOW_SIZE.y);
                 CHECK(BEFORE_END.window.corner < .001 * std::min(WINDOW_SIZE.x, WINDOW_SIZE.y));
-                b.advance(.01);
-                CHECK(!b.active() && b.frame(WINDOW_SIZE).formation_count == 0);
+                bubble.advance(.01);
+                CHECK(!bubble.active() && bubble.frame(WINDOW_SIZE).formation_count == 0);
             }
         }
     }
@@ -377,7 +393,7 @@ namespace {
             check_surface_continuity(BEFORE.window, AFTER.window);
             CHECK(AFTER.window.rupture_visibility == BEFORE.window.visibility);
             CHECK(AFTER.formation_count == BEFORE.formation_count);
-            auto after_film = AFTER.formation.begin();
+            const auto *after_film = AFTER.formation.begin();
             for (const auto &film : std::span(BEFORE.formation).first(std::min(BEFORE.formation_count, AFTER.formation_count))) {
                 CHECK(film.centre.x == after_film->centre.x && film.centre.y == after_film->centre.y);
                 CHECK(film.radius == after_film->radius && film.visibility == after_film->visibility);
@@ -438,8 +454,8 @@ namespace {
         if (surface.visibility <= 0) {
             return;
         }
-        const Vec2 CENTRE{.x = size.x / 2 + surface.motion.carry.x,
-            .y = size.y / 2 + surface.motion.carry.y};
+        const Vec2 CENTRE{.x = (size.x / 2) + surface.motion.carry.x,
+            .y = (size.y / 2) + surface.motion.carry.y};
         CHECK(box.x <= CENTRE.x - surface.half_size.x - std::abs(surface.ripple));
         CHECK(box.y <= CENTRE.y - surface.half_size.y - std::abs(surface.ripple));
         CHECK(box.x + box.w >= CENTRE.x + surface.half_size.x + std::abs(surface.ripple));
@@ -447,39 +463,39 @@ namespace {
     }
 
     void bounds_contain_the_surfaces() {
-        for (const Vec2 size : {Vec2{.x = 320, .y = 900}, Vec2{.x = 1100, .y = 320},
+        for (const Vec2 WINDOW_SIZE : {Vec2{.x = 320, .y = 900}, Vec2{.x = 1100, .y = 320},
                  Vec2{.x = 640, .y = 640}, SIZE}) {
             const auto VERIFY = [&](Transition direction) {
                 Bubble bubble;
-                bubble.begin(direction, BubbleDuration{1}, 8, size);
-                CHECK(bubble.bounds(size).w > 0 && bubble.bounds(size).h > 0);
+                bubble.begin(direction, BubbleDuration{1}, 8, WINDOW_SIZE);
+                CHECK(bubble.bounds(WINDOW_SIZE).w > 0 && bubble.bounds(WINDOW_SIZE).h > 0);
                 for (int i = 0; i < 100; ++i) {
-                    const auto FRAME = bubble.frame(size);
-                    const auto BOX = bubble.bounds(size);
-                    check_surface_bounds(BOX, size, FRAME.window);
-                    check_surface_bounds(BOX, size, FRAME.shell);
+                    const auto FRAME = bubble.frame(WINDOW_SIZE);
+                    const auto BOX = bubble.bounds(WINDOW_SIZE);
+                    check_surface_bounds(BOX, WINDOW_SIZE, FRAME.window);
+                    check_surface_bounds(BOX, WINDOW_SIZE, FRAME.shell);
                     for (const auto &film : std::span(FRAME.formation).first(FRAME.formation_count)) {
                         if (film.visibility <= 0) {
                             continue;
                         }
                         const double REACH = film.radius * (1 + std::abs(film.squash.x) + std::abs(film.squash.y));
-                        CHECK(BOX.x <= size.x / 2 + film.centre.x - REACH);
-                        CHECK(BOX.y <= size.y / 2 + film.centre.y - REACH);
-                        CHECK(BOX.x + BOX.w >= size.x / 2 + film.centre.x + REACH);
-                        CHECK(BOX.y + BOX.h >= size.y / 2 + film.centre.y + REACH);
+                        CHECK(BOX.x <= (WINDOW_SIZE.x / 2) + film.centre.x - REACH);
+                        CHECK(BOX.y <= (WINDOW_SIZE.y / 2) + film.centre.y - REACH);
+                        CHECK(BOX.x + BOX.w >= (WINDOW_SIZE.x / 2) + film.centre.x + REACH);
+                        CHECK(BOX.y + BOX.h >= (WINDOW_SIZE.y / 2) + film.centre.y + REACH);
                     }
                     std::array<BubbleParticle, K_BUBBLE_MAX_PARTICLES> particles{};
                     for (const auto *surface : {&FRAME.window, &FRAME.shell}) {
                         const auto COUNT = bubble_particles(*surface, particles);
                         for (const auto &particle : std::span(particles).first(COUNT)) {
-                            CHECK(BOX.x <= size.x / 2 + particle.centre.x - particle.radius);
-                            CHECK(BOX.x + BOX.w >= size.x / 2 + particle.centre.x + particle.radius);
-                            CHECK(BOX.y <= size.y / 2 + particle.centre.y - particle.radius);
-                            CHECK(BOX.y + BOX.h >= size.y / 2 + particle.centre.y + particle.radius);
-                            CHECK(BOX.x <= size.x / 2 + particle.tail.x - particle.tail_radius);
-                            CHECK(BOX.x + BOX.w >= size.x / 2 + particle.tail.x + particle.tail_radius);
-                            CHECK(BOX.y <= size.y / 2 + particle.tail.y - particle.tail_radius);
-                            CHECK(BOX.y + BOX.h >= size.y / 2 + particle.tail.y + particle.tail_radius);
+                            CHECK(BOX.x <= (WINDOW_SIZE.x / 2) + particle.centre.x - particle.radius);
+                            CHECK(BOX.x + BOX.w >= (WINDOW_SIZE.x / 2) + particle.centre.x + particle.radius);
+                            CHECK(BOX.y <= (WINDOW_SIZE.y / 2) + particle.centre.y - particle.radius);
+                            CHECK(BOX.y + BOX.h >= (WINDOW_SIZE.y / 2) + particle.centre.y + particle.radius);
+                            CHECK(BOX.x <= (WINDOW_SIZE.x / 2) + particle.tail.x - particle.tail_radius);
+                            CHECK(BOX.x + BOX.w >= (WINDOW_SIZE.x / 2) + particle.tail.x + particle.tail_radius);
+                            CHECK(BOX.y <= (WINDOW_SIZE.y / 2) + particle.tail.y - particle.tail_radius);
+                            CHECK(BOX.y + BOX.h >= (WINDOW_SIZE.y / 2) + particle.tail.y + particle.tail_radius);
                         }
                     }
                     bubble.advance(0.01);
@@ -668,7 +684,7 @@ namespace {
                 frame = bubble.frame({.x = 900, .y = 560});
                 surface = frame.window;
                 const auto AFTER = detail::bubble_particles_with_ids(surface, particles);
-                auto particle = particles.begin();
+                const auto *particle = particles.begin();
                 for (std::size_t i = 0; found && i < AFTER; ++i, ++particle) {
                     CHECK(particle->id != source);
                 }
@@ -977,7 +993,7 @@ namespace {
         CHECK(std::abs(FIRST_FRAME.window.core.x - SECOND_FRAME.window.core.x) < 1e-9 &&
               std::abs(FIRST_FRAME.window.core.y - SECOND_FRAME.window.core.y) < 1e-9);
         CHECK(FIRST_FRAME.formation_count == SECOND_FRAME.formation_count);
-        auto second_film = SECOND_FRAME.formation.begin();
+        const auto *second_film = SECOND_FRAME.formation.begin();
         for (const auto &film : std::span(FIRST_FRAME.formation).first(std::min(FIRST_FRAME.formation_count, SECOND_FRAME.formation_count))) {
             CHECK(std::abs(film.radius - second_film->radius) < 1e-9);
             CHECK(std::abs(film.centre.x - second_film->centre.x) < 1e-9);

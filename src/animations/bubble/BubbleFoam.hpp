@@ -27,11 +27,11 @@ namespace hyprimate {
         Vec2 squash{};
     };
 
-    inline constexpr std::size_t kBubbleFoamCapacity = 160;
+    inline constexpr std::size_t BUBBLE_FOAM_CAPACITY = 160;
 
     // Distance from the centre of a rounded box (half extents `half`, corner radius `corner`) to
     // its outline along unit direction n.
-    double bubbleBoxReach(Vec2 half, double corner, Vec2 n);
+    double bubble_box_reach(Vec2 half, double corner, Vec2 n);
 
     struct BubbleFoamParams {
         double interaction = 1;  // contact and adhesion strength
@@ -44,8 +44,8 @@ namespace hyprimate {
     // presses its outline and may merge into it; the response is accumulated in the outputs.
     struct BubbleFoamBody {
         Vec2 centre{}, velocity{};
-        Vec2 half{}, previousHalf{};  // its shape now and one step earlier (growth pushes films)
-        double corner = 0, previousCorner = 0;
+        Vec2 half{}, previous_half{};  // its shape now and one step earlier (growth pushes films)
+        double corner = 0, previous_corner = 0;
         double mass = 0;
         double room = 0;  // projected area it can still take in this step
         // Outputs.
@@ -67,7 +67,7 @@ namespace hyprimate {
         Vec2 drift{};
         Vec2 confine{};  // half extents of a soft region around the origin; zero: unconfined
         std::array<Eddy, 3> eddies{};
-        Vec2 velocity(Vec2 p) const;
+        [[nodiscard]] Vec2 velocity(Vec2 point) const;
     };
 
     // A raft of small soap bubbles on a liquid. Lengths and times are the owner's units: the
@@ -81,7 +81,7 @@ namespace hyprimate {
             double radius = 0;  // volume goes as radius cubed; coalescence conserves it
             double target = 0;  // radius it surfaces to
             double surfacing = 1;  // 0..1: a cap rising out of the liquid .. a free bubble
-            double surfaceRate = 0;  // per unit time
+            double surface_rate = 0;  // per unit time
             double thickness = 0;  // nm at birth
             double seed = 0, phase = 0, flow = 0;
             double age = 0, life = 1;  // drained to rupture once age reaches life
@@ -89,21 +89,21 @@ namespace hyprimate {
             double drainage = 1;  // time the film shared with a touching neighbour takes to drain
                                   // before it ruptures and they coalesce
             double adhesion = 1;
-            Vec2 squash{}, squashRate{};
-            int into = -1;  // while coalescing: slot receiving its air, or kIntoBody
+            Vec2 squash{}, squash_rate{};
+            int into = -1;  // while coalescing: slot receiving its air, or INTO_BODY
             bool fed = false;  // air enters it: it neither drains nor ruptures
             bool live = false;
         };
-        static constexpr int kIntoBody = -2;
+        static constexpr int INTO_BODY = -2;
 
         void reset(std::uint64_t seed, const BubbleFoamParams &params, std::size_t budget);
         // A new film rising at a position; -1 when the budget is full.
         int spawn(Vec2 position, Vec2 velocity, double radius, double thickness, double surfacing,
             double life);
         void inflate(int slot, double volume);
-        void setFed(int slot, bool fed);
+        void set_fed(int slot, bool fed);
         // Advances by dt. The body, when given, is pushed and may absorb films.
-        void step(double dt, const BubbleFoamFlow &flow, BubbleFoamBody *body);
+        void step(double elapsed, const BubbleFoamFlow &flow, BubbleFoamBody *body);
         // Every intact film ruptures within `within`, each at its own time.
         void expire(double within);
         // Takes a film out of the foam (it became the body) without a visible event.
@@ -112,24 +112,24 @@ namespace hyprimate {
         void scale(Vec2 axis);
 
         // The intact, unfed film whose outline is nearest the point, or -1.
-        int nearest(Vec2 point, double reach) const;
-        int largest() const;
-        const Film &film(int slot) const { return films_[static_cast<std::size_t>(slot)]; }
-        Film &film(int slot) { return films_[static_cast<std::size_t>(slot)]; }
-        std::size_t liveCount() const;
-        std::size_t capacity() const { return budget_; }
+        [[nodiscard]] int nearest(Vec2 point, double reach) const;
+        [[nodiscard]] int largest() const;
+        [[nodiscard]] const Film &film(int slot) const { return films[static_cast<std::size_t>(slot)]; }
+        Film &film(int slot) { return films[static_cast<std::size_t>(slot)]; }
+        [[nodiscard]] std::size_t live_count() const;
+        [[nodiscard]] std::size_t capacity() const { return budget; }
 
         // Drawn films in logical px: position * axis * unit, radius * unit. Writes every slot up to
         // the last live one (dead slots invisible) and returns that count.
-        std::size_t write(std::span<BubbleMicro> out, double unit, Vec2 axis, double flowPhase) const;
+        [[nodiscard]] std::size_t write(std::span<BubbleMicro> out, double unit, Vec2 axis, double flow_phase) const;
 
       private:
-        void interact(double dt);
-        void meet(double dt, BubbleFoamBody &body);
-        void coalesce(double dt, BubbleFoamBody *body);
-        std::array<Film, kBubbleFoamCapacity> films_{};
-        BubbleFoamParams params_{};
-        std::size_t budget_ = 0;
-        std::uint64_t random_ = 0;
+        void interact(double elapsed);
+        void meet(double elapsed, BubbleFoamBody &body);
+        void coalesce(double elapsed, BubbleFoamBody *body);
+        std::array<Film, BUBBLE_FOAM_CAPACITY> films{};
+        BubbleFoamParams params{};
+        std::size_t budget = 0;
+        std::uint64_t random = 0;
     };
 }  // namespace hyprimate

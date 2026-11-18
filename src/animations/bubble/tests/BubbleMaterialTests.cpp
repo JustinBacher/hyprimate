@@ -80,6 +80,10 @@ namespace {
             black = texture(dark);
             CHECK(material.initialize());
         }
+        Fixture(const Fixture &) = delete;
+        Fixture &operator=(const Fixture &) = delete;
+        Fixture(Fixture &&) = delete;
+        Fixture &operator=(Fixture &&) = delete;
         ~Fixture() {
             material.release();
             const std::array<GLuint, 4> TEXTURES{window, other_window, scene, black};
@@ -474,7 +478,7 @@ int main() {
     EGLint minor = 0;
     if (display == EGL_NO_DISPLAY || (eglInitialize(display, &major, &minor) == 0U) ||
         (eglBindAPI(EGL_OPENGL_ES_API) == 0U)) {
-        std::fprintf(stderr, "Cannot initialize offscreen EGL (try EGL_PLATFORM=surfaceless)\n");
+        (void)std::fprintf(stderr, "Cannot initialize offscreen EGL (try EGL_PLATFORM=surfaceless)\n");
         return 1;
     }
     const std::array<EGLint, 13> CONFIG_ATTRS{
@@ -503,7 +507,7 @@ int main() {
     EGLContext context = eglCreateContext(display, config, EGL_NO_CONTEXT, CONTEXT_ATTRS.data());
     if (surface == EGL_NO_SURFACE || context == EGL_NO_CONTEXT ||
         (eglMakeCurrent(display, surface, surface, context) == 0U)) {
-        std::fprintf(stderr, "Cannot create GLES 3 offscreen context\n");
+        (void)std::fprintf(stderr, "Cannot create GLES 3 offscreen context\n");
         return 1;
     }
     {

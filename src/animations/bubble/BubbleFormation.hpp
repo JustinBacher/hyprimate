@@ -11,7 +11,7 @@ namespace hyprimate {
     struct BubbleFrame;
     // Drawn companions: every foam slot, plus the film the window bubble grew from while its
     // membrane takes over.
-    inline constexpr std::size_t kBubbleFormationCapacity = kBubbleFoamCapacity + 1;
+    inline constexpr std::size_t kBubbleFormationCapacity = BUBBLE_FOAM_CAPACITY + 1;
 
     struct BubbleFormationParams {
         int count = 140;
@@ -34,40 +34,40 @@ namespace hyprimate {
         void begin(Vec2 size, std::uint64_t seed, const BubbleFormationParams &params = {});
         void advance(double progress, Vec2 size);
         void writeFrame(BubbleFrame &frame) const;
-        bool landed() const;
+        [[nodiscard]] bool landed() const;
 
       private:
-        BubbleFormationParams params_{};
-        BubbleFoam foam_{};
-        Vec2 size_{}, position_{}, velocity_{};
-        Vec2 inlet_{}, wander_[2]{}, eddyCentre_[2]{};
-        double eddySpin_[2]{};
-        double gas_ = 0, reservoir_ = 0, progress_ = 0;
-        double birthHazard_ = 0, birthThreshold_ = 1;
-        double feedClock_ = 0, feedTarget_ = 1.5, pumpRate_ = 0, inletRate_ = 0;
-        double wallPressure_ = 0, corner_ = 0, pace_ = 1, tauStart_ = .05;
+        BubbleFormationParams m_params{};
+        BubbleFoam m_foam{};
+        Vec2 m_size{}, m_position{}, m_velocity{};
+        Vec2 m_inlet{}, m_wander[2]{}, m_eddy_centre[2]{};
+        double m_eddy_spin[2]{};
+        double m_gas = 0, m_reservoir = 0, m_progress = 0;
+        double m_birth_hazard = 0, m_birth_threshold = 1;
+        double m_feed_clock = 0, m_feed_target = 1.5, m_pump_rate = 0, m_inlet_rate = 0;
+        double m_wall_pressure = 0, m_corner = 0, m_pace = 1, m_tau_start = .05;
         // Streams of rising air around the inlet; each surfaces its bubbles as one clump.
         struct Plume {
             Vec2 offset{};  // from the inlet, short-side units before window proportions
             double strength = 0, target = 0, clock = 0, spin = 0;
         };
-        std::array<Plume, 5> plumes_{};
-        double core_[2]{}, coreVelocity_[2]{}, wave_[2]{}, waveVelocity_[2]{};
-        // The window bubble: absent until the fed film is taken from the foam at `emerged_`.
-        bool exists_ = false, expired_ = false;
-        double emerged_ = 0;
-        int fed_ = -1;
-        BubbleFoam::Film origin_{};  // the film it grew from, drawn while its membrane fades in
-        std::uint64_t random_ = 0;
-        int ticks_ = 0;
-        bool landed_ = false;
+        std::array<Plume, 5> m_plumes{};
+        double m_core[2]{}, m_core_velocity[2]{}, m_wave[2]{}, m_wave_velocity[2]{};
+        // The window bubble: absent until the fed film is taken from the foam at `m_emerged`.
+        bool m_exists = false, m_expired = false;
+        double m_emerged = 0;
+        int m_fed = -1;
+        BubbleFoam::Film m_origin{};  // the film it grew from, drawn while its membrane fades in
+        std::uint64_t m_random = 0;
+        int m_ticks = 0;
+        bool m_landed = false;
 
         void step();
-        void nucleate(double dt, double t, double width, double height);
-        void feed(double dt, double t);
-        void emerge(double t);
+        void nucleate(double step, double progress, double width, double height);
+        void feed(double step, double progress);
+        void emerge(double progress);
         // Supplies air to the window bubble and describes its shape to the foam; returns the corner
         // radius surface tension still holds.
-        double inflate(double dt, double t, double width, double height, BubbleFoamBody *body);
+        double inflate(double step, double progress, double width, double height, BubbleFoamBody *body);
     };
 }  // namespace hyprimate

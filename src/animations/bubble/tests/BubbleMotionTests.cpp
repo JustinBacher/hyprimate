@@ -26,6 +26,7 @@ namespace {
         const std::function<Vec2(double)> &velocity,
         BubbleMotionParams params = PARAMS,
         const std::function<void(const Bubble &)> &each = {}) {
+        // NOLINTNEXTLINE(bugprone-float-loop-counter,clang-analyzer-security.FloatLoopCounter): Preserve the exact absolute-time FP recurrence and stopping condition.
         for (const double END = time + seconds; time < END - 1e-9; time += TIME_STEP) {
             const Vec2 VELOCITY = velocity(time);
             bubble.drive({.x = VELOCITY.x * TIME_STEP, .y = VELOCITY.y * TIME_STEP});
@@ -226,7 +227,7 @@ namespace {
                 // The film swells where a bubble grows out of it.
                 for (const auto &bud : FRAME.window.motion.buds) {
                     swelled |= bud.height > 0;
-                    CHECK(bud.height <= .5 * bud.width + 1e-9);
+                    CHECK(bud.height <= (.5 * bud.width) + 1e-9);
                 }
                 const auto &motion = current.motion();
                 for (const auto &release : motion.releases()) {
@@ -234,7 +235,7 @@ namespace {
                     // The same bubble, its neck still narrowing as it lets go.
                     CHECK(release.micro.attach < .5 && release.life > 0 && release.micro.radius > 0);
                     // Released bubbles inherit the window's motion but fall behind it.
-                    CHECK(std::hypot(release.velocity.x, release.velocity.y) < motion.speed() * 1.2 + 120);
+                    CHECK(std::hypot(release.velocity.x, release.velocity.y) < (motion.speed() * 1.2) + 120);
                 }
                 if (motion.speed() > 400) {
                     ++fast_frames;
@@ -246,7 +247,7 @@ namespace {
                     ++trail;
                     CHECK(point.half_width > 0 && point.thickness > 0 && point.strand > 0);
                     // The film comes off the trailing side and keeps some of the window's motion.
-                    if (point.position.x * point.velocity.x + point.position.y * point.velocity.y < 0) {
+                    if ((point.position.x * point.velocity.x) + (point.position.y * point.velocity.y) < 0) {
                         ++trailing;
                     }
                 }
@@ -337,7 +338,7 @@ namespace {
             point.half_width = 16;
             point.thickness = 600;
             point.strand = 1;
-            CHECK(wake.extend(point, {.x = 100.0 + i * 20, .y = 300}));
+            CHECK(wake.extend(point, {.x = 100.0 + (i * 20), .y = 300}));
         }
         BubbleRelease bubble_release;
         bubble_release.micro.radius = 9;
@@ -360,7 +361,7 @@ namespace {
             BubbleWakeView bubble_view;
             wake.view(bubble_view);
             const Box BOX = wake.bounds();
-            return bubble_view.bubbles.front().centre.x + BOX.x + BOX.w * .5;
+            return bubble_view.bubbles.front().centre.x + BOX.x + (BOX.w * .5);
         };
         for (int i = 0; i < 12; ++i) {
             const double START_X = SCREEN_X();
