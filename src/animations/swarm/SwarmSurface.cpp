@@ -25,7 +25,7 @@ namespace {
     GLuint compile(GLenum type, const char *source) {
         const GLuint SHADER = glCreateShader(type);
         if (SHADER == 0U) {
-            std::fprintf(stderr, "swarm surface: cannot create shader\n");
+            (void)std::fprintf(stderr, "swarm surface: cannot create shader\n");
             return 0;
         }
         glShaderSource(SHADER, 1, &source, nullptr);
@@ -35,7 +35,7 @@ namespace {
         if (compile_status == 0) {
             std::array<char, 2048> log{};
             glGetShaderInfoLog(SHADER, log.size(), nullptr, log.data());
-            std::fprintf(stderr, "swarm surface shader: %s\n", log.data());
+            (void)std::fprintf(stderr, "swarm surface shader: %s\n", log.data());
             glDeleteShader(SHADER);
             return 0;
         }
@@ -57,14 +57,14 @@ namespace {
                 if (link_status == 0) {
                     std::array<char, 2048> log{};
                     glGetProgramInfoLog(program, log.size(), nullptr, log.data());
-                    std::fprintf(stderr, "swarm surface program: %s\n", log.data());
+                    (void)std::fprintf(stderr, "swarm surface program: %s\n", log.data());
                     glDeleteProgram(program);
                     program = 0;
                 }
             }
         }
         if (program == 0U) {
-            std::fprintf(stderr, "swarm surface: cannot create program\n");
+            (void)std::fprintf(stderr, "swarm surface: cannot create program\n");
         }
         if (VERTEX_SHADER != 0U) {
             glDeleteShader(VERTEX_SHADER);
@@ -146,7 +146,7 @@ bool CSwarmSurface::initialize() {
     }
     if ((m_program == 0U) || (m_field_program == 0U) || (m_vao == 0U) || (m_quad == 0U) ||
         (m_instances == 0U) || (m_field_framebuffer == 0U) || (m_field_texture == 0U)) {
-        std::fprintf(stderr, "swarm surface: cannot create GPU resources\n");
+        (void)std::fprintf(stderr, "swarm surface: cannot create GPU resources\n");
         return false;
     }
     constexpr std::array<float, 8> QUAD = {-1, -1, 1, -1, -1, 1, 1, 1};
@@ -165,6 +165,7 @@ bool CSwarmSurface::initialize() {
         GL_FLOAT,
         GL_FALSE,
         sizeof(hyprimate::SwarmSurfaceBody),
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr): GLES encodes the bound buffer byte offset as a pointer.
         reinterpret_cast<const void *>(offsetof(hyprimate::SwarmSurfaceBody, corner_radius)));
     glVertexAttribDivisor(2, 1);
     m_field_size_uniform = glGetUniformLocation(m_field_program, "fieldSize");
@@ -178,6 +179,7 @@ bool CSwarmSurface::initialize() {
     return true;
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): GL capture, failure paths and restoration must retain their order.
 SP<Render::IFramebuffer> CSwarmSurface::filter(Render::CRenderContext &ctx,
     const SP<Render::IFramebuffer> &input,
     const Vector2D &size,
@@ -199,7 +201,7 @@ SP<Render::IFramebuffer> CSwarmSurface::filter(Render::CRenderContext &ctx,
         bodies.size() > static_cast<std::size_t>(std::numeric_limits<GLsizei>::max()) ||
         bodies.size() > static_cast<std::size_t>(std::numeric_limits<GLsizeiptr>::max()) /
                             sizeof(hyprimate::SwarmSurfaceBody)) {
-        std::fprintf(stderr, "swarm surface: invalid input or dimensions\n");
+        (void)std::fprintf(stderr, "swarm surface: invalid input or dimensions\n");
         return nullptr;
     }
     const int STANDING = static_cast<int>(std::ceil(standing_at));
@@ -214,7 +216,7 @@ SP<Render::IFramebuffer> CSwarmSurface::filter(Render::CRenderContext &ctx,
     const auto OUTPUT = g_pHyprRenderer->getWorkBuffer(ctx, size);
     if (!OUTPUT || !OUTPUT->getTexture() || (OUTPUT->getTexture()->m_texID == 0U) ||
         OUTPUT->getTexture()->m_texID == input->getTexture()->m_texID) {
-        std::fprintf(stderr, "swarm surface: unable to allocate distinct work buffer\n");
+        (void)std::fprintf(stderr, "swarm surface: unable to allocate distinct work buffer\n");
         return nullptr;
     }
 
@@ -222,8 +224,11 @@ SP<Render::IFramebuffer> CSwarmSurface::filter(Render::CRenderContext &ctx,
     GLint vao = 0;
     GLint array_buffer = 0;
     GLint active = 0;
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): glGetIntegerv writes the viewport before restoration.
     std::array<GLint, 4> viewport;
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): glGetIntegerv writes each texture binding before restoration.
     std::array<GLint, 2> textures;
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): glGetIntegerv writes each sampler binding before restoration.
     std::array<GLint, 2> samplers;
     GLint src = 0;
     GLint dst = 0;
@@ -231,8 +236,11 @@ SP<Render::IFramebuffer> CSwarmSurface::filter(Render::CRenderContext &ctx,
     GLint dst_alpha = 0;
     GLint equation = 0;
     GLint equation_alpha = 0;
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): glGetIntegerv writes the scissor box before restoration.
     std::array<GLint, 4> scissor_box;
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): glGetFloatv writes the clear color before restoration.
     std::array<GLfloat, 4> clear_color;
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): glGetBooleanv writes the color mask before restoration.
     std::array<GLboolean, 4> mask;
     glGetIntegerv(GL_CURRENT_PROGRAM, &program);
     glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
@@ -295,7 +303,7 @@ SP<Render::IFramebuffer> CSwarmSurface::filter(Render::CRenderContext &ctx,
             glFramebufferTexture2D(
                 GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_field_texture, 0);
             if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-                std::fprintf(stderr, "swarm surface: half-float framebuffer unavailable\n");
+                (void)std::fprintf(stderr, "swarm surface: half-float framebuffer unavailable\n");
                 ready = false;
             } else {
                 m_field_width = CAPACITY_W;
@@ -312,7 +320,7 @@ SP<Render::IFramebuffer> CSwarmSurface::filter(Render::CRenderContext &ctx,
             GLint allocated = 0;
             glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &allocated);
             if (std::cmp_less(allocated, BYTES)) {
-                std::fprintf(stderr, "swarm surface: cannot allocate instance buffer\n");
+                (void)std::fprintf(stderr, "swarm surface: cannot allocate instance buffer\n");
                 m_instance_capacity = 0;
                 ready = false;
             } else {

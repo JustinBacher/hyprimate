@@ -112,6 +112,7 @@ namespace hyprimate {
         grid.stale = false;
     }
 
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity): Preserve gain ladder and FP order without moving the large scratch arrays.
     double fit_liquid_pose_gain(const LiquidPose &pose, Vec2 rest_size, LiquidPoseGrid *grid) {
         // Only an accepted field reaches the grid; any other outcome leaves the grid to be rebuilt
         // lazily.

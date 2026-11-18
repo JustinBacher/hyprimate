@@ -15,6 +15,7 @@ namespace {
     std::unique_ptr<CPluginRuntime> g_runtime;
 }  // namespace
 
+// NOLINTNEXTLINE(modernize-use-string-view): Hyprland's plugin API requires a std::string return ABI.
 APICALL EXPORT std::string PLUGIN_API_VERSION() {
     return HYPRLAND_API_VERSION;
 }

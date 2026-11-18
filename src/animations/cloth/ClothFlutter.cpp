@@ -69,7 +69,9 @@ namespace hyprimate {
         constexpr int MAX_OBSTACLES = 32;
         constexpr float CLOTH_INV_MASS = 4.0F, STRETCH_COMPLIANCE = 4e-6F, BEND_COMPLIANCE = 1.2F;
         constexpr std::uint64_t BASE_SEED = 0xC1074F1A77E2ULL;
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables): Lifecycle and workers share these atomic flags.
         std::atomic<bool> s_live{false}, s_pause{false};
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables): Worker pause threshold is shared with the test seam.
         std::atomic<int> s_pause_after{0};
 
         // Live movement displays this far behind the latest target. The worker answers a target
@@ -82,6 +84,7 @@ namespace hyprimate {
         constexpr double OPEN_AIR_DRAG =
             4.0;  // per simulated second, on the velocity along the local normal
 
+        // NOLINTNEXTLINE(modernize-avoid-variadic-functions): Jolt Trace requires a C variadic callback.
         void silent_trace([[maybe_unused]] const char *format, ...) {
         }
         Vec3 add(Vec3 left, Vec3 right) noexcept {
@@ -226,6 +229,7 @@ namespace hyprimate {
         SheetGrid start{}, velocity{};
         // Every six-float position/velocity slot is written once, then published by recorded's
         // release store.
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays): Recording length is determined at runtime.
         std::unique_ptr<Frame[]> samples;
         std::atomic<int> recorded{0}, outside_frame{0};
         std::atomic<bool> finished{false}, released{false};
@@ -366,6 +370,7 @@ namespace hyprimate {
         };
         class Registry {
           public:
+            // NOLINTNEXTLINE(performance-unnecessary-value-param): A reference adds a dependent load per reaper poll in GCC -O2.
             Registry() : reaper([this](std::stop_token stop) { reap(stop); }) {
             }
             Registry(const Registry &) = delete;
@@ -422,6 +427,7 @@ namespace hyprimate {
             std::vector<std::shared_ptr<Run>> runs;
             std::jthread reaper;
         };
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables): Physics lifetime owns the shared worker reaper.
         std::unique_ptr<Registry> s_registry;
 
         bool outside(const Run &run, const JPH::Array<JPH::SoftBodyVertex> &vertices) noexcept {
@@ -429,6 +435,7 @@ namespace hyprimate {
             const double HEIGHT = run.window.h;
             const double LENGTH_SCALE = std::sqrt(WIDTH * HEIGHT);
             const double FOCAL_LENGTH = 3 * LENGTH_SCALE;
+            // NOLINTNEXTLINE(readability-use-anyofallof): GCC native algorithm alternatives add setup and branch work.
             for (const auto &vertex : vertices) {
                 const double SCALE =
                     FOCAL_LENGTH / std::max(0.25 * FOCAL_LENGTH,
@@ -697,6 +704,7 @@ namespace hyprimate {
             return true;
         }
 
+        // NOLINTNEXTLINE(readability-function-cognitive-complexity): Splitting risks per-vertex calls and publication ordering.
         void simulate_movement(Run &run, double phase) {
             using namespace JPH;
             constexpr ObjectLayer CLOTH = 0;
@@ -765,6 +773,7 @@ namespace hyprimate {
             if (BODY_ID.IsInvalid()) {
                 return;
             }
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): CreateAndAddSoftBody guarantees soft-body motion; Jolt has no typed accessor.
             auto *motion = static_cast<SoftBodyMotionProperties *>(
                 system.GetBodyLockInterfaceNoLock().TryGetBody(BODY_ID)->GetMotionProperties());
             auto &vertices = motion->GetVertices();
@@ -927,6 +936,7 @@ namespace hyprimate {
             bodies.DestroyBody(BODY_ID);
         }
 
+        // NOLINTNEXTLINE(readability-function-cognitive-complexity): Splitting risks per-vertex calls and neighbor update ordering.
         void simulate(Run &run, const SimInput &input) {
             using namespace JPH;
             const auto STOPPED = [&] { return run.stop.stop_requested(); };
@@ -942,6 +952,7 @@ namespace hyprimate {
             if (!WAIT_PUBLICATION()) {
                 return;
             }
+            // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays): Recording length is determined at runtime.
             run.samples = std::make_unique<Run::Frame[]>(static_cast<std::size_t>(run.frames));
             constexpr ObjectLayer STATIC = 0;
             constexpr ObjectLayer CLOTH = 1;
@@ -1043,6 +1054,7 @@ namespace hyprimate {
             if (BODY_ID.IsInvalid()) {
                 return;
             }
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): CreateAndAddSoftBody guarantees soft-body motion; Jolt has no typed accessor.
             auto *motion = static_cast<SoftBodyMotionProperties *>(
                 system.GetBodyLockInterfaceNoLock().TryGetBody(BODY_ID)->GetMotionProperties());
             auto &vertices = motion->GetVertices();
@@ -1196,6 +1208,7 @@ namespace hyprimate {
     ClothPhysics::ClothPhysics() {
         JPH::RegisterDefaultAllocator();
         JPH::Trace = silent_trace;
+        // NOLINTNEXTLINE(cppcoreguidelines-owning-memory): Jolt Factory::sInstance is an owning raw singleton.
         JPH::Factory::sInstance = new JPH::Factory();
         JPH::RegisterTypes();
         s_registry = std::make_unique<Registry>();
@@ -1206,6 +1219,7 @@ namespace hyprimate {
         s_registry.reset();
         s_pause.store(false, std::memory_order_release);
         JPH::UnregisterTypes();
+        // NOLINTNEXTLINE(cppcoreguidelines-owning-memory): Jolt's singleton is deleted after workers join and types unregister.
         delete JPH::Factory::sInstance;
         JPH::Factory::sInstance = nullptr;
     }
@@ -1511,6 +1525,7 @@ namespace hyprimate {
             }
         }
     }
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity): Splitting risks fresh atomic-read ordering and frame-path calls.
     bool ClothFlutter::advance(double elapsed_seconds) noexcept {
         if (!active()) {
             return false;

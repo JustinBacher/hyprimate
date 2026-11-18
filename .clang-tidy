@@ -82,8 +82,8 @@ CheckOptions:
     value: 0
 
   # Judgment-tuned thresholds: flag runs of three or more adjacent same-typed parameters, and
-  # only the functions whose control flow is genuinely hard to follow.
+  # functions above 30; justified exceptions carry an explanatory NOLINT.
   - key: bugprone-easily-swappable-parameters.MinimumLength
     value: 3
   - key: readability-function-cognitive-complexity.Threshold
-    value: 50
+    value: 30

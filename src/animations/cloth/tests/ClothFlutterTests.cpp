@@ -1226,7 +1226,7 @@ int main() {
     }
     survivor.reset();
     if (g_failures != 0) {
-        std::fprintf(stderr, "%d cloth checks failed\n", g_failures);
+        (void)std::fprintf(stderr, "%d cloth checks failed\n", g_failures);
         return 1;
     }
     std::puts("cloth flutter tests passed");

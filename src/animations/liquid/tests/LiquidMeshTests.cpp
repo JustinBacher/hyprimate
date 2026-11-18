@@ -886,6 +886,6 @@ int main() {
         std::printf("liquid-mesh-tests: all checks passed\n");
         return 0;
     }
-    std::fprintf(stderr, "liquid-mesh-tests: %d check(s) failed\n", g_failures);
+    (void)std::fprintf(stderr, "liquid-mesh-tests: %d check(s) failed\n", g_failures);
     return 1;
 }
