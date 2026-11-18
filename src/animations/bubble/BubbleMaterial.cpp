@@ -62,6 +62,22 @@ namespace {
         }
         return result;
     }
+    template <typename... Args>
+    GLint formatted_uniform(GLuint program_id, bool &valid, const char *format, Args... args) {
+        if (!valid) {
+            return -1;
+        }
+        std::array<char, 80> name{};
+        const int RESULT = std::snprintf(name.data(), name.size(), format, args...);
+        if (RESULT < 0 || static_cast<std::size_t>(RESULT) >= name.size()) {
+            name.front() = '\0';
+            (void)std::fprintf(stderr, "bubble uniform name %s\n",
+                RESULT < 0 ? "formatting failed" : "truncated");
+            valid = false;
+            return -1;
+        }
+        return glGetUniformLocation(program_id, name.data());
+    }
     void vector(GLint location, hyprimate::Vec2 value) {
         glUniform2f(location, static_cast<float>(value.x), static_cast<float>(value.y));
     }
@@ -287,86 +303,58 @@ bool CBubbleMaterial::initialize() {
     constexpr std::array MASK_FIELDS{"domain", "radii", "onsets"};
     static_assert(
         std::size(MASK_FIELDS) == std::tuple_size_v<decltype(m_sheet_mask_uniforms)::value_type>);
-    const auto FORMAT_NAME = [this](auto &name, const char *format, auto... args) {
-        const int RESULT = std::snprintf(name.data(), name.size(), format, args...);
-        if (RESULT < 0 || static_cast<std::size_t>(RESULT) >= name.size()) {
-            name.front() = '\0';
-            (void)std::fprintf(stderr, "bubble uniform name %s\n",
-                RESULT < 0 ? "formatting failed" : "truncated");
-            release();
-            m_tried = true;
-            return false;
-        }
-        return true;
-    };
+    bool valid_names = true;
     std::size_t sheet_index = 0;
     for (auto &mask_uniforms : m_sheet_mask_uniforms) {
         auto *location = mask_uniforms.begin();
         for (const auto *field : MASK_FIELDS) {
-            std::array<char, 80> name{};
-            if (!FORMAT_NAME(name, "masks[%zu].%s", sheet_index, field)) {
-                return false;
-            }
-            *location = glGetUniformLocation(m_curl, name.data());
+            *location = formatted_uniform(m_curl, valid_names, "masks[%zu].%s", sheet_index, field);
             ++location;
         }
         ++sheet_index;
     }
     const auto *surface_name = SURFACE_NAMES.begin();
     for (auto &uniforms : m_surface_uniforms) {
-        std::array<char, 80> name{};
         auto *location = uniforms.begin();
         for (const auto *field : FIELDS) {
-            if (!FORMAT_NAME(name, "%s.%s", *surface_name, field)) {
-                return false;
-            }
-            *location = glGetUniformLocation(m_membrane, name.data());
+            *location = formatted_uniform(m_membrane, valid_names, "%s.%s", *surface_name, field);
             ++location;
         }
         for (std::size_t hole_slot = 0; hole_slot < hyprimate::K_BUBBLE_HOLES; ++hole_slot) {
             for (const auto *field : HOLE_FIELDS) {
-                if (!FORMAT_NAME(name, "%s.holes[%zu].%s", *surface_name, hole_slot, field)) {
-                    return false;
-                }
-                *location = glGetUniformLocation(m_membrane, name.data());
+                *location = formatted_uniform(
+                    m_membrane, valid_names, "%s.holes[%zu].%s", *surface_name, hole_slot, field);
                 ++location;
             }
         }
         for (const auto *field : K_MOTION_FIELDS) {
-            if (!FORMAT_NAME(name, "%s.%s", *surface_name, field)) {
-                return false;
-            }
-            *location = glGetUniformLocation(m_membrane, name.data());
+            *location = formatted_uniform(m_membrane, valid_names, "%s.%s", *surface_name, field);
             ++location;
         }
         ++surface_name;
     }
     {
-        std::array<char, 80> name{};
         auto *location = m_curl_surface_uniforms.begin();
         for (const auto *field : FIELDS) {
-            if (!FORMAT_NAME(name, "sheet.%s", field)) {
-                return false;
-            }
-            *location = glGetUniformLocation(m_curl, name.data());
+            *location = formatted_uniform(m_curl, valid_names, "sheet.%s", field);
             ++location;
         }
         for (std::size_t hole_index = 0; hole_index < hyprimate::K_BUBBLE_HOLES; ++hole_index) {
             for (const auto *field : HOLE_FIELDS) {
-                if (!FORMAT_NAME(name, "sheet.holes[%zu].%s", hole_index, field)) {
-                    return false;
-                }
-                *location = glGetUniformLocation(m_curl, name.data());
+                *location = formatted_uniform(
+                    m_curl, valid_names, "sheet.holes[%zu].%s", hole_index, field);
                 ++location;
             }
         }
         for (const auto *field : K_MOTION_FIELDS) {
-            if (!FORMAT_NAME(name, "sheet.%s", field)) {
-                return false;
-            }
-            *location = glGetUniformLocation(m_curl, name.data());
+            *location = formatted_uniform(m_curl, valid_names, "sheet.%s", field);
             ++location;
         }
+    }
+    if (!valid_names) {
+        release();
+        m_tried = true;
+        return false;
     }
     constexpr std::array FILM_NAMES{
         "canvas",
@@ -707,7 +695,8 @@ void CBubbleMaterial::draw_particles(std::span<const hyprimate::BubbleParticle> 
     if ((m_particles == 0U) || particles.empty()) {
         return;
     }
-    std::array<Instance, 2 * hyprimate::K_BUBBLE_MAX_PARTICLES> data{};
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): Every uploaded instance is fully assigned; the unused suffix is never read or uploaded.
+    std::array<Instance, 2 * hyprimate::K_BUBBLE_MAX_PARTICLES> data;
     const auto COUNT = std::min(particles.size(), data.size());
     const auto INPUT = particles.first(COUNT);
     auto input_it = INPUT.begin();
@@ -747,7 +736,8 @@ void CBubbleMaterial::draw_microbubbles(std::span<const hyprimate::BubbleMicro> 
     if ((m_micro == 0U) || bubbles.empty()) {
         return;
     }
-    std::array<MicroInstance, K_MICRO_INSTANCES> data{};
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): Every uploaded instance is fully assigned; the unused suffix is never read or uploaded.
+    std::array<MicroInstance, K_MICRO_INSTANCES> data;
     std::size_t count = 0;
     for (const auto &bubble : bubbles) {
         if (count == data.size()) {
