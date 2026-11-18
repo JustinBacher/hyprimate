@@ -92,7 +92,7 @@ add_library(hyprimate SHARED
     src/AnimationTransformer.cpp
     src/AnimationCloseRenderer.cpp
     src/NativeFadeoutPass.cpp
-    src/animations/shared/PaperRenderer.cpp
+    src/animations/shared/SheetRenderer.cpp
 )
 set_target_properties(hyprimate PROPERTIES PREFIX "" INTERPROCEDURAL_OPTIMIZATION FALSE)
 add_dependencies(hyprimate generate-config)
@@ -160,7 +160,7 @@ if(BUILD_TESTING)
     add_test(NAME config-generator-tests COMMAND ${Python3_EXECUTABLE} -m unittest discover -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p test_config_generator.py)
     add_test(NAME plugin-symbol-tests COMMAND ${Python3_EXECUTABLE} -m unittest discover -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p test_plugin_symbols.py)
 
-    add_executable(edge-transition-tests src/animations/shared/tests/EdgeTransitionTests.cpp)
+    add_executable(edge-transition-tests tests/EdgeTransitionTests.cpp)
     target_link_libraries(edge-transition-tests PRIVATE hyprimate-core)
     target_include_directories(edge-transition-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME edge-transition-tests COMMAND edge-transition-tests)

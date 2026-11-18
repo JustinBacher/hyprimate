@@ -34,7 +34,7 @@ namespace hyprimate {
         static_assert(ASSET[0] == 'P' && ASSET[1] == 'C' && ASSET[2] == 'R' && ASSET[3] == 'T',
             "not a paper take asset");
         static_assert(u32(4) == 1, "unsupported paper take asset version");
-        static_assert(GRID == PAPER_CELLS + 1,
+        static_assert(GRID == SHEET_CELLS + 1,
             "paper takes were baked for a different grid; rebake with src/animations/paper/tools");
         static_assert(FRAMES >= 2 && TAKES >= 1, "paper take asset is empty");
         static_assert(sizeof(ASSET) == DATA + (static_cast<std::size_t>(TAKES) * TAKE_BYTES),

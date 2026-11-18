@@ -10,7 +10,7 @@ namespace hyprimate {
 
     // Liquid material tuning. Finite values are clamped to [0, 1]; nonfinite Liquid values reset
     // before integration.
-    struct MaterialParams {
+    struct LiquidParams {
         double viscosity = 0.75;  // [0,1] Liquid flow resistance (existing semantics)
         double elasticity =
             0.5;  // [0,1] restoring stiffness / recovery speed; higher = snappier, firmer return
@@ -19,15 +19,15 @@ namespace hyprimate {
         // damping, lag, bow shape, skew, sideways lean and response latency from the mesh's seed. 0
         // = every mesh responds identically.
         double variation = 0.0;
-        bool operator==(const MaterialParams &) const = default;
+        bool operator==(const LiquidParams &) const = default;
     };
 
     // Logical-pixel material state; no compositor or graphics dependency.
     class LiquidMesh {
       public:
         // Meshes with the same params and seed respond identically; give each window its own seed.
-        explicit LiquidMesh(MaterialParams params = {}, std::uint64_t seed = 0) noexcept;
-        [[nodiscard]] const MaterialParams &params() const noexcept {
+        explicit LiquidMesh(LiquidParams params = {}, std::uint64_t seed = 0) noexcept;
+        [[nodiscard]] const LiquidParams &params() const noexcept {
             return m_params;
         }
         [[nodiscard]] double viscosity() const noexcept {
@@ -53,7 +53,7 @@ namespace hyprimate {
         void roll_character() noexcept;
         double draw_unit() noexcept;  // uniform in [-1, 1] from m_rng
 
-        MaterialParams m_params;
+        LiquidParams m_params;
         // Viscosity-derived velocity coefficient for internal shear flow.
         double m_shear_damping;
         // Liquid body and head spring gains, derived from elasticity, momentum and the current

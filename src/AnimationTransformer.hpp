@@ -21,7 +21,7 @@
 #include "animations/liquid/SolidFill.hpp"
 #include "animations/paper/PaperLiveState.hpp"
 #include "animations/shared/Core.hpp"
-#include "animations/shared/PaperRenderer.hpp"
+#include "animations/shared/SheetRenderer.hpp"
 #include "animations/swarm/SwarmLiveState.hpp"
 #include "animations/smoke/SmokeLiveState.hpp"
 #include "animations/swarm/SwarmRenderer.hpp"
@@ -42,7 +42,7 @@ using SStyleState =
 // The state a window starts from in `style`. `liquid`, `cloth`, and `seed` are the settings it is
 // built for.
 SStyleState initial_style(hyprimate::config::Style style,
-    hyprimate::MaterialParams liquid,
+    hyprimate::LiquidParams liquid,
     hyprimate::ClothMovementParams cloth,
     std::uint64_t seed);
 
@@ -53,7 +53,7 @@ class CAnimationTransformer final : public Render::IWindowTransformer {
     CAnimationTransformer(PHLWINDOWREF window,
         SStyleState state,
         SP<CSolidFill> solid,
-        SP<CPaperShade> shade,
+        SP<CSheetShade> shade,
         SP<CSwarmSprites> sprites);
     ~CAnimationTransformer() override = default;
 
@@ -74,7 +74,7 @@ class CAnimationTransformer final : public Render::IWindowTransformer {
     // True when the state was built for these settings; a mismatch means the runtime rebuilds the
     // transformer.
     bool built_for(hyprimate::config::Style style,
-        hyprimate::MaterialParams liquid,
+        hyprimate::LiquidParams liquid,
         hyprimate::ClothMovementParams cloth) const;
 
     void cancel_opening();
@@ -105,7 +105,7 @@ class CAnimationTransformer final : public Render::IWindowTransformer {
     PHLWINDOWREF m_window;
     SStyleState m_style;
     SP<CSolidFill> m_solid;
-    SP<CPaperShade> m_shade;
+    SP<CSheetShade> m_shade;
     SP<CSwarmSprites> m_sprites;
     bool m_detached = false;
 };

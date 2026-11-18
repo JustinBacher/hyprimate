@@ -22,7 +22,7 @@ namespace hyprimate {
         // crumple instead of jumping it.
         constexpr double MAX_PLAYED_STEP = 1.0 / 30.0;
         constexpr std::uint64_t BASE_SEED = 0x50A9E5C0FFEEULL;
-        constexpr int GRID = PAPER_CELLS + 1;
+        constexpr int GRID = SHEET_CELLS + 1;
 
         // Share of the baked take a crumple plays through at crumpliness 0 and 1: lower stops at a
         // looser, larger ball.
@@ -244,10 +244,10 @@ namespace hyprimate {
                 int source_col = m_transpose ? j : i;
                 int source_row = m_transpose ? i : j;
                 if (m_mirror_x) {
-                    source_col = PAPER_CELLS - source_col;
+                    source_col = SHEET_CELLS - source_col;
                 }
                 if (m_mirror_y) {
-                    source_row = PAPER_CELLS - source_row;
+                    source_row = SHEET_CELLS - source_row;
                 }
                 const std::size_t TAKE = grid_index(source_col, source_row);
                 std::array<double, 3> pos_back{};

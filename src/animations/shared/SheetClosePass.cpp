@@ -11,7 +11,7 @@
 #include <hyprutils/math/Vector2D.hpp>
 
 #include "SheetClosePass.hpp"
-#include "animations/shared/PaperRenderer.hpp"
+#include "animations/shared/SheetRenderer.hpp"
 
 CPaperClosePassElement::CPaperClosePassElement(SData data) : m_data(std::move(data)) {
 }
@@ -29,7 +29,7 @@ std::vector<UP<IPassElement>> CPaperClosePassElement::draw(Render::CRenderContex
     // Shade the sheet in its own layer so the tint covers only its pixels; without a layer it draws
     // unlit.
     const Vector2D CANVAS{std::ceil(m_data.box.w), std::ceil(m_data.box.h)};
-    const SPaperDraw PAPER{
+    const SSheetDraw SHEET{
         .window = m_data.tex,
         .shade = m_data.shade,
         .canvas = CANVAS,
@@ -38,7 +38,7 @@ std::vector<UP<IPassElement>> CPaperClosePassElement::draw(Render::CRenderContex
         .shade_vertices = m_data.shade_vertices,
         .alpha = 1.F,
     };
-    const auto LAYER = render_paper(ctx, PAPER);
+    const auto LAYER = render_sheet(ctx, SHEET);
     if (!LAYER) {
         Render::GL::g_pHyprOpenGL->renderTextureMesh(
             ctx, m_data.tex, m_data.box, *m_data.vertices, texture_data);
@@ -48,7 +48,7 @@ std::vector<UP<IPassElement>> CPaperClosePassElement::draw(Render::CRenderContex
     Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx,
         LAYER->getTexture(),
         CBox{m_data.box.x, m_data.box.y, CANVAS.x, CANVAS.y},
-        paper_canvas_quad(),
+        sheet_canvas_quad(),
         texture_data);
     return {};
 }

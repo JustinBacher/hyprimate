@@ -22,7 +22,7 @@
 #include "animations/liquid/LiquidMesh.hpp"
 #include "animations/liquid/LiquidPose.hpp"
 #include "animations/liquid/SolidFill.hpp"
-#include "animations/shared/PaperRenderer.hpp"
+#include "animations/shared/SheetRenderer.hpp"
 #include "animations/swarm/SwarmRenderer.hpp"
 #include "config_generated.hpp"
 
@@ -37,7 +37,7 @@ static_assert(offsetof(SMeshRenderVertex, u) == offsetof(hyprimate::LiquidVertex
 static_assert(offsetof(SMeshRenderVertex, v) == offsetof(hyprimate::LiquidVertex, v));
 
 SStyleState initial_style(hyprimate::config::Style style,
-    hyprimate::MaterialParams liquid,
+    hyprimate::LiquidParams liquid,
     hyprimate::ClothMovementParams cloth,
     std::uint64_t seed) {
     return with_live_style(style, [&](auto live) { return live.initial(liquid, cloth, seed); });
@@ -46,7 +46,7 @@ SStyleState initial_style(hyprimate::config::Style style,
 CAnimationTransformer::CAnimationTransformer(PHLWINDOWREF window,
     SStyleState state,
     SP<CSolidFill> solid,
-    SP<CPaperShade> shade,
+    SP<CSheetShade> shade,
     SP<CSwarmSprites> sprites)
     : m_window(std::move(window)),
       m_style(std::move(state)),
@@ -56,7 +56,7 @@ CAnimationTransformer::CAnimationTransformer(PHLWINDOWREF window,
 }
 
 bool CAnimationTransformer::built_for(hyprimate::config::Style style,
-    hyprimate::MaterialParams liquid,
+    hyprimate::LiquidParams liquid,
     hyprimate::ClothMovementParams cloth) const {
     return std::visit(
         [&](const auto &state) {

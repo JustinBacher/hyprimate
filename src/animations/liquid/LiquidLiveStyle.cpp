@@ -28,7 +28,7 @@
 #include "animations/liquid/SolidFill.hpp"
 #include "animations/shared/Core.hpp"
 #include "animations/shared/EdgeStyleConfig.hpp"
-#include "animations/shared/PaperRenderer.hpp"
+#include "animations/shared/SheetRenderer.hpp"
 #include "animations/swarm/SwarmRenderer.hpp"
 #include "config_generated.hpp"
 
@@ -79,7 +79,7 @@ SWindowTransformBuffer render_live(SLiquidStyle &state,
     const SWindowTransformContext &context,
     const SLiveRenderGeometry &geometry,
     const SP<CSolidFill> &solid_fill,
-    [[maybe_unused]] const SP<CPaperShade> &shade,
+    [[maybe_unused]] const SP<CSheetShade> &shade,
     [[maybe_unused]] const SP<CSwarmSprites> &sprites) {
     const auto OUT = g_pHyprRenderer->getWorkBuffer(ctx, geometry.canvas.size());
     if (!OUT) {
@@ -325,7 +325,7 @@ bool SLiquidLiveStyle::deforming(const SLiquidStyle &state) noexcept {
 
 bool SLiquidLiveStyle::builtFor(const SLiquidStyle &state,
     hyprimate::config::Style style,
-    hyprimate::MaterialParams liquid,
+    hyprimate::LiquidParams liquid,
     [[maybe_unused]] hyprimate::ClothMovementParams cloth) noexcept {
     return style == hyprimate::config::Style::Liquid && state.mesh.params() == liquid;
 }
@@ -334,7 +334,7 @@ bool SLiquidLiveStyle::available([[maybe_unused]] const SLiquidStyle &state) noe
     return true;
 }
 
-SStyleState SLiquidLiveStyle::initial(hyprimate::MaterialParams liquid,
+SStyleState SLiquidLiveStyle::initial(hyprimate::LiquidParams liquid,
     [[maybe_unused]] hyprimate::ClothMovementParams cloth,
     std::uint64_t seed) {
     return SLiquidStyle{.mesh = hyprimate::LiquidMesh{liquid, seed}};

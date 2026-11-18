@@ -17,7 +17,7 @@
 namespace {
 
     using hyprimate::LiquidMesh;
-    using hyprimate::MaterialParams;
+    using hyprimate::LiquidParams;
     using hyprimate::Vec2;
 
     constexpr Vec2 WINDOW{.x = 600.0, .y = 400.0};
@@ -347,7 +347,7 @@ namespace {
     };
 
     // Drags at 2000 px/s for 0.25 s at 60 Hz, then stops and records the trailing response.
-    StopTrace trace_stop(const MaterialParams &params, StopTraceOptions options = {}) {
+    StopTrace trace_stop(const LiquidParams &params, StopTraceOptions options = {}) {
         LiquidMesh mesh{params, options.seed};
         for (int frame_index = 0;
             frame_index < static_cast<int>(std::lround(options.frequency * 0.25));
@@ -396,7 +396,7 @@ namespace {
     };
 
     LiquidSnapshots run_liquid_schedule(
-        double frequency, const MaterialParams &params, std::uint64_t seed = 0) {
+        double frequency, const LiquidParams &params, std::uint64_t seed = 0) {
         LiquidMesh mesh{params, seed};
         const int FRAMES_DRAG = static_cast<int>(std::lround(frequency * 0.25));
         const int FRAMES_TOTAL = static_cast<int>(std::lround(frequency * 0.5));
@@ -443,7 +443,7 @@ namespace {
 
     // Abrupt stop: a small overshoot, a decaying second swing, and an exact settle.
     void test_liquid_stop_overshoot_and_settle() {
-        const StopTrace TRACE = trace_stop(MaterialParams{});
+        const StopTrace TRACE = trace_stop(LiquidParams{});
         CHECK(TRACE.peak_lag > 20.0);
         CHECK(TRACE.overshoot >= 0.05 * TRACE.peak_lag);
         CHECK(TRACE.overshoot <= 0.30 * TRACE.peak_lag);
@@ -484,10 +484,10 @@ namespace {
 
     // Refresh-rate independence: the same drag and stop agree across 30..240 Hz.
     void test_liquid_refresh_rate_agreement() {
-        const LiquidSnapshots S30 = run_liquid_schedule(30.0, MaterialParams{});
-        const LiquidSnapshots S60 = run_liquid_schedule(60.0, MaterialParams{});
-        const LiquidSnapshots S144 = run_liquid_schedule(144.0, MaterialParams{});
-        const LiquidSnapshots S240 = run_liquid_schedule(240.0, MaterialParams{});
+        const LiquidSnapshots S30 = run_liquid_schedule(30.0, LiquidParams{});
+        const LiquidSnapshots S60 = run_liquid_schedule(60.0, LiquidParams{});
+        const LiquidSnapshots S144 = run_liquid_schedule(144.0, LiquidParams{});
+        const LiquidSnapshots S240 = run_liquid_schedule(240.0, LiquidParams{});
         CHECK(max_magnitude(S60.drag) > 10.0);
         CHECK(max_difference(S30.drag, S60.drag) <= 1.0);
         CHECK(max_difference(S144.drag, S60.drag) <= 1.0);
@@ -539,9 +539,9 @@ namespace {
 
     // Elasticity: higher elasticity returns faster.
     void test_liquid_elasticity_settle_time() {
-        MaterialParams firm{};
+        LiquidParams firm{};
         firm.elasticity = 1.0;
-        MaterialParams soft{};
+        LiquidParams soft{};
         soft.elasticity = 0.0;
         const StopTrace SNAPPY = trace_stop(firm);
         const StopTrace SLOW = trace_stop(soft);
@@ -550,12 +550,12 @@ namespace {
 
     // Momentum: zero gives no overshoot; higher momentum gives a larger overshoot.
     void test_liquid_momentum_overshoot() {
-        MaterialParams none{};
+        LiquidParams none{};
         none.momentum = 0.0;
-        MaterialParams high{};
+        LiquidParams high{};
         high.momentum = 1.0;
         const StopTrace NO_OVERSHOOT = trace_stop(none);
-        const StopTrace STANDARD = trace_stop(MaterialParams{});
+        const StopTrace STANDARD = trace_stop(LiquidParams{});
         const StopTrace BIG = trace_stop(high);
         CHECK(NO_OVERSHOOT.overshoot <= 0.02 * NO_OVERSHOOT.peak_lag);
         CHECK(BIG.overshoot > STANDARD.overshoot);
@@ -601,9 +601,9 @@ namespace {
 
     // Viscosity changes internal flow: thick resists shear more than thin.
     void test_viscosity_resists_internal_flow() {
-        MaterialParams thin_params{};
+        LiquidParams thin_params{};
         thin_params.viscosity = 0.0;
-        MaterialParams thick_params{};
+        LiquidParams thick_params{};
         thick_params.viscosity = 1.0;
         LiquidMesh thin{thin_params};
         LiquidMesh thick{thick_params};
@@ -620,7 +620,7 @@ namespace {
     void test_viscosity_boundaries_and_cadence() {
         const std::array<double, 3> LEVELS{0.0, 0.75, 1.0};
         for (const double LEVEL : LEVELS) {
-            MaterialParams params{};
+            LiquidParams params{};
             params.viscosity = LEVEL;
             const LiquidSnapshots S30 = run_liquid_schedule(30.0, params);
             const LiquidSnapshots S60 = run_liquid_schedule(60.0, params);
@@ -636,13 +636,13 @@ namespace {
         }
 
         // Out-of-range viscosity clamps to the same material as its boundary.
-        MaterialParams below{};
+        LiquidParams below{};
         below.viscosity = -0.5;
-        MaterialParams zero{};
+        LiquidParams zero{};
         zero.viscosity = 0.0;
-        MaterialParams above{};
+        LiquidParams above{};
         above.viscosity = 1.5;
-        MaterialParams one{};
+        LiquidParams one{};
         one.viscosity = 1.0;
         LiquidMesh low{below};
         LiquidMesh thin{zero};
@@ -661,7 +661,7 @@ namespace {
         }
 
         for (const double INVALID : {NA_N, POSITIVE_INFINITY}) {
-            MaterialParams bad{};
+            LiquidParams bad{};
             bad.viscosity = INVALID;
             LiquidMesh mesh{bad};
             mesh.record_translation(Vec2{.x = 80.0, .y = 0.0}, WINDOW, STRENGTH);
@@ -782,9 +782,9 @@ namespace {
 
     // Variation 0: the seed has no effect, so every window moves exactly alike.
     void test_variation_zero_ignores_seed() {
-        const LiquidSnapshots FIRST = run_liquid_schedule(60.0, MaterialParams{}, 1);
+        const LiquidSnapshots FIRST = run_liquid_schedule(60.0, LiquidParams{}, 1);
         const LiquidSnapshots SECOND =
-            run_liquid_schedule(60.0, MaterialParams{}, 0x9E3779B97F4A7C15ULL);
+            run_liquid_schedule(60.0, LiquidParams{}, 0x9E3779B97F4A7C15ULL);
         CHECK(max_difference(FIRST.drag, SECOND.drag) == 0.0);
         CHECK(max_difference(FIRST.stop, SECOND.stop) == 0.0);
     }
@@ -792,7 +792,7 @@ namespace {
     // Variation > 0: two windows given the same motion (a scrolling-layout pan) deform visibly
     // differently, while equal seeds stay reproducible.
     void test_variation_seeds_differ() {
-        MaterialParams params{};
+        LiquidParams params{};
         params.variation = 0.5;
         const LiquidSnapshots FIRST = run_liquid_schedule(60.0, params, 1);
         const LiquidSnapshots SECOND = run_liquid_schedule(60.0, params, 2);
@@ -805,7 +805,7 @@ namespace {
     // Each movement from rest draws a new character: the same window repeating the same move
     // responds differently.
     void test_variation_rerolls_per_motion() {
-        MaterialParams params{};
+        LiquidParams params{};
         params.variation = 0.5;
         LiquidMesh mesh{params, 7};
         const auto DRAG_ONCE = [&] {
@@ -828,7 +828,7 @@ namespace {
     // of overshoot.
     void test_variation_stays_valid_and_settles() {
         for (const double MOMENTUM : {0.0, 0.5, 1.0}) {
-            MaterialParams params{};
+            LiquidParams params{};
             params.variation = 1.0;
             params.momentum = MOMENTUM;
             for (std::uint64_t seed = 0; seed < 48; ++seed) {

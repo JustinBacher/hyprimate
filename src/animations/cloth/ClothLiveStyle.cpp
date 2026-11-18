@@ -24,7 +24,7 @@
 #include "animations/shared/Core.hpp"
 #include "animations/shared/EdgeStyleConfig.hpp"
 #include "animations/shared/LiveSheetRender.hpp"
-#include "animations/shared/PaperRenderer.hpp"
+#include "animations/shared/SheetRenderer.hpp"
 #include "animations/swarm/SwarmRenderer.hpp"
 #include "config_generated.hpp"
 
@@ -38,7 +38,7 @@ Render::SWindowTransformBuffer render_live(SClothStyle &state,
     [[maybe_unused]] const Render::SWindowTransformContext &context,
     const SLiveRenderGeometry &geometry,
     [[maybe_unused]] const SP<CSolidFill> &solid_fill,
-    const SP<CPaperShade> &shade,
+    const SP<CSheetShade> &shade,
     [[maybe_unused]] const SP<CSwarmSprites> &sprites) {
     return render_live_sheet(
         state.sheet, state.cloth.opacity(), state.cloth.shaded(), ctx, input, geometry, shade);
@@ -165,7 +165,7 @@ bool SClothLiveStyle::deforming(const SClothStyle &state) noexcept {
 
 bool SClothLiveStyle::builtFor(const SClothStyle &state,
     hyprimate::config::Style style,
-    [[maybe_unused]] hyprimate::MaterialParams material,
+    [[maybe_unused]] hyprimate::LiquidParams liquid,
     hyprimate::ClothMovementParams cloth) noexcept {
     return style == hyprimate::config::Style::Cloth && state.movement == cloth;
 }
@@ -174,7 +174,7 @@ bool SClothLiveStyle::available(const SClothStyle &state) noexcept {
     return static_cast<bool>(state.sheet.frame);
 }
 
-SStyleState SClothLiveStyle::initial([[maybe_unused]] hyprimate::MaterialParams material,
+SStyleState SClothLiveStyle::initial([[maybe_unused]] hyprimate::LiquidParams liquid,
     hyprimate::ClothMovementParams cloth,
     [[maybe_unused]] std::uint64_t seed) {
     return SClothStyle{.movement = cloth};

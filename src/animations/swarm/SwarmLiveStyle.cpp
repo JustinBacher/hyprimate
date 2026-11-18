@@ -27,7 +27,7 @@
 #include "animations/liquid/LiquidMesh.hpp"
 #include "animations/liquid/SolidFill.hpp"
 #include "animations/shared/Core.hpp"
-#include "animations/shared/PaperRenderer.hpp"
+#include "animations/shared/SheetRenderer.hpp"
 #include "animations/swarm/Swarm.hpp"
 #include "animations/swarm/SwarmConfig.hpp"
 #include "animations/swarm/SwarmLiveState.hpp"
@@ -86,7 +86,7 @@ Render::SWindowTransformBuffer render_live(SSwarmStyle &state,
     [[maybe_unused]] const Render::SWindowTransformContext &context,
     const SLiveRenderGeometry &geometry,
     [[maybe_unused]] const SP<CSolidFill> &solid,
-    [[maybe_unused]] const SP<CPaperShade> &shade,
+    [[maybe_unused]] const SP<CSheetShade> &shade,
     const SP<CSwarmSprites> &sprites) {
     const auto *sheet = sprites ? sprites->sheet(state.creature) : nullptr;
     const auto ATLAS =
@@ -253,7 +253,7 @@ bool SSwarmLiveStyle::deforming(const SSwarmStyle &state) noexcept {
 // Swarm settings are read when an animation begins, so a state is never stale for them.
 bool SSwarmLiveStyle::builtFor([[maybe_unused]] const SSwarmStyle &state,
     hyprimate::config::Style style,
-    [[maybe_unused]] hyprimate::MaterialParams material,
+    [[maybe_unused]] hyprimate::LiquidParams liquid,
     [[maybe_unused]] hyprimate::ClothMovementParams cloth) noexcept {
     return style == hyprimate::config::Style::Swarm;
 }
@@ -262,7 +262,7 @@ bool SSwarmLiveStyle::available([[maybe_unused]] const SSwarmStyle &state) noexc
     return true;
 }
 
-SStyleState SSwarmLiveStyle::initial([[maybe_unused]] hyprimate::MaterialParams material,
+SStyleState SSwarmLiveStyle::initial([[maybe_unused]] hyprimate::LiquidParams liquid,
     [[maybe_unused]] hyprimate::ClothMovementParams cloth,
     [[maybe_unused]] std::uint64_t seed) {
     return SSwarmStyle{};

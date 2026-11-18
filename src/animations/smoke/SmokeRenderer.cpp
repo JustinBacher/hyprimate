@@ -7,7 +7,7 @@
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 
-#include "animations/shared/PaperRenderer.hpp"
+#include "animations/shared/SheetRenderer.hpp"
 #include "animations/smoke/SmokeRenderer.hpp"
 
 namespace {
@@ -150,7 +150,7 @@ std::vector<UP<IPassElement>> CSmokePassElement::draw(Render::CRenderContext &ct
     data.allowDim = false;
     if (layer)
         Render::GL::g_pHyprOpenGL->renderTextureMesh(
-            ctx, layer->getTexture(), m_data.box, paper_canvas_quad(), data);
+            ctx, layer->getTexture(), m_data.box, sheet_canvas_quad(), data);
     else {
         const auto &d = m_data.draw;
         if (!d.window || !(d.canvas.x > 0 && d.canvas.y > 0 && d.source.w > 0 && d.source.h > 0 &&

@@ -27,7 +27,7 @@ Render::SWindowTransformBuffer render_live(SLiquidStyle &state,
     const Render::SWindowTransformContext &context,
     const SLiveRenderGeometry &geometry,
     const SP<CSolidFill> &solid,
-    const SP<CPaperShade> &shade,
+    const SP<CSheetShade> &shade,
     const SP<CSwarmSprites> &sprites);
 
 Render::SWindowTransformBuffer render_live(SPaperStyle &state,
@@ -36,7 +36,7 @@ Render::SWindowTransformBuffer render_live(SPaperStyle &state,
     const Render::SWindowTransformContext &context,
     const SLiveRenderGeometry &geometry,
     const SP<CSolidFill> &solid,
-    const SP<CPaperShade> &shade,
+    const SP<CSheetShade> &shade,
     const SP<CSwarmSprites> &sprites);
 
 Render::SWindowTransformBuffer render_live(SClothStyle &state,
@@ -45,7 +45,7 @@ Render::SWindowTransformBuffer render_live(SClothStyle &state,
     const Render::SWindowTransformContext &context,
     const SLiveRenderGeometry &geometry,
     const SP<CSolidFill> &solid,
-    const SP<CPaperShade> &shade,
+    const SP<CSheetShade> &shade,
     const SP<CSwarmSprites> &sprites);
 
 Render::SWindowTransformBuffer render_live(SSwarmStyle &state,
@@ -54,7 +54,7 @@ Render::SWindowTransformBuffer render_live(SSwarmStyle &state,
     const Render::SWindowTransformContext &context,
     const SLiveRenderGeometry &geometry,
     const SP<CSolidFill> &solid,
-    const SP<CPaperShade> &shade,
+    const SP<CSheetShade> &shade,
     const SP<CSwarmSprites> &sprites);
 
 Render::SWindowTransformBuffer render_live(SBubbleStyle &state,
@@ -63,7 +63,7 @@ Render::SWindowTransformBuffer render_live(SBubbleStyle &state,
     const Render::SWindowTransformContext &context,
     const SLiveRenderGeometry &geometry,
     const SP<CSolidFill> &solid,
-    const SP<CPaperShade> &shade,
+    const SP<CSheetShade> &shade,
     const SP<CSwarmSprites> &sprites);
 
 Render::SWindowTransformBuffer render_live(SSmokeStyle &state,
@@ -72,5 +72,5 @@ Render::SWindowTransformBuffer render_live(SSmokeStyle &state,
     const Render::SWindowTransformContext &context,
     const SLiveRenderGeometry &geometry,
     const SP<CSolidFill> &solid,
-    const SP<CPaperShade> &shade,
+    const SP<CSheetShade> &shade,
     const SP<CSwarmSprites> &sprites);

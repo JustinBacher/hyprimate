@@ -26,7 +26,7 @@
 #include "animations/liquid/LiquidMesh.hpp"
 #include "animations/liquid/SolidFill.hpp"
 #include "animations/shared/Core.hpp"
-#include "animations/shared/PaperRenderer.hpp"
+#include "animations/shared/SheetRenderer.hpp"
 #include "animations/swarm/SwarmRenderer.hpp"
 #include "config_generated.hpp"
 
@@ -55,7 +55,7 @@ Render::SWindowTransformBuffer render_live(SBubbleStyle &state,
     const Render::SWindowTransformContext &context,
     const SLiveRenderGeometry &geometry,
     [[maybe_unused]] const SP<CSolidFill> &solid_fill,
-    [[maybe_unused]] const SP<CPaperShade> &shade,
+    [[maybe_unused]] const SP<CSheetShade> &shade,
     [[maybe_unused]] const SP<CSwarmSprites> &sprites) {
     if (!state.renderer) {
         return {.framebuffer = input.framebuffer, .box = input.box, .success = false};
@@ -242,12 +242,12 @@ bool SBubbleLiveStyle::deforming(const SBubbleStyle &state) noexcept {
 
 bool SBubbleLiveStyle::builtFor([[maybe_unused]] const SBubbleStyle &state,
     hyprimate::config::Style style,
-    [[maybe_unused]] hyprimate::MaterialParams material,
+    [[maybe_unused]] hyprimate::LiquidParams liquid,
     [[maybe_unused]] hyprimate::ClothMovementParams cloth_movement) noexcept {
     return style == hyprimate::config::Style::Bubble;
 }
 
-SStyleState SBubbleLiveStyle::initial([[maybe_unused]] hyprimate::MaterialParams material,
+SStyleState SBubbleLiveStyle::initial([[maybe_unused]] hyprimate::LiquidParams liquid,
     [[maybe_unused]] hyprimate::ClothMovementParams cloth_movement,
     std::uint64_t seed) {
     SBubbleStyle state;

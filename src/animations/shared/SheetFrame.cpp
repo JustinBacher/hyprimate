@@ -12,7 +12,7 @@
 namespace hyprimate {
     namespace {
 
-        constexpr int GRID = PAPER_CELLS + 1;
+        constexpr int GRID = SHEET_CELLS + 1;
         using Triangle = std::array<std::size_t, 3>;
 
         struct VertexAdjacency {
@@ -21,9 +21,9 @@ namespace hyprimate {
         };
 
         struct Topology {
-            std::array<Triangle, PAPER_TRIANGLES> triangles{};
-            std::array<VertexAdjacency, PAPER_GRID_VERTICES> adjacent{};
-            std::array<Vec2, PAPER_GRID_VERTICES> uv{};
+            std::array<Triangle, SHEET_TRIANGLES> triangles{};
+            std::array<VertexAdjacency, SHEET_GRID_VERTICES> adjacent{};
+            std::array<Vec2, SHEET_GRID_VERTICES> uv{};
         };
 
         // Light direction (towards the light), normalised below.
@@ -59,8 +59,8 @@ namespace hyprimate {
         // takes.
         Triangle triangle_corners(std::size_t triangle) noexcept {
             const std::size_t CELL = triangle / 2;
-            const int COL = static_cast<int>(CELL % PAPER_CELLS);
-            const int ROW = static_cast<int>(CELL / PAPER_CELLS);
+            const int COL = static_cast<int>(CELL % SHEET_CELLS);
+            const int ROW = static_cast<int>(CELL / SHEET_CELLS);
             const bool SECOND = (triangle & 1U) != 0;
             return SECOND ? Triangle{grid_index(COL + 1, ROW),
                                 grid_index(COL, ROW + 1),
@@ -78,16 +78,16 @@ namespace hyprimate {
                     const int COL = static_cast<int>(vertex % GRID);
                     const int ROW = static_cast<int>(vertex / GRID);
                     tex_coord = {
-                        .x = static_cast<double>(COL) / PAPER_CELLS,
-                        .y = static_cast<double>(ROW) / PAPER_CELLS,
+                        .x = static_cast<double>(COL) / SHEET_CELLS,
+                        .y = static_cast<double>(ROW) / SHEET_CELLS,
                     };
 
                     auto next = std::span(adjacent.triangles).begin();
                     const auto ADD = [&](int cell_col, int cell_row, unsigned half) {
-                        if (cell_col >= 0 && cell_row >= 0 && cell_col < PAPER_CELLS &&
-                            cell_row < PAPER_CELLS) {
+                        if (cell_col >= 0 && cell_row >= 0 && cell_col < SHEET_CELLS &&
+                            cell_row < SHEET_CELLS) {
                             *next++ = static_cast<std::uint16_t>(
-                                (((static_cast<std::size_t>(cell_row) * PAPER_CELLS) +
+                                (((static_cast<std::size_t>(cell_row) * SHEET_CELLS) +
                                      static_cast<std::size_t>(cell_col)) *
                                     2) +
                                 half);
@@ -115,7 +115,7 @@ namespace hyprimate {
         // Back-to-front by mean world z; the triangle index breaks ties. Sorting (meanZ, t) pairs
         // gives one total order, so the result is the same whatever the starting permutation.
         void sort_back_to_front(
-            const SheetGrid &world, std::array<std::uint16_t, PAPER_TRIANGLES> &order) noexcept {
+            const SheetGrid &world, std::array<std::uint16_t, SHEET_TRIANGLES> &order) noexcept {
             const Topology &mesh = topology();
             const auto MEAN_Z = [&](std::uint16_t triangle) {
                 const auto &corners = mesh.triangles[triangle];
@@ -204,9 +204,9 @@ namespace hyprimate {
 
         // Area-weighted (unnormalised) normals are used by both modes; unit face normals are only
         // needed for paper creases.
-        std::array<Vec3, PAPER_TRIANGLES> face_normal{};
-        std::array<Vec3, PAPER_TRIANGLES> face_unit{};
-        std::array<Vec3, PAPER_GRID_VERTICES> vertex_normal{};
+        std::array<Vec3, SHEET_TRIANGLES> face_normal{};
+        std::array<Vec3, SHEET_TRIANGLES> face_unit{};
+        std::array<Vec3, SHEET_GRID_VERTICES> vertex_normal{};
         for (auto &&[tri_corners, normal, unit] :
             std::views::zip(mesh.triangles, face_normal, face_unit)) {
             const Vec3 NORMAL =
@@ -260,8 +260,8 @@ namespace hyprimate {
                        : SHADE;
         };
 
-        std::array<double, PAPER_GRID_VERTICES> vertex_shade_front{};
-        std::array<double, PAPER_GRID_VERTICES> vertex_shade_back{};
+        std::array<double, SHEET_GRID_VERTICES> vertex_shade_front{};
+        std::array<double, SHEET_GRID_VERTICES> vertex_shade_back{};
         if (lighting == SheetLighting::ClothSmooth) {
             for (auto &&[normal, front, back] :
                 std::views::zip(vertex_normal, vertex_shade_front, vertex_shade_back)) {

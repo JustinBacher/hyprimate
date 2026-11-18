@@ -275,7 +275,7 @@ double CPluginRuntime::movement_strength() const {
     return with_live_style(m_config.style, [&](auto style) { return style.strength(*this); });
 }
 
-hyprimate::MaterialParams CPluginRuntime::effective_material_params() const {
+hyprimate::LiquidParams CPluginRuntime::effective_material_params() const {
     const auto &liquid = m_config.movement.liquid;
     return {
         .viscosity = liquid.viscosity,

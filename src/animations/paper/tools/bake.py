@@ -3,7 +3,7 @@
 Run headless:
     blender -b --factory-startup --python src/animations/paper/tools/bake.py -- --aspect 1.6 --seed 1 --out take.bin
 
-A flat sheet with the plugin's grid topology (PAPER_CELLS + 1 vertices per side, same triangle split) is pulled
+A flat sheet with the plugin's grid topology (SHEET_CELLS + 1 vertices per side, same triangle split) is pulled
 towards its centre from everywhere at once, the way two hands squeeze a sheet from all sides. The sheet is stiff
 in-plane and soft in bending, so it cannot shrink and has to fold; self-collision lets the folds stack into a solid
 ball. The pull grows exponentially: first it only crinkles the sheet in place while the outline pulls in, then it
@@ -24,7 +24,7 @@ import sys
 import bpy
 import numpy as np
 
-GRID = 57  # PAPER_CELLS + 1
+GRID = 57  # SHEET_CELLS + 1
 
 
 def parse_args():

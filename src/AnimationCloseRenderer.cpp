@@ -45,7 +45,7 @@
 #include "animations/paper/PaperCloseStyleData.hpp"
 #include "animations/shared/Core.hpp"
 #include "animations/shared/EdgeTransition.hpp"
-#include "animations/shared/PaperRenderer.hpp"
+#include "animations/shared/SheetRenderer.hpp"
 #include "animations/smoke/SmokeCloseStyle.hpp"
 #include "animations/swarm/SwarmCloseStyle.hpp"
 #include "animations/swarm/SwarmCloseStyleData.hpp"
@@ -255,7 +255,7 @@ bool close_animation_enabled(const hyprimate::config::SConfig &config) {
 CAnimationCloseRenderer *CAnimationCloseRenderer::s_active = nullptr;
 
 CAnimationCloseRenderer::CAnimationCloseRenderer(
-    HANDLE handle, SP<CSolidFill> solid, SP<CPaperShade> shade, SP<CSwarmSprites> sprites)
+    HANDLE handle, SP<CSolidFill> solid, SP<CSheetShade> shade, SP<CSwarmSprites> sprites)
     : m_handle(handle),
       m_solid(std::move(solid)),
       m_shade(std::move(shade)),
@@ -334,7 +334,7 @@ void CAnimationCloseRenderer::stage(const PHLWINDOW &window,
     SStyleState &state,
     bool state_active,
     const hyprimate::config::SConfig &config,
-    hyprimate::MaterialParams material,
+    hyprimate::LiquidParams liquid,
     const std::function<hyprimate::EdgeInput()> &edge_input,
     const std::function<std::span<const hyprimate::Box>()> &obstacles,
     const std::function<std::uint64_t()> &next_seed,
@@ -351,7 +351,7 @@ void CAnimationCloseRenderer::stage(const PHLWINDOW &window,
                 window,
                 state_active,
                 config,
-                material,
+                liquid,
                 edge_input,
                 obstacles,
                 next_seed,

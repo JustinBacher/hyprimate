@@ -20,7 +20,7 @@
 #include "animations/bubble/Bubble.hpp"
 #include "animations/bubble/BubbleMaterial.hpp"
 #include "animations/bubble/BubbleRenderer.hpp"
-#include "animations/shared/PaperRenderer.hpp"
+#include "animations/shared/SheetRenderer.hpp"
 
 namespace {
     // Runs work with the compositor's EGL context current, then restores whatever was current
@@ -251,7 +251,7 @@ std::vector<UP<IPassElement>> CBubblePassElement::draw(Render::CRenderContext &c
     texture_data.allowDim = false;
     if (LAYER) {
         Render::GL::g_pHyprOpenGL->renderTextureMesh(
-            ctx, LAYER->getTexture(), m_data.box, paper_canvas_quad(), texture_data);
+            ctx, LAYER->getTexture(), m_data.box, sheet_canvas_quad(), texture_data);
     } else {
         // Preserve the native snapshot when the material cannot run. The
         // capture may occupy only a sub-rectangle of a larger texture.

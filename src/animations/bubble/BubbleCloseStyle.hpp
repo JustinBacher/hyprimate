@@ -16,7 +16,7 @@ namespace close_style {
         [[maybe_unused]] const PHLWINDOW &window,
         [[maybe_unused]] bool state_active,
         const hyprimate::config::SConfig &config,
-        [[maybe_unused]] hyprimate::MaterialParams material,
+        [[maybe_unused]] hyprimate::LiquidParams liquid,
         [[maybe_unused]] const std::function<hyprimate::EdgeInput()> &edge_input,
         [[maybe_unused]] const std::function<std::span<const hyprimate::Box>()> &obstacles,
         const std::function<std::uint64_t()> &next_seed,
@@ -101,7 +101,7 @@ namespace close_style {
         const PHLMONITOR &monitor,
         const SP<Render::ITexture> &tex,
         [[maybe_unused]] const SP<CSolidFill> &solid_fill,
-        [[maybe_unused]] const SP<CPaperShade> &shade,
+        [[maybe_unused]] const SP<CSheetShade> &shade,
         [[maybe_unused]] const SP<CSwarmSprites> &sprites) {
         if (!style.renderer || record.extents_device.empty() || record.source_alpha <= 0.F) {
             return;

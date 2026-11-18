@@ -25,7 +25,7 @@
 #include "animations/liquid/SolidFill.hpp"
 #include "animations/paper/PaperCloseStyleData.hpp"
 #include "animations/shared/EdgeTransition.hpp"
-#include "animations/shared/PaperRenderer.hpp"
+#include "animations/shared/SheetRenderer.hpp"
 #include "animations/swarm/SwarmCloseStyleData.hpp"
 #include "animations/smoke/SmokeCloseStyleData.hpp"
 bool close_animation_enabled(const hyprimate::config::SConfig &config);
@@ -71,7 +71,7 @@ class CAnimationCloseRenderer {
     };
 
     explicit CAnimationCloseRenderer(
-        HANDLE handle, SP<CSolidFill> solid, SP<CPaperShade> shade, SP<CSwarmSprites> sprites);
+        HANDLE handle, SP<CSolidFill> solid, SP<CSheetShade> shade, SP<CSwarmSprites> sprites);
     ~CAnimationCloseRenderer();
 
     CAnimationCloseRenderer(const CAnimationCloseRenderer &) = delete;
@@ -88,7 +88,7 @@ class CAnimationCloseRenderer {
         SStyleState &state,
         bool state_active,
         const hyprimate::config::SConfig &config,
-        hyprimate::MaterialParams material,
+        hyprimate::LiquidParams liquid,
         const std::function<hyprimate::EdgeInput()> &edge_input,
         const std::function<std::span<const hyprimate::Box>()> &obstacles,
         const std::function<std::uint64_t()> &next_seed,
@@ -157,7 +157,7 @@ class CAnimationCloseRenderer {
 
     HANDLE m_handle;
     SP<CSolidFill> m_solid;
-    SP<CPaperShade> m_shade;
+    SP<CSheetShade> m_shade;
     SP<CSwarmSprites> m_sprites;
     // Owned by the host hook system; created and removed only through HyprlandAPI.
     CFunctionHook *m_create_hook = nullptr;

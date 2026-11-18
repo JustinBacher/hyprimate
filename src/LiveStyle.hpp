@@ -9,7 +9,7 @@
 #define LIVE_STYLE_OPERATIONS(name, state)                                                 \
     struct name {                                                                          \
         static SStyleState initial(                                                        \
-            hyprimate::MaterialParams, hyprimate::ClothMovementParams, std::uint64_t);     \
+            hyprimate::LiquidParams, hyprimate::ClothMovementParams, std::uint64_t);     \
         static double strength(const CPluginRuntime &);                                    \
         static bool usable(const CPluginRuntime &);                                        \
         static bool open(CPluginRuntime &, CPluginRuntime::STracked &, const PHLWINDOW &); \
@@ -27,7 +27,7 @@
         static bool deforming(const state &) noexcept;                                     \
         static bool builtFor(const state &,                                                \
             hyprimate::config::Style,                                                      \
-            hyprimate::MaterialParams,                                                     \
+            hyprimate::LiquidParams,                                                     \
             hyprimate::ClothMovementParams) noexcept;                                      \
         static void step(                                                                  \
             CPluginRuntime &, CAnimationTransformer &, double, hyprimate::Vec2, bool);     \

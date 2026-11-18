@@ -59,7 +59,7 @@
 
 namespace hyprimate {
     namespace {
-        constexpr int GRID = PAPER_CELLS + 1;
+        constexpr int GRID = SHEET_CELLS + 1;
         constexpr double STEP_SECONDS = 1.0 / 120.0;
         constexpr double OPEN_LENGTH = 1.4;
         constexpr double SETTLE_FROM = 0.84;
@@ -112,8 +112,8 @@ namespace hyprimate {
             for (int j = 0; j < GRID; ++j) {
                 for (int i = 0; i < GRID; ++i) {
                     *vertex = {
-                        .x = (static_cast<double>(i) / PAPER_CELLS) - 0.5,
-                        .y = -static_cast<double>(j) / PAPER_CELLS,
+                        .x = (static_cast<double>(i) / SHEET_CELLS) - 0.5,
+                        .y = -static_cast<double>(j) / SHEET_CELLS,
                         .z = 0,
                     };
                     ++vertex;
@@ -129,17 +129,17 @@ namespace hyprimate {
             auto *previous = header.begin();
             auto *current = std::next(previous);
             for (int i = 1; i < GRID; ++i, ++previous, ++current) {
-                const double ANGLE = 1.1 * std::sin(10 * std::numbers::pi * (i - .5) / PAPER_CELLS);
+                const double ANGLE = 1.1 * std::sin(10 * std::numbers::pi * (i - .5) / SHEET_CELLS);
                 *current = {
-                    .x = previous->x + (std::cos(ANGLE) / PAPER_CELLS),
-                    .y = previous->y + (std::sin(ANGLE) / PAPER_CELLS),
+                    .x = previous->x + (std::cos(ANGLE) / SHEET_CELLS),
+                    .y = previous->y + (std::sin(ANGLE) / SHEET_CELLS),
                 };
             }
             SheetGrid out{};
             auto *vertex = out.begin();
             for (int j = 0; j < GRID; ++j) {
                 for (const auto &fold : header) {
-                    const double DOWN = static_cast<double>(j) / PAPER_CELLS;
+                    const double DOWN = static_cast<double>(j) / SHEET_CELLS;
                     *vertex = {
                         .x = fold.x - (header.back().x / 2),
                         .y = -DOWN,
@@ -155,7 +155,7 @@ namespace hyprimate {
             // membrane.
             return CLOTH_INV_MASS /
                    static_cast<float>(
-                       1 + (2 * smoothstep(.92, 1, static_cast<double>(row) / PAPER_CELLS)));
+                       1 + (2 * smoothstep(.92, 1, static_cast<double>(row) / SHEET_CELLS)));
         }
         bool valid_box(const Box &box) noexcept {
             // Logical desktop geometry is far smaller than these bounds. Reject values that cannot
@@ -187,7 +187,7 @@ namespace hyprimate {
         struct VertexSample {
             Float3 position, velocity;
         };
-        using Frame = std::array<VertexSample, PAPER_GRID_VERTICES>;
+        using Frame = std::array<VertexSample, SHEET_GRID_VERTICES>;
         static_assert(std::is_standard_layout_v<Float3> && std::is_standard_layout_v<VertexSample>);
         static_assert(sizeof(Float3) == 3 * sizeof(float) && alignof(Float3) == alignof(float));
         static_assert(offsetof(Float3, x) == 0 && offsetof(Float3, y) == sizeof(float) &&
@@ -196,7 +196,7 @@ namespace hyprimate {
             sizeof(VertexSample) == 6 * sizeof(float) && alignof(VertexSample) == alignof(float));
         static_assert(offsetof(VertexSample, position) == 0 &&
                       offsetof(VertexSample, velocity) == 3 * sizeof(float));
-        static_assert(sizeof(Frame) == PAPER_GRID_VERTICES * 6 * sizeof(float) &&
+        static_assert(sizeof(Frame) == SHEET_GRID_VERTICES * 6 * sizeof(float) &&
                       alignof(Frame) == alignof(float));
         struct Target {
             double time = 0;
@@ -626,7 +626,7 @@ namespace hyprimate {
                 for (const auto &body_id : ids) {
                     const float POS_X = bodies.GetPosition(body_id).GetX();
                     const auto REST =
-                        static_cast<float>((static_cast<double>(body_index++) / PAPER_CELLS) - .5);
+                        static_cast<float>((static_cast<double>(body_index++) / SHEET_CELLS) - .5);
                     const float VELOCITY = bodies.GetLinearVelocity(body_id).GetX();
                     // A distributed lengthwise spring restores the sleeve during travel, not only
                     // after it stops. Jolt integrates the spring force; spring damping controls the
@@ -726,7 +726,7 @@ namespace hyprimate {
             std::array<double, GRID> pleats{};
             int column = 0;
             for (auto &pleat : pleats) {
-                pleat = std::sin((8 * std::numbers::pi * column++ / PAPER_CELLS) + phase);
+                pleat = std::sin((8 * std::numbers::pi * column++ / SHEET_CELLS) + phase);
             }
             const Ref<SoftBodySharedSettings> SETTINGS = new SoftBodySharedSettings;
             std::size_t vertex_index = 0;
@@ -740,8 +740,8 @@ namespace hyprimate {
                         : cloth_inverse_mass(static_cast<int>(vertex_index / GRID)));
                 ++vertex_index;
             }
-            for (int j = 0; j < PAPER_CELLS; ++j) {
-                for (int i = 0; i < PAPER_CELLS; ++i) {
+            for (int j = 0; j < SHEET_CELLS; ++j) {
+                for (int i = 0; i < SHEET_CELLS; ++i) {
                     const auto TOP_LEFT = static_cast<uint32>(index(i, j));
                     const auto TOP_RIGHT = static_cast<uint32>(index(i + 1, j));
                     const auto BOTTOM_LEFT = static_cast<uint32>(index(i, j + 1));
@@ -898,7 +898,7 @@ namespace hyprimate {
                                 velocity = (JPH::Vec3(POS_X, 0, 0) - position) /
                                            static_cast<float>(STEP_SECONDS);
                             } else {
-                                const double DOWN = static_cast<double>(j) / PAPER_CELLS;
+                                const double DOWN = static_cast<double>(j) / SHEET_CELLS;
                                 const double RESPONSE = vertex.mInvMass / CLOTH_INV_MASS;
                                 const double SPRING =
                                     4 + (30 * (1 - DOWN) * (1 - DOWN)) + (120 * SETTLE);
@@ -1001,7 +1001,7 @@ namespace hyprimate {
                 int column = 0;
                 for (auto &gust : gust_columns) {
                     gust =
-                        std::sin((8 * std::numbers::pi * column++ / PAPER_CELLS) + input.phase_a);
+                        std::sin((8 * std::numbers::pi * column++ / SHEET_CELLS) + input.phase_a);
                 }
             }
             // Keep the wall behind the exact display plane: a flat, fully free sheet must not start
@@ -1017,8 +1017,8 @@ namespace hyprimate {
                         Run::pinned(j) ? 0.0F : cloth_inverse_mass(j));
                 }
             }
-            for (int j = 0; j < PAPER_CELLS; ++j) {
-                for (int i = 0; i < PAPER_CELLS; ++i) {
+            for (int j = 0; j < SHEET_CELLS; ++j) {
+                for (int i = 0; i < SHEET_CELLS; ++i) {
                     const auto TOP_LEFT = static_cast<uint32>(index(i, j));
                     const auto TOP_RIGHT = static_cast<uint32>(index(i + 1, j));
                     const auto BOTTOM_LEFT = static_cast<uint32>(index(i, j + 1));
@@ -1134,7 +1134,7 @@ namespace hyprimate {
                     const double ROW_GUST =
                         input.flutter > 0
                             ? std::sin((input.freq_a * TIME) +
-                                       (.8 * static_cast<double>(j) / PAPER_CELLS) + input.phase_b)
+                                       (.8 * static_cast<double>(j) / SHEET_CELLS) + input.phase_b)
                             : 0;
                     const auto *gust = gust_columns.begin();
                     for (int i = 0; i < GRID; ++i) {
@@ -1171,9 +1171,9 @@ namespace hyprimate {
                             const auto VERTEX_AT = [&](int column, int row) {
                                 return VERTEX_GRID[row, column].mPosition;
                             };
-                            const auto TANGENT_X = VERTEX_AT(std::min(i + 1, PAPER_CELLS), j) -
+                            const auto TANGENT_X = VERTEX_AT(std::min(i + 1, SHEET_CELLS), j) -
                                                    VERTEX_AT(std::max(i - 1, 0), j);
-                            const auto TANGENT_Y = VERTEX_AT(i, std::min(j + 1, PAPER_CELLS)) -
+                            const auto TANGENT_Y = VERTEX_AT(i, std::min(j + 1, SHEET_CELLS)) -
                                                    VERTEX_AT(i, std::max(j - 1, 0));
                             const auto NORMAL =
                                 TANGENT_X.Cross(TANGENT_Y).NormalizedOr(JPH::Vec3::sAxisZ());

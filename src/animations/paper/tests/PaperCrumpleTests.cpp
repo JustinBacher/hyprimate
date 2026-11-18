@@ -333,7 +333,7 @@ namespace {
     // into the next frame, so every projection seeds from the previous one: this checks the seeded
     // sort never drifts from a fresh sort. Each take plays forward (open) and back (close).
     void test_order_matches_fresh_sort_along_playback() {
-        using hyprimate::PAPER_TRIANGLES;
+        using hyprimate::SHEET_TRIANGLES;
         const int FRAMES = hyprimate::paper_take_frames();
         SheetFrame out{};
         for (int take = 0; take < hyprimate::paper_take_count(); ++take) {
@@ -363,8 +363,8 @@ namespace {
                 // Independent recomputation: mean z per triangle with the same arithmetic, then a
                 // fresh sort of (z, t) pairs.
                 std::vector<std::pair<double, std::uint16_t>> keyed;
-                keyed.reserve(PAPER_TRIANGLES);
-                for (std::size_t triangle_index = 0; triangle_index < PAPER_TRIANGLES;
+                keyed.reserve(SHEET_TRIANGLES);
+                for (std::size_t triangle_index = 0; triangle_index < SHEET_TRIANGLES;
                     ++triangle_index) {
                     const auto &corners = hyprimate::sheet_triangle(triangle_index);
                     const double DEPTH =

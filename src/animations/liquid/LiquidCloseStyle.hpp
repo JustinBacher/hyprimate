@@ -113,7 +113,7 @@ namespace close_style {
         const PHLMONITOR &monitor,
         const SP<Render::ITexture> &tex,
         const SP<CSolidFill> &solid,
-        [[maybe_unused]] const SP<CPaperShade> &shade,
+        [[maybe_unused]] const SP<CSheetShade> &shade,
         [[maybe_unused]] const SP<CSwarmSprites> &sprites) {
         const auto &close = std::get<SLiquidCloseData>(record.close_data);
         if (close.vertices_stale) {
@@ -187,7 +187,7 @@ namespace close_style {
         const PHLWINDOW &window,
         bool active,
         const hyprimate::config::SConfig &config,
-        hyprimate::MaterialParams material,
+        hyprimate::LiquidParams liquid,
         const std::function<hyprimate::EdgeInput()> &edge_input,
         [[maybe_unused]] const std::function<std::span<const hyprimate::Box>()> &surfaces,
         [[maybe_unused]] const std::function<std::uint64_t()> &seed,
@@ -206,7 +206,7 @@ namespace close_style {
                 SLiquidStyle{.mesh = POSE.mesh.get(), .transition = POSE.transition.get()};
             data.compensation = POSE.compensation;
         } else {
-            pending.style = SLiquidStyle{.mesh = hyprimate::LiquidMesh{material}};
+            pending.style = SLiquidStyle{.mesh = hyprimate::LiquidMesh{liquid}};
         }
         data.strength = close.strength;
         data.frame = FRAME;

@@ -57,7 +57,7 @@
   "src/animations/cloth/tests/ClothLeaseFailureTests.cpp|modernize-deprecated-headers|warning|inclusion of deprecated C++ header 'time.h'; consider using 'ctime' instead": 1,
   "src/animations/paper/tests/PaperCrumpleTests.cpp|cert-err33-c|warning|the value returned by this function should not be disregarded; neglecting it may lead to errors": 4,
   "src/animations/paper/tests/PaperCrumpleTests.cpp|performance-inefficient-vector-operation|warning|'push_back' is called inside a loop; consider pre-allocating the container capacity before the loop": 1,
-  "src/animations/shared/tests/EdgeTransitionTests.cpp|cert-err33-c|warning|the value returned by this function should not be disregarded; neglecting it may lead to errors": 2,
+  "tests/EdgeTransitionTests.cpp|cert-err33-c|warning|the value returned by this function should not be disregarded; neglecting it may lead to errors": 2,
   "src/animations/smoke/Smoke.cpp|modernize-min-max-use-initializer-list|warning|do not use nested 'std::min' calls, use an initializer list instead": 1,
   "src/animations/smoke/Smoke.cpp|readability-avoid-nested-conditional-operator|warning|conditional operator is used as sub-expression of parent conditional operator, refrain from using nested conditional operators": 2,
   "src/animations/smoke/Smoke.cpp|readability-function-cognitive-complexity|warning|function 'advance' has cognitive complexity of 48 (threshold 30)": 1,

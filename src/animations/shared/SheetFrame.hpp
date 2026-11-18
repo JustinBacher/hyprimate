@@ -8,19 +8,19 @@
 
 namespace hyprimate {
 
-    // A sheet is the window drawn as a (PAPER_CELLS + 1)^2 vertex grid of lit triangles. Paper and
-    // cloth both animate the grid in 3D and project it through project_sheet; the paper renderer
+    // A sheet is the window drawn as a (SHEET_CELLS + 1)^2 vertex grid of lit triangles. Paper and
+    // cloth both animate the grid in 3D and project it through project_sheet; the sheet renderer
     // draws the result.
-    inline constexpr int PAPER_CELLS = 56;
-    inline constexpr std::size_t PAPER_TRIANGLES =
-        static_cast<std::size_t>(PAPER_CELLS) * PAPER_CELLS * 2;  // 6272
-    inline constexpr std::size_t PAPER_GRID_VERTICES =
-        static_cast<std::size_t>(PAPER_CELLS + 1) * (PAPER_CELLS + 1);
+    inline constexpr int SHEET_CELLS = 56;
+    inline constexpr std::size_t SHEET_TRIANGLES =
+        static_cast<std::size_t>(SHEET_CELLS) * SHEET_CELLS * 2;  // 6272
+    inline constexpr std::size_t SHEET_GRID_VERTICES =
+        static_cast<std::size_t>(SHEET_CELLS + 1) * (SHEET_CELLS + 1);
 
-    // Sheet vertex positions, index j * (PAPER_CELLS + 1) + i for column i and row j (row 0 is the
+    // Sheet vertex positions, index j * (SHEET_CELLS + 1) + i for column i and row j (row 0 is the
     // window's top edge). Logical pixels relative to the rest capture centre: x right, y down, z
     // towards the viewer.
-    using SheetGrid = std::array<Vec3, PAPER_GRID_VERTICES>;
+    using SheetGrid = std::array<Vec3, SHEET_GRID_VERTICES>;
 
     enum class SheetLighting : std::uint8_t { PaperCreases, ClothSmooth };
 
@@ -32,11 +32,11 @@ namespace hyprimate {
 
         // Displayed grid vertex positions, relative to the rest capture centre, in units of the
         // rest size (x/W, y/H).
-        std::array<Vec2, PAPER_GRID_VERTICES> position{};
+        std::array<Vec2, SHEET_GRID_VERTICES> position{};
         // Per triangle, per corner, in [-1,1]: <0 darker, >0 lighter. All zero when unlit.
-        std::array<std::array<float, 3>, PAPER_TRIANGLES> shade{};
+        std::array<std::array<float, 3>, SHEET_TRIANGLES> shade{};
         // Triangle ids sorted back to front.
-        std::array<std::uint16_t, PAPER_TRIANGLES> order{};
+        std::array<std::uint16_t, SHEET_TRIANGLES> order{};
         bool lit = false;
     };
 

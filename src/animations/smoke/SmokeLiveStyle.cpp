@@ -22,7 +22,7 @@ Render::SWindowTransformBuffer render_live(SSmokeStyle &state,
     [[maybe_unused]] const Render::SWindowTransformContext &context,
     const SLiveRenderGeometry &geometry,
     [[maybe_unused]] const SP<CSolidFill> &solid,
-    [[maybe_unused]] const SP<CPaperShade> &shade,
+    [[maybe_unused]] const SP<CSheetShade> &shade,
     [[maybe_unused]] const SP<CSwarmSprites> &sprites) {
     if (!state.renderer) {
         return {.framebuffer = input.framebuffer, .box = input.box, .success = false};
@@ -148,12 +148,12 @@ bool SSmokeLiveStyle::deforming(const SSmokeStyle &state) noexcept {
 
 bool SSmokeLiveStyle::builtFor([[maybe_unused]] const SSmokeStyle &state,
     hyprimate::config::Style style,
-    [[maybe_unused]] hyprimate::MaterialParams material,
+    [[maybe_unused]] hyprimate::LiquidParams liquid,
     [[maybe_unused]] hyprimate::ClothMovementParams cloth) noexcept {
     return style == hyprimate::config::Style::Smoke;
 }
 
-SStyleState SSmokeLiveStyle::initial([[maybe_unused]] hyprimate::MaterialParams material,
+SStyleState SSmokeLiveStyle::initial([[maybe_unused]] hyprimate::LiquidParams liquid,
     [[maybe_unused]] hyprimate::ClothMovementParams cloth,
     std::uint64_t seed) {
     SSmokeStyle state;

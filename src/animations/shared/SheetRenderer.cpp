@@ -20,7 +20,7 @@
 #include <hyprland/src/render/types.hpp>
 #include <hyprutils/math/Box.hpp>
 
-#include "animations/shared/PaperRenderer.hpp"
+#include "animations/shared/SheetRenderer.hpp"
 #include "animations/shared/SheetFrame.hpp"
 
 namespace {
@@ -42,7 +42,7 @@ namespace {
     }
 }  // namespace
 
-SP<Render::ITexture> CPaperShade::texture() {
+SP<Render::ITexture> CSheetShade::texture() {
     if (m_texture || !g_pHyprRenderer) {
         return m_texture;
     }
@@ -101,11 +101,11 @@ void fill_sheet_meshes(const hyprimate::SheetFrame &frame,
     hyprimate::Vec2 texture_size,
     std::vector<SMeshRenderVertex> &window,
     std::vector<SMeshRenderVertex> &shade) {
-    if (window.size() != PAPER_VERTEX_COUNT) {
-        window.resize(PAPER_VERTEX_COUNT);
+    if (window.size() != SHEET_VERTEX_COUNT) {
+        window.resize(SHEET_VERTEX_COUNT);
     }
-    if (shade.size() != PAPER_VERTEX_COUNT) {
-        shade.resize(PAPER_VERTEX_COUNT);
+    if (shade.size() != SHEET_VERTEX_COUNT) {
+        shade.resize(SHEET_VERTEX_COUNT);
     }
 
     const double CENTRE_X = source_device.x + (0.5 * source_device.w);
@@ -144,7 +144,7 @@ void fill_sheet_meshes(const hyprimate::SheetFrame &frame,
     }
 }
 
-const std::vector<SMeshRenderVertex> &paper_canvas_quad() {
+const std::vector<SMeshRenderVertex> &sheet_canvas_quad() {
     static const std::vector<SMeshRenderVertex> QUAD{
         {.x = 0.F, .y = 0.F, .u = 0.F, .v = 0.F},
         {.x = 0.F, .y = 1.F, .u = 0.F, .v = 1.F},
@@ -156,7 +156,7 @@ const std::vector<SMeshRenderVertex> &paper_canvas_quad() {
     return QUAD;
 }
 
-SP<Render::IFramebuffer> render_paper(Render::CRenderContext &ctx, const SPaperDraw &draw) {
+SP<Render::IFramebuffer> render_sheet(Render::CRenderContext &ctx, const SSheetDraw &draw) {
     if (!draw.window || (draw.window_vertices == nullptr) || draw.window_vertices->empty() ||
         (!(draw.canvas.x > 0.0) || !(draw.canvas.y > 0.0))) {
         return nullptr;
@@ -230,7 +230,7 @@ SP<Render::IFramebuffer> render_paper(Render::CRenderContext &ctx, const SPaperD
         Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx,
             SHADE_LAYER->getTexture(),
             CBox{0.0, 0.0, draw.canvas.x, draw.canvas.y},
-            paper_canvas_quad(),
+            sheet_canvas_quad(),
             texture_data);
     }
 

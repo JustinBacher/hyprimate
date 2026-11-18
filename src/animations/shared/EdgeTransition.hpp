@@ -5,7 +5,6 @@
 #include <optional>
 #include <span>
 
-#include "animations/liquid/LiquidMesh.hpp"
 #include "animations/shared/Core.hpp"
 
 namespace hyprimate {

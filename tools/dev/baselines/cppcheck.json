@@ -43,7 +43,7 @@
   "src/animations/shared/EdgeTransition.cpp|normalCheckLevelMaxBranches|information|Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches.": 1,
   "src/animations/shared/SheetClosePass.cpp|normalCheckLevelMaxBranches|information|Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches.": 1,
   "src/animations/shared/SheetFrame.cpp|normalCheckLevelMaxBranches|information|Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches.": 1,
-  "src/animations/shared/tests/EdgeTransitionTests.cpp|normalCheckLevelMaxBranches|information|Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches.": 1,
+  "tests/EdgeTransitionTests.cpp|normalCheckLevelMaxBranches|information|Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches.": 1,
   "src/animations/smoke/Smoke.cpp|normalCheckLevelMaxBranches|information|Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches.": 1,
   "src/animations/smoke/SmokeLiveStyle.cpp|normalCheckLevelMaxBranches|information|Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches.": 1,
   "src/animations/smoke/SmokeMaterial.cpp|normalCheckLevelMaxBranches|information|Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches.": 1,

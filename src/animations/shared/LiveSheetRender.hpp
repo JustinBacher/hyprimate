@@ -16,7 +16,7 @@ inline Render::SWindowTransformBuffer render_live_sheet(SSheetBuffers &sheet,
     Render::CRenderContext &ctx,
     const Render::SWindowTransformBuffer &input,
     const SLiveRenderGeometry &geometry,
-    const SP<CPaperShade> &shade) {
+    const SP<CSheetShade> &shade) {
     fill_sheet_meshes(*sheet.frame,
         geometry.source,
         geometry.output,
@@ -24,8 +24,8 @@ inline Render::SWindowTransformBuffer render_live_sheet(SSheetBuffers &sheet,
         geometry.texture_size,
         sheet.window,
         sheet.shade);
-    const auto LAYER = render_paper(ctx,
-        SPaperDraw{
+    const auto LAYER = render_sheet(ctx,
+        SSheetDraw{
             .window = input.framebuffer->getTexture(),
             .shade = shaded && shade ? shade->texture() : SP<Render::ITexture>{},
             .canvas = geometry.canvas.size(),

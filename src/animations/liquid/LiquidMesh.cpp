@@ -121,7 +121,7 @@ namespace hyprimate {
             return std::isfinite(value) ? std::clamp(value, 0.0, 1.0) : value;
         }
 
-        MaterialParams normalize_params(MaterialParams params) noexcept {
+        LiquidParams normalize_params(LiquidParams params) noexcept {
             params.viscosity = normalize_param(params.viscosity);
             params.elasticity = normalize_param(params.elasticity);
             params.momentum = normalize_param(params.momentum);
@@ -129,7 +129,7 @@ namespace hyprimate {
             return params;
         }
 
-        bool has_finite_params(const MaterialParams &params) noexcept {
+        bool has_finite_params(const LiquidParams &params) noexcept {
             return std::isfinite(params.viscosity) && std::isfinite(params.elasticity) &&
                    std::isfinite(params.momentum) && std::isfinite(params.variation);
         }
@@ -301,7 +301,7 @@ namespace hyprimate {
 
     }  // namespace
 
-    LiquidMesh::LiquidMesh(MaterialParams params, std::uint64_t seed) noexcept
+    LiquidMesh::LiquidMesh(LiquidParams params, std::uint64_t seed) noexcept
         : m_params(normalize_params(params)),
           m_shear_damping(
               LIQUID_SHEAR_DAMPING_MIN + (LIQUID_SHEAR_DAMPING_RANGE * m_params.viscosity)),

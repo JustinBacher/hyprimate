@@ -58,7 +58,7 @@ class CPluginRuntime {
     bool open_enabled() const;
     bool close_enabled() const;
     double movement_strength() const;
-    hyprimate::MaterialParams effective_material_params() const;
+    hyprimate::LiquidParams effective_material_params() const;
     hyprimate::ClothMovementParams cloth_movement_params() const;
     bool material_usable() const;
     bool material_changed(const CAnimationTransformer &transformer) const;
@@ -122,7 +122,7 @@ class CPluginRuntime {
     bool m_inert = false;
     SP<CSolidFill> m_open_solid = makeShared<CSolidFill>();
     SP<CSolidFill> m_close_solid = makeShared<CSolidFill>();
-    SP<CPaperShade> m_shade = makeShared<CPaperShade>();
+    SP<CSheetShade> m_shade = makeShared<CSheetShade>();
     SP<CSwarmSprites> m_sprites = makeShared<CSwarmSprites>();
     SP<CBubbleRenderer> m_bubble = makeShared<CBubbleRenderer>();
     SP<CSmokeRenderer> m_smoke = makeShared<CSmokeRenderer>();

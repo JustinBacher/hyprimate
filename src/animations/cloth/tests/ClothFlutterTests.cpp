@@ -19,7 +19,7 @@ namespace {
     using namespace hyprimate;
     constexpr Box WINDOW{.x = 100, .y = 50, .w = 1000, .h = 700};
     constexpr Box SCREEN{.x = -300, .y = -200, .w = 1920, .h = 1200};
-    constexpr int GRID = PAPER_CELLS + 1;
+    constexpr int GRID = SHEET_CELLS + 1;
     ClothParams params() {
         return {.duration = 0.8, .flutter = 0.5, .shading = 0.7, .variation = 0.5};
     }
@@ -109,7 +109,7 @@ namespace {
         double contour = 0;
         double near = 1e9;
         double far = -1e9;
-        constexpr int ROW = PAPER_CELLS / 2;
+        constexpr int ROW = SHEET_CELLS / 2;
         const auto ROW_POINTS =
             std::span(START.p).subspan(static_cast<std::size_t>(ROW) * GRID, GRID);
         auto previous_vertex = ROW_POINTS.begin();
@@ -125,13 +125,13 @@ namespace {
             ++vertex_index;
         }
         CHECK(far - near > .03);
-        CHECK(std::get<(std::size_t(ROW) * GRID) + PAPER_CELLS>(START.p).x -
+        CHECK(std::get<(std::size_t(ROW) * GRID) + SHEET_CELLS>(START.p).x -
                   std::get<std::size_t(ROW) * GRID>(START.p).x <
               .95);
         CHECK(std::abs(contour - 1) < .01);
         // It hangs predominantly downward, rather than presenting one flat horizontal flap.
-        CHECK(std::get<PAPER_CELLS / 2>(START.p).y -
-                  std::get<(std::size_t(PAPER_CELLS) * GRID) + (PAPER_CELLS / 2)>(START.p).y >
+        CHECK(std::get<SHEET_CELLS / 2>(START.p).y -
+                  std::get<(std::size_t(SHEET_CELLS) * GRID) + (SHEET_CELLS / 2)>(START.p).y >
               .65);
     }
 
@@ -626,13 +626,13 @@ namespace {
             }
             const auto SPREAD = pose(cloth);
             const Vec3 &trailing =
-                DIRECTION > 0 ? SPREAD.p.front() : std::get<PAPER_CELLS>(SPREAD.p);
+                DIRECTION > 0 ? SPREAD.p.front() : std::get<SHEET_CELLS>(SPREAD.p);
             const Vec3 &trailing_start =
-                DIRECTION > 0 ? START.p.front() : std::get<PAPER_CELLS>(START.p);
+                DIRECTION > 0 ? START.p.front() : std::get<SHEET_CELLS>(START.p);
             const Vec3 &leading =
-                DIRECTION > 0 ? std::get<PAPER_CELLS>(SPREAD.p) : SPREAD.p.front();
+                DIRECTION > 0 ? std::get<SHEET_CELLS>(SPREAD.p) : SPREAD.p.front();
             const Vec3 &leading_start =
-                DIRECTION > 0 ? std::get<PAPER_CELLS>(START.p) : START.p.front();
+                DIRECTION > 0 ? std::get<SHEET_CELLS>(START.p) : START.p.front();
             const double TRAILING_SPREAD = -DIRECTION * (trailing.x - trailing_start.x);
             const double LEADING_SPREAD = DIRECTION * (leading.x - leading_start.x);
             CHECK(LEADING_SPREAD > .005);
@@ -661,7 +661,7 @@ namespace {
                 const auto *upper = MOVED.p.begin();
                 auto lower = std::span(MOVED.p).last(GRID).begin();
                 for (int i = 0; i < GRID; ++i, ++upper, ++lower) {
-                    const double REST = (static_cast<double>(i) / PAPER_CELLS) - .5;
+                    const double REST = (static_cast<double>(i) / SHEET_CELLS) - .5;
                     *peak = std::max(*peak, std::abs(upper->x - REST) * box.w);
                     lower_drift = std::max(lower_drift, std::abs(lower->x - REST) * box.w);
                 }
@@ -703,7 +703,7 @@ namespace {
                 ++vertex_index;
             }
             CHECK(on_rod);
-            CHECK(DIRECTION > 0 ? std::get<PAPER_CELLS>(MOVED.p).x < .495
+            CHECK(DIRECTION > 0 ? std::get<SHEET_CELLS>(MOVED.p).x < .495
                                 : std::get<0>(MOVED.p).x > -.495);
         }
     }
@@ -728,7 +728,7 @@ namespace {
                 offset = 0;
                 int vertex_index = 0;
                 for (const auto &vertex : std::span(MOVED.p).first(GRID)) {
-                    offset += vertex.x - ((static_cast<double>(vertex_index++) / PAPER_CELLS) - .5);
+                    offset += vertex.x - ((static_cast<double>(vertex_index++) / SHEET_CELLS) - .5);
                 }
                 offset /= GRID;
                 peak = std::max(peak, std::abs(offset));
@@ -847,18 +847,18 @@ namespace {
                         std::span(MOVED.p).subspan(static_cast<std::size_t>(row) * GRID, GRID);
                     for (const auto &vertex : ROW_POINTS) {
                         sum +=
-                            std::pow((vertex.x - (static_cast<double>(vertex_index) / PAPER_CELLS) +
+                            std::pow((vertex.x - (static_cast<double>(vertex_index) / SHEET_CELLS) +
                                          .5) *
                                          box.w,
                                 2) +
                             std::pow(
-                                (vertex.y + (static_cast<double>(row) / PAPER_CELLS)) * box.h, 2) +
+                                (vertex.y + (static_cast<double>(row) / SHEET_CELLS)) * box.h, 2) +
                             (vertex.z * vertex.z * box.w * box.h);
                         ++vertex_index;
                     }
                     return std::sqrt(sum / GRID);
                 };
-                CHECK(MOTION_AT(PAPER_CELLS) > MOTION_AT(PAPER_CELLS / 4) + 1);
+                CHECK(MOTION_AT(SHEET_CELLS) > MOTION_AT(SHEET_CELLS / 4) + 1);
             }
         }
     }
@@ -1130,7 +1130,7 @@ namespace {
         movement_step(cloth, box, 1.0 / 120, time);
         movement_step(cloth, box, 1.0 / 120, time);
         const auto MOVED = pose(cloth);
-        constexpr auto ANCHOR = static_cast<std::size_t>(PAPER_CELLS);
+        constexpr auto ANCHOR = static_cast<std::size_t>(SHEET_CELLS);
         CHECK(std::get<ANCHOR>(MOVED.p).x >= -.50001 && std::get<ANCHOR>(MOVED.p).x <= .50001 &&
               std::abs(std::get<ANCHOR>(MOVED.p).y) < 1e-5);
         for (int i = 0; i < 48; ++i) {
@@ -1155,8 +1155,8 @@ namespace {
         cloth.update_movement(box, 1.0 / 60);
         cloth.advance(1.0 / 60);
         const auto ONSET = pose(cloth);
-        CHECK(std::abs(std::get<PAPER_CELLS>(ONSET.p).x - .5) < 1e-7);
-        CHECK(std::abs(std::get<PAPER_CELLS>(ONSET.v).x - 1.2) < 1e-6);
+        CHECK(std::abs(std::get<SHEET_CELLS>(ONSET.p).x - .5) < 1e-7);
+        CHECK(std::abs(std::get<SHEET_CELLS>(ONSET.v).x - 1.2) < 1e-6);
         ClothPhysics::pause_workers_for_testing(false);
         cloth.reset();
 
