@@ -818,7 +818,7 @@ namespace {
                   sprite_size(FRAME_INFO, SpriteFit{40.0}, SpriteCover{60.0}, SpriteLock{1.0}) >=
               60.0);
         double previous = 0.0;
-        // NOLINTNEXTLINE(bugprone-float-loop-counter): Preserve the FP recurrence and its exact endpoint.
+        // NOLINTNEXTLINE(bugprone-float-loop-counter,clang-analyzer-security.FloatLoopCounter): Preserve the FP recurrence and its exact endpoint.
         for (double lock = 0.0; lock <= 1.0; lock += 0.1) {
             const double SIZE =
                 sprite_size(FRAME_INFO, SpriteFit{40.0}, SpriteCover{60.0}, SpriteLock{lock});
