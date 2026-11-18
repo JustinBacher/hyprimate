@@ -66,7 +66,7 @@ namespace {
     }
     template <std::size_t N>
     void surface(const std::array<GLint, N> &uniforms, const hyprimate::BubbleSurface &shape) {
-        static_assert(N == 13 + (4 * 6) + 8);
+        static_assert(N == 13 + (4 * 6) + 9);
         vector(std::get<0>(uniforms), shape.half_size);
         vector(std::get<1>(uniforms), shape.core);
         glUniform1f(std::get<2>(uniforms), static_cast<float>(shape.corner));
@@ -122,15 +122,37 @@ namespace {
         vector(std::get<42>(uniforms), deformation.extent);
         vector(std::get<43>(uniforms), deformation.carry);
         glUniform1f(std::get<44>(uniforms), static_cast<float>(shape.transparency));
+        std::array<float, 4 * hyprimate::K_BUBBLE_BUDS> buds{};
+        auto out = buds.begin();
+        for (const auto &bud : deformation.buds) {
+            *out++ = static_cast<float>(bud.foot.x);
+            *out++ = static_cast<float>(bud.foot.y);
+            *out++ = static_cast<float>(bud.height);
+            *out++ = static_cast<float>(bud.width);
+        }
+        glUniform4fv(std::get<45>(uniforms), static_cast<GLsizei>(hyprimate::K_BUBBLE_BUDS), buds.data());
     }
     struct Instance {
         std::array<float, 8> values;
     };
+    // One small soap bubble: shape, neck, film (thickness, seed, flow, visibility), outline.
     struct MicroInstance {
-        std::array<float, 12> values;
+        std::array<float, 16> values;
     };
-    constexpr std::size_t K_MICRO_INSTANCES =
-        std::max(hyprimate::K_BUBBLE_MICRO_CAPACITY, hyprimate::K_BUBBLE_WAKE_BUBBLES);
+    constexpr std::size_t K_MICRO_INSTANCES = std::max(
+        {hyprimate::K_BUBBLE_MICRO_CAPACITY, hyprimate::K_BUBBLE_WAKE_BUBBLES,
+            hyprimate::kBubbleFormationCapacity});
+    MicroInstance micro_instance(const hyprimate::BubbleMicro &bubble) {
+        return {{
+            static_cast<float>(bubble.centre.x), static_cast<float>(bubble.centre.y),
+            static_cast<float>(bubble.radius), static_cast<float>(bubble.growth),
+            static_cast<float>(bubble.anchor.x), static_cast<float>(bubble.anchor.y),
+            static_cast<float>(bubble.attach), static_cast<float>(bubble.collapse),
+            static_cast<float>(bubble.thickness), static_cast<float>(bubble.seed),
+            static_cast<float>(bubble.flow), static_cast<float>(bubble.visibility),
+            static_cast<float>(bubble.squash.x), static_cast<float>(bubble.squash.y), 0.F, 0.F,
+        }};
+    }
     // Movement uniforms follow the 13 fields and 4 holes of every membrane.
     constexpr std::array K_MOTION_FIELDS{
         "drag",
@@ -141,6 +163,7 @@ namespace {
         "extent",
         "carry",
         "transparency",
+        "buds[0]",
     };
 }  // namespace
 
@@ -234,7 +257,7 @@ bool CBubbleMaterial::initialize() {
     static_assert(std::size(CURL_NAMES) == std::tuple_size_v<decltype(m_curl_uniforms)>);
     static_assert(std::size(SURFACE_NAMES) == std::tuple_size_v<decltype(m_surface_uniforms)>);
     static_assert(std::size(FIELDS) == 13 && std::size(HOLE_FIELDS) == 6 &&
-                  std::size(K_MOTION_FIELDS) == 8 && hyprimate::K_BUBBLE_HOLES == 4);
+                  std::size(K_MOTION_FIELDS) == 9 && hyprimate::K_BUBBLE_HOLES == 4);
     std::ranges::transform(MEMBRANE_NAMES, m_membrane_uniforms.begin(), [this](const char *name) {
         return glGetUniformLocation(m_membrane, name);
     });
@@ -368,7 +391,7 @@ bool CBubbleMaterial::initialize() {
     glBindBuffer(GL_ARRAY_BUFFER, m_micro_instance);
     glBufferData(
         GL_ARRAY_BUFFER, sizeof(MicroInstance) * K_MICRO_INSTANCES, nullptr, GL_STREAM_DRAW);
-    for (GLuint i = 0; i < 3; ++i) {
+    for (GLuint i = 0; i < 4; ++i) {
         glEnableVertexAttribArray(i);
         glVertexAttribPointer(i,
             4,
@@ -476,14 +499,31 @@ void CBubbleMaterial::draw_membranes(
     surface(std::get<0>(m_surface_uniforms), frame.window);
     surface(std::get<1>(m_surface_uniforms), frame.shell);
     glDrawArrays(GL_TRIANGLES, 0, 3);
+    // Draw companions behind the parent using destination alpha.
+    if (frame.formation_count > 0) {
+        GLint src_rgb = 0, dst_rgb = 0, src_alpha = 0, dst_alpha = 0;
+        const GLboolean BLENDING = glIsEnabled(GL_BLEND);
+        glGetIntegerv(GL_BLEND_SRC_RGB, &src_rgb);
+        glGetIntegerv(GL_BLEND_DST_RGB, &dst_rgb);
+        glGetIntegerv(GL_BLEND_SRC_ALPHA, &src_alpha);
+        glGetIntegerv(GL_BLEND_DST_ALPHA, &dst_alpha);
+        glEnable(GL_BLEND);
+        glBlendFuncSeparate(GL_ONE_MINUS_DST_ALPHA, GL_ONE, GL_ONE_MINUS_DST_ALPHA, GL_ONE);
+        draw_microbubbles(std::span(frame.formation).first(std::min(frame.formation_count, frame.formation.size())),
+            frame.size, target);
+        glBlendFuncSeparate(src_rgb, dst_rgb, src_alpha, dst_alpha);
+        if (BLENDING == 0U) {
+            glDisable(GL_BLEND);
+        }
+        glUseProgram(m_membrane);
+        glBindVertexArray(m_vao);
+    }
     const auto ACTIVE = [](const hyprimate::BubbleSurface &current) {
         if (current.visibility <= 0 || current.aureole <= 0) {
             return false;
         }
-        for (std::size_t hole_index = 0;
-            hole_index < std::min(current.hole_count, hyprimate::K_BUBBLE_HOLES);
-            ++hole_index) {
-            if (current.holes[hole_index].radius > 0) {
+        for (const auto &hole : std::span(current.holes).first(std::min(current.hole_count, hyprimate::K_BUBBLE_HOLES))) {
+            if (hole.radius > 0) {
                 return true;
             }
         }
@@ -680,33 +720,23 @@ void CBubbleMaterial::draw_microbubbles(std::span<const hyprimate::BubbleMicro> 
         return;
     }
     std::array<MicroInstance, K_MICRO_INSTANCES> data;
-    const auto COUNT = std::min(bubbles.size(), data.size());
-    const auto INPUT = bubbles.first(COUNT);
-    auto input_it = INPUT.begin();
-    for (auto &instance : std::span{data}.first(COUNT)) {
-        const auto &bubble = *input_it++;
-        instance = {
-            {
-                static_cast<float>(bubble.centre.x),
-                static_cast<float>(bubble.centre.y),
-                static_cast<float>(bubble.radius),
-                static_cast<float>(bubble.growth),
-                static_cast<float>(bubble.anchor.x),
-                static_cast<float>(bubble.anchor.y),
-                static_cast<float>(bubble.attach),
-                static_cast<float>(bubble.collapse),
-                static_cast<float>(bubble.thickness),
-                static_cast<float>(bubble.seed),
-                0.F,
-                0.F,
-            },
-        };
+    std::size_t count = 0;
+    for (const auto &bubble : bubbles) {
+        if (count == data.size()) {
+            break;
+        }
+        if (bubble.visibility > 0 && bubble.radius > 0) {
+            data[count++] = micro_instance(bubble);
+        }
+    }
+    if (count == 0) {
+        return;
     }
     glUseProgram(m_micro);
     glBindVertexArray(m_micro_vao);
     glBindBuffer(GL_ARRAY_BUFFER, m_micro_instance);
     glBufferSubData(
-        GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(COUNT * sizeof(MicroInstance)), data.data());
+        GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(count * sizeof(MicroInstance)), data.data());
     const auto &uniforms = m_micro_uniforms;
     vector(std::get<0>(uniforms), target.canvas);
     vector(std::get<1>(uniforms), target.origin);
@@ -716,38 +746,14 @@ void CBubbleMaterial::draw_microbubbles(std::span<const hyprimate::BubbleMicro> 
     glUniform1i(std::get<5>(uniforms), 2);
     glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_2D, m_lut);
-    glDrawArraysInstanced(GL_TRIANGLES, 0, 3, static_cast<GLsizei>(COUNT));
+    glDrawArraysInstanced(GL_TRIANGLES, 0, 3, static_cast<GLsizei>(count));
 }
 void CBubbleMaterial::draw_wake(
     const hyprimate::BubbleWakeView &wake, const SBubbleTarget &target) {
     if (m_film == 0U) {
         return;
     }
-    if (wake.node_count >= 2) {
-        std::array<float, 4 * hyprimate::K_BUBBLE_WAKE_NODES> nodes{};
-        std::array<float, 4 * hyprimate::K_BUBBLE_WAKE_NODES> state{};
-        const auto COUNT = std::min(wake.node_count, hyprimate::K_BUBBLE_WAKE_NODES);
-        const auto ACTIVE_NODES = std::span{wake.nodes}.first(COUNT);
-        auto *node_out = nodes.begin();
-        auto *state_out = state.begin();
-        for (const auto &node : ACTIVE_NODES) {
-            *node_out = static_cast<float>(node.position.x);
-            ++node_out;
-            *node_out = static_cast<float>(node.position.y);
-            ++node_out;
-            *node_out = static_cast<float>(node.half_width);
-            ++node_out;
-            *node_out = static_cast<float>(node.arc);
-            ++node_out;
-            *state_out = static_cast<float>(node.direction.x);
-            ++state_out;
-            *state_out = static_cast<float>(node.direction.y);
-            ++state_out;
-            *state_out = static_cast<float>(node.fade);
-            ++state_out;
-            *state_out = static_cast<float>(node.density);
-            ++state_out;
-        }
+    if (wake.segment_count > 0) {
         glUseProgram(m_film);
         glBindVertexArray(m_vao);
         const auto &uniforms = m_film_uniforms;
@@ -756,16 +762,35 @@ void CBubbleMaterial::draw_wake(
         vector(std::get<2>(uniforms), target.source_pos);
         vector(std::get<3>(uniforms), target.source_size);
         vector(std::get<4>(uniforms), wake.size);
-        glUniform4fv(std::get<5>(uniforms), static_cast<GLsizei>(COUNT), nodes.data());
-        glUniform4fv(std::get<6>(uniforms), static_cast<GLsizei>(COUNT), state.data());
         glUniform1f(std::get<7>(uniforms), static_cast<float>(wake.seed));
         glUniform1i(std::get<8>(uniforms), 2);
-        glUniform2f(std::get<9>(uniforms),
-            static_cast<float>(ACTIVE_NODES.front().arc),
-            static_cast<float>(ACTIVE_NODES.back().arc));
         glActiveTexture(GL_TEXTURE2);
         glBindTexture(GL_TEXTURE_2D, m_lut);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, static_cast<GLsizei>(2 * COUNT));
+        // The film program holds 48 nodes; a strand never has more.
+        static_assert(hyprimate::K_BUBBLE_WAKE_STRAND_NODES <= 48);
+        std::array<float, 4 * 48> nodes{}, state{};
+        for (const auto &segment : std::span(wake.segments).first(std::min(wake.segment_count, wake.segments.size()))) {
+            if (segment.count < 2 || segment.first + segment.count > wake.node_count) {
+                continue;
+            }
+            const auto COUNT = std::min<std::size_t>(segment.count, 48);
+            auto node_out = nodes.begin();
+            auto state_out = state.begin();
+            for (const auto &node : std::span(wake.nodes).subspan(segment.first, COUNT)) {
+                *node_out++ = static_cast<float>(node.position.x);
+                *node_out++ = static_cast<float>(node.position.y);
+                *node_out++ = static_cast<float>(node.half_width);
+                *node_out++ = static_cast<float>(node.arc);
+                *state_out++ = static_cast<float>(node.direction.x);
+                *state_out++ = static_cast<float>(node.direction.y);
+                *state_out++ = static_cast<float>(node.thickness);
+                *state_out++ = static_cast<float>(node.evaporated);
+            }
+            glUniform4fv(std::get<5>(uniforms), static_cast<GLsizei>(COUNT), nodes.data());
+            glUniform4fv(std::get<6>(uniforms), static_cast<GLsizei>(COUNT), state.data());
+            glUniform2f(std::get<9>(uniforms), static_cast<float>(segment.from), static_cast<float>(segment.to));
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, static_cast<GLsizei>(2 * COUNT));
+        }
     }
     draw_microbubbles(
         std::span(wake.bubbles).first(std::min(wake.bubble_count, wake.bubbles.size())),

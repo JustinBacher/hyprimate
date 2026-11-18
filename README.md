@@ -95,7 +95,7 @@ hl.config({
                         roundness = 1,
                         shape_speed = 1200,
                         transparency = 0.88,
-                        -- duration = 0.62,
+                        -- duration = 1.0,
                     },
                     paper = {
                         -- duration = 0.6,
@@ -125,6 +125,18 @@ hl.config({
                 },
                 open = {
                     enabled = true,
+                    options = {
+                        bubble = {
+                            count = 140,
+                            birth_rate = 1,
+                            size_variation = 0.75,
+                            growth_variation = 0.6,
+                            interaction = 1,
+                            damping = 1,
+                            buoyancy = 1,
+                            linger = 0.5,
+                        },
+                    },
                 },
                 close = {
                     enabled = true,
@@ -138,6 +150,8 @@ hl.config({
 Use `hyprimate` under `plugin` in `hl.config`; the matching `hyprctl` keys begin with `plugin:hyprimate:`. Each nested Lua table maps to colon-separated key segments.
 
 Style settings under `window.options.<style>` are shared; set `window.<animation>.options.<style>` to override one animation. When a shared setting is unset, each animation uses its own default. Shared values are clamped to the receiving animation’s range. Example lines with differing animation defaults are commented out to preserve them.
+
+Formation controls listed under `window.open.options.bubble` apply only to opening and have no global or closing counterpart. They use the same options table; shared settings such as `duration` still inherit normally.
 
 | Setting | Type / default | Numeric range | Meaning |
 |---|---|---|---|
@@ -154,9 +168,9 @@ Style settings under `window.options.<style>` are shared; set `window.<animation
 | `window:options:cloth:shine` | float / animation defaults: `0` | 0–1 | Movement: Highlight strength on cloth movement folds. Zero removes highlights. Open: Highlight strength on cloth folds when opening. Zero removes highlights. Close: Highlight strength on cloth folds when closing. Zero removes highlights. |
 | `window:options:cloth:variation` | float / animation defaults: `0.5` | 0–1 | Movement: Variation in cloth movement between windows. Zero gives every window the same motion. Open: Variation in cloth opening motion between windows. Zero gives every window the same motion. Close: Variation in cloth closing motion between windows. Zero gives every window the same motion. |
 | `window:options:bubble:strength` | float / animation defaults: `0.65` | 0–1.5 | How much the trailing bubble film lags, ripples and overshoots during movement. Zero moves windows without deformation. |
-| `window:options:bubble:microbubbles` | float / animation defaults: `0.5` | 0–1 | Rate at which small bubbles form on stretched film, slide to the trailing edge and detach. Zero forms none. |
-| `window:options:bubble:trail` | float / animation defaults: `0.5` | 0–1 | Amount of thin soap film a fast-moving window leaves behind before it drains and breaks up. Zero leaves none. |
-| `window:options:bubble:shape` | string / animation defaults: `"pillow"` | — | Shape surface tension pulls a moving bubble toward. Pillow rounds the corners and gently bulges the sides; ellipse keeps the window's proportions; circle makes a disc regardless of its proportions. Invalid names are rejected. Allowed: `pillow`, `ellipse`, `circle`. |
+| `window:options:bubble:microbubbles` | float / animation defaults: `0.5` | 0–1 | Rate at which small bubbles swell out of the moving film, mostly on its trailing side and during acceleration, ride its outline, and then pinch off into the trail, sink back into the film or pop. Zero forms none. |
+| `window:options:bubble:trail` | float / animation defaults: `0.5` | 0–1 | Amount of soap film a fast-moving window draws out of its trailing side as thin streaks, which dry from their edges inward and break up. Zero leaves none. |
+| `window:options:bubble:shape` | string / animation defaults: `"pillow"` | — | Shape surface tension pulls a moving bubble toward. Pillow draws the window in slightly and rounds its corners while keeping its proportions and straight sides; ellipse keeps the window's proportions; circle makes a disc regardless of its proportions. Invalid names are rejected. Allowed: `pillow`, `ellipse`, `circle`. |
 | `window:options:bubble:roundness` | float / animation defaults: `1` | 0–1 | How far a window moving at shape_speed contracts toward its bubble shape before returning to a rectangle when stopped. Zero keeps it rectangular. |
 | `window:options:bubble:shape_speed` | float / animation defaults: `1200` | 100–6000 | Window speed in logical pixels per second at which bubble shape contraction reaches its full amount. Slower windows contract proportionally less. |
 | `window:options:bubble:transparency` | float / animation defaults: `0.88` | 0–1 | Window transparency while in bubble form. Zero keeps the window imagery opaque; one shows only the refracted desktop through the film. Highlights and iridescence remain visible. The normal window is unchanged when movement settles. |
@@ -172,7 +186,7 @@ Style settings under `window.options.<style>` are shared; set `window.<animation
 | `window:options:cloth:default_animation_edge` | string / animation defaults: `"bottom"` | — | Open: Opening origin for the first cloth window on a workspace, used when the closing side is origin. Later windows use their placement. Cloth still opens in place. Close: Preferred cloth closing edge for the last window on a workspace when side is auto. Invalid edges fall back to a valid edge. Allowed: `bottom`, `top`, `left`, `right`. |
 | `window:options:cloth:edge_bounds` | string / animation defaults: `"screen"` | — | Open: Choose monitor edges (screen) or edges inside reserved areas (work_area) for the cloth opening origin. Close: Choose monitor edges (screen) or edges inside reserved areas (work_area) for cloth edge selection. Cloth travels beyond the actual screen before disappearing. Allowed: `screen`, `work_area`. |
 | `window:options:swarm:lone_window_sides` | set / animation defaults: `"all"` | — | Open: Screen sides swarm creatures enter from for the first window on a workspace. Later windows use the side where they appear (see Edge choice). Close: Screen sides swarm creatures leave through for the last window on a workspace. Otherwise they use the side where the window sits (see Edge choice). Comma-separated list of: `top`, `bottom`, `left`, `right`; `all` selects every one and overrides the rest. |
-| `window:options:bubble:duration` | float / animation defaults: open `0.62`, close `0.42` | 0.1–3 | Open: Time in seconds for bubble inflation, outer film rupture, flattening, splat and elastic settling. Close: Time in seconds for the bubble film to thin, tear, retract into strands and droplets, and for the droplets to evaporate. |
+| `window:options:bubble:duration` | float / animation defaults: open `1.0`, close `0.42` | 0.1–3 | Open: Time in seconds for the opening: small bubbles surface and interact for about the first half, the window bubble grows out of them, then inflates into the window's shape and settles. Close: Time in seconds for the bubble film to thin, tear, retract into strands and droplets, and for the droplets to evaporate. |
 | `window:options:liquid:side` | string / animation defaults: `"auto"` | — | Liquid exit edge: the side of appearance (auto), nearest valid edge, opening origin, or a fixed edge. Invalid preferred edges fall back to the normal edge selection. Allowed: `auto`, `nearest`, `origin`, `top`, `bottom`, `left`, `right`. |
 | `window:options:liquid:splash` | boolean / animation defaults: `true` | — | Show a small edge-liquid splash where a window closes. When false, it closes without liquid. |
 | `window:options:cloth:side` | string / animation defaults: `"auto"` | — | Cloth exit edge: the side of appearance (auto), nearest valid edge, opening origin, or a fixed edge. Invalid preferred edges fall back to the normal edge selection. Allowed: `auto`, `nearest`, `origin`, `top`, `bottom`, `left`, `right`. |
@@ -191,6 +205,14 @@ Style settings under `window.options.<style>` are shared; set `window.<animation
 | `window:movement:enabled` | boolean / `true` | — | Deform windows while they move. This does not affect opening or closing effects. |
 | `window:movement:workspace_movement` | boolean / `true` | — | Let workspace slides trigger movement effects. When false, ordinary movement, opening and closing are unaffected. |
 | `window:open:enabled` | boolean / `true` | — | Animate windows as they open using the selected style. When false, windows open without this effect; movement is unaffected. |
+| `window:open:options:bubble:count` | int / `140` | 0–160 | Opening-only budget for simultaneously living small bubbles, not a fixed population. Slots are reused as bubbles merge and burst. Zero disables them and the window bubble forms on its own. |
+| `window:open:options:bubble:birth_rate` | float / `1` | 0.25–2 | Opening-only multiplier for how often bubbles surface. Higher values produce a busier raft within the count budget. |
+| `window:open:options:bubble:size_variation` | float / `0.75` | 0–1 | Opening-only spread of surfacing bubble sizes. Coalescence still grows larger bubbles at zero. |
+| `window:open:options:bubble:growth_variation` | float / `0.6` | 0–1 | Opening-only variation in air supply and in how quickly bubbles surface. Even at zero, coalescence and boundary pressure change inflation speed. |
+| `window:open:options:bubble:interaction` | float / `1` | 0.25–2 | Opening-only strength of bubble contact and adhesion forces, including their push on the window bubble. |
+| `window:open:options:bubble:damping` | float / `1` | 0.5–2 | Opening-only drag of the liquid on bubbles. Higher values calm the raft faster; lower values retain more inertia. |
+| `window:open:options:bubble:buoyancy` | float / `1` | 0–2 | Opening-only upward drift of small bubbles. Zero removes it, not the liquid's flow or contact-driven motion. |
+| `window:open:options:bubble:linger` | float / `0.5` | 0–1 | Opening-only lifetime of small bubbles before their films drain and burst. Higher values keep bubbles around the landed window longer; all burst within duration. |
 | `window:close:enabled` | boolean / `true` | — | Animate windows as they close using the selected style. When false, windows close natively; movement is unaffected. |
 <!-- END GENERATED CONFIGURATION -->
 

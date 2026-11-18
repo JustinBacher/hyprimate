@@ -177,31 +177,6 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     // after rendering while live animations, retained closes, or residue need them.
     m_listen_render_post =
         Event::bus()->m_events.render.stage.listen([this](const Event::SRenderStageEvent &event) {
-            if (event.stage == RENDER_POST_WALLPAPER && event.context) {
-                for (const auto &entry : m_tracked) {
-                    const auto WINDOW = entry.window.lock();
-                    if (!WINDOW || WINDOW->m_monitor.lock() != event.monitor) {
-                        continue;
-                    }
-                    auto *transformer = transformer_of(WINDOW);
-                    const auto *bubble =
-                        transformer ? std::get_if<SBubbleStyle>(&transformer->style_state())
-                                    : nullptr;
-                    if (!bubble || !bubble->bubble.opening() || bubble->bubble.stirred() ||
-                        !bubble->wallpaper || bubble->wallpaper->queued) {
-                        continue;
-                    }
-                    const auto PRESENTATION = WINDOW->presentation().renderPresentation();
-                    const auto SOURCE =
-                        WINDOW->getFullWindowBoundingBox()
-                            .translate(PRESENTATION.workspaceOffset + PRESENTATION.floatingOffset -
-                                       event.monitor->m_position)
-                            .scale(event.monitor->m_scale);
-                    queue_bubble_wallpaper(
-                        event.context->get(), bubble->wallpaper, SOURCE, false, SOURCE);
-                }
-                return;
-            }
             // A wake lies just under the window that left it; beads, and wakes whose window was
             // not drawn, lie over every window.
             if (event.stage == RENDER_PRE_WINDOW && event.context && event.monitor) {
@@ -212,7 +187,8 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                     transformer ? std::get_if<SBubbleStyle>(&transformer->style_state()) : nullptr;
                 // This must precede the window's transformed draw in the monitor pass: its
                 // framebuffer then contains lower windows but not this window itself.
-                if (bubble && transformer->active() && bubble->bubble.stirred()) {
+                if (bubble && transformer->active() &&
+                    (bubble->bubble.opening() || bubble->bubble.stirred())) {
                     if (!bubble->wallpaper) {
                         bubble->wallpaper = makeShared<SBubbleWallpaper>();
                     }

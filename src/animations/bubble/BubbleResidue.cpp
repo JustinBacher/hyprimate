@@ -3,7 +3,6 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <span>
 #include <utility>
 
@@ -215,18 +214,11 @@ std::uint64_t CBubbleResidue::trail(const PHLMONITOR &monitor,
     const hyprimate::Vec2 ORIGIN{.x = centre.x, .y = centre.y};
     Wake *current = wake_for(monitor, wake);
     for (const auto &point : points) {
-        if ((current == nullptr) || point.start || current->film.full()) {
-            // A full wake hands its newest point on, so the ribbon continues without a gap.
-            std::optional<hyprimate::BubbleTrailPoint> carry;
-            if ((current != nullptr) && !point.start && (current->film.last() != nullptr)) {
-                carry = *current->film.last();
-            }
+        // A wake with no room for another strand hands new ones to a fresh wake.
+        if ((current == nullptr) || !current->film.extend(point, ORIGIN)) {
             current = &begin_wake(monitor, owner);
-            if (carry) {
-                current->film.extend(*carry, {});
-            }
+            current->film.extend(point, ORIGIN);
         }
-        current->film.extend(point, ORIGIN);
     }
     for (const auto &release : releases) {
         if ((current == nullptr) || !current->film.release(release, ORIGIN)) {

@@ -117,10 +117,13 @@ bool SBubbleLiveStyle::open(
     }
     auto *transformer = runtime.acquire_transformer(window);
     auto &state = std::get<SBubbleStyle>(transformer->m_style);
+    const auto &options = runtime.m_config.open.bubble;
     state.bubble.begin(hyprimate::Transition::Open,
-        hyprimate::BubbleDuration{runtime.m_config.open.bubble.duration},
+        hyprimate::BubbleDuration{options.duration},
         runtime.m_next_seed++,
-        {.x = REST.w, .y = REST.h});
+        {.x = REST.w, .y = REST.h},
+        {options.count, options.birthRate, options.sizeVariation, options.growthVariation,
+            options.interaction, options.damping, options.buoyancy, options.linger});
     if (!state.bubble.active()) {
         return false;
     }

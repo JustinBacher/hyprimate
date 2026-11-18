@@ -2,6 +2,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <span>
 
@@ -166,7 +167,10 @@ namespace {
         const Vec2 HALF{.x = SIZE.x / 2, .y = SIZE.y / 2};
         const auto LEADING = bubble_motion_offset(HALF, deformation, {.x = HALF.x, .y = 0});
         const auto TRAILING = bubble_motion_offset(HALF, deformation, {.x = -HALF.x, .y = 0});
-        CHECK(std::abs(LEADING.x) < 1e-9 && std::abs(LEADING.y) < 1e-9);
+        // The leading face is pressed back a little by the air; its corners stay put.
+        CHECK(LEADING.x < 0 && LEADING.x > -.5 * 20 && std::abs(LEADING.y) < 1e-9);
+        const auto LEADING_CORNER = bubble_motion_offset(HALF, deformation, {.x = HALF.x, .y = HALF.y});
+        CHECK(std::abs(LEADING_CORNER.x) < 1e-9 && std::abs(LEADING_CORNER.y) < 1e-9);
         CHECK(std::abs(TRAILING.x + 20) < 1e-9);
         // The trailing film narrows across the motion.
         const auto CORNER = bubble_motion_offset(HALF, deformation, {.x = -HALF.x, .y = HALF.y});
@@ -189,9 +193,12 @@ namespace {
         std::size_t most = 0;
         std::size_t releases = 0;
         std::size_t trail = 0;
+        std::size_t trailing = 0;
+        std::size_t fast_frames = 0;
+        std::size_t joined = 0;
         bool grew = false;
         bool rode_out = false;
-        bool trailed_behind = true;
+        bool swelled = false;
         travel(
             moving_bubble,
             time,
@@ -213,29 +220,43 @@ namespace {
                         rode_out |= std::abs(microbubble.centre.x) > BODY.w / 2 ||
                                     std::abs(microbubble.centre.y) > BODY.h / 2;
                     }
-                    CHECK(microbubble.radius > 0 && microbubble.radius < 20 &&
+                    CHECK(microbubble.radius > 0 && microbubble.radius <= 40 &&
                           microbubble.attach > 0);
                 }
-                for (const auto &release : current.motion().releases()) {
-                    ++releases;
-                    CHECK(release.micro.attach == 0 && release.life > 0);
-                    // Released bubbles inherit the window's motion but fall behind it.
-                    const double SPEED = current.motion().speed();
-                    CHECK(std::hypot(release.velocity.x, release.velocity.y) < (SPEED * 1.2) + 80);
+                // The film swells where a bubble grows out of it.
+                for (const auto &bud : FRAME.window.motion.buds) {
+                    swelled |= bud.height > 0;
+                    CHECK(bud.height <= .5 * bud.width + 1e-9);
                 }
-                for (const auto &point : current.motion().trail()) {
+                const auto &motion = current.motion();
+                for (const auto &release : motion.releases()) {
+                    ++releases;
+                    // The same bubble, its neck still narrowing as it lets go.
+                    CHECK(release.micro.attach < .5 && release.life > 0 && release.micro.radius > 0);
+                    // Released bubbles inherit the window's motion but fall behind it.
+                    CHECK(std::hypot(release.velocity.x, release.velocity.y) < motion.speed() * 1.2 + 120);
+                }
+                if (motion.speed() > 400) {
+                    ++fast_frames;
+                }
+                if (motion.speed() > 400 && !motion.trail().empty()) {
+                    ++joined;
+                }
+                for (const auto &point : motion.trail()) {
                     ++trail;
-                    CHECK(point.density > 0 && point.density <= 1 && point.half_width > 0);
-                    // The film comes off the trailing side.
-                    trailed_behind &= (point.position.x * point.direction.x) +
-                                          (point.position.y * point.direction.y) <
-                                      0;
+                    CHECK(point.half_width > 0 && point.thickness > 0 && point.strand > 0);
+                    // The film comes off the trailing side and keeps some of the window's motion.
+                    if (point.position.x * point.velocity.x + point.position.y * point.velocity.y < 0) {
+                        ++trailing;
+                    }
                 }
             });
         CHECK(most > 0 && most <= K_BUBBLE_MICRO_CAPACITY);
-        CHECK(grew && rode_out);
+        CHECK(grew && rode_out && swelled);
         CHECK(releases > 0);
-        CHECK(trail > 20 && trailed_behind);
+        CHECK(trail > 20 && trailing > trail * 9 / 10);
+        // Strands stay joined to the moving film: while it moves fast, every frame moves them on.
+        CHECK(fast_frames > 60 && joined > fast_frames * 9 / 10);
         // Without movement nothing new forms once the window has come to a stop, and every bubble
         // ends.
         travel(moving_bubble, time, .3, still, {.strength = .65, .microbubbles = 1, .trail = 1});
@@ -306,65 +327,83 @@ namespace {
         CHECK(REST.window.motion.still() && REST.window.core.x == 0 && REST.window.film == 0);
     }
 
-    void wake_drains_and_ends() {
+    void wake_dries_and_ends() {
         BubbleWake wake(7);
         CHECK(wake.done() && wake.bounds().w == 0);
         for (int i = 0; i < 20; ++i) {
-            CHECK(wake.extend({{-450, 0}, {1, 0}, 80, .8, i == 0}, {100.0 + (i * 20), 300}));
+            BubbleTrailPoint point;
+            point.position = {.x = -450, .y = 0};
+            point.velocity = {.x = 300, .y = 0};
+            point.half_width = 16;
+            point.thickness = 600;
+            point.strand = 1;
+            CHECK(wake.extend(point, {.x = 100.0 + i * 20, .y = 300}));
         }
         BubbleRelease bubble_release;
-        bubble_release.micro.radius = 5;
+        bubble_release.micro.radius = 9;
         bubble_release.micro.thickness = 500;
+        bubble_release.micro.attach = .2;
         bubble_release.velocity = {.x = 600, .y = 0};
-        bubble_release.life = .4;
-        CHECK(wake.release(bubble_release, {500, 300}));
+        bubble_release.life = .6;
+        CHECK(wake.release(bubble_release, {.x = 500, .y = 300}));
         const auto FIRST = wake.bounds();
-        CHECK(FIRST.w > 380 && FIRST.h >= 160);
+        CHECK(FIRST.w > 380 && FIRST.h >= 30);
         BubbleWakeView view;
         wake.view(view);
-        CHECK(view.node_count == 20 && view.bubble_count == 1);
+        CHECK(view.node_count == 20 && view.segment_count == 1 && view.bubble_count >= 1);
         CHECK(std::abs(view.size.x - FIRST.w) < 1e-9);
         CHECK(std::get<19>(view.nodes).arc > std::get<0>(view.nodes).arc);
         // A free bubble drifts on a little, then slows.
         double moved = 0;
+        // Screen position of the first bubble: views are relative to the wake's bounds.
+        const auto SCREEN_X = [&] {
+            BubbleWakeView bubble_view;
+            wake.view(bubble_view);
+            const Box BOX = wake.bounds();
+            return bubble_view.bubbles.front().centre.x + BOX.x + BOX.w * .5;
+        };
         for (int i = 0; i < 12; ++i) {
-            BubbleWakeView before_view;
-            BubbleWakeView after_view;
-            wake.view(before_view);
-            const double START_X = before_view.bubbles.front().centre.x;
+            const double START_X = SCREEN_X();
             wake.advance(TIME_STEP);
-            wake.view(after_view);
-            if (after_view.bubble_count != 0U) {
-                moved = after_view.bubbles.front().centre.x - START_X;
-            }
+            moved = SCREEN_X() - START_X;
         }
         CHECK(moved > 0 && moved < 600 * TIME_STEP);
-        // Film thins and goes, oldest first and never all at once, and the wake ends.
-        BubbleWakeView mid;
-        for (int i = 0; i < 30; ++i) {
-            wake.advance(TIME_STEP);
-        }
-        wake.view(mid);
-        CHECK(mid.node_count > 0 && std::get<0>(mid.nodes).fade > 0);
+        // The film dries patch by patch at its own pace: some of it is gone while some remains,
+        // and what remains has lost liquid.
+        bool partly = false;
         for (int i = 0; i < 300 && !wake.done(); ++i) {
             wake.advance(TIME_STEP);
+            BubbleWakeView mid;
+            wake.view(mid);
+            if (mid.node_count > 0 && mid.node_count < 20) {
+                partly = true;
+                CHECK(mid.nodes.front().evaporated > 0);
+            }
         }
+        CHECK(partly);
         CHECK(wake.done() && wake.bounds().w == 0);
-        // A wake holds a bounded ribbon.
-        BubbleWake full(1);
-        std::size_t accepted = 0;
-        for (int i = 0; i < 100; ++i) {
-            accepted += static_cast<std::size_t>(full.extend(
-                {
-                    .position = {.x = 0, .y = 0},
-                    .direction = {.x = 1, .y = 0},
-                    .half_width = 40,
-                    .density = 1,
-                    .start = false,
-                },
-                {.x = static_cast<double>(i), .y = 0}));
+
+        // A strand's newest point follows the window until it is fixed, then a new one is laid.
+        BubbleWake head(3);
+        BubbleTrailPoint point;
+        point.half_width = 8;
+        point.thickness = 500;
+        point.strand = 4;
+        CHECK(head.extend(point, {.x = 0, .y = 0}));
+        point.provisional = true;
+        for (int i = 1; i < 10; ++i) {
+            CHECK(head.extend(point, {.x = static_cast<double>(i * 3), .y = 0}));
         }
-        CHECK(accepted == K_BUBBLE_WAKE_NODES && full.full());
+        BubbleWakeView joined;
+        head.view(joined);
+        CHECK(joined.node_count == 2 && std::abs(std::get<1>(joined.nodes).arc - 27) < 1e-9);
+        // A wake holds a bounded number of strands; another one goes to a new wake.
+        for (std::uint32_t id = 10; id < 10 + K_BUBBLE_WAKE_STRANDS - 1; ++id) {
+            point.strand = id;
+            CHECK(head.extend(point, {.x = 0, .y = 0}));
+        }
+        point.strand = 99;
+        CHECK(!head.extend(point, {.x = 0, .y = 0}));
     }
 
     constexpr BubbleMotionParams ROUND{
@@ -436,9 +475,14 @@ namespace {
             const auto SIDE = shaped(MOTION, {.x = SIZE.x / 2, .y = 0});
             const auto TOP = shaped(MOTION, {.x = 0, .y = SIZE.y / 2});
             const auto CORNER = shaped(MOTION, {.x = SIZE.x / 2, .y = SIZE.y / 2});
-            // As wide for its height as the window, and its sides bow gently outward.
+            // As wide for its height as the window. The pillow draws in slightly; the ellipse's
+            // sides bow gently outward.
             CHECK(std::abs((SIDE.x / TOP.y) - (SIZE.x / SIZE.y)) < .02);
-            CHECK(SIDE.x > SIZE.x / 2 && SIDE.x < SIZE.x / 2 * 1.12);
+            if (SHAPE == BubbleShape::Pillow) {
+                CHECK(SIDE.x < SIZE.x / 2 && SIDE.x > .9 * SIZE.x / 2);
+            } else {
+                CHECK(SIDE.x > SIZE.x / 2 && SIDE.x < SIZE.x / 2 * 1.12);
+            }
             // The corners pull in: much more for the ellipse than for the pillow.
             const double PULLED = 1 - (CORNER.x / (SIZE.x / 2));
             if (SHAPE == BubbleShape::Pillow) {
@@ -448,7 +492,7 @@ namespace {
             }
             // A pillow's sides stay nearly straight well toward its corners.
             if (SHAPE == BubbleShape::Pillow) {
-                CHECK(shaped(MOTION, {SIZE.x / 2, SIZE.y / 4}).x > .98 * SIZE.x / 2);
+                CHECK(shaped(MOTION, {SIZE.x / 2, SIZE.y / 4}).x > .9 * SIZE.x / 2);
             }
             const auto BOUNDS = bubble.bounds(SIZE);
             CHECK(BOUNDS.w >= 2 * SIDE.x && BOUNDS.h >= 2 * TOP.y);
@@ -664,7 +708,7 @@ int main() {
     slow_movement_leaves_no_trail();
     close_inherits_the_deformation();
     opening_hands_over_to_movement();
-    wake_drains_and_ends();
+    wake_dries_and_ends();
     deterministic_motion();
     rounds_up_while_moving_and_spreads_back();
     pillow_and_ellipse_keep_the_windows_proportions();

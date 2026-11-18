@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <span>
 
+#include "animations/bubble/BubbleFormation.hpp"
 #include "animations/bubble/BubbleMotion.hpp"
 #include "animations/shared/Core.hpp"
 
@@ -73,6 +74,10 @@ namespace hyprimate {
         BubbleSurface window{};
         BubbleSurface shell{};
         double seed = 0;
+        // Opening companions: small soap bubbles in frame coordinates, drawn with the same
+        // material as the movement's microbubbles. Fixed capacity; nothing persists after settling.
+        std::array<BubbleMicro, kBubbleFormationCapacity> formation{};
+        std::size_t formation_count = 0;
         // Microbubbles riding the window's film, in frame coordinates.
         std::array<BubbleMicro, K_BUBBLE_MICRO_CAPACITY> micro{};
         std::size_t micro_count = 0;
@@ -119,7 +124,8 @@ namespace hyprimate {
     // the movement of its fluid, which keeps running across them.
     class Bubble {
       public:
-        void begin(Transition direction, BubbleDuration duration, std::uint64_t seed, Vec2 size);
+        void begin(Transition direction, BubbleDuration duration, std::uint64_t seed, Vec2 size,
+            const BubbleFormationParams &formation = {});
         // Advances the transition alone (a closing window no longer moves).
         void advance(double elapsed);
         // Advances the transition and the movement of a live window: size is its membrane
@@ -162,6 +168,7 @@ namespace hyprimate {
         bool m_active = false;
         bool m_opening = false;
         bool m_closed = false;
+        BubbleFormation m_formation{};
         BubbleMotion m_motion{};
     };
 

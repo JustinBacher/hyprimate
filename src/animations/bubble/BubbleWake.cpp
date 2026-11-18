@@ -11,67 +11,124 @@
 
 namespace hyprimate {
     namespace {
-        // The ribbon is drawn this much wider than its film so the frayed edge has room.
-        constexpr double FRAY = 1.3;
-        constexpr double COLLAPSE_SECONDS = .1;
+        // Strands are drawn this much wider than their film so a ragged border has room.
+        constexpr double FRAY = 1.15;
+        // Film left on the screen keeps a little of the window's motion; the air stops it within
+        // a fraction of a second.
+        constexpr double FILM_BRAKE = .18;
+        // Surface tension straightens a strand's kinks at this rate.
+        constexpr double STRAIGHTEN = .35;
+        // A node holds film until drying has removed this much more than its laid-down thickness:
+        // lenses of gathered liquid stay thicker than the strand's mean.
+        constexpr double DRY_MARGIN = 1.45;
+        // Free ends retract at a few tens of px/s: slowly, as viscous film on the glass does.
+        constexpr double RETRACT_SPEED = 40;
+        // A thread's break opens at this speed to this half length.
+        constexpr double BREAK_SPEED = 90, BREAK_GAP = 5;
+        // The bubbles: drag toward still air (time constant ~0.25 s) and a slow sink, since a
+        // soap bubble is slightly denser than air; foam rises at 0.05 x buoyancy units per second.
+        constexpr double BUBBLE_DAMPING = .45, SINK_SPEED = 12;
+        constexpr double STEP = 1.0 / 120;
 
         bool finite(Vec2 value) {
             return std::isfinite(value.x) && std::isfinite(value.y);
         }
+        Vec2 sub(Vec2 a, Vec2 b) {
+            return {.x = a.x - b.x, .y = a.y - b.y};
+        }
+        double distance(Vec2 a, Vec2 b) {
+            return std::hypot(a.x - b.x, a.y - b.y);
+        }
     }  // namespace
 
     BubbleWake::BubbleWake(std::uint64_t seed) noexcept : random(seed), seed(unit_draw(random)) {
+        foam.reset(seed ^ 0x51ED270B27A3C1F5ULL,
+            {.interaction = 1, .damping = BUBBLE_DAMPING, .buoyancy = -SINK_SPEED / .05, .linger = .5},
+            K_BUBBLE_WAKE_BUBBLES);
     }
 
-    bool BubbleWake::full() const noexcept {
-        return first + count >= nodes.size();
+    bool BubbleWake::dry(const Node &node) noexcept {
+        return node.evaporated >= node.thickness * DRY_MARGIN;
+    }
+
+    BubbleWake::Strand *BubbleWake::strand(std::uint32_t id) noexcept {
+        for (auto &item : strands) {
+            if (item.count > 0 && item.id == id) {
+                return &item;
+            }
+        }
+        return nullptr;
     }
 
     bool BubbleWake::extend(const BubbleTrailPoint &point, Vec2 origin) noexcept {
-        if (full()) {
-            return false;
-        }
         const Vec2 POSITION{.x = origin.x + point.position.x, .y = origin.y + point.position.y};
-        if (!finite(POSITION) || !finite(point.direction) || !std::isfinite(point.half_width) ||
-            !std::isfinite(point.density) || point.half_width <= 0 || point.density <= 0) {
+        if (!finite(POSITION) || !finite(point.velocity) || !std::isfinite(point.half_width) ||
+            !std::isfinite(point.thickness) || point.half_width <= 0 || point.thickness <= 0) {
             return true;
         }
-        Node node;
-        node.point = point;
-        node.point.position = POSITION;
-        node.point.density = std::clamp(point.density, 0.0, 1.0);
-        if (count > 0) {
-            const auto &previous = std::span{nodes}.subspan(first, count).back();
-            node.arc = previous.arc + std::hypot(POSITION.x - previous.point.position.x,
-                                          POSITION.y - previous.point.position.y);
+        Strand *current = strand(point.strand);
+        if (current == nullptr) {
+            const auto FREE = std::ranges::find_if(strands, [](const Strand &item) { return item.count == 0; });
+            if (FREE == strands.end()) {
+                return false;
+            }
+            current = &*FREE;
+            *current = {};
+            current->id = point.strand;
+            current->open = true;
+            current->thread = point.half_width < 6;
         }
-        // Denser film lasts longer; every patch keeps its own time so it does not vanish in step.
-        node.life = (.45 + (.55 * node.point.density)) * (.8 + (.4 * unit_draw(random)));
-        nodes[first + count++] = node;
+        Node node;
+        node.position = POSITION;
+        node.velocity = point.velocity;
+        node.half_width = point.half_width;
+        node.provisional = point.provisional && !point.last;
+        auto active = std::span{current->nodes}.first(current->count);
+        if (!active.empty() && active.back().provisional) {
+            // The window has moved on: its strand's newest point moves with it.
+            auto &head = active.back();
+            node.thickness = head.thickness;
+            node.evaporation = head.evaporation;
+            head = node;
+        } else {
+            if (current->count == current->nodes.size()) {
+                // The oldest film makes room; its free tail keeps the place it had retracted to.
+                current->tail = std::max(0.0, current->tail - distance(active[0].position, active[1].position));
+                std::move(active.begin() + 1, active.end(), active.begin());
+                --current->count;
+            }
+            // Every patch dries at its own pace: thicker liquid lasts longer, threads go first.
+            node.thickness = point.thickness * (.85 + .3 * unit_draw(random));
+            const double SECONDS = (.75 + .75 * unit_draw(random)) * (current->thread ? .6 : 1);
+            node.evaporation = node.thickness / SECONDS;
+            current->nodes[current->count++] = node;
+        }
+        if (point.last) {
+            current->open = false;
+        }
+        current->idle = 0;
         return true;
     }
 
     bool BubbleWake::release(const BubbleRelease &bubble, Vec2 origin) noexcept {
-        if (bubble_count >= bubbles.size()) {
-            return false;
-        }
-        Free free;
-        free.micro = bubble.micro;
-        free.micro.centre = {
-            .x = origin.x + bubble.micro.centre.x,
-            .y = origin.y + bubble.micro.centre.y,
-        };
-        free.micro.anchor = free.micro.centre;
-        free.micro.attach = 0;
-        free.velocity = bubble.velocity;
-        free.life = std::max(.05, bubble.life);
-        free.thickness = bubble.micro.thickness;
-        if (!finite(free.micro.centre) || !finite(free.velocity) ||
-            !std::isfinite(free.micro.radius) || free.micro.radius <= 0 ||
-            !std::isfinite(free.life)) {
+        const auto &micro = bubble.micro;
+        const Vec2 CENTRE{.x = origin.x + micro.centre.x, .y = origin.y + micro.centre.y};
+        if (!finite(CENTRE) || !finite(bubble.velocity) || !std::isfinite(micro.radius) || micro.radius <= 0 ||
+            !std::isfinite(bubble.life)) {
             return true;
         }
-        bubbles[bubble_count++] = free;
+        const int SLOT = foam.spawn(CENTRE, bubble.velocity, micro.radius, micro.thickness, 1, std::max(.05, bubble.life));
+        if (SLOT < 0) {
+            return false;
+        }
+        // The same bubble as was drawn on the window: its film pattern, its outline still ringing.
+        auto &film = foam.film(SLOT);
+        film.seed = micro.seed;
+        film.phase = 0;
+        film.flow = micro.flow;
+        film.squash = micro.squash;
+        film.squashRate = finite(bubble.squash_rate) ? bubble.squash_rate : Vec2{};
+        necks[static_cast<std::size_t>(SLOT)] = {{.x = origin.x + micro.anchor.x, .y = origin.y + micro.anchor.y}, std::clamp(micro.attach, 0.0, 1.0)};
         return true;
     }
 
@@ -83,45 +140,105 @@ namespace hyprimate {
         if (!std::isfinite(elapsed) || elapsed <= 0) {
             return;
         }
-        const double DELTA_TIME = std::min(elapsed, STALL_SECONDS) * pace;
-        for (auto &node : std::span{nodes}.subspan(first, count)) {
-            node.age += DELTA_TIME;
-        }
-        while (count > 0 && std::span{nodes}.subspan(first, count).front().age >=
-                                std::span{nodes}.subspan(first, count).front().life) {
-            ++first;
-            --count;
-        }
-        if (count == 0) {
-            first = 0;
-        }
-
-        auto *kept = bubbles.begin();
-        for (auto wake_bubble : std::span{bubbles}.first(bubble_count)) {
-            // Air brakes the bubble within a fraction of a second; it then sinks very slowly.
-            wake_bubble.velocity.x *= std::exp(-DELTA_TIME / .25);
-            wake_bubble.velocity.y =
-                (wake_bubble.velocity.y * std::exp(-DELTA_TIME / .25)) + (12 * DELTA_TIME);
-            wake_bubble.micro.centre.x += wake_bubble.velocity.x * DELTA_TIME;
-            wake_bubble.micro.centre.y += wake_bubble.velocity.y * DELTA_TIME;
-            wake_bubble.micro.anchor = wake_bubble.micro.centre;
-            wake_bubble.age += DELTA_TIME;
-            wake_bubble.micro.thickness =
-                wake_bubble.thickness *
-                (1 - (.45 * std::min(wake_bubble.age / wake_bubble.life, 1.0)));
-            wake_bubble.micro.collapse =
-                std::clamp((wake_bubble.age - wake_bubble.life) / COLLAPSE_SECONDS, 0.0, 1.0);
-            if (wake_bubble.micro.collapse >= 1) {
+        const double DT = std::min(elapsed, STALL_SECONDS) * pace;
+        const double BRAKE = std::exp(-DT / FILM_BRAKE);
+        const double STRAIGHTENING = .5 * (1 - std::exp(-DT / STRAIGHTEN));
+        for (auto &item : strands) {
+            if (item.count == 0) {
                 continue;
             }
-            *kept = wake_bubble;
-            ++kept;
+            item.age += DT;
+            // A strand the window stopped drawing without pinching it off (movement switched off,
+            // the window gone) is free from here.
+            item.idle += DT;
+            auto active = std::span{item.nodes}.first(item.count);
+            if (item.open && item.idle > .1) {
+                item.open = false;
+                active.back().provisional = false;
+            }
+            for (auto &node : active) {
+                if (node.provisional) {
+                    continue;
+                }
+                node.position = {.x = node.position.x + node.velocity.x * (1 - BRAKE) * FILM_BRAKE,
+                    .y = node.position.y + node.velocity.y * (1 - BRAKE) * FILM_BRAKE};
+                node.velocity = {.x = node.velocity.x * BRAKE, .y = node.velocity.y * BRAKE};
+                node.evaporated += node.evaporation * DT;
+                if (node.cut > 0) {
+                    node.cut = std::min(BREAK_GAP + .2 * node.half_width, node.cut + BREAK_SPEED * DT);
+                }
+            }
+            for (std::size_t i = 1; i + 1 < item.count; ++i) {
+                auto &node = active[i];
+                if (node.provisional) {
+                    continue;
+                }
+                const Vec2 A = active[i - 1].position, B = active[i + 1].position;
+                node.position = {.x = node.position.x + ((A.x + B.x) * .5 - node.position.x) * STRAIGHTENING,
+                    .y = node.position.y + ((A.y + B.y) * .5 - node.position.y) * STRAIGHTENING};
+            }
+            // Free ends draw back into the film.
+            item.tail += RETRACT_SPEED * DT * std::min(1.0, item.age / .15);
+            if (!item.open) {
+                item.head += RETRACT_SPEED * DT;
+            }
+            // A thread is unstable along its length (Rayleigh–Plateau): it breaks into pieces,
+            // and now and then a break closes round a tiny bubble.
+            if (item.thread && item.count > 3 && item.age > .12 && unit_draw(random) < 3 * DT) {
+                const auto AT = 1 + static_cast<std::size_t>(unit_draw(random) * static_cast<double>(item.count - 2));
+                auto &node = active[AT];
+                if (node.cut == 0 && !node.provisional && !dry(node)) {
+                    node.cut = .01;
+                    if (unit_draw(random) < .35) {
+                        foam.spawn(node.position, node.velocity, 1.5 + 2.5 * unit_draw(random),
+                            node.thickness, .4, .25 + .5 * unit_draw(random));
+                    }
+                }
+            }
+            // Dried film at the old end is gone.
+            std::size_t gone = 0;
+            while (gone < item.count && dry(active[gone]) && !active[gone].provisional) {
+                ++gone;
+            }
+            if (gone > 0) {
+                for (std::size_t i = 0; i < gone && i + 1 < item.count; ++i) {
+                    item.tail = std::max(0.0, item.tail - distance(active[i].position, active[i + 1].position));
+                }
+                std::move(active.begin() + static_cast<std::ptrdiff_t>(gone), active.end(), active.begin());
+                item.count -= gone;
+            }
+            if (item.count == 1 && !item.open) {
+                item.count = 0;
+            }
         }
-        bubble_count = static_cast<std::size_t>(kept - bubbles.begin());
+
+        substep += DT;
+        const BubbleFoamFlow STILL{};
+        while (substep >= STEP) {
+            foam.step(STEP, STILL, nullptr);
+            substep -= STEP;
+        }
+        // A neck left on a pinched-off bubble snaps back into it.
+        const double SNAP = std::exp(-DT / .05);
+        for (std::size_t i = 0; i < necks.size(); ++i) {
+            auto &neck = necks[i];
+            const auto &film = foam.film(static_cast<int>(i));
+            if (!film.live) {
+                neck = {};
+                continue;
+            }
+            neck.attach *= std::exp(-DT / .06);
+            if (neck.attach < .01) {
+                neck.attach = 0;
+            }
+            neck.anchor = {.x = film.position.x + (neck.anchor.x - film.position.x) * SNAP,
+                .y = film.position.y + (neck.anchor.y - film.position.y) * SNAP};
+        }
     }
 
     bool BubbleWake::done() const noexcept {
-        return count == 0 && bubble_count == 0;
+        return foam.liveCount() == 0 &&
+               std::ranges::all_of(strands, [](const Strand &item) { return item.count == 0; });
     }
 
     Box BubbleWake::bounds() const noexcept {
@@ -135,11 +252,20 @@ namespace hyprimate {
             max_x = std::max(max_x, centre_point.x + extent_radius);
             max_y = std::max(max_y, centre_point.y + extent_radius);
         };
-        for (const auto &node : std::span{nodes}.subspan(first, count)) {
-            INCLUDE(node.point.position, (node.point.half_width * FRAY) + 2);
+        for (const auto &item : strands) {
+            for (const auto &node : std::span{item.nodes}.first(item.count)) {
+                INCLUDE(node.position, std::max(node.half_width * FRAY, 1.5) + 2);
+            }
         }
-        for (const auto &bubble : std::span{bubbles}.first(bubble_count)) {
-            INCLUDE(bubble.micro.centre, (bubble.micro.radius * 1.4) + 3);
+        for (std::size_t i = 0; i < foam.capacity(); ++i) {
+            const auto &film = foam.film(static_cast<int>(i));
+            if (!film.live) {
+                continue;
+            }
+            INCLUDE(film.position, film.radius * 1.5 + 3);
+            if (necks[i].attach > 0) {
+                INCLUDE(necks[i].anchor, 2);
+            }
         }
         if (!(max_x > min_x) || !(max_y > min_y)) {
             return {};
@@ -151,51 +277,69 @@ namespace hyprimate {
         const auto BOX = bounds();
         out.size = {.x = BOX.w, .y = BOX.h};
         out.seed = seed;
-        out.node_count = count;
-        out.bubble_count = bubble_count;
-        const Vec2 CENTRE{.x = BOX.x + (BOX.w * .5), .y = BOX.y + (BOX.h * .5)};
-        const auto ACTIVE_NODES = std::span{nodes}.subspan(first, count);
-        auto current = ACTIVE_NODES.begin();
-        auto previous = current;
-        auto *output = out.nodes.begin();
-        for (std::size_t i = 0; i < count; ++i, ++current, ++output) {
-            const auto &node = *current;
-            auto &output_node = *output;
-            output_node.position = {
-                .x = node.point.position.x - CENTRE.x,
-                .y = node.point.position.y - CENTRE.y,
+        out.node_count = out.segment_count = 0;
+        const Vec2 CENTRE{.x = BOX.x + BOX.w * .5, .y = BOX.y + BOX.h * .5};
+        for (const auto &item : strands) {
+            if (item.count < 2) {
+                continue;
+            }
+            const std::size_t BASE = out.node_count;
+            const auto ACTIVE = std::span{item.nodes}.first(item.count);
+            auto output = std::span{out.nodes}.subspan(BASE, item.count);
+            double arc = 0;
+            for (std::size_t i = 0; i < item.count; ++i) {
+                const auto &node = ACTIVE[i];
+                if (i > 0) {
+                    arc += distance(node.position, ACTIVE[i - 1].position);
+                }
+                auto &view_node = output[i];
+                view_node.position = sub(node.position, CENTRE);
+                // The strand turns with its path: the tangent spans the neighbouring points.
+                const auto &before = ACTIVE[i > 0 ? i - 1 : i].position;
+                const auto &after = ACTIVE[std::min(i + 1, item.count - 1)].position;
+                const Vec2 SPAN = sub(after, before);
+                const double LENGTH = std::hypot(SPAN.x, SPAN.y);
+                view_node.direction = LENGTH > 1e-6 ? Vec2{.x = SPAN.x / LENGTH, .y = SPAN.y / LENGTH} : Vec2{.x = 1, .y = 0};
+                view_node.half_width = node.half_width;
+                view_node.arc = arc;
+                view_node.thickness = node.thickness;
+                view_node.evaporated = node.evaporated;
+            }
+            out.node_count += item.count;
+            // Runs of film between breaks and fully dried patches.
+            const auto CLOSE = [&](std::size_t first, std::size_t last, double from, double to) {
+                if (out.segment_count >= out.segments.size() || last <= first || to - from < 2) {
+                    return;
+                }
+                out.segments[out.segment_count++] = {BASE + first, last - first + 1, from, to};
             };
-            // The ribbon turns with its path: the tangent spans the neighbouring points.
-            auto next = current;
-            ++next;
-            const auto &before = (i > 0 ? *previous : node).point.position;
-            const auto &after = (i + 1 < count ? *next : node).point.position;
-            previous = current;
-            const Vec2 SPAN{.x = after.x - before.x, .y = after.y - before.y};
-            const double SPAN_LENGTH = std::hypot(SPAN.x, SPAN.y);
-            output_node.direction = SPAN_LENGTH > 1e-6
-                                        ? Vec2{.x = SPAN.x / SPAN_LENGTH, .y = SPAN.y / SPAN_LENGTH}
-                                        : node.point.direction;
-            output_node.fade = std::clamp(node.age / node.life, 0.0, 1.0);
-            output_node.half_width = node.point.half_width * (1 - (.35 * output_node.fade));
-            output_node.arc = node.arc;
-            output_node.density = node.point.density;
+            std::size_t first = 0;
+            double from = output.front().arc + item.tail;
+            for (std::size_t i = 1; i < item.count; ++i) {
+                const auto &node = ACTIVE[i];
+                const double AT = output[i].arc;
+                if (dry(node) && !node.provisional) {
+                    CLOSE(first, i, from, AT);
+                    first = i;
+                    from = AT;
+                } else if (node.cut > 0 && i + 1 < item.count) {
+                    CLOSE(first, i, from, AT - node.cut);
+                    first = i;
+                    from = AT + node.cut;
+                }
+            }
+            CLOSE(first, item.count - 1, from, output.back().arc - item.head);
         }
-        auto *bubble_output = out.bubbles.begin();
-        for (const auto &bubble : std::span{bubbles}.first(bubble_count)) {
-            auto microbubble = bubble.micro;
-            microbubble.centre = {
-                .x = microbubble.centre.x - CENTRE.x,
-                .y = microbubble.centre.y - CENTRE.y,
-            };
-            microbubble.anchor = microbubble.centre;
-            *bubble_output = microbubble;
-            ++bubble_output;
+        out.bubble_count = foam.write(std::span(out.bubbles), 1, {1, 1}, 0);
+        for (std::size_t i = 0; i < out.bubble_count; ++i) {
+            auto &micro = out.bubbles[i];
+            if (micro.visibility <= 0) {
+                continue;
+            }
+            micro.centre = sub(micro.centre, CENTRE);
+            micro.anchor = necks[i].attach > 0 ? sub(necks[i].anchor, CENTRE) : micro.centre;
+            micro.attach = necks[i].attach;
         }
-    }
-
-    const BubbleTrailPoint *BubbleWake::last() const noexcept {
-        return count > 0 ? &std::span{nodes}.subspan(first, count).back().point : nullptr;
     }
 
 }  // namespace hyprimate

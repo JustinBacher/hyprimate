@@ -1,5 +1,6 @@
 // Headless pixel tests for the same material and embedded shaders used by the plugin.
 // EGL_PLATFORM=surfaceless selects Mesa's offscreen platform; no compositor is needed.
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -145,6 +146,15 @@ namespace {
             CHECK(at(RESULT, PIXEL_X, PIXEL_Y) == EXPECTED);
         }
         CHECK(std::get<3>(at(RESULT, 40, 60)) == 0);
+        // A companion behind the settled client must not show through it.
+        auto &satellite = std::get<0>(frame.formation);
+        frame.formation_count = 1;
+        satellite.radius = 20;
+        satellite.growth = satellite.visibility = 1;
+        satellite.thickness = 450;
+        CHECK(RESULT == fixture.render(frame,
+            {.image = fixture.window, .backdrop = fixture.scene},
+            {.x = 50, .y = 70}, frame.size));
     }
 
     void test_settling(Fixture &fixture) {
@@ -326,6 +336,136 @@ namespace {
             }
         }
     }
+    // A bud swells the drawn outline exactly where the CPU motion model puts it.
+    void test_bud(Fixture &fixture) {
+        constexpr int W = 160, H = 100;
+        const hyprimate::Vec2 POS{.x = (WIDTH - W) / 2.0, .y = (HEIGHT - H) / 2.0};
+        hyprimate::BubbleFrame frame{};
+        frame.size = {.x = W, .y = H};
+        frame.window.half_size = {.x = W / 2.0, .y = H / 2.0};
+        frame.window.corner = 4;
+        frame.window.visibility = 1;
+        frame.window.thickness = 400;
+        frame.window.motion.round = .3;
+        frame.window.motion.extent = {.x = W / 2.0 * .92, .y = H / 2.0 * .92};
+        const hyprimate::Vec2 TOP{.x = 20, .y = -H / 2.0};
+        auto &bud = std::get<0>(frame.window.motion.buds);
+        bud.foot = hyprimate::bubble_round_point(frame.window.half_size, frame.window.motion, TOP);
+        bud.width = 12;
+        bud.height = 6;
+        const auto SWOLLEN = fixture.render(frame, {.image = fixture.window, .backdrop = fixture.scene}, POS, frame.size);
+        const auto CREST = hyprimate::bubble_motion_point(frame.window.half_size, frame.window.motion, TOP);
+        const int X = static_cast<int>(std::lround(WIDTH / 2.0 + CREST.x));
+        const int Y = static_cast<int>(std::lround(HEIGHT / 2.0 + CREST.y));
+        CHECK(std::get<3>(at(SWOLLEN, X, Y + 2)) > 128);
+        CHECK(std::get<3>(at(SWOLLEN, X, Y - 3)) < 8);
+        bud = {};
+        const auto FLAT = fixture.render(frame, {.image = fixture.window, .backdrop = fixture.scene}, POS, frame.size);
+        CHECK(std::get<3>(at(FLAT, X, Y + 2)) < 8);
+    }
+
+    void test_companion_optics(Fixture &fixture) {
+        hyprimate::BubbleFrame frame{};
+        frame.size = {.x = 128, .y = 128};
+        frame.formation_count = 1;
+        auto &bubble = std::get<0>(frame.formation);
+        bubble.growth = bubble.visibility = 1;
+        bubble.thickness = 650;
+        bubble.seed = .3;
+        const hyprimate::Vec2 POS{.x = 64, .y = 64};
+        for (const double RADIUS : {3.0, 8.0, 24.0, 48.0}) {
+            bubble.radius = RADIUS;
+            const auto LAYER = fixture.render(frame, {.image = fixture.window, .backdrop = fixture.scene}, POS, frame.size);
+            CHECK(LAYER == fixture.render(frame, {.image = fixture.window, .backdrop = fixture.black}, POS, frame.size));
+            CHECK(LAYER == fixture.render(frame, {.image = fixture.other_window, .backdrop = 0}, POS, frame.size));
+            double centre = 0, ring = 0, ring_min = 1e9, ring_max = 0;
+            int centre_count = 0, ring_count = 0;
+            for (int y = 0; y < HEIGHT; ++y) {
+                for (int x = 0; x < WIDTH; ++x) {
+                    const double DISTANCE = std::hypot(x + .5 - 128, y + .5 - 128) / RADIUS;
+                    const double ALPHA = std::get<3>(at(LAYER, x, y));
+                    if (DISTANCE < .4) {
+                        centre += ALPHA;
+                        ++centre_count;
+                    }
+                    if (DISTANCE > 1 - 1.5 / RADIUS && DISTANCE < 1 - .5 / RADIUS) {
+                        ring += ALPHA;
+                        ++ring_count;
+                        const double LIGHT = std::get<0>(at(LAYER, x, y)) + std::get<1>(at(LAYER, x, y)) + std::get<2>(at(LAYER, x, y));
+                        ring_min = std::min(ring_min, LIGHT);
+                        ring_max = std::max(ring_max, LIGHT);
+                    }
+                    if (DISTANCE > 1 + 1.5 / RADIUS) {
+                        CHECK(ALPHA == 0);
+                    }
+                }
+            }
+            if (centre_count > 0) {
+                CHECK(centre / centre_count < 255 * .25);
+            }
+            CHECK(ring_count > 0 && ring > 0);
+            if (RADIUS >= 8) {
+                CHECK(ring / ring_count > 1.5 * centre / centre_count);
+            }
+            CHECK(ring / ring_count < 255 * .8);
+            if (RADIUS >= 24) {
+                CHECK(ring_max > ring_min + 12);
+            }
+        }
+        // Subpixel motion of a tiny bubble should not flicker.
+        bubble.radius = 2.5;
+        double first = 0, lowest = 1e9, highest = 0;
+        for (int i = 0; i < 8; ++i) {
+            bubble.centre = {.x = i * .125, .y = i * .0625};
+            const auto LAYER = fixture.render(frame, {.image = fixture.window, .backdrop = fixture.scene}, POS, frame.size);
+            double total = 0;
+            for (const auto &pixel : LAYER) {
+                total += std::get<3>(pixel);
+            }
+            if (i == 0) {
+                first = total;
+            }
+            lowest = std::min(lowest, total);
+            highest = std::max(highest, total);
+        }
+        CHECK(first > 0 && highest < lowest * 1.15);
+    }
+
+    void test_formation(Fixture &fixture) {
+        for (const hyprimate::Vec2 SIZE : {hyprimate::Vec2{.x = 64, .y = 180},
+                 hyprimate::Vec2{.x = 200, .y = 60}, hyprimate::Vec2{.x = 150, .y = 150},
+                 hyprimate::Vec2{.x = 180, .y = 126}}) {
+            const hyprimate::Vec2 POS{.x = (WIDTH - SIZE.x) / 2, .y = (HEIGHT - SIZE.y) / 2};
+            hyprimate::Bubble bubble;
+            bubble.begin(hyprimate::Transition::Open, hyprimate::BubbleDuration{1}, 42, SIZE);
+            bool companions_drawn = false, companions_after_landing = false;
+            for (int step = 0; step < 100; ++step) {
+                bubble.advance(.01);
+                if (step % 5 != 4) {
+                    continue;
+                }
+                const auto FRAME = bubble.frame(SIZE);
+                const auto DRAWN = fixture.render(FRAME, {.image = fixture.window, .backdrop = fixture.scene}, POS, SIZE);
+                auto primary = FRAME;
+                primary.formation_count = 0;
+                const auto WITHOUT = fixture.render(primary, {.image = fixture.window, .backdrop = fixture.scene}, POS, SIZE);
+                companions_drawn |= DRAWN != WITHOUT;
+                if (bubble.landed() && DRAWN != WITHOUT) {
+                    companions_after_landing = true;
+                }
+                if (step == 99) {
+                    CHECK(DRAWN == WITHOUT);
+                }
+                auto satellites = FRAME;
+                satellites.window.visibility = 0;
+                const auto SCENE = fixture.render(satellites, {.image = fixture.window, .backdrop = fixture.scene}, POS, SIZE);
+                CHECK(SCENE == fixture.render(satellites, {.image = fixture.other_window, .backdrop = fixture.black}, POS, SIZE));
+                CHECK(!glIsEnabled(GL_SCISSOR_TEST) && !glIsEnabled(GL_BLEND));
+            }
+            CHECK(companions_drawn);
+            CHECK(companions_after_landing);
+        }
+    }
 }  // namespace
 
 int main() {
@@ -371,11 +511,14 @@ int main() {
         test_settled(fixture);
         test_settling(fixture);
         test_transparency(fixture);
+        test_formation(fixture);
+        test_companion_optics(fixture);
         test_moving(
-            fixture, {.width = 160, .height = 100}, .35, {.x = 76, .y = 48});  // pillow, wide
+            fixture, {.width = 160, .height = 100}, .35, {.x = 76, .y = 48});
         test_moving(
-            fixture, {.width = 100, .height = 160}, .75, {.x = 46, .y = 74});  // ellipse, tall
-        test_moving(fixture, {.width = 150, .height = 90}, .85, {.x = 48, .y = 48});  // disc
+            fixture, {.width = 100, .height = 160}, .75, {.x = 46, .y = 74});
+        test_moving(fixture, {.width = 150, .height = 90}, .85, {.x = 48, .y = 48});
+        test_bud(fixture);
     }
     eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     eglDestroyContext(display, context);

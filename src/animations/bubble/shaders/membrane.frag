@@ -57,7 +57,8 @@ vec4 layer(Membrane s, vec2 p, vec2 screenPoint, vec3 point, vec3 normal, float 
         stress=s.sheen*smoothstep(.55,1.0,sqrt(sqrt(dot(u2,u2))))*trailing;
     }
     // A rounded-up window is a bubble: film over all of it, its imagery seen through the film.
-    float rounded=s.spherical==0 ? smoothstep(0.0,.45,s.round) : 0.0;
+    float rounded=s.spherical==0 ? max(smoothstep(0.0,.45,s.round),
+        smoothstep(0.0,.45,s.depth/minHalf)) : 0.0;
     float local=max(max(max(s.film,precursor),stress),rounded);
     vec4 reflection=vec4(0);
     // The thickness field is only evaluated where film is visible: a closing window needs it near its holes only.

@@ -66,6 +66,11 @@ def validate(settings):
         path, kind = item['path'], item['type']
         if not all(SEGMENT.match(part) for part in path.split('.')):
             raise ValueError(f'invalid setting path {path!r}')
+        if 'inherit' in item:
+            parts = path.split('.')
+            if (not isinstance(item['inherit'], bool) or len(parts) != 5
+                    or parts[1] not in ('open', 'close', 'movement') or parts[2] != 'options'):
+                raise ValueError(f'{path}: inherit must be boolean on an animation style option')
         if path in paths:
             raise ValueError(f'duplicate setting path {path!r}')
         if not isinstance(item['description'], str) or not item['description'].strip():
@@ -122,7 +127,8 @@ def expanded_settings(settings):
     generated_globals = []
     for item in settings:
         parts = item['path'].split('.')
-        if len(parts) != 5 or parts[1] not in ('open', 'close', 'movement') or parts[2] != 'options':
+        if (len(parts) != 5 or parts[1] not in ('open', 'close', 'movement')
+                or parts[2] != 'options' or not item.get('inherit', True)):
             continue
         path = '.'.join(('window', 'options', *parts[3:]))
         if path not in globals_by_path:
@@ -148,7 +154,8 @@ def expanded_settings(settings):
     result = []
     for item in settings:
         parts = item['path'].split('.')
-        if len(parts) == 5 and parts[1] in ('open', 'close', 'movement') and parts[2] == 'options':
+        if (len(parts) == 5 and parts[1] in ('open', 'close', 'movement')
+                and parts[2] == 'options' and item.get('inherit', True)):
             item = dict(item, optional=True, inherited=True)
         result.append(item)
     return generated_globals + result + swarm_overrides
@@ -453,6 +460,7 @@ def documentation(settings):
              example_lua, '```', '',
              'Use `hyprimate` under `plugin` in `hl.config`; the matching `hyprctl` keys begin with `plugin:hyprimate:`. Each nested Lua table maps to colon-separated key segments.', '',
              'Style settings under `window.options.<style>` are shared; set `window.<animation>.options.<style>` to override one animation. When a shared setting is unset, each animation uses its own default. Shared values are clamped to the receiving animation’s range. Example lines with differing animation defaults are commented out to preserve them.', '',
+             'Formation controls listed under `window.open.options.bubble` apply only to opening and have no global or closing counterpart. They use the same options table; shared settings such as `duration` still inherit normally.', '',
              '| Setting | Type / default | Numeric range | Meaning |', '|---|---|---|---|']
     for item in settings:
         if item.get('inherited'):
