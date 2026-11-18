@@ -9,8 +9,9 @@ namespace hyprimate {
         constexpr double STEP = SUBSTEP_SECONDS;
         constexpr double MAX_SPEED = 3000.0;
         constexpr double PI = std::numbers::pi;
-        // Time for wake smoke to finish diffusing once nothing feeds the fluid.
-        constexpr double RESIDUAL_SECONDS = 1.1;
+        // Time for wake smoke to finish dissipating once nothing feeds the fluid, as a share of
+        // its lifetime: the age-driven thinning has cleared it by then.
+        constexpr double RESIDUAL_LIFETIMES = 1.15;
         constexpr double CLOSE_RESIDUAL_SECONDS = 0.6;
 
         Vec2 add(Vec2 a, Vec2 b) noexcept {
@@ -294,6 +295,7 @@ namespace hyprimate {
         m_params.variation = safe_param(params.variation, 0.5, 0.0, 1.0);
         m_frame.turbulence = m_params.turbulence;
         m_frame.trail = m_params.trail;
+        m_frame.life = smoke_life(m_params.trail);
         m_frame.mass_size = m_params.mass;
         m_frame.mass_roundness = m_params.roundness;
         m_frame.density = m_params.density;
@@ -361,12 +363,13 @@ namespace hyprimate {
             }
 
             m_frame.position = add(m_frame.position, DELTA);
-            // Slide the fluid domain back along the motion so the wake has room to trail.
+            // The wake lies along the path the window has just travelled. Centre the fluid
+            // domain between the window and the recent path, so a sustained move leaves room
+            // behind it while back-and-forth dragging keeps the domain over the whole wake
+            // instead of swinging its edge across it.
             const double MARGIN = 0.5 * (smoke_domain(m_frame.size).x - m_frame.size.x);
-            const Vec2 OFFSET =
-                limit(mul(m_frame.velocity, -0.6 * MARGIN / 600.0), 0.6 * MARGIN);
-            m_wake = add(m_wake, mul(sub(OFFSET, m_wake), 1.0 - std::exp(-STEP / 0.3)));
-            m_frame.offset = m_wake;
+            m_trail = blend(m_trail, m_frame.position, 1.0 - std::exp(-STEP / (0.35 * m_frame.life)));
+            m_frame.offset = limit(sub(m_trail, m_frame.position), 0.6 * MARGIN);
             m_frame.time += STEP;
             m_frame.settle = 0;
             if (m_opening || m_closing) {
@@ -402,11 +405,12 @@ namespace hyprimate {
                                       ? (length(BEFORE.half) - EXTENT) / (STEP * EXTENT)
                                       : 0;
 
-            const double RESIDUAL = m_closing ? CLOSE_RESIDUAL_SECONDS : RESIDUAL_SECONDS;
+            const double RESIDUAL = m_closing ? CLOSE_RESIDUAL_SECONDS : RESIDUAL_LIFETIMES * m_frame.life;
             const bool FEEDING =
                 m_opening || (m_frame.smoke > 0.002 && m_frame.presence > 0.002);
             m_residual = FEEDING ? RESIDUAL : std::max(0.0, m_residual - STEP);
-            m_frame.fade = FEEDING ? 1.0 : smoothstep(0.0, 1.0, m_residual / RESIDUAL);
+            // Ageing thins the wake on its own; the shared fade only removes the last traces.
+            m_frame.fade = FEEDING ? 1.0 : smoothstep(0.0, 0.45, m_residual / RESIDUAL);
             if (m_closing && m_elapsed >= m_duration && m_residual <= 0) {
                 m_closing = false;
                 m_closed = true;
@@ -436,6 +440,11 @@ namespace hyprimate {
     SmokeFrame Smoke::frame(Vec2 size) const noexcept {
         auto result = m_frame;
         result.size = safe_size(size);
+        // The window is drawn where it is now, including translation the fixed substeps have
+        // not consumed yet. Anchoring the fluid there keeps world-fixed smoke still on screen;
+        // anchoring it to the last substep would shake all of it along the drag by up to a
+        // substep's travel whenever frames fall between substeps.
+        result.position = add(m_frame.position, m_pending);
         return result;
     }
     Box Smoke::bounds(Vec2 size) const noexcept {

@@ -80,6 +80,19 @@ namespace {
         CHECK(std::abs(FIRST.offset.x - SECOND.offset.x) < 1e-7);
     }
 
+    // The fluid is anchored where the window is drawn. Translation the fixed substeps have not
+    // consumed yet still moves the frame; otherwise all smoke shakes along the drag whenever
+    // display frames fall between substeps.
+    void frame_includes_unstepped_translation() {
+        Smoke smoke;
+        advance_for(smoke, 0.3, 144, {.x = 1800, .y = 0});
+        const Vec2 BEFORE = smoke.frame(SIZE).position;
+        smoke.drive({.x = 7, .y = -3});
+        smoke.advance(0.4 * SUBSTEP_SECONDS, SIZE);
+        const Vec2 AFTER = smoke.frame(SIZE).position;
+        CHECK(std::abs(AFTER.x - BEFORE.x - 7) < 1e-9 && std::abs(AFTER.y - BEFORE.y + 3) < 1e-9);
+    }
+
     // The canvas must cover the whole fluid, which slides behind moving windows for the wake.
     void bounds_cover_window_and_wake() {
         Smoke smoke;
@@ -327,6 +340,7 @@ int main() {
     endpoints_and_interruption();
     residual_wake_fades_out();
     substeps_are_rate_independent();
+    frame_includes_unstepped_translation();
     bounds_cover_window_and_wake();
     disabled_movement_and_stop_transition();
     first_layout_move_retains_visible_carry();

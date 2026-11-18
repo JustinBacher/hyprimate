@@ -3,9 +3,9 @@ precision highp float;
 precision highp sampler3D;
 #include "common.glsl"
 // Semi-Lagrangian velocity advection plus the forces that give smoke its self-directed motion.
-uniform sampler2D u_velocity_field, u_dye;
+uniform sampler2D u_velocity_field, u_dye, u_age;
 uniform vec2 u_grid, u_domain, u_shift, u_half, u_carry, u_velocity, u_lag, u_offset, u_position;
-uniform float u_dt, u_time, u_seed, u_smoke, u_dispersal, u_turbulence, u_wind;
+uniform float u_dt, u_time, u_seed, u_smoke, u_dispersal, u_turbulence, u_wind, u_life;
 out vec4 frag;
 
 float vorticity(vec2 uv, vec2 texel) {
@@ -55,11 +55,28 @@ void main() {
     vec2 circulation = curlNoise(vec3(q / scale * 1.7, u_time * .55 + u_seed * 4.0)) *
         scale * (.5 + 1.1 * u_turbulence) * (1.0 + .8 * surge) * massed;
     v = mix(v, bodyVelocity + circulation, 1.0 - exp(-u_dt * (6.0 * follow + 18.0 * interior)));
-    // While the body contracts or expands, the material over the window moves with that
-    // deformation, so freshly unravelled content is drawn into the mass rather than left behind.
+    // Loose smoke, outside the body and away from an opening or closing head, and how many
+    // lifetimes it has aged since leaving the body (see dye.frag).
+    float loose = (1.0 - body) * (1.0 - u_transit) * smoothstep(.004, .06, density);
+    float life = clamp(texture(u_age, p).r / max(density, 1e-3) / max(u_life, .05), 0.0, 1.5);
+    float rolling = smoothstep(.06, .4, life);
+    float shredding = smoothstep(.35, .85, life);
+    // Fresh smoke near the mass is still carried by its momentum, which lags the window, so
+    // a stop or a turn leaves it coasting on the old heading rather than braking with the window.
+    float near = 1.0 - smoothstep(.15 * scale, 1.2 * scale, sd);
+    v = mix(v, .7 * u_lag, 1.0 - exp(-u_dt * 3.0 * loose * (1.0 - rolling) * near * u_mass));
+    // Only air and smoke around the body feel the window's motion directly. Smoke that has
+    // drifted away keeps its own motion however the window is moved.
+    float vicinity = 1.0 - smoothstep(.3 * scale, 1.6 * scale, sd);
+    // While the body contracts or expands, the material it is drawing in moves with that
+    // deformation, so freshly unravelled content joins the mass rather than being left
+    // behind. Only that fresh material follows, across a ragged band rather than the window's
+    // outline, so neither detached smoke nor a straight edge is dragged along with the window.
     vec2 unused;
-    float region = 1.0 - smoothstep(-.05 * extent, .12 * extent, rectDistance(rel, u_half, unused));
-    float deforming = region * smoothstep(.1, .8, abs(u_contraction)) * (1.0 - u_dispersal);
+    float ragged = (noise3(vec3(world / extent * 3.1, u_time * .5 + u_seed * 15.0)) - .5) * .3 * extent;
+    float region = 1.0 - smoothstep(-.1 * extent, .1 * extent, rectDistance(rel, u_half, unused) + ragged);
+    float fresh = (1.0 - smoothstep(.02, .12, life)) * smoothstep(.004, .06, density);
+    float deforming = region * fresh * smoothstep(.1, .8, abs(u_contraction)) * (1.0 - u_dispersal);
     vec2 squeeze = -(rel - u_body_offset) * u_contraction;
     v = mix(v, u_velocity + squeeze, 1.0 - exp(-u_dt * 16.0 * deforming));
 
@@ -126,16 +143,17 @@ void main() {
             (inward + .7 * swirl);
     }
 
-    // Broad slow folds plus small fast eddies anchored to the screen; motion, acceleration
-    // and dispersal stir them harder.
+    // Broad slow folds plus small fast eddies anchored to the screen; dispersal, and near the
+    // body motion and acceleration, stir them harder.
     vec2 broad = curlNoise(vec3(world / extent * 1.4, u_time * .3 + u_seed * 13.0));
     vec2 fine = curlNoise(vec3(world / extent * 4.6 + 19.0, u_time * 1.1 + u_seed * 7.0));
-    float stir = u_turbulence * extent * (.7 + 1.0 * moving + 1.2 * surge + 2.2 * u_dispersal);
+    float stir = u_turbulence * extent * (.7 + (1.0 * moving + 1.2 * surge) * vicinity + 2.2 * u_dispersal);
     v += u_dt * stir * (broad * .8 + fine * .55) * (.35 + .65 * min(density * 2.0, 1.0));
-    // Shed smoke breaks into smaller curling tendrils as it falls behind a travelling mass.
+    // Shed smoke breaks into smaller curling tendrils as it falls behind a travelling mass;
+    // the freshest smoke holds together a little longer.
     vec2 tendrils = curlNoise(vec3(world / extent * 9.0 + 41.0, u_time * 1.8 + u_seed * 3.0));
-    v += u_dt * u_turbulence * extent * 8.0 * max(moving * massed, u_settle) * (1.0 - body) *
-        tendrils * min(density * 3.0, 1.0);
+    v += u_dt * u_turbulence * extent * 8.0 * max(moving * massed * vicinity, u_settle) * (1.0 - body) *
+        tendrils * min(density * 3.0, 1.0) * mix(1.0, .4 + .6 * rolling, loose);
     // Behind a travelling mass the shed layer is kicked sideways at irregular intervals, so
     // the wake meanders and rolls up into curls instead of trailing as straight streaks.
     if (massed > 0.0 && speed > 1.0) {
@@ -145,22 +163,44 @@ void main() {
         float kick = noise3(vec3(world / extent * 2.2, u_time * 1.6 + u_seed * 9.0)) * 2.0 - 1.0;
         v += u_dt * side * kick * speed * 6.0 * zone * behind * moving * massed;
     }
+    // Loose smoke develops motion of its own as it ages, whatever the window does. Shortly
+    // after leaving the body it is wound up into eddies; the flow carries those eddies with
+    // the smoke, so the wake rolls up into curls and smaller masses that keep circulating
+    // wherever they drift. Clumps keep spinning in the sense they already turn, and older
+    // smoke stretches and shreds into fine tendrils.
+    float omega = vorticity(p, texel);
+    vec2 slope = vec2(texture(u_dye, p + vec2(texel.x, 0)).a - texture(u_dye, p - vec2(texel.x, 0)).a,
+        texture(u_dye, p + vec2(0, texel.y)).a - texture(u_dye, p - vec2(0, texel.y)).a);
+    float seeded = noise3(vec3(world / extent * 1.7, u_seed * 29.0 + u_time * .25)) * 2.0 - 1.0;
+    float spin = clamp(.6 * seeded - omega / 25.0, -1.0, 1.0);
+    float vigour = (.5 + u_turbulence) * extent * loose;
+    v += u_dt * vigour * 22.0 * rolling * (1.0 - .5 * shredding) * spin * vec2(-slope.y, slope.x);
+    float windup = smoothstep(.03, .15, life) * (1.0 - smoothstep(.3, .55, life));
+    vec2 roll = curlNoise(vec3(world / extent * 2.8 + 23.0, u_time * .9 + u_seed * 11.0));
+    vec2 shred = curlNoise(vec3(world / extent * 8.0 + 57.0, u_time * 2.0 + u_seed * 5.0));
+    v += u_dt * vigour * (roll * 7.0 * windup + shred * 2.5 * shredding) * min(density * 3.0, 1.0);
+    // Ageing smoke lifts and rolls over as it loosens.
+    v.y -= u_dt * extent * .35 * loose * rolling * min(density, 1.0);
 
     // Smoke is lighter than air, and dissipating smoke breaks apart from its body.
     v.y -= u_dt * extent * min(density, 1.5) * (.15 + .9 * u_dispersal);
     v += u_dt * u_dispersal * (1.0 - u_attract) * extent * .6 * normalize(fromHead + vec2(.001)) *
         (1.0 - .5 * outside);
 
-    // Vorticity confinement restores the curls numerical diffusion removes.
-    float omega = vorticity(p, texel);
+    // Vorticity confinement restores the curls numerical diffusion removes; loosened smoke
+    // keeps more of its small-scale circulation.
     vec2 gradient = vec2(abs(vorticity(p + vec2(texel.x, 0), texel)) -
             abs(vorticity(p - vec2(texel.x, 0), texel)),
         abs(vorticity(p + vec2(0, texel.y), texel)) - abs(vorticity(p - vec2(0, texel.y), texel)));
     gradient /= length(gradient) + 1e-4;
-    v += u_dt * 14.0 * (.4 + u_turbulence) * vec2(gradient.y, -gradient.x) * omega;
+    v += u_dt * 14.0 * (.4 + u_turbulence) * (1.0 + .5 * loose * rolling) *
+        vec2(gradient.y, -gradient.x) * omega;
 
-    // Shed smoke meets still air: it loses the window's momentum and falls behind as a wake.
-    v *= exp(-u_dt * (.6 + 4.5 * moving * (1.0 - body) * (1.0 - u_dispersal)));
+    // Still air around a travelling mass holds back what it disturbs. Wake smoke instead
+    // carries the momentum it left the body with, overshooting a window that stops or turns,
+    // and its own currents slow only gradually as it ages while the forces above keep it moving.
+    float air = .6 + 4.5 * moving * vicinity * (1.0 - body) * (1.0 - u_dispersal);
+    v *= exp(-u_dt * mix(air, .5 + .9 * life, loose));
     vec2 border = smoothstep(vec2(0.0), 4.0 * texel, uv) * smoothstep(vec2(0.0), 4.0 * texel, 1.0 - uv);
     frag = vec4(v * border.x * border.y, 0.0, 1.0);
 }

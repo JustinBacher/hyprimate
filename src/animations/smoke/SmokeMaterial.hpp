@@ -15,8 +15,8 @@ struct SSmokeImages {
     hyprimate::Vec2 texture_origin, texture_size;
 };
 
-// One window's smoke fluid: velocity, pressure and window-coloured density on a grid that
-// follows the window while the smoke itself stays anchored to the world.
+// One window's smoke fluid: velocity, pressure, window-coloured density and the density's age
+// on a grid that follows the window while the smoke itself stays anchored to the world.
 // release() needs the owning context current.
 class CSmokeField {
   public:
@@ -30,6 +30,11 @@ class CSmokeField {
         DyeA,
         DyeB,
         Predicted,
+        // Density-weighted age in seconds since the smoke left the body, transported exactly
+        // as the density is so every fragment keeps the age of the smoke it came from.
+        AgeA,
+        AgeB,
+        PredictedAge,
         PressureA,
         PressureB,
         Divergence,
@@ -38,7 +43,7 @@ class CSmokeField {
     std::array<GLuint, TextureCount> m_textures{};
     GLuint m_framebuffer = 0;
     GLsizei m_width = 0, m_height = 0;
-    std::size_t m_velocity = VelocityA, m_dye = DyeA, m_pressure = PressureA;
+    std::size_t m_velocity = VelocityA, m_dye = DyeA, m_age = AgeA, m_pressure = PressureA;
     double m_time = 0, m_smoke = 0;
     hyprimate::Vec2 m_centre;  // world position of the grid centre at the last step
     hyprimate::Vec2 m_domain, m_size, m_resize_rate;
@@ -46,7 +51,7 @@ class CSmokeField {
 };
 
 // Independent of Hyprland. The caller owns framebuffer, viewport, blend and tests, and
-// restores texture units 0-4 (2D and 3D), program and VAO afterwards.
+// restores texture units 0-6 (2D and 3D), program and VAO afterwards.
 class CSmokeMaterial {
   public:
     bool initialize();
@@ -82,6 +87,8 @@ class CSmokeMaterial {
         PressureField,
         DivergenceField,
         PredictedField,
+        AgeField,
+        PredictedAgeField,
         Grid,
         Domain,
         Shift,
@@ -107,6 +114,7 @@ class CSmokeMaterial {
         Dispersal,
         Turbulence,
         Trail,
+        Life,
         Gather,
         Fade,
         Position,
@@ -135,6 +143,8 @@ class CSmokeMaterial {
     // Uniforms every pass reads from the frame: motion, scrolling and the body shape.
     void motion(Program program, const hyprimate::SmokeFrame &frame) const;
     static void pass(GLuint target);
+    // Writes the density and its age together.
+    static void pass(GLuint target, GLuint age);
     bool allocate(CSmokeField &field, GLsizei width, GLsizei height) const;
     std::array<GLuint, ProgramCount> m_programs{};
     std::array<std::array<GLint, UniformCount>, ProgramCount> m_uniforms{};

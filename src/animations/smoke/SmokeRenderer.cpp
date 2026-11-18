@@ -70,8 +70,8 @@ SP<Render::IFramebuffer> CSmokeRenderer::render(
     GLint program = 0, vao = 0, buffer = 0, active = 0, src = 0, dst = 0, srca = 0, dsta = 0;
     std::array<GLint, 4> viewport{};
     std::array<GLboolean, 4> mask{};
-    // The fluid passes use texture units 0-4.
-    std::array<std::array<GLint, 2>, 5> textures{};
+    // The fluid passes use texture units 0-6.
+    std::array<std::array<GLint, 2>, 7> textures{};
     glGetIntegerv(GL_CURRENT_PROGRAM, &program);
     glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
     glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &buffer);

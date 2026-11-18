@@ -14,7 +14,7 @@ namespace hyprimate {
         Vec2 velocity;  // smoothed window velocity, px/s
         Vec2 lag;       // slower-responding velocity: the body's inertia and delayed stretch
         Vec2 carry;     // body offset from the window centre while a layout move settles
-        Vec2 position;  // accumulated window translation; scrolls the world-anchored fluid
+        Vec2 position;  // window translation so far, including any not yet stepped; anchors the fluid to the world
         Vec2 offset;    // fluid domain centre from the window centre: room for the wake behind
         double time = 0;
         double seed = 0;
@@ -22,6 +22,7 @@ namespace hyprimate {
         double presence = 1;  // window material still feeding the smoke body
         double turbulence = 0.65;
         double trail = 0.65;
+        double life = 0.94;    // seconds wake smoke lives after leaving the body; see smoke_life
         double gather = 0;     // opening: strength of loose streams converging on the window
         double cohesion = 0;   // pull of loose smoke back into the window rectangle
         double dispersal = 0;  // closing: outward breakup and accelerated decay
@@ -85,6 +86,12 @@ namespace hyprimate {
         return {.x = size.x + (2.0 * MARGIN), .y = size.y + (2.0 * MARGIN)};
     }
 
+    // Lifetime of wake smoke from the moment it leaves the body: denser for its first third,
+    // curling and fragmenting through the middle, thinned to nothing by the end.
+    [[nodiscard]] inline double smoke_life(double trail) noexcept {
+        return 0.55 + (0.6 * std::clamp(trail, 0.0, 1.0));
+    }
+
     class Smoke {
       public:
         void seed(std::uint64_t value) noexcept;
@@ -112,7 +119,7 @@ namespace hyprimate {
         Vec2 m_pending;
         double m_resize_pending = 0;  // accumulated half-extent travel, including centred resizes
         Vec2 m_carry_velocity;
-        Vec2 m_wake;  // domain offset that gives a moving window's wake room
+        Vec2 m_trail;  // recent path of the window, weighted like the wake it leaves; centres the domain
         std::uint64_t m_rng = 1;
         double m_seed = 0;  // raw per-window seed; variation scales how far it moves the noise
         // Per-transition draws in [0, 1]; variation scales their effect each step, so the

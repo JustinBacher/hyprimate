@@ -105,6 +105,8 @@ bool CSmokeMaterial::initialize() {
         "u_pressure",
         "u_divergence",
         "u_predicted",
+        "u_age",
+        "u_predicted_age",
         "u_grid",
         "u_domain",
         "u_shift",
@@ -130,6 +132,7 @@ bool CSmokeMaterial::initialize() {
         "u_dispersal",
         "u_turbulence",
         "u_trail",
+        "u_life",
         "u_gather",
         "u_fade",
         "u_position",
@@ -234,6 +237,8 @@ void CSmokeMaterial::use(Program program) const {
     glUniform1i(uniforms[Window], 3);
     glUniform1i(uniforms[DivergenceField], 3);
     glUniform1i(uniforms[PredictedField], 4);
+    glUniform1i(uniforms[AgeField], 5);
+    glUniform1i(uniforms[PredictedAgeField], 6);
 }
 
 void CSmokeMaterial::motion(Program program, const hyprimate::SmokeFrame &frame) const {
@@ -266,11 +271,22 @@ void CSmokeMaterial::motion(Program program, const hyprimate::SmokeFrame &frame)
     glUniform1f(u[Time], F(frame.time));
     glUniform1f(u[Seed], F(frame.seed));
     glUniform1f(u[Smoke], F(frame.smoke));
+    glUniform1f(u[Life], F(std::max(frame.life, 0.05)));
 }
 
 void CSmokeMaterial::pass(GLuint target) {
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, target, 0);
     glDrawArrays(GL_TRIANGLES, 0, 3);
+}
+
+void CSmokeMaterial::pass(GLuint target, GLuint age) {
+    constexpr std::array<GLenum, 2> BOTH{GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
+    constexpr GLenum FIRST = GL_COLOR_ATTACHMENT0;
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, age, 0);
+    glDrawBuffers(2, BOTH.data());
+    pass(target);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, 0, 0);
+    glDrawBuffers(1, &FIRST);
 }
 
 bool CSmokeMaterial::allocate(CSmokeField &field, GLsizei width, GLsizei height) const {
@@ -408,6 +424,7 @@ bool CSmokeMaterial::simulate(CSmokeField &field,
     COMMON(Velocity);
     bind(GL_TEXTURE0, GL_TEXTURE_2D, textures[field.m_velocity]);
     bind(GL_TEXTURE2, GL_TEXTURE_2D, textures[field.m_dye]);
+    bind(GL_TEXTURE5, GL_TEXTURE_2D, textures[field.m_age]);
     pass(textures[OTHER_VELOCITY()]);
     field.m_velocity = OTHER_VELOCITY();
 
@@ -434,7 +451,8 @@ bool CSmokeMaterial::simulate(CSmokeField &field,
     COMMON(Advect);
     bind(GL_TEXTURE0, GL_TEXTURE_2D, textures[field.m_velocity]);
     bind(GL_TEXTURE2, GL_TEXTURE_2D, textures[field.m_dye]);
-    pass(textures[CSmokeField::Predicted]);
+    bind(GL_TEXTURE5, GL_TEXTURE_2D, textures[field.m_age]);
+    pass(textures[CSmokeField::Predicted], textures[CSmokeField::PredictedAge]);
 
     COMMON(Dye);
     const auto &u = m_uniforms[Dye];
@@ -443,10 +461,13 @@ bool CSmokeMaterial::simulate(CSmokeField &field,
     glUniform2f(u[TextureOrigin], F(images.texture_origin.x), F(images.texture_origin.y));
     glUniform2f(u[TextureSize], F(images.texture_size.x), F(images.texture_size.y));
     const auto NEXT_DYE = field.m_dye == CSmokeField::DyeA ? CSmokeField::DyeB : CSmokeField::DyeA;
+    const auto NEXT_AGE = field.m_age == CSmokeField::AgeA ? CSmokeField::AgeB : CSmokeField::AgeA;
     bind(GL_TEXTURE3, GL_TEXTURE_2D, images.window);
     bind(GL_TEXTURE4, GL_TEXTURE_2D, textures[CSmokeField::Predicted]);
-    pass(textures[NEXT_DYE]);
+    bind(GL_TEXTURE6, GL_TEXTURE_2D, textures[CSmokeField::PredictedAge]);
+    pass(textures[NEXT_DYE], textures[NEXT_AGE]);
     field.m_dye = NEXT_DYE;
+    field.m_age = NEXT_AGE;
 
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
     field.m_time = frame.time;
@@ -473,8 +494,11 @@ void CSmokeMaterial::draw(const CSmokeField &field,
         field.m_primed ? field.m_textures[field.m_velocity] : m_empty);
     bind(GL_TEXTURE2, GL_TEXTURE_2D, field.m_primed ? field.m_textures[field.m_dye] : m_empty);
     bind(GL_TEXTURE3, GL_TEXTURE_2D, images.window);
+    bind(GL_TEXTURE5, GL_TEXTURE_2D, field.m_primed ? field.m_textures[field.m_age] : m_empty);
     const auto &u = m_uniforms[Composite];
-    const hyprimate::Vec2 DOMAIN = hyprimate::smoke_domain(frame.size);
+    // The grid lies where it was last stepped. Map it from the window's current position, so
+    // a frame that does not step still shows the smoke fixed in the world.
+    const hyprimate::Vec2 DOMAIN = field.m_primed ? field.m_domain : hyprimate::smoke_domain(frame.size);
     glUniform2f(u[Origin], F(target.origin.x), F(target.origin.y));
     glUniform2f(u[Source], F(target.source_pos.x), F(target.source_pos.y));
     glUniform2f(u[Size], F(target.source_size.x), F(target.source_size.y));
@@ -484,6 +508,9 @@ void CSmokeMaterial::draw(const CSmokeField &field,
     glUniform2f(u[Domain], F(DOMAIN.x), F(DOMAIN.y));
     glUniform2f(u[Grid], F(std::max(field.m_width, 1)), F(std::max(field.m_height, 1)));
     motion(Composite, frame);
+    if (field.m_primed) {
+        glUniform2f(u[Offset], F(field.m_centre.x - frame.position.x), F(field.m_centre.y - frame.position.y));
+    }
     glUniform1f(u[Fade], F(field.m_primed ? frame.fade : 0.0));
     glDrawArrays(GL_TRIANGLES, 0, 3);
 }

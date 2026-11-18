@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -20,14 +21,14 @@ namespace {
     using Pixel = std::array<unsigned char, 4>;
     using Image = std::vector<Pixel>;
 
-    void save(const std::filesystem::path &path, const Image &image) {
+    void save(const std::filesystem::path &path, const Image &image, int width = W, int height = H) {
         FILE *file = std::fopen(path.string().c_str(), "wb");
         if (file == nullptr) {
             (void)std::fprintf(stderr, "Cannot write capture %s\n", path.string().c_str());
             ++g_failures;
             return;
         }
-        (void)std::fprintf(file, "P6\n%d %d\n255\n", W, H);
+        (void)std::fprintf(file, "P6\n%d %d\n255\n", width, height);
         for (const auto &p : image) {
             // Composite premultiplied pixels over a neutral review background.
             const int BACK = (255 - int(p[3])) * 60 / 255;
@@ -42,23 +43,27 @@ namespace {
     struct Harness {
         CSmokeMaterial material;
         GLuint texture = 0;
+        hyprimate::Vec2 texture_size{TW, TH};
         SSmokeTarget target{.canvas = {W, H}, .origin = {0, 0}, .source_pos = {40, 68}, .source_size = {TW, TH}};
         hyprimate::SmokeFrame frame{};
 
-        void upload(const Image &pixels) const {
+        void upload(const Image &pixels, int width = TW, int height = TH) {
+            texture_size = {static_cast<double>(width), static_cast<double>(height)};
             glBindTexture(GL_TEXTURE_2D, texture);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, TW, TH, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
         }
         [[nodiscard]] SSmokeImages images() const {
-            return {.window = texture, .texture_origin = target.source_pos, .texture_size = {TW, TH}};
+            return {.window = texture, .texture_origin = target.source_pos, .texture_size = texture_size};
         }
         Image render(CSmokeField &field) {
-            glViewport(0, 0, W, H);
+            const auto WIDTH = static_cast<GLsizei>(target.canvas.x);
+            const auto HEIGHT = static_cast<GLsizei>(target.canvas.y);
+            glViewport(0, 0, WIDTH, HEIGHT);
             glDisable(GL_BLEND);
             CHECK(material.simulate(field, frame, target, images()));
             material.draw(field, frame, target, images());
-            Image result(static_cast<std::size_t>(W) * H);
-            glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, result.data());
+            Image result(static_cast<std::size_t>(WIDTH) * HEIGHT);
+            glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, result.data());
             return result;
         }
         // Unravels the resting window into smoke over half a second.
@@ -261,6 +266,91 @@ int main(int argc, char **argv) {
             field.release();
         }
 
+        // Wake smoke lives briefly: passing back and forth over the same area does not pile it
+        // up, and once the window stops the trail away from it clears promptly.
+        {
+            constexpr int CW = 1024, CH = 512, CLEARANCE = 40;
+            CSmokeField field;
+            hyprimate::Smoke driver;
+            driver.seed(5);
+            const hyprimate::Vec2 SIZE{TW, TH};
+            h.target = {.canvas = {CW, CH}, .origin = {0, 0}, .source_pos = {260, 196}, .source_size = SIZE};
+            const auto AWAY = [&](const Image &image) {
+                const int X0 = static_cast<int>(h.target.source_pos.x) - CLEARANCE;
+                const int Y0 = static_cast<int>(h.target.source_pos.y) - CLEARANCE;
+                long sum = 0;
+                for (int y = 0; y < CH; ++y) {
+                    for (int x = 0; x < CW; ++x) {
+                        if (x < X0 || x >= X0 + TW + 2 * CLEARANCE || y < Y0 || y >= Y0 + TH + 2 * CLEARANCE) {
+                            sum += image[static_cast<std::size_t>(y * CW + x)][3];
+                        }
+                    }
+                }
+                return sum;
+            };
+            const auto STEP = [&](double dx) {
+                if (dx != 0) {
+                    driver.drive({dx, 0});
+                    h.target.source_pos.x += dx;
+                }
+                driver.advance(1.0 / 60, SIZE);
+                h.frame = driver.frame(SIZE);
+                return h.render(field);
+            };
+            std::array<long, 6> passes{};
+            for (int pass = 0; pass < 6; ++pass) {
+                for (int i = 0; i < 30; ++i) {
+                    passes[pass] = std::max(passes[pass], AWAY(STEP(pass % 2 == 0 ? 12.0 : -12.0)));
+                }
+            }
+            CHECK(passes[1] > 100000 && passes[5] < passes[1]);
+            const int CLEAR = static_cast<int>(std::ceil(60.0 * 1.1 * hyprimate::smoke_life(hyprimate::SmokeParams{}.trail)));
+            long rest = 0;
+            for (int i = 0; i < CLEAR; ++i) {
+                rest = AWAY(STEP(0));
+            }
+            CHECK(rest < passes[1] / 100);
+            field.release();
+            h.target = {.canvas = {W, H}, .origin = {0, 0}, .source_pos = {40, 68}, .source_size = {TW, TH}};
+        }
+
+        // A display frame between fluid substeps draws the stepped smoke where the world has
+        // it: moving the window without stepping must not carry detached smoke along with it.
+        {
+            CSmokeField field;
+            h.frame = {};
+            h.frame.size = {TW, TH};
+            h.frame.seed = .37;
+            h.target.source_pos = {176, 68};
+            h.convert(field);
+            for (int i = 0; i < 12; ++i) {
+                h.frame.time += 1.0 / 60;
+                h.frame.velocity = {360, 0};
+                h.frame.position.x += 6;
+                h.target.source_pos.x += 6;
+                h.render(field);
+            }
+            const Image STEPPED = h.render(field);
+            h.frame.position.x += 5;
+            h.target.source_pos.x += 5;
+            const Image BETWEEN = h.render(field);
+            const int LEFT = static_cast<int>(h.target.source_pos.x) - 40;
+            const int RIGHT = static_cast<int>(h.target.source_pos.x) + TW + 40;
+            int smoke = 0, moved = 0;
+            for (int y = 0; y < H; ++y) {
+                for (int x = 0; x < W; ++x) {
+                    if (x >= LEFT && x < RIGHT) {
+                        continue;
+                    }
+                    const int A = at(STEPPED, x, y)[3], B = at(BETWEEN, x, y)[3];
+                    smoke += A > 8 ? 1 : 0;
+                    moved += std::abs(A - B) > 3 ? 1 : 0;
+                }
+            }
+            CHECK(smoke > 500 && moved * 50 < smoke);
+            field.release();
+        }
+
         if (capture != nullptr) {
             std::filesystem::create_directories(capture);
             CSmokeField field;
@@ -286,6 +376,75 @@ int main(int argc, char **argv) {
                 }
             }
             field.release();
+        }
+
+        // Wake capture of a full-size window: a fast move, a sharp change of direction, then a
+        // stop while the trail dissipates.
+        if (capture != nullptr) {
+            constexpr int CW = 1920, CH = 1080, WW = 640, WH = 400;
+            std::filesystem::create_directories(capture);
+            Image content(static_cast<std::size_t>(WW) * WH);
+            for (int y = 0; y < WH; ++y) {
+                for (int x = 0; x < WW; ++x) {
+                    content[static_cast<std::size_t>(y * WW + x)] = {static_cast<unsigned char>(40 + x * 200 / WW),
+                        static_cast<unsigned char>(60 + y * 150 / WH), static_cast<unsigned char>(x < WW / 2 ? 200 : 50), 255};
+                }
+            }
+            h.upload(content, WW, WH);
+            CSmokeField field;
+            hyprimate::Smoke driver;
+            driver.seed(11);
+            const hyprimate::Vec2 SIZE{WW, WH};
+            h.target = {.canvas = {CW, CH}, .origin = {0, 0}, .source_pos = {120, 560}, .source_size = SIZE};
+            for (int i = 0; i < 168; ++i) {
+                const hyprimate::Vec2 STEP = i < 36 ? hyprimate::Vec2{24, -4}
+                    : i < 60                       ? hyprimate::Vec2{-6, -16}
+                                                   : hyprimate::Vec2{};
+                if (STEP.x != 0 || STEP.y != 0) {
+                    driver.drive(STEP);
+                    h.target.source_pos.x += STEP.x;
+                    h.target.source_pos.y += STEP.y;
+                }
+                driver.advance(1.0 / 60, SIZE);
+                h.frame = driver.frame(SIZE);
+                const Image IMAGE = h.render(field);
+                if (i % 3 == 0) {
+                    char name[32];
+                    (void)std::snprintf(name, sizeof name, "trail-%03d.ppm", i);
+                    save(std::filesystem::path(capture) / name, IMAGE, CW, CH);
+                }
+            }
+            field.release();
+            // Erratic dragging on a 144 Hz display: frames fall between fluid substeps, and the
+            // direction flips faster than the wake can settle behind the window.
+            hyprimate::Smoke erratic;
+            erratic.seed(13);
+            h.target.source_pos = {200, 340};
+            for (int i = 0; i < 380; ++i) {
+                // Wide sweeps of about a third of a second, each with its own speed and wobble.
+                const int SEGMENT = i / 50;
+                const double SPEED = (SEGMENT % 2 == 0 ? 1.0 : -1.0) * (2300.0 + ((SEGMENT * 37) % 7) * 120.0) *
+                    (0.75 + 0.25 * std::sin(i * 0.9));
+                const hyprimate::Vec2 STEP = i < 250
+                    ? hyprimate::Vec2{SPEED / 144.0, ((SEGMENT % 3) - 1) * 220.0 / 144.0 + 3.0 * std::sin(i * 1.3)}
+                    : hyprimate::Vec2{};
+                if (STEP.x != 0 || STEP.y != 0) {
+                    erratic.drive(STEP);
+                    h.target.source_pos.x += STEP.x;
+                    h.target.source_pos.y += STEP.y;
+                }
+                erratic.advance(1.0 / 144, SIZE);
+                h.frame = erratic.frame(SIZE);
+                const Image IMAGE = h.render(field);
+                if (i % 6 == 0) {
+                    char name[32];
+                    (void)std::snprintf(name, sizeof name, "erratic-%03d.ppm", i);
+                    save(std::filesystem::path(capture) / name, IMAGE, CW, CH);
+                }
+            }
+            field.release();
+            h.upload(pixels);
+            h.target = {.canvas = {W, H}, .origin = {0, 0}, .source_pos = {40, 68}, .source_size = {TW, TH}};
         }
 
         // Full-HD cost of one simulation step plus the composite.

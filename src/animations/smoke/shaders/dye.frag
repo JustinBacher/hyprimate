@@ -2,14 +2,16 @@
 precision highp float;
 precision highp sampler3D;
 #include "common.glsl"
-// Window-coloured smoke density: premultiplied colour in rgb, density in alpha.
-// The window feeds it where its material turns to smoke and absorbs it where it condenses.
-uniform sampler2D u_velocity_field, u_dye, u_window, u_predicted;
+// Window-coloured smoke density: premultiplied colour in rgb, density in alpha, plus its
+// density-weighted age. The window feeds it where its material turns to smoke and absorbs it
+// where it condenses; loose smoke ages and thins away over its lifetime.
+uniform sampler2D u_velocity_field, u_dye, u_window, u_predicted, u_age, u_predicted_age;
 uniform vec2 u_grid, u_domain, u_shift, u_half, u_carry, u_offset, u_position, u_velocity;
 uniform vec2 u_source, u_size, u_tex_origin, u_tex_size;
 uniform float u_dt, u_time, u_seed, u_smoke, u_previous_smoke, u_presence;
-uniform float u_dispersal, u_trail;
-out vec4 frag;
+uniform float u_dispersal, u_trail, u_life;
+layout(location = 0) out vec4 frag;
+layout(location = 1) out vec4 aged;
 
 vec4 windowAt(vec2 luv) {
     return texture(u_window, (u_source + clamp(luv, 0.0, 1.0) * u_size - u_tex_origin) / u_tex_size);
@@ -40,8 +42,19 @@ void main() {
     vec4 c = texelFetch(u_dye, clamp(base + ivec2(0, 1), ivec2(0), last), 0);
     vec4 d = texelFetch(u_dye, clamp(base + ivec2(1, 1), ivec2(0), last), 0);
     dye = clamp(dye, min(min(a, b), min(c, d)), max(max(a, b), max(c, d)));
+    // The age is carried by the same scheme, so the ratio of the two is the age of whatever
+    // smoke arrived here, including each fragment that has split off from older smoke.
+    float ageMass = texture(u_predicted_age, uv).r + .5 * (texture(u_age, previousUV(uv, u_shift)).r -
+        texture(u_predicted_age, uv + u_dt * v / u_domain).r);
+    float ageA = texelFetch(u_age, clamp(base, ivec2(0), last), 0).r;
+    float ageB = texelFetch(u_age, clamp(base + ivec2(1, 0), ivec2(0), last), 0).r;
+    float ageC = texelFetch(u_age, clamp(base + ivec2(0, 1), ivec2(0), last), 0).r;
+    float ageD = texelFetch(u_age, clamp(base + ivec2(1, 1), ivec2(0), last), 0).r;
+    ageMass = clamp(ageMass, min(min(ageA, ageB), min(ageC, ageD)), max(max(ageA, ageB), max(ageC, ageD)));
     vec2 inbounds = step(vec2(0.0), source) * step(source, vec2(1.0));
     dye *= inbounds.x * inbounds.y;
+    float lifetime = max(u_life, .05);
+    float age = clamp(ageMass * inbounds.x * inbounds.y / max(dye.a, 1e-4), 0.0, 1.6 * lifetime);
 
     vec2 w = (uv - .5) * u_domain + u_offset;
     vec2 rel = w - u_carry;
@@ -57,6 +70,11 @@ void main() {
     float sd = bodyDistance(rel);
     vec2 unused;
     float material = mix(sd, rectDistance(rel, u_half, unused), u_transit);
+    // Moving material turns to smoke, and condensing material absorbs it, inside a ragged
+    // outline that belongs to the material, so the smoke never inherits the window's
+    // straight edges.
+    float fray = .65 * noise3(vec3(luv * 4.3, u_seed * 17.0)) + .35 * noise3(vec3(luv * 11.0 + 5.0, u_seed * 23.0)) - .5;
+    material += fray * .5 * scale * (1.0 - u_transit);
     float cell = u_domain.x * texel.x;
     float inside = 1.0 - smoothstep(-cell, cell, material);
     float body = bodyMask(rel, u_time, u_seed, .06 + .14 * u_smoke);
@@ -65,23 +83,34 @@ void main() {
     float previous = conversionPhase(luv, u_previous_smoke, u_seed);
     float massed = max(u_mass, u_transit);
 
-    // Wake smoke thins quickly, the attached mass slowly; condensing window material
-    // reabsorbs the smoke over it.
-    float wake = mix(2.6, .55, u_trail) * (1.0 + .6 * u_mass);
-    // Dissipating smoke breaks up in patches rather than fading evenly.
+    // Smoke ages from the moment it leaves the body; the body, and an opening or closing
+    // head, hold the age of what they carry.
+    age = min(age + u_dt * (1.0 - body) * (1.0 - u_transit), 1.6 * lifetime);
+    float life = age / lifetime;
+    // Fresh wake smoke is dense and lasts; ageing smoke thins ever faster and breaks up in
+    // patches, its thinnest wisps first; smoke past its lifetime is gone promptly. Opening
+    // and closing heads keep their steady thinning. The attached mass thins slowly and
+    // condensing window material reabsorbs the smoke over it.
     float patches = noise3(vec3((w + u_position) / extent * 3.4, u_time * .6 + u_seed * 9.0));
+    float ageing = ((.8 + 7.5 * life * life) * (1.0 + .4 * smoothstep(.2, .7, life) * (patches - .4)) +
+        4.0 * (1.0 - smoothstep(.04, .5, dye.a)) * smoothstep(.3, .8, life) +
+        16.0 * smoothstep(.85, 1.1, life)) / lifetime;
+    float wake = mix(ageing, mix(2.6, .55, u_trail) * (1.0 + .6 * u_mass), u_transit);
     float decay = mix(wake, .25, body * (1.0 - u_dispersal)) +
         2.4 * u_dispersal * (.1 + 2.6 * patches * patches);
     decay += 10.0 * (1.0 - phase) * inside * (.25 + u_cohesion + .3 * u_settle);
     // Gathering compresses smoke; beyond the body's own density the excess thins away so a
     // gathered head stays billowy instead of packing into an opaque ball.
-    decay += 2.5 * u_transit * max(dye.a - 1.3 * (.55 + .6 * massed) * (.6 + .5 * u_density), 0.0);
+    float full = (.55 + .6 * massed) * (.6 + .5 * u_density);
+    decay += 2.5 * u_transit * max(dye.a - 1.3 * full, 0.0);
     // Smoke drifting toward the domain edge thins out across a ragged band instead of
     // meeting a straight cut.
     vec2 edgeDistance = min(uv, 1.0 - uv);
     float ragged = noise3(vec3((w + u_position) / extent * 2.6, u_time * .3 + u_seed * 3.0));
     decay += 9.0 * (1.0 - smoothstep(.015, .04 + .06 * ragged, min(edgeDistance.x, edgeDistance.y)));
     dye *= exp(-u_dt * decay);
+    // Density present before any new smoke is added: it alone carries the accumulated age.
+    float carried = dye.a;
 
     // Material that has just unravelled becomes smoke where it stood, in its own colours.
     vec2 drift = (vec2(noise3(vec3(luv * 3.0, u_time * .4 + 3.0)),
@@ -99,12 +128,13 @@ void main() {
     float folds = .65 * noise3(vec3(folded * 1.8, u_time * .3 + u_seed * 21.0)) +
         .35 * noise3(vec3(folded * 4.4 + 7.0, u_time * .7 + u_seed * 13.0)) - .5;
     float clumping = max(1.0 + (.6 * u_variation + 1.1 * u_transit) * folds, .15);
-    float deficit = max((.55 + .6 * massed) * (.6 + .5 * u_density) * clumping * sustain - dye.a, 0.0);
+    float deficit = max(full * clumping * sustain - dye.a, 0.0);
     dye += materialAt(mix(luv + drift * phase, clamp(buv, 0.0, 1.0), u_transit), .03 + .08 * u_transit) *
         deficit * (1.0 - exp(-u_dt * 5.0));
 
     // A travelling mass sheds clumps of itself from its rear and flanks at irregular places
-    // and times; once outside the body they meet still air and fall behind as the wake.
+    // and times; once outside the body they carry its momentum away as the wake. Shedding
+    // only tops smoke up to the body's density, so repeated passes never pile it up.
     vec2 bodyVelocity = mix(u_velocity, u_head_velocity, u_transit) + resizeVelocity(rel);
     float speed = length(bodyVelocity);
     if (massed > 0.0 && speed > 1.0) {
@@ -116,14 +146,15 @@ void main() {
             noise3(vec3(q / scale * 3.2, u_time * 2.3 + u_seed * 7.0)));
         float shed = band * puffs * massed * mix(phase, 1.0, u_transit) * u_presence *
             smoothstep(40.0, 600.0, speed);
-        dye += materialAt(clamp(buv, 0.0, 1.0), .05) * shed * u_trail * u_dt * 9.0;
+        dye += materialAt(clamp(buv, 0.0, 1.0), .05) * shed * u_trail * u_dt * 9.0 *
+            clamp(1.0 - dye.a / full, 0.0, 1.0);
     }
     // A settling body's rim, the last part to condense, keeps fizzing off wisps of itself.
     if (u_settle > 0.0) {
         float rim = smoothstep(-.25 * scale, -.03 * scale, sd) * (1.0 - smoothstep(0.0, .12 * scale, sd));
         float puffs = smoothstep(.45, .75, noise3(vec3(bodyLocal(rel) / scale * 2.6, u_time * 1.4 + u_seed * 5.0)));
         dye += materialAt(clamp(luv, 0.0, 1.0), .04) * rim * puffs * max(phase, .6 * u_settle) *
-            u_presence * u_settle * u_trail * u_dt * 28.0;
+            u_presence * u_settle * u_trail * u_dt * 28.0 * clamp(1.0 - dye.a / full, 0.0, 1.0);
     }
 
     // Opening from an edge: wisps of smoke appear along the screen edge where the head
@@ -147,4 +178,7 @@ void main() {
     }
     vec2 border = smoothstep(vec2(0.0), 6.0 * texel, uv) * smoothstep(vec2(0.0), 6.0 * texel, 1.0 - uv);
     frag = min(dye * border.x * border.y, vec4(3.0));
+    // New smoke is age zero, so it dilutes the age of what was already here but never
+    // restarts it.
+    aged = vec4(age * carried / max(dye.a, 1e-4) * frag.a, 0.0, 0.0, 1.0);
 }

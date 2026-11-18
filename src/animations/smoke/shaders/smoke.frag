@@ -3,10 +3,10 @@ precision highp float;
 precision highp sampler3D;
 #include "common.glsl"
 // Composite: the remaining solid window under lit, self-shadowed fluid smoke.
-uniform sampler2D u_window, u_dye, u_velocity_field;
+uniform sampler2D u_window, u_dye, u_velocity_field, u_age;
 uniform vec2 u_origin, u_source, u_size, u_tex_origin, u_tex_size;  // device pixels
 uniform vec2 u_logical, u_domain, u_grid, u_carry, u_velocity, u_position, u_offset;  // logical
-uniform float u_time, u_seed, u_smoke, u_fade;
+uniform float u_time, u_seed, u_smoke, u_fade, u_life;
 out vec4 frag;
 
 vec4 windowAt(vec2 luv) {
@@ -93,7 +93,19 @@ void main() {
         }
         fibres = smoothstep(.22, .78, fibres * .25);
         float thin = 1.0 - smoothstep(.15, 1.3, dye.a);
-        float density = dye.a * mix(1.0, .2 + 1.6 * fibres, .3 + .55 * thin);
+        // Ageing smoke is drawn out into ever finer strands as it thins away.
+        float aged = smoothstep(.3, .9, texture(u_age, guv).r / dye.a / max(u_life, .05));
+        float density = dye.a * mix(1.0, .2 + 1.6 * fibres, min(.3 + .55 * thin + .3 * aged, 1.0));
+        // The fluid ends at its domain, which travels with the window. Smoke thins out across
+        // a ragged, world-anchored band before that edge, so no straight cut shows however
+        // quickly the domain sweeps over a wake.
+        vec2 edge = min(guv, 1.0 - guv) * u_domain;
+        float band = max(.1 * min(u_domain.x, u_domain.y), 64.0);
+        float ragged = noise3(vec3(world / extent * 2.3 + 31.0, u_time * .3 + u_seed * 3.0)) * .7 +
+            noise3(vec3(world / extent * 6.1 + 47.0, u_time * .5 + u_seed * 7.0)) * .3;
+        float reach = band * (.15 + 1.2 * ragged);
+        float faded = smoothstep(reach - .3 * band, reach + .3 * band, min(edge.x, edge.y));
+        density *= faded * faded;
         vec3 colour = dye.rgb / dye.a;
         float luma = dot(colour, vec3(.299, .587, .114));
         colour = mix(vec3(luma), colour, .85);
