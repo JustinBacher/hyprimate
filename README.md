@@ -142,6 +142,19 @@ hl.config({
                     enabled = true,
                 },
             },
+            workspace = {
+                enabled = false,
+                style = "rotation",
+                options = {
+                    rotation = {
+                        duration = 0.6,
+                        curve = "default",
+                        gap_fill_style = "still",
+                        gap_fill_color = 0xff000000,
+                        gap_fill_blur = 0,
+                    },
+                },
+            },
         },
     },
 })
@@ -190,6 +203,13 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `window:options:liquid:side` | string / animation defaults: `"auto"` | — | Liquid exit edge: the side of appearance (auto), nearest valid edge, opening origin, or a fixed edge. Invalid preferred edges fall back to the normal edge selection. Allowed: `auto`, `nearest`, `origin`, `top`, `bottom`, `left`, `right`. |
 | `window:options:liquid:splash` | boolean / animation defaults: `true` | — | Show a small edge-liquid splash where a window closes. When false, it closes without liquid. |
 | `window:options:cloth:side` | string / animation defaults: `"auto"` | — | Cloth exit edge: the side of appearance (auto), nearest valid edge, opening origin, or a fixed edge. Invalid preferred edges fall back to the normal edge selection. Allowed: `auto`, `nearest`, `origin`, `top`, `bottom`, `left`, `right`. |
+| `workspace:enabled` | boolean / `false` | — | Enable workspace transition effects independently of window effects. |
+| `workspace:style` | string / `"rotation"` | — | Choose the workspace transition style. Invalid names are rejected. Allowed: `rotation`. |
+| `workspace:options:rotation:duration` | float / `0.6` | 0.1–3 | Time in seconds for the workspace rotation. |
+| `workspace:options:rotation:curve` | string / `"default"` | — | Name of a Hyprland Bezier animation curve. Unknown names are rejected and the previous valid curve is retained. Curve overshoot is clipped to the wheel's rotation range. |
+| `workspace:options:rotation:gap_fill_style` | string / `"still"` | — | Gap treatment: morph stretches an auxiliary incoming-wallpaper bridge; background uses gap_fill_color; wallpaper blends enlarged, optionally blurred wallpaper copies; still (default) holds the outgoing wallpaper stationary while windows rotate. In still mode a different incoming wallpaper rotates in with its windows; matching texture resources with unchanged content stay stationary. No mode changes the rigid circular workspace motion. Configuration uses underscores: gap_fill_style, gap_fill_color, gap_fill_blur. Invalid styles are rejected. Allowed: `morph`, `background`, `wallpaper`, `still`. |
+| `workspace:options:rotation:gap_fill_color` | color / `0xff000000` | — | Gap colour for background mode, in ARGB; defaults to opaque black. |
+| `workspace:options:rotation:gap_fill_blur` | float / `0` | 0–64 | Blur radius in physical pixels for the duplicated background imagery in wallpaper mode only; zero disables blur. Original wallpapers, windows and rotation geometry are unaffected. |
 | `window:enabled` | boolean / `true` | — | Enable window movement, opening and closing effects. When false, none of these effects run. |
 | `window:style` | string / `"liquid"` | — | Choose the material for movement, opening and closing. Liquid deforms the edges; paper crumples into a ball and moves without deformation; cloth drapes and flutters; swarm breaks the window into creature-shaped pieces; bubble inflates a soap film, sloshes while moving and bursts on close. Invalid names are rejected. Allowed: `liquid`, `paper`, `cloth`, `swarm`, `bubble`. |
 | `window:options:swarm:sprite` | string / `"spider"` | — | Swarm sprite name in the sprites directory, with or without .png, or an explicit PNG path. The sheet has four columns and two rows of frames; transparency defines the silhouette. |

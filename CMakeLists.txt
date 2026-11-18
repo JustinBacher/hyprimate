@@ -131,6 +131,9 @@ add_library(hyprimate-core STATIC
     src/animations/bubble/BubbleOptics.cpp
     src/animations/bubble/BubbleMotion.cpp
     src/animations/bubble/BubbleWake.cpp
+    src/workspace/WorkspaceTransition.cpp
+    src/workspace/rotation/RotationGeometry.cpp
+    src/workspace/WorkspaceController.cpp
     src/WindowTracker.cpp
 )
 # PaperTakes.cpp #embeds the baked crumples; rebuild it whenever they are re-packed.
@@ -160,6 +163,9 @@ add_library(hyprimate SHARED
     src/AnimationTransformer.cpp
     src/AnimationCloseRenderer.cpp
     src/NativeFadeoutPass.cpp
+    src/workspace/WorkspaceCapture.cpp
+    src/workspace/WorkspaceAnimation.cpp
+    src/workspace/rotation/RotationRenderer.cpp
     src/animations/shared/PaperRenderer.cpp
 )
 set_target_properties(hyprimate PROPERTIES PREFIX "" INTERPROCEDURAL_OPTIMIZATION FALSE)
@@ -220,6 +226,11 @@ if(BUILD_TESTING)
     add_test(NAME config-docs-check COMMAND ${Python3_EXECUTABLE} ${CONFIG_GENERATOR} --schema ${CONFIG_SCHEMA} --readme ${CMAKE_CURRENT_SOURCE_DIR}/README.md --lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/nested/hyprland.lua --check)
     add_test(NAME config-generator-tests COMMAND ${Python3_EXECUTABLE} -m unittest discover -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p test_config_generator.py)
     add_test(NAME plugin-symbol-tests COMMAND ${Python3_EXECUTABLE} -m unittest discover -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p test_plugin_symbols.py)
+    add_executable(config-inheritance-tests tests/ConfigInheritanceTests.cpp)
+    add_dependencies(config-inheritance-tests generate-config)
+    target_include_directories(config-inheritance-tests PRIVATE ${CONFIG_GENERATED_DIR})
+    add_test(NAME config-inheritance-tests COMMAND config-inheritance-tests)
+
     add_executable(liquid-mesh-tests src/animations/liquid/tests/LiquidMeshTests.cpp)
     target_link_libraries(liquid-mesh-tests PRIVATE hyprimate-core)
     target_include_directories(liquid-mesh-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
@@ -273,6 +284,31 @@ if(BUILD_TESTING)
     target_link_libraries(bubble-material-tests PRIVATE hyprimate-core PkgConfig::BUBBLE_TEST_EGL)
     add_test(NAME bubble-material-tests COMMAND bubble-material-tests)
     set_tests_properties(bubble-material-tests PROPERTIES ENVIRONMENT "EGL_PLATFORM=surfaceless")
+
+    add_executable(workspace-transition-tests src/workspace/tests/WorkspaceTransitionTests.cpp)
+    target_link_libraries(workspace-transition-tests PRIVATE hyprimate-core)
+    target_include_directories(workspace-transition-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    add_test(NAME workspace-transition-tests COMMAND workspace-transition-tests)
+
+    add_executable(workspace-controller-tests src/workspace/tests/WorkspaceControllerTests.cpp)
+    target_link_libraries(workspace-controller-tests PRIVATE hyprimate-core)
+    target_include_directories(workspace-controller-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    add_test(NAME workspace-controller-tests COMMAND workspace-controller-tests)
+
+    add_executable(rotation-geometry-tests
+        src/workspace/rotation/tests/RotationGeometryTests.cpp)
+    target_link_libraries(rotation-geometry-tests PRIVATE hyprimate-core)
+    target_include_directories(rotation-geometry-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    add_test(NAME rotation-geometry-tests COMMAND rotation-geometry-tests)
+
+    add_executable(rotation-renderer-tests
+        src/workspace/rotation/tests/RotationRendererTests.cpp
+        src/workspace/rotation/RotationRenderer.cpp)
+    target_compile_definitions(rotation-renderer-tests PRIVATE HYPRIMATE_ROTATION_STANDALONE)
+    target_include_directories(rotation-renderer-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_link_libraries(rotation-renderer-tests PRIVATE hyprimate-core PkgConfig::HYPRLAND PkgConfig::BUBBLE_TEST_EGL)
+    add_test(NAME rotation-renderer-tests COMMAND rotation-renderer-tests)
+    set_tests_properties(rotation-renderer-tests PROPERTIES ENVIRONMENT "EGL_PLATFORM=surfaceless")
 
     add_executable(window-tracker-tests tests/WindowTrackerTests.cpp)
     target_link_libraries(window-tracker-tests PRIVATE hyprimate-core)

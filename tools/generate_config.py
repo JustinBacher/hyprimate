@@ -69,7 +69,7 @@ def validate(settings):
         if 'inherit' in item:
             parts = path.split('.')
             if (not isinstance(item['inherit'], bool) or len(parts) != 5
-                    or parts[1] not in ('open', 'close', 'movement') or parts[2] != 'options'):
+                    or parts[0] != 'window' or parts[1] not in ('open', 'close', 'movement') or parts[2] != 'options'):
                 raise ValueError(f'{path}: inherit must be boolean on an animation style option')
         if path in paths:
             raise ValueError(f'duplicate setting path {path!r}')
@@ -127,7 +127,7 @@ def expanded_settings(settings):
     generated_globals = []
     for item in settings:
         parts = item['path'].split('.')
-        if (len(parts) != 5 or parts[1] not in ('open', 'close', 'movement')
+        if (len(parts) != 5 or parts[0] != 'window' or parts[1] not in ('open', 'close', 'movement')
                 or parts[2] != 'options' or not item.get('inherit', True)):
             continue
         path = '.'.join(('window', 'options', *parts[3:]))
@@ -154,7 +154,7 @@ def expanded_settings(settings):
     result = []
     for item in settings:
         parts = item['path'].split('.')
-        if (len(parts) == 5 and parts[1] in ('open', 'close', 'movement')
+        if (len(parts) == 5 and parts[0] == 'window' and parts[1] in ('open', 'close', 'movement')
                 and parts[2] == 'options' and item.get('inherit', True)):
             item = dict(item, optional=True, inherited=True)
         result.append(item)
@@ -197,12 +197,14 @@ def lua_config(settings):
 
 
 def config_segments(item):
-    """Path under window, without the Lua-only 'options' level; these are the SConfig field names."""
-    return [part for part in item['path'].split('.')[1:] if part != 'options']
+    """Keep window fields flat and nest other roots, omitting the Lua-only options level."""
+    parts = item['path'].split('.')
+    return [part for part in (parts[1:] if parts[0] == 'window' else parts) if part != 'options']
 
 
 def enum_name(item):
-    return pascal(item['path'].split('.')[-1])
+    parts = item['path'].split('.')
+    return 'WorkspaceStyle' if parts == ['workspace', 'style'] else pascal(parts[-1])
 
 
 def _parse_name(item):

@@ -15,6 +15,7 @@
 #include <hyprutils/memory/UniquePtr.hpp>
 
 #include "BubbleWallpaper.hpp"
+#include "workspace/WorkspaceCaptureScope.hpp"
 
 namespace {
     class CBubbleWallpaperPass final : public IPassElement {
@@ -36,7 +37,8 @@ namespace {
         }
 
         std::vector<UP<IPassElement>> draw(Render::CRenderContext &ctx) override {
-            if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL || ctx.readOnlyEffects() ||
+            if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL ||
+                (ctx.readOnlyEffects() && !WorkspaceCaptureScope::forContext(ctx)) ||
                 ctx.m_renderingCapture || ctx.m_renderingSnapshot ||
                 g_pHyprRenderer->type() != Render::IHyprRenderer::RT_GL) {
                 return {};
@@ -102,7 +104,21 @@ namespace {
             glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
             renderer.setActiveTexture(GL_TEXTURE0);
             glGetIntegerv(GL_TEXTURE_BINDING_2D, &texture);
-            const auto DESTINATION = g_pHyprRenderer->getWorkBuffer(ctx, EXTENT);
+            SP<Render::IFramebuffer> destination;
+            if (WorkspaceCaptureScope::forContext(ctx)) {
+                destination = g_pHyprRenderer->createFB("hyprimate workspace bubble underlay");
+                if (destination && !destination->alloc(static_cast<int>(EXTENT.x),
+                                       static_cast<int>(EXTENT.y),
+                                       SOURCE->m_drmFormat)) {
+                    destination.reset();
+                }
+                if (destination) {
+                    destination->setImageDescription(SOURCE->imageDescription());
+                }
+            } else {
+                destination = g_pHyprRenderer->getWorkBuffer(ctx, EXTENT);
+            }
+            const auto DESTINATION = destination;
             glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(texture));
             renderer.setActiveTexture(static_cast<GLenum>(active));
             if (!DESTINATION || !DESTINATION->getTexture() ||
@@ -113,10 +129,12 @@ namespace {
             const bool SCISSOR = glIsEnabled(GL_SCISSOR_TEST) != 0U;
             renderer.setCapStatus(GL_SCISSOR_TEST, false);
             renderer.bindFramebuffer(GL_READ_FRAMEBUFFER,
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): RT_GL selects the GL framebuffer backend.
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): RT_GL selects
+                // the GL framebuffer backend.
                 static_cast<Render::GL::CGLFramebuffer *>(SOURCE.get())->getFBID());
             renderer.bindFramebuffer(GL_DRAW_FRAMEBUFFER,
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): RT_GL selects the GL framebuffer backend.
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): RT_GL selects
+                // the GL framebuffer backend.
                 static_cast<Render::GL::CGLFramebuffer *>(DESTINATION.get())->getFBID());
             glBlitFramebuffer(static_cast<GLint>(LEFT),
                 static_cast<GLint>(CLIP_TOP),
@@ -169,8 +187,11 @@ void queue_bubble_wallpaper(Render::CRenderContext &ctx,
     const CBox &source,
     bool live,
     const CBox &bounds) {
-    if (!wallpaper || !g_pHyprRenderer || ctx.readOnlyEffects() || ctx.m_renderingCapture ||
-        ctx.m_renderingSnapshot || ctx.m_mode != Render::RENDER_MODE_NORMAL) {
+    const bool WORKSPACE_CAPTURE =
+        WorkspaceCaptureScope::forContext(ctx) || WorkspaceCaptureScope::isDestinationLive(ctx);
+    if (!wallpaper || !g_pHyprRenderer || (ctx.readOnlyEffects() && !WORKSPACE_CAPTURE) ||
+        ctx.m_renderingCapture || ctx.m_renderingSnapshot ||
+        (ctx.m_mode != Render::RENDER_MODE_NORMAL && !WORKSPACE_CAPTURE)) {
         return;
     }
     // A completed opening snapshot keeps queued set; a live request replaces it. A live pass

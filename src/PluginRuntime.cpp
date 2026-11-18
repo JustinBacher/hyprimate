@@ -46,6 +46,8 @@
 #include "animations/swarm/SwarmConfig.hpp"
 #include "animations/swarm/SwarmRenderer.hpp"
 #include "config_generated.hpp"
+#include "workspace/WorkspaceAnimation.hpp"
+#include "workspace/WorkspaceCaptureScope.hpp"
 
 namespace {
 
@@ -71,9 +73,26 @@ namespace {
         return {CHANNEL(16), CHANNEL(8), CHANNEL(0), CHANNEL(24)};
     }
 
+    hyprimate::workspace::GapFill workspace_gap(const hyprimate::config::SConfig &config) {
+        using Style = hyprimate::workspace::GapFillStyle;
+        hyprimate::workspace::GapFill gap;
+        switch (config.workspace.rotation.gapFillStyle) {
+            case hyprimate::config::GapFillStyle::Morph: gap.style = Style::Morph; break;
+            case hyprimate::config::GapFillStyle::Background: gap.style = Style::Background; break;
+            case hyprimate::config::GapFillStyle::Wallpaper: gap.style = Style::Wallpaper; break;
+            case hyprimate::config::GapFillStyle::Still: gap.style = Style::Still; break;
+        }
+        const auto color = color_from_argb(config.workspace.rotation.gapFillColor);
+        gap.color = {static_cast<float>(color.r * color.a), static_cast<float>(color.g * color.a),
+            static_cast<float>(color.b * color.a), static_cast<float>(color.a)};
+        gap.blur = static_cast<float>(config.workspace.rotation.gapFillBlur);
+        return gap;
+    }
+
 }  // namespace
 
-// NOLINTNEXTLINE(readability-function-cognitive-complexity): Listener setup keeps callback lifetime and registration order together.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): Listener setup keeps callback lifetime
+// and registration order together.
 CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     std::random_device entropy;
     m_next_seed = (std::uint64_t{entropy()} << 32U) | entropy();
@@ -94,6 +113,15 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     if (!m_close->install(close_error)) {
         notify("[hyprimate] close transitions unavailable: " + close_error);
     }
+    m_workspace = std::make_unique<CWorkspaceAnimation>(m_handle);
+    std::string workspace_error;
+    if (!m_workspace->install(workspace_error)) {
+        notify("[hyprimate] workspace transitions unavailable: " + workspace_error);
+    }
+    m_workspace->configure(m_config.workspace.enabled,
+        m_config.workspace.style == hyprimate::config::WorkspaceStyle::Rotation ? "rotation" : "",
+        m_config.workspace.rotation.duration, workspace_gap(m_config),
+        m_config.workspace.rotation.curve);
 
     // Listeners are registered last so a failed constructor never leaves callbacks pointing at a
     // half-built runtime.
@@ -150,6 +178,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     // last deposit expires.
     m_listen_render_pre_checks =
         Event::bus()->m_events.render.preChecks.listen([this](const PHLMONITOR &monitor) {
+            m_workspace->on_render_pre_checks(monitor);
             if (monitor && has_workspace_swarm_tail(monitor)) {
                 monitor->m_solitaryClient.reset();
                 return;
@@ -164,10 +193,15 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
             }
             monitor->m_solitaryClient.reset();
         });
-    m_listen_monitor_layout =
-        Event::bus()->m_events.monitor.layoutChanged.listen([this] { clear_bubble_residue(); });
-    m_listen_monitor_removed = Event::bus()->m_events.monitor.preRemoved.listen(
-        [this](const PHLMONITOR &) { clear_bubble_residue(); });
+    m_listen_monitor_layout = Event::bus()->m_events.monitor.layoutChanged.listen([this] {
+        m_workspace->clear();
+        clear_bubble_residue();
+    });
+    m_listen_monitor_removed =
+        Event::bus()->m_events.monitor.preRemoved.listen([this](const PHLMONITOR &monitor) {
+            m_workspace->remove_monitor(monitor);
+            clear_bubble_residue();
+        });
 
     // Everything advances once per rendered frame of its monitor, after native animations have
     // ticked and before the frame collects damage. Animation ticks are not used: a self-requested
@@ -190,8 +224,9 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                 // framebuffer then contains lower windows but not this window itself.
                 if (bubble && transformer->active() &&
                     (bubble->bubble.opening() || bubble->bubble.stirred())) {
-                    if (!bubble->wallpaper) {
-                        bubble->wallpaper = makeShared<SBubbleWallpaper>();
+                    auto &wallpaper = WorkspaceCaptureScope::wallpaper(ctx, bubble->wallpaper);
+                    if (!wallpaper) {
+                        wallpaper = makeShared<SBubbleWallpaper>();
                     }
                     const auto PRESENTATION = WINDOW->presentation().renderPresentation();
                     const auto LOGICAL = WINDOW->getFullWindowBoundingBox().translate(
@@ -202,7 +237,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                     const auto SOURCE = LOGICAL.copy().scale(event.monitor->m_scale);
                     const auto BOUNDS = transformer->transformedExtents(LOGICAL).expand(8.0).scale(
                         event.monitor->m_scale);
-                    queue_bubble_wallpaper(ctx, bubble->wallpaper, SOURCE, true, BOUNDS);
+                    queue_bubble_wallpaper(ctx, wallpaper, SOURCE, true, BOUNDS);
                 }
                 m_bubble_residue->queue_under(
                     ctx, event.monitor, ctx.m_data.currentWindow.lock(), m_bubble);
@@ -253,6 +288,7 @@ CPluginRuntime::~CPluginRuntime() {
     m_listen_reload.reset();
     m_listen_monitor_layout.reset();
     m_listen_monitor_removed.reset();
+    m_workspace->shutdown();
     clear_bubble_residue();
     m_close->shutdown();
     detach_all();
@@ -404,6 +440,11 @@ void CPluginRuntime::notify(const std::string &text) const {
 
 void CPluginRuntime::on_reload() {
     m_config = hyprimate::config::readConfig(m_values);
+    m_workspace->configure(m_config.workspace.enabled,
+        m_config.workspace.style == hyprimate::config::WorkspaceStyle::Rotation ? "rotation" : "",
+        m_config.workspace.rotation.duration, workspace_gap(m_config),
+        m_config.workspace.rotation.curve);
+    m_workspace->clear();
     m_bubble_residue->set_enabled(bubble_residue_enabled());
     clear_bubble_residue();
     detach_all();
@@ -540,6 +581,11 @@ void CPluginRuntime::on_render_pre(const PHLMONITOR &monitor) {
             }
         }
     }
+    m_workspace->configure(m_config.workspace.enabled,
+        m_config.workspace.style == hyprimate::config::WorkspaceStyle::Rotation ? "rotation" : "",
+        m_config.workspace.rotation.duration, workspace_gap(m_config),
+        m_config.workspace.rotation.curve);
+    m_workspace->on_render_pre(monitor);
 }
 
 void CPluginRuntime::update_window(
@@ -877,20 +923,21 @@ void CPluginRuntime::queue_workspace_swarm_tails(
             SOURCE.y + (BOUNDS.y * SCALE),
             BOUNDS.w * SCALE,
             BOUNDS.h * SCALE};
+        auto &meshes = WorkspaceCaptureScope::swarmMeshes(ctx, state->meshes);
         fill_swarm_meshes(state->swarm,
             *sheet,
             SOURCE,
             OUTPUT,
             {.x = SOURCE.x + state->snapshot_offset.x, .y = SOURCE.y + state->snapshot_offset.y},
             {.x = TEXTURE->m_size.x, .y = TEXTURE->m_size.y},
-            state->meshes);
+            meshes);
         CSwarmClosePassElement::SData data;
         data.tex = TEXTURE;
         data.atlas = ATLAS;
         data.sprites = m_sprites;
         data.layer_size = swarm_layer_size(SOURCE);
         data.box = OUTPUT;
-        data.meshes = &state->meshes;
+        data.meshes = &meshes;
         data.scale = SCALE;
         data.damage = CRegion{OUTPUT};
         Render::IHyprRenderer::addPassElement(

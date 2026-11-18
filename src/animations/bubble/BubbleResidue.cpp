@@ -22,6 +22,7 @@
 #include "BubbleRenderer.hpp"
 #include "BubbleResidue.hpp"
 #include "animations/shared/Core.hpp"
+#include "workspace/WorkspaceCaptureScope.hpp"
 
 namespace {
     CBox footprint(Vector2D position, double radius) {
@@ -71,11 +72,14 @@ namespace {
             .intersection(SCREEN);
     }
 
-    // Only the monitor's own normal frame draws residue: never captures, snapshots or read-only
-    // passes.
+    // Source compositions have isolated bookkeeping; a live workspace destination is the
+    // actual surface composition for this output frame.
     bool draws_residue(const Render::CRenderContext &ctx, const PHLMONITOR &monitor) {
-        return monitor && !ctx.readOnlyEffects() && !ctx.m_renderingCapture &&
-               !ctx.m_renderingSnapshot && ctx.m_mode == Render::RENDER_MODE_NORMAL &&
+        const bool SOURCE = WorkspaceCaptureScope::forContext(ctx) != nullptr;
+        const bool DESTINATION = WorkspaceCaptureScope::isDestinationLive(ctx);
+        return monitor && !ctx.m_renderingCapture && !ctx.m_renderingSnapshot &&
+               (SOURCE || DESTINATION ||
+                   (!ctx.readOnlyEffects() && ctx.m_mode == Render::RENDER_MODE_NORMAL)) &&
                ctx.m_data.pMonitor.lock() == monitor;
     }
 
@@ -237,7 +241,11 @@ void CBubbleResidue::queue_wake(Render::CRenderContext &ctx,
     const PHLMONITOR &monitor,
     Wake &wake,
     const SP<CBubbleRenderer> &renderer) {
-    wake.queued = true;
+    if (auto *scope = WorkspaceCaptureScope::forContext(ctx)) {
+        scope->markWakeQueued(&wake);
+    } else {
+        wake.queued = true;
+    }
     const auto BOUNDS = wake.film.bounds();
     if (!hyprimate::is_usable(BOUNDS)) {
         return;
@@ -248,7 +256,7 @@ void CBubbleResidue::queue_wake(Render::CRenderContext &ctx,
         return;
     }
     CBubblePassElement::SData data;
-    data.renderer = renderer;
+    data.renderer = WorkspaceCaptureScope::renderer(ctx, renderer);
     data.draw.frame.size = {.x = BOUNDS.w, .y = BOUNDS.h};
     data.draw.canvas = CLIPPED.size();
     data.draw.source = SOURCE;
@@ -269,7 +277,9 @@ void CBubbleResidue::queue_under(Render::CRenderContext &ctx,
         return;
     }
     for (auto &wake : m_wakes) {
-        if (!wake.queued && wake.monitor.lock() == monitor && wake.owner.lock() == window) {
+        const auto *scope = WorkspaceCaptureScope::forContext(ctx);
+        if (!(scope ? scope->wakeQueued(&wake) : wake.queued) && wake.monitor.lock() == monitor &&
+            wake.owner.lock() == window) {
             queue_wake(ctx, monitor, wake, renderer);
         }
     }
@@ -290,7 +300,7 @@ void CBubbleResidue::queue(
             continue;
         }
         CBubblePassElement::SData data;
-        data.renderer = renderer;
+        data.renderer = WorkspaceCaptureScope::renderer(ctx, renderer);
         data.draw.frame.size = {.x = deposit.radius * 2.0, .y = deposit.radius * 2.0};
         data.draw.canvas = CLIPPED.size();
         data.draw.source = SOURCE;
@@ -310,7 +320,8 @@ void CBubbleResidue::queue(
     // Wakes whose window was not drawn this frame (closed, or on a hidden workspace) lie over the
     // windows instead.
     for (auto &wake : m_wakes) {
-        if (!wake.queued && wake.monitor.lock() == monitor) {
+        const auto *scope = WorkspaceCaptureScope::forContext(ctx);
+        if (!(scope ? scope->wakeQueued(&wake) : wake.queued) && wake.monitor.lock() == monitor) {
             queue_wake(ctx, monitor, wake, renderer);
         }
     }

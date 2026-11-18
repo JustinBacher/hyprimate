@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <expected>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -71,6 +72,24 @@ int main() {
     SConfigValues values;
     registerConfigValues(nullptr, values);
     auto c = readConfig(values);
+    assert(!c.workspace.enabled);
+    assert(c.workspace.style == WorkspaceStyle::Rotation);
+    assert(c.style == Style::Liquid);
+    assert(near(c.workspace.rotation.duration, 0.6));
+    set("workspace:enabled", true);
+    set("workspace:style", std::string("paper"));
+    set("window:style", std::string("rotation"));
+    set("workspace:options:rotation:duration", 9.0F);
+    c = readConfig(values);
+    assert(c.workspace.enabled && c.workspace.style == WorkspaceStyle::Rotation);
+    assert(c.style == Style::Liquid);
+    assert(near(c.workspace.rotation.duration, 3.0));
+    set("workspace:options:rotation:duration", -1.0F);
+    assert(near(readConfig(values).workspace.rotation.duration, 0.1));
+    set("workspace:options:rotation:duration", std::numeric_limits<float>::quiet_NaN());
+    assert(near(readConfig(values).workspace.rotation.duration, 0.1));
+    set("workspace:options:rotation:duration", std::numeric_limits<float>::infinity());
+    assert(near(readConfig(values).workspace.rotation.duration, 0.1));
     // Unset globals must retain each transition's historical default.
     assert(near(c.open.paper.duration, 0.6));
     assert(near(c.close.paper.duration, 0.5));

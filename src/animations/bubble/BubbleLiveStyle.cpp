@@ -29,6 +29,7 @@
 #include "animations/shared/PaperRenderer.hpp"
 #include "animations/swarm/SwarmRenderer.hpp"
 #include "config_generated.hpp"
+#include "workspace/WorkspaceCaptureScope.hpp"
 
 namespace {
     hyprimate::BubbleShape bubble_shape(hyprimate::config::Shape shape) {
@@ -65,22 +66,25 @@ Render::SWindowTransformBuffer render_live(SBubbleStyle &state,
         .y = geometry.source.h / geometry.scale,
     };
     const auto FRAME = state.bubble.frame(SIZE);
-    const auto LAYER = state.renderer->render(ctx,
-        SBubbleDraw{
-            .window = input.framebuffer->getTexture(),
-            .wallpaper = state.wallpaper,
-            .frame = FRAME,
-            .canvas = geometry.canvas.size(),
-            .source = geometry.source,
-            .texture_origin = {.x = input.box.x, .y = input.box.y},
-            .texture_size = geometry.texture_size,
-            .output_origin = {.x = geometry.canvas.x, .y = geometry.canvas.y},
-            .wake = {},
-        });
+    const auto LAYER =
+        WorkspaceCaptureScope::renderer(ctx, state.renderer)
+            ->render(ctx,
+                SBubbleDraw{
+                    .window = input.framebuffer->getTexture(),
+                    .wallpaper = WorkspaceCaptureScope::wallpaper(ctx, state.wallpaper),
+                    .frame = FRAME,
+                    .canvas = geometry.canvas.size(),
+                    .source = geometry.source,
+                    .texture_origin = {.x = input.box.x, .y = input.box.y},
+                    .texture_size = geometry.texture_size,
+                    .output_origin = {.x = geometry.canvas.x, .y = geometry.canvas.y},
+                    .wake = {},
+                });
     if (!LAYER) {
         return {.framebuffer = input.framebuffer, .box = input.box, .success = false};
     }
-    if (!ctx.readOnlyEffects() && !ctx.m_renderingCapture && !ctx.m_renderingSnapshot) {
+    if (!WorkspaceCaptureScope::forContext(ctx) && !ctx.readOnlyEffects() &&
+        !ctx.m_renderingCapture && !ctx.m_renderingSnapshot) {
         const auto MONITOR = context.monitor.lock();
         const auto CENTRE = context.currentBox.middle();
         deposit_bubble_impacts(state, FRAME, MONITOR, CENTRE);
@@ -123,10 +127,14 @@ bool SBubbleLiveStyle::open(
         hyprimate::BubbleDuration{options.duration},
         runtime.m_next_seed++,
         {.x = REST.w, .y = REST.h},
-        {.count = options.count, .birthRate = options.birthRate,
-            .sizeVariation = options.sizeVariation, .growthVariation = options.growthVariation,
-            .interaction = options.interaction, .damping = options.damping,
-            .buoyancy = options.buoyancy, .linger = options.linger});
+        {.count = options.count,
+            .birthRate = options.birthRate,
+            .sizeVariation = options.sizeVariation,
+            .growthVariation = options.growthVariation,
+            .interaction = options.interaction,
+            .damping = options.damping,
+            .buoyancy = options.buoyancy,
+            .linger = options.linger});
     if (!state.bubble.active()) {
         return false;
     }

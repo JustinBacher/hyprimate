@@ -21,6 +21,7 @@
 #include "animations/bubble/BubbleMaterial.hpp"
 #include "animations/bubble/BubbleRenderer.hpp"
 #include "animations/shared/PaperRenderer.hpp"
+#include "workspace/WorkspaceCaptureScope.hpp"
 
 namespace {
     // Runs work with the compositor's EGL context current, then restores whatever was current
@@ -76,7 +77,8 @@ void CBubbleRenderer::warm_up() {
     });
 }
 
-// NOLINTNEXTLINE(readability-function-cognitive-complexity): GL capture, drawing and restoration must retain their order.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): GL capture, drawing and restoration
+// must retain their order.
 SP<Render::IFramebuffer> CBubbleRenderer::render(
     Render::CRenderContext &ctx, const SBubbleDraw &draw) {
     if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL ||
@@ -89,11 +91,12 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
         return nullptr;
     }
     auto &renderer = *Render::GL::g_pHyprOpenGL;
-    const auto WALLPAPER = draw.wallpaper && draw.wallpaper->framebuffer &&
-                                   !ctx.readOnlyEffects() && !ctx.m_renderingCapture &&
-                                   !ctx.m_renderingSnapshot
-                               ? draw.wallpaper->framebuffer->getTexture()
-                               : SP<Render::ITexture>{};
+    const auto WALLPAPER =
+        draw.wallpaper && draw.wallpaper->framebuffer && !ctx.m_renderingCapture &&
+                !ctx.m_renderingSnapshot &&
+                (!ctx.readOnlyEffects() || WorkspaceCaptureScope::forContext(ctx))
+            ? draw.wallpaper->framebuffer->getTexture()
+            : SP<Render::ITexture>{};
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     const auto STATE = ctx.saveDrawState();
     const auto LAYER = g_pHyprRenderer->getWorkBuffer(ctx, draw.canvas);
@@ -110,11 +113,14 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
     GLint dst = 0;
     GLint src_alpha = 0;
     GLint dst_alpha = 0;
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): glGetIntegerv writes each texture binding before restoration.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): glGetIntegerv writes each texture
+    // binding before restoration.
     std::array<std::array<GLint, 2>, 4> textures;
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): glGetIntegerv writes the viewport before restoration.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): glGetIntegerv writes the viewport
+    // before restoration.
     std::array<GLint, 4> viewport;
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): glGetBooleanv writes the color mask before restoration.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): glGetBooleanv writes the color mask
+    // before restoration.
     std::array<GLboolean, 4> mask;
     glGetIntegerv(GL_CURRENT_PROGRAM, &program);
     glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
@@ -190,7 +196,8 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
             const auto SHELL_COUNT = hyprimate::bubble_particles(
                 draw.frame.shell, std::span{m_particles}.first(hyprimate::K_BUBBLE_MAX_PARTICLES));
             const auto WINDOW_COUNT = hyprimate::bubble_particles(draw.frame.window,
-                // NOLINTNEXTLINE(readability-suspicious-call-argument): Shell count is the offset; the particle limit is the count.
+                // NOLINTNEXTLINE(readability-suspicious-call-argument): Shell count is the offset;
+                // the particle limit is the count.
                 std::span{m_particles}.subspan(SHELL_COUNT, hyprimate::K_BUBBLE_MAX_PARTICLES));
             m_material.draw_particles(std::span{m_particles}.first(SHELL_COUNT + WINDOW_COUNT),
                 draw.frame.size,

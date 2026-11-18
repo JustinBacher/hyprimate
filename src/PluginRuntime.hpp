@@ -18,6 +18,7 @@
 #include "animations/bubble/BubbleResidue.hpp"
 #include "animations/liquid/SolidFill.hpp"
 #include "config_generated.hpp"
+#include "workspace/WorkspaceAnimation.hpp"
 
 // Owns every compositor-facing lifetime for the plugin: config values, event
 // listeners, per-window tracking, and the transformers it attaches. Constructed
@@ -127,6 +128,7 @@ class CPluginRuntime {
     SP<CBubbleResidue> m_bubble_residue = makeShared<CBubbleResidue>();
     std::vector<PHLMONITORREF> m_residue_inhibited;
     std::unique_ptr<CAnimationCloseRenderer> m_close;
+    std::unique_ptr<CWorkspaceAnimation> m_workspace;
     mutable std::vector<hyprimate::Box>
         m_neighbours;  // tiled neighbours for the contact rule; rebuilt per edge choice
     // Next per-window movement seed; random per load (set in the constructor), so loads do not
