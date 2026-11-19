@@ -9,10 +9,10 @@
 using namespace hyprimate::animation;
 
 PassKind CHyprAnimationCanvas::pass() const {
-    if (WorkspaceCaptureScope::forContext(context()) != nullptr) {
+    if (WorkspaceCaptureScope::for_context(context()) != nullptr) {
         return PassKind::WorkspaceSource;
     }
-    if (WorkspaceCaptureScope::isDestinationLive(context())) {
+    if (WorkspaceCaptureScope::is_destination_live(context())) {
         return PassKind::Live;
     }
     if (context().readOnlyEffects() || context().m_renderingCapture || context().m_renderingSnapshot) {

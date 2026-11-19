@@ -1,0 +1,25 @@
+find_package(PNG REQUIRED)
+target_sources(hyprimate-core PRIVATE src/workspace/planet_hop/PlanetScene.cpp)
+target_sources(hyprimate PRIVATE src/workspace/planet_hop/PlanetRenderer.cpp)
+target_link_libraries(hyprimate PRIVATE PNG::PNG)
+
+if(BUILD_TESTING)
+    add_executable(planet-scene-tests src/workspace/planet_hop/tests/PlanetSceneTests.cpp)
+    target_link_libraries(planet-scene-tests PRIVATE hyprimate-core)
+    target_include_directories(planet-scene-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    add_test(NAME planet-scene-tests COMMAND planet-scene-tests)
+
+    add_executable(planet-material-tests tests/PlanetMaterialTests.cpp)
+    target_include_directories(planet-material-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_link_libraries(planet-material-tests PRIVATE hyprimate-core PkgConfig::TEST_EGL)
+    add_test(NAME planet-material-tests COMMAND planet-material-tests)
+    set_tests_properties(planet-material-tests PROPERTIES ENVIRONMENT "EGL_PLATFORM=surfaceless" SKIP_RETURN_CODE 77)
+
+    add_executable(planet-renderer-tests src/workspace/planet_hop/tests/PlanetRendererTests.cpp
+        src/workspace/planet_hop/PlanetRenderer.cpp)
+    target_compile_definitions(planet-renderer-tests PRIVATE HYPRIMATE_PLANET_RAW_ONLY)
+    target_include_directories(planet-renderer-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_link_libraries(planet-renderer-tests PRIVATE hyprimate-core PkgConfig::TEST_EGL PNG::PNG)
+    add_test(NAME planet-renderer-tests COMMAND planet-renderer-tests)
+    set_tests_properties(planet-renderer-tests PROPERTIES ENVIRONMENT "EGL_PLATFORM=surfaceless" SKIP_RETURN_CODE 77)
+endif()

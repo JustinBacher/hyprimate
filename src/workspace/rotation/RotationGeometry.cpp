@@ -5,23 +5,25 @@
 
 namespace hyprimate::workspace::rotation {
     namespace {
-        std::array<float, 9> inverse(double angle, double cx, double cy) {
-            const double c = std::cos(angle), s = std::sin(angle);
-            return {static_cast<float>(c), static_cast<float>(-s), 0,
-                static_cast<float>(s), static_cast<float>(c), 0,
-                static_cast<float>(cx - c * cx - s * cy),
-                static_cast<float>(cy + s * cx - c * cy), 1};
+        std::array<float, 9> inverse(double angle, double center_x, double center_y) {
+            const double COSINE = std::cos(angle);
+            const double SINE = std::sin(angle);
+            return {static_cast<float>(COSINE), static_cast<float>(-SINE), 0,
+                static_cast<float>(SINE), static_cast<float>(COSINE), 0,
+                static_cast<float>(center_x - (COSINE * center_x) - (SINE * center_y)),
+                static_cast<float>(center_y + (SINE * center_x) - (COSINE * center_y)), 1};
         }
     }
-    Frame make_frame(int width, int height, double position, Direction direction) {
-        const double t = std::isfinite(position) ? std::clamp(position, 0.0, 1.0) : 0.0;
-        const double w = std::max(width, 1);
-        const double radius = 2.0 * w;
-        const double step = 2.0 * std::atan(w / (2.0 * radius));
-        const double sign = direction == Direction::Forward ? 1.0 : -1.0;
-        const double outgoing = -sign * step * t;
-        const double incoming = sign * step * (1.0 - t);
-        return {inverse(outgoing, w / 2.0, height + radius),
-            inverse(incoming, w / 2.0, height + radius), outgoing, incoming};
+    Frame make_frame(Extent extent, double position, Direction direction) {
+        const double PROGRESS = std::isfinite(position) ? std::clamp(position, 0.0, 1.0) : 0.0;
+        const double WIDTH = std::max(extent.width, 1);
+        const double RADIUS = 2.0 * WIDTH;
+        const double STEP = 2.0 * std::atan(WIDTH / (2.0 * RADIUS));
+        const double SIGN = direction == Direction::Forward ? 1.0 : -1.0;
+        const double OUTGOING = -SIGN * STEP * PROGRESS;
+        const double INCOMING = SIGN * STEP * (1.0 - PROGRESS);
+        return {.source = inverse(OUTGOING, WIDTH / 2.0, extent.height + RADIUS),
+            .destination = inverse(INCOMING, WIDTH / 2.0, extent.height + RADIUS),
+            .source_angle = OUTGOING, .destination_angle = INCOMING};
     }
 }

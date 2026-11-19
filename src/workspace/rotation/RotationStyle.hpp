@@ -10,12 +10,15 @@
 
 #include "StyleSettingsCache.hpp"
 #include "config_generated.hpp"
+#include "workspace/WorkspaceFrame.hpp"
+#include "workspace/WorkspaceJourney.hpp"
 #include "workspace/rotation/RotationRenderer.hpp"
 
 namespace hyprimate::workspace {
 struct RotationStyle {
-    static constexpr config::WorkspaceStyle kind = config::WorkspaceStyle::Rotation;
-    static constexpr bool usesWallpaper = true;
+    static constexpr config::WorkspaceStyle KIND = config::WorkspaceStyle::Rotation;
+    static constexpr bool USES_WALLPAPER = true;
+    static constexpr bool LAYERED = false;
     struct Prepared {
         double duration = 0.0;
         std::string curve;
@@ -26,13 +29,17 @@ struct RotationStyle {
         SStyleSettingsCache<config::SWorkspaceRotation, Prepared> settings;
         bool ready = false;
     };
-    static bool draw(Resources &resources, Render::CRenderContext &ctx,
-        const SP<Render::IFramebuffer> &source, const SP<Render::IFramebuffer> &destination,
-        const SP<Render::IFramebuffer> &presentation, const SP<Render::IFramebuffer> &sourceWallpaper,
-        const SP<Render::IFramebuffer> &destinationWallpaper, double progress, Direction direction,
-        bool matchingWallpaper) {
-        return resources.renderer.draw(ctx, source, destination, presentation, sourceWallpaper,
-            destinationWallpaper, progress, direction, resources.settings.prepared.gap, matchingWallpaper);
+    static double duration(const Resources &resources, const JourneyEndpoint &, const JourneyEndpoint &) {
+        return resources.settings.prepared.duration;
+    }
+    static constexpr double live_boundary(const Resources &) { return 1.0; }
+    static constexpr bool needs_individual_windows(const Resources &) { return false; }
+    static constexpr bool uses_native_hud(const Resources &) { return false; }
+    static constexpr bool uses_workspace_previews(const Resources &) { return false; }
+    static bool draw(Resources &resources, Render::CRenderContext &ctx, const WorkspaceFrame &frame,
+        double progress, Direction direction, bool matching_wallpaper) {
+        return resources.renderer.draw(ctx, frame.source.composite, frame.destination.composite, frame.presentation,
+            frame.source.wallpaper, frame.destination.wallpaper, progress, direction, resources.settings.prepared.gap, matching_wallpaper);
     }
     static void prepare(Resources &resources, const config::SWorkspaceSettings &settings) {
         resources.settings.update(settings.rotation, [](const auto &value) {
@@ -45,11 +52,11 @@ struct RotationStyle {
                 case config::RotationGapFillStyle::Wallpaper: result.gap.style = GapFillStyle::Wallpaper; break;
                 case config::RotationGapFillStyle::Still: result.gap.style = GapFillStyle::Still; break;
             }
-            const auto channel = [&](unsigned shift) {
+            const auto CHANNEL = [&](unsigned shift) {
                 return static_cast<float>((value.gapFillColor >> shift) & 0xFFU) / 255.F;
             };
-            const float alpha = channel(24);
-            result.gap.color = {channel(16) * alpha, channel(8) * alpha, channel(0) * alpha, alpha};
+            const float ALPHA = CHANNEL(24);
+            result.gap.color = {CHANNEL(16) * ALPHA, CHANNEL(8) * ALPHA, CHANNEL(0) * ALPHA, ALPHA};
             result.gap.blur = static_cast<float>(value.gapFillBlur);
             return result;
         });

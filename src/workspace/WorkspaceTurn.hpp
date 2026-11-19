@@ -13,6 +13,7 @@
 #include "animations/shared/Core.hpp"
 #include "workspace/WorkspaceCapturePolicy.hpp"
 #include "workspace/WorkspaceDirection.hpp"
+#include "workspace/WorkspaceJourney.hpp"
 
 namespace hyprimate::workspace {
 template<class Texture> struct WallpaperIdentity {
@@ -33,6 +34,9 @@ template<class Workspace> struct TurnComposition {
     Workspace workspace{};
     std::optional<std::uint32_t> numbered;
     bool special = false;
+    std::uint32_t logicalOrder = 0;
+    std::uint64_t placement = 0;
+    [[nodiscard]] JourneyEndpoint endpoint() const { return {identity, numbered, special, logicalOrder, placement}; }
 };
 
 template<class Port> class WorkspaceTurn {
@@ -50,9 +54,9 @@ template<class Port> class WorkspaceTurn {
                 return true;
             }
             bool captured = true;
-            if (current.identity == m_source.identity) {
+            if (current.identity == m_source.identity && m_port->should_refresh(CaptureKind::SourceIsolated, progress())) {
                 captured = m_port->capture(CaptureKind::SourceIsolated, current);
-            } else if (current.identity == m_destination.identity) {
+            } else if (current.identity == m_destination.identity && m_port->should_refresh(CaptureKind::DestinationLive, progress())) {
                 captured = m_port->capture(CaptureKind::DestinationLive, current);
                 m_destination_ready = captured;
             }
@@ -75,7 +79,7 @@ template<class Port> class WorkspaceTurn {
         }
     }
 
-    void begin(const Composition &before, const Composition &after, double duration,
+    void begin(const Composition &before, const Composition &after, double base_duration,
         Transition::Curve curve) {
         if (before.identity == after.identity) {
             if (!m_active) {
@@ -83,18 +87,27 @@ template<class Port> class WorkspaceTurn {
             }
             return;
         }
-        if (!std::isfinite(duration) || duration <= 0.0 || (!m_active && !m_staged)) {
+        if (!m_active && !m_staged) {
             cancel();
             return;
         }
-        Composition from = before;
+        const Composition *from = &before;
         if (m_active && !m_presented) {
-            from = m_source;
+            from = &m_source;
         } else if (m_active && after.identity != m_source.identity &&
                    after.identity != m_destination.identity) {
-            from = m_transition.targetDestination() ? m_destination : m_source;
+            from = m_transition.target_destination() ? &m_destination : &m_source;
         }
-        const auto DIRECTION = direction_between(from.numbered, after.numbered, from.special, after.special);
+        const bool RETARGET = m_active && m_presented &&
+            (after.identity == m_source.identity || after.identity == m_destination.identity);
+        // A reversal traverses the original pair, not the last (possibly queued) native workspace.
+        const double duration = RETARGET ? m_port->duration(m_source.endpoint(), m_destination.endpoint(), base_duration)
+                                         : m_port->duration(from->endpoint(), after.endpoint(), base_duration);
+        if (!std::isfinite(duration) || duration <= 0.0) {
+            cancel();
+            return;
+        }
+        const auto DIRECTION = direction_between(from->numbered, after.numbered, from->special, after.special);
         m_duration = duration;
         m_curve = std::move(curve);
         if (!m_active) {
@@ -137,7 +150,7 @@ template<class Port> class WorkspaceTurn {
                     cancel();
                     return;
                 }
-                if (m_transition.targetDestination()) {
+                if (m_transition.target_destination()) {
                     m_port->swap_slots();
                     m_source = m_destination;
                 }
@@ -149,11 +162,17 @@ template<class Port> class WorkspaceTurn {
             }
         }
         bool captured = true;
-        if (current.identity == m_source.identity) {
+        const bool LIVE_SOURCE = m_port->should_refresh(CaptureKind::SourceIsolated, progress());
+        if (current.identity == m_source.identity && LIVE_SOURCE) {
             captured = m_port->capture(CaptureKind::SourceIsolated, current);
         } else if (current.identity == m_destination.identity) {
-            captured = m_port->capture(CaptureKind::DestinationLive, current);
-            m_destination_ready = captured;
+            if (m_presented && LIVE_SOURCE) {
+                captured = m_port->refresh_inactive_source(m_source);
+            }
+            if (captured && (!m_destination_ready || m_port->should_refresh(CaptureKind::DestinationLive, progress()))) {
+                captured = m_port->capture(CaptureKind::DestinationLive, current);
+                m_destination_ready = captured;
+            }
         }
         if (!captured || !m_destination_ready) {
             cancel();
@@ -197,6 +216,9 @@ template<class Port> class WorkspaceTurn {
     [[nodiscard]] bool drawable() const { return m_active && m_destination_ready && m_transition.active(); }
     [[nodiscard]] double progress() const { return m_transition.progress(); }
     [[nodiscard]] Direction direction() const { return m_transition.direction(); }
+    [[nodiscard]] const Composition &source() const { return m_source; }
+    [[nodiscard]] const Composition &destination() const { return m_destination; }
+    [[nodiscard]] bool presented_once() const { return m_presented; }
 
   private:
     Port *m_port;

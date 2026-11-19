@@ -11,7 +11,7 @@ namespace hyprimate::workspace {
       public:
         using Curve = std::function<double(double)>;
         bool begin(Direction direction, double duration_seconds,
-            Curve curve = [](double t) { return t * t * (3.0 - 2.0 * t); });
+            Curve curve = [](double time) { return time * time * (3.0 - (2.0 * time)); });
         void retarget(bool destination, double duration_seconds);
         void advance(double elapsed_seconds);
         void cancel();
@@ -19,7 +19,7 @@ namespace hyprimate::workspace {
         [[nodiscard]] bool active() const;
         [[nodiscard]] double progress() const;
         [[nodiscard]] double velocity() const;
-        [[nodiscard]] bool targetDestination() const;
+        [[nodiscard]] bool target_destination() const;
         [[nodiscard]] Direction direction() const;
 
       private:
@@ -27,7 +27,7 @@ namespace hyprimate::workspace {
         double m_duration = 0.0;
         double m_elapsed = 0.0;
         double m_start = 0.0;
-        double m_velocityCorrection = 0.0;
+        double m_velocity_correction = 0.0;
         double m_target = 1.0;
         double m_position = 0.0;
         double m_velocity = 0.0;

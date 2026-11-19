@@ -2,9 +2,9 @@
 
 #include <hyprland/src/render/Context.hpp>
 
-// A source capture is a native MONITOR composition, not a screencopy. Keep all
-// plugin-owned render bookkeeping separate from the live frame, even when a
-// native callback nests another render context.
+// A source capture uses the native scene pipeline, never screencopy. Keep all
+// plugin-owned render bookkeeping separate from the live frame, including an
+// inactive WORKSPACE_WITH_SHELL scene or a nested native render context.
 class WorkspaceCaptureScope {
   public:
     explicit WorkspaceCaptureScope(Render::CRenderContext &ctx)
@@ -19,8 +19,8 @@ class WorkspaceCaptureScope {
     WorkspaceCaptureScope(WorkspaceCaptureScope &&) = delete;
     WorkspaceCaptureScope &operator=(WorkspaceCaptureScope &&) = delete;
 
-    static WorkspaceCaptureScope *forContext(const Render::CRenderContext &ctx) {
-        for (auto *scope = s_current; scope; scope = scope->m_previous) {
+    static WorkspaceCaptureScope *for_context(const Render::CRenderContext &ctx) {
+        for (auto *scope = s_current; scope != nullptr; scope = scope->m_previous) {
             if (scope->m_context == &ctx) {
                 return scope;
             }
@@ -50,7 +50,7 @@ class WorkspaceCaptureScope {
         DestinationLiveScope *m_previous;
     };
 
-    static bool isDestinationLive(const Render::CRenderContext &ctx) {
+    static bool is_destination_live(const Render::CRenderContext &ctx) {
         for (const auto *scope = s_live; scope != nullptr; scope = scope->m_previous) {
             if (scope->m_context == &ctx) {
                 return true;
@@ -63,5 +63,5 @@ class WorkspaceCaptureScope {
     inline static thread_local DestinationLiveScope *s_live = nullptr;
     inline static thread_local WorkspaceCaptureScope *s_current = nullptr;
     Render::CRenderContext *m_context;
-    WorkspaceCaptureScope *m_previous;
+    WorkspaceCaptureScope *m_previous = nullptr;
 };

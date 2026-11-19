@@ -11,5 +11,9 @@ namespace hyprimate::workspace::rotation {
         double source_angle;
         double destination_angle;
     };
-    [[nodiscard]] Frame make_frame(int width, int height, double position, Direction direction);
+    struct Extent {
+        int width;
+        int height;
+    };
+    [[nodiscard]] Frame make_frame(Extent extent, double position, Direction direction);
 }

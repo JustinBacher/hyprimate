@@ -6,58 +6,64 @@
 using hyprimate::workspace::Direction;
 using namespace hyprimate::workspace::rotation;
 namespace {
-    bool near(double a, double b, double epsilon = 1e-4) { return std::abs(a - b) < epsilon; }
-    std::array<double, 2> apply(const std::array<float, 9> &m, double x, double y) {
-        return {m[0] * x + m[3] * y + m[6], m[1] * x + m[4] * y + m[7]};
+    bool near(double first, double second, double epsilon = 1e-4) { return std::abs(first - second) < epsilon; }
+    std::array<double, 2> apply(const std::array<float, 9> &matrix, double pos_x, double pos_y) {
+        return {(matrix[0] * pos_x) + (matrix[3] * pos_y) + matrix[6],
+            (matrix[1] * pos_x) + (matrix[4] * pos_y) + matrix[7]};
     }
     void run() {
-        constexpr int width = 800, height = 600;
-        const double step = 2 * std::atan(0.25);
+        constexpr int WIDTH = 800;
+        constexpr int HEIGHT = 600;
+        const double STEP = 2 * std::atan(0.25);
         for (int i = 0; i <= 100; ++i) {
-            double t = i / 100.0;
-            auto f = make_frame(width, height, t, Direction::Forward);
-            auto b = make_frame(width, height, t, Direction::Backward);
-            CHECK(near(f.source_angle, -b.source_angle));
-            CHECK(near(f.destination_angle, -b.destination_angle));
-            CHECK(near(f.source_angle, -step * t));
-            CHECK(near(f.destination_angle, step * (1 - t)));
-            for (const auto &m : {f.source, f.destination, b.source, b.destination}) {
-                auto a = apply(m, 100, 100), c = apply(m, 400, 500);
-                CHECK(near(std::hypot(a[0] - c[0], a[1] - c[1]), 500, 0.001));
-                auto center = apply(m, width / 2.0, height + 2.0 * width);
-                CHECK(near(center[0], width / 2.0, 0.001));
-                CHECK(near(center[1], height + 2.0 * width, 0.001));
+            const double PROGRESS = i / 100.0;
+            const auto FORWARD = make_frame({.width = WIDTH, .height = HEIGHT}, PROGRESS, Direction::Forward);
+            const auto BACKWARD = make_frame({.width = WIDTH, .height = HEIGHT}, PROGRESS, Direction::Backward);
+            CHECK(near(FORWARD.source_angle, -BACKWARD.source_angle));
+            CHECK(near(FORWARD.destination_angle, -BACKWARD.destination_angle));
+            CHECK(near(FORWARD.source_angle, -STEP * PROGRESS));
+            CHECK(near(FORWARD.destination_angle, STEP * (1 - PROGRESS)));
+            for (const auto &matrix : {FORWARD.source, FORWARD.destination, BACKWARD.source, BACKWARD.destination}) {
+                const auto FIRST = apply(matrix, 100, 100);
+                const auto SECOND = apply(matrix, 400, 500);
+                CHECK(near(std::hypot(FIRST[0] - SECOND[0], FIRST[1] - SECOND[1]), 500, 0.001));
+                const auto CENTER = apply(matrix, WIDTH / 2.0, HEIGHT + (2.0 * WIDTH));
+                CHECK(near(CENTER[0], WIDTH / 2.0, 0.001));
+                CHECK(near(CENTER[1], HEIGHT + (2.0 * WIDTH), 0.001));
             }
         }
-        for (const auto extent : {std::array{1920, 1080}, std::array{1080, 1920},
+        for (const auto EXTENT : {std::array{1920, 1080}, std::array{1080, 1920},
                  std::array{3440, 1440}}) {
-            const double radius = 2.0 * extent[0], cx = extent[0] / 2.0, cy = extent[1] + radius;
+            const double RADIUS = 2.0 * EXTENT[0];
+            const double CENTER_X = EXTENT[0] / 2.0;
+            const double CENTER_Y = EXTENT[1] + RADIUS;
             for (int i = 0; i <= 20; ++i) {
-                const auto frame = make_frame(extent[0], extent[1], i / 20.0, Direction::Forward);
-                for (const auto &pair : {std::pair{frame.source, frame.source_angle},
-                         std::pair{frame.destination, frame.destination_angle}}) {
-                    const auto &m = pair.first;
-                    const double angle = pair.second;
-                    const double x = cx + radius * std::sin(angle);
-                    const double y = cy - radius * std::cos(angle);
-                    const auto midpoint = apply(m, x, y);
-                    CHECK(near(midpoint[0], cx, 0.002));
-                    CHECK(near(midpoint[1], extent[1], 0.002));
+                const auto FRAME = make_frame({.width = EXTENT[0], .height = EXTENT[1]}, i / 20.0, Direction::Forward);
+                for (const auto &pair : {std::pair{FRAME.source, FRAME.source_angle},
+                         std::pair{FRAME.destination, FRAME.destination_angle}}) {
+                    const auto &matrix = pair.first;
+                    const double ANGLE = pair.second;
+                    const double POS_X = CENTER_X + (RADIUS * std::sin(ANGLE));
+                    const double POS_Y = CENTER_Y - (RADIUS * std::cos(ANGLE));
+                    const auto MIDPOINT = apply(matrix, POS_X, POS_Y);
+                    CHECK(near(MIDPOINT[0], CENTER_X, 0.002));
+                    CHECK(near(MIDPOINT[1], EXTENT[1], 0.002));
                     // The tangent maps to the canonical horizontal bottom edge, with unit scale.
-                    const auto tangent = apply(m, x + std::cos(angle), y + std::sin(angle));
-                    CHECK(near(tangent[0] - midpoint[0], 1.0));
-                    CHECK(near(tangent[1] - midpoint[1], 0.0));
-                    CHECK(near(std::hypot(x - cx, y - cy), radius));
+                    const auto TANGENT = apply(matrix, POS_X + std::cos(ANGLE), POS_Y + std::sin(ANGLE));
+                    CHECK(near(TANGENT[0] - MIDPOINT[0], 1.0));
+                    CHECK(near(TANGENT[1] - MIDPOINT[1], 0.0));
+                    CHECK(near(std::hypot(POS_X - CENTER_X, POS_Y - CENTER_Y), RADIUS));
                 }
             }
         }
-        auto first = make_frame(width, height, 0, Direction::Forward);
-        auto last = make_frame(width, height, 1, Direction::Forward);
-        auto a = apply(first.source, 123, 456), b = apply(last.destination, 123, 456);
-        CHECK(near(a[0], 123) && near(a[1], 456));
-        CHECK(near(b[0], 123) && near(b[1], 456));
-        CHECK(make_frame(width, height, -1, Direction::Forward).source_angle == 0);
-        CHECK(make_frame(width, height, std::numeric_limits<double>::quiet_NaN(), Direction::Forward).source_angle == 0);
+        const auto FIRST = make_frame({.width = WIDTH, .height = HEIGHT}, 0, Direction::Forward);
+        const auto LAST = make_frame({.width = WIDTH, .height = HEIGHT}, 1, Direction::Forward);
+        const auto START = apply(FIRST.source, 123, 456);
+        const auto END = apply(LAST.destination, 123, 456);
+        CHECK(near(START[0], 123) && near(START[1], 456));
+        CHECK(near(END[0], 123) && near(END[1], 456));
+        CHECK((make_frame({.width = WIDTH, .height = HEIGHT}, -1, Direction::Forward).source_angle == 0));
+        CHECK((make_frame({.width = WIDTH, .height = HEIGHT}, std::numeric_limits<double>::quiet_NaN(), Direction::Forward).source_angle == 0));
     }
 }
 int main() { run(); return g_failures == 0 ? 0 : 1; }

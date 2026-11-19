@@ -78,14 +78,13 @@ class ConfigGeneratorTests(unittest.TestCase):
     def test_supported_roots_and_workspace_shape(self):
         paths = {item['path'] for item in SCHEMA}
         self.assertEqual({path.split('.')[0] for path in paths}, {'window', 'workspace'})
-        self.assertEqual({path for path in paths if path.startswith('workspace.')},
-                         {'workspace.enabled', 'workspace.style', 'workspace.options.rotation.duration',
-                          'workspace.options.rotation.curve',
+        self.assertEqual({path for path in paths if path.startswith('workspace.options.rotation.')},
+                         {'workspace.options.rotation.duration', 'workspace.options.rotation.curve',
                           'workspace.options.rotation.gap_fill_style', 'workspace.options.rotation.gap_fill_color',
                           'workspace.options.rotation.gap_fill_blur'})
         items = {item['path']: item for item in SCHEMA}
         self.assertIs(items['workspace.enabled']['default'], False)
-        self.assertEqual(items['workspace.style']['choices'], ['rotation'])
+        self.assertEqual(items['workspace.style']['choices'], ['rotation', 'planet_hop'])
         self.assertEqual(items['workspace.style']['default'], 'rotation')
         duration = items['workspace.options.rotation.duration']
         self.assertEqual((duration['default'], duration['min'], duration['max']), (0.6, 0.1, 3))
@@ -104,11 +103,11 @@ class ConfigGeneratorTests(unittest.TestCase):
     def test_workspace_and_window_styles_have_independent_enums_and_validators(self):
         header = GEN.settings_header(SCHEMA) + GEN.config_header(SCHEMA)
         self.assertIn('enum class Style : std::uint8_t { Liquid, Paper, Cloth, Swarm, Bubble, Smoke };', header)
-        self.assertIn('enum class WorkspaceStyle : std::uint8_t { Rotation };', header)
+        self.assertIn('enum class WorkspaceStyle : std::uint8_t { Rotation, PlanetHop };', header)
         self.assertIn('WorkspaceStyle style{};', header)
         self.assertIn('Style style{};', header)
-        for path, accepted, rejected in [('workspace.style', ['rotation'], ['liquid', 'paper', 'cloth', 'swarm', 'bubble', 'smoke']),
-                                         ('window.style', ['liquid', 'paper', 'cloth', 'swarm', 'bubble', 'smoke'], ['rotation']),
+        for path, accepted, rejected in [('workspace.style', ['rotation', 'planet_hop'], ['liquid', 'paper', 'cloth', 'swarm', 'bubble', 'smoke']),
+                                         ('window.style', ['liquid', 'paper', 'cloth', 'swarm', 'bubble', 'smoke'], ['rotation', 'planet_hop']),
                                          ('workspace.options.rotation.gap_fill_style',
                                           ['morph', 'background', 'wallpaper', 'still'], ['rotation', 'invalid'])]:
             item = next(item for item in SCHEMA if item['path'] == path)
@@ -141,13 +140,47 @@ class ConfigGeneratorTests(unittest.TestCase):
         header = GEN.settings_header(SCHEMA + [other])
         self.assertIn('enum class RotationGapFillStyle : std::uint8_t { Morph, Background, Wallpaper, Still };', header)
         self.assertIn('enum class OtherGapFillStyle : std::uint8_t { Solid, Clear };', header)
-        self.assertIn('inline constexpr std::array WORKSPACE_STYLES{WorkspaceStyle::Rotation};', header)
+        self.assertIn('inline constexpr std::array WORKSPACE_STYLES{WorkspaceStyle::Rotation, WorkspaceStyle::PlanetHop};', header)
         styles = [dict(item) for item in SCHEMA]
         selection = next(item for item in styles if item['path'] == 'workspace.style')
         selection['choices'] = ['rotation', 'other']
         expanded = GEN.settings_header(styles + [other])
         self.assertIn('inline constexpr std::array WORKSPACE_STYLES{WorkspaceStyle::Rotation, WorkspaceStyle::Other};',
                       expanded)
+
+    def test_planet_hop_contract(self):
+        items = {item['path'].removeprefix('workspace.options.planet_hop.'): item
+                 for item in SCHEMA if item['path'].startswith('workspace.options.planet_hop.')}
+        modes = {
+            'window_mode': (['surface', 'floating', 'fade'], 'surface'),
+            'overlay_mode': (['world', 'hud', 'fade'], 'fade'),
+            'planet_layout': (['linear', 'solar_system', 'dynamic'], 'linear'),
+            'skip_duration_mode': (['constant', 'distance_scaled', 'adaptive'], 'adaptive'),
+        }
+        for name, (choices, default) in modes.items():
+            with self.subTest(name=name):
+                self.assertEqual(items[name]['choices'], choices)
+                self.assertEqual(items[name]['default'], default)
+        for name in ('stars_enabled', 'atmosphere_enabled', 'lighting_enabled', 'clouds_enabled',
+                     'depth_enabled', 'rotation_enabled'):
+            self.assertIs(items[name]['default'], True)
+        self.assertEqual(items['duration']['default'], 0.8)
+        self.assertEqual(items['curve']['default'], 'linear')
+        self.assertEqual(items['depth_source']['default'], '')
+        self.assertEqual((items['live_boundary']['min'], items['live_boundary']['default'],
+                          items['live_boundary']['max']), (0.08, 0.22, 0.35))
+        self.assertEqual((items['elevation']['min'], items['elevation']['default'],
+                          items['elevation']['max']), (0, 0.2, 1))
+        self.assertEqual((items['sampling_quality']['min'], items['sampling_quality']['default'],
+                          items['sampling_quality']['max']), (0, 2, 2))
+        header = GEN.settings_header(SCHEMA) + GEN.config_header(SCHEMA)
+        for name, (choices, _) in modes.items():
+            item = items[name]
+            registration = header.split(f'values.{item["member"]} = makeShared', 1)[1].split('},});', 1)[0]
+            for choice in choices:
+                self.assertIn(f'value == "{choice}"', registration)
+            self.assertIn('must be one of:', registration)
+        GEN.validate(SCHEMA)
 
     def test_inheritance_expansion_is_limited_to_window(self):
         items = json.loads(SCHEMA_PATH.read_text())

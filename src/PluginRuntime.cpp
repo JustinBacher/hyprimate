@@ -73,7 +73,7 @@ class CPluginRuntime::Impl {
     std::unique_ptr<CAnimationCloseRenderer> m_close;
     std::unique_ptr<CWorkspaceAnimation> m_workspace;
     CHyprSignalListener m_open, m_close_event, m_destroy, m_pre_checks, m_pre, m_stage;
-    CHyprSignalListener m_reload, m_monitor_layout, m_monitor_removed;
+    CHyprSignalListener m_reload, m_config_refresh, m_monitor_layout, m_monitor_removed;
 };
 
 CPluginRuntime::Impl::Impl(HANDLE handle) : m_handle(handle) {
@@ -142,6 +142,12 @@ CPluginRuntime::Impl::Impl(HANDLE handle) : m_handle(handle) {
         render_stage(event);
     });
     m_reload = Event::bus()->m_events.config.reloaded.listen([this] { reload(); });
+    // In 0.57 dynamic hl.config() writes schedule a property refresh even for plugin keys
+    // with no compositor refresh bits. Don't read/parse every style's settings every frame.
+    m_config_refresh = Event::bus()->m_events.config.props_refreshed.listen([this](bool) {
+        m_config = hyprimate::config::readConfig(m_values);
+        configure_workspace();
+    });
     for (const auto &window : Desktop::windowState()->windows()) {
         if (window) {
             m_animations.track(PHLWINDOWREF{window});
@@ -151,7 +157,8 @@ CPluginRuntime::Impl::Impl(HANDLE handle) : m_handle(handle) {
 
 CPluginRuntime::Impl::~Impl() {
     m_open.reset(); m_close_event.reset(); m_destroy.reset(); m_pre_checks.reset();
-    m_pre.reset(); m_stage.reset(); m_reload.reset(); m_monitor_layout.reset(); m_monitor_removed.reset();
+    m_pre.reset(); m_stage.reset(); m_reload.reset(); m_config_refresh.reset();
+    m_monitor_layout.reset(); m_monitor_removed.reset();
     m_workspace->shutdown();
     m_close->unhook();
     m_animations.detach_transformers();
@@ -201,14 +208,12 @@ void CPluginRuntime::Impl::reload() {
 }
 
 void CPluginRuntime::Impl::render_pre(const PHLMONITOR &monitor) {
-    m_config = hyprimate::config::readConfig(m_values);
     configure(true);
     restore_scanout();
     if (monitor) {
         m_animations.frame({.monitor = m_port.monitor_identity(monitor), .frame = ++m_frame,
             .now = hyprimate::animation::Clock::now()});
     }
-    configure_workspace();
     m_workspace->on_render_pre(monitor);
 }
 

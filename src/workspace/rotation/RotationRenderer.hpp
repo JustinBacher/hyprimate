@@ -3,19 +3,19 @@
 #include <GLES3/gl32.h>
 #include <array>
 #include <memory>
-namespace Hyprutils::Memory { template <typename T> class CSharedPointer; }
+namespace Hyprutils::Memory { template <typename T> class CSharedPointer; } // NOLINT(readability-identifier-naming) Hyprland namespace.
 class CShader;
-namespace Render { class CRenderContext; class IFramebuffer; }
+namespace Render { class CRenderContext; class IFramebuffer; } // NOLINT(readability-identifier-naming) Hyprland namespace.
 #include "workspace/WorkspaceTransition.hpp"
 #include "workspace/rotation/GapFill.hpp"
 
 namespace hyprimate::workspace {
-    inline constexpr char VERTEX_SHADER[] = R"(#version 300 es
+    inline constexpr const char *VERTEX_SHADER = R"(#version 300 es
 void main() {
     vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
     gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
 })";
-    inline constexpr char FRAGMENT_SHADER[] = R"(#version 300 es
+    inline constexpr const char *FRAGMENT_SHADER = R"(#version 300 es
 precision highp float;
 uniform sampler2D sourceImage, destinationImage, sourceWall, destinationWall;
 uniform mat3 sourceInverse, destinationInverse;
@@ -86,11 +86,11 @@ void main() {
 })";
     // The caller owns the program, VAO and GL state bracket.
     using RotationUniforms = std::array<GLint, 13>;
-    bool rotationUniforms(GLuint program, RotationUniforms &uniforms);
-    bool drawRotation(GLuint program, GLuint vao, const RotationUniforms &uniforms,
-        GLuint src, GLuint dst, GLuint out, GLuint sourceFramebuffer, GLuint presentationFramebuffer,
+    bool rotation_uniforms(GLuint program, RotationUniforms &uniforms);
+    bool draw_rotation(GLuint program, GLuint vao, const RotationUniforms &uniforms,
+        GLuint src, GLuint dst, GLuint out, GLuint source_framebuffer, GLuint presentation_framebuffer,
         int width, int height, double position, Direction direction, const GapFill &gap,
-        bool matchingWallpaper, GLuint sourceWallpaper, GLuint destinationWallpaper);
+        bool matching_wallpaper, GLuint source_wallpaper, GLuint destination_wallpaper);
 
     class RotationRenderer {
       public:
@@ -99,9 +99,9 @@ void main() {
         bool draw(Render::CRenderContext &ctx, const Hyprutils::Memory::CSharedPointer<Render::IFramebuffer> &source,
             const Hyprutils::Memory::CSharedPointer<Render::IFramebuffer> &destination,
             const Hyprutils::Memory::CSharedPointer<Render::IFramebuffer> &presentation,
-            const Hyprutils::Memory::CSharedPointer<Render::IFramebuffer> &sourceWallpaper,
-            const Hyprutils::Memory::CSharedPointer<Render::IFramebuffer> &destinationWallpaper,
-            double position, Direction direction, const GapFill &gap, bool matchingWallpaper);
+            const Hyprutils::Memory::CSharedPointer<Render::IFramebuffer> &source_wallpaper,
+            const Hyprutils::Memory::CSharedPointer<Render::IFramebuffer> &destination_wallpaper,
+            double position, Direction direction, const GapFill &gap, bool matching_wallpaper);
         RotationRenderer();
         RotationRenderer(const RotationRenderer &) = delete;
         RotationRenderer &operator=(const RotationRenderer &) = delete;

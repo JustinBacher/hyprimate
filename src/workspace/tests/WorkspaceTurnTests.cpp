@@ -181,6 +181,31 @@ void destination_swap_and_stall() {
     CHECK(!fixture.turn.active());
 }
 
+void adaptive_capture_and_queued_distance() {
+    Fixture f;
+    f.port.live_boundary = 0.22;
+    f.start();
+    f.present(); // Both slots are coherent even if the destination is too distant for live refresh.
+    const auto FIRST = f.port.captures.size();
+    f.frame(f.b, 0.12);
+    CHECK(f.port.inactive_source == f.a.identity);
+    f.frame(f.b, 0.2);
+    f.frame(f.b, 0.2);
+    CHECK(f.port.captures.size() == FIRST);
+    CHECK(f.turn.stage(f.b));
+    CHECK(f.port.captures.size() == FIRST); // An interruption in flight must not replace a frozen image.
+    f.frame(f.b, 0.2);
+    f.frame(f.b, 0.15);
+    CHECK(f.port.captures.size() == FIRST + 1);
+    f.turn.begin(f.b, f.c, 1.0, LINEAR);
+    f.turn.begin(f.c, f.d, 1.0, LINEAR);
+    CHECK(f.port.timed_pair.first == f.b.identity && f.port.timed_pair.second == f.d.identity);
+    CHECK(f.turn.source().identity == f.a.identity && f.turn.destination().identity == f.b.identity);
+    f.turn.begin(f.d, f.a, 1.0, LINEAR);
+    CHECK(f.port.timed_pair.first == f.a.identity && f.port.timed_pair.second == f.b.identity);
+    CHECK(f.turn.progress() > 0.8);
+}
+
 void cancellation_and_monitors() {
     Fixture first;
     Fixture second;
@@ -348,6 +373,7 @@ int main() {
     gate_and_unpresented_retarget();
     reversal_and_coalescing();
     destination_swap_and_stall();
+    adaptive_capture_and_queued_distance();
     cancellation_and_monitors();
     lifetime_and_curve_latching();
     registry_settings_and_reload();

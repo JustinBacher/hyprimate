@@ -270,7 +270,7 @@ bool CAnimationCloseRenderer::render_batch(Render::CRenderContext &ctx,
     if (!monitor) {
         return true;
     }
-    const bool CAPTURE = WorkspaceCaptureScope::forContext(ctx) != nullptr;
+    const bool CAPTURE = WorkspaceCaptureScope::for_context(ctx) != nullptr;
     if (!CAPTURE) {
         prune_records();
     }

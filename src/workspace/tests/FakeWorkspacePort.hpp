@@ -43,6 +43,17 @@ struct FakeWorkspacePort {
         buffer_checks.push_back(active);
         return buffers_ready;
     }
+    double duration(const JourneyEndpoint &from, const JourneyEndpoint &to, double base) {
+        timed_pair = {from.identity, to.identity};
+        return base;
+    }
+    [[nodiscard]] bool should_refresh(CaptureKind kind, double progress) const {
+        return (kind == CaptureKind::SourceIsolated ? progress : 1.0 - progress) <= live_boundary;
+    }
+    bool refresh_inactive_source(const Composition &value) {
+        inactive_source = value.identity;
+        return true;
+    }
     bool capture(CaptureKind kind, const Composition &value) {
         captures.push_back({.kind = kind, .composition = value});
         if (!capture_succeeds) {
@@ -67,6 +78,9 @@ struct FakeWorkspacePort {
     Slot source;
     Slot destination;
     Wallpaper next_wallpaper;
+    std::pair<std::int64_t, std::int64_t> timed_pair{};
+    double live_boundary = 1.0;
+    std::int64_t inactive_source = 0;
     bool buffers_ready = true;
     bool capture_succeeds = true;
     int swaps = 0;

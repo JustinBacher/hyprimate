@@ -170,6 +170,47 @@ hl.config({
                         gap_fill_color = 0xff000000,
                         gap_fill_blur = 0,
                     },
+                    planet_hop = {
+                        window_mode = "surface",
+                        overlay_mode = "fade",
+                        planet_layout = "linear",
+                        skip_duration_mode = "adaptive",
+                        duration = 0.8,
+                        curve = "linear",
+                        distance_scale = 0.25,
+                        max_duration = 2.2,
+                        adaptive_boundary = 3,
+                        live_boundary = 0.22,
+                        sampling_quality = 2,
+                        planet_size = 1,
+                        planet_separation = 4,
+                        solar_vertical_spread = 0.65,
+                        solar_background_scale = 0.75,
+                        planet_coverage = 0.7,
+                        indirect_brightness = 0.18,
+                        elevation = 0.2,
+                        fade = 0.2,
+                        rotation_enabled = true,
+                        rotation_limit = 0.35,
+                        stars_enabled = true,
+                        star_density = 0.5,
+                        star_parallax = 1,
+                        atmosphere_enabled = true,
+                        atmosphere_intensity = 0.3,
+                        atmosphere_thickness = 0.035,
+                        lighting_enabled = true,
+                        light_direction_x = -0.6,
+                        light_direction_y = -0.3,
+                        light_direction_z = 1,
+                        night_brightness = 0.45,
+                        clouds_enabled = true,
+                        cloud_coverage = 0.45,
+                        cloud_opacity = 0.18,
+                        cloud_speed = 0.025,
+                        depth_enabled = true,
+                        depth_strength = 0.018,
+                        depth_source = "",
+                    },
                 },
             },
         },
@@ -226,12 +267,51 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `window:options:liquid:splash` | boolean / animation defaults: `true` | — | Show a small edge-liquid splash where a window closes. When false, it closes without liquid. |
 | `window:options:cloth:side` | string / animation defaults: `"auto"` | — | Cloth exit edge: the side of appearance (auto), nearest valid edge, opening origin, or a fixed edge. Invalid preferred edges fall back to the normal edge selection. Allowed: `auto`, `nearest`, `origin`, `top`, `bottom`, `left`, `right`. |
 | `workspace:enabled` | boolean / `false` | — | Enable workspace transition effects independently of window effects. |
-| `workspace:style` | string / `"rotation"` | — | Choose the workspace transition style. Invalid names are rejected. Allowed: `rotation`. |
+| `workspace:style` | string / `"rotation"` | — | Choose the workspace transition style. Invalid names are rejected. Allowed: `rotation`, `planet_hop`. |
 | `workspace:options:rotation:duration` | float / `0.6` | 0.1–3 | Time in seconds for the workspace rotation. |
 | `workspace:options:rotation:curve` | string / `"default"` | — | Name of a Hyprland Bezier animation curve. Unknown names are rejected and the previous valid curve is retained. Curve overshoot is clipped to the wheel's rotation range. |
 | `workspace:options:rotation:gap_fill_style` | string / `"still"` | — | Gap treatment: morph stretches an auxiliary incoming-wallpaper bridge; background uses gap_fill_color; wallpaper blends enlarged, optionally blurred wallpaper copies; still (default) holds the outgoing wallpaper stationary while windows rotate. In still mode a different incoming wallpaper rotates in with its windows; matching texture resources with unchanged content stay stationary. No mode changes the rigid circular workspace motion. Configuration uses underscores: gap_fill_style, gap_fill_color, gap_fill_blur. Invalid styles are rejected. Allowed: `morph`, `background`, `wallpaper`, `still`. |
 | `workspace:options:rotation:gap_fill_color` | color / `0xff000000` | — | Gap colour for background mode, in ARGB; defaults to opaque black. |
 | `workspace:options:rotation:gap_fill_blur` | float / `0` | 0–64 | Blur radius in physical pixels for the duplicated background imagery in wallpaper mode only; zero disables blur. Original wallpapers, windows and rotation geometry are unaffected. |
+| `workspace:options:planet_hop:window_mode` | string / `"surface"` | — | Place windows on the planet surface, float them above it, or fade them during the hop. Allowed: `surface`, `floating`, `fade`. |
+| `workspace:options:planet_hop:overlay_mode` | string / `"fade"` | — | Render overlays in the world, as a HUD, or fade them during the hop. Allowed: `world`, `hud`, `fade`. |
+| `workspace:options:planet_hop:planet_layout` | string / `"linear"` | — | Arrange workspace planets linearly, as a solar system, or dynamically. Allowed: `linear`, `solar_system`, `dynamic`. |
+| `workspace:options:planet_hop:skip_duration_mode` | string / `"adaptive"` | — | Choose constant, distance-scaled, or adaptive timing for hops across multiple workspaces. Allowed: `constant`, `distance_scaled`, `adaptive`. |
+| `workspace:options:planet_hop:duration` | float / `0.8` | 0.1–3 | Base hop duration in seconds. |
+| `workspace:options:planet_hop:curve` | string / `"linear"` | — | Hyprland Bezier curve used for hop progress. |
+| `workspace:options:planet_hop:distance_scale` | float / `0.25` | 0–3 | Extra duration scale per workspace crossed in distance-scaled timing. |
+| `workspace:options:planet_hop:max_duration` | float / `2.2` | 0.1–10 | Maximum hop duration in seconds for distance-scaled and adaptive timing. The effective maximum is never below the base duration: if duration exceeds max_duration, the base duration wins. |
+| `workspace:options:planet_hop:adaptive_boundary` | int / `3` | 1–100 | Workspace distance at which adaptive timing changes its scaling. |
+| `workspace:options:planet_hop:live_boundary` | float / `0.22` | 0.08–0.35 | Fraction adjoining each endpoint during which live workspace imagery is refreshed. |
+| `workspace:options:planet_hop:sampling_quality` | int / `2` | 0–2 | Material sampling quality: 0 low, 1 medium, 2 high. |
+| `workspace:options:planet_hop:planet_size` | float / `1` | 0.1–4 | Relative planet size. |
+| `workspace:options:planet_hop:planet_separation` | float / `4` | 1–20 | Separation between planets in planet-radius units. |
+| `workspace:options:planet_hop:solar_vertical_spread` | float / `0.65` | 0–2 | Vertical spread of solar-system workspace positions, relative to planet spacing and the output aspect. |
+| `workspace:options:planet_hop:solar_background_scale` | float / `0.75` | 0.25–1 | Radius of inactive solar-system planets relative to a primary planet, before perspective projection. |
+| `workspace:options:planet_hop:planet_coverage` | float / `0.7` | 0.1–1 | Angular extent of the workspace wallpaper mapped onto the planet surface. |
+| `workspace:options:planet_hop:indirect_brightness` | float / `0.18` | 0–1 | Indirect illumination of the planet. |
+| `workspace:options:planet_hop:elevation` | float / `0.2` | 0–1 | Elevation of floating windows above the planet surface in scene units; world overlays use the same elevation. |
+| `workspace:options:planet_hop:fade` | float / `0.2` | 0–1 | Fraction of the hop used for fading windows and overlays. |
+| `workspace:options:planet_hop:rotation_enabled` | boolean / `true` | — | Enable planet rotation during the hop. |
+| `workspace:options:planet_hop:rotation_limit` | float / `0.35` | 0–3.14 | Maximum planet rotation in radians. |
+| `workspace:options:planet_hop:stars_enabled` | boolean / `true` | — | Enable the star field. |
+| `workspace:options:planet_hop:star_density` | float / `0.5` | 0–1 | Density of background stars. |
+| `workspace:options:planet_hop:star_parallax` | float / `1` | 0–2 | Strength of background star parallax. |
+| `workspace:options:planet_hop:atmosphere_enabled` | boolean / `true` | — | Enable the planet atmosphere. |
+| `workspace:options:planet_hop:atmosphere_intensity` | float / `0.3` | 0–1 | Atmospheric glow intensity. |
+| `workspace:options:planet_hop:atmosphere_thickness` | float / `0.035` | 0–1 | Atmospheric thickness relative to planet radius. |
+| `workspace:options:planet_hop:lighting_enabled` | boolean / `true` | — | Enable directional planet lighting. |
+| `workspace:options:planet_hop:light_direction_x` | float / `-0.6` | -1–1 | Horizontal component of the light direction. |
+| `workspace:options:planet_hop:light_direction_y` | float / `-0.3` | -1–1 | Vertical component of the light direction. |
+| `workspace:options:planet_hop:light_direction_z` | float / `1` | -1–1 | Depth component of the light direction. |
+| `workspace:options:planet_hop:night_brightness` | float / `0.45` | 0–1 | Brightness of the planet's night side. |
+| `workspace:options:planet_hop:clouds_enabled` | boolean / `true` | — | Enable the cloud layer. |
+| `workspace:options:planet_hop:cloud_coverage` | float / `0.45` | 0–1 | Fraction of the planet covered by clouds. |
+| `workspace:options:planet_hop:cloud_opacity` | float / `0.18` | 0–1 | Cloud layer opacity. |
+| `workspace:options:planet_hop:cloud_speed` | float / `0.025` | 0–1 | Cloud drift speed in radians per second. |
+| `workspace:options:planet_hop:depth_enabled` | boolean / `true` | — | Enable planet surface depth. |
+| `workspace:options:planet_hop:depth_strength` | float / `0.018` | 0–0.5 | Surface relief strength in planet-radius units. |
+| `workspace:options:planet_hop:depth_source` | string / `""` | — | Optional PNG depth image path; empty uses procedural depth. PNG images are limited to 4096 pixels per dimension and 16 MiB encoded. |
 | `window:enabled` | boolean / `true` | — | Enable window movement, opening and closing effects. When false, none of these effects run. |
 | `window:style` | string / `"liquid"` | — | Choose the material for movement, opening and closing. Liquid deforms the edges; paper crumples into a ball and moves without deformation; cloth drapes and flutters; swarm breaks the window into creature-shaped pieces; bubble inflates a soap film, sloshes while moving and bursts on close; smoke gathers, unravels into flowing content-coloured volumes while moving, reforms at rest and dissipates on close. Invalid names are rejected. Allowed: `liquid`, `paper`, `cloth`, `swarm`, `bubble`, `smoke`. |
 | `window:options:swarm:sprite` | string / `"spider"` | — | Swarm sprite name in the sprites directory, with or without .png, or an explicit PNG path. The sheet has four columns and two rows of frames; transparency defines the silhouette. |
