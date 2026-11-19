@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 
 namespace hyprimate {
@@ -50,6 +51,10 @@ namespace hyprimate {
     // A stall is a gap between frames longer than an animation can play through. The threshold is
     // defined here; each animation chooses its own response (abort, clamp or reset).
     inline constexpr double STALL_SECONDS = 0.25;
+    // Stall recovery is bounded whatever the animation's own response: STALL_LIMIT stalls within
+    // STALL_WINDOW_SECONDS, or any single gap longer than STALL_WINDOW_SECONDS, ends it cleanly.
+    inline constexpr std::size_t STALL_LIMIT = 3;
+    inline constexpr double STALL_WINDOW_SECONDS = 2.0;
 
     // Render mesh resolution: LIQUID_RENDER_CELLS quads per side, sampled from the lattice by
     // sampleDisplacement.

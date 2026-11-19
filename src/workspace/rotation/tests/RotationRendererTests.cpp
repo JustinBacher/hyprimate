@@ -4,9 +4,7 @@
 #include <cstdio>
 #include <vector>
 
-#include <EGL/egl.h>
-#include <EGL/eglext.h>
-#include <GLES3/gl3.h>
+#include "GlHarness.hpp"
 
 #include "Check.hpp"
 #include "workspace/rotation/RotationRenderer.hpp"
@@ -15,7 +13,6 @@
 namespace {
     constexpr int WIDTH = 96, HEIGHT = 64;
     using hyprimate::workspace::Direction;
-    using hyprimate::workspace::RotationRenderer;
 
     GLuint texture(const std::vector<unsigned char> &pixels) {
         GLuint id = 0;
@@ -38,25 +35,105 @@ namespace {
         CHECK(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
         return id;
     }
+    class TestRenderer {
+      public:
+        bool initialize();
+        void release();
+        bool drawRaw(GLuint src, GLuint dst, GLuint out, GLuint sourceFramebuffer,
+            GLuint presentationFramebuffer, int width, int height, double position, Direction direction,
+            const hyprimate::workspace::GapFill &gap, bool matchingWallpaper,
+            GLuint sourceWallpaper, GLuint destinationWallpaper);
+      private:
+        GLuint m_program = 0;
+        GLuint m_vao = 0;
+        std::array<GLint, 13> m_uniforms{};
+    };
+    using hyprimate::workspace::GapFill;
+    namespace rotation = hyprimate::workspace::rotation;
+    bool TestRenderer::initialize() {
+        m_program = gl_harness::build_program(hyprimate::workspace::VERTEX_SHADER,
+            hyprimate::workspace::FRAGMENT_SHADER);
+        if (!m_program) return false;
+        const std::array<const char *, 13> names{"sourceImage", "destinationImage", "sourceWall",
+            "destinationWall", "sourceInverse", "destinationInverse", "size", "progress", "direction",
+            "blurRadius", "style", "matching", "gapColor"};
+        for (std::size_t i = 0; i < names.size(); ++i) {
+            m_uniforms[i] = glGetUniformLocation(m_program, names[i]);
+            if (m_uniforms[i] < 0) return false;
+        }
+        glGenVertexArrays(1, &m_vao);
+        return m_vao != 0;
+    }
+    void TestRenderer::release() {
+        glDeleteVertexArrays(1, &m_vao);
+        glDeleteProgram(m_program);
+    }
+    bool TestRenderer::drawRaw(GLuint src, GLuint dst, GLuint out, GLuint sourceFramebuffer,
+        GLuint presentationFramebuffer, int width, int height, double position, Direction direction,
+        const GapFill &gap, bool matchingWallpaper, GLuint sourceWallpaper, GLuint destinationWallpaper) {
+        if (!m_program || !src || !dst || !out || !sourceWallpaper || !destinationWallpaper ||
+            src == dst || src == out || dst == out || out == sourceWallpaper || out == destinationWallpaper ||
+            !sourceFramebuffer || !presentationFramebuffer || sourceFramebuffer == presentationFramebuffer ||
+            width <= 0 || height <= 0 || !std::isfinite(position) || position < 0 || position > 1) return false;
+        const auto frame = rotation::make_frame(width, height, position, direction);
+        GLint readFramebuffer = 0, drawFramebuffer = 0, program = 0, vao = 0, active = 0;
+        std::array<GLint, 4> textures{}, samplers{}, viewport{};
+        std::array<GLboolean, 4> mask{};
+        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &readFramebuffer);
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &drawFramebuffer);
+        glGetIntegerv(GL_CURRENT_PROGRAM, &program);
+        glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
+        glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
+        glGetIntegerv(GL_VIEWPORT, viewport.data());
+        glGetBooleanv(GL_COLOR_WRITEMASK, mask.data());
+        const std::array<GLenum, 5> caps{GL_SCISSOR_TEST, GL_STENCIL_TEST, GL_DEPTH_TEST, GL_CULL_FACE, GL_BLEND};
+        std::array<GLboolean, 5> enabled{};
+        for (std::size_t i = 0; i < caps.size(); ++i) { enabled[i] = glIsEnabled(caps[i]); glDisable(caps[i]); }
+        const std::array<GLuint, 4> inputs{src, dst, sourceWallpaper, destinationWallpaper};
+        for (std::size_t i = 0; i < inputs.size(); ++i) {
+            glActiveTexture(GL_TEXTURE0 + static_cast<GLenum>(i));
+            glGetIntegerv(GL_TEXTURE_BINDING_2D, &textures[i]);
+            glGetIntegerv(GL_SAMPLER_BINDING, &samplers[i]);
+            glBindSampler(static_cast<GLuint>(i), 0);
+            glBindTexture(GL_TEXTURE_2D, inputs[i]);
+        }
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, presentationFramebuffer);
+        glViewport(0, 0, width, height);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        glUseProgram(m_program);
+        for (std::size_t i = 0; i < 4; ++i) glUniform1i(m_uniforms[i], static_cast<GLint>(i));
+        glUniformMatrix3fv(m_uniforms[4], 1, GL_FALSE, frame.source.data());
+        glUniformMatrix3fv(m_uniforms[5], 1, GL_FALSE, frame.destination.data());
+        glUniform2f(m_uniforms[6], static_cast<float>(width), static_cast<float>(height));
+        glUniform1f(m_uniforms[7], static_cast<float>(position));
+        glUniform1f(m_uniforms[8], direction == Direction::Forward ? 1.0F : -1.0F);
+        glUniform1f(m_uniforms[9], std::isfinite(gap.blur) ? std::clamp(gap.blur, 0.0F, 64.0F) : 0.0F);
+        glUniform1i(m_uniforms[10], static_cast<int>(gap.style));
+        glUniform1i(m_uniforms[11], matchingWallpaper ? 1 : 0);
+        glUniform4fv(m_uniforms[12], 1, gap.color.data());
+        glBindVertexArray(m_vao);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+        for (std::size_t i = 0; i < inputs.size(); ++i) {
+            glActiveTexture(GL_TEXTURE0 + static_cast<GLenum>(i));
+            glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(textures[i]));
+            glBindSampler(static_cast<GLuint>(i), static_cast<GLuint>(samplers[i]));
+        }
+        glActiveTexture(static_cast<GLenum>(active));
+        glBindVertexArray(static_cast<GLuint>(vao));
+        glUseProgram(static_cast<GLuint>(program));
+        glColorMask(mask[0], mask[1], mask[2], mask[3]);
+        for (std::size_t i = 0; i < caps.size(); ++i) if (enabled[i]) glEnable(caps[i]);
+        glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(readFramebuffer));
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(drawFramebuffer));
+        return true;
+    }
 
     GLuint program() {
-        const char *vs = "#version 300 es\nvoid main(){gl_Position=vec4(0.0);}";
-        const char *fs =
-            "#version 300 es\nprecision mediump float; out vec4 c; void main(){c=vec4(1.0);}";
-        GLuint v = glCreateShader(GL_VERTEX_SHADER), f = glCreateShader(GL_FRAGMENT_SHADER);
-        glShaderSource(v, 1, &vs, nullptr);
-        glShaderSource(f, 1, &fs, nullptr);
-        glCompileShader(v);
-        glCompileShader(f);
-        GLuint p = glCreateProgram();
-        glAttachShader(p, v);
-        glAttachShader(p, f);
-        glLinkProgram(p);
-        GLint linked = 0;
-        glGetProgramiv(p, GL_LINK_STATUS, &linked);
-        CHECK(linked != 0);
-        glDeleteShader(v);
-        glDeleteShader(f);
+        const GLuint p = gl_harness::build_program(
+            "#version 300 es\nvoid main(){gl_Position=vec4(0.0);}",
+            "#version 300 es\nprecision mediump float; out vec4 c; void main(){c=vec4(1.0);}");
+        CHECK(p != 0);
         return p;
     }
 
@@ -116,7 +193,7 @@ namespace {
         }
         std::array<GLuint, 5> tex{texture(source), texture(dest), texture(blank), texture(wallA), texture(wallB)};
         std::array<GLuint, 3> fb{framebuffer(tex[0]), framebuffer(tex[1]), framebuffer(tex[2])};
-        RotationRenderer renderer;
+        TestRenderer renderer;
         CHECK(renderer.initialize());
         GLuint vao = 0;
         glGenVertexArrays(1, &vao);
@@ -238,40 +315,8 @@ namespace {
 }  // namespace
 
 int main() {
-    EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-    EGLint major = 0, minor = 0;
-    if (display == EGL_NO_DISPLAY || !eglInitialize(display, &major, &minor)) {
-        std::fprintf(stderr, "Cannot initialize offscreen EGL (try EGL_PLATFORM=surfaceless)\n");
-        return 1;
-    }
-    CHECK(eglBindAPI(EGL_OPENGL_ES_API));
-    const std::array<EGLint, 13> attrs{EGL_SURFACE_TYPE,
-        EGL_PBUFFER_BIT,
-        EGL_RENDERABLE_TYPE,
-        EGL_OPENGL_ES3_BIT,
-        EGL_RED_SIZE,
-        8,
-        EGL_GREEN_SIZE,
-        8,
-        EGL_BLUE_SIZE,
-        8,
-        EGL_ALPHA_SIZE,
-        8,
-        EGL_NONE};
-    EGLConfig config{};
-    EGLint count = 0;
-    if (!eglChooseConfig(display, attrs.data(), &config, 1, &count) || count != 1) return 1;
-    const std::array<EGLint, 5> surfaceAttrs{EGL_WIDTH, WIDTH, EGL_HEIGHT, HEIGHT, EGL_NONE};
-    const std::array<EGLint, 3> contextAttrs{EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
-    EGLSurface surface = eglCreatePbufferSurface(display, config, surfaceAttrs.data());
-    EGLContext context = eglCreateContext(display, config, EGL_NO_CONTEXT, contextAttrs.data());
-    if (surface == EGL_NO_SURFACE || context == EGL_NO_CONTEXT ||
-        !eglMakeCurrent(display, surface, surface, context))
-        return 1;
+    gl_harness::CContext context{WIDTH, HEIGHT};
+    if (!context.valid()) return 1;
     run();
-    eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-    eglDestroyContext(display, context);
-    eglDestroySurface(display, surface);
-    eglTerminate(display);
     return g_failures == 0 ? 0 : 1;
 }

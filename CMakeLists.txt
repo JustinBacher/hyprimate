@@ -192,12 +192,9 @@ if(BUILD_TESTING)
     target_include_directories(rotation-geometry-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME rotation-geometry-tests COMMAND rotation-geometry-tests)
 
-    add_executable(rotation-renderer-tests
-        src/workspace/rotation/tests/RotationRendererTests.cpp
-        src/workspace/rotation/RotationRenderer.cpp)
-    target_compile_definitions(rotation-renderer-tests PRIVATE HYPRIMATE_ROTATION_STANDALONE)
+    add_executable(rotation-renderer-tests src/workspace/rotation/tests/RotationRendererTests.cpp)
     target_include_directories(rotation-renderer-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
-    target_link_libraries(rotation-renderer-tests PRIVATE hyprimate-core PkgConfig::HYPRLAND PkgConfig::TEST_EGL)
+    target_link_libraries(rotation-renderer-tests PRIVATE hyprimate-core PkgConfig::TEST_EGL)
     add_test(NAME rotation-renderer-tests COMMAND rotation-renderer-tests)
     set_tests_properties(rotation-renderer-tests PROPERTIES ENVIRONMENT "EGL_PLATFORM=surfaceless")
 

@@ -38,7 +38,8 @@ while (($#)); do
 done
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-plugin=$root/build/hyprimate.so
+# HYPRIMATE_PLUGIN selects another build of the plugin (e.g. an isolated build directory).
+plugin=${HYPRIMATE_PLUGIN:-$root/build/hyprimate.so}
 config=$root/tests/nested/hyprland.lua
 
 for tool in Hyprland hyprctl jq loginctl; do
