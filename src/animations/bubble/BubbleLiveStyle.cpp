@@ -25,6 +25,7 @@
 #include "animations/shared/Core.hpp"
 #include "animations/shared/SheetRenderer.hpp"
 #include "config_generated.hpp"
+#include "workspace/WorkspaceCaptureScope.hpp"
 
 namespace {
     hyprimate::BubbleShape bubble_shape(hyprimate::config::Shape shape) {
@@ -66,8 +67,9 @@ void SBubbleLiveStyle::screen_before_window(CPluginRuntime &runtime, Resources &
     // Capture lower windows before this window's transformed draw.
     if (bubble && transformer->active() &&
         (bubble->bubble.opening() || bubble->bubble.stirred())) {
-        if (!bubble->wallpaper) {
-            bubble->wallpaper = makeShared<SBubbleWallpaper>();
+        auto &wallpaper = WorkspaceCaptureScope::wallpaper(ctx, bubble->wallpaper);
+        if (!wallpaper) {
+            wallpaper = makeShared<SBubbleWallpaper>();
         }
         const auto PRESENTATION = window->presentation().renderPresentation();
         const auto LOGICAL = window->getFullWindowBoundingBox().translate(
@@ -75,7 +77,7 @@ void SBubbleLiveStyle::screen_before_window(CPluginRuntime &runtime, Resources &
         const auto SOURCE = LOGICAL.copy().scale(monitor->m_scale);
         const auto BOUNDS =
             transformer->transformedExtents(LOGICAL).expand(8.0).scale(monitor->m_scale);
-        queue_bubble_wallpaper(ctx, bubble->wallpaper, SOURCE, true, BOUNDS);
+        queue_bubble_wallpaper(ctx, wallpaper, SOURCE, true, BOUNDS);
     }
     resources.vestige.queue_under(ctx, monitor, window, resources.renderer);
 }
@@ -110,10 +112,10 @@ Render::SWindowTransformBuffer render_live(SBubbleStyle &state,
         .y = geometry.source.h / geometry.scale,
     };
     const auto FRAME = state.bubble.frame(SIZE);
-    const auto LAYER = resources.renderer->render(ctx,
+    const auto LAYER = WorkspaceCaptureScope::renderer(ctx, resources.renderer)->render(ctx,
         SBubbleDraw{
             .window = input.framebuffer->getTexture(),
-            .wallpaper = state.wallpaper,
+            .wallpaper = WorkspaceCaptureScope::wallpaper(ctx, state.wallpaper),
             .frame = FRAME,
             .canvas = geometry.canvas.size(),
             .source = geometry.source,
@@ -125,7 +127,8 @@ Render::SWindowTransformBuffer render_live(SBubbleStyle &state,
     if (!LAYER) {
         return {.framebuffer = input.framebuffer, .box = input.box, .success = false};
     }
-    if (!ctx.readOnlyEffects() && !ctx.m_renderingCapture && !ctx.m_renderingSnapshot) {
+    if (!WorkspaceCaptureScope::forContext(ctx) && !ctx.readOnlyEffects() &&
+        !ctx.m_renderingCapture && !ctx.m_renderingSnapshot) {
         const auto MONITOR = context.monitor.lock();
         const auto CENTRE = context.currentBox.middle();
         deposit_bubble_impacts(state, resources.vestige, FRAME, MONITOR, CENTRE);

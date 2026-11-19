@@ -40,6 +40,8 @@
 #include "animations/shared/Core.hpp"
 #include "animations/shared/EdgeTransition.hpp"
 #include "config_generated.hpp"
+#include "workspace/WorkspaceAnimation.hpp"
+#include "workspace/WorkspaceCaptureScope.hpp"
 
 namespace {
 
@@ -57,9 +59,33 @@ namespace {
     }
 
 
+    CHyprColor color_from_argb(std::uint32_t argb) {
+        const auto CHANNEL = [argb](unsigned int shift) {
+            return static_cast<float>((argb >> shift) & 0xFFU) / 255.F;
+        };
+        return {CHANNEL(16), CHANNEL(8), CHANNEL(0), CHANNEL(24)};
+    }
+
+    hyprimate::workspace::GapFill workspace_gap(const hyprimate::config::SConfig &config) {
+        using Style = hyprimate::workspace::GapFillStyle;
+        hyprimate::workspace::GapFill gap;
+        switch (config.workspace.rotation.gapFillStyle) {
+            case hyprimate::config::GapFillStyle::Morph: gap.style = Style::Morph; break;
+            case hyprimate::config::GapFillStyle::Background: gap.style = Style::Background; break;
+            case hyprimate::config::GapFillStyle::Wallpaper: gap.style = Style::Wallpaper; break;
+            case hyprimate::config::GapFillStyle::Still: gap.style = Style::Still; break;
+        }
+        const auto color = color_from_argb(config.workspace.rotation.gapFillColor);
+        gap.color = {static_cast<float>(color.r * color.a), static_cast<float>(color.g * color.a),
+            static_cast<float>(color.b * color.a), static_cast<float>(color.a)};
+        gap.blur = static_cast<float>(config.workspace.rotation.gapFillBlur);
+        return gap;
+    }
+
 }  // namespace
 
-// NOLINTNEXTLINE(readability-function-cognitive-complexity): Listener setup keeps callback lifetime and registration order together.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): Listener setup keeps callback lifetime
+// and registration order together.
 CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     std::random_device entropy;
     m_next_seed = (std::uint64_t{entropy()} << 32U) | entropy();
@@ -84,6 +110,15 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     if (!m_close->install(close_error)) {
         notify("[hyprimate] close transitions unavailable: " + close_error);
     }
+    m_workspace = std::make_unique<CWorkspaceAnimation>(m_handle);
+    std::string workspace_error;
+    if (!m_workspace->install(workspace_error)) {
+        notify("[hyprimate] workspace transitions unavailable: " + workspace_error);
+    }
+    m_workspace->configure(m_config.workspace.enabled,
+        m_config.workspace.style == hyprimate::config::WorkspaceStyle::Rotation ? "rotation" : "",
+        m_config.workspace.rotation.duration, workspace_gap(m_config),
+        m_config.workspace.rotation.curve);
 
     // Listeners are registered last so a failed constructor never leaves callbacks pointing at a
     // half-built runtime.
@@ -130,6 +165,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     // A solitary client can bypass composited screen content before render.pre.
     m_listen_render_pre_checks =
         Event::bus()->m_events.render.preChecks.listen([this](const PHLMONITOR &monitor) {
+            m_workspace->on_render_pre_checks(monitor);
             if (!monitor || !screen_needs_frame(monitor) || monitor->m_solitaryClient.expired()) {
                 return;
             }
@@ -139,10 +175,15 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
             }
             monitor->m_solitaryClient.reset();
         });
-    m_listen_monitor_layout =
-        Event::bus()->m_events.monitor.layoutChanged.listen([this] { clear_screen_content(); });
-    m_listen_monitor_removed = Event::bus()->m_events.monitor.preRemoved.listen(
-        [this](const PHLMONITOR &) { clear_screen_content(); });
+    m_listen_monitor_layout = Event::bus()->m_events.monitor.layoutChanged.listen([this] {
+        m_workspace->clear();
+        clear_screen_content();
+    });
+    m_listen_monitor_removed =
+        Event::bus()->m_events.monitor.preRemoved.listen([this](const PHLMONITOR &monitor) {
+            m_workspace->remove_monitor(monitor);
+            clear_screen_content();
+        });
 
     // Everything advances once per rendered frame of its monitor, after native animations have
     // ticked and before the frame collects damage. Animation ticks are not used: a self-requested
@@ -211,6 +252,7 @@ CPluginRuntime::~CPluginRuntime() {
     m_listen_reload.reset();
     m_listen_monitor_layout.reset();
     m_listen_monitor_removed.reset();
+    m_workspace->shutdown();
     clear_screen_content();
     m_close->shutdown();
     detach_all();
@@ -342,6 +384,11 @@ void CPluginRuntime::notify(const std::string &text) const {
 
 void CPluginRuntime::on_reload() {
     m_config = hyprimate::config::readConfig(m_values);
+    m_workspace->configure(m_config.workspace.enabled,
+        m_config.workspace.style == hyprimate::config::WorkspaceStyle::Rotation ? "rotation" : "",
+        m_config.workspace.rotation.duration, workspace_gap(m_config),
+        m_config.workspace.rotation.curve);
+    m_workspace->clear();
     prepare_styles(false);
     m_style_resources.for_each([&](auto live, auto &resources) {
         if constexpr (decltype(live)::HAS_SCREEN_CONTENT) {
@@ -464,6 +511,11 @@ void CPluginRuntime::on_render_pre(const PHLMONITOR &monitor) {
             }
         }
     }
+    m_workspace->configure(m_config.workspace.enabled,
+        m_config.workspace.style == hyprimate::config::WorkspaceStyle::Rotation ? "rotation" : "",
+        m_config.workspace.rotation.duration, workspace_gap(m_config),
+        m_config.workspace.rotation.curve);
+    m_workspace->on_render_pre(monitor);
 }
 
 void CPluginRuntime::update_window(

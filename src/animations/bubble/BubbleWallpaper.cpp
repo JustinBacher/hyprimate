@@ -16,6 +16,7 @@
 
 #include "BubbleWallpaper.hpp"
 #include "gl/RawGlBracket.hpp"
+#include "workspace/WorkspaceCaptureScope.hpp"
 
 namespace {
     class CBubbleWallpaperPass final : public IPassElement {
@@ -37,7 +38,8 @@ namespace {
         }
 
         std::vector<UP<IPassElement>> draw(Render::CRenderContext &ctx) override {
-            if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL || ctx.readOnlyEffects() ||
+            if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL ||
+                (ctx.readOnlyEffects() && !WorkspaceCaptureScope::forContext(ctx)) ||
                 ctx.m_renderingCapture || ctx.m_renderingSnapshot ||
                 g_pHyprRenderer->type() != Render::IHyprRenderer::RT_GL) {
                 return {};
@@ -103,7 +105,20 @@ namespace {
                 .viewport_width = static_cast<GLsizei>(SOURCE->m_size.x),
                 .viewport_height = static_cast<GLsizei>(SOURCE->m_size.y),
                 .framebuffer = SOURCE_ID}};
-            const auto DESTINATION = g_pHyprRenderer->getWorkBuffer(ctx, EXTENT);
+            SP<Render::IFramebuffer> destination;
+            if (WorkspaceCaptureScope::forContext(ctx)) {
+                destination = g_pHyprRenderer->createFB("hyprimate workspace bubble underlay");
+                if (destination && !destination->alloc(static_cast<int>(EXTENT.x),
+                                       static_cast<int>(EXTENT.y), SOURCE->m_drmFormat)) {
+                    destination.reset();
+                }
+                if (destination) {
+                    destination->setImageDescription(SOURCE->imageDescription());
+                }
+            } else {
+                destination = g_pHyprRenderer->getWorkBuffer(ctx, EXTENT);
+            }
+            const auto DESTINATION = destination;
             if (!DESTINATION || !DESTINATION->getTexture() ||
                 DESTINATION->getTexture()->m_texID == SOURCE->getTexture()->m_texID) {
                 return {};
@@ -163,8 +178,11 @@ void queue_bubble_wallpaper(Render::CRenderContext &ctx,
     const CBox &source,
     bool live,
     const CBox &bounds) {
-    if (!wallpaper || !g_pHyprRenderer || ctx.readOnlyEffects() || ctx.m_renderingCapture ||
-        ctx.m_renderingSnapshot || ctx.m_mode != Render::RENDER_MODE_NORMAL) {
+    const bool WORKSPACE_CAPTURE =
+        WorkspaceCaptureScope::forContext(ctx) || WorkspaceCaptureScope::isDestinationLive(ctx);
+    if (!wallpaper || !g_pHyprRenderer || (ctx.readOnlyEffects() && !WORKSPACE_CAPTURE) ||
+        ctx.m_renderingCapture || ctx.m_renderingSnapshot ||
+        (ctx.m_mode != Render::RENDER_MODE_NORMAL && !WORKSPACE_CAPTURE)) {
         return;
     }
     // A completed opening snapshot keeps queued set; a live request replaces it. A live pass

@@ -11,6 +11,19 @@ _Avoid_: phase (reserved for the paper crumple's internal progress).
 **Style**: the one material a user picks for all window animation: liquid, paper, cloth, swarm, or bubble. Movement, open, and close all follow it; each can still be switched off on its own. Paper has no movement animation, so its windows move undeformed.
 _Avoid_: mode, material (as separate per-direction choices).
 
+**Workspace transition**: a monitor-scoped animation between complete Hyprland workspace
+compositions. It includes wallpaper, layers, windows and their effects, and is independent of every
+window's open, close and movement animation.
+
+**Workspace style**: the spatial effect selected for workspace transitions. It has its own enabled
+state, style selection and options; it does not change the window **Style**. The first workspace
+style is rotation.
+
+**Rotation** (workspace): adjacent workspace compositions carried by one invisible cylindrical
+surface, with content compressed toward its circular horizons and curvature introduced and removed
+smoothly around the normal desktop presentation. Reversals preserve the surface's motion; requests
+for another workspace coalesce into the next turn rather than flattening the current view.
+
 **Sheet**: the window drawn as a lit, folding surface in 3D. Paper and cloth are the sheet styles; liquid is not.
 
 **Pop-out**: a liquid open; the window emerges from a screen edge.

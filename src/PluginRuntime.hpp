@@ -16,6 +16,7 @@
 #include "AnimationTransformer.hpp"
 #include "WindowTracker.hpp"
 #include "config_generated.hpp"
+#include "workspace/WorkspaceAnimation.hpp"
 
 // Owns every compositor-facing lifetime for the plugin: config values, event
 // listeners, per-window tracking, and the transformers it attaches. Constructed
@@ -114,6 +115,7 @@ class CPluginRuntime {
     bool m_inert = false;
     std::vector<PHLMONITORREF> m_screen_inhibited;
     std::unique_ptr<CAnimationCloseRenderer> m_close;
+    std::unique_ptr<CWorkspaceAnimation> m_workspace;
     mutable std::vector<hyprimate::Box>
         m_neighbours;  // tiled neighbours for the contact rule; rebuilt per edge choice
     // Next per-window movement seed; random per load (set in the constructor), so loads do not

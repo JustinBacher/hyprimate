@@ -2,7 +2,7 @@
 
 #include "../../CloseStyleAdapter.hpp"
 #include "BubbleRenderer.hpp"
-
+#include "workspace/WorkspaceCaptureScope.hpp"
 namespace close_style {
     inline bool close_enabled([[maybe_unused]] const SBubbleCloseData &data,
         [[maybe_unused]] const SBubbleResources &resources) {
@@ -100,7 +100,7 @@ namespace close_style {
             return;
         }
         CBubblePassElement::SData data;
-        data.renderer = resources.renderer;
+        data.renderer = WorkspaceCaptureScope::renderer(ctx, resources.renderer);
         data.draw = SBubbleDraw{
             .window = tex,
             .wallpaper = style.wallpaper,
@@ -111,7 +111,8 @@ namespace close_style {
             .texture_size = {.x = record.snapshot_size.x, .y = record.snapshot_size.y},
             .output_origin = {.x = record.extents_device.x, .y = record.extents_device.y},
         };
-        if (!ctx.readOnlyEffects() && !ctx.m_renderingCapture && !ctx.m_renderingSnapshot) {
+        if (!WorkspaceCaptureScope::forContext(ctx) && !ctx.readOnlyEffects() &&
+            !ctx.m_renderingCapture && !ctx.m_renderingSnapshot) {
             const auto SOURCE =
                 project(record.source_device, record.render_box, record.snapshot_size)
                     .scale(1.0 / record.scale);

@@ -42,6 +42,7 @@
 #include "animations/shared/SheetRenderer.hpp"
 #include "animations/swarm/SwarmRenderer.hpp"
 #include "config_generated.hpp"
+#include "workspace/WorkspaceCaptureScope.hpp"
 
 namespace {
 
@@ -604,7 +605,11 @@ bool CAnimationCloseRenderer::render_batch(Render::CRenderContext &ctx,
     // Mirrors IHyprRenderer::renderFadeouts (MONITOR mode). m_batch keeps the capacity reserved at
     // install and is never grown here: a larger batch returns false so the caller delegates it to
     // the native renderer.
-    auto &batch = m_batch;
+    std::vector<SBatchItem> capture_batch;
+    if (WorkspaceCaptureScope::forContext(ctx)) {
+        capture_batch.reserve(BATCH_CAPACITY);
+    }
+    auto &batch = WorkspaceCaptureScope::forContext(ctx) ? capture_batch : m_batch;
     batch.clear();
 
     // Native pass: live fadeouts in the native selection. An owned close whose native fadeout has

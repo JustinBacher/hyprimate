@@ -29,6 +29,7 @@
 #include "animations/shared/SheetRenderer.hpp"
 #include "animations/swarm/Swarm.hpp"
 #include "animations/swarm/SwarmConfig.hpp"
+#include "workspace/WorkspaceCaptureScope.hpp"
 #include "animations/swarm/SwarmLiveState.hpp"
 #include "animations/swarm/SwarmRenderer.hpp"
 #include "config_generated.hpp"
@@ -132,16 +133,17 @@ void SSwarmLiveStyle::screen_after_windows(CPluginRuntime &runtime, Resources &r
             SOURCE.y + (BOUNDS.y * SCALE),
             BOUNDS.w * SCALE,
             BOUNDS.h * SCALE};
+        auto &meshes = WorkspaceCaptureScope::swarmMeshes(ctx, state->meshes);
         fill_swarm_meshes(state->swarm, *sheet, SOURCE, OUTPUT,
             {.x = SOURCE.x + state->snapshot_offset.x, .y = SOURCE.y + state->snapshot_offset.y},
-            {.x = TEXTURE->m_size.x, .y = TEXTURE->m_size.y}, state->meshes);
+            {.x = TEXTURE->m_size.x, .y = TEXTURE->m_size.y}, meshes);
         CSwarmClosePassElement::SData data;
         data.tex = TEXTURE;
         data.atlas = ATLAS;
         data.sprites = sprites;
         data.layer_size = swarm_layer_size(SOURCE);
         data.box = OUTPUT;
-        data.meshes = &state->meshes;
+        data.meshes = &meshes;
         data.scale = SCALE;
         data.damage = CRegion{OUTPUT};
         Render::IHyprRenderer::addPassElement(
@@ -181,7 +183,8 @@ Render::SWindowTransformBuffer render_live(SSwarmStyle &state,
     if ((sheet == nullptr) || !ATLAS) {
         return {.framebuffer = input.framebuffer, .box = input.box, .success = false};
     }
-    if (state.capture_workspace_frame) {
+    const bool SOURCE_CAPTURE = WorkspaceCaptureScope::forContext(ctx) != nullptr;
+    if (state.capture_workspace_frame && !SOURCE_CAPTURE) {
         state.workspace_snapshot = input.framebuffer;
         state.snapshot_offset = {
             .x = input.box.x - geometry.source.x,
@@ -190,18 +193,20 @@ Render::SWindowTransformBuffer render_live(SSwarmStyle &state,
         state.capture_workspace_frame = false;
     }
 
+    decltype(state.meshes) capture_meshes;
+    auto &meshes = SOURCE_CAPTURE ? capture_meshes : state.meshes;
     fill_swarm_meshes(state.swarm,
         *sheet,
         geometry.source,
         geometry.output,
         {.x = input.box.x, .y = input.box.y},
         geometry.texture_size,
-        state.meshes);
+        meshes);
     const auto LAYER = render_swarm_layer(ctx,
         input.framebuffer->getTexture(),
         ATLAS,
         swarm_layer_size(geometry.source),
-        state.meshes,
+        meshes,
         sprites->surface());
     if (!LAYER) {
         return {.framebuffer = input.framebuffer, .box = input.box, .success = false};
@@ -220,13 +225,13 @@ Render::SWindowTransformBuffer render_live(SSwarmStyle &state,
     render_data.fbSize = geometry.canvas.size();
     g_pHyprRenderer->setProjectionType(ctx, Render::RPT_EXPORT);
     g_pHyprRenderer->draw(ctx, CClearPassElement::SClearData{CHyprColor(0, 0, 0, 0)});
-    if (!state.meshes.pieces.empty()) {
+    if (!meshes.pieces.empty()) {
         Render::GL::CHyprOpenGLImpl::STextureRenderData texture_data{};
         texture_data.damage = &render_data.damage;
         texture_data.allowCustomUV = true;
         texture_data.allowDim = false;  // the layer is already dimmed
         Render::GL::g_pHyprOpenGL->renderTextureMesh(
-            ctx, LAYER->getTexture(), geometry.local_output, state.meshes.pieces, texture_data);
+            ctx, LAYER->getTexture(), geometry.local_output, meshes.pieces, texture_data);
     }
     return {.framebuffer = OUT, .box = geometry.canvas};
 }

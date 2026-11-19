@@ -24,6 +24,7 @@
 #include "bubble_shaders_generated.hpp"
 #include "gl/RawGlBracket.hpp"
 #include "animations/shared/SheetRenderer.hpp"
+#include "workspace/WorkspaceCaptureScope.hpp"
 
 namespace {
     // Runs work with the compositor's EGL context current, then restores whatever was current
@@ -94,7 +95,8 @@ void CBubbleRenderer::warm_up() {
     });
 }
 
-// NOLINTNEXTLINE(readability-function-cognitive-complexity): GL capture, drawing and restoration must retain their order.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): GL capture, drawing and restoration
+// must retain their order.
 SP<Render::IFramebuffer> CBubbleRenderer::render(
     Render::CRenderContext &ctx, const SBubbleDraw &draw) {
     if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL ||
@@ -106,11 +108,12 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
             !(draw.source.h > 0) || !(draw.frame.size.x > 0) || !(draw.frame.size.y > 0))) {
         return nullptr;
     }
-    const auto WALLPAPER = draw.wallpaper && draw.wallpaper->framebuffer &&
-                                   !ctx.readOnlyEffects() && !ctx.m_renderingCapture &&
-                                   !ctx.m_renderingSnapshot
-                               ? draw.wallpaper->framebuffer->getTexture()
-                               : SP<Render::ITexture>{};
+    const auto WALLPAPER =
+        draw.wallpaper && draw.wallpaper->framebuffer && !ctx.m_renderingCapture &&
+                !ctx.m_renderingSnapshot &&
+                (!ctx.readOnlyEffects() || WorkspaceCaptureScope::forContext(ctx))
+            ? draw.wallpaper->framebuffer->getTexture()
+            : SP<Render::ITexture>{};
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     const auto STATE = ctx.saveDrawState();
     const auto LAYER = g_pHyprRenderer->getWorkBuffer(ctx, draw.canvas);
@@ -169,7 +172,8 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
             const auto SHELL_COUNT = hyprimate::bubble_particles(
                 draw.frame.shell, std::span{m_particles}.first(hyprimate::K_BUBBLE_MAX_PARTICLES));
             const auto WINDOW_COUNT = hyprimate::bubble_particles(draw.frame.window,
-                // NOLINTNEXTLINE(readability-suspicious-call-argument): Shell count is the offset; the particle limit is the count.
+                // NOLINTNEXTLINE(readability-suspicious-call-argument): Shell count is the offset;
+                // the particle limit is the count.
                 std::span{m_particles}.subspan(SHELL_COUNT, hyprimate::K_BUBBLE_MAX_PARTICLES));
             m_material.draw_particles(std::span{m_particles}.first(SHELL_COUNT + WINDOW_COUNT),
                 draw.frame.size,

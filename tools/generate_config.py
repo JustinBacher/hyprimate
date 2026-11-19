@@ -70,7 +70,7 @@ def validate(settings):
         if 'inherit' in item:
             parts = path.split('.')
             if (not isinstance(item['inherit'], bool) or len(parts) != 5
-                    or parts[1] not in ('open', 'close', 'movement') or parts[2] != 'options'):
+                    or parts[0] != 'window' or parts[1] not in ('open', 'close', 'movement') or parts[2] != 'options'):
                 raise ValueError(f'{path}: inherit must be boolean on an animation style option')
         if path in paths:
             raise ValueError(f'duplicate setting path {path!r}')
@@ -128,7 +128,7 @@ def expanded_settings(settings):
     generated_globals = []
     for item in settings:
         parts = item['path'].split('.')
-        if (len(parts) != 5 or parts[1] not in ('open', 'close', 'movement')
+        if (len(parts) != 5 or parts[0] != 'window' or parts[1] not in ('open', 'close', 'movement')
                 or parts[2] != 'options' or not item.get('inherit', True)):
             continue
         path = '.'.join(('window', 'options', *parts[3:]))
@@ -155,7 +155,7 @@ def expanded_settings(settings):
     result = []
     for item in settings:
         parts = item['path'].split('.')
-        if (len(parts) == 5 and parts[1] in ('open', 'close', 'movement')
+        if (len(parts) == 5 and parts[0] == 'window' and parts[1] in ('open', 'close', 'movement')
                 and parts[2] == 'options' and item.get('inherit', True)):
             item = dict(item, optional=True, inherited=True)
         result.append(item)
@@ -198,10 +198,11 @@ def lua_config(settings):
 
 
 def config_segments(item):
-    """SConfig field path. Window-wide switches stay at the top; every Style's options are grouped
-    under that Style as open, close, movement and shared (window.options.<style>), so a Style can be
-    handed only its own settings."""
-    parts = [part for part in item['path'].split('.')[1:] if part != 'options']
+    """Group window options by Style, and retain other root names."""
+    parts = item['path'].split('.')
+    if parts[0] != 'window':
+        return [part for part in parts if part != 'options']
+    parts = [part for part in parts[1:] if part != 'options']
     if len(parts) == 3 and parts[0] in DIRECTIONS:
         return [parts[1], parts[0], parts[2]]
     if len(parts) == 2 and parts[0] not in DIRECTIONS:
@@ -210,7 +211,8 @@ def config_segments(item):
 
 
 def enum_name(item):
-    return pascal(item['path'].split('.')[-1])
+    parts = item['path'].split('.')
+    return 'WorkspaceStyle' if parts == ['workspace', 'style'] else pascal(parts[-1])
 
 
 def _parse_name(item):

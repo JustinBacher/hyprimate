@@ -75,9 +75,61 @@ class ConfigGeneratorTests(unittest.TestCase):
         path.write_text(json.dumps(items, indent=2))
         return path
 
-    def test_every_path_is_under_window_root(self):
-        for item in SCHEMA:
-            self.assertEqual(item['path'].split('.')[0], 'window', item['path'])
+    def test_supported_roots_and_workspace_shape(self):
+        paths = {item['path'] for item in SCHEMA}
+        self.assertEqual({path.split('.')[0] for path in paths}, {'window', 'workspace'})
+        self.assertEqual({path for path in paths if path.startswith('workspace.')},
+                         {'workspace.enabled', 'workspace.style', 'workspace.options.rotation.duration',
+                          'workspace.options.rotation.curve',
+                          'workspace.options.rotation.gap_fill_style', 'workspace.options.rotation.gap_fill_color',
+                          'workspace.options.rotation.gap_fill_blur'})
+        items = {item['path']: item for item in SCHEMA}
+        self.assertIs(items['workspace.enabled']['default'], False)
+        self.assertEqual(items['workspace.style']['choices'], ['rotation'])
+        self.assertEqual(items['workspace.style']['default'], 'rotation')
+        duration = items['workspace.options.rotation.duration']
+        self.assertEqual((duration['default'], duration['min'], duration['max']), (0.6, 0.1, 3))
+        curve = items['workspace.options.rotation.curve']
+        self.assertEqual(curve['default'], 'default')
+        self.assertNotIn('choices', curve)
+        gap_style = items['workspace.options.rotation.gap_fill_style']
+        self.assertEqual(gap_style['choices'], ['morph', 'background', 'wallpaper', 'still'])
+        self.assertEqual(gap_style['default'], 'still')
+        self.assertEqual(items['workspace.options.rotation.gap_fill_color']['default'], '0xff000000')
+        gap_blur = items['workspace.options.rotation.gap_fill_blur']
+        self.assertEqual((gap_blur['default'], gap_blur['min'], gap_blur['max']), (0, 0, 64))
+        self.assertFalse(any(item.get('optional') or item.get('inherited')
+                             for path, item in items.items() if path.startswith('workspace.')))
+
+    def test_workspace_and_window_styles_have_independent_enums_and_validators(self):
+        header = GEN.config_header(SCHEMA)
+        self.assertIn('enum class Style : std::uint8_t { Liquid, Paper, Cloth, Swarm, Bubble, Smoke };', header)
+        self.assertIn('enum class WorkspaceStyle : std::uint8_t { Rotation };', header)
+        self.assertIn('WorkspaceStyle style{};', header)
+        self.assertIn('Style style{};', header)
+        for path, accepted, rejected in [('workspace.style', ['rotation'], ['liquid', 'paper', 'cloth', 'swarm', 'bubble', 'smoke']),
+                                         ('window.style', ['liquid', 'paper', 'cloth', 'swarm', 'bubble', 'smoke'], ['rotation']),
+                                         ('workspace.options.rotation.gap_fill_style',
+                                          ['morph', 'background', 'wallpaper', 'still'], ['rotation', 'invalid'])]:
+            item = next(item for item in SCHEMA if item['path'] == path)
+            self.assertEqual(item['choices'], accepted)
+            registration = header.split(f'values.{item["member"]} = makeShared', 1)[1].split('},});', 1)[0]
+            for choice in accepted:
+                self.assertIn(f'value == "{choice}"', registration)
+            for choice in rejected:
+                self.assertNotIn(f'value == "{choice}"', registration)
+        self.assertIn('config.workspace.rotation.duration = detail::clamp_float(values.m_workspaceRotationDuration->value(), 0.1F, 3.0F);', header)
+
+    def test_inheritance_expansion_is_limited_to_window(self):
+        items = json.loads(SCHEMA_PATH.read_text())
+        extra = {'path': 'workspace.open.options.rotation.duration', 'member': 'm_workspaceOpenRotationDuration',
+                 'type': 'float', 'default': 0.6, 'min': 0.1, 'max': 3, 'description': 'Example.'}
+        expanded = GEN.expanded_settings(items + [extra])
+        actual = next(item for item in expanded if item['path'] == extra['path'])
+        self.assertEqual(actual, extra)
+        self.assertNotIn('window.options.rotation.duration', {item['path'] for item in expanded})
+        with self.assertRaisesRegex(ValueError, 'inherit must be boolean'):
+            GEN.validate([dict(extra, inherit=True)])
 
     def test_close_options_are_side_and_splash(self):
         paths = {item['path'] for item in SCHEMA}
