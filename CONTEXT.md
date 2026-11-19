@@ -13,16 +13,17 @@ _Avoid_: mode, material (as separate per-direction choices).
 
 **Workspace transition**: a monitor-scoped animation between complete Hyprland workspace
 compositions. It includes wallpaper, layers, windows and their effects, and is independent of every
-window's open, close and movement animation.
+window's open, close and movement animation. Reversals preserve the transition's motion; requests
+for another workspace coalesce into the next turn rather than cutting the current one short.
 
 **Workspace style**: the spatial effect selected for workspace transitions. It has its own enabled
-state, style selection and options; it does not change the window **Style**. The first workspace
-style is rotation.
+state, style selection and options; it does not change the window **Style**. Rotation is the first;
+more are planned.
 
-**Rotation** (workspace): adjacent workspace compositions carried by one invisible cylindrical
-surface, with content compressed toward its circular horizons and curvature introduced and removed
-smoothly around the normal desktop presentation. Reversals preserve the surface's motion; requests
-for another workspace coalesce into the next turn rather than flattening the current view.
+**Rotation** (workspace): adjacent workspace compositions turned rigidly, at unchanged scale, about
+one pivot below the monitor, like neighbouring spokes of a wheel: the outgoing workspace turns away
+as the incoming one turns in. The wedge between them is the **gap**, filled according to the gap
+fill style.
 
 **Sheet**: the window drawn as a lit, folding surface in 3D. Paper and cloth are the sheet styles; liquid is not.
 
