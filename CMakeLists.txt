@@ -202,6 +202,15 @@ if(BUILD_TESTING)
     target_link_libraries(window-tracker-tests PRIVATE hyprimate-core)
     add_test(NAME window-tracker-tests COMMAND window-tracker-tests)
 
+    add_executable(window-animations-tests tests/WindowAnimationsTests.cpp)
+    add_dependencies(window-animations-tests generate-config)
+    target_include_directories(window-animations-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/tests ${CONFIG_GENERATED_DIR})
+    add_test(NAME window-animations-tests COMMAND window-animations-tests)
+
+    add_library(window-mesh-abi-tests OBJECT tests/WindowMeshAbiTests.cpp)
+    target_include_directories(window-mesh-abi-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(window-mesh-abi-tests PRIVATE PkgConfig::HYPRLAND)
+
     add_executable(slot-pool-tests tests/SlotPoolTests.cpp)
     target_include_directories(slot-pool-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     add_test(NAME slot-pool-tests COMMAND slot-pool-tests)
