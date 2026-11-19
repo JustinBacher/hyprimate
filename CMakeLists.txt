@@ -80,7 +80,6 @@ add_library(hyprimate-core STATIC
     src/animations/shared/EdgeTransition.cpp
     src/animations/shared/SheetFrame.cpp
     src/workspace/WorkspaceTransition.cpp
-    src/workspace/WorkspaceController.cpp
     src/WindowTracker.cpp
 )
 target_include_directories(hyprimate-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -185,10 +184,10 @@ if(BUILD_TESTING)
     target_include_directories(workspace-transition-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME workspace-transition-tests COMMAND workspace-transition-tests)
 
-    add_executable(workspace-controller-tests src/workspace/tests/WorkspaceControllerTests.cpp)
-    target_link_libraries(workspace-controller-tests PRIVATE hyprimate-core)
-    target_include_directories(workspace-controller-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
-    add_test(NAME workspace-controller-tests COMMAND workspace-controller-tests)
+    add_executable(workspace-turn-tests src/workspace/tests/WorkspaceTurnTests.cpp)
+    target_link_libraries(workspace-turn-tests PRIVATE hyprimate-core)
+    target_include_directories(workspace-turn-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    add_test(NAME workspace-turn-tests COMMAND workspace-turn-tests)
 
 
     add_executable(window-tracker-tests tests/WindowTrackerTests.cpp)

@@ -8,11 +8,19 @@
 
 namespace hyprimate::workspace {
 template<class Style>
-concept WorkspaceStyle = requires(typename Style::Resources &resources, const config::SWorkspaceSettings &settings) {
+concept WorkspaceStyle = requires(typename Style::Resources &resources,
+    const config::SWorkspaceSettings &settings, Render::CRenderContext &context,
+    const SP<Render::IFramebuffer> &buffer, double progress, Direction direction, bool matching) {
     typename Style::Resources;
     { Style::kind } -> std::convertible_to<config::WorkspaceStyle>;
     { Style::usesWallpaper } -> std::convertible_to<bool>;
     { Style::prepare(resources, settings) } -> std::same_as<void>;
+    { resources.settings.prepared.duration } -> std::convertible_to<double>;
+    { resources.settings.prepared.curve } -> std::convertible_to<std::string_view>;
+    { resources.renderer.initialize() } -> std::same_as<bool>;
+    { resources.renderer.release() } -> std::same_as<void>;
+    { Style::draw(resources, context, buffer, buffer, buffer, buffer, buffer, progress, direction, matching) }
+        -> std::same_as<bool>;
 };
 
 template<class... Styles> struct UniqueResources : std::true_type {};

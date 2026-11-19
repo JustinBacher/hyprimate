@@ -79,6 +79,28 @@ def runtime_style_violations(source_root):
                 violations.append(f'{source.relative_to(source_root)}:{line_number}: {match.group()}')
     return violations
 
+def workspace_orchestration_style_violations(source_root):
+    workspace = source_root / 'workspace'
+    styles = sorted(path.name for path in workspace.iterdir()
+                    if path.is_dir() and (path / 'Style.cmake').is_file())
+    if not styles:
+        return []
+    names = '|'.join(re.escape(name) for name in styles)
+    # The list is the one composition root where concrete styles must be named.
+    forbidden = re.compile(rf'(?i)(?:workspace/(?:{names})/[\w./]*|\b\w*(?:{names})\w*\b)')
+    violations = []
+    for source in sorted(workspace.iterdir()):
+        if not source.is_file() or source.suffix not in SOURCE_EXTENSIONS or source.name == 'WorkspaceStyleList.hpp':
+            continue
+        for line_number, line in enumerate(source.read_text(encoding='utf-8').splitlines(), 1):
+            # The legacy runtime signature still passes GapFill until its cutover.
+            if source.name == 'WorkspaceAnimation.hpp' and line.strip() == '#include "workspace/rotation/GapFill.hpp"':
+                continue
+            for match in forbidden.finditer(line):
+                violations.append(f'{source.relative_to(source_root)}:{line_number}: {match.group()}')
+    return violations
+
+
 
 
 
@@ -96,6 +118,23 @@ class StyleIndependenceTests(unittest.TestCase):
         violations = (include_violations(source_root, 'workspace') +
                       configuration_violations(source_root, 'workspace'))
         self.assertFalse(violations, '\n' + '\n'.join(violations))
+
+    def test_workspace_orchestration_does_not_name_styles(self):
+        violations = workspace_orchestration_style_violations(ROOT / 'src')
+        self.assertFalse(violations, '\n' + '\n'.join(violations))
+
+    def test_workspace_orchestration_rule_detects_names_and_allows_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source_root = Path(tmp) / 'src'
+            workspace = source_root / 'workspace'
+            (workspace / 'rotation').mkdir(parents=True)
+            (workspace / 'rotation' / 'Style.cmake').touch()
+            (workspace / 'WorkspaceStyleList.hpp').write_text('using Styles = RotationStyle;\n')
+            (workspace / 'WorkspaceTurn.cpp').write_text(
+                '#include "workspace/rotation/RotationStyle.hpp"\n'
+                'auto style = RotationStyle{};\n')
+            violations = workspace_orchestration_style_violations(source_root)
+            self.assertEqual(len(violations), 2, violations)
 
     def test_workspace_independence_rules_detect_violations(self):
         with tempfile.TemporaryDirectory() as tmp:

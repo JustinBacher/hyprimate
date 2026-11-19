@@ -27,6 +27,20 @@ struct RotationStyle {
         SStyleSettingsCache<config::SWorkspaceRotation, Prepared> settings;
         bool ready = false;
     };
+    static bool setLegacyGap(Resources &resources, const GapFill &gap) {
+        const auto &old = resources.settings.prepared.gap;
+        const bool changed = old.style != gap.style || old.color != gap.color || old.blur != gap.blur;
+        resources.settings.prepared.gap = gap;
+        return changed;
+    }
+    static bool draw(Resources &resources, Render::CRenderContext &ctx,
+        const SP<Render::IFramebuffer> &source, const SP<Render::IFramebuffer> &destination,
+        const SP<Render::IFramebuffer> &presentation, const SP<Render::IFramebuffer> &sourceWallpaper,
+        const SP<Render::IFramebuffer> &destinationWallpaper, double progress, Direction direction,
+        bool matchingWallpaper) {
+        return resources.renderer.draw(ctx, source, destination, presentation, sourceWallpaper,
+            destinationWallpaper, progress, direction, resources.settings.prepared.gap, matchingWallpaper);
+    }
     static void prepare(Resources &resources, const config::SWorkspaceSettings &settings) {
         resources.settings.update(settings.rotation, [](const auto &value) {
             Prepared result;
