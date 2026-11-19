@@ -27,6 +27,8 @@ namespace hyprimate {
       public:
         // Meshes with the same params and seed respond identically; give each window its own seed.
         explicit LiquidMesh(LiquidParams params = {}, std::uint64_t seed = 0) noexcept;
+        // Retune the current character without disturbing simulation or random state.
+        void set_params(LiquidParams params) noexcept;
         [[nodiscard]] const LiquidParams &params() const noexcept {
             return m_params;
         }
@@ -51,6 +53,7 @@ namespace hyprimate {
         // Draws a new Liquid character (gains and shape) scaled by params.variation; neutral when
         // variation is 0.
         void roll_character() noexcept;
+        void update_coefficients() noexcept;
         double draw_unit() noexcept;  // uniform in [-1, 1] from m_rng
 
         LiquidParams m_params;
@@ -72,6 +75,7 @@ namespace hyprimate {
         double m_kick_gain = 1;  // stop-kick multiplier
         double m_velocity_seconds = 0;  // window-velocity filter time constant (response latency)
         std::uint64_t m_rng = 0;  // splitmix64 state
+        std::array<double, 9> m_character{};
 
         std::array<Vec2, 81> m_displacements{};
         std::array<Vec2, 81> m_velocities{};

@@ -858,6 +858,41 @@ namespace {
         }
     }
 
+    void test_retuning_preserves_motion_and_random_stream() {
+        LiquidParams params{.viscosity = .4, .elasticity = .5, .momentum = .7, .variation = .8};
+        LiquidMesh control{params, 42};
+        for (int i = 0; i < 8; ++i) {
+            drive_frame(control, Vec2{.x = 900, .y = 150}, 60, WINDOW, STRENGTH);
+        }
+        control.advance(.001, WINDOW);
+        control.record_translation({.x = 4, .y = 1}, WINDOW, STRENGTH);
+        LiquidMesh retuned = control;
+        LiquidMesh changed = control;
+        auto adjusted = params;
+        adjusted.viscosity = .9;
+        adjusted.elasticity = .9;
+        adjusted.variation = .2;
+        const auto BEFORE = control.displacements();
+        retuned.set_params(adjusted);
+        changed.set_params(adjusted);
+        CHECK(max_difference(BEFORE, retuned.displacements()) == 0);
+        retuned.set_params(params);
+        for (int i = 0; i < 12; ++i) {
+            control.advance(1.0 / 120, WINDOW);
+            retuned.advance(1.0 / 120, WINDOW);
+            changed.advance(1.0 / 120, WINDOW);
+            CHECK(max_difference(control.displacements(), retuned.displacements()) < 1e-12);
+        }
+        CHECK(max_difference(control.displacements(), changed.displacements()) > .01);
+        control.reset();
+        retuned.reset();
+        control.record_translation({.x = 30, .y = 0}, WINDOW, STRENGTH);
+        retuned.record_translation({.x = 30, .y = 0}, WINDOW, STRENGTH);
+        control.advance(1.0 / 60, WINDOW);
+        retuned.advance(1.0 / 60, WINDOW);
+        CHECK(max_difference(control.displacements(), retuned.displacements()) < 1e-12);
+    }
+
 }  // namespace
 
 int main() {
@@ -881,6 +916,7 @@ int main() {
     test_variation_seeds_differ();
     test_variation_rerolls_per_motion();
     test_variation_stays_valid_and_settles();
+    test_retuning_preserves_motion_and_random_stream();
 
     if (g_failures == 0) {
         std::printf("liquid-mesh-tests: all checks passed\n");

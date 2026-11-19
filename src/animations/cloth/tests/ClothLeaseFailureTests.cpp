@@ -320,6 +320,22 @@ int main() {
     }
 
     bool passed = true;
+    {
+        ClothFlutter cloth;
+        cloth.begin_movement({}, 123, WINDOW);
+        const bool READY = cloth.wait_for_snapshots(2);
+        Attempt retune_attempt;
+        retune_attempt.fail_at = 1;
+        current_attempt() = &retune_attempt;
+        cloth.set_movement_params(ClothMovementParams{.gravity = 2});
+        cloth.advance(1.0 / 120);
+        current_attempt() = nullptr;
+        if (!READY || !cloth.moving() || retune_attempt.allocations != 0 ||
+            retune_attempt.injected) {
+            (void)std::fprintf(stderr, "movement retune allocated or lost its lease\n");
+            passed = false;
+        }
+    }
     constexpr std::array MODES{Startup::Transition, Startup::Movement};
     for (std::size_t mode_index = 0; mode_index < MODES.size(); ++mode_index) {
         const Startup STARTUP = MODES.at(mode_index);

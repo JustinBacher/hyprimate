@@ -180,6 +180,9 @@ void SLiquidLiveStyle::movement([[maybe_unused]] CPluginRuntime &runtime,
     const CBox CAPTURE = window->getFullWindowBoundingBox();
     const auto &current = decision.current_box;
     auto &state = std::get<SLiquidStyle>(transformer.m_style);
+    if (state.mesh.params() != resources.prepared.movement) {
+        state.mesh.set_params(resources.prepared.movement);
+    }
     if (moving) {
         state.mesh.record_translation(
             {.x = current.x - decision.previous_box.x, .y = current.y - decision.previous_box.y},
@@ -208,6 +211,9 @@ void SLiquidLiveStyle::step([[maybe_unused]] CPluginRuntime &runtime,
     bool enabled,
     Resources &resources) {
     auto &state = std::get<SLiquidStyle>(transformer.m_style);
+    if (state.mesh.params() != resources.prepared.movement) {
+        state.mesh.set_params(resources.prepared.movement);
+    }
     if (!enabled) {
         state.mesh.reset();
     }
@@ -329,8 +335,9 @@ bool SLiquidLiveStyle::deforming(const SLiquidStyle &state) noexcept {
     return !state.mesh.settled() || state.transition.active();
 }
 
-bool SLiquidLiveStyle::builtFor(const SLiquidStyle &state, const Resources &resources) noexcept {
-    return state.mesh.params() == resources.prepared.movement;
+bool SLiquidLiveStyle::builtFor([[maybe_unused]] const SLiquidStyle &state,
+    [[maybe_unused]] const Resources &resources) noexcept {
+    return true;
 }
 
 bool SLiquidLiveStyle::available([[maybe_unused]] const SLiquidStyle &state) noexcept {

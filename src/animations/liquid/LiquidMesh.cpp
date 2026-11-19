@@ -315,13 +315,24 @@ namespace hyprimate {
     }
 
     void LiquidMesh::roll_character() noexcept {
-        // Nonfinite variation is rejected before integration; draw neutral so the gains stay finite
-        // meanwhile.
+        for (double &value : m_character) {
+            value = draw_unit();
+        }
+        update_coefficients();
+    }
+
+    void LiquidMesh::set_params(LiquidParams params) noexcept {
+        m_params = normalize_params(params);
+        update_coefficients();
+    }
+
+    void LiquidMesh::update_coefficients() noexcept {
+        m_shear_damping =
+            LIQUID_SHEAR_DAMPING_MIN + (LIQUID_SHEAR_DAMPING_RANGE * m_params.viscosity);
         const double AMOUNT = std::isfinite(m_params.variation) ? m_params.variation : 0.0;
-        // Always draw every factor, so the stream position never depends on the variation amount.
         std::array<double, 9> draws{};
-        for (double &value : draws) {
-            value = AMOUNT * draw_unit();
+        for (std::size_t i = 0; i < draws.size(); ++i) {
+            draws.at(i) = AMOUNT * m_character.at(i);
         }
 
         const double OMEGA =

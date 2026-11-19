@@ -178,6 +178,22 @@ namespace hyprimate {
             params.variation = std::clamp(params.variation, 0.0, 1.0);
             return true;
         }
+        bool sanitize(ClothMovementParams &params) noexcept {
+            if (!std::isfinite(params.strength) || !std::isfinite(params.flutter) ||
+                !std::isfinite(params.shading) || !std::isfinite(params.variation) ||
+                !std::isfinite(params.shine) || !std::isfinite(params.springiness) ||
+                !std::isfinite(params.gravity)) {
+                return false;
+            }
+            params.strength = std::clamp(params.strength, 0.0, 1.5);
+            params.flutter = std::clamp(params.flutter, 0.0, 1.0);
+            params.shading = std::clamp(params.shading, 0.0, 1.0);
+            params.variation = std::clamp(params.variation, 0.0, 1.0);
+            params.shine = std::clamp(params.shine, 0.0, 1.0);
+            params.springiness = std::clamp(params.springiness, 0.0, 1.0);
+            params.gravity = std::clamp(params.gravity, 0.0, 3.0);
+            return true;
+        }
     }  // namespace
 
     struct ClothFlutter::Run {
@@ -201,6 +217,7 @@ namespace hyprimate {
         struct Target {
             double time = 0;
             Box box{};
+            ClothMovementParams movement{};
         };
         struct Snapshot {
             double time = 0;
@@ -313,6 +330,7 @@ namespace hyprimate {
     struct ClothFlutter::MovementPlayback {
         Run::Snapshot a{}, b{};
         Box target{}, previous{};
+        ClothMovementParams params{};
         Vec3 rigid_velocity{};
         double time = 0, last_motion = 0;
         bool producer = true, settling = false;
@@ -517,9 +535,8 @@ namespace hyprimate {
             };
 
           public:
-            explicit Pocket(const Run &run)
-                : SPRINGINESS(static_cast<float>(run.movement.springiness)),
-                  pairs(1),
+            explicit Pocket(const Run &run, const JPH::Array<JPH::SoftBodyVertex> *current = nullptr)
+                : pairs(1),
                   broad_phase(1, 1) {
                 using namespace JPH;
                 broad_phase.MapObjectToBroadPhaseLayer(0, BroadPhaseLayer(0));
@@ -543,8 +560,9 @@ namespace hyprimate {
                 auto *neighbour = neighbours.begin();
                 const auto *previous_id = ids.begin();
                 for (int i = 0; i < GRID; ++i) {
-                    const float POS_X =
-                        std::clamp(static_cast<float>(start_point++->x), -LIMIT, LIMIT);
+                    const float POS_X = std::clamp(current ? (*current)[i].mPosition.GetX()
+                                                           : static_cast<float>(start_point[i].x),
+                        -LIMIT, LIMIT);
                     BodyCreationSettings creation(
                         SHAPE, RVec3(POS_X, 0, 0), Quat::sIdentity(), EMotionType::Dynamic, 0);
                     creation.mOverrideMassProperties = EOverrideMassProperties::CalculateInertia;
@@ -558,8 +576,10 @@ namespace hyprimate {
                     if (body_id->IsInvalid()) {
                         return;
                     }
-                    bodies.SetLinearVelocity(
-                        *body_id, JPH::Vec3(static_cast<float>(speed++->x) * SPRINGINESS, 0, 0));
+                    const float VELOCITY = current ? (*current)[i].mVelocity.GetX()
+                                                   : static_cast<float>(
+                                                         speed[i].x * run.movement.springiness);
+                    bodies.SetLinearVelocity(*body_id, JPH::Vec3(VELOCITY, 0, 0));
                     SliderConstraintSettings slider;
                     slider.mPoint1 = slider.mPoint2 = RVec3(POS_X, 0, 0);
                     slider.mLimitsMin = -LIMIT - POS_X;
@@ -615,7 +635,9 @@ namespace hyprimate {
                 JPH::TempAllocator &temp,
                 double rod_velocity,
                 JPH::JobSystem &jobs,
-                double quiet) {
+                double quiet,
+                double springiness) {
+                const float SPRINGINESS = static_cast<float>(springiness);
                 auto &bodies = system.GetBodyInterfaceNoLock();
                 // Reinforce the trailing end by up to 4x; blend through zero speed when stopping or
                 // reversing.
@@ -654,7 +676,6 @@ namespace hyprimate {
           private:
             static constexpr float MASS = 1.0F, SPRING = 48.0F, DAMPING = 4.0F;
             static constexpr float HALF_WIDTH = .002F, LIMIT = .5F - HALF_WIDTH;
-            const float SPRINGINESS;
             JPH::ObjectLayerPairFilterTable pairs;
             JPH::BroadPhaseLayerInterfaceTable broad_phase;
             BroadFilter object_vs_broad_phase;
@@ -818,6 +839,15 @@ namespace hyprimate {
                 }
                 const Run::Target TARGET = run.targets.at(TAIL % Run::INPUT_CAPACITY);
                 run.input_tail.store(TAIL + 1, std::memory_order_release);
+                const ClothMovementParams &movement = TARGET.movement;
+                system.SetGravity(JPH::Vec3(0, static_cast<float>(-GRAVITY * movement.gravity), 0));
+                if (!pocket && movement.springiness > 0) {
+                    pocket.emplace(run, &vertices);
+                    if (!pocket->valid()) {
+                        good = false;
+                        break;
+                    }
+                }
                 while (time + STEP_SECONDS <= TARGET.time + 1e-10 && good && !STOPPED()) {
                     const double NEXT_TIME = time + STEP_SECONDS;
                     const double BLEND = std::clamp(
@@ -835,7 +865,7 @@ namespace hyprimate {
                         .y = -DELTA_Y / STEP_SECONDS / NEXT.h,
                         .z = 0,
                     };
-                    const double GAIN = std::min(run.movement.strength, 1.5);
+                    const double GAIN = std::min(movement.strength, 1.5);
                     run.publish_velocity = {
                         .x = (1 - GAIN) * DELTA_X / STEP_SECONDS / NEXT.w,
                         .y = -(1 - GAIN) * DELTA_Y / STEP_SECONDS / NEXT.h,
@@ -854,7 +884,8 @@ namespace hyprimate {
                     const double ACCELERATION =
                         GAIN * (ROD_VELOCITY - previous_rod_velocity) / STEP_SECONDS;
                     previous_rod_velocity = ROD_VELOCITY;
-                    if (pocket && !pocket->update(ACCELERATION, temp, ROD_VELOCITY, jobs, SETTLE)) {
+                    if (pocket && !pocket->update(
+                            ACCELERATION, temp, ROD_VELOCITY, jobs, SETTLE, movement.springiness)) {
                         good = false;
                         break;
                     }
@@ -904,11 +935,11 @@ namespace hyprimate {
                                     4 + (30 * (1 - DOWN) * (1 - DOWN)) + (120 * SETTLE);
                                 velocity += (DESIRED - position) *
                                             static_cast<float>(SPRING * RESPONSE * STEP_SECONDS);
-                                const double DRIVE = std::min(SPEED, 3.0) * run.movement.strength;
+                                const double DRIVE = std::min(SPEED, 3.0) * movement.strength;
                                 // Alternating pressure excites long folds instead of inflating the
                                 // entire sheet forward.
                                 const double PRESSURE = *pleat *
-                                                        (16 + (8 * run.movement.flutter * GUST)) *
+                                                        (16 + (8 * movement.flutter * GUST)) *
                                                         (.3 + (.7 * DOWN));
                                 velocity += JPH::Vec3(0,
                                     0,
@@ -1111,7 +1142,7 @@ namespace hyprimate {
                         std::clamp((TIME + STEP_SECONDS) / run.length, 0.0, 1.0);
                     const double ROD_VELOCITY = run.travel.x * 30 * PROGRESS * PROGRESS *
                                                 (1 - PROGRESS) * (1 - PROGRESS) / run.length;
-                    if (!pocket->update(0, temp, ROD_VELOCITY, jobs, 0)) {
+                    if (!pocket->update(0, temp, ROD_VELOCITY, jobs, 0, run.movement.springiness)) {
                         break;
                     }
                 }
@@ -1230,30 +1261,21 @@ namespace hyprimate {
 
     void ClothFlutter::begin_movement(
         const ClothMovementParams &params, std::uint64_t seed, const Box &capture) {
+        auto movement = params;
         if (!valid_box(capture) || !s_live.load(std::memory_order_acquire) ||
-            !std::isfinite(params.strength) || params.strength <= 0 ||
-            !std::isfinite(params.flutter) || !std::isfinite(params.shading) ||
-            !std::isfinite(params.variation) || !std::isfinite(params.shine) ||
-            !std::isfinite(params.springiness) || !std::isfinite(params.gravity)) {
+            !sanitize(movement) || movement.strength <= 0) {
             reset();
             return;
         }
         const auto RUN = std::make_shared<Run>();
         RUN->live = true;
         RUN->window = capture;
-        RUN->movement = {
-            .strength = std::clamp(params.strength, 0.0, 1.5),
-            .flutter = std::clamp(params.flutter, 0.0, 1.0),
-            .shading = std::clamp(params.shading, 0.0, 1.0),
-            .variation = std::clamp(params.variation, 0.0, 1.0),
-            .shine = std::clamp(params.shine, 0.0, 1.0),
-            .springiness = std::clamp(params.springiness, 0.0, 1.0),
-            .gravity = std::clamp(params.gravity, 0.0, 3.0),
-        };
+        RUN->movement = movement;
         const double ALPHA = opacity();
         sample_vertices(RUN->start, RUN->velocity);
         auto playback = std::make_unique<MovementPlayback>();
         playback->target = playback->previous = capture;
+        playback->params = movement;
         playback->a.time = -STEP_SECONDS;
         playback->b.time = 0;
         const auto *velocity = RUN->velocity.begin();
@@ -1324,6 +1346,16 @@ namespace hyprimate {
         m_phase = Phase::Movement;
     }
 
+    void ClothFlutter::set_movement_params(const ClothMovementParams &params) noexcept {
+        auto movement = params;
+        if (!moving() || !m_movement || !m_movement->producer || !sanitize(movement)) {
+            return;
+        }
+        m_movement->params = movement;
+        m_params.shading = movement.shading;
+        m_params.shine = movement.shine;
+    }
+
     void ClothFlutter::update_movement(const Box &capture, double elapsed_seconds) noexcept {
         if (!moving() || !m_movement || !m_movement->producer) {
             return;
@@ -1337,7 +1369,7 @@ namespace hyprimate {
         if (capture.x != OLD.x || capture.y != OLD.y || capture.w != OLD.w || capture.h != OLD.h) {
             if (m_fallback && m_movement->settling) {
                 // Motion during the exact-flat transition starts from its displayed pose.
-                const auto PARAMS = m_run->movement;
+                const auto PARAMS = m_movement->params;
                 begin_movement(PARAMS, BASE_SEED, OLD);
             }
             if (!m_movement) {
@@ -1376,7 +1408,8 @@ namespace hyprimate {
         const double OLD_OPACITY = opacity();
         if (kind == Transition::Close &&
             (m_phase == Phase::Opening || m_phase == Phase::Movement) && m_run) {
-            RUN->movement.springiness = m_run->movement.springiness;
+            RUN->movement.springiness = m_movement ? m_movement->params.springiness
+                                                  : m_run->movement.springiness;
             sample_vertices(RUN->start, RUN->velocity);
         } else {
             RUN->start = rest_grid();
@@ -1578,6 +1611,7 @@ namespace hyprimate {
                     m_run->targets.at(HEAD % Run::INPUT_CAPACITY) = {
                         .time = m_t,
                         .box = playback.target,
+                        .movement = playback.params,
                     };
                     m_run->input_head.store(HEAD + 1, std::memory_order_release);
                 }

@@ -69,6 +69,8 @@ namespace hyprimate {
         // frame, including stationary frames while the sheet settles.
         void begin_movement(
             const ClothMovementParams &params, std::uint64_t seed, const Box &capture);
+        // Applied to the next published Movement target without restarting the worker.
+        void set_movement_params(const ClothMovementParams &params) noexcept;
         void update_movement(const Box &capture, double elapsed_seconds) noexcept;
         [[nodiscard]] bool moving() const noexcept;
         bool advance(double elapsed_seconds) noexcept;

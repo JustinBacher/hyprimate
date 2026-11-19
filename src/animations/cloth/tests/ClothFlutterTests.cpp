@@ -1178,6 +1178,38 @@ namespace {
         CHECK(delta(pose(cloth).p, HELD.p) < 1e-9);
         ClothPhysics::pause_workers_for_testing(false);
     }
+    void movement_retuning() {
+        ClothFlutter control;
+        ClothFlutter retuned;
+        ClothMovementParams params{.gravity = 0};
+        control.begin_movement(params, 7, WINDOW);
+        retuned.begin_movement(params, 7, WINDOW);
+        CHECK(control.wait_for_snapshots(2));
+        CHECK(retuned.wait_for_snapshots(2));
+        Box box = WINDOW;
+        double first_time = 0;
+        double second_time = 0;
+        for (int i = 0; i < 12; ++i) {
+            box.x += 5;
+            movement_step(control, box, 1.0 / 120, first_time);
+            movement_step(retuned, box, 1.0 / 120, second_time);
+        }
+        const auto BEFORE = pose(retuned);
+        params.gravity = 3;
+        params.flutter = 1;
+        retuned.set_movement_params(params);
+        CHECK(retuned.moving());
+        CHECK(delta(BEFORE.p, pose(retuned).p) == 0);
+        CHECK(delta(BEFORE.v, pose(retuned).v) == 0);
+        for (int i = 0; i < 24; ++i) {
+            box.x += 5;
+            movement_step(control, box, 1.0 / 120, first_time);
+            movement_step(retuned, box, 1.0 / 120, second_time);
+        }
+        CHECK(retuned.moving());
+        CHECK(delta(pose(control).p, pose(retuned).p) > .001);
+    }
+
 }  // namespace
 int main() {
     needs_physics();
@@ -1215,6 +1247,7 @@ int main() {
         movement_rod_before_publication();
         downward_drag_lifts_hem();
         movement_gravity_control();
+        movement_retuning();
     }
     // Shutdown must join a currently paused worker before unregistering Jolt, even with a model
     // reference retained.

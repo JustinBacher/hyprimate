@@ -90,8 +90,12 @@ void SClothLiveStyle::movement(CPluginRuntime &runtime,
     double elapsed,
     bool enabled,
     bool moving,
-    [[maybe_unused]] Resources &resources) {
+    Resources &resources) {
     auto &state = std::get<SClothStyle>(transformer.m_style);
+    if (state.movement != resources.prepared.movement) {
+        state.movement = resources.prepared.movement;
+        state.cloth.set_movement_params(state.movement);
+    }
     if (moving && !state.cloth.moving()) {
         state.cloth.begin_movement(
             state.movement, runtime.m_next_seed++, decision.previous_capture);
@@ -124,8 +128,12 @@ void SClothLiveStyle::step([[maybe_unused]] CPluginRuntime &runtime,
     double elapsed,
     hyprimate::Vec2 size,
     bool enabled,
-    [[maybe_unused]] Resources &resources) {
+    Resources &resources) {
     auto &cloth = std::get<SClothStyle>(transformer.m_style);
+    if (cloth.movement != resources.prepared.movement) {
+        cloth.movement = resources.prepared.movement;
+        cloth.cloth.set_movement_params(cloth.movement);
+    }
     if (!enabled && cloth.cloth.moving()) {
         cancelMovement(transformer);
     }
@@ -156,8 +164,9 @@ bool SClothLiveStyle::deforming(const SClothStyle &state) noexcept {
     return state.cloth.active();
 }
 
-bool SClothLiveStyle::builtFor(const SClothStyle &state, const Resources &resources) noexcept {
-    return state.movement == resources.prepared.movement;
+bool SClothLiveStyle::builtFor([[maybe_unused]] const SClothStyle &state,
+    [[maybe_unused]] const Resources &resources) noexcept {
+    return true;
 }
 
 bool SClothLiveStyle::available(const SClothStyle &state) noexcept {
