@@ -956,6 +956,31 @@ namespace {
         CHECK(resolve_edge_sides({0, 0, 0, 0}, SCREEN, {}).empty());
     }
 
+    void movement_retuning_preserves_agents_and_latches_close() {
+        SwarmParams initial;
+        initial.count = 12;
+        initial.variation = 0.0;
+        Swarm swarm;
+        swarm.begin_movement(initial, 42, placement());
+        swarm.update_movement(placement({200.0, 0.0}));
+        swarm.advance(FRAME, true);
+        const auto BEFORE = swarm.agents().front();
+        SwarmParams changed = initial;
+        changed.count = 24;
+        changed.speed *= 2.0;
+        changed.variation = 1.0;
+        changed.responsiveness = 1.0;
+        swarm.set_movement_params(changed);
+        CHECK(swarm.agents().size() == 12);
+        CHECK(swarm.params().speed == changed.speed);
+        CHECK(swarm.agents().front().position.x == BEFORE.position.x);
+        CHECK(swarm.agents().front().velocity.x == BEFORE.velocity.x);
+        CHECK(swarm.agents().front().grip != BEFORE.grip);
+        swarm.begin(Transition::Close, initial, 43, placement(), sides({Edge::Bottom}));
+        swarm.set_movement_params(changed);
+        CHECK(swarm.params().speed == initial.speed);
+    }
+
 }  // namespace
 
 int main() {
@@ -999,6 +1024,7 @@ int main() {
     moving_sprites_advance_at_a_visible_rate();
     turning_sprites_keep_animating();
     merging_sprites_keep_animating();
+    movement_retuning_preserves_agents_and_latches_close();
     edge_sides_follow_the_neighbours();
     return g_failures == 0 ? 0 : 1;
 }

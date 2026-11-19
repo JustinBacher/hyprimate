@@ -1,6 +1,8 @@
 #pragma once
 
-#include "AnimationTransformer.hpp"
+#include "animations/shared/EdgeTransition.hpp"
+#include "animations/swarm/Swarm.hpp"
+#include "config_generated.hpp"
 
 // The swarm settings as the simulation and the sprite layer take them.
 template <typename SwarmConfig>

@@ -15,4 +15,12 @@ if(BUILD_TESTING)
     target_link_libraries(paper-crumple-tests PRIVATE hyprimate-core)
     target_include_directories(paper-crumple-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME paper-crumple-tests COMMAND paper-crumple-tests)
+
+    add_executable(paper-style-tests
+        src/animations/paper/tests/PaperStyleTests.cpp
+        src/animations/paper/PaperLiveStyle.cpp)
+    add_dependencies(paper-style-tests generate-config)
+    target_link_libraries(paper-style-tests PRIVATE hyprimate-core)
+    target_include_directories(paper-style-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests ${CONFIG_GENERATED_DIR})
+    add_test(NAME paper-style-tests COMMAND paper-style-tests)
 endif()

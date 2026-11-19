@@ -1308,25 +1308,25 @@ namespace hyprimate {
                              ((unit_draw(fixed) * (1 - RUN->movement.variation)) +
                                  (unit_draw(random) * RUN->movement.variation));
         try {
-            RUN->worker = std::thread([RUN, PHASE] {
-                try {
-                    simulate_movement(*RUN, PHASE);
-                } catch (...) {
-                    RUN->finished.store(true, std::memory_order_release);
-                    return;
-                }
-                RUN->finished.store(true, std::memory_order_release);
-            });
-            s_registry->add(RUN);
             const auto LEASE = std::make_shared<Lease>();
             LEASE->run = RUN;
+            s_registry->add(RUN);
+            try {
+                RUN->worker = std::thread([RUN, PHASE] {
+                    try {
+                        simulate_movement(*RUN, PHASE);
+                    } catch (...) {
+                        RUN->finished.store(true, std::memory_order_release);
+                        return;
+                    }
+                    RUN->finished.store(true, std::memory_order_release);
+                });
+            } catch (...) {
+                RUN->finished.store(true, std::memory_order_release);
+                throw;
+            }
             m_run = std::shared_ptr<Run>(LEASE, RUN.get());
         } catch (...) {
-            RUN->stop.request_stop();
-            if (RUN->worker.joinable()) {
-                RUN->worker.join();
-            }
-            RUN->released.store(true, std::memory_order_release);
             reset();
             return;
         }
@@ -1502,25 +1502,25 @@ namespace hyprimate {
         }
         RUN->outside_frame.store(RUN->frames, std::memory_order_relaxed);
         try {
-            RUN->worker = std::thread([RUN, input = std::move(input)] {
-                try {
-                    simulate(*RUN, input);
-                } catch (...) {
-                    RUN->finished.store(true, std::memory_order_release);
-                    return;
-                }
-                RUN->finished.store(true, std::memory_order_release);
-            });
-            s_registry->add(RUN);
             const auto LEASE = std::make_shared<Lease>();
             LEASE->run = RUN;
+            s_registry->add(RUN);
+            try {
+                RUN->worker = std::thread([RUN, input = std::move(input)] {
+                    try {
+                        simulate(*RUN, input);
+                    } catch (...) {
+                        RUN->finished.store(true, std::memory_order_release);
+                        return;
+                    }
+                    RUN->finished.store(true, std::memory_order_release);
+                });
+            } catch (...) {
+                RUN->finished.store(true, std::memory_order_release);
+                throw;
+            }
             m_run = std::shared_ptr<Run>(LEASE, RUN.get());
         } catch (...) {
-            RUN->stop.request_stop();
-            if (RUN->worker.joinable()) {
-                RUN->worker.join();
-            }
-            RUN->released.store(true, std::memory_order_release);
             reset();
             return;
         }

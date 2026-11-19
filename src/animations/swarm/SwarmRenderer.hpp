@@ -78,31 +78,3 @@ SP<Render::IFramebuffer> render_swarm_layer(Render::CRenderContext &ctx,
     const SSwarmMeshes &meshes,
     CSwarmSurface &surface);
 
-// Draws a swarm close, borrowing its meshes from the retained record.
-class CSwarmClosePassElement final : public IPassElement {
-  public:
-    struct SData {
-        SP<Render::ITexture> tex;  // the closing window's snapshot
-        SP<Render::ITexture> atlas;  // creature masks
-        SP<CSwarmSprites> sprites;  // retains the surface filter through the render pass
-        Vector2D layer_size;
-        CBox box;  // box the pieces mesh spans, monitor-local device px
-        const SSwarmMeshes *meshes = nullptr;
-        float alpha = 1.F;
-        double scale = 1.0;
-        CRegion damage;
-    };
-
-    explicit CSwarmClosePassElement(SData data);
-
-    std::vector<UP<IPassElement>> draw(Render::CRenderContext &ctx) override;
-    bool needsLiveBlur(Render::CRenderContext &ctx) override;
-    bool needsPrecomputeBlur(Render::CRenderContext &ctx) override;
-    const char *passName() override;
-    ePassElementType type() override;
-    std::optional<CBox> boundingBox(Render::CRenderContext &ctx) override;
-    CRegion opaqueRegion(Render::CRenderContext &ctx) override;
-
-  private:
-    SData m_data;
-};

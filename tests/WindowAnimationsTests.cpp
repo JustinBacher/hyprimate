@@ -3,6 +3,7 @@
 #include <optional>
 #include <vector>
 
+#include "config_settings_generated.hpp"
 #include "Check.hpp"
 #include "FakeWindowPort.hpp"
 #include "WindowAnimations.hpp"
@@ -30,12 +31,20 @@ struct Log {
     std::vector<Step> steps;
     std::vector<int> events;
     int real_draws = 0, real_screen_draws = 0;
-    bool screen_active = false;
+    MonitorId draw_monitor = 0;
+    WindowId draw_window = 0;
+    FrameId draw_frame = 0;
+    int draw_backdrop = 0;
+    bool screen_active = false, stop_screen_on_tick = false;
+    bool screen_enabled = false;
     std::optional<Box> drive;
+    std::optional<Edge> reported_opening_edge;
+    std::optional<Edge> closed_opening_edge;
+    bool accept_open = true;
     bool release = false, snap = false, alpha = false, running = true, tail = false, backdrop = false;
     CloseStart close_result = CloseStart::Owned;
 };
-template<int Id> struct TestStyle {
+template<config::Style Kind> struct TestStyle {
     using State = ::State;
     using Settings = ::Settings;
     using Prepared = ::Settings;
@@ -43,14 +52,15 @@ template<int Id> struct TestStyle {
         Log log;
         ResourcesBase<State, Settings, Prepared>::AnimationPool animations;
     };
-    static constexpr auto KIND = static_cast<config::Style>(Id);
+    static constexpr auto KIND = Kind;
     static constexpr bool FIXED_CLOSE_PLACEMENT = false;
     static constexpr bool DRAWS_UNDER_BLUR = false;
     static Prepared prepare_settings(const Settings &settings) { return settings; }
     static State start(const Resources & /*resources*/, std::uint64_t seed) { return {.seed = seed}; }
-    static bool open(State & /*state*/, const Place & /*place*/, Resources &resources, Effects & /*effects*/) {
+    static bool open(State & /*state*/, const Place & /*place*/, Resources &resources, Effects &effects) {
         ++resources.log.opens;
-        return true;
+        effects.opening_edge = resources.log.reported_opening_edge;
+        return resources.log.accept_open;
     }
     static Frame advance(State &state, const Step &step, Resources &resources, Effects &effects) {
         resources.log.events.push_back(2);
@@ -63,8 +73,9 @@ template<int Id> struct TestStyle {
         return {.running = resources.log.running, .bounds = {0, 0, 100, 80},
                 .backdrop = resources.log.backdrop, .tail = resources.log.tail};
     }
-    static CloseStart close(State &state, const Place & /*place*/, Resources &resources) {
+    static CloseStart close(State &state, const Place &place, Resources &resources) {
         ++resources.log.closes;
+        resources.log.closed_opening_edge = place.opening_edge;
         resources.log.closed_state = &state;
         resources.log.close_progress = state.progress;
         resources.log.close_seed = state.seed;
@@ -78,11 +89,20 @@ template<int Id> struct TestStyle {
     }
     static bool draw(State & /*state*/, const Draw<FakeCanvas> &draw, Resources &resources) {
         if (draw.real_pass) { ++resources.log.real_draws; }
+        resources.log.draw_monitor = draw.monitor;
+        resources.log.draw_window = draw.window;
+        resources.log.draw_frame = draw.frame;
+        resources.log.draw_backdrop = draw.backdrop ? draw.backdrop->id : 0;
         draw.canvas.draws.push_back(draw.image.id);
         return true;
     }
     struct Screen {
-        static void tick(Resources &resources, const ScreenFacts & /*facts*/) { resources.log.events.push_back(1); }
+        static void tick(Resources &resources, const ScreenFacts &facts) {
+            resources.log.events.push_back(1);
+            resources.log.screen_enabled = facts.enabled;
+            if (facts.monitor != 0 && resources.log.stop_screen_on_tick)
+                resources.log.screen_active = false;
+        }
         static void under_window(Resources &resources, const ScreenDraw<FakeCanvas> &draw) {
             if (draw.real_pass) { ++resources.log.real_screen_draws; }
             resources.log.events.push_back(3);
@@ -100,26 +120,26 @@ template<int Id> struct TestStyle {
         }
     };
 };
-struct MeshStyle : TestStyle<3> {
+struct MeshStyle : TestStyle<config::Style::Cloth> {
     static bool draw(State &, const Draw<FakeCanvas> &, Resources &) = delete;
     template<Vertex V> static Mesh<V> mesh(State & /*state*/, const MeshTarget<V> &target, Resources & /*resources*/) {
         target.buffers.window.push_back(V{});
         return {.window = &target.buffers.window, .clip = std::nullopt};
     }
 };
-using Style = TestStyle<1>;
-using Other = TestStyle<2>;
+using Style = TestStyle<config::Style::Liquid>;
+using Other = TestStyle<config::Style::Paper>;
 using List = StyleList<Style, Other>;
 using Module = CWindowAnimations<FakeWindowPort, List>;
 
 struct Fixture {
     FakeWindowPort port;
     Module::Resources resources;
-    Module module{port, resources};
+    Module module;
     Policy policy{.style = Style::KIND, .enabled = true, .opening = true, .movement = true,
                   .closing = true, .workspace_movement = true, .close_available = true};
     FrameId frame_a = 0, frame_b = 0;
-    Fixture() {
+    explicit Fixture(std::uint64_t seed = 0) : module(port, resources, seed) {
         port.monitors.emplace(1, ScreenFacts{.monitor = 1, .screen = {.x=0, .y=0, .w=800, .h=600}, .work_area = {.x=0, .y=0, .w=800, .h=600}});
         port.monitors.emplace(2, ScreenFacts{.monitor = 2, .screen = {.x=800, .y=0, .w=800, .h=600}, .work_area = {.x=800, .y=0, .w=800, .h=600}});
         port.overlapping = {1, 2};
@@ -170,6 +190,48 @@ void opening_movement_and_settlement() {
     CHECK(fixture.port.windows.at(1).body.x == 100); CHECK(fixture.port.transformers.empty());
     fixture.port.windows.at(1).body.x += 10; fixture.port.windows.at(1).capture.x += 10; fixture.frame(1);
     CHECK(!fixture.module.active(HANDLE));
+}
+
+void settled_opening_edge_survives_until_close() {
+    Fixture fixture;
+    fixture.log().reported_opening_edge = Edge::Left;
+    fixture.window(1);
+    fixture.frame(1);
+    const auto original = fixture.handle();
+    fixture.log().running = false;
+    fixture.frame(1);
+    CHECK(!fixture.module.active(original));
+    CHECK(fixture.log().last_end == End::Completed);
+    fixture.module.close(1, fixture.port.now);
+    CHECK(fixture.module.pending_for(1).has_value());
+    CHECK(fixture.log().closed_opening_edge == Edge::Left);
+    CHECK(fixture.log().close_seed == 0);
+
+    fixture.window(2, 1, false);
+    fixture.module.close(2, fixture.port.now);
+    CHECK(!fixture.log().closed_opening_edge.has_value());
+}
+
+void new_opening_attempt_clears_previous_edge() {
+    for (bool disable_open : {false, true}) {
+        Fixture fixture;
+        fixture.log().reported_opening_edge = Edge::Right;
+        fixture.window(1); fixture.frame(1);
+        fixture.log().running = false; fixture.frame(1);
+        fixture.port.windows.at(1).animating_in = false;
+        fixture.frame(1);
+        fixture.log().accept_open = false;
+        if (disable_open) {
+            fixture.policy.opening = false;
+            fixture.module.configure(fixture.policy);
+        }
+        fixture.port.windows.at(1).animating_in = true;
+        fixture.frame(1);
+        fixture.module.close(1, fixture.port.now);
+        CHECK(fixture.module.pending_for(1).has_value());
+        CHECK(!fixture.log().closed_opening_edge.has_value());
+        CHECK(fixture.log().opens == (disable_open ? 1 : 2));
+    }
 }
 void disabled_open_and_move() {
     Fixture fixture; fixture.policy.opening = false; fixture.module.configure(fixture.policy); fixture.window(1); fixture.frame(1);
@@ -222,6 +284,106 @@ void invalidation_and_restore() {
         CHECK(!fixture.module.active(HANDLE)); CHECK(fixture.log().ends == 1); CHECK(fixture.log().last_end == End::Interrupted);
         CHECK(fixture.port.windows.at(1).body.x == 200);
     }
+}
+
+void expired_windows_release_tracking_without_erasing_closes() {
+    Fixture mapped;
+    mapped.window(1); mapped.frame(1);
+    const auto handle = mapped.handle();
+    mapped.log().drive = Box{.x=120, .y=100, .w=90, .h=70};
+    mapped.frame(1);
+    mapped.port.windows.erase(1);
+    mapped.frame(2);
+    CHECK(!mapped.module.active(handle));
+    CHECK(mapped.log().last_end == End::Interrupted);
+    CHECK(mapped.port.visuals.empty());
+    CHECK(std::find(mapped.port.forgotten.begin(), mapped.port.forgotten.end(), 1) != mapped.port.forgotten.end());
+
+    Fixture pending;
+    pending.window(1); pending.frame(1);
+    const auto pending_handle = pending.handle();
+    pending.module.close(1, pending.port.now);
+    pending.port.windows.erase(1);
+    pending.frame(1);
+    CHECK(pending.module.active(pending_handle));
+    CHECK(pending.module.pending_for(1) == pending_handle);
+    CHECK(pending.port.forgotten.empty());
+    pending.frame(1, 1.1);
+    CHECK(!pending.module.active(pending_handle));
+    CHECK(std::find(pending.port.forgotten.begin(), pending.port.forgotten.end(), 1) != pending.port.forgotten.end());
+
+    Fixture dying;
+    dying.window(1); dying.frame(1);
+    const auto dying_handle = dying.handle();
+    dying.module.close(1, dying.port.now);
+    dying.module.bind_fadeout(1, dying.fade(88), {88});
+    dying.port.windows.erase(1);
+    dying.frame(1);
+    CHECK(dying.module.active(dying_handle));
+    CHECK(dying.module.suppresses(88));
+}
+
+void monitorless_windows_rebaseline_without_losing_their_animation() {
+    Fixture fixture;
+    fixture.window(1); fixture.frame(1);
+    const auto handle = fixture.handle();
+    fixture.port.unobservable.insert(1);
+    fixture.frame(1, 3.0);
+    CHECK(fixture.module.active(handle));
+    CHECK(fixture.port.forgotten.empty());
+    fixture.port.unobservable.erase(1);
+    fixture.frame(1);
+    CHECK(fixture.module.active(handle));
+    CHECK(fixture.handle() == handle);
+    CHECK(fixture.log().steps.back().elapsed == 0);
+    CHECK(!fixture.log().steps.back().motion.has_value());
+
+    Fixture driven;
+    driven.window(1); driven.frame(1);
+    driven.log().drive = Box{.x=120, .y=100, .w=90, .h=70};
+    driven.frame(1);
+    driven.port.unobservable.insert(1);
+    driven.policy.enabled = false;
+    driven.module.configure(driven.policy);
+    CHECK(driven.port.windows.at(1).body.x == 100);
+}
+
+void hidden_windows_require_a_valid_workspace_tail() {
+    Fixture hidden;
+    hidden.window(1);
+    hidden.port.windows.at(1).hidden = true;
+    hidden.frame(1);
+    CHECK(hidden.port.transformers.empty());
+    CHECK(hidden.log().opens == 0);
+
+    Fixture ordinary;
+    ordinary.window(1); ordinary.frame(1);
+    const auto handle = ordinary.handle();
+    ordinary.port.windows.at(1).hidden = true;
+    ordinary.frame(1);
+    CHECK(!ordinary.module.active(handle));
+    CHECK(ordinary.log().last_end == End::Interrupted);
+
+    Fixture tail;
+    tail.log().tail = true;
+    tail.window(1); tail.frame(1);
+    const auto tail_handle = tail.handle();
+    tail.port.windows.at(1).hidden = true;
+    tail.port.windows.at(1).workspace_visible = false;
+    tail.frame(1);
+    CHECK(tail.module.active(tail_handle));
+    tail.port.windows.at(1).pinned = true;
+    tail.frame(1);
+    CHECK(!tail.module.active(tail_handle));
+}
+
+void runtime_seed_is_injected_without_changing_fresh_close_seed() {
+    Fixture fixture{41};
+    fixture.window(1); fixture.frame(1);
+    CHECK(fixture.state(fixture.handle())->seed == 42);
+    fixture.window(2, 1, false);
+    fixture.module.close(2, fixture.port.now);
+    CHECK(fixture.log().close_seed == 0);
 }
 void settings_style_reload_monitor() {
     Fixture fixture; fixture.window(1); fixture.frame(1); const auto HANDLE = fixture.handle(); auto  const*state = fixture.state(HANDLE);
@@ -292,7 +454,8 @@ void close_mid_movement() {
 }
 void tail_and_backdrop() {
     Fixture fixture; fixture.log().tail = true; fixture.log().backdrop = true; fixture.window(1); fixture.frame(1);
-    auto const HANDLE = fixture.handle(); FakeCanvas canvas; FakeCanvas::Image const FIRST{1}; FakeCanvas::Image const MATTE{2};
+    auto const HANDLE = fixture.handle(); FakeCanvas canvas;
+    FakeCanvas::Image const FIRST{1, {.x=220, .y=180}}; FakeCanvas::Image const MATTE{2};
     fixture.module.before_window(1, canvas); CHECK(fixture.port.backdrop_captures.size() == 1);
     Draw<FakeCanvas> const DRAW{.canvas = canvas, .image = FIRST, .source = {}, .output = {},
                           .canvas_box = {}, .image_origin = {.x=7, .y=8}, .image_size = {},
@@ -307,8 +470,26 @@ void tail_and_backdrop() {
     if (retained) { CHECK(retained->image->id == 1); CHECK(retained->image_origin.x == 7); }
     fixture.port.windows.at(1).workspace_visible = false; fixture.frame(1);
     auto const COUNT = canvas.draws.size(); fixture.module.after_windows(1, canvas);
-    CHECK(canvas.draws.size() == COUNT + 1); CHECK(canvas.draws.back() == 1);
+    CHECK(canvas.draws.size() == COUNT);
+    CHECK(fixture.port.queued_tails.size() == 1);
+    if (fixture.port.queued_tails.empty()) return;
+    const auto queued = fixture.port.queued_tails.back();
+    CHECK(queued.image.id == 1); CHECK(queued.draw.image_size.x == 220);
+    CHECK(queued.draw.output.x == 95 && queued.draw.output.w == 100);
+    Draw<FakeCanvas> const DEFERRED{canvas, queued.image, nullptr, queued.draw.source, queued.draw.output,
+        queued.draw.canvas_box, queued.draw.image_origin, queued.draw.image_size, queued.draw.scale,
+        queued.draw.alpha, true, queued.draw.monitor, 0, queued.draw.frame};
+    CHECK(fixture.module.draw(queued.handle, DEFERRED));
+    CHECK(canvas.draws.back() == 1);
+    fixture.port.windows.at(1).workspace_visible = true;
+    fixture.log().tail = false; fixture.frame(1);
+    CHECK(!fixture.port.retained_mapped_image(HANDLE));
+    fixture.log().tail = true; fixture.frame(1);
+    CHECK(fixture.module.draw(HANDLE, SECOND));
+    retained = fixture.port.retained_mapped_image(HANDLE);
+    CHECK(retained && retained->image->id == 2);
     fixture.module.end_all(); CHECK(!fixture.port.retained_mapped_image(HANDLE));
+    CHECK(!fixture.module.draw(queued.handle, DEFERRED));
 }
 void capacity_and_fadeout_validation() {
     Fixture fixture;
@@ -371,6 +552,57 @@ void screen_order_and_shutdown() {
     CHECK(!fixture.module.needs_frame(1)); CHECK(fixture.log().events.back() == 5);
     fixture.module.end_all(); CHECK(fixture.port.visuals.empty());
 }
+
+void screen_policy_requires_an_enabled_feature() {
+    Fixture fixture;
+    fixture.frame(1);
+    CHECK(fixture.log().screen_enabled);
+    fixture.log().screen_active = true;
+    fixture.policy.style = Other::KIND;
+    fixture.module.configure(fixture.policy);
+    CHECK(fixture.log().screen_enabled);
+    fixture.frame(1);
+    CHECK(fixture.log().screen_enabled);
+    fixture.policy.opening = false;
+    fixture.policy.movement = false;
+    fixture.policy.closing = false;
+    fixture.module.configure(fixture.policy);
+    CHECK(!fixture.log().screen_enabled);
+    fixture.frame(1);
+    CHECK(!fixture.log().screen_enabled);
+
+    Fixture retained;
+    retained.window(1); retained.frame(1);
+    const auto handle = retained.handle();
+    retained.module.close(1, retained.port.now);
+    retained.module.bind_fadeout(1, retained.fade(99), {99});
+    retained.policy.style = Other::KIND;
+    retained.module.configure(retained.policy);
+    CHECK(retained.module.active(handle));
+    CHECK(retained.log().screen_enabled);
+    retained.frame(1);
+    CHECK(retained.log().screen_enabled);
+}
+
+void screen_damages_its_final_frame() {
+    Fixture fixture;
+    fixture.log().screen_active = true;
+    fixture.frame(1);
+    CHECK(!fixture.port.damage_log.empty());
+    if (!fixture.port.damage_log.empty()) {
+        const auto &first = fixture.port.damage_log.back();
+        CHECK(first.x == 0 && first.y == 0 && first.w == 800 && first.h == 600);
+    }
+    fixture.port.damage_log.clear();
+    fixture.log().stop_screen_on_tick = true;
+    fixture.frame(1);
+    CHECK(!fixture.module.needs_frame(1));
+    CHECK(!fixture.port.damage_log.empty());
+    if (!fixture.port.damage_log.empty()) {
+        const auto &last = fixture.port.damage_log.back();
+        CHECK(last.x == 0 && last.y == 0 && last.w == 800 && last.h == 600);
+    }
+}
 void screen_survives_window_and_allocation_failure() {
     Fixture fixture; fixture.log().screen_active = true; fixture.window(1); fixture.frame(1);
     fixture.module.unmap(1); CHECK(fixture.module.needs_frame(1));
@@ -391,11 +623,15 @@ void pass_kind_retention_and_backdrop() {
     canvas.pass_kind = PassKind::Inert;
     fixture.module.before_window(1, canvas); CHECK(fixture.port.backdrop_captures.empty());
     fixture.module.draw(HANDLE, DRAW); CHECK(!fixture.port.retained_mapped_image(HANDLE));
+    CHECK(fixture.log().draw_backdrop == 0);
+    CHECK(fixture.log().draw_monitor == 1 && fixture.log().draw_window == 1);
+    CHECK(fixture.log().draw_frame == fixture.frame_a);
     fixture.module.after_windows(1, canvas);
     CHECK(fixture.log().real_draws == 0); CHECK(fixture.log().real_screen_draws == 0);
     canvas.pass_kind = PassKind::WorkspaceSource;
     fixture.module.before_window(1, canvas); CHECK(fixture.port.backdrop_captures.size() == 1);
     fixture.module.draw(HANDLE, DRAW); CHECK(!fixture.port.retained_mapped_image(HANDLE));
+    CHECK(fixture.log().draw_backdrop == 2);
     fixture.module.after_windows(1, canvas);
     CHECK(fixture.log().real_draws == 0); CHECK(fixture.log().real_screen_draws == 0);
     CHECK(fixture.port.visual_cache(HANDLE).live_backdrops == 0);
@@ -403,7 +639,9 @@ void pass_kind_retention_and_backdrop() {
     canvas.pass_kind = PassKind::Live;
     fixture.module.draw(HANDLE, DRAW); CHECK(fixture.port.retained_mapped_image(HANDLE).has_value());
     fixture.module.before_window(1, canvas); fixture.module.after_windows(1, canvas);
-    CHECK(fixture.log().real_draws == 1); CHECK(fixture.log().real_screen_draws == 2);
+    fixture.module.draw(HANDLE, DRAW);
+    CHECK(fixture.log().draw_backdrop == 1);
+    CHECK(fixture.log().real_draws == 2); CHECK(fixture.log().real_screen_draws == 2);
     CHECK(fixture.port.visual_cache(HANDLE).live_backdrops == 1);
 }
 void out_of_order_and_duplicate_fadeouts() {
@@ -502,13 +740,20 @@ void capture_failure_releases_entry() {
 }
 }
 int main() try {
-    opening_movement_and_settlement(); disabled_open_and_move(); monitor_frames_and_reattach();
+    opening_movement_and_settlement(); settled_opening_edge_survives_until_close();
+    new_opening_attempt_clears_previous_edge();
+    disabled_open_and_move(); monitor_frames_and_reattach();
     close_continuity_and_association(); close_timeout_invalid_and_fresh(); invalidation_and_restore();
+    expired_windows_release_tracking_without_erasing_closes();
+    monitorless_windows_rebaseline_without_losing_their_animation();
+    hidden_windows_require_a_valid_workspace_tail();
+    runtime_seed_is_injected_without_changing_fresh_close_seed();
     settings_style_reload_monitor(); stall_bounds();
     effects_and_stale_draw(); close_modes_and_disable(); close_mid_movement();
     tail_and_backdrop();
     capacity_and_fadeout_validation(); pending_invalidation(); screen_order_and_shutdown();
-    screen_survives_window_and_allocation_failure();
+    screen_survives_window_and_allocation_failure(); screen_damages_its_final_frame();
+    screen_policy_requires_an_enabled_feature();
     out_of_order_and_duplicate_fadeouts(); close_placement_and_invalid_fadeouts();
     pass_kind_retention_and_backdrop();
     independent_fadeouts_reversed(); workspace_motion_and_teleport(); capture_failure_releases_entry();

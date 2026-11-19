@@ -12,11 +12,14 @@
 namespace hyprimate::animation::test {
 struct FakeCanvas {
     using Vertex = MeshVertex;
-    struct Image { int id = 0; };
+    struct Image { int id = 0; Vec2 size{110, 90}; };
     struct Backdrop { int id = 0; };
     PassKind pass_kind = PassKind::Live;
     [[nodiscard]] PassKind pass() const { return pass_kind; }
     std::vector<int> draws;
+    std::vector<Box> composites;
+    static Vec2 image_size(const Image &image) { return image.size; }
+    void composite(const Box &box, float /*alpha*/) { composites.push_back(box); }
     bool submit_mesh(const Mesh<Vertex> & /*mesh*/, const Draw<FakeCanvas> &draw) {
         draws.push_back(draw.image.id);
         return true;
@@ -33,12 +36,16 @@ struct FakeWindowPort {
         MeshBuffers<Canvas::Vertex> buffers;
         std::optional<Canvas::Image> image;
         int live_backdrops = 0, scratch_backdrops = 0;
+        Canvas::Backdrop live_backdrop{1}, scratch_backdrop{2};
         Vec2 origin{};
         Box capture{};
         FrameId frame = 0;
     };
     struct Visual { Handle handle; VisualCache cache; };
+    struct QueuedTail { Handle handle; Canvas::Image image; TailDraw draw; };
+    std::vector<QueuedTail> queued_tails;
     std::map<WindowId, Observation> windows;
+    std::set<WindowId> unobservable;
     std::map<MonitorId, ScreenFacts> monitors;
     std::map<std::uint64_t, FadeoutFacts> fadeouts;
     std::map<WindowId, Handle> transformers;
@@ -58,7 +65,9 @@ struct FakeWindowPort {
         return now;
     }
     [[nodiscard]] static WindowId identity(WindowRef window) { return window; }
+    [[nodiscard]] bool window_alive(WindowRef window) const { return windows.contains(window); }
     [[nodiscard]] std::optional<Observation> observe(WindowRef window) const {
+        if (unobservable.contains(window)) { return std::nullopt; }
         const auto ITER = windows.find(window);
         return ITER == windows.end() ? std::nullopt : std::optional<Observation>{ITER->second};
     }
@@ -101,6 +110,10 @@ struct FakeWindowPort {
         auto &cache = visual_cache(handle);
         if (!cache.image) { cache.image = image; cache.origin = origin; cache.capture = capture; cache.frame = frame; }
     }
+    void release_mapped_image(Handle handle) { visual_cache(handle).image.reset(); }
+    void queue_tail(Handle handle, Canvas & /*canvas*/, const Canvas::Image &image, const TailDraw &draw) {
+        queued_tails.push_back({.handle = handle, .image = image, .draw = draw});
+    }
     void bind_fadeout(Handle handle, std::uint64_t /*fadeout*/, RetainedImage image) {
         if (fail_bind) { throw std::runtime_error("fake capture failure"); }
         visual_cache(handle).image = image;
@@ -124,11 +137,18 @@ struct FakeWindowPort {
         if (canvas.pass() == PassKind::Live) { ++cache.live_backdrops; }
         else { ++cache.scratch_backdrops; }
     }
+    [[nodiscard]] const Canvas::Backdrop *backdrop(Handle handle, PassKind pass) const {
+        const auto *cache = find_visuals(handle);
+        if (cache == nullptr || pass == PassKind::Inert) { return nullptr; }
+        if (pass == PassKind::WorkspaceSource)
+            return cache->scratch_backdrops ? &cache->scratch_backdrop : nullptr;
+        return cache->live_backdrops ? &cache->live_backdrop : nullptr;
+    }
     [[nodiscard]] std::optional<RetainedFrame<Canvas>> retained_mapped_image(Handle handle) const {
         const auto *cache = find_visuals(handle);
         if (cache == nullptr || !cache->image) { return std::nullopt; }
         return RetainedFrame<Canvas>{.image = &*cache->image, .image_origin = cache->origin,
-                                     .capture = cache->capture, .frame = cache->frame};
+                                     .image_size = cache->image->size, .capture = cache->capture, .frame = cache->frame};
     }
 };
 } // namespace hyprimate::animation::test

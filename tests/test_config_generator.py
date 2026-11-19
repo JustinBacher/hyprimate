@@ -102,7 +102,7 @@ class ConfigGeneratorTests(unittest.TestCase):
                              for path, item in items.items() if path.startswith('workspace.')))
 
     def test_workspace_and_window_styles_have_independent_enums_and_validators(self):
-        header = GEN.config_header(SCHEMA)
+        header = GEN.settings_header(SCHEMA) + GEN.config_header(SCHEMA)
         self.assertIn('enum class Style : std::uint8_t { Liquid, Paper, Cloth, Swarm, Bubble, Smoke };', header)
         self.assertIn('enum class WorkspaceStyle : std::uint8_t { Rotation };', header)
         self.assertIn('WorkspaceStyle style{};', header)
@@ -120,18 +120,32 @@ class ConfigGeneratorTests(unittest.TestCase):
                 self.assertNotIn(f'value == "{choice}"', registration)
         self.assertIn('config.workspace.rotation.duration = detail::clamp_float(values.m_workspaceRotationDuration->value(), 0.1F, 3.0F);', header)
 
+    def test_settings_header_is_standalone(self):
+        header = self.tmp / 'config_settings_generated.hpp'
+        result = self.run_generator('--settings-header', str(header))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        text = header.read_text()
+        self.assertNotIn('SConfigValues', text)
+        self.assertNotIn('HyprlandAPI', text)
+        result = subprocess.run(
+            ['c++', '-std=c++23', '-fsyntax-only', '-x', 'c++', '-I', str(self.tmp), '-'],
+            input='#include "config_settings_generated.hpp"\n'
+                  'int main() { hyprimate::config::SLiquidSettings settings{}; (void)settings; }\n',
+            capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_workspace_option_enums_are_style_scoped(self):
         rotation = next(item for item in SCHEMA if item['path'] == 'workspace.options.rotation.gap_fill_style')
         other = dict(rotation, path='workspace.options.other.gap_fill_style',
                      member='m_workspaceOtherGapFillStyle', choices=['solid', 'clear'], default='solid')
-        header = GEN.config_header(SCHEMA + [other])
+        header = GEN.settings_header(SCHEMA + [other])
         self.assertIn('enum class RotationGapFillStyle : std::uint8_t { Morph, Background, Wallpaper, Still };', header)
         self.assertIn('enum class OtherGapFillStyle : std::uint8_t { Solid, Clear };', header)
         self.assertIn('inline constexpr std::array WORKSPACE_STYLES{WorkspaceStyle::Rotation};', header)
         styles = [dict(item) for item in SCHEMA]
         selection = next(item for item in styles if item['path'] == 'workspace.style')
         selection['choices'] = ['rotation', 'other']
-        expanded = GEN.config_header(styles + [other])
+        expanded = GEN.settings_header(styles + [other])
         self.assertIn('inline constexpr std::array WORKSPACE_STYLES{WorkspaceStyle::Rotation, WorkspaceStyle::Other};',
                       expanded)
 
@@ -270,9 +284,14 @@ class ConfigGeneratorTests(unittest.TestCase):
         schema = self.write_schema(items)
         readme, lua = self.copies()
         header = self.tmp / 'config_generated.hpp'
+        settings_header = self.tmp / 'config_settings_generated.hpp'
         result = self.run_generator('--schema', str(schema), '--readme', str(readme), '--lua', str(lua),
-                                    '--header', str(header))
+                                    '--header', str(header), '--settings-header', str(settings_header))
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('#include "config_settings_generated.hpp"', header.read_text())
+        self.assertIn('struct SLiquidSettings', settings_header.read_text())
+        self.assertNotIn('SConfigValues', settings_header.read_text())
+        self.assertNotIn('HyprlandAPI', settings_header.read_text())
         self.assertIn('count = 300,', lua.read_text())
         self.assertNotIn('strength = 0.7,', lua.read_text())
         self.assertIn('0.7F', header.read_text())
@@ -347,6 +366,7 @@ class ConfigGeneratorTests(unittest.TestCase):
     def test_generated_config_inheritance_at_runtime(self):
         header = self.tmp / 'config_generated.hpp'
         header.write_text(GEN.config_header(SCHEMA))
+        (self.tmp / 'config_settings_generated.hpp').write_text(GEN.settings_header(SCHEMA))
         binary = self.tmp / 'config-inheritance-tests'
         result = subprocess.run(['c++', '-std=c++23', '-I', str(self.tmp),
                                  str(ROOT / 'tests' / 'ConfigInheritanceTests.cpp'), '-o', str(binary)],

@@ -266,7 +266,6 @@ class CWorkspaceAnimation::Impl {
     hyprimate::workspace::CompositionIdentities<PHLWORKSPACE, PHLWORKSPACEREF> m_compositions;
     Controller m_controller;
     hyprimate::workspace::RotationRenderer m_rotation;
-    WorkspaceCaptureScope::Scratch m_scratch;
     hyprimate::workspace::BeginRender m_beginRender = nullptr;
     bool m_rotationReady = false;
 
@@ -700,7 +699,6 @@ void CWorkspaceAnimation::Impl::shutdown() {
         m_rotation.release();
     }
     m_rotationReady = false;
-    m_scratch.clear();
     m_beginRender = nullptr;
 }
 
@@ -884,7 +882,7 @@ bool CWorkspaceAnimation::Impl::capture(MonitorState &entry,
     m_capturing = &entry;
     m_captureWallpaper = target == entry.source ? entry.sourceWallpaper : entry.destinationWallpaper;
     const bool captured = hyprimate::workspace::captureWorkspace(
-        *g_pHyprRenderer, m_beginRender, monitor, target, resources, m_scratch, kind, draw, &data);
+        *g_pHyprRenderer, m_beginRender, monitor, target, resources, kind, draw, &data);
     m_capturing = nullptr;
     m_captureWallpaper.reset();
     return captured && entry.wallpaperCaptured;

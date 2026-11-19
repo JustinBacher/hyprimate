@@ -284,12 +284,16 @@ namespace hyprimate {
             agent.docked = true;
             agent.lock = 1.0;
             agent.visible = true;
-            agent.pace = 1.0 + (m_params.variation * PACE_SPREAD * (unit_draw(m_rng) - 0.5));
+            agent.pace_draw = unit_draw(m_rng) - 0.5;
+            agent.pace = 1.0 + (m_params.variation * PACE_SPREAD * agent.pace_draw);
+            agent.grip_draw = unit_draw(m_rng) - 0.5;
             agent.grip = lerp(GRIP_MIN, GRIP_MAX, m_params.responsiveness) *
-                         (1.0 + (m_params.variation * GRIP_SPREAD * (unit_draw(m_rng) - 0.5)));
+                         (1.0 + (m_params.variation * GRIP_SPREAD * agent.grip_draw));
             agent.rest = std::numbers::pi * ((2.0 * unit_draw(m_rng)) - 1.0);
-            agent.reaction = REACTION_SHARE * m_params.stagger * unit_draw(m_rng);
-            agent.arc = ARC_ANGLE * m_params.variation * ((2.0 * unit_draw(m_rng)) - 1.0);
+            agent.reaction_draw = unit_draw(m_rng);
+            agent.reaction = REACTION_SHARE * m_params.stagger * agent.reaction_draw;
+            agent.arc_draw = (2.0 * unit_draw(m_rng)) - 1.0;
+            agent.arc = ARC_ANGLE * m_params.variation * agent.arc_draw;
             agent.weave = 2.0 * std::numbers::pi * unit_draw(m_rng);
             agent.weave_rate = lerp(WEAVE_RATE_MIN, WEAVE_RATE_MAX, unit_draw(m_rng));
             agent.gait = 2.0 * std::numbers::pi * unit_draw(m_rng);
@@ -439,6 +443,25 @@ namespace hyprimate {
         }
         m_shift = m_shift + (Vec2{.x = placement.capture.x, .y = placement.capture.y} - m_origin);
         layout(placement);
+    }
+
+    void Swarm::set_movement_params(const SwarmParams &params) noexcept {
+        if (m_phase != Phase::Movement || !finite(params)) {
+            return;
+        }
+        SwarmParams next = sane(params);
+        next.count = m_params.count;
+        if (next == m_params) {
+            return;
+        }
+        m_params = next;
+        for (auto &agent : m_agents) {
+            agent.pace = 1.0 + m_params.variation * PACE_SPREAD * agent.pace_draw;
+            agent.grip = lerp(GRIP_MIN, GRIP_MAX, m_params.responsiveness) *
+                         (1.0 + m_params.variation * GRIP_SPREAD * agent.grip_draw);
+            agent.reaction = REACTION_SHARE * m_params.stagger * agent.reaction_draw;
+            agent.arc = ARC_ANGLE * m_params.variation * agent.arc_draw;
+        }
     }
 
     void Swarm::reset() noexcept {

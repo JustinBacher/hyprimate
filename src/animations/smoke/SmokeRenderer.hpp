@@ -23,11 +23,12 @@ class CSmokeFieldHandle {
 };
 struct SSmokeDraw {
     SP<Render::ITexture> window;
-    SP<CSmokeFieldHandle> field;
+    std::shared_ptr<CSmokeFieldHandle> field;
     hyprimate::SmokeFrame frame;
     Vector2D canvas;
     CBox source;
     hyprimate::Vec2 texture_origin, texture_size, output_origin;
+    bool simulate = true;
 };
 class CSmokeRenderer {
   public:
@@ -45,26 +46,4 @@ class CSmokeRenderer {
     bool m_tried = false;
     CSmokeMaterial m_material;
     bool m_warmed = false;
-};
-class CSmokePassElement final : public IPassElement {
-  public:
-    struct SData {
-        SP<CSmokeRenderer> renderer;
-        SSmokeDraw draw;
-        CBox box;
-        float alpha = 1.F;
-        double scale = 1.0;
-        CRegion damage;
-    };
-    explicit CSmokePassElement(SData data);
-    std::vector<UP<IPassElement>> draw(Render::CRenderContext &ctx) override;
-    bool needsLiveBlur(Render::CRenderContext &ctx) override;
-    bool needsPrecomputeBlur(Render::CRenderContext &ctx) override;
-    const char *passName() override;
-    ePassElementType type() override;
-    std::optional<CBox> boundingBox(Render::CRenderContext &ctx) override;
-    CRegion opaqueRegion(Render::CRenderContext &ctx) override;
-
-  private:
-    SData m_data;
 };

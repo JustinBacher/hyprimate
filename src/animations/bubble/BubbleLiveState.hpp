@@ -6,7 +6,7 @@
 #include <span>
 
 #include "Bubble.hpp"
-#include "BubbleWallpaper.hpp"
+#include "WindowAnimationFacts.hpp"
 #include "BubbleVestige.hpp"
 
 // A transition's hold on its impact clock. However the transition stops, the clock is marked:
@@ -63,11 +63,10 @@ class CBubbleImpactLease {
 
 struct SBubbleStyle {
     hyprimate::Bubble bubble;
-    SP<SBubbleWallpaper> wallpaper;
+    // Backdrops are owned by the module's per-entry visual cache.
     bool shell_impacts_deposited = false;
     bool window_impacts_deposited = false;
     CBubbleImpactLease impacts;
     std::uint64_t wake = 0;  // the Vestige wake this window's movement is laying down
-    PHLWINDOWREF window;  // the window the film belongs to; its wakes lie under it
 };
 
