@@ -38,24 +38,6 @@ std::uint64_t initial_seed() {
     return (std::uint64_t{entropy()} << 32U) | entropy();
 }
 
-hyprimate::workspace::GapFill workspace_gap(const hyprimate::config::SConfig &config) {
-    using Style = hyprimate::workspace::GapFillStyle;
-    hyprimate::workspace::GapFill gap;
-    switch (config.workspace.rotation.gapFillStyle) {
-        case hyprimate::config::RotationGapFillStyle::Morph: gap.style = Style::Morph; break;
-        case hyprimate::config::RotationGapFillStyle::Background: gap.style = Style::Background; break;
-        case hyprimate::config::RotationGapFillStyle::Wallpaper: gap.style = Style::Wallpaper; break;
-        case hyprimate::config::RotationGapFillStyle::Still: gap.style = Style::Still; break;
-    }
-    const auto ARGB = config.workspace.rotation.gapFillColor;
-    const auto CHANNEL = [ARGB](unsigned shift) {
-        return static_cast<float>((ARGB >> shift) & 0xFFU) / 255.F;
-    };
-    const auto ALPHA = CHANNEL(24);
-    gap.color = {CHANNEL(16) * ALPHA, CHANNEL(8) * ALPHA, CHANNEL(0) * ALPHA, ALPHA};
-    gap.blur = static_cast<float>(config.workspace.rotation.gapFillBlur);
-    return gap;
-}
 }
 
 class CPluginRuntime::Impl {
@@ -201,9 +183,7 @@ void CPluginRuntime::Impl::configure(bool warm) {
 }
 
 void CPluginRuntime::Impl::configure_workspace() {
-    m_workspace->configure(m_config.workspace.enabled,
-        m_config.workspace.style == hyprimate::config::WorkspaceStyle::Rotation ? "rotation" : "",
-        m_config.workspace.rotation.duration, workspace_gap(m_config), m_config.workspace.rotation.curve);
+    m_workspace->configure(m_config.workspace);
 }
 
 void CPluginRuntime::Impl::reload() {

@@ -16,7 +16,6 @@ namespace hyprimate::workspace {
 struct RotationStyle {
     static constexpr config::WorkspaceStyle kind = config::WorkspaceStyle::Rotation;
     static constexpr bool usesWallpaper = true;
-    static constexpr std::string_view legacyName = "rotation";
     struct Prepared {
         double duration = 0.0;
         std::string curve;
@@ -27,12 +26,6 @@ struct RotationStyle {
         SStyleSettingsCache<config::SWorkspaceRotation, Prepared> settings;
         bool ready = false;
     };
-    static bool setLegacyGap(Resources &resources, const GapFill &gap) {
-        const auto &old = resources.settings.prepared.gap;
-        const bool changed = old.style != gap.style || old.color != gap.color || old.blur != gap.blur;
-        resources.settings.prepared.gap = gap;
-        return changed;
-    }
     static bool draw(Resources &resources, Render::CRenderContext &ctx,
         const SP<Render::IFramebuffer> &source, const SP<Render::IFramebuffer> &destination,
         const SP<Render::IFramebuffer> &presentation, const SP<Render::IFramebuffer> &sourceWallpaper,

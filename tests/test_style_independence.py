@@ -59,11 +59,20 @@ def runtime_style_violations(source_root):
                     if path.is_dir() and (path / 'Style.cmake').is_file())
     names = '|'.join(re.escape(name.capitalize()) for name in styles)
     directories = '|'.join(re.escape(name) for name in styles)
-    forbidden = re.compile(
-        rf'animations/(?:{directories})/|'
-        rf'\bS(?:{names})(?:Style|Module)\b|'
-        rf'\bC(?:{names})\w*\b|'
-        rf'\bStyle\s*::\s*(?:{names})\b')
+    patterns = [
+        rf'animations/(?:{directories})/',
+        rf'\bS(?:{names})(?:Style|Module)\b',
+        rf'\bC(?:{names})\w*\b',
+        rf'\bStyle\s*::\s*(?:{names})\b',
+    ]
+    # Workspace styles are reached only through the workspace style list as well.
+    workspace = source_root / 'workspace'
+    workspace_styles = sorted(path.name for path in workspace.iterdir()
+                              if path.is_dir() and (path / 'Style.cmake').is_file()) if workspace.is_dir() else []
+    if workspace_styles:
+        workspace_names = '|'.join(re.escape(name) for name in workspace_styles)
+        patterns.append(rf'(?i:workspace/(?:{workspace_names})/|\b\w*(?:{workspace_names})\w*\b)')
+    forbidden = re.compile('|'.join(f'(?:{pattern})' for pattern in patterns))
     violations = []
     for source in sorted(source_root.glob('PluginRuntime.*')):
         if source.suffix not in SOURCE_EXTENSIONS:
@@ -93,9 +102,6 @@ def workspace_orchestration_style_violations(source_root):
         if not source.is_file() or source.suffix not in SOURCE_EXTENSIONS or source.name == 'WorkspaceStyleList.hpp':
             continue
         for line_number, line in enumerate(source.read_text(encoding='utf-8').splitlines(), 1):
-            # The legacy runtime signature still passes GapFill until its cutover.
-            if source.name == 'WorkspaceAnimation.hpp' and line.strip() == '#include "workspace/rotation/GapFill.hpp"':
-                continue
             for match in forbidden.finditer(line):
                 violations.append(f'{source.relative_to(source_root)}:{line_number}: {match.group()}')
     return violations

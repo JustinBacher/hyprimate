@@ -209,8 +209,6 @@ class CWorkspaceAnimation::Impl {
 
     bool install(std::string &error);
     void shutdown();
-    void configure(bool enabled, std::string_view style, double duration,
-        const hyprimate::workspace::GapFill &gap, std::string_view curveName);
     void configure(const hyprimate::config::SWorkspaceSettings &settings);
     void configure_style(bool enabled, hyprimate::config::WorkspaceStyle kind, bool wallpaper,
         double duration, std::string_view curveName);
@@ -726,20 +724,6 @@ void CWorkspaceAnimation::Impl::configure(const hyprimate::config::SWorkspaceSet
     });
 }
 
-void CWorkspaceAnimation::Impl::configure(bool enabled, std::string_view style, double duration,
-    const hyprimate::workspace::GapFill &gap, std::string_view curveName) {
-    bool selected = false;
-    m_styles.for_each([&]<class Style>(auto &resources) {
-        if constexpr (requires { Style::legacyName; Style::setLegacyGap(resources, gap); }) {
-            if (style != Style::legacyName) return;
-            selected = true;
-            m_settingsChanged = Style::setLegacyGap(resources, gap) || m_settingsChanged;
-            configure_style(enabled, Style::kind, Style::usesWallpaper, duration, curveName);
-        }
-    });
-    if (!selected) configure_style(false, m_styleKind, m_usesWallpaper, duration, curveName);
-}
-
 void CWorkspaceAnimation::Impl::configure_style(bool enabled,
     hyprimate::config::WorkspaceStyle kind, bool wallpaper, double duration, std::string_view curveName) {
     m_styleKind = kind;
@@ -1111,10 +1095,6 @@ bool CWorkspaceAnimation::install(std::string &error) {
 }
 void CWorkspaceAnimation::shutdown() {
     m_impl->shutdown();
-}
-void CWorkspaceAnimation::configure(bool enabled, std::string_view style, double duration,
-    const hyprimate::workspace::GapFill &gap, std::string_view curveName) {
-    m_impl->configure(enabled, style, duration, gap, curveName);
 }
 void CWorkspaceAnimation::configure(const hyprimate::config::SWorkspaceSettings &settings) {
     m_impl->configure(settings);

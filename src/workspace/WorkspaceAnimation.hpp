@@ -7,8 +7,6 @@
 #include <hyprland/src/SharedDefs.hpp>
 #include <hyprland/src/plugins/PluginAPI.hpp>
 
-#include "workspace/rotation/GapFill.hpp"
-
 namespace hyprimate::config { struct SWorkspaceSettings; }
 
 class CWorkspaceAnimation {
@@ -23,8 +21,6 @@ class CWorkspaceAnimation {
 
     bool install(std::string &error);
     void shutdown();
-    void configure(bool enabled, std::string_view style, double duration_seconds,
-        const hyprimate::workspace::GapFill &gap, std::string_view curve_name);
     void configure(const hyprimate::config::SWorkspaceSettings &settings);
     void on_render_pre_checks(const PHLMONITOR &monitor);
     void on_render_pre(const PHLMONITOR &monitor);
