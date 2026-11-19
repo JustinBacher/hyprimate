@@ -16,7 +16,7 @@ namespace close_style {
         [[maybe_unused]] const std::function<hyprimate::EdgeInput()> &edge_input,
         [[maybe_unused]] const std::function<std::span<const hyprimate::Box>()> &obstacles,
         const std::function<std::uint64_t()> &next_seed) {
-        const auto &paper_config = config.close.paper;
+        const auto &paper_config = config.paper.close;
         pending.close_data = SPaperCloseData{
             .params =
                 {

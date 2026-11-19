@@ -22,14 +22,14 @@ namespace close_style {
         const std::function<std::span<const hyprimate::Box>()> &obstacles,
         const std::function<std::uint64_t()> &next_seed) {
         const auto INPUT = edge_input();
-        const auto FRAME = hyprimate::resolve_style_close_edge(INPUT, config.close.cloth);
+        const auto FRAME = hyprimate::resolve_style_close_edge(INPUT, config.cloth.close);
         const auto MONITOR = window->m_monitor.lock();
         const auto BOXES = obstacles();
         const auto SEED = next_seed();
         if (!FRAME || !MONITOR) {
             return false;
         }
-        const auto &cloth_config = config.close.cloth;
+        const auto &cloth_config = config.cloth.close;
         SClothCloseData data;
         data.params = {
             .duration = cloth_config.duration,

@@ -12,7 +12,7 @@
 namespace close_style {
     inline bool close_enabled(
         [[maybe_unused]] const SLiquidCloseData &data, const hyprimate::config::SConfig &config) {
-        return !(config.close.liquid.strength <= 0.0);
+        return !(config.liquid.close.strength <= 0.0);
     }
     inline CBox footprint([[maybe_unused]] const SLiquidStyle &style, const Record &record) {
         CBox device = project(record.extents_device, record.render_box, record.snapshot_size);
@@ -188,7 +188,7 @@ namespace close_style {
         const std::function<hyprimate::EdgeInput()> &edge_input,
         [[maybe_unused]] const std::function<std::span<const hyprimate::Box>()> &surfaces,
         [[maybe_unused]] const std::function<std::uint64_t()> &seed) {
-        const auto &close = config.close.liquid;
+        const auto &close = config.liquid.close;
         if (!std::isfinite(close.strength) || close.strength <= 0.0) {
             return false;
         }

@@ -26,6 +26,7 @@ SEGMENT = re.compile(r'[a-z][a-z0-9_]*\Z')
 MEMBER = re.compile(r'm_[A-Za-z][A-Za-z0-9]*\Z')
 COLOR = re.compile(r'0x[0-9a-fA-F]{8}\Z')
 TRANSITIONS = ('open', 'close')
+DIRECTIONS = (*TRANSITIONS, 'movement')
 
 
 def literal(value):
@@ -197,8 +198,15 @@ def lua_config(settings):
 
 
 def config_segments(item):
-    """Path under window, without the Lua-only 'options' level; these are the SConfig field names."""
-    return [part for part in item['path'].split('.')[1:] if part != 'options']
+    """SConfig field path. Window-wide switches stay at the top; every Style's options are grouped
+    under that Style as open, close, movement and shared (window.options.<style>), so a Style can be
+    handed only its own settings."""
+    parts = [part for part in item['path'].split('.')[1:] if part != 'options']
+    if len(parts) == 3 and parts[0] in DIRECTIONS:
+        return [parts[1], parts[0], parts[2]]
+    if len(parts) == 2 and parts[0] not in DIRECTIONS:
+        return [parts[0], 'shared', parts[1]]
+    return parts
 
 
 def enum_name(item):
@@ -226,12 +234,18 @@ def type_name(segments):
     if not segments:
         return 'SConfig'
     if segments[0] in TRANSITIONS:
-        return 'STransitionConfig' if len(segments) == 1 else 'STransition' + ''.join(pascal(s) for s in segments[1:])
-    return 'S' + ''.join(pascal(s) for s in segments)
+        return 'STransitionConfig'
+    if segments[0] == 'movement':
+        return 'SMovement'
+    style = 'S' + pascal(segments[0])
+    if len(segments) == 1:
+        return style + 'Settings'
+    # Open and close share one shape per Style.
+    return style + ('Transition' if segments[1] in TRANSITIONS else pascal(segments[1]))
 
 
 def struct_types(settings):
-    """type name -> ordered {field: (kind, type)}; open and close merge into one STransitionConfig shape."""
+    """type name -> ordered {field: (kind, type)}; each Style's open and close merge into one shape."""
     types = {}
     for item in settings:
         segments = config_segments(item)
@@ -259,6 +273,8 @@ def emit_struct(types, name, emitted, out):
     for field, (kind, typ) in types[name].items():
         initializer = '' if typ == 'std::string' else '{}'
         out.append(f'    {typ} {camel(field)}{initializer};')
+    # A Style re-prepares its model parameters only when its settings compare unequal.
+    out.append(f'    bool operator==(const {name} &) const = default;')
     out.append('};')
     out.append('')
 

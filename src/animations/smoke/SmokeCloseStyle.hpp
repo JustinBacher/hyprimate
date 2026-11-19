@@ -29,16 +29,16 @@ namespace close_style {
             style.smoke.seed(next_seed());
         }
         pending.close_data = SSmokeCloseData{
-            .duration = config.close.smoke.duration,
-            .params = {.strength = config.movement.smoke.strength,
-                .turbulence = config.close.smoke.turbulence,
-                .trail = config.movement.smoke.trail,
-                .reform = config.movement.smoke.reform,
-                .mass = config.movement.smoke.mass,
-                .roundness = config.movement.smoke.roundness,
-                .density = config.smoke.density,
-                .variation = config.smoke.variation},
-            .route = hyprimate::smoke_route(config.close.smoke.direction, edge_input()),
+            .duration = config.smoke.close.duration,
+            .params = {.strength = config.smoke.movement.strength,
+                .turbulence = config.smoke.close.turbulence,
+                .trail = config.smoke.movement.trail,
+                .reform = config.smoke.movement.reform,
+                .mass = config.smoke.movement.mass,
+                .roundness = config.smoke.movement.roundness,
+                .density = config.smoke.shared.density,
+                .variation = config.smoke.shared.variation},
+            .route = hyprimate::smoke_route(config.smoke.close.direction, edge_input()),
         };
         pending.style = std::move(style);
         return true;

@@ -43,7 +43,7 @@ bool SClothLiveStyle::open(
     CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window,
     [[maybe_unused]] SClothResources &resources) {
     if (const auto FRAME = hyprimate::resolve_style_open_edge(
-            runtime.edge_input_for(window, true), runtime.m_config.open.cloth)) {
+            runtime.edge_input_for(window, true), runtime.m_config.cloth.open)) {
         entry.open_edge = FRAME->edge;
     }
     const CBox CURRENT = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
@@ -63,7 +63,7 @@ bool SClothLiveStyle::open(
     runtime.m_neighbours.clear();
     runtime.gather_contact_obstacles(window);
     auto *transformer = runtime.acquire_transformer(window);
-    const auto &cloth = runtime.m_config.open.cloth;
+    const auto &cloth = runtime.m_config.cloth.open;
     auto &state = std::get<SClothStyle>(transformer->m_style);
     state.cloth.reset();
     state.cloth.begin(hyprimate::Transition::Open,
@@ -172,7 +172,7 @@ SClothStyle SClothLiveStyle::initial(const Inputs &cloth, [[maybe_unused]] std::
 }
 
 double SClothLiveStyle::strength(const CPluginRuntime &runtime) {
-    return runtime.m_config.movement.cloth.strength;
+    return runtime.m_config.cloth.movement.strength;
 }
 bool SClothLiveStyle::usable(const CPluginRuntime &runtime, [[maybe_unused]] const Resources &resources) {
     const auto PARAMS = inputs(runtime);
@@ -181,7 +181,7 @@ bool SClothLiveStyle::usable(const CPluginRuntime &runtime, [[maybe_unused]] con
 }
 
 SClothLiveStyle::Inputs SClothLiveStyle::inputs(const CPluginRuntime &runtime) {
-    const auto &cloth = runtime.m_config.movement.cloth;
+    const auto &cloth = runtime.m_config.cloth.movement;
     return {.strength = cloth.strength, .flutter = cloth.flutter, .shading = cloth.shading,
         .variation = cloth.variation, .shine = cloth.shine, .springiness = cloth.springiness,
         .gravity = cloth.gravity};

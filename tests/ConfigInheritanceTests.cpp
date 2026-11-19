@@ -72,13 +72,13 @@ int main() {
     registerConfigValues(nullptr, values);
     auto c = readConfig(values);
     // Unset globals must retain each transition's historical default.
-    assert(near(c.open.paper.duration, 0.6));
-    assert(near(c.close.paper.duration, 0.5));
-    assert(near(c.open.cloth.duration, 1.0));
-    assert(near(c.close.cloth.duration, 0.9));
-    assert(near(c.open.bubble.duration, 1.0));
-    assert(near(c.close.bubble.duration, 0.42));
-    assert(near(c.movement.liquid.strength, 0.65));
+    assert(near(c.paper.open.duration, 0.6));
+    assert(near(c.paper.close.duration, 0.5));
+    assert(near(c.cloth.open.duration, 1.0));
+    assert(near(c.cloth.close.duration, 0.9));
+    assert(near(c.bubble.open.duration, 1.0));
+    assert(near(c.bubble.close.duration, 0.42));
+    assert(near(c.liquid.movement.strength, 0.65));
     // Formation-only keys live in the existing opening table, never global/close/movement.
     for (const char* leaf : {"count", "birth_rate", "size_variation", "growth_variation",
              "interaction", "damping", "buoyancy", "linger"}) {
@@ -97,27 +97,27 @@ int main() {
     set("window:open:options:bubble:buoyancy", 0.0F);
     set("window:open:options:bubble:linger", .8F);
     c = readConfig(values);
-    assert(c.open.bubble.count == 12 && near(c.open.bubble.birthRate, 1.7));
-    assert(near(c.open.bubble.sizeVariation, .9) && near(c.open.bubble.growthVariation, .3));
-    assert(near(c.open.bubble.interaction, 1.4) && near(c.open.bubble.damping, 1.8));
-    assert(near(c.open.bubble.buoyancy, 0) && near(c.open.bubble.linger, .8));
-    assert(c.close.bubble.count == 0 && near(c.close.bubble.duration, .42));
+    assert(c.bubble.open.count == 12 && near(c.bubble.open.birthRate, 1.7));
+    assert(near(c.bubble.open.sizeVariation, .9) && near(c.bubble.open.growthVariation, .3));
+    assert(near(c.bubble.open.interaction, 1.4) && near(c.bubble.open.damping, 1.8));
+    assert(near(c.bubble.open.buoyancy, 0) && near(c.bubble.open.linger, .8));
+    assert(c.bubble.close.count == 0 && near(c.bubble.close.duration, .42));
     set("window:open:options:bubble:count", 999LL);
     set("window:open:options:bubble:birth_rate", -1.0F);
     c = readConfig(values);
-    assert(c.open.bubble.count == 160 && near(c.open.bubble.birthRate, .25));
+    assert(c.bubble.open.count == 160 && near(c.bubble.open.birthRate, .25));
 
     set("window:options:paper:duration", 1.7F);
     set("window:options:liquid:strength", 1.2F);
     set("window:options:cloth:flutter", 0.8F);
     set("window:options:bubble:duration", 1.4F);
     c = readConfig(values);
-    assert(near(c.open.paper.duration, 1.7) && near(c.close.paper.duration, 1.7));
-    assert(near(c.open.liquid.strength, 1.2) && near(c.close.liquid.strength, 1.2));
-    assert(near(c.movement.liquid.strength, 1.2));
-    assert(near(c.open.cloth.flutter, 0.8) && near(c.close.cloth.flutter, 0.8));
-    assert(near(c.movement.cloth.flutter, 0.8));
-    assert(near(c.open.bubble.duration, 1.4) && near(c.close.bubble.duration, 1.4));
+    assert(near(c.paper.open.duration, 1.7) && near(c.paper.close.duration, 1.7));
+    assert(near(c.liquid.open.strength, 1.2) && near(c.liquid.close.strength, 1.2));
+    assert(near(c.liquid.movement.strength, 1.2));
+    assert(near(c.cloth.open.flutter, 0.8) && near(c.cloth.close.flutter, 0.8));
+    assert(near(c.cloth.movement.flutter, 0.8));
+    assert(near(c.bubble.open.duration, 1.4) && near(c.bubble.close.duration, 1.4));
 
     // Non-numeric styles and direction-specific options inherit too.
     set("window:options:bubble:shape", std::string("circle"));
@@ -126,23 +126,23 @@ int main() {
     set("window:options:swarm:lone_window_sides", std::string("top,left"));
     set("window:options:liquid:default_animation_edge", std::string("top"));
     c = readConfig(values);
-    assert(c.movement.bubble.shape == Shape::Circle);
-    assert(c.open.liquid.color == 0xff123456U && c.close.liquid.color == 0xff123456U);
-    assert(c.open.liquid.defaultAnimationEdge == DefaultAnimationEdge::Top);
-    assert(c.close.liquid.defaultAnimationEdge == DefaultAnimationEdge::Top);
-    assert(!c.close.liquid.splash);
-    assert(c.open.swarm.loneWindowSides.has(LoneWindowSides::Top));
-    assert(!c.open.swarm.loneWindowSides.has(LoneWindowSides::Bottom));
-    assert(c.close.swarm.loneWindowSides.has(LoneWindowSides::Left));
+    assert(c.bubble.movement.shape == Shape::Circle);
+    assert(c.liquid.open.color == 0xff123456U && c.liquid.close.color == 0xff123456U);
+    assert(c.liquid.open.defaultAnimationEdge == DefaultAnimationEdge::Top);
+    assert(c.liquid.close.defaultAnimationEdge == DefaultAnimationEdge::Top);
+    assert(!c.liquid.close.splash);
+    assert(c.swarm.open.loneWindowSides.has(LoneWindowSides::Top));
+    assert(!c.swarm.open.loneWindowSides.has(LoneWindowSides::Bottom));
+    assert(c.swarm.close.loneWindowSides.has(LoneWindowSides::Left));
     set("window:close:options:liquid:splash", true);
     set("window:open:options:swarm:lone_window_sides", std::string("all"));
     set("window:close:options:liquid:default_animation_edge", std::string("right"));
     c = readConfig(values);
-    assert(c.close.liquid.splash);
-    assert(c.open.liquid.defaultAnimationEdge == DefaultAnimationEdge::Top);
-    assert(c.close.liquid.defaultAnimationEdge == DefaultAnimationEdge::Right);
-    assert(c.open.swarm.loneWindowSides.has(LoneWindowSides::Bottom));
-    assert(!c.close.swarm.loneWindowSides.has(LoneWindowSides::Bottom));
+    assert(c.liquid.close.splash);
+    assert(c.liquid.open.defaultAnimationEdge == DefaultAnimationEdge::Top);
+    assert(c.liquid.close.defaultAnimationEdge == DefaultAnimationEdge::Right);
+    assert(c.swarm.open.loneWindowSides.has(LoneWindowSides::Bottom));
+    assert(!c.swarm.close.loneWindowSides.has(LoneWindowSides::Bottom));
 
     // Liquid and cloth choose opening origins and closing exits independently.
     set("window:open:options:liquid:edge_bounds", std::string("work_area"));
@@ -154,16 +154,16 @@ int main() {
     set("window:close:options:cloth:default_animation_edge", std::string("top"));
     set("window:close:options:cloth:edge_bounds", std::string("screen"));
     c = readConfig(values);
-    assert(c.open.liquid.defaultAnimationEdge == DefaultAnimationEdge::Top);
-    assert(c.open.liquid.edgeBounds == EdgeBounds::WorkArea);
-    assert(c.open.cloth.defaultAnimationEdge == DefaultAnimationEdge::Left);
-    assert(c.open.cloth.edgeBounds == EdgeBounds::Screen);
-    assert(c.close.liquid.side == Side::Right);
-    assert(c.close.liquid.defaultAnimationEdge == DefaultAnimationEdge::Right);
-    assert(c.close.liquid.edgeBounds == EdgeBounds::WorkArea);
-    assert(c.close.cloth.side == Side::Origin);
-    assert(c.close.cloth.defaultAnimationEdge == DefaultAnimationEdge::Top);
-    assert(c.close.cloth.edgeBounds == EdgeBounds::Screen);
+    assert(c.liquid.open.defaultAnimationEdge == DefaultAnimationEdge::Top);
+    assert(c.liquid.open.edgeBounds == EdgeBounds::WorkArea);
+    assert(c.cloth.open.defaultAnimationEdge == DefaultAnimationEdge::Left);
+    assert(c.cloth.open.edgeBounds == EdgeBounds::Screen);
+    assert(c.liquid.close.side == Side::Right);
+    assert(c.liquid.close.defaultAnimationEdge == DefaultAnimationEdge::Right);
+    assert(c.liquid.close.edgeBounds == EdgeBounds::WorkArea);
+    assert(c.cloth.close.side == Side::Origin);
+    assert(c.cloth.close.defaultAnimationEdge == DefaultAnimationEdge::Top);
+    assert(c.cloth.close.edgeBounds == EdgeBounds::Screen);
 
     // Explicit values equal to old defaults still take precedence over global settings.
     set("window:open:options:paper:duration", 0.6F);
@@ -171,10 +171,10 @@ int main() {
     set("window:movement:options:liquid:strength", 0.65F);
     set("window:close:options:cloth:flutter", 0.2F);
     c = readConfig(values);
-    assert(near(c.open.paper.duration, 0.6) && near(c.close.paper.duration, 0.5));
-    assert(near(c.movement.liquid.strength, 0.65));
-    assert(near(c.open.liquid.strength, 1.2));
-    assert(near(c.close.cloth.flutter, 0.2) && near(c.open.cloth.flutter, 0.8));
+    assert(near(c.paper.open.duration, 0.6) && near(c.paper.close.duration, 0.5));
+    assert(near(c.liquid.movement.strength, 0.65));
+    assert(near(c.liquid.open.strength, 1.2));
+    assert(near(c.cloth.close.flutter, 0.2) && near(c.cloth.open.flutter, 0.8));
 
     set("window:options:swarm:count", 123LL);
     set("window:options:swarm:speed", 2100.0F);
@@ -185,11 +185,11 @@ int main() {
     set("window:options:swarm:agility", 0.8F);
     set("window:movement:options:swarm:agility", 0.5F);
     c = readConfig(values);
-    assert(c.open.swarm.count == 250 && c.close.swarm.count == 123 && c.movement.swarm.count == 123);
-    assert(near(c.open.swarm.speed, 2100) && near(c.close.swarm.speed, 900));
-    assert(near(c.movement.swarm.speed, 2100));
-    assert(c.open.swarm.sprite == "/tmp/open.png" && c.close.swarm.sprite == "/tmp/custom sprite.png");
-    assert(c.movement.swarm.sprite == "/tmp/custom sprite.png");
-    assert(near(c.open.swarm.agility, 0.8) && near(c.close.swarm.agility, 0.8));
-    assert(near(c.movement.swarm.agility, 0.5));
+    assert(c.swarm.open.count == 250 && c.swarm.close.count == 123 && c.swarm.movement.count == 123);
+    assert(near(c.swarm.open.speed, 2100) && near(c.swarm.close.speed, 900));
+    assert(near(c.swarm.movement.speed, 2100));
+    assert(c.swarm.open.sprite == "/tmp/open.png" && c.swarm.close.sprite == "/tmp/custom sprite.png");
+    assert(c.swarm.movement.sprite == "/tmp/custom sprite.png");
+    assert(near(c.swarm.open.agility, 0.8) && near(c.swarm.close.agility, 0.8));
+    assert(near(c.swarm.movement.agility, 0.5));
 }

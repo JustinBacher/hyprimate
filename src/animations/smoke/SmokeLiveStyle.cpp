@@ -56,10 +56,10 @@ bool SSmokeLiveStyle::open(
     auto *transformer = runtime.acquire_transformer(window);
     auto &state = std::get<SSmokeStyle>(transformer->m_style);
     state.smoke.begin(hyprimate::Transition::Open,
-        runtime.m_config.open.smoke.duration,
+        runtime.m_config.smoke.open.duration,
         size,
         hyprimate::smoke_route(
-            runtime.m_config.open.smoke.direction, runtime.edge_input_for(window, true)));
+            runtime.m_config.smoke.open.direction, runtime.edge_input_for(window, true)));
     // Smoke owns geometry and opacity, but focus, workspace and user opacity remain
     // compositor-owned.
     g_pHyprRenderer->damageBox(capture);
@@ -106,19 +106,19 @@ void SSmokeLiveStyle::step(CPluginRuntime &runtime,
     if (!enabled) {
         smoke.stop_motion();
     }
-    const auto &options = runtime.m_config.movement.smoke;
+    const auto &options = runtime.m_config.smoke.movement;
     smoke.advance(elapsed,
         size,
         {.strength = enabled ? options.strength : 0,
             .turbulence =
-                smoke.opening() ? runtime.m_config.open.smoke.turbulence : options.turbulence,
+                smoke.opening() ? runtime.m_config.smoke.open.turbulence : options.turbulence,
             .trail = options.trail,
             .reform = options.reform,
             .settle_speed = options.settleSpeed,
             .mass = options.mass,
             .roundness = options.roundness,
-            .density = runtime.m_config.smoke.density,
-            .variation = runtime.m_config.smoke.variation});
+            .density = runtime.m_config.smoke.shared.density,
+            .variation = runtime.m_config.smoke.shared.variation});
     if (!smoke.active()) {
         style.field.reset();
     }
@@ -154,7 +154,7 @@ SSmokeStyle SSmokeLiveStyle::initial([[maybe_unused]] const Inputs &inputs, std:
 }
 
 double SSmokeLiveStyle::strength(const CPluginRuntime &runtime) {
-    return runtime.m_config.movement.smoke.strength;
+    return runtime.m_config.smoke.movement.strength;
 }
 
 bool SSmokeLiveStyle::usable([[maybe_unused]] const CPluginRuntime &runtime, [[maybe_unused]] const Resources &resources) {

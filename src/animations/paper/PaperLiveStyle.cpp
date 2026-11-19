@@ -39,7 +39,7 @@ bool SPaperLiveStyle::open(CPluginRuntime &runtime,
     [[maybe_unused]] CPluginRuntime::STracked &tracked,
     const PHLWINDOW &window, [[maybe_unused]] SPaperResources &resources) {
     const CBox CAPTURE = window->getFullWindowBoundingBox();
-    const auto &paper = runtime.m_config.open.paper;
+    const auto &paper = runtime.m_config.paper.open;
     auto *transformer = runtime.acquire_transformer(window);
     auto &state = std::get<SPaperStyle>(transformer->m_style);
     state.crumple.reset();

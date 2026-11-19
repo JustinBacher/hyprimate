@@ -24,7 +24,7 @@ struct SLiquidModule {
 hyprimate::LiquidPose live_pose(const SLiquidStyle &state);
 
 inline hyprimate::LiquidParams liquid_inputs(const hyprimate::config::SConfig &config) {
-    const auto &liquid = config.movement.liquid;
+    const auto &liquid = config.liquid.movement;
     return {.viscosity = liquid.viscosity, .elasticity = liquid.elasticity,
         .momentum = liquid.momentum, .variation = liquid.variation};
 }

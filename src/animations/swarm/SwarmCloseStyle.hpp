@@ -24,13 +24,13 @@ namespace close_style {
         [[maybe_unused]] const std::function<std::span<const hyprimate::Box>()> &obstacles,
         const std::function<std::uint64_t()> &next_seed) {
         const auto MONITOR = window->m_monitor.lock();
-        const auto SIDES = swarm_sides(edge_input(), config.close.swarm.loneWindowSides);
+        const auto SIDES = swarm_sides(edge_input(), config.swarm.close.loneWindowSides);
         const auto SEED = next_seed();
         if (!MONITOR || SIDES.empty()) {
             return false;
         }
         pending.close_data = SSwarmCloseData{
-            .params = swarm_params(config.close.swarm),
+            .params = swarm_params(config.swarm.close),
             .seed = SEED,
             .placement =
                 {
@@ -40,7 +40,7 @@ namespace close_style {
                     .screen = to_box(MONITOR->logicalBox()),
                 },
             .sides = SIDES,
-            .creature = swarm_creature(config.close.swarm),
+            .creature = swarm_creature(config.swarm.close),
         };
         pending.style = std::move(style);
         return true;

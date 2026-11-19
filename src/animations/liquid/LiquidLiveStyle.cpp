@@ -144,12 +144,12 @@ bool SLiquidLiveStyle::open(
     CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window,
     [[maybe_unused]] SLiquidResources &resources) {
     const auto FRAME = hyprimate::resolve_style_open_edge(
-        runtime.edge_input_for(window, true), runtime.m_config.open.liquid);
+        runtime.edge_input_for(window, true), runtime.m_config.liquid.open);
     if (!FRAME) {
         return false;
     }
     entry.open_edge = FRAME->edge;
-    const auto &open = runtime.m_config.open.liquid;
+    const auto &open = runtime.m_config.liquid.open;
     if (open.strength <= 0.0) {
         return false;
     }
@@ -214,7 +214,7 @@ void SLiquidLiveStyle::step(CPluginRuntime &runtime,
         elapsed,
         size,
         hyprimate::LiquidStrength{runtime.movement_strength()},
-        hyprimate::LiquidDrive{enabled ? runtime.m_config.open.liquid.emergeDrag : 0.0});
+        hyprimate::LiquidDrive{enabled ? runtime.m_config.liquid.open.emergeDrag : 0.0});
     refresh_pose(state, size);
     drive_box(state, transformer.m_window);
 }
@@ -339,7 +339,7 @@ SLiquidStyle SLiquidLiveStyle::initial(const Inputs &liquid, std::uint64_t seed)
 }
 
 double SLiquidLiveStyle::strength(const CPluginRuntime &runtime) {
-    return runtime.m_config.movement.liquid.strength;
+    return runtime.m_config.liquid.movement.strength;
 }
 bool SLiquidLiveStyle::usable(const CPluginRuntime &runtime, [[maybe_unused]] const Resources &resources) {
     const auto PARAMS = inputs(runtime);
@@ -357,8 +357,8 @@ void SLiquidLiveStyle::prepare(CPluginRuntime &runtime, Resources &resources, [[
         };
         return CHyprColor{channel(16), channel(8), channel(0), channel(24)};
     };
-    resources.open_solid.set_color(color(runtime.m_config.open.liquid.color));
-    resources.close_solid.set_color(color(runtime.m_config.close.liquid.color));
+    resources.open_solid.set_color(color(runtime.m_config.liquid.open.color));
+    resources.close_solid.set_color(color(runtime.m_config.liquid.close.color));
 }
 bool SLiquidLiveStyle::movement_requested(const hyprimate::TrackDecision &decision) noexcept {
     return decision.translated;

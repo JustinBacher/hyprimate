@@ -143,9 +143,9 @@ Render::SWindowTransformBuffer render_live(SSwarmStyle &state,
 bool SSwarmLiveStyle::open(
     CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window, SSwarmResources &resources) {
     const auto SIDES = swarm_sides(runtime.edge_input_for(window, true),
-        runtime.m_config.open.swarm.loneWindowSides);
+        runtime.m_config.swarm.open.loneWindowSides);
     const auto PLACEMENT = placement_of(window, true);
-    const auto CREATURE = swarm_creature(runtime.m_config.open.swarm);
+    const auto CREATURE = swarm_creature(runtime.m_config.swarm.open);
     if (!PLACEMENT || SIDES.empty() || (resources.sprites->sheet(CREATURE) == nullptr)) {
         return false;
     }
@@ -155,7 +155,7 @@ bool SSwarmLiveStyle::open(
     state.creature = CREATURE;
     state.swarm.reset();
     state.swarm.begin(Transition::Open,
-        swarm_params(runtime.m_config.open.swarm),
+        swarm_params(runtime.m_config.swarm.open),
         runtime.m_next_seed++,
         *PLACEMENT,
         SIDES);
@@ -189,9 +189,9 @@ void SSwarmLiveStyle::movement(CPluginRuntime &runtime,
     state.capture_workspace_frame = decision.workspace_moving;
     if (moving && !state.swarm.active()) {
         // Formed where the window was, so the first update carries this frame's movement.
-        state.creature = swarm_creature(runtime.m_config.movement.swarm);
+        state.creature = swarm_creature(runtime.m_config.swarm.movement);
         state.swarm.reset();
-        state.swarm.begin_movement(swarm_params(runtime.m_config.movement.swarm),
+        state.swarm.begin_movement(swarm_params(runtime.m_config.swarm.movement),
             runtime.m_next_seed++,
             {
                 .capture = decision.previous_capture,
@@ -267,7 +267,7 @@ double SSwarmLiveStyle::strength([[maybe_unused]] const CPluginRuntime &runtime)
     return 1.0;
 }
 bool SSwarmLiveStyle::usable(const CPluginRuntime &runtime, const Resources &resources) {
-    return resources.sprites->sheet(swarm_creature(runtime.m_config.movement.swarm)) != nullptr;
+    return resources.sprites->sheet(swarm_creature(runtime.m_config.swarm.movement)) != nullptr;
 }
 
 SSwarmLiveStyle::Inputs SSwarmLiveStyle::inputs([[maybe_unused]] const CPluginRuntime &runtime) { return {}; }

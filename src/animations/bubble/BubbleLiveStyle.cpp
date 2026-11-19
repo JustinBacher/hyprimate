@@ -110,7 +110,7 @@ bool SBubbleLiveStyle::open(
     }
     auto *transformer = runtime.acquire_transformer(window);
     auto &state = std::get<SBubbleStyle>(transformer->m_style);
-    const auto &options = runtime.m_config.open.bubble;
+    const auto &options = runtime.m_config.bubble.open;
     state.bubble.begin(hyprimate::Transition::Open,
         hyprimate::BubbleDuration{options.duration},
         runtime.m_next_seed++,
@@ -188,7 +188,7 @@ void SBubbleLiveStyle::step(CPluginRuntime &runtime,
             .h = CURRENT.h,
         };
     }
-    const auto &options = runtime.m_config.movement.bubble;
+    const auto &options = runtime.m_config.bubble.movement;
     state.bubble.advance(elapsed,
         size,
         body,
@@ -243,7 +243,7 @@ SBubbleStyle SBubbleLiveStyle::initial([[maybe_unused]] const Inputs &inputs, st
 }
 
 double SBubbleLiveStyle::strength(const CPluginRuntime &runtime) {
-    return runtime.m_config.movement.bubble.strength;
+    return runtime.m_config.bubble.movement.strength;
 }
 bool SBubbleLiveStyle::usable([[maybe_unused]] const CPluginRuntime &runtime, [[maybe_unused]] const Resources &resources) {
     return true;

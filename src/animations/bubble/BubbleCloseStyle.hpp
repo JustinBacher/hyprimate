@@ -20,7 +20,7 @@ namespace close_style {
         [[maybe_unused]] const std::function<std::span<const hyprimate::Box>()> &obstacles,
         const std::function<std::uint64_t()> &next_seed) {
         pending.close_data =
-            SBubbleCloseData{.duration = config.close.bubble.duration, .seed = next_seed()};
+            SBubbleCloseData{.duration = config.bubble.close.duration, .seed = next_seed()};
         pending.style = std::move(style);
         return true;
     }
