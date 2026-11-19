@@ -80,7 +80,6 @@ add_library(hyprimate-core STATIC
     src/animations/shared/EdgeTransition.cpp
     src/animations/shared/SheetFrame.cpp
     src/workspace/WorkspaceTransition.cpp
-    src/workspace/rotation/RotationGeometry.cpp
     src/workspace/WorkspaceController.cpp
     src/WindowTracker.cpp
 )
@@ -100,7 +99,6 @@ add_library(hyprimate SHARED
     src/animations/shared/SolidFill.cpp
     src/workspace/WorkspaceCapture.cpp
     src/workspace/WorkspaceAnimation.cpp
-    src/workspace/rotation/RotationRenderer.cpp
 )
 set_target_properties(hyprimate PROPERTIES PREFIX "" INTERPROCEDURAL_OPTIMIZATION FALSE)
 add_dependencies(hyprimate generate-config)
@@ -163,6 +161,10 @@ set(HYPRIMATE_STYLES liquid paper cloth swarm bubble smoke)
 foreach(style IN LISTS HYPRIMATE_STYLES)
     include(src/animations/${style}/Style.cmake)
 endforeach()
+set(HYPRIMATE_WORKSPACE_STYLES rotation)
+foreach(style IN LISTS HYPRIMATE_WORKSPACE_STYLES)
+    include(src/workspace/${style}/Style.cmake)
+endforeach()
 if(BUILD_TESTING)
     add_test(NAME config-docs-check COMMAND ${Python3_EXECUTABLE} ${CONFIG_GENERATOR} --schema ${CONFIG_SCHEMA} --readme ${CMAKE_CURRENT_SOURCE_DIR}/README.md --lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/nested/hyprland.lua --check)
     add_test(NAME config-generator-tests COMMAND ${Python3_EXECUTABLE} -m unittest discover -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p test_config_generator.py)
@@ -188,16 +190,6 @@ if(BUILD_TESTING)
     target_include_directories(workspace-controller-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME workspace-controller-tests COMMAND workspace-controller-tests)
 
-    add_executable(rotation-geometry-tests src/workspace/rotation/tests/RotationGeometryTests.cpp)
-    target_link_libraries(rotation-geometry-tests PRIVATE hyprimate-core)
-    target_include_directories(rotation-geometry-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
-    add_test(NAME rotation-geometry-tests COMMAND rotation-geometry-tests)
-
-    add_executable(rotation-renderer-tests src/workspace/rotation/tests/RotationRendererTests.cpp)
-    target_include_directories(rotation-renderer-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
-    target_link_libraries(rotation-renderer-tests PRIVATE hyprimate-core PkgConfig::TEST_EGL)
-    add_test(NAME rotation-renderer-tests COMMAND rotation-renderer-tests)
-    set_tests_properties(rotation-renderer-tests PROPERTIES ENVIRONMENT "EGL_PLATFORM=surfaceless")
 
     add_executable(window-tracker-tests tests/WindowTrackerTests.cpp)
     target_link_libraries(window-tracker-tests PRIVATE hyprimate-core)

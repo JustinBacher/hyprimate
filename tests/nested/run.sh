@@ -67,7 +67,16 @@ while read -r id _; do
 done < <(loginctl list-sessions --no-legend)
 [[ -n $session ]] || { echo "no active wayland session on seat0 for $USER" >&2; exit 1; }
 
-log=${XDG_RUNTIME_DIR:-/tmp}/hyprimate-nested.log
+# Open the nested compositor's window on host workspace 7 without taking focus, so runs don't interrupt
+# whoever is using the host. Session-only host rule (lost on host reload, re-added each run).
+# HYPRIMATE_NESTED_WORKSPACE picks another workspace; HYPRIMATE_NESTED_FOCUS=1 opens it normally.
+if [[ ${HYPRIMATE_NESTED_FOCUS:-0} != 1 ]]; then
+    quiet_rule="hl.window_rule({ name = \"hyprimate-nested-quiet\", match = { class = \"^(aquamarine)\$\" },"
+    quiet_rule+=" workspace = \"${HYPRIMATE_NESTED_WORKSPACE:-7} silent\", no_initial_focus = true })"
+    [[ $(hyprctl eval "$quiet_rule") == ok ]] || echo "warning: could not add the quiet nested-window rule" >&2
+fi
+
+log=${HYPRIMATE_NESTED_LOG:-${XDG_RUNTIME_DIR:-/tmp}/hyprimate-nested.log}
 env XDG_SESSION_ID="$session" XDG_VTNR="$vt" HYPRLAND_NO_SD_VARS=1 HYPRLAND_NO_SD_NOTIFY=1 \
     Hyprland -c "$config" >"$log" 2>&1 &
 pid=$!

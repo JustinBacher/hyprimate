@@ -35,6 +35,8 @@
 #include "workspace/WorkspaceAnimation.hpp"
 #include "workspace/WorkspaceCapture.hpp"
 #include "workspace/WorkspaceController.hpp"
+#include "workspace/WorkspaceDirection.hpp"
+#include "workspace/WorkspaceIdentity.hpp"
 #include "workspace/rotation/RotationRenderer.hpp"
 
 namespace {
@@ -135,16 +137,6 @@ namespace {
         return count == 1 ? result : nullptr;
     }
 
-    std::int64_t composition_id(const PHLMONITOR &monitor) {
-        if (!monitor) {
-            return 0;
-        }
-        const auto normal = reinterpret_cast<std::uintptr_t>(monitor->m_activeWorkspace.get());
-        const auto special =
-            reinterpret_cast<std::uintptr_t>(monitor->m_activeSpecialWorkspace.get());
-        auto mixed = normal ^ (special + 0x9e3779b97f4a7c15ULL + (normal << 6U) + (normal >> 2U));
-        return static_cast<std::int64_t>(mixed == 0 ? 1 : mixed);
-    }
 
     std::optional<std::uint32_t> numbered(const PHLWORKSPACE &workspace) {
         if (!workspace) {
@@ -154,11 +146,6 @@ namespace {
         return id;
     }
 
-    Direction direction_between(const PHLWORKSPACE &source, const PHLWORKSPACE &destination) {
-        const auto from = numbered(source);
-        const auto to = numbered(destination);
-        return from && to && *to < *from ? Direction::Backward : Direction::Forward;
-    }
 }  // namespace
 
 class CWorkspaceAnimation::Impl {
@@ -212,6 +199,10 @@ class CWorkspaceAnimation::Impl {
         bool ready = false;
         bool special = false;
     };
+    std::int64_t composition_id(const PHLMONITOR &monitor) {
+        return monitor ? m_compositions.get(monitor->m_activeWorkspace, monitor->m_activeSpecialWorkspace) : 0;
+    }
+
 
     bool install(std::string &error);
     void shutdown();
@@ -272,6 +263,7 @@ class CWorkspaceAnimation::Impl {
     std::vector<PHLMONITORREF> m_suppressed;
     PHLMONITORREF m_gestureMonitor;
     std::vector<std::unique_ptr<MonitorState>> m_states;
+    hyprimate::workspace::CompositionIdentities<PHLWORKSPACE, PHLWORKSPACEREF> m_compositions;
     Controller m_controller;
     hyprimate::workspace::RotationRenderer m_rotation;
     WorkspaceCaptureScope::Scratch m_scratch;
@@ -964,10 +956,8 @@ void CWorkspaceAnimation::Impl::finish(std::vector<Snapshot> &snapshots) {
             fromWorkspace = fromDestination ? entry->destinationWorkspace.lock() : entry->sourceWorkspace.lock();
             fromSpecial = fromDestination ? entry->destinationSpecial : entry->sourceSpecial;
         }
-        const auto direction =
-            fromSpecial != nowSpecial
-                ? (nowSpecial ? Direction::Forward : Direction::Backward)
-                : direction_between(fromWorkspace, item.monitor->m_activeWorkspace);
+        const auto direction = hyprimate::workspace::direction_between(numbered(fromWorkspace),
+            numbered(item.monitor->m_activeWorkspace), fromSpecial, nowSpecial);
         const auto start = m_controller.begin(
             key, item.identity, nowIdentity, direction, m_style, m_duration, m_curve);
         if (start == Controller::Start::Native) {
@@ -1069,9 +1059,7 @@ void CWorkspaceAnimation::Impl::pre_render(const PHLMONITOR &monitor) {
         damage(monitor);
         return;
     }
-    const auto result = model->presented
-        ? m_controller.advance(key, std::chrono::duration<double>(now - entry->last).count())
-        : Controller::Advance::None;
+    const auto result = m_controller.advance(key, std::chrono::duration<double>(now - entry->last).count());
     entry->last = now;
     if (result == Controller::Advance::Finished) {
         erase_state(monitor);

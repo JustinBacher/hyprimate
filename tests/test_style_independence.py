@@ -9,8 +9,8 @@ INCLUDE = re.compile(r'^\s*#\s*include\s*(["<])([^">]+)[">]', re.MULTILINE)
 SOURCE_EXTENSIONS = {'.h', '.hh', '.hpp', '.hxx', '.c', '.cc', '.cpp', '.cxx'}
 
 
-def include_violations(source_root):
-    animations = source_root / 'animations'
+def include_violations(source_root, category='animations'):
+    animations = source_root / category
     styles = {path.name for path in animations.iterdir()
               if path.is_dir() and (path / 'Style.cmake').is_file()}
     violations = []
@@ -36,8 +36,8 @@ def include_violations(source_root):
                     violations.append(f'{source.relative_to(source_root)}:{line}: {name} ({owner} -> {parts[0]})')
     return violations
 
-def configuration_violations(source_root):
-    animations = source_root / 'animations'
+def configuration_violations(source_root, category='animations'):
+    animations = source_root / category
     styles = {path.name for path in animations.iterdir()
               if path.is_dir() and (path / 'Style.cmake').is_file()}
     forbidden = re.compile(rb'SConfig|m_config')
@@ -90,6 +90,25 @@ class StyleIndependenceTests(unittest.TestCase):
     def test_repository_style_configuration_is_independent(self):
         violations = configuration_violations(ROOT / 'src')
         self.assertFalse(violations, '\n' + '\n'.join(violations))
+
+    def test_workspace_style_dependencies_and_configuration(self):
+        source_root = ROOT / 'src'
+        violations = (include_violations(source_root, 'workspace') +
+                      configuration_violations(source_root, 'workspace'))
+        self.assertFalse(violations, '\n' + '\n'.join(violations))
+
+    def test_workspace_independence_rules_detect_violations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source_root = Path(tmp) / 'src'
+            workspace = source_root / 'workspace'
+            for name in ('rotation', 'other'):
+                (workspace / name).mkdir(parents=True)
+                (workspace / name / 'Style.cmake').touch()
+            (workspace / 'rotation' / 'Style.hpp').touch()
+            (workspace / 'other' / 'Style.hpp').write_text(
+                '#include "../rotation/Style.hpp"\nSConfig config;\n')
+            self.assertEqual(len(include_violations(source_root, 'workspace')), 1)
+            self.assertEqual(len(configuration_violations(source_root, 'workspace')), 1)
 
     def test_runtime_does_not_name_styles(self):
         violations = runtime_style_violations(ROOT / 'src')

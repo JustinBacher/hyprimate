@@ -70,10 +70,10 @@ namespace {
         using Style = hyprimate::workspace::GapFillStyle;
         hyprimate::workspace::GapFill gap;
         switch (config.workspace.rotation.gapFillStyle) {
-            case hyprimate::config::GapFillStyle::Morph: gap.style = Style::Morph; break;
-            case hyprimate::config::GapFillStyle::Background: gap.style = Style::Background; break;
-            case hyprimate::config::GapFillStyle::Wallpaper: gap.style = Style::Wallpaper; break;
-            case hyprimate::config::GapFillStyle::Still: gap.style = Style::Still; break;
+            case hyprimate::config::RotationGapFillStyle::Morph: gap.style = Style::Morph; break;
+            case hyprimate::config::RotationGapFillStyle::Background: gap.style = Style::Background; break;
+            case hyprimate::config::RotationGapFillStyle::Wallpaper: gap.style = Style::Wallpaper; break;
+            case hyprimate::config::RotationGapFillStyle::Still: gap.style = Style::Still; break;
         }
         const auto color = color_from_argb(config.workspace.rotation.gapFillColor);
         gap.color = {static_cast<float>(color.r * color.a), static_cast<float>(color.g * color.a),

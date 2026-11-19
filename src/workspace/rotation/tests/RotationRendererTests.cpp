@@ -49,18 +49,11 @@ namespace {
         std::array<GLint, 13> m_uniforms{};
     };
     using hyprimate::workspace::GapFill;
-    namespace rotation = hyprimate::workspace::rotation;
     bool TestRenderer::initialize() {
         m_program = gl_harness::build_program(hyprimate::workspace::VERTEX_SHADER,
             hyprimate::workspace::FRAGMENT_SHADER);
         if (!m_program) return false;
-        const std::array<const char *, 13> names{"sourceImage", "destinationImage", "sourceWall",
-            "destinationWall", "sourceInverse", "destinationInverse", "size", "progress", "direction",
-            "blurRadius", "style", "matching", "gapColor"};
-        for (std::size_t i = 0; i < names.size(); ++i) {
-            m_uniforms[i] = glGetUniformLocation(m_program, names[i]);
-            if (m_uniforms[i] < 0) return false;
-        }
+        if (!hyprimate::workspace::rotationUniforms(m_program, m_uniforms)) return false;
         glGenVertexArrays(1, &m_vao);
         return m_vao != 0;
     }
@@ -71,11 +64,7 @@ namespace {
     bool TestRenderer::drawRaw(GLuint src, GLuint dst, GLuint out, GLuint sourceFramebuffer,
         GLuint presentationFramebuffer, int width, int height, double position, Direction direction,
         const GapFill &gap, bool matchingWallpaper, GLuint sourceWallpaper, GLuint destinationWallpaper) {
-        if (!m_program || !src || !dst || !out || !sourceWallpaper || !destinationWallpaper ||
-            src == dst || src == out || dst == out || out == sourceWallpaper || out == destinationWallpaper ||
-            !sourceFramebuffer || !presentationFramebuffer || sourceFramebuffer == presentationFramebuffer ||
-            width <= 0 || height <= 0 || !std::isfinite(position) || position < 0 || position > 1) return false;
-        const auto frame = rotation::make_frame(width, height, position, direction);
+        bool result = false;
         GLint readFramebuffer = 0, drawFramebuffer = 0, program = 0, vao = 0, active = 0;
         std::array<GLint, 4> textures{}, samplers{}, viewport{};
         std::array<GLboolean, 4> mask{};
@@ -89,31 +78,18 @@ namespace {
         const std::array<GLenum, 5> caps{GL_SCISSOR_TEST, GL_STENCIL_TEST, GL_DEPTH_TEST, GL_CULL_FACE, GL_BLEND};
         std::array<GLboolean, 5> enabled{};
         for (std::size_t i = 0; i < caps.size(); ++i) { enabled[i] = glIsEnabled(caps[i]); glDisable(caps[i]); }
-        const std::array<GLuint, 4> inputs{src, dst, sourceWallpaper, destinationWallpaper};
-        for (std::size_t i = 0; i < inputs.size(); ++i) {
+        constexpr std::size_t units = 4;
+        for (std::size_t i = 0; i < units; ++i) {
             glActiveTexture(GL_TEXTURE0 + static_cast<GLenum>(i));
             glGetIntegerv(GL_TEXTURE_BINDING_2D, &textures[i]);
             glGetIntegerv(GL_SAMPLER_BINDING, &samplers[i]);
-            glBindSampler(static_cast<GLuint>(i), 0);
-            glBindTexture(GL_TEXTURE_2D, inputs[i]);
         }
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, presentationFramebuffer);
         glViewport(0, 0, width, height);
-        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        glUseProgram(m_program);
-        for (std::size_t i = 0; i < 4; ++i) glUniform1i(m_uniforms[i], static_cast<GLint>(i));
-        glUniformMatrix3fv(m_uniforms[4], 1, GL_FALSE, frame.source.data());
-        glUniformMatrix3fv(m_uniforms[5], 1, GL_FALSE, frame.destination.data());
-        glUniform2f(m_uniforms[6], static_cast<float>(width), static_cast<float>(height));
-        glUniform1f(m_uniforms[7], static_cast<float>(position));
-        glUniform1f(m_uniforms[8], direction == Direction::Forward ? 1.0F : -1.0F);
-        glUniform1f(m_uniforms[9], std::isfinite(gap.blur) ? std::clamp(gap.blur, 0.0F, 64.0F) : 0.0F);
-        glUniform1i(m_uniforms[10], static_cast<int>(gap.style));
-        glUniform1i(m_uniforms[11], matchingWallpaper ? 1 : 0);
-        glUniform4fv(m_uniforms[12], 1, gap.color.data());
-        glBindVertexArray(m_vao);
-        glDrawArrays(GL_TRIANGLES, 0, 3);
-        for (std::size_t i = 0; i < inputs.size(); ++i) {
+        result = hyprimate::workspace::drawRotation(m_program, m_vao, m_uniforms, src, dst, out,
+            sourceFramebuffer, presentationFramebuffer, width, height, position, direction, gap,
+            matchingWallpaper, sourceWallpaper, destinationWallpaper);
+        for (std::size_t i = 0; i < units; ++i) {
             glActiveTexture(GL_TEXTURE0 + static_cast<GLenum>(i));
             glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(textures[i]));
             glBindSampler(static_cast<GLuint>(i), static_cast<GLuint>(samplers[i]));
@@ -126,7 +102,7 @@ namespace {
         glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
         glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(readFramebuffer));
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(drawFramebuffer));
-        return true;
+        return result;
     }
 
     GLuint program() {

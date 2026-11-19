@@ -1,10 +1,13 @@
 #include <cmath>
 #include <limits>
+#include <memory>
 
 #include "Check.hpp"
 #include "animations/shared/Core.hpp"
 #include "workspace/WorkspaceCapturePolicy.hpp"
 #include "workspace/WorkspaceController.hpp"
+#include "workspace/WorkspaceDirection.hpp"
+#include "workspace/WorkspaceIdentity.hpp"
 
 using hyprimate::workspace::Direction;
 using hyprimate::workspace::WorkspaceController;
@@ -13,6 +16,35 @@ int main() {
     using Style = WorkspaceController::Style;
     using Start = WorkspaceController::Start;
     using Advance = WorkspaceController::Advance;
+    using hyprimate::workspace::direction_between;
+    CHECK(direction_between(1, 2, false, false) == Direction::Forward);
+    CHECK(direction_between(2, 1, false, false) == Direction::Backward);
+    CHECK(direction_between({}, 1, false, false) == Direction::Forward);
+    CHECK(direction_between(2, 1, false, true) == Direction::Forward);
+    CHECK(direction_between(1, 2, true, false) == Direction::Backward);
+    {
+        using Ref = std::shared_ptr<int>;
+        hyprimate::workspace::CompositionIdentities<Ref, std::weak_ptr<int>> identities;
+        int address = 1;
+        Ref original(&address, [](int *) {});
+        Ref special = std::make_shared<int>(2);
+        const auto first = identities.get(original, {});
+        CHECK(identities.get(original, {}) == first);
+        CHECK(identities.get(original, special) != first);
+        Ref destination = std::make_shared<int>(3);
+        const auto destination_id = identities.get(destination, {});
+        WorkspaceController turn;
+        CHECK(turn.begin(1, first, destination_id, Direction::Forward, Style::Rotation, 0.5) == Start::Capture);
+        turn.presented(1);
+        original.reset();
+        Ref replacement(&address, [](int *) {});
+        const auto replacement_id = identities.get(replacement, {});
+        CHECK(replacement_id != first);
+        CHECK(identities.get(replacement, special) != first);
+        CHECK(identities.get({}, replacement) != replacement_id);
+        CHECK(identities.get(replacement, special) != identities.get(special, replacement));
+        CHECK(turn.begin(1, destination_id, replacement_id, Direction::Forward, Style::Rotation, 0.5) == Start::Pending);
+    }
     const auto finish = [](WorkspaceController &controller, WorkspaceController::Monitor monitor) {
         auto result = Advance::None;
         for (int i = 0; i < 20 && result == Advance::None; ++i)
@@ -25,6 +57,8 @@ int main() {
     WorkspaceController controller;
     const auto quadratic = [](double t) { return t * t; };
     CHECK(controller.begin(9, 1, 2, Direction::Forward, Style::Rotation, 1.0, quadratic) == Start::Capture);
+    CHECK(controller.advance(9, 0.25) == Advance::None);
+    CHECK(controller.state(9)->transition.progress() == 0.0);
     controller.presented(9);
     controller.advance(9, 0.25);
     CHECK(std::abs(controller.state(9)->transition.progress() - 0.0625) < 1e-6);

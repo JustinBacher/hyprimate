@@ -120,6 +120,21 @@ class ConfigGeneratorTests(unittest.TestCase):
                 self.assertNotIn(f'value == "{choice}"', registration)
         self.assertIn('config.workspace.rotation.duration = detail::clamp_float(values.m_workspaceRotationDuration->value(), 0.1F, 3.0F);', header)
 
+    def test_workspace_option_enums_are_style_scoped(self):
+        rotation = next(item for item in SCHEMA if item['path'] == 'workspace.options.rotation.gap_fill_style')
+        other = dict(rotation, path='workspace.options.other.gap_fill_style',
+                     member='m_workspaceOtherGapFillStyle', choices=['solid', 'clear'], default='solid')
+        header = GEN.config_header(SCHEMA + [other])
+        self.assertIn('enum class RotationGapFillStyle : std::uint8_t { Morph, Background, Wallpaper, Still };', header)
+        self.assertIn('enum class OtherGapFillStyle : std::uint8_t { Solid, Clear };', header)
+        self.assertIn('inline constexpr std::array WORKSPACE_STYLES{WorkspaceStyle::Rotation};', header)
+        styles = [dict(item) for item in SCHEMA]
+        selection = next(item for item in styles if item['path'] == 'workspace.style')
+        selection['choices'] = ['rotation', 'other']
+        expanded = GEN.config_header(styles + [other])
+        self.assertIn('inline constexpr std::array WORKSPACE_STYLES{WorkspaceStyle::Rotation, WorkspaceStyle::Other};',
+                      expanded)
+
     def test_inheritance_expansion_is_limited_to_window(self):
         items = json.loads(SCHEMA_PATH.read_text())
         extra = {'path': 'workspace.open.options.rotation.duration', 'member': 'm_workspaceOpenRotationDuration',

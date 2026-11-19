@@ -212,7 +212,11 @@ def config_segments(item):
 
 def enum_name(item):
     parts = item['path'].split('.')
-    return 'WorkspaceStyle' if parts == ['workspace', 'style'] else pascal(parts[-1])
+    if parts == ['workspace', 'style']:
+        return 'WorkspaceStyle'
+    if len(parts) >= 4 and parts[:2] == ['workspace', 'options']:
+        return pascal(parts[2]) + pascal(parts[-1])
+    return pascal(parts[-1])
 
 
 def _parse_name(item):
@@ -283,7 +287,7 @@ def emit_struct(types, name, emitted, out):
 
 def config_header(settings):
     out = ['// Generated from config/settings.json; do not edit.', '#pragma once', '',
-           '#include <algorithm>', '#include <cmath>', '#include <cstdint>', '#include <expected>',
+           '#include <algorithm>', '#include <array>', '#include <cmath>', '#include <cstdint>', '#include <expected>',
            '#include <optional>', '#include <stdexcept>', '#include <string>', '', 'namespace hyprimate::config {', '']
     enum_items = enums(settings)
     if any(item['type'] == 'set' for item in enum_items.values()):
@@ -297,6 +301,9 @@ def config_header(settings):
         choices = (', '.join(f'{pascal(c)} = {1 << i}' for i, c in enumerate(item['choices']))
                    if item['type'] == 'set' else ', '.join(pascal(c) for c in item['choices']))
         out.append(f'enum class {name} : std::uint8_t {{ {choices} }};')
+        if name == 'WorkspaceStyle':
+            values = ', '.join(f'WorkspaceStyle::{pascal(choice)}' for choice in item['choices'])
+            out.append(f'inline constexpr std::array WORKSPACE_STYLES{{{values}}};')
     out.append('')
     out.append('namespace detail {')
     out.append('// Non-finite values read as the schema minimum, which turns a strength or drain off.')

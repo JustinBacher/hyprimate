@@ -67,7 +67,7 @@ namespace hyprimate::workspace {
 
     WorkspaceController::Advance WorkspaceController::advance(Monitor monitor, double elapsed) {
         const auto it = m_states.find(monitor);
-        if (it == m_states.end()) return Advance::None;
+        if (it == m_states.end() || !it->second.presented) return Advance::None;
         auto &state = it->second;
         state.transition.advance(elapsed);
         if (state.transition.active()) return Advance::None;

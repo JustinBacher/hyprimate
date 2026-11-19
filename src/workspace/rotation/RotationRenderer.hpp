@@ -84,6 +84,14 @@ void main() {
             wall(destinationWall, eb, blurRadius * fadeB).rgb, mixAmount), 1.0);
     }
 })";
+    // The caller owns the program, VAO and GL state bracket.
+    using RotationUniforms = std::array<GLint, 13>;
+    bool rotationUniforms(GLuint program, RotationUniforms &uniforms);
+    bool drawRotation(GLuint program, GLuint vao, const RotationUniforms &uniforms,
+        GLuint src, GLuint dst, GLuint out, GLuint sourceFramebuffer, GLuint presentationFramebuffer,
+        int width, int height, double position, Direction direction, const GapFill &gap,
+        bool matchingWallpaper, GLuint sourceWallpaper, GLuint destinationWallpaper);
+
     class RotationRenderer {
       public:
         bool initialize();

@@ -6,15 +6,17 @@ for tool in hyprctl jq kitty; do
     command -v "$tool" >/dev/null || { echo "missing required tool: $tool" >&2; exit 1; }
 done
 log=$(mktemp)
+nested_log=$(mktemp)
 runner=''
 cleanup() {
     [[ -z $runner ]] || { kill "$runner" 2>/dev/null || true; wait "$runner" 2>/dev/null || true; }
-    rm -f "$log"
+    rm -f "$log" "$nested_log"
 }
 trap cleanup EXIT
+rotation_checked=0
 for style in ${CHECK_STYLES:-liquid paper cloth swarm bubble smoke}; do
     : >"$log"
-    "$root/tests/nested/run.sh" --style "$style" --no-build --no-window >"$log" 2>&1 &
+    HYPRIMATE_NESTED_LOG="$nested_log" "$root/tests/nested/run.sh" --style "$style" --no-build --no-window >"$log" 2>&1 &
     runner=$!
     instance=''
     for _ in $(seq 100); do
@@ -37,7 +39,7 @@ for style in ${CHECK_STYLES:-liquid paper cloth swarm bubble smoke}; do
         echo "$style: kitty did not map within 10 seconds (instance $instance)" >&2
         hc clients -j >&2 || true
         cat "$log" >&2
-        tail -n 80 "${XDG_RUNTIME_DIR:-/tmp}/hyprimate-nested.log" >&2 || true
+        tail -n 80 "$nested_log" >&2 || true
         exit 1
     fi
     result=$(hc dispatch "hl.dsp.focus({ window = \"address:$address\" })")
@@ -53,8 +55,23 @@ for style in ${CHECK_STYLES:-liquid paper cloth swarm bubble smoke}; do
     sleep 2
     kill -0 "$runner" 2>/dev/null || { cat "$log" >&2; exit 1; }
     [[ $(hc clients -j | jq --arg a "$address" '[.[] | select(.address == $a)] | length') == 0 ]] || { echo "$style: window did not close" >&2; exit 1; }
-    nested_log=${XDG_RUNTIME_DIR:-/tmp}/hyprimate-nested.log
-    if grep -Ei 'GL_INVALID_|OpenGL error|GL error|failed to (compile|link).*shader' "$nested_log"; then
+    if (( ! rotation_checked )); then
+        result=$(hc eval 'hl.config({ plugin = { hyprimate = { workspace = { enabled = true, style = "rotation" } } } })')
+        [[ $result == ok ]] || { echo "workspace rotation settings rejected: $result" >&2; exit 1; }
+        for workspace in 1 2 1; do
+            result=$(hc dispatch "hl.dsp.focus({ workspace = $workspace })")
+            [[ $result == ok ]] || { echo "workspace $workspace switch failed: $result" >&2; exit 1; }
+            sleep 1
+            [[ $(hc activeworkspace -j | jq -r '.id') == "$workspace" ]] || {
+                echo "nested compositor did not switch to workspace $workspace" >&2; exit 1;
+            }
+        done
+        rotation_checked=1
+        echo "workspace rotation: 1 -> 2 -> 1 passed"
+    fi
+    compositor_log=${XDG_RUNTIME_DIR:-/tmp}/hypr/$instance/hyprland.log
+    [[ -f $compositor_log ]] || { echo "$style: missing nested compositor log: $compositor_log" >&2; exit 1; }
+    if grep -Ei 'GL_INVALID_|OpenGL error|GL error|failed to (compile|link).*shader' "$nested_log" "$compositor_log"; then
         echo "$style: GL error in nested compositor log" >&2
         exit 1
     fi
