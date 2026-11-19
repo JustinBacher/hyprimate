@@ -37,20 +37,12 @@ Render::SWindowTransformBuffer render_live(SPaperStyle &state,
 
 bool SPaperLiveStyle::open(CPluginRuntime &runtime,
     [[maybe_unused]] CPluginRuntime::STracked &tracked,
-    const PHLWINDOW &window, [[maybe_unused]] SPaperResources &resources) {
+    const PHLWINDOW &window, SPaperResources &resources) {
     const CBox CAPTURE = window->getFullWindowBoundingBox();
-    const auto &paper = runtime.m_config.paper.open;
     auto *transformer = runtime.acquire_transformer(window);
     auto &state = std::get<SPaperStyle>(transformer->m_style);
     state.crumple.reset();
-    state.crumple.begin(hyprimate::Transition::Open,
-        {
-            .duration = paper.duration,
-            .crumpliness = paper.crumpliness,
-            .shading = paper.shading,
-            .variation = paper.variation,
-        },
-        runtime.m_next_seed++);
+    state.crumple.begin(hyprimate::Transition::Open, resources.prepared.open, runtime.m_next_seed++);
     state.sheet.capture_size = {.x = CAPTURE.w, .y = CAPTURE.h};
     state.crumple.frame(state.sheet.capture_size, *state.sheet.frame);
     return true;
@@ -62,11 +54,13 @@ void SPaperLiveStyle::movement([[maybe_unused]] CPluginRuntime &runtime,
     [[maybe_unused]] const hyprimate::TrackDecision &decision,
     [[maybe_unused]] double elapsed,
     [[maybe_unused]] bool enabled,
-    [[maybe_unused]] bool moving) {
+    [[maybe_unused]] bool moving,
+    [[maybe_unused]] Resources &resources) {
 }
 
 void SPaperLiveStyle::snapshot(
-    const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &snapshot) {
+    const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &snapshot,
+    [[maybe_unused]] const Resources &resources) {
     if (transformer != nullptr) {
         const auto *paper = std::get_if<SPaperStyle>(&transformer->m_style);
         snapshot.transition_busy = (paper != nullptr) && paper->crumple.active();
@@ -77,7 +71,8 @@ void SPaperLiveStyle::step([[maybe_unused]] CPluginRuntime &runtime,
     CAnimationTransformer &transformer,
     double elapsed,
     hyprimate::Vec2 size,
-    [[maybe_unused]] bool enabled) {
+    [[maybe_unused]] bool enabled,
+    [[maybe_unused]] Resources &resources) {
     auto &paper = std::get<SPaperStyle>(transformer.m_style);
     if (!paper.crumple.active()) {
         return;
@@ -102,7 +97,7 @@ bool SPaperLiveStyle::deforming(const SPaperStyle &state) noexcept {
 }
 
 bool SPaperLiveStyle::builtFor([[maybe_unused]] const SPaperStyle &state,
-    [[maybe_unused]] const Inputs &inputs) noexcept {
+    [[maybe_unused]] const Resources &resources) noexcept {
     return true;
 }
 
@@ -110,17 +105,30 @@ bool SPaperLiveStyle::available(const SPaperStyle &state) noexcept {
     return static_cast<bool>(state.sheet.frame);
 }
 
-SPaperStyle SPaperLiveStyle::initial([[maybe_unused]] const Inputs &inputs,
+SPaperStyle SPaperLiveStyle::initial([[maybe_unused]] const Resources &resources,
     [[maybe_unused]] std::uint64_t seed) {
     return SPaperStyle{};
 }
 
-double SPaperLiveStyle::strength([[maybe_unused]] const CPluginRuntime &runtime) {
+double SPaperLiveStyle::strength([[maybe_unused]] const Resources &resources) {
     return 0.0;
 }
-bool SPaperLiveStyle::usable([[maybe_unused]] const CPluginRuntime &runtime, [[maybe_unused]] const Resources &resources) { return true; }
-SPaperLiveStyle::Inputs SPaperLiveStyle::inputs([[maybe_unused]] const CPluginRuntime &runtime) { return {}; }
-void SPaperLiveStyle::prepare([[maybe_unused]] CPluginRuntime &runtime, [[maybe_unused]] Resources &resources, [[maybe_unused]] bool selected) {}
+bool SPaperLiveStyle::usable([[maybe_unused]] const Resources &resources) { return true; }
+SPaperLiveStyle::Prepared SPaperLiveStyle::prepare_settings(const Settings &settings) {
+    return {
+        .open = {.duration = settings.open.duration,
+            .crumpliness = settings.open.crumpliness,
+            .shading = settings.open.shading,
+            .variation = settings.open.variation},
+        .close = {.duration = settings.close.duration,
+            .crumpliness = settings.close.crumpliness,
+            .shading = settings.close.shading,
+            .variation = settings.close.variation},
+    };
+}
+void SPaperLiveStyle::prepare(const Settings &settings, Resources &resources, [[maybe_unused]] bool selected) {
+    resources.update(settings, prepare_settings);
+}
 bool SPaperLiveStyle::movement_requested(const hyprimate::TrackDecision &decision) noexcept {
     return decision.translated;
 }

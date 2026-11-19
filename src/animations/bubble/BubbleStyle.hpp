@@ -5,9 +5,16 @@
 #include "animations/bubble/BubbleRenderer.hpp"
 #include "config_generated.hpp"
 #include "animations/shared/SheetResources.hpp"
+#include "StyleSettingsCache.hpp"
 
-struct SBubbleInputs {};
-struct SBubbleResources {
+struct SBubblePrepared {
+    hyprimate::BubbleMotionParams movement;
+    hyprimate::BubbleFormationParams formation;
+    double open_duration = 0;
+    double close_duration = 0;
+};
+
+struct SBubbleResources : SStyleSettingsCache<hyprimate::config::SBubbleSettings, SBubblePrepared> {
     explicit SBubbleResources([[maybe_unused]] SSharedStyleResources &shared) {}
     SP<CBubbleRenderer> renderer = makeShared<CBubbleRenderer>();
     CBubbleResidue vestige;
@@ -15,8 +22,10 @@ struct SBubbleResources {
 struct SBubbleModule {
     using State = SBubbleStyle;
     using CloseData = SBubbleCloseData;
-    using Inputs = SBubbleInputs;
+    using Prepared = SBubblePrepared;
     using Resources = SBubbleResources;
+    using Settings = hyprimate::config::SBubbleSettings;
+    static const Settings &settings(const auto &config) { return config.bubble; }
     static constexpr auto KIND = hyprimate::config::Style::Bubble;
     static constexpr bool FIXED_CLOSE_PLACEMENT = true;
 };

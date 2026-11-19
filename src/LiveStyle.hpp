@@ -10,12 +10,12 @@
     struct name : module {                                                                 \
         using Module = module;                                                             \
         using Tracked = CPluginRuntime::STracked;                                         \
-        static Inputs inputs(const CPluginRuntime &);                                      \
-        static State initial(const Inputs &, std::uint64_t);                               \
-        static void prepare(CPluginRuntime &, Resources &, bool selected);                  \
+        static Prepared prepare_settings(const Settings &);                                \
+        static State initial(const Resources &, std::uint64_t);                            \
+        static void prepare(const Settings &, Resources &, bool selected);                 \
         static bool movement_requested(const hyprimate::TrackDecision &) noexcept;         \
-        static double strength(const CPluginRuntime &);                                    \
-        static bool usable(const CPluginRuntime &, const Resources &);                      \
+        static double strength(const Resources &);                                         \
+        static bool usable(const Resources &);                                             \
         static bool open(CPluginRuntime &, CPluginRuntime::STracked &, const PHLWINDOW &, Resources &); \
         static void movement(CPluginRuntime &,                                             \
             CAnimationTransformer &,                                                       \
@@ -23,15 +23,17 @@
             const hyprimate::TrackDecision &,                                              \
             double,                                                                        \
             bool,                                                                          \
-            bool);                                                                         \
-        static void snapshot(const CAnimationTransformer *, hyprimate::WindowSnapshot &);  \
+            bool,                                                                          \
+            Resources &);                                                                  \
+        static void snapshot(const CAnimationTransformer *, hyprimate::WindowSnapshot &,  \
+            const Resources &);                                                            \
         static void cancelOpening(CAnimationTransformer &);                                \
         static void cancelMovement(CAnimationTransformer &);                               \
         static bool available(const State &) noexcept;                                     \
         static bool deforming(const State &) noexcept;                                     \
-        static bool builtFor(const State &, const Inputs &) noexcept;                       \
-        static void step(                                                                  \
-            CPluginRuntime &, CAnimationTransformer &, double, hyprimate::Vec2, bool);     \
+        static bool builtFor(const State &, const Resources &) noexcept;                   \
+        static void step(CPluginRuntime &, CAnimationTransformer &, double,                \
+            hyprimate::Vec2, bool, Resources &);                                            \
     };
 HYPRIMATE_STYLE_LIST(LIVE_STYLE_OPERATIONS, HYPRIMATE_STYLE_EMPTY)
 

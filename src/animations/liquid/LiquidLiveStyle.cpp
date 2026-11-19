@@ -142,15 +142,15 @@ SWindowTransformBuffer render_live(SLiquidStyle &state,
 
 bool SLiquidLiveStyle::open(
     CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window,
-    [[maybe_unused]] SLiquidResources &resources) {
+    SLiquidResources &resources) {
     const auto FRAME = hyprimate::resolve_style_open_edge(
-        runtime.edge_input_for(window, true), runtime.m_config.liquid.open);
+        runtime.edge_input_for(window, true), resources.last->open);
     if (!FRAME) {
         return false;
     }
     entry.open_edge = FRAME->edge;
-    const auto &open = runtime.m_config.liquid.open;
-    if (open.strength <= 0.0) {
+    const auto &prepared = resources.prepared;
+    if (prepared.open_strength <= 0.0) {
         return false;
     }
     auto *transformer = runtime.acquire_transformer(window);
@@ -158,8 +158,8 @@ bool SLiquidLiveStyle::open(
     auto &state = std::get<SLiquidStyle>(transformer->m_style);
     state.transition.begin(hyprimate::Transition::Open,
         *FRAME,
-        {.elasticity = open.elasticity, .momentum = open.momentum},
-        open.strength);
+        prepared.open,
+        prepared.open_strength);
     state.box_driven = state.transition.active();
     state.warped = false;
     if (state.box_driven) {
@@ -169,13 +169,14 @@ bool SLiquidLiveStyle::open(
     return true;
 }
 
-void SLiquidLiveStyle::movement(CPluginRuntime &runtime,
+void SLiquidLiveStyle::movement([[maybe_unused]] CPluginRuntime &runtime,
     CAnimationTransformer &transformer,
     const PHLWINDOW &window,
     const hyprimate::TrackDecision &decision,
     [[maybe_unused]] double elapsed,
     bool enabled,
-    bool moving) {
+    bool moving,
+    Resources &resources) {
     const CBox CAPTURE = window->getFullWindowBoundingBox();
     const auto &current = decision.current_box;
     auto &state = std::get<SLiquidStyle>(transformer.m_style);
@@ -183,7 +184,7 @@ void SLiquidLiveStyle::movement(CPluginRuntime &runtime,
         state.mesh.record_translation(
             {.x = current.x - decision.previous_box.x, .y = current.y - decision.previous_box.y},
             {.x = CAPTURE.w, .y = CAPTURE.h},
-            runtime.movement_strength());
+            resources.prepared.movement_strength);
     } else if (enabled) {
         state.mesh.advance(0.0, {.x = CAPTURE.w, .y = CAPTURE.h});
     } else {
@@ -193,17 +194,19 @@ void SLiquidLiveStyle::movement(CPluginRuntime &runtime,
 }
 
 void SLiquidLiveStyle::snapshot(
-    const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &snapshot) {
+    const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &snapshot,
+    [[maybe_unused]] const Resources &resources) {
     const auto *state =
         (transformer != nullptr) ? std::get_if<SLiquidStyle>(&transformer->m_style) : nullptr;
     snapshot.transition_busy = (state != nullptr) && state->transition.active();
 }
 
-void SLiquidLiveStyle::step(CPluginRuntime &runtime,
+void SLiquidLiveStyle::step([[maybe_unused]] CPluginRuntime &runtime,
     CAnimationTransformer &transformer,
     double elapsed,
     hyprimate::Vec2 size,
-    bool enabled) {
+    bool enabled,
+    Resources &resources) {
     auto &state = std::get<SLiquidStyle>(transformer.m_style);
     if (!enabled) {
         state.mesh.reset();
@@ -213,8 +216,8 @@ void SLiquidLiveStyle::step(CPluginRuntime &runtime,
         state.grid,
         elapsed,
         size,
-        hyprimate::LiquidStrength{runtime.movement_strength()},
-        hyprimate::LiquidDrive{enabled ? runtime.m_config.liquid.open.emergeDrag : 0.0});
+        hyprimate::LiquidStrength{resources.prepared.movement_strength},
+        hyprimate::LiquidDrive{enabled ? resources.prepared.emerge_drag : 0.0});
     refresh_pose(state, size);
     drive_box(state, transformer.m_window);
 }
@@ -326,39 +329,53 @@ bool SLiquidLiveStyle::deforming(const SLiquidStyle &state) noexcept {
     return !state.mesh.settled() || state.transition.active();
 }
 
-bool SLiquidLiveStyle::builtFor(const SLiquidStyle &state, const Inputs &liquid) noexcept {
-    return state.mesh.params() == liquid;
+bool SLiquidLiveStyle::builtFor(const SLiquidStyle &state, const Resources &resources) noexcept {
+    return state.mesh.params() == resources.prepared.movement;
 }
 
 bool SLiquidLiveStyle::available([[maybe_unused]] const SLiquidStyle &state) noexcept {
     return true;
 }
 
-SLiquidStyle SLiquidLiveStyle::initial(const Inputs &liquid, std::uint64_t seed) {
-    return SLiquidStyle{.mesh = hyprimate::LiquidMesh{liquid, seed}};
+SLiquidStyle SLiquidLiveStyle::initial(const Resources &resources, std::uint64_t seed) {
+    return SLiquidStyle{.mesh = hyprimate::LiquidMesh{resources.prepared.movement, seed}};
 }
 
-double SLiquidLiveStyle::strength(const CPluginRuntime &runtime) {
-    return runtime.m_config.liquid.movement.strength;
+double SLiquidLiveStyle::strength(const Resources &resources) {
+    return resources.prepared.movement_strength;
 }
-bool SLiquidLiveStyle::usable(const CPluginRuntime &runtime, [[maybe_unused]] const Resources &resources) {
-    const auto PARAMS = inputs(runtime);
-    return std::isfinite(PARAMS.viscosity) && std::isfinite(PARAMS.elasticity) &&
-           std::isfinite(PARAMS.momentum) && std::isfinite(PARAMS.variation);
+bool SLiquidLiveStyle::usable(const Resources &resources) {
+    const auto &params = resources.prepared.movement;
+    return std::isfinite(params.viscosity) && std::isfinite(params.elasticity) &&
+           std::isfinite(params.momentum) && std::isfinite(params.variation);
 }
 
-SLiquidLiveStyle::Inputs SLiquidLiveStyle::inputs(const CPluginRuntime &runtime) {
-    return liquid_inputs(runtime.m_config);
-}
-void SLiquidLiveStyle::prepare(CPluginRuntime &runtime, Resources &resources, [[maybe_unused]] bool selected) {
+SLiquidLiveStyle::Prepared SLiquidLiveStyle::prepare_settings(const Settings &settings) {
     const auto color = [](std::uint32_t argb) {
         const auto channel = [argb](unsigned int shift) {
             return static_cast<float>((argb >> shift) & 0xFFU) / 255.F;
         };
         return CHyprColor{channel(16), channel(8), channel(0), channel(24)};
     };
-    resources.open_solid.set_color(color(runtime.m_config.liquid.open.color));
-    resources.close_solid.set_color(color(runtime.m_config.liquid.close.color));
+    return {.movement = {.viscosity = settings.movement.viscosity,
+                .elasticity = settings.movement.elasticity,
+                .momentum = settings.movement.momentum,
+                .variation = settings.movement.variation},
+        .open = {.elasticity = settings.open.elasticity, .momentum = settings.open.momentum},
+        .close = {.elasticity = settings.close.elasticity, .momentum = settings.close.momentum},
+        .movement_strength = settings.movement.strength,
+        .open_strength = settings.open.strength,
+        .close_strength = settings.close.strength,
+        .emerge_drag = settings.open.emergeDrag,
+        .close_splash = settings.close.splash,
+        .open_color = color(settings.open.color),
+        .close_color = color(settings.close.color)};
+}
+void SLiquidLiveStyle::prepare(const Settings &settings, Resources &resources, [[maybe_unused]] bool selected) {
+    if (resources.update(settings, prepare_settings)) {
+        resources.open_solid.set_color(resources.prepared.open_color);
+        resources.close_solid.set_color(resources.prepared.close_color);
+    }
 }
 bool SLiquidLiveStyle::movement_requested(const hyprimate::TrackDecision &decision) noexcept {
     return decision.translated;

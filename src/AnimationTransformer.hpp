@@ -57,7 +57,7 @@ class CAnimationTransformer final : public Render::IWindowTransformer {
 
     // True when the state was built for these settings; a mismatch means the runtime rebuilds the
     // transformer.
-    bool built_for(hyprimate::config::Style style, const CPluginRuntime &runtime) const;
+    bool built_for(hyprimate::config::Style style) const;
 
     void cancel_opening();
     void cancel_movement();

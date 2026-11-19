@@ -7,7 +7,7 @@
 
 namespace close_style {
     inline bool close_enabled([[maybe_unused]] const SClothCloseData &data,
-        [[maybe_unused]] const hyprimate::config::SConfig &config) {
+        [[maybe_unused]] const SClothResources &resources) {
         return true;
     }
     inline CBox footprint([[maybe_unused]] const SClothStyle &style, const Record &record) {
@@ -17,27 +17,20 @@ namespace close_style {
         Pending &pending,
         const PHLWINDOW &window,
         [[maybe_unused]] bool state_active,
-        const hyprimate::config::SConfig &config,
+        const SClothResources &resources,
         const std::function<hyprimate::EdgeInput()> &edge_input,
         const std::function<std::span<const hyprimate::Box>()> &obstacles,
         const std::function<std::uint64_t()> &next_seed) {
         const auto INPUT = edge_input();
-        const auto FRAME = hyprimate::resolve_style_close_edge(INPUT, config.cloth.close);
+        const auto FRAME = hyprimate::resolve_style_close_edge(INPUT, resources.last->close);
         const auto MONITOR = window->m_monitor.lock();
         const auto BOXES = obstacles();
         const auto SEED = next_seed();
         if (!FRAME || !MONITOR) {
             return false;
         }
-        const auto &cloth_config = config.cloth.close;
         SClothCloseData data;
-        data.params = {
-            .duration = cloth_config.duration,
-            .flutter = cloth_config.flutter,
-            .shading = cloth_config.shading,
-            .variation = cloth_config.variation,
-            .shine = cloth_config.shine,
-        };
+        data.params = resources.prepared.close;
         data.seed = SEED;
         data.capture = to_box(window->getFullWindowBoundingBox());
         data.obstacles.assign(BOXES.begin(), BOXES.end());

@@ -95,7 +95,7 @@ Render::SWindowTransformBuffer render_live(SBubbleStyle &state,
 
 bool SBubbleLiveStyle::open(
     CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window,
-    [[maybe_unused]] SBubbleResources &resources) {
+    SBubbleResources &resources) {
     const CBox CURRENT = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
     const CBox GOAL = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
     const CBox CAPTURE = window->getFullWindowBoundingBox();
@@ -110,15 +110,11 @@ bool SBubbleLiveStyle::open(
     }
     auto *transformer = runtime.acquire_transformer(window);
     auto &state = std::get<SBubbleStyle>(transformer->m_style);
-    const auto &options = runtime.m_config.bubble.open;
     state.bubble.begin(hyprimate::Transition::Open,
-        hyprimate::BubbleDuration{options.duration},
+        hyprimate::BubbleDuration{resources.prepared.open_duration},
         runtime.m_next_seed++,
         {.x = REST.w, .y = REST.h},
-        {.count = options.count, .birthRate = options.birthRate,
-            .sizeVariation = options.sizeVariation, .growthVariation = options.growthVariation,
-            .interaction = options.interaction, .damping = options.damping,
-            .buoyancy = options.buoyancy, .linger = options.linger});
+        resources.prepared.formation);
     if (!state.bubble.active()) {
         return false;
     }
@@ -141,7 +137,8 @@ void SBubbleLiveStyle::movement([[maybe_unused]] CPluginRuntime &runtime,
     const hyprimate::TrackDecision &decision,
     [[maybe_unused]] double elapsed,
     [[maybe_unused]] bool enabled,
-    bool moving) {
+    bool moving,
+    [[maybe_unused]] Resources &resources) {
     if (!moving) {
         return;
     }
@@ -159,7 +156,8 @@ void SBubbleLiveStyle::movement([[maybe_unused]] CPluginRuntime &runtime,
 }
 
 void SBubbleLiveStyle::snapshot(
-    const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &snapshot) {
+    const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &snapshot,
+    [[maybe_unused]] const Resources &resources) {
     const auto *state =
         (transformer != nullptr) ? std::get_if<SBubbleStyle>(&transformer->m_style) : nullptr;
     // A landed opening is already the window's film: movement acts on it while it settles.
@@ -167,11 +165,12 @@ void SBubbleLiveStyle::snapshot(
         (state != nullptr) && state->bubble.active() && !state->bubble.landed();
 }
 
-void SBubbleLiveStyle::step(CPluginRuntime &runtime,
+void SBubbleLiveStyle::step([[maybe_unused]] CPluginRuntime &runtime,
     CAnimationTransformer &transformer,
     double elapsed,
     hyprimate::Vec2 size,
-    bool enabled) {
+    bool enabled,
+    Resources &resources) {
     auto &state = std::get<SBubbleStyle>(transformer.m_style);
     if (!enabled && state.bubble.stirred()) {
         cancelMovement(transformer);
@@ -188,18 +187,10 @@ void SBubbleLiveStyle::step(CPluginRuntime &runtime,
             .h = CURRENT.h,
         };
     }
-    const auto &options = runtime.m_config.bubble.movement;
     state.bubble.advance(elapsed,
         size,
         body,
-        enabled ? hyprimate::BubbleMotionParams{.strength = options.strength,
-                      .microbubbles = options.microbubbles,
-                      .trail = options.trail,
-                      .roundness = options.roundness,
-                      .shape = bubble_shape(options.shape),
-                      .shape_speed = options.shapeSpeed,
-                      .transparency = options.transparency,}
-                : hyprimate::BubbleMotionParams{});
+        enabled ? resources.prepared.movement : hyprimate::BubbleMotionParams{});
     state.impacts.advance(elapsed);
     if (!state.bubble.active()) {
         state.wallpaper.reset();
@@ -232,25 +223,49 @@ bool SBubbleLiveStyle::deforming(const SBubbleStyle &state) noexcept {
 }
 
 bool SBubbleLiveStyle::builtFor([[maybe_unused]] const SBubbleStyle &state,
-    [[maybe_unused]] const Inputs &inputs) noexcept {
+    [[maybe_unused]] const Resources &resources) noexcept {
     return true;
 }
 
-SBubbleStyle SBubbleLiveStyle::initial([[maybe_unused]] const Inputs &inputs, std::uint64_t seed) {
+SBubbleStyle SBubbleLiveStyle::initial([[maybe_unused]] const Resources &resources, std::uint64_t seed) {
     SBubbleStyle state;
     state.bubble.seed_motion(seed);
     return state;
 }
 
-double SBubbleLiveStyle::strength(const CPluginRuntime &runtime) {
-    return runtime.m_config.bubble.movement.strength;
+double SBubbleLiveStyle::strength(const Resources &resources) {
+    return resources.prepared.movement.strength;
 }
-bool SBubbleLiveStyle::usable([[maybe_unused]] const CPluginRuntime &runtime, [[maybe_unused]] const Resources &resources) {
+bool SBubbleLiveStyle::usable([[maybe_unused]] const Resources &resources) {
     return true;
 }
 
-SBubbleLiveStyle::Inputs SBubbleLiveStyle::inputs([[maybe_unused]] const CPluginRuntime &runtime) { return {}; }
-void SBubbleLiveStyle::prepare([[maybe_unused]] CPluginRuntime &runtime, Resources &resources, bool selected) {
+SBubbleLiveStyle::Prepared SBubbleLiveStyle::prepare_settings(const Settings &settings) {
+    const auto &movement = settings.movement;
+    const auto &open = settings.open;
+    return {
+        .movement = {.strength = movement.strength,
+            .microbubbles = movement.microbubbles,
+            .trail = movement.trail,
+            .roundness = movement.roundness,
+            .shape = bubble_shape(movement.shape),
+            .shape_speed = movement.shapeSpeed,
+            .transparency = movement.transparency},
+        .formation = {.count = open.count,
+            .birthRate = open.birthRate,
+            .sizeVariation = open.sizeVariation,
+            .growthVariation = open.growthVariation,
+            .interaction = open.interaction,
+            .damping = open.damping,
+            .buoyancy = open.buoyancy,
+            .linger = open.linger},
+        .open_duration = open.duration,
+        .close_duration = settings.close.duration,
+    };
+}
+
+void SBubbleLiveStyle::prepare(const Settings &settings, Resources &resources, bool selected) {
+    resources.update(settings, prepare_settings);
     if (selected) resources.renderer->warm_up();
 }
 bool SBubbleLiveStyle::movement_requested(const hyprimate::TrackDecision &decision) noexcept {

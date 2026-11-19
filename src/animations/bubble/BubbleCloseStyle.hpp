@@ -5,7 +5,7 @@
 
 namespace close_style {
     inline bool close_enabled([[maybe_unused]] const SBubbleCloseData &data,
-        [[maybe_unused]] const hyprimate::config::SConfig &config) {
+        [[maybe_unused]] const SBubbleResources &resources) {
         return true;
     }
     inline CBox footprint([[maybe_unused]] const SBubbleStyle &style, const Record &record) {
@@ -15,12 +15,12 @@ namespace close_style {
         Pending &pending,
         [[maybe_unused]] const PHLWINDOW &window,
         [[maybe_unused]] bool state_active,
-        const hyprimate::config::SConfig &config,
+        const SBubbleResources &resources,
         [[maybe_unused]] const std::function<hyprimate::EdgeInput()> &edge_input,
         [[maybe_unused]] const std::function<std::span<const hyprimate::Box>()> &obstacles,
         const std::function<std::uint64_t()> &next_seed) {
         pending.close_data =
-            SBubbleCloseData{.duration = config.bubble.close.duration, .seed = next_seed()};
+            SBubbleCloseData{.duration = resources.prepared.close_duration, .seed = next_seed()};
         pending.style = std::move(style);
         return true;
     }

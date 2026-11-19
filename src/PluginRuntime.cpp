@@ -71,6 +71,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     m_next_seed = (std::uint64_t{entropy()} << 32U) | entropy();
     hyprimate::config::registerConfigValues(m_handle, m_values);
     m_config = hyprimate::config::readConfig(m_values);
+    prepare_styles(false);
     m_style_resources.get<SBubbleModule>().vestige.set_enabled(bubble_residue_enabled());
 
     if (plugin_enabled() && wobble_enabled()) {
@@ -96,7 +97,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
             // Stage before detaching so a matching animation can continue into the close.
             if (close_enabled() && eligible(window)) {
                 auto *transformer = transformer_of(window);
-                const bool MATCHED = transformer && transformer->built_for(m_config.style, *this);
+                const bool MATCHED = transformer && transformer->built_for(m_config.style);
                 std::optional<SStyleState> fresh;
                 if (!MATCHED) {
                     fresh.emplace(initial_style(0));
@@ -113,7 +114,6 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                     window,
                     state,
                     MATCHED && transformer->active(),
-                    m_config,
                     EDGE,
                     OBSTACLES,
                     [this] { return m_next_seed++; });
@@ -249,12 +249,16 @@ bool CPluginRuntime::plugin_enabled() const {
 }
 
 double CPluginRuntime::movement_strength() const {
-    return with_live_style(m_config.style, [&](auto style) { return style.strength(*this); });
+    return with_live_style(m_config.style, [&](auto style) {
+        using Module = typename decltype(style)::Module;
+        return style.strength(m_style_resources.get<Module>());
+    });
 }
 
 SStyleState CPluginRuntime::initial_style(std::uint64_t seed) const {
     return with_live_style(m_config.style, [&](auto live) {
-        return SStyleState{live.initial(live.inputs(*this), seed)};
+        using Module = typename decltype(live)::Module;
+        return SStyleState{live.initial(m_style_resources.get<Module>(), seed)};
     });
 }
 
@@ -262,7 +266,7 @@ bool CPluginRuntime::movement_enabled() const {
     return plugin_enabled() && m_config.movement.enabled &&
            with_live_style(m_config.style, [&](auto live) {
                using Module = typename decltype(live)::Module;
-               return live.usable(*this, m_style_resources.get<Module>());
+               return live.usable(m_style_resources.get<Module>());
            }) &&
            movement_strength() > 0.0;
 }
@@ -363,6 +367,7 @@ void CPluginRuntime::notify(const std::string &text) const {
 
 void CPluginRuntime::on_reload() {
     m_config = hyprimate::config::readConfig(m_values);
+    prepare_styles(false);
     m_style_resources.get<SBubbleModule>().vestige.set_enabled(bubble_residue_enabled());
     clear_bubble_residue();
     detach_all();
@@ -431,14 +436,19 @@ bool CPluginRuntime::eligible(const PHLWINDOW &window) const {
            !Fullscreen::controller()->isFullscreen(window) &&
            is_usable_box(window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT));
 }
+void CPluginRuntime::prepare_styles(bool warm_selected) {
+    m_style_resources.for_each([&](auto live, auto &resources) {
+        using Live = decltype(live);
+        live.prepare(Live::settings(m_config), resources, warm_selected && m_config.style == Live::KIND);
+    });
+}
+
 
 void CPluginRuntime::on_render_pre(const PHLMONITOR &monitor) {
     // Config is read live: runtime edits (hl.config, hyprctl keyword) need not fire a reload. The
     // texture is rebuilt only when the value actually changes.
     m_config = hyprimate::config::readConfig(m_values);
-    m_style_resources.for_each([&](auto live, auto &resources) {
-        live.prepare(*this, resources, m_config.style == decltype(live)::KIND);
-    });
+    prepare_styles(true);
     const bool RESIDUE_ENABLED = bubble_residue_enabled();
     auto &vestige = m_style_resources.get<SBubbleModule>().vestige;
     vestige.set_enabled(RESIDUE_ENABLED);
@@ -464,7 +474,7 @@ void CPluginRuntime::on_render_pre(const PHLMONITOR &monitor) {
     std::erase_if(m_tracked, [](const STracked &entry) { return entry.window.expired(); });
 
     // A live disable also drops retained closes, restoring native fades where still available.
-    if (!close_enabled() || !close_animation_enabled(m_config)) {
+    if (!close_enabled() || !close_animation_enabled(m_config, m_style_resources)) {
         m_close->clear();
     } else {
         std::vector<CBox> damage;
@@ -533,10 +543,12 @@ hyprimate::WindowSnapshot CPluginRuntime::snapshot_of(
     window_snapshot.capture = to_box(window->getFullWindowBoundingBox());
     window_snapshot.deformable = eligible(window);
     window_snapshot.animating_in = animating;
-    with_live_style(
-        m_config.style, [&](auto style) { style.snapshot(transformer, window_snapshot); });
+    with_live_style(m_config.style, [&](auto style) {
+        using Module = typename decltype(style)::Module;
+        style.snapshot(transformer, window_snapshot, m_style_resources.get<Module>());
+    });
     window_snapshot.material_changed =
-        (transformer != nullptr) && !transformer->built_for(m_config.style, *this);
+        (transformer != nullptr) && !transformer->built_for(m_config.style);
     window_snapshot.open_enabled = open_enabled();
     window_snapshot.movement_enabled = movement_enabled();
     window_snapshot.monitor = monitor_id(window);
@@ -588,7 +600,9 @@ void CPluginRuntime::record_movement(STracked &entry,
         transformer->cancel_movement();
     }
     with_live_style(m_config.style, [&](auto style) {
-        style.movement(*this, *transformer, window, decision, elapsed, ENABLED, MOVING);
+        using Module = typename decltype(style)::Module;
+        style.movement(*this, *transformer, window, decision, elapsed, ENABLED, MOVING,
+            m_style_resources.get<Module>());
     });
 }
 
@@ -642,7 +656,9 @@ void CPluginRuntime::step_window(STracked &entry, const PHLWINDOW &window, doubl
         return;
     }
     with_live_style(m_config.style, [&](auto style) {
-        style.step(*this, *transformer, elapsed, {CAPTURE.w, CAPTURE.h}, movement_enabled());
+        using Module = typename decltype(style)::Module;
+        style.step(*this, *transformer, elapsed, {CAPTURE.w, CAPTURE.h}, movement_enabled(),
+            m_style_resources.get<Module>());
     });
     if (auto *swarm = std::get_if<SSwarmStyle>(&transformer->style_state());
         (swarm != nullptr) && window->m_workspace && window->m_workspace->visible() &&

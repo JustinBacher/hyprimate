@@ -143,9 +143,9 @@ Render::SWindowTransformBuffer render_live(SSwarmStyle &state,
 bool SSwarmLiveStyle::open(
     CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window, SSwarmResources &resources) {
     const auto SIDES = swarm_sides(runtime.edge_input_for(window, true),
-        runtime.m_config.swarm.open.loneWindowSides);
+        resources.prepared.open_sides);
     const auto PLACEMENT = placement_of(window, true);
-    const auto CREATURE = swarm_creature(runtime.m_config.swarm.open);
+    const auto &CREATURE = resources.last->open.sprite;
     if (!PLACEMENT || SIDES.empty() || (resources.sprites->sheet(CREATURE) == nullptr)) {
         return false;
     }
@@ -155,7 +155,7 @@ bool SSwarmLiveStyle::open(
     state.creature = CREATURE;
     state.swarm.reset();
     state.swarm.begin(Transition::Open,
-        swarm_params(runtime.m_config.swarm.open),
+        resources.prepared.open,
         runtime.m_next_seed++,
         *PLACEMENT,
         SIDES);
@@ -177,7 +177,8 @@ void SSwarmLiveStyle::movement(CPluginRuntime &runtime,
     const hyprimate::TrackDecision &decision,
     [[maybe_unused]] double elapsed,
     bool enabled,
-    bool moving) {
+    bool moving,
+    Resources &resources) {
     auto &state = std::get<SSwarmStyle>(transformer.m_style);
     auto placement = placement_of(window, false);
     if (!placement) {
@@ -189,9 +190,9 @@ void SSwarmLiveStyle::movement(CPluginRuntime &runtime,
     state.capture_workspace_frame = decision.workspace_moving;
     if (moving && !state.swarm.active()) {
         // Formed where the window was, so the first update carries this frame's movement.
-        state.creature = swarm_creature(runtime.m_config.swarm.movement);
+        state.creature = resources.last->movement.sprite;
         state.swarm.reset();
-        state.swarm.begin_movement(swarm_params(runtime.m_config.swarm.movement),
+        state.swarm.begin_movement(resources.prepared.movement,
             runtime.m_next_seed++,
             {
                 .capture = decision.previous_capture,
@@ -206,7 +207,8 @@ void SSwarmLiveStyle::movement(CPluginRuntime &runtime,
 }
 
 void SSwarmLiveStyle::snapshot(
-    const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &snapshot) {
+    const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &snapshot,
+    [[maybe_unused]] const Resources &resources) {
     const auto *state =
         (transformer != nullptr) ? std::get_if<SSwarmStyle>(&transformer->m_style) : nullptr;
     snapshot.handoff = (state != nullptr) && state->swarm.active();
@@ -218,7 +220,7 @@ void SSwarmLiveStyle::step([[maybe_unused]] CPluginRuntime &runtime,
     CAnimationTransformer &transformer,
     double elapsed,
     [[maybe_unused]] hyprimate::Vec2 size,
-    bool enabled) {
+    bool enabled, [[maybe_unused]] Resources &resources) {
     auto &state = std::get<SSwarmStyle>(transformer.m_style);
     if (!enabled && state.swarm.moving()) {
         cancelMovement(transformer);
@@ -249,7 +251,7 @@ bool SSwarmLiveStyle::deforming(const SSwarmStyle &state) noexcept {
 
 // Swarm settings are read when an animation begins, so a state is never stale for them.
 bool SSwarmLiveStyle::builtFor([[maybe_unused]] const SSwarmStyle &state,
-    [[maybe_unused]] const Inputs &inputs) noexcept {
+    [[maybe_unused]] const Resources &resources) noexcept {
     return true;
 }
 
@@ -257,21 +259,33 @@ bool SSwarmLiveStyle::available([[maybe_unused]] const SSwarmStyle &state) noexc
     return true;
 }
 
-SSwarmStyle SSwarmLiveStyle::initial([[maybe_unused]] const Inputs &inputs,
+SSwarmStyle SSwarmLiveStyle::initial([[maybe_unused]] const Resources &resources,
     [[maybe_unused]] std::uint64_t seed) {
     return SSwarmStyle{};
 }
 
 // Movement has no strength setting: the window either holds together or is carried by its swarm.
-double SSwarmLiveStyle::strength([[maybe_unused]] const CPluginRuntime &runtime) {
+double SSwarmLiveStyle::strength([[maybe_unused]] const Resources &resources) {
     return 1.0;
 }
-bool SSwarmLiveStyle::usable(const CPluginRuntime &runtime, const Resources &resources) {
-    return resources.sprites->sheet(swarm_creature(runtime.m_config.swarm.movement)) != nullptr;
+bool SSwarmLiveStyle::usable(const Resources &resources) {
+    return resources.sprites->sheet(resources.last->movement.sprite) != nullptr;
 }
 
-SSwarmLiveStyle::Inputs SSwarmLiveStyle::inputs([[maybe_unused]] const CPluginRuntime &runtime) { return {}; }
-void SSwarmLiveStyle::prepare([[maybe_unused]] CPluginRuntime &runtime, [[maybe_unused]] Resources &resources, [[maybe_unused]] bool selected) {}
+SSwarmLiveStyle::Prepared SSwarmLiveStyle::prepare_settings(const Settings &settings) {
+    return {
+        .open = swarm_params(settings.open),
+        .close = swarm_params(settings.close),
+        .movement = swarm_params(settings.movement),
+        .open_sides = swarm_sides(settings.open.loneWindowSides),
+        .close_sides = swarm_sides(settings.close.loneWindowSides),
+    };
+}
+
+void SSwarmLiveStyle::prepare(const Settings &settings, Resources &resources,
+    [[maybe_unused]] bool selected) {
+    resources.update(settings, prepare_settings);
+}
 bool SSwarmLiveStyle::movement_requested(const hyprimate::TrackDecision &decision) noexcept {
     return decision.translated;
 }

@@ -59,6 +59,7 @@ class CPluginRuntime {
     bool wobble_enabled() const;
     void notify(const std::string &text) const;
     void on_reload();
+    void prepare_styles(bool warm_selected);
 
     // Tracking.
     STracked *find(const PHLWINDOW &window);

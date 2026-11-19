@@ -9,7 +9,7 @@
 
 namespace close_style {
     inline bool close_enabled([[maybe_unused]] const SSwarmCloseData &data,
-        [[maybe_unused]] const hyprimate::config::SConfig &config) {
+        [[maybe_unused]] const SSwarmResources &resources) {
         return true;
     }
     inline CBox footprint([[maybe_unused]] const SSwarmStyle &style, const Record &record) {
@@ -19,18 +19,18 @@ namespace close_style {
         Pending &pending,
         const PHLWINDOW &window,
         [[maybe_unused]] bool state_active,
-        const hyprimate::config::SConfig &config,
+        const SSwarmResources &resources,
         const std::function<hyprimate::EdgeInput()> &edge_input,
         [[maybe_unused]] const std::function<std::span<const hyprimate::Box>()> &obstacles,
         const std::function<std::uint64_t()> &next_seed) {
         const auto MONITOR = window->m_monitor.lock();
-        const auto SIDES = swarm_sides(edge_input(), config.swarm.close.loneWindowSides);
+        const auto SIDES = swarm_sides(edge_input(), resources.prepared.close_sides);
         const auto SEED = next_seed();
         if (!MONITOR || SIDES.empty()) {
             return false;
         }
         pending.close_data = SSwarmCloseData{
-            .params = swarm_params(config.swarm.close),
+            .params = resources.prepared.close,
             .seed = SEED,
             .placement =
                 {
@@ -40,7 +40,7 @@ namespace close_style {
                     .screen = to_box(MONITOR->logicalBox()),
                 },
             .sides = SIDES,
-            .creature = swarm_creature(config.swarm.close),
+            .creature = resources.last->close.sprite,
         };
         pending.style = std::move(style);
         return true;

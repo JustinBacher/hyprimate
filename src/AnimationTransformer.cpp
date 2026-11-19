@@ -35,12 +35,11 @@ CAnimationTransformer::CAnimationTransformer(
     : m_window(std::move(window)), m_style(std::move(state)), m_resources(resources) {
 }
 
-bool CAnimationTransformer::built_for(
-    hyprimate::config::Style style, const CPluginRuntime &runtime) const {
+bool CAnimationTransformer::built_for(hyprimate::config::Style style) const {
     return std::visit(
         [&](const auto &state) {
             using Live = decltype(live_style_for(state));
-            return style == Live::KIND && Live::builtFor(state, Live::inputs(runtime));
+            return style == Live::KIND && Live::builtFor(state, m_resources.get<typename Live::Module>());
         },
         m_style);
 }

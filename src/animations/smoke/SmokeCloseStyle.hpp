@@ -9,7 +9,7 @@
 namespace close_style {
 
     inline bool close_enabled([[maybe_unused]] const SSmokeCloseData &data,
-        [[maybe_unused]] const hyprimate::config::SConfig &config) {
+        [[maybe_unused]] const SSmokeResources &resources) {
         return true;
     }
 
@@ -21,7 +21,7 @@ namespace close_style {
         Pending &pending,
         [[maybe_unused]] const PHLWINDOW &window,
         bool state_active,
-        const hyprimate::config::SConfig &config,
+        const SSmokeResources &resources,
         const std::function<hyprimate::EdgeInput()> &edge_input,
         [[maybe_unused]] const std::function<std::span<const hyprimate::Box>()> &obstacles,
         const std::function<std::uint64_t()> &next_seed) {
@@ -29,16 +29,9 @@ namespace close_style {
             style.smoke.seed(next_seed());
         }
         pending.close_data = SSmokeCloseData{
-            .duration = config.smoke.close.duration,
-            .params = {.strength = config.smoke.movement.strength,
-                .turbulence = config.smoke.close.turbulence,
-                .trail = config.smoke.movement.trail,
-                .reform = config.smoke.movement.reform,
-                .mass = config.smoke.movement.mass,
-                .roundness = config.smoke.movement.roundness,
-                .density = config.smoke.shared.density,
-                .variation = config.smoke.shared.variation},
-            .route = hyprimate::smoke_route(config.smoke.close.direction, edge_input()),
+            .duration = resources.prepared.close_duration,
+            .params = resources.prepared.closing,
+            .route = hyprimate::smoke_route(resources.last->close.direction, edge_input()),
         };
         pending.style = std::move(style);
         return true;

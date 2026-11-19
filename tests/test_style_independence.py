@@ -36,11 +36,47 @@ def include_violations(source_root):
                     violations.append(f'{source.relative_to(source_root)}:{line}: {name} ({owner} -> {parts[0]})')
     return violations
 
+def configuration_violations(source_root):
+    animations = source_root / 'animations'
+    styles = {path.name for path in animations.iterdir()
+              if path.is_dir() and (path / 'Style.cmake').is_file()}
+    forbidden = re.compile(rb'SConfig|m_config')
+    violations = []
+    for owner in sorted(styles | {'shared'}):
+        for source in sorted((animations / owner).rglob('*')):
+            if not source.is_file():
+                continue
+            content = source.read_bytes()
+            for match in forbidden.finditer(content):
+                line = content.count(b'\n', 0, match.start()) + 1
+                violations.append(f'{source.relative_to(source_root)}:{line}: '
+                                  f'{match.group().decode()}')
+    return violations
+
+
 
 class StyleIndependenceTests(unittest.TestCase):
     def test_repository_style_dependencies(self):
         violations = include_violations(ROOT / 'src')
         self.assertFalse(violations, '\n' + '\n'.join(violations))
+
+    def test_repository_style_configuration_is_independent(self):
+        violations = configuration_violations(ROOT / 'src')
+        self.assertFalse(violations, '\n' + '\n'.join(violations))
+
+    def test_configuration_check_covers_styles_and_shared(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source_root = Path(tmp) / 'src'
+            animations = source_root / 'animations'
+            for name in ('liquid', 'shared'):
+                (animations / name).mkdir(parents=True)
+            (animations / 'liquid' / 'Style.cmake').touch()
+            (animations / 'liquid' / 'Liquid.hpp').write_text('SConfigValues config;\n')
+            (animations / 'shared' / 'Common.hpp').write_text('auto value = m_config;\n')
+            violations = configuration_violations(source_root)
+            self.assertEqual(len(violations), 2, violations)
+            self.assertTrue(any('SConfig' in violation for violation in violations))
+            self.assertTrue(any('m_config' in violation for violation in violations))
 
     def test_resolves_relative_and_source_root_includes(self):
         with tempfile.TemporaryDirectory() as tmp:

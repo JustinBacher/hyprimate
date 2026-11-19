@@ -11,8 +11,8 @@
 
 namespace close_style {
     inline bool close_enabled(
-        [[maybe_unused]] const SLiquidCloseData &data, const hyprimate::config::SConfig &config) {
-        return !(config.liquid.close.strength <= 0.0);
+        [[maybe_unused]] const SLiquidCloseData &data, const SLiquidResources &resources) {
+        return !(resources.prepared.close_strength <= 0.0);
     }
     inline CBox footprint([[maybe_unused]] const SLiquidStyle &style, const Record &record) {
         CBox device = project(record.extents_device, record.render_box, record.snapshot_size);
@@ -184,12 +184,13 @@ namespace close_style {
         Pending &pending,
         const PHLWINDOW &window,
         bool active,
-        const hyprimate::config::SConfig &config,
+        const SLiquidResources &resources,
         const std::function<hyprimate::EdgeInput()> &edge_input,
         [[maybe_unused]] const std::function<std::span<const hyprimate::Box>()> &surfaces,
         [[maybe_unused]] const std::function<std::uint64_t()> &seed) {
-        const auto &close = config.liquid.close;
-        if (!std::isfinite(close.strength) || close.strength <= 0.0) {
+        const auto &close = resources.last->close;
+        const auto &prepared = resources.prepared;
+        if (!std::isfinite(prepared.close_strength) || prepared.close_strength <= 0.0) {
             return false;
         }
         const bool CONTINUING = style.transition.active();
@@ -202,12 +203,12 @@ namespace close_style {
                 SLiquidStyle{.mesh = POSE.mesh.get(), .transition = POSE.transition.get()};
             data.compensation = POSE.compensation;
         } else {
-            pending.style = SLiquidStyle{.mesh = hyprimate::LiquidMesh{liquid_inputs(config)}};
+            pending.style = SLiquidStyle{.mesh = hyprimate::LiquidMesh{prepared.movement}};
         }
-        data.strength = close.strength;
+        data.strength = prepared.close_strength;
         data.frame = FRAME;
-        data.splash = close.splash;
-        data.params = {.elasticity = close.elasticity, .momentum = close.momentum};
+        data.splash = prepared.close_splash;
+        data.params = prepared.close;
         pending.close_data = data;
         return true;
     }

@@ -23,7 +23,8 @@
 #include "animations/liquid/SolidFill.hpp"
 #include "animations/shared/EdgeTransition.hpp"
 #include "animations/shared/SheetRenderer.hpp"
-bool close_animation_enabled(const hyprimate::config::SConfig &config);
+bool close_animation_enabled(const hyprimate::config::SConfig &config,
+    const SStyleResources<StyleModules> &resources);
 
 // Deforms the native window-close fadeout through two narrow hooks, each selected by exact
 // demangled signature:
@@ -79,7 +80,6 @@ class CAnimationCloseRenderer {
     void stage(const PHLWINDOW &window,
         SStyleState &state,
         bool state_active,
-        const hyprimate::config::SConfig &config,
         const std::function<hyprimate::EdgeInput()> &edge_input,
         const std::function<std::span<const hyprimate::Box>()> &obstacles,
         const std::function<std::uint64_t()> &next_seed);

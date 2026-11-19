@@ -4,7 +4,7 @@
 
 namespace close_style {
     inline bool close_enabled([[maybe_unused]] const SPaperCloseData &data,
-        [[maybe_unused]] const hyprimate::config::SConfig &config) {
+        [[maybe_unused]] const SPaperResources &resources) {
         return true;
     }
 
@@ -12,19 +12,12 @@ namespace close_style {
         Pending &pending,
         [[maybe_unused]] const PHLWINDOW &window,
         [[maybe_unused]] bool state_active,
-        const hyprimate::config::SConfig &config,
+        const SPaperResources &resources,
         [[maybe_unused]] const std::function<hyprimate::EdgeInput()> &edge_input,
         [[maybe_unused]] const std::function<std::span<const hyprimate::Box>()> &obstacles,
         const std::function<std::uint64_t()> &next_seed) {
-        const auto &paper_config = config.paper.close;
         pending.close_data = SPaperCloseData{
-            .params =
-                {
-                    .duration = paper_config.duration,
-                    .crumpliness = paper_config.crumpliness,
-                    .shading = paper_config.shading,
-                    .variation = paper_config.variation,
-                },
+            .params = resources.prepared.close,
             .seed = next_seed(),
         };
         pending.style = std::move(style);

@@ -18,11 +18,6 @@ inline hyprimate::SwarmParams swarm_params(const SwarmConfig &swarm) {
     };
 }
 
-template <typename SwarmConfig>
-inline const std::string &swarm_creature(const SwarmConfig &swarm) {
-    return swarm.sprite;
-}
-
 inline hyprimate::EdgeSet swarm_sides(
     hyprimate::config::Flags<hyprimate::config::LoneWindowSides> sides) {
     using hyprimate::Edge;
@@ -43,8 +38,8 @@ inline hyprimate::EdgeSet swarm_sides(
     return out;
 }
 
-inline hyprimate::EdgeSet swarm_sides(const hyprimate::EdgeInput &input,
-    hyprimate::config::Flags<hyprimate::config::LoneWindowSides> sides) {
-    return input.last_window ? swarm_sides(sides) :
+inline hyprimate::EdgeSet swarm_sides(
+    const hyprimate::EdgeInput &input, hyprimate::EdgeSet lone_sides) {
+    return input.last_window ? lone_sides :
         hyprimate::resolve_edge_sides(input.body, input.screen, input.neighbours);
 }

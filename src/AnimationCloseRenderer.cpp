@@ -224,7 +224,8 @@ namespace {
 
 }  // namespace
 
-bool close_animation_enabled(const hyprimate::config::SConfig &config) {
+bool close_animation_enabled(const hyprimate::config::SConfig &config,
+    const SStyleResources<StyleModules> &resources) {
     switch (config.style) {
 #define HYPRIMATE_VALID_STYLE(kind, tag, module) case hyprimate::config::Style::kind: break;
         HYPRIMATE_STYLE_LIST(HYPRIMATE_VALID_STYLE, HYPRIMATE_STYLE_EMPTY)
@@ -233,7 +234,7 @@ bool close_animation_enabled(const hyprimate::config::SConfig &config) {
     }
     return with_live_style(config.style, [&](auto live) {
         using Live = decltype(live);
-        return close_style::close_enabled(typename Live::CloseData{}, config);
+        return close_style::close_enabled(typename Live::CloseData{}, resources.get<typename Live::Module>());
     });
 }
 
@@ -315,7 +316,6 @@ void CAnimationCloseRenderer::clear() {
 void CAnimationCloseRenderer::stage(const PHLWINDOW &window,
     SStyleState &state,
     bool state_active,
-    const hyprimate::config::SConfig &config,
     const std::function<hyprimate::EdgeInput()> &edge_input,
     const std::function<std::span<const hyprimate::Box>()> &obstacles,
     const std::function<std::uint64_t()> &next_seed) {
@@ -326,11 +326,12 @@ void CAnimationCloseRenderer::stage(const PHLWINDOW &window,
     }
     const bool STAGED = std::visit(
         [&](auto &style) {
+            using Live = decltype(live_style_for(style));
             return close_style::stage(style,
                 *pending,
                 window,
                 state_active,
-                config,
+                m_resources.get<typename Live::Module>(),
                 edge_input,
                 obstacles,
                 next_seed);

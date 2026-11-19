@@ -6,8 +6,22 @@
 #include "animations/liquid/LiquidPose.hpp"
 #include "animations/liquid/SolidFill.hpp"
 #include "animations/shared/SheetResources.hpp"
+#include "StyleSettingsCache.hpp"
 
-struct SLiquidResources {
+struct SLiquidPrepared {
+    hyprimate::LiquidParams movement;
+    hyprimate::TransitionParams open;
+    hyprimate::TransitionParams close;
+    double movement_strength{};
+    double open_strength{};
+    double close_strength{};
+    double emerge_drag{};
+    bool close_splash{};
+    CHyprColor open_color;
+    CHyprColor close_color;
+};
+
+struct SLiquidResources : SStyleSettingsCache<hyprimate::config::SLiquidSettings, SLiquidPrepared> {
     explicit SLiquidResources([[maybe_unused]] SSharedStyleResources &shared) {}
     CSolidFill open_solid;
     CSolidFill close_solid;
@@ -15,16 +29,13 @@ struct SLiquidResources {
 struct SLiquidModule {
     using State = SLiquidStyle;
     using CloseData = SLiquidCloseData;
-    using Inputs = hyprimate::LiquidParams;
+    using Prepared = SLiquidPrepared;
     using Resources = SLiquidResources;
+    using Settings = hyprimate::config::SLiquidSettings;
+    static const Settings &settings(const auto &config) { return config.liquid; }
     static constexpr auto KIND = hyprimate::config::Style::Liquid;
     static constexpr bool FIXED_CLOSE_PLACEMENT = false;
 };
 
 hyprimate::LiquidPose live_pose(const SLiquidStyle &state);
 
-inline hyprimate::LiquidParams liquid_inputs(const hyprimate::config::SConfig &config) {
-    const auto &liquid = config.liquid.movement;
-    return {.viscosity = liquid.viscosity, .elasticity = liquid.elasticity,
-        .momentum = liquid.momentum, .variation = liquid.variation};
-}
