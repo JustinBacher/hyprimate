@@ -37,12 +37,8 @@
 #include "LiveStyle.hpp"
 #include "PluginRuntime.hpp"
 #include "WindowTracker.hpp"
-#include "animations/cloth/ClothFlutter.hpp"
-#include "animations/liquid/LiquidMesh.hpp"
 #include "animations/shared/Core.hpp"
 #include "animations/shared/EdgeTransition.hpp"
-#include "animations/swarm/SwarmConfig.hpp"
-#include "animations/swarm/SwarmRenderer.hpp"
 #include "config_generated.hpp"
 
 namespace {
@@ -174,7 +170,6 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                         live.screen_after_windows(*this, resources, event.context->get(), event.monitor);
                     }
                 });
-                queue_workspace_swarm_tails(event.context->get(), event.monitor);
                 return;
             }
             if (event.stage != RENDER_POST) {
@@ -258,6 +253,11 @@ bool CPluginRuntime::close_enabled() const {
 
 bool CPluginRuntime::style_selected(hyprimate::config::Style style) const {
     return m_config.style == style;
+}
+
+bool CPluginRuntime::workspace_movement_enabled() const {
+    return !m_inert && m_config.enabled && m_config.movement.enabled &&
+           m_config.movement.workspaceMovement;
 }
 
 bool CPluginRuntime::workspace_has_other_windows(const PHLWINDOW &window) {
@@ -498,7 +498,7 @@ void CPluginRuntime::update_window(
     }
     if (DECISION.action == hyprimate::TrackAction::Opening) {
         begin_opening(entry, window);
-        // A cloth opening may warp native popin geometry to its goal. Baseline the box actually
+        // An opening may warp native popin geometry to its goal. Baseline the box actually
         // displayed.
         rebaseline(entry, window);
         step_window(entry, window, 0.0);
@@ -538,18 +538,17 @@ hyprimate::WindowSnapshot CPluginRuntime::snapshot_of(
             const auto OFFSET = WORKSPACE->m_renderOffset->value();
             window_snapshot.workspace_offset = {.x = OFFSET.x, .y = OFFSET.y};
         }
-        // Native hiding ends the slide, not the swarm's flight. Preserve its last screen-space
-        // placement while the retained window image supplies the remaining creatures.
-        const auto *tail = workspace_swarm_tail(window);
-        if (tail != nullptr) {
+        // Retained screen content may preserve its last world-space placement after hiding.
+        const auto CAPTURE = screen_window_capture(window, transformer);
+        if (CAPTURE) {
             window_snapshot.workspace_offset = {
-                .x = tail->workspace_capture.x - window_snapshot.capture.x,
-                .y = tail->workspace_capture.y - window_snapshot.capture.y,
+                .x = CAPTURE->x - window_snapshot.capture.x,
+                .y = CAPTURE->y - window_snapshot.capture.y,
             };
         }
         window_snapshot.deformable =
             window_snapshot.deformable &&
-            (WORKSPACE->visible() || window_snapshot.workspace_moving || (tail != nullptr));
+            (WORKSPACE->visible() || window_snapshot.workspace_moving || CAPTURE.has_value());
     }
     return window_snapshot;
 }
@@ -636,12 +635,6 @@ void CPluginRuntime::step_window(STracked &entry, const PHLWINDOW &window, doubl
         style.step(*this, *transformer, elapsed, {CAPTURE.w, CAPTURE.h}, movement_enabled(),
             m_style_resources.get<Module>());
     });
-    if (auto *swarm = std::get_if<SSwarmStyle>(&transformer->style_state());
-        (swarm != nullptr) && window->m_workspace && window->m_workspace->visible() &&
-        !window->m_workspace->m_renderOffset->isBeingAnimated()) {
-        swarm->workspace_snapshot.reset();
-        swarm->capture_workspace_frame = false;
-    }
     // The step may drive the layout box. Baselining after it keeps that drive from reading as
     // window movement.
     entry.tracker.baseline(
@@ -679,10 +672,8 @@ CAnimationTransformer *CPluginRuntime::acquire_transformer(const PHLWINDOW &wind
 
 CBox CPluginRuntime::world_footprint(const PHLWINDOW &window) const {
     CBox box = window->getFullWindowBoundingBox();
-    if (const auto *tail = workspace_swarm_tail(window)) {
-        const auto &capture = tail->workspace_capture;
-        return window->effects().transformBoxForDamage(
-            CBox{capture.x, capture.y, capture.w, capture.h});
+    if (const auto CAPTURE = screen_window_capture(window, transformer_of(window))) {
+        return window->effects().transformBoxForDamage(*CAPTURE);
     }
     const auto WORKSPACE = window->m_workspace;
     if (WORKSPACE && WORKSPACE->m_renderOffset->isBeingAnimated() &&
@@ -729,13 +720,26 @@ void CPluginRuntime::detach_all() {
 }
 
 bool CPluginRuntime::screen_needs_frame(const PHLMONITOR &monitor) const {
-    bool needed = has_workspace_swarm_tail(monitor);
+    bool needed = false;
     m_style_resources.for_each([&](auto live, const auto &resources) {
         if constexpr (decltype(live)::HAS_SCREEN_CONTENT) {
             needed = needed || live.screen_needs_frame(*this, resources, monitor);
         }
     });
     return needed;
+}
+
+std::optional<CBox> CPluginRuntime::screen_window_capture(
+    const PHLWINDOW &window, const CAnimationTransformer *transformer) const {
+    std::optional<CBox> capture;
+    m_style_resources.for_each([&](auto live, const auto &resources) {
+        if constexpr (decltype(live)::HAS_SCREEN_CONTENT) {
+            if (!capture) {
+                capture = live.screen_window_capture(*this, resources, window, transformer);
+            }
+        }
+    });
+    return capture;
 }
 
 void CPluginRuntime::restore_screen_scanout(const PHLMONITOR &monitor) {
@@ -766,77 +770,3 @@ void CPluginRuntime::clear_screen_content() {
     m_screen_inhibited.clear();
 }
 
-SSwarmStyle *CPluginRuntime::workspace_swarm_tail(const PHLWINDOW &window) const {
-    if (!window || !window->mapped() || !window->m_workspace || m_inert || !m_config.enabled ||
-        !m_config.movement.enabled || !m_config.movement.workspaceMovement ||
-        m_config.style != hyprimate::config::Style::Swarm || window->m_workspace->visible() ||
-        window->m_workspace->m_renderOffset->isBeingAnimated()) {
-        return nullptr;
-    }
-    auto *transformer = transformer_of(window);
-    auto *state =
-        (transformer != nullptr) ? std::get_if<SSwarmStyle>(&transformer->style_state()) : nullptr;
-    if ((state == nullptr) || !state->swarm.active() || !state->workspace_snapshot) {
-        return nullptr;
-    }
-    const auto BOUNDS = state->swarm.bounds();
-    return BOUNDS.w > 0.0 && BOUNDS.h > 0.0 ? state : nullptr;
-}
-
-bool CPluginRuntime::has_workspace_swarm_tail(const PHLMONITOR &monitor) const {
-    return std::ranges::any_of(m_tracked, [&](const auto &entry) {
-        const auto WINDOW = entry.window.lock();
-        return WINDOW && WINDOW->m_monitor.lock() == monitor && workspace_swarm_tail(WINDOW);
-    });
-}
-
-void CPluginRuntime::queue_workspace_swarm_tails(
-    Render::CRenderContext &ctx, const PHLMONITOR &monitor) {
-    const auto &sprites = m_style_resources.get<SSwarmModule>().sprites;
-    for (const auto &entry : m_tracked) {
-        const auto WINDOW = entry.window.lock();
-        if (!WINDOW || WINDOW->m_monitor.lock() != monitor ||
-            !ctx.shouldRenderContent(WINDOW->m_ruleApplicator->noScreenShare().valueOrDefault())) {
-            continue;
-        }
-        auto *state = workspace_swarm_tail(WINDOW);
-        if (state == nullptr) {
-            continue;
-        }
-        const auto *sheet = sprites->sheet(state->creature);
-        const auto ATLAS =
-            (sheet != nullptr) ? sprites->texture(state->creature) : SP<Render::ITexture>{};
-        const auto TEXTURE = state->workspace_snapshot->getTexture();
-        if ((sheet == nullptr) || !ATLAS || !TEXTURE) {
-            continue;
-        }
-        const auto &capture = state->workspace_capture;
-        const double SCALE = monitor->m_scale;
-        const CBox SOURCE = CBox{capture.x, capture.y, capture.w, capture.h}
-                                .translate(-monitor->m_position)
-                                .scale(SCALE);
-        const auto BOUNDS = state->swarm.bounds();
-        const CBox OUTPUT{SOURCE.x + (BOUNDS.x * SCALE),
-            SOURCE.y + (BOUNDS.y * SCALE),
-            BOUNDS.w * SCALE,
-            BOUNDS.h * SCALE};
-        fill_swarm_meshes(state->swarm,
-            *sheet,
-            SOURCE,
-            OUTPUT,
-            {.x = SOURCE.x + state->snapshot_offset.x, .y = SOURCE.y + state->snapshot_offset.y},
-            {.x = TEXTURE->m_size.x, .y = TEXTURE->m_size.y},
-            state->meshes);
-        CSwarmClosePassElement::SData data;
-        data.tex = TEXTURE;
-        data.atlas = ATLAS;
-        data.sprites = sprites;
-        data.layer_size = swarm_layer_size(SOURCE);
-        data.box = OUTPUT;
-        data.meshes = &state->meshes;
-        data.scale = SCALE;
-        data.damage = CRegion{OUTPUT};
-        Render::IHyprRenderer::addPassElement(
-            ctx, makeUnique<CSwarmClosePassElement>(std::move(data)));
-    }
-}

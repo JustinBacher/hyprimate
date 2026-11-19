@@ -15,7 +15,6 @@
 #include "AnimationCloseRenderer.hpp"
 #include "AnimationTransformer.hpp"
 #include "WindowTracker.hpp"
-#include "animations/liquid/SolidFill.hpp"
 #include "config_generated.hpp"
 
 // Owns every compositor-facing lifetime for the plugin: config values, event
@@ -52,6 +51,7 @@ class CPluginRuntime {
     bool plugin_enabled() const;
     bool movement_enabled() const;
     bool style_selected(hyprimate::config::Style style) const;
+    bool workspace_movement_enabled() const;
     bool open_enabled() const;
     bool close_enabled() const;
     double movement_strength() const;
@@ -98,9 +98,8 @@ class CPluginRuntime {
     bool screen_needs_frame(const PHLMONITOR &monitor) const;
     void clear_screen_content();
     void restore_screen_scanout(const PHLMONITOR &monitor);
-    SSwarmStyle *workspace_swarm_tail(const PHLWINDOW &window) const;
-    bool has_workspace_swarm_tail(const PHLMONITOR &monitor) const;
-    void queue_workspace_swarm_tails(Render::CRenderContext &ctx, const PHLMONITOR &monitor);
+    std::optional<CBox> screen_window_capture(
+        const PHLWINDOW &window, const CAnimationTransformer *transformer) const;
 
     // Resources and physics outlive all close records and detached transformers.
     SSharedStyleResources m_shared_style_resources;

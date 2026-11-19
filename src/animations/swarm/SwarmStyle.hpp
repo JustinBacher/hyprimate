@@ -28,5 +28,5 @@ struct SSwarmModule {
     static const Settings &settings(const auto &config) { return config.swarm; }
     static constexpr auto KIND = hyprimate::config::Style::Swarm;
     static constexpr bool FIXED_CLOSE_PLACEMENT = false;
-    static constexpr bool HAS_SCREEN_CONTENT = false;
+    static constexpr bool HAS_SCREEN_CONTENT = true;
 };

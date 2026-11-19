@@ -53,6 +53,33 @@ def configuration_violations(source_root):
                                   f'{match.group().decode()}')
     return violations
 
+def runtime_style_violations(source_root):
+    animations = source_root / 'animations'
+    styles = sorted(path.name for path in animations.iterdir()
+                    if path.is_dir() and (path / 'Style.cmake').is_file())
+    names = '|'.join(re.escape(name.capitalize()) for name in styles)
+    directories = '|'.join(re.escape(name) for name in styles)
+    forbidden = re.compile(
+        rf'animations/(?:{directories})/|'
+        rf'\bS(?:{names})(?:Style|Module)\b|'
+        rf'\bC(?:{names})\w*\b|'
+        rf'\bStyle\s*::\s*(?:{names})\b')
+    violations = []
+    for source in sorted(source_root.glob('PluginRuntime.*')):
+        if source.suffix not in SOURCE_EXTENSIONS:
+            continue
+        generated_macro = False
+        for line_number, line in enumerate(source.read_text(encoding='utf-8').splitlines(), 1):
+            if re.match(r'\s*#\s*define\s+HYPRIMATE_\w+', line):
+                generated_macro = True
+            if generated_macro:
+                generated_macro = line.rstrip().endswith('\\')
+                continue
+            for match in forbidden.finditer(line):
+                violations.append(f'{source.relative_to(source_root)}:{line_number}: {match.group()}')
+    return violations
+
+
 
 
 class StyleIndependenceTests(unittest.TestCase):
@@ -62,6 +89,10 @@ class StyleIndependenceTests(unittest.TestCase):
 
     def test_repository_style_configuration_is_independent(self):
         violations = configuration_violations(ROOT / 'src')
+        self.assertFalse(violations, '\n' + '\n'.join(violations))
+
+    def test_runtime_does_not_name_styles(self):
+        violations = runtime_style_violations(ROOT / 'src')
         self.assertFalse(violations, '\n' + '\n'.join(violations))
 
     def test_configuration_check_covers_styles_and_shared(self):

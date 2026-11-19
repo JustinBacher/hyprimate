@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <algorithm>
 #include <optional>
 #include <variant>
 
@@ -17,6 +18,7 @@
 #include <hyprland/src/render/transformer/Transformer.hpp>
 #include <hyprland/src/render/types.hpp>
 #include <hyprutils/math/Box.hpp>
+#include <hyprutils/memory/UniquePtr.hpp>
 
 #include "AnimationTransformer.hpp"
 #include "LiveRender.hpp"
@@ -65,7 +67,96 @@ namespace {
         };
     }
 
+    template <class Transformer>
+    auto *workspace_tail(const PHLWINDOW &window, Transformer *transformer, bool enabled) {
+        using State = decltype(std::get_if<SSwarmStyle>(&transformer->style_state()));
+        if (!enabled || !window || !window->mapped() || !window->m_workspace ||
+            window->m_workspace->visible() ||
+            window->m_workspace->m_renderOffset->isBeingAnimated() || !transformer) {
+            return State{};
+        }
+        auto *state = std::get_if<SSwarmStyle>(&transformer->style_state());
+        if (!state || !state->swarm.active() || !state->workspace_snapshot) {
+            return State{};
+        }
+        const auto BOUNDS = state->swarm.bounds();
+        return BOUNDS.w > 0.0 && BOUNDS.h > 0.0 ? state : State{};
+    }
+
 }  // namespace
+
+void SSwarmLiveStyle::screen_tick(CPluginRuntime &, Resources &,
+    std::chrono::steady_clock::time_point, const PHLMONITOR &) {}
+
+bool SSwarmLiveStyle::screen_needs_frame(const CPluginRuntime &runtime, const Resources &,
+    const PHLMONITOR &monitor) {
+    const bool ENABLED = runtime.workspace_movement_enabled() && runtime.style_selected(KIND);
+    return std::ranges::any_of(runtime.m_tracked, [&](const auto &entry) {
+        const auto WINDOW = entry.window.lock();
+        return WINDOW && WINDOW->m_monitor.lock() == monitor &&
+               workspace_tail(WINDOW, runtime.transformer_of(WINDOW), ENABLED);
+    });
+}
+
+void SSwarmLiveStyle::screen_before_window(CPluginRuntime &, Resources &,
+    Render::CRenderContext &, const PHLMONITOR &, const PHLWINDOW &) {}
+
+void SSwarmLiveStyle::screen_after_windows(CPluginRuntime &runtime, Resources &resources,
+    Render::CRenderContext &ctx, const PHLMONITOR &monitor) {
+    const bool ENABLED = runtime.workspace_movement_enabled() && runtime.style_selected(KIND);
+    const auto &sprites = resources.sprites;
+    for (const auto &entry : runtime.m_tracked) {
+        const auto WINDOW = entry.window.lock();
+        if (!WINDOW || WINDOW->m_monitor.lock() != monitor ||
+            !ctx.shouldRenderContent(WINDOW->m_ruleApplicator->noScreenShare().valueOrDefault())) {
+            continue;
+        }
+        auto *state = workspace_tail(WINDOW, runtime.transformer_of(WINDOW), ENABLED);
+        if (!state) {
+            continue;
+        }
+        const auto *sheet = sprites->sheet(state->creature);
+        const auto ATLAS =
+            (sheet != nullptr) ? sprites->texture(state->creature) : SP<Render::ITexture>{};
+        const auto TEXTURE = state->workspace_snapshot->getTexture();
+        if ((sheet == nullptr) || !ATLAS || !TEXTURE) {
+            continue;
+        }
+        const auto &capture = state->workspace_capture;
+        const double SCALE = monitor->m_scale;
+        const CBox SOURCE = CBox{capture.x, capture.y, capture.w, capture.h}
+                                .translate(-monitor->m_position)
+                                .scale(SCALE);
+        const auto BOUNDS = state->swarm.bounds();
+        const CBox OUTPUT{SOURCE.x + (BOUNDS.x * SCALE),
+            SOURCE.y + (BOUNDS.y * SCALE),
+            BOUNDS.w * SCALE,
+            BOUNDS.h * SCALE};
+        fill_swarm_meshes(state->swarm, *sheet, SOURCE, OUTPUT,
+            {.x = SOURCE.x + state->snapshot_offset.x, .y = SOURCE.y + state->snapshot_offset.y},
+            {.x = TEXTURE->m_size.x, .y = TEXTURE->m_size.y}, state->meshes);
+        CSwarmClosePassElement::SData data;
+        data.tex = TEXTURE;
+        data.atlas = ATLAS;
+        data.sprites = sprites;
+        data.layer_size = swarm_layer_size(SOURCE);
+        data.box = OUTPUT;
+        data.meshes = &state->meshes;
+        data.scale = SCALE;
+        data.damage = CRegion{OUTPUT};
+        Render::IHyprRenderer::addPassElement(
+            ctx, makeUnique<CSwarmClosePassElement>(std::move(data)));
+    }
+}
+
+void SSwarmLiveStyle::screen_clear(CPluginRuntime &, Resources &) {}
+
+std::optional<CBox> SSwarmLiveStyle::screen_window_capture(const CPluginRuntime &runtime,
+    const Resources &, const PHLWINDOW &window, const CAnimationTransformer *transformer) {
+    const auto *tail = workspace_tail(window, transformer,
+        runtime.workspace_movement_enabled() && runtime.style_selected(KIND));
+    return tail ? std::optional<CBox>{to_cbox(tail->workspace_capture)} : std::nullopt;
+}
 
 CBox live_extents(const SSwarmStyle &state, const CBox &box) {
     const hyprimate::Box BOUNDS = state.swarm.bounds();
@@ -229,6 +320,12 @@ void SSwarmLiveStyle::step([[maybe_unused]] CPluginRuntime &runtime,
     const bool HELD = enabled && TARGET && TARGET->window() == transformer.m_window.lock() &&
                       g_layoutManager->dragController()->mode() == MBIND_MOVE;
     state.swarm.advance(elapsed, HELD);
+    const auto WINDOW = transformer.m_window.lock();
+    if (WINDOW && WINDOW->m_workspace && WINDOW->m_workspace->visible() &&
+        !WINDOW->m_workspace->m_renderOffset->isBeingAnimated()) {
+        state.workspace_snapshot.reset();
+        state.capture_workspace_frame = false;
+    }
 }
 
 void SSwarmLiveStyle::cancelOpening(CAnimationTransformer &transformer) {
