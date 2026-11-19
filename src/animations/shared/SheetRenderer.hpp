@@ -8,8 +8,6 @@
 #include <hyprland/src/render/Framebuffer.hpp>
 #include <hyprland/src/render/Texture.hpp>
 
-#include "animations/shared/SheetFrame.hpp"
-
 
 // Shade ramp for sheet lighting: a 256x1 premultiplied texture indexed by triangle shade. Texel 128
 // is fully transparent (neutral); lower texels are black shadow, higher texels are white highlight.
@@ -22,10 +20,6 @@ class CSheetShade {
   private:
     SP<Render::ITexture> m_texture;
 };
-
-// Logical box that bounds every displayed sheet vertex. `logical_box` is the rest window box in
-// logical pixels; the result is in the same space. Width and height are at least 1.
-CBox sheet_extents(const hyprimate::SheetFrame &frame, const CBox &logical_box);
 
 
 // Six vertices covering a unit box with uv equal to position. Draws a full-canvas texture as a

@@ -53,13 +53,13 @@ class CBubbleRenderer {
     bool m_warmed = false;
 };
 
+// Deferred screen-only Vestige drawing; window animation draws use the generic pass.
 class CBubblePassElement final : public IPassElement {
   public:
     struct SData {
         SP<CBubbleRenderer> renderer;
         SBubbleDraw draw;
         CBox box;
-        float alpha = 1.F;
         double scale = 1.0;
         CRegion damage;
     };

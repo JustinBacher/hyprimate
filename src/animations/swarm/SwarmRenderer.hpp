@@ -9,7 +9,6 @@
 #include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/Framebuffer.hpp>
 #include <hyprland/src/render/Texture.hpp>
-#include <hyprland/src/render/pass/PassElement.hpp>
 
 #include "animations/swarm/SwarmLiveState.hpp"
 #include "animations/swarm/SwarmSurface.hpp"

@@ -679,6 +679,68 @@ void close_placement_and_invalid_fadeouts() {
         CHECK(VIEWS[0].source_device.w == 220); CHECK(VIEWS[0].source_device.h == 180);
     }
 }
+void dying_draw_adapter_lifecycle() {
+    for (const auto mode : {CloseStart::Owned, CloseStart::Native}) {
+        Fixture fixture;
+        fixture.log().close_result = mode;
+        fixture.window(1);
+        fixture.port.windows.at(1).no_screen_share = true;
+        fixture.frame(1);
+        const auto handle = fixture.handle();
+        fixture.module.close(1, fixture.port.now);
+        fixture.module.bind_fadeout(1, fixture.fade(800), {80});
+        fixture.frame(1);
+        const auto views = fixture.module.dying_views();
+        CHECK(views.size() == 1);
+        if (views.empty()) continue;
+        const auto view = views.front();
+        CHECK(view.no_screen_share);
+        CHECK(view.ownership == mode);
+        CHECK(fixture.module.suppresses(800) == (mode == CloseStart::Owned));
+        FakeCanvas canvas;
+        const FakeCanvas::Image image{80};
+        const Draw<FakeCanvas> draw{.canvas = canvas, .image = image, .source = view.render_box,
+            .output = view.bounds_device, .canvas_box = view.bounds_device, .image_origin = {},
+            .image_size = view.image_size, .scale = view.scale, .alpha = view.alpha, .real_pass = true};
+        CHECK(fixture.module.draw(handle, draw));
+        CHECK(canvas.draws.size() == 1);
+        fixture.module.native_finished(800);
+        if (mode == CloseStart::Owned) {
+            CHECK(fixture.module.active(handle));
+            CHECK(fixture.module.draw(handle, draw));
+            fixture.log().running = false;
+            fixture.frame(1);
+        }
+        CHECK(!fixture.module.active(handle));
+        fixture.log().running = true;
+        fixture.window(2);
+        fixture.frame(1);
+        CHECK(fixture.handle(2) != handle);
+        const auto count = canvas.draws.size();
+        CHECK(!fixture.module.draw(handle, draw));
+        CHECK(canvas.draws.size() == count);
+    }
+}
+
+void dying_damage_follows_native_placement() {
+    Fixture fixture;
+    fixture.window(1);
+    fixture.frame(1);
+    fixture.module.close(1, fixture.port.now);
+    fixture.module.bind_fadeout(1, fixture.fade(801), {81});
+    fixture.frame(1);
+    fixture.port.damage_log.clear();
+    fixture.port.fadeouts.at(801).native_box.x += 40;
+    fixture.frame(1);
+    const auto views = fixture.module.dying_views();
+    CHECK(!views.empty());
+    if (views.empty()) return;
+    const auto &box = views.front().bounds_device;
+    CHECK(std::any_of(fixture.port.damage_log.begin(), fixture.port.damage_log.end(),
+        [&](const Box &damage) { return damage.x == box.x && damage.y == box.y &&
+            damage.w == box.w && damage.h == box.h; }));
+}
+
 void isolated_mesh_buffers() {
     using MeshModule = CWindowAnimations<FakeWindowPort, StyleList<MeshStyle>>;
     Fixture fixture; fixture.window(1);
@@ -758,6 +820,7 @@ int main() try {
     pass_kind_retention_and_backdrop();
     independent_fadeouts_reversed(); workspace_motion_and_teleport(); capture_failure_releases_entry();
     isolated_mesh_buffers();
+    dying_draw_adapter_lifecycle(); dying_damage_follows_native_placement();
     return g_failures == 0 ? 0 : 1;
 }
 catch (const std::exception &error) {
