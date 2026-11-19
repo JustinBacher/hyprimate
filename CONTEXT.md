@@ -54,7 +54,7 @@ _Avoid_: mode, material (as separate per-direction choices).
 **Vestige**: what a window animation leaves on the screen that then lives on its own, at its screen position, until it drains or evaporates: glass beads and the wake.
 _Avoid_: residue, leftovers.
 
-**Stall**: a gap between compositor frames longer than an animation can play through faithfully. Each animation decides its own response to a stall (abort, clamp, or restart), but what counts as a stall is defined once.
+**Stall**: a gap between compositor frames longer than an animation can play through faithfully. Each animation decides its own response to a stall (abort, clamp, or restart), but what counts as a stall is defined once. Recovery is bounded: repeated or very long stalls end the animation cleanly, whatever its own response.
 
 **Substep**: the fixed simulation time step shared by all liquid physics, so movement and transitions advance in lockstep.
 
