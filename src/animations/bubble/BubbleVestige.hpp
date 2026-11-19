@@ -25,7 +25,7 @@ struct SBubbleImpactClock {
 // Screen-space deposits retain neither the window nor its textures: glass beads from ruptures, and
 // the wakes of film and microbubbles that moving windows leave behind. Beads lie on the glass over
 // every window; a wake lies just under the window that left it.
-class CBubbleResidue {
+class CBubbleVestige {
   public:
     bool deposit(const PHLMONITOR &monitor,
         Vector2D centre,
@@ -40,7 +40,7 @@ class CBubbleResidue {
         Vector2D centre,
         std::span<const hyprimate::BubbleTrailPoint> points,
         std::span<const hyprimate::BubbleRelease> releases);
-    // Advances the monitor's residue; once per frame, before it renders.
+    // Advances the monitor's Vestige; once per frame, before it renders.
     void tick(std::chrono::steady_clock::time_point now, const PHLMONITOR &monitor);
     // Before a window renders: the wakes it left, beneath it.
     void queue_under(Render::CRenderContext &ctx,

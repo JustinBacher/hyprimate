@@ -20,7 +20,7 @@
 #include "Bubble.hpp"
 #include "BubbleMotion.hpp"
 #include "BubbleRenderer.hpp"
-#include "BubbleResidue.hpp"
+#include "BubbleVestige.hpp"
 #include "animations/shared/Core.hpp"
 
 namespace {
@@ -71,9 +71,9 @@ namespace {
             .intersection(SCREEN);
     }
 
-    // Only the monitor's own normal frame draws residue: never captures, snapshots or read-only
+    // Only the monitor's own normal frame draws Vestige: never captures, snapshots or read-only
     // passes.
-    bool draws_residue(const Render::CRenderContext &ctx, const PHLMONITOR &monitor) {
+    bool draws_vestige(const Render::CRenderContext &ctx, const PHLMONITOR &monitor) {
         return monitor && !ctx.readOnlyEffects() && !ctx.m_renderingCapture &&
                !ctx.m_renderingSnapshot && ctx.m_mode == Render::RENDER_MODE_NORMAL &&
                ctx.m_data.pMonitor.lock() == monitor;
@@ -83,7 +83,7 @@ namespace {
     constexpr std::size_t MAX_WAKES = 12;
 }  // namespace
 
-bool CBubbleResidue::deposit(const PHLMONITOR &monitor,
+bool CBubbleVestige::deposit(const PHLMONITOR &monitor,
     Vector2D centre,
     std::span<const hyprimate::BubbleImpact> impacts,
     const SP<SBubbleImpactClock> &clock) {
@@ -128,7 +128,7 @@ bool CBubbleResidue::deposit(const PHLMONITOR &monitor,
     return accepted;
 }
 
-void CBubbleResidue::tick(std::chrono::steady_clock::time_point now, const PHLMONITOR &monitor) {
+void CBubbleVestige::tick(std::chrono::steady_clock::time_point now, const PHLMONITOR &monitor) {
     for (auto &deposit : m_deposits) {
         if (deposit.monitor.lock() != monitor) {
             continue;
@@ -172,7 +172,7 @@ void CBubbleResidue::tick(std::chrono::steady_clock::time_point now, const PHLMO
         m_wakes, [](const Wake &wake) { return wake.monitor.expired() || wake.film.done(); });
 }
 
-CBubbleResidue::Wake *CBubbleResidue::wake_for(const PHLMONITOR &monitor, std::uint64_t wake_id) {
+CBubbleVestige::Wake *CBubbleVestige::wake_for(const PHLMONITOR &monitor, std::uint64_t wake_id) {
     if (wake_id == 0) {
         return nullptr;
     }
@@ -184,7 +184,7 @@ CBubbleResidue::Wake *CBubbleResidue::wake_for(const PHLMONITOR &monitor, std::u
     return nullptr;
 }
 
-CBubbleResidue::Wake &CBubbleResidue::begin_wake(
+CBubbleVestige::Wake &CBubbleVestige::begin_wake(
     const PHLMONITOR &monitor, const PHLWINDOW &owner) {
     if (m_wakes.size() >= MAX_WAKES) {
         for (auto &wake : std::span{m_wakes}.first(m_wakes.size() - MAX_WAKES + 1)) {
@@ -202,7 +202,7 @@ CBubbleResidue::Wake &CBubbleResidue::begin_wake(
     return m_wakes.back();
 }
 
-std::uint64_t CBubbleResidue::trail(const PHLMONITOR &monitor,
+std::uint64_t CBubbleVestige::trail(const PHLMONITOR &monitor,
     const PHLWINDOW &owner,
     std::uint64_t wake,
     Vector2D centre,
@@ -233,7 +233,7 @@ std::uint64_t CBubbleResidue::trail(const PHLMONITOR &monitor,
     return current->id;
 }
 
-void CBubbleResidue::queue_wake(Render::CRenderContext &ctx,
+void CBubbleVestige::queue_wake(Render::CRenderContext &ctx,
     const PHLMONITOR &monitor,
     Wake &wake,
     const SP<CBubbleRenderer> &renderer) {
@@ -261,11 +261,11 @@ void CBubbleResidue::queue_wake(Render::CRenderContext &ctx,
     Render::IHyprRenderer::addPassElement(ctx, makeUnique<CBubblePassElement>(std::move(data)));
 }
 
-void CBubbleResidue::queue_under(Render::CRenderContext &ctx,
+void CBubbleVestige::queue_under(Render::CRenderContext &ctx,
     const PHLMONITOR &monitor,
     const PHLWINDOW &window,
     const SP<CBubbleRenderer> &renderer) {
-    if (!window || !renderer || !draws_residue(ctx, monitor)) {
+    if (!window || !renderer || !draws_vestige(ctx, monitor)) {
         return;
     }
     for (auto &wake : m_wakes) {
@@ -275,9 +275,9 @@ void CBubbleResidue::queue_under(Render::CRenderContext &ctx,
     }
 }
 
-void CBubbleResidue::queue(
+void CBubbleVestige::queue(
     Render::CRenderContext &ctx, const PHLMONITOR &monitor, const SP<CBubbleRenderer> &renderer) {
-    if (!renderer || !draws_residue(ctx, monitor)) {
+    if (!renderer || !draws_vestige(ctx, monitor)) {
         return;
     }
     for (const auto &deposit : m_deposits) {
@@ -316,19 +316,19 @@ void CBubbleResidue::queue(
     }
 }
 
-bool CBubbleResidue::active(const PHLMONITOR &monitor) const {
+bool CBubbleVestige::active(const PHLMONITOR &monitor) const {
     const auto HERE = [&](const auto &entry) { return entry.monitor.lock() == monitor; };
     return std::ranges::any_of(m_deposits, HERE) || std::ranges::any_of(m_wakes, HERE);
 }
 
-void CBubbleResidue::set_enabled(bool enabled) {
+void CBubbleVestige::set_enabled(bool enabled) {
     m_enabled = enabled;
     if (!enabled) {
         clear();
     }
 }
 
-void CBubbleResidue::clear() {
+void CBubbleVestige::clear() {
     for (const auto &deposit : m_deposits) {
         damage(deposit.monitor.lock(), deposit.position, deposit.radius);
     }

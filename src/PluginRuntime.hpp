@@ -15,7 +15,7 @@
 #include "AnimationCloseRenderer.hpp"
 #include "AnimationTransformer.hpp"
 #include "WindowTracker.hpp"
-#include "animations/bubble/BubbleResidue.hpp"
+#include "animations/bubble/BubbleVestige.hpp"
 #include "animations/liquid/SolidFill.hpp"
 #include "config_generated.hpp"
 

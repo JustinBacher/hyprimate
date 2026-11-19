@@ -25,7 +25,7 @@ struct SBubbleDraw {
     hyprimate::Vec2 output_origin;
     std::array<hyprimate::BubbleParticle, hyprimate::K_BUBBLE_MAX_IMPACTS> glass_particles{};
     std::size_t glass_count = 0;
-    bool on_glass = false;  // screen-space residue: no window imagery, frame is the deposit's box
+    bool on_glass = false;  // screen-space Vestige: no window imagery, frame is the deposit's box
     std::optional<hyprimate::BubbleWakeView> wake;  // on the glass: a film trail to draw
 };
 

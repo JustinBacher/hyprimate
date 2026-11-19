@@ -17,7 +17,7 @@ struct SBubblePrepared {
 struct SBubbleResources : SStyleSettingsCache<hyprimate::config::SBubbleSettings, SBubblePrepared> {
     explicit SBubbleResources([[maybe_unused]] SSharedStyleResources &shared) {}
     SP<CBubbleRenderer> renderer = makeShared<CBubbleRenderer>();
-    CBubbleResidue vestige;
+    CBubbleVestige vestige;
 };
 struct SBubbleModule {
     using State = SBubbleStyle;
@@ -29,11 +29,11 @@ struct SBubbleModule {
     static constexpr auto KIND = hyprimate::config::Style::Bubble;
     static constexpr bool FIXED_CLOSE_PLACEMENT = true;
 };
-// Hands each surface's glass impacts to the residue once, as soon as its first hole has opened.
+// Hands each surface's glass impacts to the Vestige once, as soon as its first hole has opened.
 // Pending beads land when the transition's shared clock reaches them, so they neither lead their
 // droplets nor outlive an aborted opening. Callers exclude capture and read-only passes. centre is
 // the frame centre in monitor-local logical coordinates.
-inline void deposit_bubble_impacts(SBubbleStyle &state, CBubbleResidue &vestige,
+inline void deposit_bubble_impacts(SBubbleStyle &state, CBubbleVestige &vestige,
     const hyprimate::BubbleFrame &frame,
     const PHLMONITOR &monitor,
     Vector2D centre) {
@@ -52,7 +52,7 @@ inline void deposit_bubble_impacts(SBubbleStyle &state, CBubbleResidue &vestige,
         }
         std::array<hyprimate::BubbleImpact, hyprimate::K_BUBBLE_MAX_IMPACTS> found{};
         const auto COUNT = hyprimate::bubble_impacts(surface, found);
-        // A disabled residue declines the beads; they are not retried later.
+        // A disabled Vestige declines the beads; they are not retried later.
         vestige.deposit(
             monitor, centre, std::span(found).first(COUNT), state.impacts.clock());
         done = true;

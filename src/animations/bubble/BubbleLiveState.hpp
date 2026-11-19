@@ -7,7 +7,7 @@
 
 #include "Bubble.hpp"
 #include "BubbleWallpaper.hpp"
-#include "BubbleResidue.hpp"
+#include "BubbleVestige.hpp"
 
 // A transition's hold on its impact clock. However the transition stops, the clock is marked:
 // cancel() when its droplets vanish (an aborted opening), otherwise ended, so pending beads never
@@ -67,7 +67,7 @@ struct SBubbleStyle {
     bool shell_impacts_deposited = false;
     bool window_impacts_deposited = false;
     CBubbleImpactLease impacts;
-    std::uint64_t wake = 0;  // the residue wake this window's movement is laying down
+    std::uint64_t wake = 0;  // the Vestige wake this window's movement is laying down
     PHLWINDOWREF window;  // the window the film belongs to; its wakes lie under it
 };
 

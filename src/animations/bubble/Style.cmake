@@ -37,7 +37,7 @@ target_sources(hyprimate PRIVATE
     src/animations/bubble/BubbleLiveStyle.cpp
     src/animations/bubble/BubbleRenderer.cpp
     src/animations/bubble/BubbleMaterial.cpp
-    src/animations/bubble/BubbleResidue.cpp
+    src/animations/bubble/BubbleVestige.cpp
     src/animations/bubble/BubbleWallpaper.cpp
 )
 

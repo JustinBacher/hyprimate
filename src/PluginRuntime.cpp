@@ -130,7 +130,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     });
 
     // A solitary client bypasses the monitor scene entirely, and can also direct-scan out before
-    // render.pre. Remove it for this frame while residue exists; restore native selection when the
+    // render.pre. Remove it for this frame while Vestige exists; restore native selection when the
     // last deposit expires.
     m_listen_render_pre_checks =
         Event::bus()->m_events.render.preChecks.listen([this](const PHLMONITOR &monitor) {
@@ -159,7 +159,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     m_listen_render_pre = Event::bus()->m_events.render.pre.listen(
         [this](const PHLMONITOR &monitor) { on_render_pre(monitor); });
     // Requests made in render.pre can be consumed by the current commit. Keep requesting frames
-    // after rendering while live animations, retained closes, or residue need them.
+    // after rendering while live animations, retained closes, or Vestige need them.
     m_listen_render_post =
         Event::bus()->m_events.render.stage.listen([this](const Event::SRenderStageEvent &event) {
             // A wake lies just under the window that left it; beads, and wakes whose window was
