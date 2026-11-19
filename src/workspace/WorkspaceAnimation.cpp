@@ -37,7 +37,7 @@
 #include "workspace/WorkspaceController.hpp"
 #include "workspace/WorkspaceDirection.hpp"
 #include "workspace/WorkspaceIdentity.hpp"
-#include "workspace/rotation/RotationRenderer.hpp"
+#include "workspace/WorkspaceStyleList.hpp"
 
 namespace {
     using Clock = std::chrono::steady_clock;
@@ -208,6 +208,7 @@ class CWorkspaceAnimation::Impl {
     void shutdown();
     void configure(bool enabled, std::string_view style, double duration,
         const hyprimate::workspace::GapFill &gap, std::string_view curveName);
+    void configure(const hyprimate::config::SWorkspaceSettings &settings);
     void pre_checks(const PHLMONITOR &monitor);
     void pre_render(const PHLMONITOR &monitor);
     void remove_monitor(const PHLMONITOR &monitor);
@@ -265,10 +266,9 @@ class CWorkspaceAnimation::Impl {
     std::vector<std::unique_ptr<MonitorState>> m_states;
     hyprimate::workspace::CompositionIdentities<PHLWORKSPACE, PHLWORKSPACEREF> m_compositions;
     Controller m_controller;
-    hyprimate::workspace::RotationRenderer m_rotation;
+    hyprimate::animation::StyleResources<hyprimate::workspace::WorkspaceStyles> m_styles;
     WorkspaceCaptureScope::Scratch m_scratch;
     hyprimate::workspace::BeginRender m_beginRender = nullptr;
-    bool m_rotationReady = false;
 
     CFunctionHook *m_changeHook = nullptr;
     CFunctionHook *m_specialHook = nullptr;
@@ -552,10 +552,15 @@ namespace {
         }
 
         std::vector<UP<IPassElement>> draw(Render::CRenderContext &ctx) override {
-            bool ok = m_owner &&
-                      m_owner->m_rotation.draw(ctx, m_source, m_destination, m_presentation,
-                          m_sourceWallpaper, m_destinationWallpaper, m_progress, m_direction,
-                          m_owner->m_gap, m_matchingWallpaper);
+            bool ok = false;
+            if (m_owner) {
+                m_owner->m_styles.for_each([&]<class Style>(auto &resources) {
+                    if (resources.ready)
+                        ok = resources.renderer.draw(ctx, m_source, m_destination, m_presentation,
+                            m_sourceWallpaper, m_destinationWallpaper, m_progress, m_direction,
+                            m_owner->m_gap, m_matchingWallpaper);
+                });
+            }
             if (!ok) copy_opaque(m_destination, m_presentation);
             if (m_owner) m_owner->pass_presented(m_monitor, ok);
             return {};
@@ -695,13 +700,23 @@ void CWorkspaceAnimation::Impl::shutdown() {
     m_blurHook = nullptr;
     s_active = nullptr;
     clear();
-    if (m_rotationReady && Render::GL::g_pHyprOpenGL) {
+    if (Render::GL::g_pHyprOpenGL)
         Render::GL::g_pHyprOpenGL->makeEGLCurrent();
-        m_rotation.release();
-    }
-    m_rotationReady = false;
+    m_styles.for_each([]<class Style>(auto &resources) {
+        if (resources.ready && Render::GL::g_pHyprOpenGL) resources.renderer.release();
+        resources.ready = false;
+    });
     m_scratch.clear();
     m_beginRender = nullptr;
+}
+
+void CWorkspaceAnimation::Impl::configure(const hyprimate::config::SWorkspaceSettings &settings) {
+    m_styles.for_each([&]<class Style>(auto &resources) {
+        if (settings.style != Style::kind) return;
+        Style::prepare(resources, settings);
+        const auto &prepared = resources.settings.prepared;
+        configure(settings.enabled, Style::legacyName, prepared.duration, prepared.gap, prepared.curve);
+    });
 }
 
 void CWorkspaceAnimation::Impl::configure(bool enabled, std::string_view style, double duration,
@@ -798,13 +813,17 @@ bool CWorkspaceAnimation::Impl::ensure_buffers(MonitorState &entry, const PHLMON
             Render::SSceneBufferDescription{.format = entry.source->m_drmFormat,
                 .imageDescription = entry.source->imageDescription()});
     }
-    if (!m_rotationReady) {
-        const auto backend = g_pHyprRenderer->glBackend();
-        if (!backend) return false;
-        backend->makeEGLCurrent();
-        m_rotationReady = m_rotation.initialize();
-    }
-    return m_rotationReady;
+    bool ready = false;
+    m_styles.for_each([&]<class Style>(auto &resources) {
+        if (!resources.ready) {
+            const auto backend = g_pHyprRenderer->glBackend();
+            if (!backend) return;
+            backend->makeEGLCurrent();
+            resources.ready = resources.renderer.initialize();
+        }
+        ready = resources.ready;
+    });
+    return ready;
 }
 
 bool CWorkspaceAnimation::Impl::capture(MonitorState &entry,
@@ -1180,6 +1199,9 @@ void CWorkspaceAnimation::shutdown() {
 void CWorkspaceAnimation::configure(bool enabled, std::string_view style, double duration,
     const hyprimate::workspace::GapFill &gap, std::string_view curveName) {
     m_impl->configure(enabled, style, duration, gap, curveName);
+}
+void CWorkspaceAnimation::configure(const hyprimate::config::SWorkspaceSettings &settings) {
+    m_impl->configure(settings);
 }
 void CWorkspaceAnimation::on_render_pre_checks(const PHLMONITOR &monitor) {
     m_impl->pre_checks(monitor);
