@@ -109,6 +109,21 @@ class StyleIndependenceTests(unittest.TestCase):
         violations = include_violations(ROOT / 'src')
         self.assertFalse(violations, '\n' + '\n'.join(violations))
 
+    def test_workspace_capture_scope_is_style_neutral(self):
+        source = (ROOT / 'src/workspace/WorkspaceCaptureScope.hpp').read_text(encoding='utf-8')
+        self.assertNotRegex(source, r'animations/(?:bubble|swarm)/|\b[CS]Bubble\w*|\b[CS]Swarm\w*')
+
+    def test_legacy_state_and_runtime_friendship_are_absent(self):
+        source_root = ROOT / 'src'
+        paths = list(source_root.glob('PluginRuntime.*')) + [
+            source_root / 'AnimationTransformer.hpp', source_root / 'StyleTypes.hpp']
+        forbidden = re.compile(
+            r'\b(?:SStyleState|SCloseStyleData|built_for|builtFor|cancelOpening|cancelMovement)\b'
+            r'|friend\s+struct')
+        for path in paths:
+            with self.subTest(path=path.name):
+                self.assertNotRegex(path.read_text(encoding='utf-8'), forbidden)
+
     def test_repository_style_configuration_is_independent(self):
         violations = configuration_violations(ROOT / 'src')
         self.assertFalse(violations, '\n' + '\n'.join(violations))

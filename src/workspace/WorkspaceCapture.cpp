@@ -10,7 +10,6 @@ namespace hyprimate::workspace {
         const PHLMONITOR &monitor,
         const SP<Render::IFramebuffer> &target,
         const SP<Render::CSceneResources> &resources,
-        WorkspaceCaptureScope::Scratch &scratch,
         CaptureKind kind,
         CaptureDraw draw,
         void *userdata) {
@@ -32,9 +31,6 @@ namespace hyprimate::workspace {
         Render::SRenderOptions options;
         options.sceneResources = resources;
         try {
-            if (kind == CaptureKind::SourceIsolated) {
-                scratch.warm_up();
-            }
             const bool started = begin(&renderer,
                 monitor,
                 damage,
@@ -54,7 +50,7 @@ namespace hyprimate::workspace {
             auto &context = renderer.context();
             std::optional<WorkspaceCaptureScope> capture;
             if (kind == CaptureKind::SourceIsolated) {
-                capture.emplace(context, scratch);
+                capture.emplace(context);
             }
             std::optional<WorkspaceCaptureScope::DestinationLiveScope> liveCapture;
             if (kind == CaptureKind::DestinationLive) {

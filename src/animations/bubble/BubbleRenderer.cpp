@@ -24,7 +24,6 @@
 #include "bubble_shaders_generated.hpp"
 #include "gl/RawGlBracket.hpp"
 #include "animations/shared/SheetRenderer.hpp"
-#include "workspace/WorkspaceCaptureScope.hpp"
 
 namespace {
     // Runs work with the compositor's EGL context current, then restores whatever was current
@@ -109,9 +108,8 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
         return nullptr;
     }
     const auto WALLPAPER =
-        draw.wallpaper && draw.wallpaper->framebuffer && !ctx.m_renderingCapture &&
-                !ctx.m_renderingSnapshot &&
-                (!ctx.readOnlyEffects() || WorkspaceCaptureScope::forContext(ctx))
+        draw.wallpaper && draw.wallpaper->framebuffer &&
+                draw.pass != hyprimate::animation::PassKind::Inert
             ? draw.wallpaper->framebuffer->getTexture()
             : SP<Render::ITexture>{};
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};

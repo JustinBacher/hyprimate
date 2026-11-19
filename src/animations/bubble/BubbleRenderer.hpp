@@ -27,6 +27,7 @@ struct SBubbleDraw {
     std::size_t glass_count = 0;
     bool on_glass = false;  // screen-space Vestige: no window imagery, frame is the deposit's box
     std::optional<hyprimate::BubbleWakeView> wake;  // on the glass: a film trail to draw
+    hyprimate::animation::PassKind pass = hyprimate::animation::PassKind::Inert;
 };
 
 class CBubbleRenderer {

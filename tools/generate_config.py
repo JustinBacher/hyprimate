@@ -285,10 +285,10 @@ def emit_struct(types, name, emitted, out):
     out.append('')
 
 
-def config_header(settings):
+def settings_header(settings):
     out = ['// Generated from config/settings.json; do not edit.', '#pragma once', '',
-           '#include <algorithm>', '#include <array>', '#include <cmath>', '#include <cstdint>', '#include <expected>',
-           '#include <optional>', '#include <stdexcept>', '#include <string>', '', 'namespace hyprimate::config {', '']
+           '#include <array>', '#include <cstdint>', '#include <string>', '',
+           'namespace hyprimate::config {', '']
     enum_items = enums(settings)
     if any(item['type'] == 'set' for item in enum_items.values()):
         out.append('template <class E> struct Flags {')
@@ -305,6 +305,19 @@ def config_header(settings):
             values = ', '.join(f'WorkspaceStyle::{pascal(choice)}' for choice in item['choices'])
             out.append(f'inline constexpr std::array WORKSPACE_STYLES{{{values}}};')
     out.append('')
+    types = struct_types(settings)
+    emitted = set()
+    emit_struct(types, 'SConfig', emitted, out)
+    out.append('} // namespace hyprimate::config')
+    return '\n'.join(out) + '\n'
+
+
+def config_header(settings):
+    out = ['// Generated from config/settings.json; do not edit.', '#pragma once', '',
+           '#include <algorithm>', '#include <cmath>', '#include <expected>',
+           '#include <optional>', '#include <stdexcept>', '',
+           '#include "config_settings_generated.hpp"', '', 'namespace hyprimate::config {', '']
+    enum_items = enums(settings)
     out.append('namespace detail {')
     out.append('// Non-finite values read as the schema minimum, which turns a strength or drain off.')
     out.append('inline double clamp_float(float value, double low, double high) noexcept {')
@@ -355,9 +368,6 @@ def config_header(settings):
         out.append('')
     out.append('} // namespace detail')
     out.append('')
-    types = struct_types(settings)
-    emitted = set()
-    emit_struct(types, 'SConfig', emitted, out)
     out.append('struct SConfigValues {')
     for item in settings:
         out.append(f'    SP<Config::Values::{KINDS[item["type"]]}> {item["member"]};')
@@ -531,10 +541,11 @@ def main():
     parser.add_argument('--readme', type=Path)
     parser.add_argument('--lua', type=Path, help='file containing a commented generated plugin block between markers')
     parser.add_argument('--header', type=Path, help='generated configuration header')
+    parser.add_argument('--settings-header', type=Path, help='generated standalone settings header')
     parser.add_argument('--check', action='store_true')
     args = parser.parse_args()
-    if not (args.readme or args.lua or args.header):
-        parser.error('specify --readme, --lua, or --header')
+    if not (args.readme or args.lua or args.header or args.settings_header):
+        parser.error('specify --readme, --lua, --header, or --settings-header')
     settings = json.loads(args.schema.read_text())
     validate(settings)
     settings = expanded_settings(settings)
@@ -542,6 +553,9 @@ def main():
     outputs = []
     if args.header:
         outputs.append((args.header, config_header(settings)))
+    if args.settings_header or args.header:
+        settings_path = args.settings_header or args.header.with_name('config_settings_generated.hpp')
+        outputs.append((settings_path, settings_header(settings)))
     if args.readme:
         text = args.readme.read_text()
         outputs.append((args.readme, replace_region(text, BEGIN, END, documentation(settings), 'README')))

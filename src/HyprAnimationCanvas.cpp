@@ -1,0 +1,99 @@
+#include "HyprAnimationCanvas.hpp"
+
+#include <hyprland/src/render/OpenGL.hpp>
+#include <hyprland/src/render/Renderer.hpp>
+#include <hyprland/src/render/pass/ClearPassElement.hpp>
+
+#include "workspace/WorkspaceCaptureScope.hpp"
+
+using namespace hyprimate::animation;
+
+PassKind CHyprAnimationCanvas::pass() const {
+    if (WorkspaceCaptureScope::forContext(context) != nullptr) {
+        return PassKind::WorkspaceSource;
+    }
+    if (WorkspaceCaptureScope::isDestinationLive(context)) {
+        return PassKind::Live;
+    }
+    if (context.readOnlyEffects() || context.m_renderingCapture || context.m_renderingSnapshot) {
+        return PassKind::Inert;
+    }
+    return PassKind::Live;
+}
+
+hyprimate::Vec2 CHyprAnimationCanvas::image_size(const Image &image) {
+    if (!image || !image->getTexture()) {
+        return {};
+    }
+    const auto SIZE = image->getTexture()->m_size;
+    return {.x = SIZE.x, .y = SIZE.y};
+}
+
+void CHyprAnimationCanvas::composite(const hyprimate::Box &box, float alpha) {
+    if (!layer || !layer->getTexture()) {
+        return;
+    }
+    Render::GL::CHyprOpenGLImpl::STextureRenderData data{};
+    data.damage = &context.m_data.damage;
+    data.a = alpha;
+    data.allowCustomUV = true;
+    Render::GL::g_pHyprOpenGL->renderTextureMesh(context, layer->getTexture(),
+        CBox{box.x, box.y, box.w, box.h}, sheet_canvas_quad(), data);
+}
+
+bool CHyprAnimationCanvas::submit_mesh(const Mesh<Vertex> &mesh, const Draw<CHyprAnimationCanvas> &draw) {
+    if (!draw.image || !draw.image->getTexture() || mesh.window == nullptr || mesh.window->empty() ||
+        draw.canvas_box.w <= 0 || draw.canvas_box.h <= 0) {
+        return false;
+    }
+    const Vector2D SIZE{draw.canvas_box.w, draw.canvas_box.h};
+    const CBox OUTPUT{draw.output.x - draw.canvas_box.x, draw.output.y - draw.canvas_box.y,
+        draw.output.w, draw.output.h};
+    layer = render_sheet(context, SSheetDraw{.window = draw.image->getTexture(),
+        .shade = mesh.shade != nullptr ? m_resources.shade.texture() : SP<Render::ITexture>{}, .canvas = SIZE,
+        .mesh_box = OUTPUT, .window_vertices = mesh.window, .shade_vertices = mesh.shade,
+        .alpha = mesh.opacity});
+    if (!layer) {
+        return false;
+    }
+    SP<Render::ITexture> solid;
+    if (mesh.under != nullptr && !mesh.under->empty()) {
+        m_resources.solid.set_color(CHyprColor{mesh.under_color.r, mesh.under_color.g,
+            mesh.under_color.b, mesh.under_color.a});
+        solid = m_resources.solid.texture();
+    }
+    if (!solid && !mesh.clip) {
+        return true;
+    }
+    const auto COMPOSED = g_pHyprRenderer->getWorkBuffer(context, SIZE);
+    if (!COMPOSED) {
+        return false;
+    }
+    const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
+    const auto STATE = context.saveDrawState();
+    auto &data = context.m_data;
+    g_pHyprRenderer->bindFB(context, COMPOSED);
+    data.damage = CRegion{0.0, 0.0, SIZE.x, SIZE.y};
+    data.fbSize = SIZE;
+    g_pHyprRenderer->setProjectionType(context, Render::RPT_EXPORT);
+    g_pHyprRenderer->draw(context, CClearPassElement::SClearData{CHyprColor(0, 0, 0, 0)});
+    if (mesh.clip) {
+        const auto &clip = *mesh.clip;
+        const CBox CLIP{clip.x - draw.canvas_box.x, clip.y - draw.canvas_box.y, clip.w, clip.h};
+        data.damage = CRegion{CLIP.intersection(CBox{0, 0, SIZE.x, SIZE.y})};
+    }
+    Render::GL::CHyprOpenGLImpl::STextureRenderData texture_data{};
+    texture_data.damage = &data.damage;
+    texture_data.allowCustomUV = true;
+    if (solid) {
+        texture_data.a = mesh.opacity;
+        const CBox UNDER{mesh.under_output.x - draw.canvas_box.x, mesh.under_output.y - draw.canvas_box.y,
+            mesh.under_output.w, mesh.under_output.h};
+        Render::GL::g_pHyprOpenGL->renderTextureMesh(context, solid, UNDER, *mesh.under, texture_data);
+    }
+    texture_data.a = 1.F;
+    Render::GL::g_pHyprOpenGL->renderTextureMesh(context, layer->getTexture(),
+        CBox{0, 0, SIZE.x, SIZE.y}, sheet_canvas_quad(), texture_data);
+    layer = COMPOSED;
+    return true;
+}

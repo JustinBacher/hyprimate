@@ -4,6 +4,8 @@
 #include <cmath>
 #include <utility>
 
+#include "WindowTracker.hpp"
+
 namespace hyprimate::animation {
 namespace detail {
 inline bool same_box(const Box &lhs, const Box &rhs) {
@@ -51,35 +53,35 @@ bool CWindowAnimations<Port, StyleList<Styles...>>::selected(Function &&function
 }
 template<class Port, class... Styles>
 auto CWindowAnimations<Port, StyleList<Styles...>>::tracked(WindowId id) -> Tracked * {
-    auto iter = std::find_if(m_tracked.begin(), m_tracked.end(), [id](const auto &item) { return item.id == id; });
+    const auto iter = std::find_if(m_tracked.begin(), m_tracked.end(), [id](const auto &item) { return item.id == id; });
     return iter == m_tracked.end() ? nullptr : &*iter;
 }
 template<class Port, class... Styles>
 auto CWindowAnimations<Port, StyleList<Styles...>>::tracked(WindowId id) const -> const Tracked * {
-    auto iter = std::find_if(m_tracked.begin(), m_tracked.end(), [id](const auto &item) { return item.id == id; });
+    const auto iter = std::find_if(m_tracked.begin(), m_tracked.end(), [id](const auto &item) { return item.id == id; });
     return iter == m_tracked.end() ? nullptr : &*iter;
 }
 template<class Port, class... Styles>
 auto CWindowAnimations<Port, StyleList<Styles...>>::record(Handle handle) -> Record * {
-    auto iter = std::find_if(m_entries.begin(), m_entries.end(), [handle](const auto &item) { return item.handle == handle; });
+    const auto iter = std::find_if(m_entries.begin(), m_entries.end(), [handle](const auto &item) { return item.handle == handle; });
     return iter == m_entries.end() ? nullptr : &*iter;
 }
 template<class Port, class... Styles>
 auto CWindowAnimations<Port, StyleList<Styles...>>::record(Handle handle) const -> const Record * {
-    auto iter = std::find_if(m_entries.begin(), m_entries.end(), [handle](const auto &item) { return item.handle == handle; });
+    const auto iter = std::find_if(m_entries.begin(), m_entries.end(), [handle](const auto &item) { return item.handle == handle; });
     return iter == m_entries.end() ? nullptr : &*iter;
 }
 template<class Port, class... Styles>
 Place CWindowAnimations<Port, StyleList<Styles...>>::place(const Observation &observation, Neighbourhood near, std::uint64_t seed) {
     return {observation.body, observation.capture, observation.goal_body, detail::rest_capture(observation),
-        observation.screen, observation.work_area, near, seed};
+        observation.screen, observation.work_area, near, seed, std::nullopt};
 }
 template<class Port, class... Styles>
 void CWindowAnimations<Port, StyleList<Styles...>>::track(typename Port::WindowRef window) {
     const auto id = m_port.identity(window);
     if (!id || tracked(id)) return;
     m_tracked.push_back(Tracked{.window = std::move(window), .id = id, .previous = std::nullopt,
-        .handle = std::nullopt});
+        .handle = std::nullopt, .opening_edge = std::nullopt});
 }
 template<class Port, class... Styles>
 std::optional<Handle> CWindowAnimations<Port, StyleList<Styles...>>::acquire(Tracked &tracked_window, const Observation &observation, std::uint64_t seed) {
@@ -108,8 +110,12 @@ std::optional<Handle> CWindowAnimations<Port, StyleList<Styles...>>::acquire(Tra
 template<class Port, class... Styles>
 void CWindowAnimations<Port, StyleList<Styles...>>::release_drive(Tracked &tracked_window) {
     if (!tracked_window.driven) return;
-    if (auto observed = m_port.observe(tracked_window.window);
-        observed && is_usable(observed->goal_body) && !detail::same_box(observed->goal_body, tracked_window.last_warp))
+    const auto observed = m_port.observe(tracked_window.window);
+    if (!observed && !m_port.window_alive(tracked_window.window)) {
+        tracked_window.driven = false;
+        return;
+    }
+    if (observed && is_usable(observed->goal_body) && !detail::same_box(observed->goal_body, tracked_window.last_warp))
         tracked_window.goal = observed->goal_body;
     m_port.warp_body(tracked_window.window, tracked_window.goal);
     tracked_window.driven = false;
@@ -185,7 +191,7 @@ void CWindowAnimations<Port, StyleList<Styles...>>::configure(const Policy &poli
             const bool screen_active = std::any_of(m_screen_frames.begin(), m_screen_frames.end(),
                 [&](const auto &item) { return Styles::Screen::needs_frame(resources, item.first); });
             ScreenFacts facts{};
-            facts.enabled = policy.enabled && !policy.inert &&
+            facts.enabled = policy.enabled && !policy.inert && (policy.opening || policy.movement || policy.closing) &&
                 (policy.style == Styles::KIND || retained || screen_active);
             Styles::Screen::tick(resources, facts);
         }
@@ -231,6 +237,7 @@ void CWindowAnimations<Port, StyleList<Styles...>>::close(WindowId id, Clock::ti
     if (!handle) handle = acquire(*window, *observation, 0);
     if (!handle) return;
     auto event_place = place(*observation, m_port.neighbourhood(window->window), ++m_seed);
+    event_place.opening_edge = window->opening_edge;
     if (window->driven) {
         if (is_usable(observation->goal_body) && !detail::same_box(observation->goal_body, window->last_warp))
             window->goal = observation->goal_body;
@@ -332,10 +339,12 @@ void CWindowAnimations<Port, StyleList<Styles...>>::frame(const FrameStamp &stam
                     auto &resources = m_resources.template get<Styles>();
                     const bool needed_before = Styles::Screen::needs_frame(resources, stamp.monitor);
                     facts->enabled = m_policy.enabled && !m_policy.inert &&
+                        (m_policy.opening || m_policy.movement || m_policy.closing) &&
                         (m_policy.style == Styles::KIND || retained ||
                             needed_before);
                     Styles::Screen::tick(resources, *facts);
                     const bool needed_after = Styles::Screen::needs_frame(resources, stamp.monitor);
+                    if (needed_before || needed_after) m_port.damage(facts->screen);
                     if (needed_before != needed_after) m_port.recheck_scanout(stamp.monitor);
                     if (needed_after) m_port.schedule(stamp.monitor);
                 }
@@ -344,7 +353,25 @@ void CWindowAnimations<Port, StyleList<Styles...>>::frame(const FrameStamp &stam
     }
     for (auto &window : m_tracked) {
         auto observation = m_port.observe(window.window);
-        if (!observation || !observation->mapped || observation->fullscreen || !is_usable(observation->body) ||
+        window.expired = !observation && !m_port.window_alive(window.window);
+        if (!observation && !window.expired) {
+            if (window.handle) {
+                if (auto *entry = record(*window.handle); entry && entry->life == Life::Mapped) {
+                    entry->stepped = false;
+                    entry->stall_count = 0;
+                }
+            }
+            window.previous.reset();
+            continue;
+        }
+        bool hidden_tail = false;
+        if (observation && observation->hidden && !observation->workspace_visible &&
+            m_policy.workspace_movement && !observation->pinned && window.handle) {
+            const auto *entry = record(*window.handle);
+            hidden_tail = entry && entry->life == Life::Mapped && entry->current.tail;
+        }
+        if (!observation || !observation->mapped || observation->fullscreen ||
+            (observation->hidden && !hidden_tail) || !is_usable(observation->body) ||
             !is_usable(observation->capture)) {
             if (window.handle) {
                 auto *entry = record(*window.handle);
@@ -367,27 +394,11 @@ void CWindowAnimations<Port, StyleList<Styles...>>::frame(const FrameStamp &stam
         }
         std::optional<Motion> motion;
         const bool workspace_movement = m_policy.workspace_movement && !observation->pinned;
-        if (window.previous && window.previous->monitor == observation->monitor &&
-            window.previous->workspace == observation->workspace &&
-            window.workspace_movement == workspace_movement) {
-            const auto &previous = *window.previous;
-            const auto old_offset = workspace_movement ? previous.workspace_offset : Vec2{};
-            const auto new_offset = workspace_movement ? observation->workspace_offset : Vec2{};
-            const Box old_body = detail::translated(previous.body, old_offset);
-            const Box new_body = detail::translated(observation->body, new_offset);
-            const Box old_capture = detail::translated(previous.capture, old_offset);
-            const Box new_capture = detail::translated(observation->capture, new_offset);
-            const bool translated = old_body.x != new_body.x || old_body.y != new_body.y;
-            const bool resized = old_body.w != new_body.w || old_body.h != new_body.h;
-            const bool capture_changed = !detail::same_box(old_capture, new_capture);
-            const double largest = std::max({previous.body.w, previous.body.h, observation->body.w, observation->body.h});
-            const double jump = std::hypot(observation->body.x - previous.body.x, observation->body.y - previous.body.y);
-            if (jump <= 1.5 * largest && (translated || resized || capture_changed))
-                motion = Motion{old_body, old_capture, new_body, new_capture, translated, resized, capture_changed,
-                    observation->layout_animated, workspace_movement && observation->workspace_moving};
-        }
+        if (window.previous)
+            motion = observe_motion(*window.previous, *observation, window.workspace_movement, workspace_movement);
         window.workspace_movement = workspace_movement;
         const bool opening = observation->animating_in && !window.opening_seen;
+        if (opening) window.opening_edge.reset();
         window.opening_seen = observation->animating_in;
         bool acquired = false;
         if (!window.handle && m_policy.enabled && !m_policy.inert) {
@@ -409,7 +420,10 @@ void CWindowAnimations<Port, StyleList<Styles...>>::frame(const FrameStamp &stam
             });
             if (!accepted && acquired) end(handle, End::Interrupted);
             else if (accepted && !apply(window, *observation, effects)) end(handle, End::Interrupted);
-            else if (accepted) observation = m_port.observe(window.window);
+            else if (accepted) {
+                window.opening_edge = effects.opening_edge;
+                observation = m_port.observe(window.window);
+            }
         }
         if (!observation) continue;
         window.previous = *observation;
@@ -439,10 +453,12 @@ void CWindowAnimations<Port, StyleList<Styles...>>::frame(const FrameStamp &stam
             .open_enabled = m_policy.opening, .held = observation->held,
             .workspace_visible = observation->workspace_visible, .workspace_moving = observation->workspace_moving};
         Effects effects;
+        const bool had_tail = entry->current.tail;
         if (is_usable(entry->footprint)) m_port.damage(entry->footprint);
         visit(handle, [&]<class Style>(auto &slot, auto &resources) {
             entry->current = Style::advance(slot.state, step, resources, effects);
         });
+        if (had_tail && !entry->current.tail) m_port.release_mapped_image(handle);
         if (!apply(window, *observation, effects)) { end(handle, End::Interrupted); continue; }
         auto after = m_port.observe(window.window);
         if (after) window.previous = *after;
@@ -513,6 +529,11 @@ void CWindowAnimations<Port, StyleList<Styles...>>::frame(const FrameStamp &stam
         if (!entry.current.running) { end(handle, End::Completed); continue; }
         m_port.schedule(stamp.monitor);
     }
+    std::erase_if(m_tracked, [&](const auto &window) {
+        if (!window.expired || window.handle) return false;
+        m_port.forget_window_reference(window.id);
+        return true;
+    });
 }
 
 template<class Port, class... Styles>
@@ -561,6 +582,12 @@ template<class Port, class... Styles>
 bool CWindowAnimations<Port, StyleList<Styles...>>::draw(Handle handle, const Draw<Canvas> &draw_info) {
     const auto *entry = record(handle);
     if (!entry || !entry->current.running) return false;
+    auto isolated_draw = draw_info;
+    if (!isolated_draw.monitor) isolated_draw.monitor = entry->monitor;
+    isolated_draw.window = entry->origin;
+    if (!isolated_draw.frame) isolated_draw.frame = entry->last_frame;
+    isolated_draw.backdrop = entry->current.backdrop
+        ? m_port.backdrop(handle, draw_info.canvas.pass()) : nullptr;
     const bool real_pass = draw_info.real_pass && draw_info.canvas.pass() == PassKind::Live;
     if (entry->life == Life::Mapped && entry->current.tail && real_pass) {
         if (const auto *window = tracked(entry->origin); window && window->previous &&
@@ -569,11 +596,10 @@ bool CWindowAnimations<Port, StyleList<Styles...>>::draw(Handle handle, const Dr
             const Vec2 offset{observation.workspace_offset.x + observation.floating_offset.x,
                 observation.workspace_offset.y + observation.floating_offset.y};
             m_port.retain_mapped_image(handle, draw_info.image, draw_info.image_origin,
-                detail::translated(observation.capture, offset), draw_info.frame);
+                detail::translated(observation.capture, offset), isolated_draw.frame);
         }
     }
     if (!is_usable(entry->current.bounds)) return true;
-    auto isolated_draw = draw_info;
     isolated_draw.real_pass = real_pass;
     bool drawn = false;
     visit(handle, [&]<class Style>(auto &slot, auto &resources) {
@@ -626,16 +652,16 @@ void CWindowAnimations<Port, StyleList<Styles...>>::after_windows(MonitorId moni
         auto retained = m_port.retained_mapped_image(entry->handle);
         if (!retained || !retained->image) continue;
         const auto &capture = window.tail_capture_valid ? window.tail_capture : retained->capture;
-        const Box output{(capture.x - facts->screen.x) * facts->scale,
-            (capture.y - facts->screen.y) * facts->scale, capture.w * facts->scale,
-            capture.h * facts->scale};
+        const auto &bounds = entry->current.bounds;
+        const Box output{(capture.x + bounds.x - facts->screen.x) * facts->scale,
+            (capture.y + bounds.y - facts->screen.y) * facts->scale,
+            bounds.w * facts->scale, bounds.h * facts->scale};
         const Box source{(retained->capture.x - facts->screen.x) * facts->scale,
             (retained->capture.y - facts->screen.y) * facts->scale,
             retained->capture.w * facts->scale, retained->capture.h * facts->scale};
-        Draw<Canvas> info{canvas, *retained->image, nullptr, source, output, output,
-            retained->image_origin, {source.w, source.h}, facts->scale, 1, canvas.pass() == PassKind::Live,
-            monitor, window.id, facts->frame};
-        draw(entry->handle, info);
+        const TailDraw info{source, output, output, retained->image_origin, retained->image_size,
+            facts->scale, 1, monitor, facts->frame};
+        if (is_usable(output)) m_port.queue_tail(entry->handle, canvas, *retained->image, info);
     }
     ([&] {
         if constexpr (requires(typename Styles::Resources &resources, const ScreenDraw<Canvas> &draw_info) {

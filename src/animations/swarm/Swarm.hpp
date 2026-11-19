@@ -65,6 +65,8 @@ namespace hyprimate {
                            // dawdles to keep to it
         double pace = 1.0;  // its share of the cruise speed
         double grip = 0.0;  // window speed (px/s) it stays locked through
+        // Stable draws let continuous tuning change without consuming RNG or rebuilding agents.
+        double pace_draw = 0.0, grip_draw = 0.0, reaction_draw = 0.0, arc_draw = 0.0;
         double reaction = 0.0;  // seconds it stays put after the window shakes it loose
         double pause = 0.0;  // what is left of that
         double settle_wait =
@@ -110,6 +112,8 @@ namespace hyprimate {
         // advance: loose agents keep their screen positions and chase their moving homes.
         // A new size re-cuts the tiles. Ignored unless opening or moving.
         void update_movement(const SwarmPlacement &placement);
+        // Retune a movement without rebuilding its agents or changing their random choices.
+        void set_movement_params(const SwarmParams &params) noexcept;
         // Steps the simulation. Non-finite or negative time counts as zero; more than STALL_SECONDS
         // is clamped to it. While a movement gesture is held, wander keeps agents loose even when
         // the window is stationary; releasing it lets them regroup. Returns active().

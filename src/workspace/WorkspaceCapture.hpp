@@ -28,7 +28,6 @@ namespace hyprimate::workspace {
         const PHLMONITOR &monitor,
         const SP<Render::IFramebuffer> &target,
         const SP<Render::CSceneResources> &resources,
-        WorkspaceCaptureScope::Scratch &scratch,
         CaptureKind kind,
         CaptureDraw draw,
         void *userdata);

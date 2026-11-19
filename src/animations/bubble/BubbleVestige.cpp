@@ -6,10 +6,6 @@
 #include <span>
 #include <utility>
 
-#include <aquamarine/output/Output.hpp>
-#include <hyprland/src/desktop/DesktopTypes.hpp>
-#include <hyprland/src/helpers/memory/Memory.hpp>
-#include <hyprland/src/output/Monitor.hpp>
 #include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/render/types.hpp>
@@ -22,43 +18,14 @@
 #include "BubbleRenderer.hpp"
 #include "BubbleVestige.hpp"
 #include "animations/shared/Core.hpp"
-#include "workspace/WorkspaceCaptureScope.hpp"
 
 namespace {
     CBox footprint(Vector2D position, double radius) {
         return {position.x - radius, position.y - radius, radius * 2.0, radius * 2.0};
     }
 
-    void damage(const PHLMONITOR &monitor, Vector2D position, double radius) {
-        if (!monitor || !g_pHyprRenderer) {
-            return;
-        }
-        auto box = footprint(position, radius).intersection(CBox{{}, monitor->m_size});
-        if (box.empty()) {
-            return;
-        }
-        box.translate(monitor->m_position);
-        g_pHyprRenderer->damageBox(box);
-        monitor->scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_ANIMATION);
-    }
-
-    void damage(const PHLMONITOR &monitor, const hyprimate::Box &logical) {
-        if (!monitor || !g_pHyprRenderer || !hyprimate::is_usable(logical)) {
-            return;
-        }
-        auto box = CBox{logical.x, logical.y, logical.w, logical.h}.expand(2.0).intersection(
-            CBox{{}, monitor->m_size});
-        if (box.empty()) {
-            return;
-        }
-        box.translate(monitor->m_position);
-        g_pHyprRenderer->damageBox(box);
-        monitor->scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_ANIMATION);
-    }
-
-    // The device-pixel box a monitor-local logical source box covers on screen, pixel aligned.
-    CBox on_screen(const PHLMONITOR &monitor, const CBox &source) {
-        const CBox SCREEN{{}, monitor->m_transformedSize};
+    CBox on_screen(const CBubbleVestige::ScreenFacts &screen, const CBox &source) {
+        const CBox SCREEN{0, 0, screen.screen.w * screen.scale, screen.screen.h * screen.scale};
         const auto CLIPPED = source.copy().intersection(SCREEN);
         if (CLIPPED.empty()) {
             return {};
@@ -72,23 +39,13 @@ namespace {
             .intersection(SCREEN);
     }
 
-    // Source compositions have isolated bookkeeping; a live workspace destination is the
-    // actual surface composition for this output frame.
-    bool draws_vestige(const Render::CRenderContext &ctx, const PHLMONITOR &monitor) {
-        const bool SOURCE = WorkspaceCaptureScope::forContext(ctx) != nullptr;
-        const bool DESTINATION = WorkspaceCaptureScope::isDestinationLive(ctx);
-        return monitor && !ctx.m_renderingCapture && !ctx.m_renderingSnapshot &&
-               (SOURCE || DESTINATION ||
-                   (!ctx.readOnlyEffects() && ctx.m_mode == Render::RENDER_MODE_NORMAL)) &&
-               ctx.m_data.pMonitor.lock() == monitor;
-    }
 
     // Wakes alive at once over every monitor; beyond this the oldest dissolve faster.
     constexpr std::size_t MAX_WAKES = 12;
 }  // namespace
 
-bool CBubbleVestige::deposit(const PHLMONITOR &monitor,
-    Vector2D centre,
+bool CBubbleVestige::deposit(MonitorId monitor,
+    hyprimate::Vec2 centre,
     std::span<const hyprimate::BubbleImpact> impacts,
     const SP<SBubbleImpactClock> &clock) {
     if (!m_enabled || !monitor || !std::isfinite(centre.x) || !std::isfinite(centre.y)) {
@@ -97,7 +54,7 @@ bool CBubbleVestige::deposit(const PHLMONITOR &monitor,
     bool accepted = false;
     const auto NOW = std::chrono::steady_clock::now();
     for (const auto &impact : impacts) {
-        const Vector2D POSITION{centre.x + impact.position.x, centre.y + impact.position.y};
+        const hyprimate::Vec2 POSITION{centre.x + impact.position.x, centre.y + impact.position.y};
         if (!std::isfinite(POSITION.x) || !std::isfinite(POSITION.y) ||
             !std::isfinite(impact.radius) || !std::isfinite(impact.delay) ||
             !std::isfinite(impact.drift.x) || !std::isfinite(impact.drift.y) ||
@@ -107,8 +64,7 @@ bool CBubbleVestige::deposit(const PHLMONITOR &monitor,
         const double LIFETIME = std::clamp(0.35 + (impact.radius * 0.07), 0.35, 0.7);
         const double EXTENT =
             (impact.radius * 1.3) + (std::hypot(impact.drift.x, impact.drift.y) * LIFETIME) + 2.0;
-        if (impact.delay <= -LIFETIME ||
-            footprint(POSITION, EXTENT).intersection(CBox{{}, monitor->m_size}).empty()) {
+        if (impact.delay <= -LIFETIME) {
             continue;
         }
         // Delays are animation seconds on the source transition's clock; without one the bead keeps
@@ -126,15 +82,14 @@ bool CBubbleVestige::deposit(const PHLMONITOR &monitor,
             .clock = impact.delay > 0 ? clock : SP<SBubbleImpactClock>{},
             .land = CLOCK_NOW + impact.delay,
         });
-        damage(monitor, POSITION, EXTENT);
         accepted = true;
     }
     return accepted;
 }
 
-void CBubbleVestige::tick(std::chrono::steady_clock::time_point now, const PHLMONITOR &monitor) {
+void CBubbleVestige::tick(const ScreenFacts &screen) {
     for (auto &deposit : m_deposits) {
-        if (deposit.monitor.lock() != monitor) {
+        if (deposit.monitor != screen.monitor) {
             continue;
         }
         if (deposit.clock && deposit.clock->cancelled) {
@@ -147,41 +102,38 @@ void CBubbleVestige::tick(std::chrono::steady_clock::time_point now, const PHLMO
                 deposit.clock.reset();
             }
         } else {
-            deposit.age += std::clamp(std::chrono::duration<double>(now - deposit.last).count(),
+            deposit.age += std::clamp(std::chrono::duration<double>(screen.now - deposit.last).count(),
                 0.0,
                 hyprimate::STALL_SECONDS);
         }
-        deposit.last = now;
-        damage(monitor, deposit.position, deposit.radius);
+        deposit.last = screen.now;
     }
     std::erase_if(m_deposits, [](const Deposit &deposit) {
-        return deposit.monitor.expired() || deposit.age >= deposit.lifetime ||
+        return deposit.age >= deposit.lifetime ||
                (deposit.clock && deposit.clock->cancelled);
     });
     for (auto &wake : m_wakes) {
-        if (wake.monitor.lock() != monitor) {
+        if (wake.monitor != screen.monitor) {
             continue;
         }
         wake.queued = false;  // a new frame of this monitor begins
         const double ELAPSED = std::clamp(
-            std::chrono::duration<double>(now - wake.last).count(), 0.0, hyprimate::STALL_SECONDS);
-        wake.last = now;
+            std::chrono::duration<double>(screen.now - wake.last).count(), 0.0, hyprimate::STALL_SECONDS);
+        wake.last = screen.now;
         // Both the region it covered and the one it covers now: retracting film leaves no stale
         // pixels behind.
-        damage(monitor, wake.film.bounds());
         wake.film.advance(ELAPSED);
-        damage(monitor, wake.film.bounds());
     }
     std::erase_if(
-        m_wakes, [](const Wake &wake) { return wake.monitor.expired() || wake.film.done(); });
+        m_wakes, [](const Wake &wake) { return wake.film.done(); });
 }
 
-CBubbleVestige::Wake *CBubbleVestige::wake_for(const PHLMONITOR &monitor, std::uint64_t wake_id) {
+CBubbleVestige::Wake *CBubbleVestige::wake_for(MonitorId monitor, std::uint64_t wake_id) {
     if (wake_id == 0) {
         return nullptr;
     }
     for (auto &wake : m_wakes) {
-        if (wake.id == wake_id && wake.monitor.lock() == monitor) {
+        if (wake.id == wake_id && wake.monitor == monitor) {
             return &wake;
         }
     }
@@ -189,7 +141,7 @@ CBubbleVestige::Wake *CBubbleVestige::wake_for(const PHLMONITOR &monitor, std::u
 }
 
 CBubbleVestige::Wake &CBubbleVestige::begin_wake(
-    const PHLMONITOR &monitor, const PHLWINDOW &owner) {
+    MonitorId monitor, WindowId owner) {
     if (m_wakes.size() >= MAX_WAKES) {
         for (auto &wake : std::span{m_wakes}.first(m_wakes.size() - MAX_WAKES + 1)) {
             wake.film.hurry();
@@ -206,10 +158,10 @@ CBubbleVestige::Wake &CBubbleVestige::begin_wake(
     return m_wakes.back();
 }
 
-std::uint64_t CBubbleVestige::trail(const PHLMONITOR &monitor,
-    const PHLWINDOW &owner,
+std::uint64_t CBubbleVestige::trail(MonitorId monitor,
+    WindowId owner,
     std::uint64_t wake,
-    Vector2D centre,
+    hyprimate::Vec2 centre,
     std::span<const hyprimate::BubbleTrailPoint> points,
     std::span<const hyprimate::BubbleRelease> releases) {
     if (!m_enabled || !monitor || !std::isfinite(centre.x) || !std::isfinite(centre.y)) {
@@ -233,30 +185,30 @@ std::uint64_t CBubbleVestige::trail(const PHLMONITOR &monitor,
     if (current == nullptr) {
         return wake;
     }
-    damage(monitor, current->film.bounds());
     return current->id;
 }
 
+bool CBubbleVestige::queued(const Wake &wake, bool live) const {
+    return live ? wake.queued : std::ranges::find(m_capture_wakes, wake.id) != m_capture_wakes.end();
+}
+
 void CBubbleVestige::queue_wake(Render::CRenderContext &ctx,
-    const PHLMONITOR &monitor,
+    const ScreenFacts &screen,
     Wake &wake,
-    const SP<CBubbleRenderer> &renderer) {
-    if (auto *scope = WorkspaceCaptureScope::forContext(ctx)) {
-        scope->markWakeQueued(&wake);
-    } else {
-        wake.queued = true;
-    }
+    const SP<CBubbleRenderer> &renderer, bool live) {
+    if (live) wake.queued = true;
+    else m_capture_wakes.push_back(wake.id);
     const auto BOUNDS = wake.film.bounds();
     if (!hyprimate::is_usable(BOUNDS)) {
         return;
     }
-    const auto SOURCE = CBox{BOUNDS.x, BOUNDS.y, BOUNDS.w, BOUNDS.h}.scale(monitor->m_scale);
-    const auto CLIPPED = on_screen(monitor, SOURCE);
+    const auto SOURCE = CBox{BOUNDS.x, BOUNDS.y, BOUNDS.w, BOUNDS.h}.scale(screen.scale);
+    const auto CLIPPED = on_screen(screen, SOURCE);
     if (CLIPPED.empty()) {
         return;
     }
     CBubblePassElement::SData data;
-    data.renderer = WorkspaceCaptureScope::renderer(ctx, renderer);
+    data.renderer = renderer;
     data.draw.frame.size = {.x = BOUNDS.w, .y = BOUNDS.h};
     data.draw.canvas = CLIPPED.size();
     data.draw.source = SOURCE;
@@ -264,43 +216,41 @@ void CBubbleVestige::queue_wake(Render::CRenderContext &ctx,
     data.draw.on_glass = true;
     wake.film.view(data.draw.wake.emplace());
     data.box = CLIPPED;
-    data.scale = monitor->m_scale;
+    data.scale = screen.scale;
     data.damage = CRegion{CLIPPED};
     Render::IHyprRenderer::addPassElement(ctx, makeUnique<CBubblePassElement>(std::move(data)));
 }
 
 void CBubbleVestige::queue_under(Render::CRenderContext &ctx,
-    const PHLMONITOR &monitor,
-    const PHLWINDOW &window,
-    const SP<CBubbleRenderer> &renderer) {
-    if (!window || !renderer || !draws_vestige(ctx, monitor)) {
+    const ScreenFacts &screen,
+    WindowId window,
+    const SP<CBubbleRenderer> &renderer, bool live) {
+    if (!window || !renderer) {
         return;
     }
     for (auto &wake : m_wakes) {
-        const auto *scope = WorkspaceCaptureScope::forContext(ctx);
-        if (!(scope ? scope->wakeQueued(&wake) : wake.queued) && wake.monitor.lock() == monitor &&
-            wake.owner.lock() == window) {
-            queue_wake(ctx, monitor, wake, renderer);
+        if (!queued(wake, live) && wake.monitor == screen.monitor && wake.owner == window) {
+            queue_wake(ctx, screen, wake, renderer, live);
         }
     }
 }
 
 void CBubbleVestige::queue(
-    Render::CRenderContext &ctx, const PHLMONITOR &monitor, const SP<CBubbleRenderer> &renderer) {
-    if (!renderer || !draws_vestige(ctx, monitor)) {
+    Render::CRenderContext &ctx, const ScreenFacts &screen, const SP<CBubbleRenderer> &renderer, bool live) {
+    if (!renderer) {
         return;
     }
     for (const auto &deposit : m_deposits) {
-        if (deposit.monitor.lock() != monitor || deposit.age < 0) {
+        if (deposit.monitor != screen.monitor || deposit.age < 0) {
             continue;
         }
-        const auto SOURCE = footprint(deposit.position, deposit.radius).scale(monitor->m_scale);
-        const auto CLIPPED = on_screen(monitor, SOURCE);
+        const auto SOURCE = footprint({deposit.position.x, deposit.position.y}, deposit.radius).scale(screen.scale);
+        const auto CLIPPED = on_screen(screen, SOURCE);
         if (CLIPPED.empty()) {
             continue;
         }
         CBubblePassElement::SData data;
-        data.renderer = WorkspaceCaptureScope::renderer(ctx, renderer);
+        data.renderer = renderer;
         data.draw.frame.size = {.x = deposit.radius * 2.0, .y = deposit.radius * 2.0};
         data.draw.canvas = CLIPPED.size();
         data.draw.source = SOURCE;
@@ -313,22 +263,22 @@ void CBubbleVestige::queue(
         particle.radius = deposit.impact_radius * (1.0 + (.3 * std::min(deposit.age / .03, 1.0))) *
                           std::sqrt(std::max(0.0, 1.0 - (deposit.age / deposit.lifetime)));
         data.box = CLIPPED;
-        data.scale = monitor->m_scale;
+        data.scale = screen.scale;
         data.damage = CRegion{CLIPPED};
         Render::IHyprRenderer::addPassElement(ctx, makeUnique<CBubblePassElement>(std::move(data)));
     }
     // Wakes whose window was not drawn this frame (closed, or on a hidden workspace) lie over the
     // windows instead.
     for (auto &wake : m_wakes) {
-        const auto *scope = WorkspaceCaptureScope::forContext(ctx);
-        if (!(scope ? scope->wakeQueued(&wake) : wake.queued) && wake.monitor.lock() == monitor) {
-            queue_wake(ctx, monitor, wake, renderer);
+        if (!queued(wake, live) && wake.monitor == screen.monitor) {
+            queue_wake(ctx, screen, wake, renderer, live);
         }
     }
+    if (!live) m_capture_wakes.clear();
 }
 
-bool CBubbleVestige::active(const PHLMONITOR &monitor) const {
-    const auto HERE = [&](const auto &entry) { return entry.monitor.lock() == monitor; };
+bool CBubbleVestige::active(MonitorId monitor) const {
+    const auto HERE = [&](const auto &entry) { return entry.monitor == monitor; };
     return std::ranges::any_of(m_deposits, HERE) || std::ranges::any_of(m_wakes, HERE);
 }
 
@@ -339,13 +289,13 @@ void CBubbleVestige::set_enabled(bool enabled) {
     }
 }
 
-void CBubbleVestige::clear() {
-    for (const auto &deposit : m_deposits) {
-        damage(deposit.monitor.lock(), deposit.position, deposit.radius);
+void CBubbleVestige::clear(std::optional<MonitorId> monitor) {
+    if (monitor) {
+        std::erase_if(m_deposits, [&](const Deposit &deposit) { return deposit.monitor == *monitor; });
+        std::erase_if(m_wakes, [&](const Wake &wake) { return wake.monitor == *monitor; });
+    } else {
+        m_deposits.clear();
+        m_wakes.clear();
     }
-    m_deposits.clear();
-    for (const auto &wake : m_wakes) {
-        damage(wake.monitor.lock(), wake.film.bounds());
-    }
-    m_wakes.clear();
+    m_capture_wakes.clear();
 }

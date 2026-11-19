@@ -1,7 +1,7 @@
 #pragma once
 
 #include "animations/shared/EdgeTransition.hpp"
-#include "config_generated.hpp"
+#include "config_settings_generated.hpp"
 
 namespace hyprimate {
     inline CloseSide close_side(config::Side side) noexcept {

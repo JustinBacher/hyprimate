@@ -63,12 +63,15 @@ set(CONFIG_GENERATOR ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_config.py)
 set(CONFIG_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
 add_custom_command(
     OUTPUT ${CONFIG_GENERATED_DIR}/config_generated.hpp
+           ${CONFIG_GENERATED_DIR}/config_settings_generated.hpp
     COMMAND ${Python3_EXECUTABLE} ${CONFIG_GENERATOR} --schema ${CONFIG_SCHEMA}
             --header ${CONFIG_GENERATED_DIR}/config_generated.hpp
+            --settings-header ${CONFIG_GENERATED_DIR}/config_settings_generated.hpp
     DEPENDS ${CONFIG_SCHEMA} ${CONFIG_GENERATOR}
     VERBATIM
 )
-add_custom_target(generate-config DEPENDS ${CONFIG_GENERATED_DIR}/config_generated.hpp)
+add_custom_target(generate-config DEPENDS ${CONFIG_GENERATED_DIR}/config_generated.hpp
+    ${CONFIG_GENERATED_DIR}/config_settings_generated.hpp)
 add_custom_target(update-config-docs
     COMMAND ${Python3_EXECUTABLE} ${CONFIG_GENERATOR} --schema ${CONFIG_SCHEMA} --readme ${CMAKE_CURRENT_SOURCE_DIR}/README.md --lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/nested/hyprland.lua
     VERBATIM
@@ -89,9 +92,11 @@ target_compile_options(hyprimate-core PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>:-f
 add_library(hyprimate SHARED
     src/main.cpp
     src/PluginRuntime.cpp
-    src/animations/shared/SheetClosePass.cpp
     src/AnimationTransformer.cpp
     src/AnimationCloseRenderer.cpp
+    src/HyprWindowPort.cpp
+    src/HyprAnimationCanvas.cpp
+    src/WindowAnimationPass.cpp
     src/StyleContract.cpp
     src/NativeFadeoutPass.cpp
     src/animations/shared/SheetRenderer.cpp
@@ -196,6 +201,7 @@ if(BUILD_TESTING)
 
     add_executable(window-animations-tests tests/WindowAnimationsTests.cpp)
     add_dependencies(window-animations-tests generate-config)
+    target_link_libraries(window-animations-tests PRIVATE hyprimate-core)
     target_include_directories(window-animations-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/tests ${CONFIG_GENERATED_DIR})
     add_test(NAME window-animations-tests COMMAND window-animations-tests)
 

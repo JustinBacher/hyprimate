@@ -27,7 +27,8 @@ class CWindowAnimations<Port, StyleList<Styles...>> {
   public:
     using Canvas = typename Port::Canvas;
     using Resources = StyleResources<StyleList<Styles...>>;
-    CWindowAnimations(Port &port, Resources &resources) : m_port(port), m_resources(resources) {}
+    CWindowAnimations(Port &port, Resources &resources, std::uint64_t initial_seed = 0)
+        : m_port(port), m_resources(resources), m_seed(initial_seed) {}
     ~CWindowAnimations() { assert(m_entries.empty()); }
     CWindowAnimations(const CWindowAnimations &) = delete;
     CWindowAnimations &operator=(const CWindowAnimations &) = delete;
@@ -61,7 +62,9 @@ class CWindowAnimations<Port, StyleList<Styles...>> {
         WindowId id = 0;
         std::optional<Observation> previous;
         std::optional<Handle> handle;
+        std::optional<Edge> opening_edge;
         bool opening_seen = false;
+        bool expired = false;
         bool driven = false;
         bool workspace_movement = false;
         bool tail_capture_valid = false;

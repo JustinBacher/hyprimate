@@ -274,7 +274,6 @@ class CWorkspaceAnimation::Impl {
     hyprimate::workspace::CompositionIdentities<PHLWORKSPACE, PHLWORKSPACEREF> m_compositions;
     hyprimate::config::WorkspaceStyle m_styleKind{};
     hyprimate::animation::StyleResources<hyprimate::workspace::WorkspaceStyles> m_styles;
-    WorkspaceCaptureScope::Scratch m_scratch;
     hyprimate::workspace::BeginRender m_beginRender = nullptr;
 
     CFunctionHook *m_changeHook = nullptr;
@@ -711,7 +710,6 @@ void CWorkspaceAnimation::Impl::shutdown() {
         if (resources.ready && Render::GL::g_pHyprOpenGL) resources.renderer.release();
         resources.ready = false;
     });
-    m_scratch.clear();
     m_beginRender = nullptr;
 }
 
@@ -927,7 +925,7 @@ bool CWorkspaceAnimation::Impl::capture(MonitorState &entry,
     m_captureWallpaper = m_usesWallpaper ?
         (target == entry.source ? entry.sourceWallpaper : entry.destinationWallpaper) : nullptr;
     const bool captured = hyprimate::workspace::captureWorkspace(
-        *g_pHyprRenderer, m_beginRender, monitor, target, resources, m_scratch, kind, draw, &data);
+        *g_pHyprRenderer, m_beginRender, monitor, target, resources, kind, draw, &data);
     m_capturing = nullptr;
     m_captureWallpaper.reset();
     return captured && (!m_usesWallpaper || entry.wallpaperCaptured);

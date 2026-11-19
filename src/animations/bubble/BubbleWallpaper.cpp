@@ -16,13 +16,14 @@
 
 #include "BubbleWallpaper.hpp"
 #include "gl/RawGlBracket.hpp"
-#include "workspace/WorkspaceCaptureScope.hpp"
 
 namespace {
     class CBubbleWallpaperPass final : public IPassElement {
       public:
-        CBubbleWallpaperPass(SP<SBubbleWallpaper> wallpaper, CBox source, CBox bounds, bool live)
-            : m_wallpaper(std::move(wallpaper)), m_source(source), m_bounds(bounds), m_live(live) {
+        CBubbleWallpaperPass(SP<SBubbleWallpaper> wallpaper, CBox source, CBox bounds, bool live,
+            bool workspace_source)
+            : m_wallpaper(std::move(wallpaper)), m_source(source), m_bounds(bounds), m_live(live),
+              m_workspace_source(workspace_source) {
         }
 
         CBubbleWallpaperPass(const CBubbleWallpaperPass &) = delete;
@@ -39,7 +40,6 @@ namespace {
 
         std::vector<UP<IPassElement>> draw(Render::CRenderContext &ctx) override {
             if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL ||
-                (ctx.readOnlyEffects() && !WorkspaceCaptureScope::forContext(ctx)) ||
                 ctx.m_renderingCapture || ctx.m_renderingSnapshot ||
                 g_pHyprRenderer->type() != Render::IHyprRenderer::RT_GL) {
                 return {};
@@ -106,7 +106,7 @@ namespace {
                 .viewport_height = static_cast<GLsizei>(SOURCE->m_size.y),
                 .framebuffer = SOURCE_ID}};
             SP<Render::IFramebuffer> destination;
-            if (WorkspaceCaptureScope::forContext(ctx)) {
+            if (m_workspace_source) {
                 destination = g_pHyprRenderer->createFB("hyprimate workspace bubble underlay");
                 if (destination && !destination->alloc(static_cast<int>(EXTENT.x),
                                        static_cast<int>(EXTENT.y), SOURCE->m_drmFormat)) {
@@ -170,6 +170,7 @@ namespace {
         CBox m_source;
         CBox m_bounds;
         bool m_live;
+        bool m_workspace_source;
     };
 }  // namespace
 
@@ -177,12 +178,10 @@ void queue_bubble_wallpaper(Render::CRenderContext &ctx,
     const SP<SBubbleWallpaper> &wallpaper,
     const CBox &source,
     bool live,
-    const CBox &bounds) {
-    const bool WORKSPACE_CAPTURE =
-        WorkspaceCaptureScope::forContext(ctx) || WorkspaceCaptureScope::isDestinationLive(ctx);
-    if (!wallpaper || !g_pHyprRenderer || (ctx.readOnlyEffects() && !WORKSPACE_CAPTURE) ||
-        ctx.m_renderingCapture || ctx.m_renderingSnapshot ||
-        (ctx.m_mode != Render::RENDER_MODE_NORMAL && !WORKSPACE_CAPTURE)) {
+    const CBox &bounds, hyprimate::animation::PassKind pass) {
+    const bool WORKSPACE_CAPTURE = pass == hyprimate::animation::PassKind::WorkspaceSource;
+    if (!wallpaper || !g_pHyprRenderer || pass == hyprimate::animation::PassKind::Inert ||
+        ctx.m_renderingCapture || ctx.m_renderingSnapshot) {
         return;
     }
     // A completed opening snapshot keeps queued set; a live request replaces it. A live pass
@@ -202,5 +201,5 @@ void queue_bubble_wallpaper(Render::CRenderContext &ctx,
     }
     wallpaper->queued = true;
     Render::IHyprRenderer::addPassElement(
-        ctx, makeUnique<CBubbleWallpaperPass>(wallpaper, source, bounds, live));
+        ctx, makeUnique<CBubbleWallpaperPass>(wallpaper, source, bounds, live, WORKSPACE_CAPTURE));
 }

@@ -31,6 +31,7 @@ struct Place {
     Box body, capture, goal_body, rest_capture, screen, work_area;
     Neighbourhood near;
     std::uint64_t seed = 0;
+    std::optional<Edge> opening_edge;
 };
 struct Motion {
     Box from_body, from_capture, body, capture;
@@ -48,6 +49,7 @@ struct Step {
 };
 struct Effects {
     std::optional<Box> drive_body;
+    std::optional<Edge> opening_edge;
     bool snap_to_goal = false, settle_native_open_alpha = false, release_body = false;
 };
 struct Frame {

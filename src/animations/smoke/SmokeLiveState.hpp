@@ -1,10 +1,14 @@
 #pragma once
 
+#include <memory>
+
 #include "Smoke.hpp"
-#include "SmokeRenderer.hpp"
+
+class CSmokeFieldHandle;
 
 struct SSmokeStyle {
     hyprimate::Smoke smoke;
-    // Created on first render; dropped when the smoke settles so idle windows hold no GPU memory.
-    SP<CSmokeFieldHandle> field;
+    hyprimate::SmokeParams close_params;
+    std::shared_ptr<CSmokeFieldHandle> field;
+    std::shared_ptr<CSmokeFieldHandle> capture_field;
 };

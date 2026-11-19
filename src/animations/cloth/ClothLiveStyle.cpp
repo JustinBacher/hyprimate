@@ -1,192 +1,41 @@
+#include <algorithm>
 #include <cmath>
-#include <cstdint>
-#include <optional>
-#include <variant>
+#include <limits>
+#include <utility>
 
-#include <hyprland/src/desktop/DesktopTypes.hpp>
-#include <hyprland/src/desktop/view/types/Geometric.hpp>
-#include <hyprland/src/desktop/view/window/Window.hpp>
-#include <hyprland/src/helpers/memory/Memory.hpp>
-#include <hyprland/src/render/Context.hpp>
-#include <hyprland/src/render/Renderer.hpp>
-#include <hyprland/src/render/transformer/Transformer.hpp>
-#include <hyprutils/math/Box.hpp>
-
-#include "AnimationTransformer.hpp"
-#include "LiveRender.hpp"
-#include "LiveStyle.hpp"
-#include "PluginRuntime.hpp"
-#include "WindowTracker.hpp"
-#include "animations/cloth/ClothFlutter.hpp"
-#include "animations/cloth/ClothLiveState.hpp"
-#include "animations/shared/Core.hpp"
+#include "animations/cloth/ClothStyle.hpp"
 #include "animations/shared/EdgeStyleConfig.hpp"
-#include "animations/shared/LiveSheetRender.hpp"
-#include "animations/shared/SheetRenderer.hpp"
-#include "config_generated.hpp"
 
-CBox live_extents(const SClothStyle &state, const CBox &box) {
-    return live_sheet_extents(state.sheet, box);
+namespace {
+using namespace hyprimate;
+using namespace hyprimate::animation;
+
+EdgeInput edge_input(const Place &place, bool opening, std::optional<Edge> origin) {
+    return {.body = opening ? place.goal_body : place.body,
+        .capture = opening ? place.rest_capture : place.capture,
+        .screen = place.screen, .work_area = place.work_area,
+        .neighbours = place.near.tiled_goals, .origin = origin, .last_window = place.near.alone};
 }
 
-Render::SWindowTransformBuffer render_live(SClothStyle &state,
-    Render::CRenderContext &ctx,
-    const Render::SWindowTransformBuffer &input,
-    [[maybe_unused]] const Render::SWindowTransformContext &context,
-    const SLiveRenderGeometry &geometry,
-    SClothResources &resources) {
-    return render_live_sheet(
-        state.sheet, state.cloth.opacity(), state.cloth.shaded(), ctx, input, geometry, resources.shade);
-}
-
-bool SClothLiveStyle::open(
-    CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window,
-    SClothResources &resources) {
-    if (const auto FRAME = hyprimate::resolve_style_open_edge(
-            runtime.edge_input_for(window, true), resources.last->open)) {
-        entry.open_edge = FRAME->edge;
+Box bounds(const SheetFrame &frame, Vec2 size) {
+    double min_x = std::numeric_limits<double>::infinity();
+    double min_y = min_x;
+    double max_x = -min_x;
+    double max_y = -min_x;
+    for (const auto &point : frame.position) {
+        const double X = size.x * (0.5 + point.x);
+        const double Y = size.y * (0.5 + point.y);
+        min_x = std::min(min_x, X);
+        min_y = std::min(min_y, Y);
+        max_x = std::max(max_x, X);
+        max_y = std::max(max_y, Y);
     }
-    const CBox CURRENT = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
-    const CBox GOAL = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
-    const CBox CAPTURE = window->getFullWindowBoundingBox();
-    const CBox REST{GOAL.x + (CAPTURE.x - CURRENT.x),
-        GOAL.y + (CAPTURE.y - CURRENT.y),
-        GOAL.w + (CAPTURE.w - CURRENT.w),
-        GOAL.h + (CAPTURE.h - CURRENT.h)};
-    const auto USABLE = [](const CBox &box) {
-        return std::isfinite(box.x) && std::isfinite(box.y) && std::isfinite(box.w) &&
-               std::isfinite(box.h) && box.w > 0.0 && box.h > 0.0;
-    };
-    if (!USABLE(GOAL) || !USABLE(REST)) {
-        return false;
-    }
-    runtime.m_neighbours.clear();
-    runtime.gather_contact_obstacles(window);
-    auto *transformer = runtime.acquire_transformer(window);
-    const auto &cloth = resources.prepared.open;
-    auto &state = std::get<SClothStyle>(transformer->m_style);
-    state.cloth.reset();
-    state.cloth.begin(hyprimate::Transition::Open,
-        cloth,
-        runtime.m_next_seed++,
-        to_box(REST),
-        runtime.m_neighbours,
-        std::nullopt);
-    state.sheet.capture_size = {.x = REST.w, .y = REST.h};
-    state.cloth.frame(state.sheet.capture_size, *state.sheet.frame);
-    if (state.cloth.active()) {
-        g_pHyprRenderer->damageBox(CAPTURE);
-        window->positionAnimation()->setValueAndWarp(GOAL.pos());
-        window->sizeAnimation()->setValueAndWarp(GOAL.size());
-        CPluginRuntime::rebaseline(entry, window);
-    }
-    return true;
+    return {min_x - 4, min_y - 4, std::max(1.0, max_x - min_x) + 8,
+        std::max(1.0, max_y - min_y) + 8};
+}
 }
 
-void SClothLiveStyle::movement(CPluginRuntime &runtime,
-    CAnimationTransformer &transformer,
-    [[maybe_unused]] const PHLWINDOW &window,
-    const hyprimate::TrackDecision &decision,
-    double elapsed,
-    bool enabled,
-    bool moving,
-    Resources &resources) {
-    auto &state = std::get<SClothStyle>(transformer.m_style);
-    if (state.movement != resources.prepared.movement) {
-        state.movement = resources.prepared.movement;
-        state.cloth.set_movement_params(state.movement);
-    }
-    if (moving && !state.cloth.moving()) {
-        state.cloth.begin_movement(
-            state.movement, runtime.m_next_seed++, decision.previous_capture);
-        state.sheet.capture_size = {
-            .x = decision.previous_capture.w,
-            .y = decision.previous_capture.h,
-        };
-        state.cloth.frame(state.sheet.capture_size, *state.sheet.frame);
-    }
-    if (enabled && state.cloth.moving()) {
-        const auto &capture = decision.current_capture;
-        state.cloth.update_movement(capture, elapsed);
-        state.sheet.capture_size = {.x = capture.w, .y = capture.h};
-        state.cloth.frame(state.sheet.capture_size, *state.sheet.frame);
-    }
-}
-
-void SClothLiveStyle::snapshot(
-    const CAnimationTransformer *transformer, hyprimate::WindowSnapshot &snapshot,
-    [[maybe_unused]] const Resources &resources) {
-    const auto *cloth =
-        (transformer != nullptr) ? std::get_if<SClothStyle>(&transformer->m_style) : nullptr;
-    snapshot.handoff = (cloth != nullptr) && cloth->cloth.active();
-    snapshot.transition_busy = (cloth != nullptr) && cloth->cloth.active() && !snapshot.handoff;
-    snapshot.handoff_moving = (cloth != nullptr) && cloth->cloth.moving();
-}
-
-void SClothLiveStyle::step([[maybe_unused]] CPluginRuntime &runtime,
-    CAnimationTransformer &transformer,
-    double elapsed,
-    hyprimate::Vec2 size,
-    bool enabled,
-    Resources &resources) {
-    auto &cloth = std::get<SClothStyle>(transformer.m_style);
-    if (cloth.movement != resources.prepared.movement) {
-        cloth.movement = resources.prepared.movement;
-        cloth.cloth.set_movement_params(cloth.movement);
-    }
-    if (!enabled && cloth.cloth.moving()) {
-        cancelMovement(transformer);
-    }
-    if (!cloth.cloth.active()) {
-        return;
-    }
-    cloth.sheet.capture_size = size;
-    cloth.cloth.advance(elapsed);
-    cloth.cloth.frame(size, *cloth.sheet.frame);
-}
-
-void SClothLiveStyle::cancelOpening(CAnimationTransformer &transformer) {
-    auto &cloth = std::get<SClothStyle>(transformer.m_style).cloth;
-    if (cloth.active() && !cloth.moving()) {
-        cloth.reset();
-    }
-}
-
-void SClothLiveStyle::cancelMovement(CAnimationTransformer &transformer) {
-    auto &cloth = std::get<SClothStyle>(transformer.m_style);
-    if (cloth.cloth.moving()) {
-        cloth.cloth.reset();
-        cloth.cloth.frame(cloth.sheet.capture_size, *cloth.sheet.frame);
-    }
-}
-
-bool SClothLiveStyle::deforming(const SClothStyle &state) noexcept {
-    return state.cloth.active();
-}
-
-bool SClothLiveStyle::builtFor([[maybe_unused]] const SClothStyle &state,
-    [[maybe_unused]] const Resources &resources) noexcept {
-    return true;
-}
-
-bool SClothLiveStyle::available(const SClothStyle &state) noexcept {
-    return static_cast<bool>(state.sheet.frame);
-}
-
-SClothStyle SClothLiveStyle::initial(const Resources &resources, [[maybe_unused]] std::uint64_t seed) {
-    return SClothStyle{.movement = resources.prepared.movement};
-}
-
-double SClothLiveStyle::strength(const Resources &resources) {
-    return resources.prepared.movement.strength;
-}
-bool SClothLiveStyle::usable(const Resources &resources) {
-    const auto &params = resources.prepared.movement;
-    return std::isfinite(params.flutter) && std::isfinite(params.shading) &&
-           std::isfinite(params.variation);
-}
-
-SClothLiveStyle::Prepared SClothLiveStyle::prepare_settings(const Settings &settings) {
+SClothModule::Prepared SClothModule::prepare_settings(const Settings &settings) {
     const auto &movement = settings.movement;
     const auto &open = settings.open;
     const auto &close = settings.close;
@@ -200,9 +49,87 @@ SClothLiveStyle::Prepared SClothLiveStyle::prepare_settings(const Settings &sett
             .variation = close.variation, .shine = close.shine},
     };
 }
-void SClothLiveStyle::prepare(const Settings &settings, Resources &resources, [[maybe_unused]] bool selected) {
-    resources.update(settings, prepare_settings);
+
+SClothModule::State SClothModule::start(const Resources &resources, std::uint64_t seed) {
+    State state;
+    state.movement = resources.prepared.movement;
+    state.seed = seed;
+    return state;
 }
-bool SClothLiveStyle::movement_requested(const hyprimate::TrackDecision &decision) noexcept {
-    return decision.translated;
+
+bool SClothModule::open(State &state, const Place &place, Resources &resources, Effects &effects) {
+    if (!is_usable(place.goal_body) || !is_usable(place.rest_capture) || !resources.last) {
+        return false;
+    }
+    const auto edge = resolve_style_open_edge(edge_input(place, true, std::nullopt), resources.last->open);
+    ClothFlutter opening;
+    opening.begin(Transition::Open, resources.prepared.open, place.seed,
+        place.rest_capture, place.near.obstacles);
+    if (!opening.active()) {
+        return false;
+    }
+    state.origin = edge ? std::optional{edge->edge} : std::nullopt;
+    state.cloth = std::move(opening);
+    state.capture_size = {place.rest_capture.w, place.rest_capture.h};
+    state.cloth.frame(state.capture_size, *state.frame);
+    effects.snap_to_goal = true;
+    return true;
+}
+
+bool SClothModule::moves(const Motion &motion, const Resources &resources) noexcept {
+    const auto &params = resources.prepared.movement;
+    return motion.translated && params.strength > 0 && std::isfinite(params.strength) &&
+        std::isfinite(params.flutter) && std::isfinite(params.shading) &&
+        std::isfinite(params.variation);
+}
+
+Frame SClothModule::advance(State &state, const Step &step, Resources &resources, Effects &) {
+    if (!step.dying && state.movement != resources.prepared.movement) {
+        state.movement = resources.prepared.movement;
+        state.cloth.set_movement_params(state.movement);
+    }
+    if (!step.dying && ((!step.movement_enabled && state.cloth.moving()) ||
+            (!step.open_enabled && state.cloth.active() && !state.cloth.moving()))) {
+        state.cloth.reset();
+    }
+    if (!step.dying && step.movement_enabled && step.motion &&
+        moves(*step.motion, resources) && !state.cloth.moving()) {
+        state.cloth.begin_movement(state.movement, state.seed, step.motion->from_capture);
+    }
+    if (!step.dying && state.cloth.moving() && step.motion) {
+        state.cloth.update_movement(step.motion->capture, step.elapsed);
+    }
+    if (!state.cloth.active()) {
+        return {};
+    }
+    // Cloth aborts a stalled run; the model handles closing as completed.
+    state.cloth.advance(step.elapsed);
+    if (!state.cloth.active()) {
+        return {};
+    }
+    state.capture_size = {step.capture.w, step.capture.h};
+    state.cloth.frame(state.capture_size, *state.frame);
+    return {.running = true, .bounds = bounds(*state.frame, state.capture_size)};
+}
+
+CloseStart SClothModule::close(State &state, const Place &place, Resources &resources) {
+    if (!resources.last) {
+        return CloseStart::Declined;
+    }
+    const auto edge = resolve_style_close_edge(edge_input(place, false, state.origin), resources.last->close);
+    if (!edge) {
+        return CloseStart::Declined;
+    }
+    state.cloth.begin(Transition::Close, resources.prepared.close, place.seed, place.capture,
+        place.near.obstacles, ClothCloseGeometry{.edge = edge->edge, .screen = place.screen});
+    if (!state.cloth.active()) {
+        return CloseStart::Declined;
+    }
+    state.capture_size = {place.capture.w, place.capture.h};
+    state.cloth.frame(state.capture_size, *state.frame);
+    return CloseStart::Owned;
+}
+
+void SClothModule::end(State &state, Resources &, End) noexcept {
+    state.cloth.reset();
 }

@@ -7,8 +7,9 @@
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 
-#include "animations/shared/SheetRenderer.hpp"
 #include "animations/smoke/SmokeRenderer.hpp"
+#include "HyprAnimationCanvas.hpp"
+#include "animations/smoke/SmokeStyle.hpp"
 #include "gl/RawGlBracket.hpp"
 #include "smoke_shaders_generated.hpp"
 
@@ -106,65 +107,37 @@ SP<Render::IFramebuffer> CSmokeRenderer::render(
         const SSmokeImages images{.window = draw.window->m_texID,
             .texture_origin = draw.texture_origin,
             .texture_size = draw.texture_size};
-        // Steps once per frame; further monitors reuse the advanced field.
-        m_material.simulate(draw.field->field, draw.frame, target, images);
+        // The simulation is keyed by model time, not the number of draw calls.
+        if (draw.simulate)
+            m_material.simulate(draw.field->field, draw.frame, target, images);
         glBindFramebuffer(GL_FRAMEBUFFER, known.framebuffer);
         glViewport(0, 0, known.viewport_width, known.viewport_height);
         m_material.draw(draw.field->field, draw.frame, target, images);
     }
     return ready ? layer : nullptr;
 }
-CSmokePassElement::CSmokePassElement(SData data) : m_data(std::move(data)) {
-}
-std::vector<UP<IPassElement>> CSmokePassElement::draw(Render::CRenderContext &ctx) {
-    const auto layer =
-        m_data.renderer ? m_data.renderer->render(ctx, m_data.draw) : SP<Render::IFramebuffer>{};
-    Render::GL::CHyprOpenGLImpl::STextureRenderData data{};
-    data.damage = &m_data.damage;
-    data.a = m_data.alpha;
-    data.allowCustomUV = true;
-    data.allowDim = false;
-    if (layer)
-        Render::GL::g_pHyprOpenGL->renderTextureMesh(
-            ctx, layer->getTexture(), m_data.box, sheet_canvas_quad(), data);
-    else {
-        const auto &d = m_data.draw;
-        if (!d.window || !(d.canvas.x > 0 && d.canvas.y > 0 && d.source.w > 0 && d.source.h > 0 &&
-                             d.texture_size.x > 0 && d.texture_size.y > 0))
-            return {};
-        const float u0 = (d.source.x - d.texture_origin.x) / d.texture_size.x,
-                    v0 = (d.source.y - d.texture_origin.y) / d.texture_size.y;
-        const float u1 = (d.source.x + d.source.w - d.texture_origin.x) / d.texture_size.x,
-                    v1 = (d.source.y + d.source.h - d.texture_origin.y) / d.texture_size.y;
-        const CBox box{m_data.box.x + (d.source.x - d.output_origin.x) * m_data.box.w / d.canvas.x,
-            m_data.box.y + (d.source.y - d.output_origin.y) * m_data.box.h / d.canvas.y,
-            d.source.w * m_data.box.w / d.canvas.x,
-            d.source.h * m_data.box.h / d.canvas.y};
-        const std::vector<SMeshRenderVertex> quad{{.x = 0, .y = 0, .u = u0, .v = v0},
-            {.x = 0, .y = 1, .u = u0, .v = v1},
-            {.x = 1, .y = 0, .u = u1, .v = v0},
-            {.x = 1, .y = 0, .u = u1, .v = v0},
-            {.x = 0, .y = 1, .u = u0, .v = v1},
-            {.x = 1, .y = 1, .u = u1, .v = v1}};
-        Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, d.window, box, quad, data);
-    }
-    return {};
-}
-bool CSmokePassElement::needsLiveBlur(Render::CRenderContext &) {
-    return false;
-}
-bool CSmokePassElement::needsPrecomputeBlur(Render::CRenderContext &) {
-    return false;
-}
-const char *CSmokePassElement::passName() {
-    return "hyprimate-smoke";
-}
-ePassElementType CSmokePassElement::type() {
-    return EK_CUSTOM;
-}
-std::optional<CBox> CSmokePassElement::boundingBox(Render::CRenderContext &) {
-    return m_data.box.copy().scale(1.0 / m_data.scale).round();
-}
-CRegion CSmokePassElement::opaqueRegion(Render::CRenderContext &) {
-    return {};
+
+bool draw_smoke(SSmokeStyle &state, CHyprAnimationCanvas &canvas,
+    const SP<Render::IFramebuffer> &image, const hyprimate::Box &source,
+    const hyprimate::Box &canvas_box, hyprimate::Vec2 image_origin,
+    hyprimate::Vec2 image_size, double scale, SSmokeResources &resources) {
+    using hyprimate::animation::PassKind;
+    const auto pass = canvas.pass();
+    auto &field = pass == PassKind::WorkspaceSource ? state.capture_field : state.field;
+    if (!field && pass != PassKind::Inert)
+        field = std::make_shared<CSmokeFieldHandle>();
+    if (!field || !image || !(scale > 0))
+        return false;
+    canvas.layer = resources.renderer->render(canvas.context, SSmokeDraw{
+        .window = image->getTexture(),
+        .field = field,
+        .frame = state.smoke.frame({source.w / scale, source.h / scale}),
+        .canvas = {canvas_box.w, canvas_box.h},
+        .source = {source.x, source.y, source.w, source.h},
+        .texture_origin = image_origin,
+        .texture_size = image_size,
+        .output_origin = {canvas_box.x, canvas_box.y},
+        .simulate = pass != PassKind::Inert,
+    });
+    return static_cast<bool>(canvas.layer);
 }
