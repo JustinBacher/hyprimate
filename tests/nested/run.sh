@@ -114,6 +114,7 @@ cat <<EOF
 
 Nested Hyprland is running (pid $pid), plugin loaded from $plugin.
   style=$style
+  instance=$instance
 
 Change settings live from another terminal:
   hyprctl -i $instance eval 'hl.config({ plugin = { hyprimate = { window = { open = { options = { paper = { duration = 1.5 } } } } } } })'

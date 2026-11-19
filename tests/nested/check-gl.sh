@@ -13,27 +13,35 @@ cleanup() {
 }
 trap cleanup EXIT
 for style in ${CHECK_STYLES:-liquid paper cloth swarm bubble smoke}; do
-    before=$(hyprctl instances -j | jq -r '.[].instance' | sort)
+    : >"$log"
     "$root/tests/nested/run.sh" --style "$style" --no-build --no-window >"$log" 2>&1 &
     runner=$!
     instance=''
     for _ in $(seq 100); do
         kill -0 "$runner" 2>/dev/null || { cat "$log" >&2; exit 1; }
-        instance=$(comm -13 <(printf '%s\n' "$before") <(hyprctl instances -j | jq -r '.[].instance' | sort) | grep -m1 . || true)
-        [[ -n $instance ]] && grep -q 'plugin loaded from' "$log" && break
+        instance=$(awk '/^  instance=/ {sub(/^  instance=/, ""); print; exit}' "$log")
+        [[ -n $instance ]] && break
         sleep .1
     done
-    [[ -n $instance ]] && grep -q 'plugin loaded from' "$log" || { cat "$log" >&2; exit 1; }
+    [[ -n $instance ]] || { echo "$style: nested compositor did not become ready" >&2; cat "$log" >&2; exit 1; }
     hc() { hyprctl -i "$instance" "$@"; }
     hc dispatch 'hl.dsp.exec_cmd("kitty")' >/dev/null
     address=''
     for _ in $(seq 100); do
         kill -0 "$runner" 2>/dev/null || { cat "$log" >&2; exit 1; }
-        address=$(hc activewindow -j | jq -r '.address // empty')
+        address=$(hc clients -j | jq -r 'first(.[] | select(.class == "kitty" and .mapped) | .address) // empty')
         [[ -n $address ]] && break
         sleep .1
     done
-    [[ -n $address ]] || { echo "$style: window did not open" >&2; exit 1; }
+    if [[ -z $address ]]; then
+        echo "$style: kitty did not map within 10 seconds (instance $instance)" >&2
+        hc clients -j >&2 || true
+        cat "$log" >&2
+        tail -n 80 "${XDG_RUNTIME_DIR:-/tmp}/hyprimate-nested.log" >&2 || true
+        exit 1
+    fi
+    result=$(hc dispatch "hl.dsp.focus({ window = \"address:$address\" })")
+    [[ $result == ok ]] || { echo "$style: could not focus kitty: $result" >&2; exit 1; }
     sleep 2
     hc dispatch 'hl.dsp.window.float({ action = "toggle" })' >/dev/null
     before_pos=$(hc clients -j | jq -r --arg a "$address" '.[] | select(.address == $a) | .at | @tsv')
