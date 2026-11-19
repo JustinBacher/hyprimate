@@ -26,4 +26,5 @@ struct SSmokeModule {
     static const Settings &settings(const auto &config) { return config.smoke; }
     static constexpr auto KIND = hyprimate::config::Style::Smoke;
     static constexpr bool FIXED_CLOSE_PLACEMENT = true;
+    static constexpr bool HAS_SCREEN_CONTENT = false;
 };

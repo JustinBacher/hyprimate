@@ -28,6 +28,7 @@ struct SBubbleModule {
     static const Settings &settings(const auto &config) { return config.bubble; }
     static constexpr auto KIND = hyprimate::config::Style::Bubble;
     static constexpr bool FIXED_CLOSE_PLACEMENT = true;
+    static constexpr bool HAS_SCREEN_CONTENT = true;
 };
 // Hands each surface's glass impacts to the Vestige once, as soon as its first hole has opened.
 // Pending beads land when the transition's shared clock reaches them, so they neither lead their

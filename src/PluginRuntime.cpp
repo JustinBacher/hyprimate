@@ -37,8 +37,6 @@
 #include "LiveStyle.hpp"
 #include "PluginRuntime.hpp"
 #include "WindowTracker.hpp"
-#include "animations/bubble/BubbleLiveState.hpp"
-#include "animations/bubble/BubbleWallpaper.hpp"
 #include "animations/cloth/ClothFlutter.hpp"
 #include "animations/liquid/LiquidMesh.hpp"
 #include "animations/shared/Core.hpp"
@@ -72,7 +70,11 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     hyprimate::config::registerConfigValues(m_handle, m_values);
     m_config = hyprimate::config::readConfig(m_values);
     prepare_styles(false);
-    m_style_resources.get<SBubbleModule>().vestige.set_enabled(bubble_residue_enabled());
+    m_style_resources.for_each([&](auto live, auto &resources) {
+        if constexpr (decltype(live)::HAS_SCREEN_CONTENT) {
+            live.screen_tick(*this, resources, Clock::now(), {});
+        }
+    });
 
     if (plugin_enabled() && wobble_enabled()) {
         notify(WOBBLE_MESSAGE);
@@ -129,29 +131,22 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
         });
     });
 
-    // A solitary client bypasses the monitor scene entirely, and can also direct-scan out before
-    // render.pre. Remove it for this frame while Vestige exists; restore native selection when the
-    // last deposit expires.
+    // A solitary client can bypass composited screen content before render.pre.
     m_listen_render_pre_checks =
         Event::bus()->m_events.render.preChecks.listen([this](const PHLMONITOR &monitor) {
-            if (monitor && has_workspace_swarm_tail(monitor)) {
-                monitor->m_solitaryClient.reset();
+            if (!monitor || !screen_needs_frame(monitor) || monitor->m_solitaryClient.expired()) {
                 return;
             }
-            if (!monitor || !m_style_resources.get<SBubbleModule>().vestige.active(monitor) ||
-                monitor->m_solitaryClient.expired()) {
-                return;
-            }
-            if (std::ranges::none_of(m_residue_inhibited,
+            if (std::ranges::none_of(m_screen_inhibited,
                     [&](const auto &entry) { return entry.lock() == monitor; })) {
-                m_residue_inhibited.emplace_back(monitor);
+                m_screen_inhibited.emplace_back(monitor);
             }
             monitor->m_solitaryClient.reset();
         });
     m_listen_monitor_layout =
-        Event::bus()->m_events.monitor.layoutChanged.listen([this] { clear_bubble_residue(); });
+        Event::bus()->m_events.monitor.layoutChanged.listen([this] { clear_screen_content(); });
     m_listen_monitor_removed = Event::bus()->m_events.monitor.preRemoved.listen(
-        [this](const PHLMONITOR &) { clear_bubble_residue(); });
+        [this](const PHLMONITOR &) { clear_screen_content(); });
 
     // Everything advances once per rendered frame of its monitor, after native animations have
     // ticked and before the frame collects damage. Animation ticks are not used: a self-requested
@@ -162,40 +157,23 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     // after rendering while live animations, retained closes, or Vestige need them.
     m_listen_render_post =
         Event::bus()->m_events.render.stage.listen([this](const Event::SRenderStageEvent &event) {
-            // A wake lies just under the window that left it; beads, and wakes whose window was
-            // not drawn, lie over every window.
+            // Each Style queues its own screen content around the window pass.
             if (event.stage == RENDER_PRE_WINDOW && event.context && event.monitor) {
                 auto &ctx = event.context->get();
                 const auto WINDOW = ctx.m_data.currentWindow.lock();
-                auto *transformer = WINDOW ? transformer_of(WINDOW) : nullptr;
-                auto *bubble =
-                    transformer ? std::get_if<SBubbleStyle>(&transformer->style_state()) : nullptr;
-                // This must precede the window's transformed draw in the monitor pass: its
-                // framebuffer then contains lower windows but not this window itself.
-                if (bubble && transformer->active() &&
-                    (bubble->bubble.opening() || bubble->bubble.stirred())) {
-                    if (!bubble->wallpaper) {
-                        bubble->wallpaper = makeShared<SBubbleWallpaper>();
+                m_style_resources.for_each([&](auto live, auto &resources) {
+                    if constexpr (decltype(live)::HAS_SCREEN_CONTENT) {
+                        live.screen_before_window(*this, resources, ctx, event.monitor, WINDOW);
                     }
-                    const auto PRESENTATION = WINDOW->presentation().renderPresentation();
-                    const auto LOGICAL = WINDOW->getFullWindowBoundingBox().translate(
-                        PRESENTATION.workspaceOffset + PRESENTATION.floatingOffset -
-                        event.monitor->m_position);
-                    // UV axes describe the undeformed source box; capture the larger drawn
-                    // footprint and refraction margin without changing that coordinate system.
-                    const auto SOURCE = LOGICAL.copy().scale(event.monitor->m_scale);
-                    const auto BOUNDS = transformer->transformedExtents(LOGICAL).expand(8.0).scale(
-                        event.monitor->m_scale);
-                    queue_bubble_wallpaper(ctx, bubble->wallpaper, SOURCE, true, BOUNDS);
-                }
-                auto &bubble_resources = m_style_resources.get<SBubbleModule>();
-                bubble_resources.vestige.queue_under(
-                    ctx, event.monitor, ctx.m_data.currentWindow.lock(), bubble_resources.renderer);
+                });
                 return;
             }
             if (event.stage == RENDER_POST_WINDOWS && event.context && event.monitor) {
-                auto &bubble_resources = m_style_resources.get<SBubbleModule>();
-                bubble_resources.vestige.queue(event.context->get(), event.monitor, bubble_resources.renderer);
+                m_style_resources.for_each([&](auto live, auto &resources) {
+                    if constexpr (decltype(live)::HAS_SCREEN_CONTENT) {
+                        live.screen_after_windows(*this, resources, event.context->get(), event.monitor);
+                    }
+                });
                 queue_workspace_swarm_tails(event.context->get(), event.monitor);
                 return;
             }
@@ -203,8 +181,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                 return;
             }
             if (event.monitor &&
-                (m_style_resources.get<SBubbleModule>().vestige.active(event.monitor) || m_close->needs_frame(event.monitor) ||
-                    has_workspace_swarm_tail(event.monitor))) {
+                (screen_needs_frame(event.monitor) || m_close->needs_frame(event.monitor))) {
                 event.monitor->scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_ANIMATION);
             }
             for (const auto &entry : m_tracked) {
@@ -239,7 +216,7 @@ CPluginRuntime::~CPluginRuntime() {
     m_listen_reload.reset();
     m_listen_monitor_layout.reset();
     m_listen_monitor_removed.reset();
-    clear_bubble_residue();
+    clear_screen_content();
     m_close->shutdown();
     detach_all();
 }
@@ -279,10 +256,8 @@ bool CPluginRuntime::close_enabled() const {
     return plugin_enabled() && !m_inert && m_config.close.enabled;
 }
 
-bool CPluginRuntime::bubble_residue_enabled() const {
-    // Glass beads come from ruptures; film trails and free microbubbles from movement.
-    return (open_enabled() || close_enabled() || (movement_enabled() && !m_inert)) &&
-           m_config.style == hyprimate::config::Style::Bubble;
+bool CPluginRuntime::style_selected(hyprimate::config::Style style) const {
+    return m_config.style == style;
 }
 
 bool CPluginRuntime::workspace_has_other_windows(const PHLWINDOW &window) {
@@ -368,8 +343,12 @@ void CPluginRuntime::notify(const std::string &text) const {
 void CPluginRuntime::on_reload() {
     m_config = hyprimate::config::readConfig(m_values);
     prepare_styles(false);
-    m_style_resources.get<SBubbleModule>().vestige.set_enabled(bubble_residue_enabled());
-    clear_bubble_residue();
+    m_style_resources.for_each([&](auto live, auto &resources) {
+        if constexpr (decltype(live)::HAS_SCREEN_CONTENT) {
+            live.screen_tick(*this, resources, Clock::now(), {});
+        }
+    });
+    clear_screen_content();
     detach_all();
     m_close->clear();
 
@@ -449,17 +428,14 @@ void CPluginRuntime::on_render_pre(const PHLMONITOR &monitor) {
     // texture is rebuilt only when the value actually changes.
     m_config = hyprimate::config::readConfig(m_values);
     prepare_styles(true);
-    const bool RESIDUE_ENABLED = bubble_residue_enabled();
-    auto &vestige = m_style_resources.get<SBubbleModule>().vestige;
-    vestige.set_enabled(RESIDUE_ENABLED);
-    if (!RESIDUE_ENABLED) {
-        clear_bubble_residue();
-    } else {
-        vestige.tick(Clock::now(), monitor);
-        if (!vestige.active(monitor)) {
-            restore_bubble_scanout(monitor);
+    const auto SCREEN_NOW = Clock::now();
+    m_style_resources.for_each([&](auto live, auto &resources) {
+        if constexpr (decltype(live)::HAS_SCREEN_CONTENT) {
+            live.screen_tick(*this, resources, SCREEN_NOW, monitor);
         }
-    }
+    });
+    // A policy change may have cleared content on every monitor.
+    restore_screen_scanout({});
     // Sampling runs on each window's own monitor only, so a window steps once per frame of the
     // monitor it is on.
     const auto NOW = Clock::now();
@@ -752,13 +728,23 @@ void CPluginRuntime::detach_all() {
     }
 }
 
-void CPluginRuntime::restore_bubble_scanout(const PHLMONITOR &monitor) {
-    std::erase_if(m_residue_inhibited, [&](const auto &entry) {
+bool CPluginRuntime::screen_needs_frame(const PHLMONITOR &monitor) const {
+    bool needed = has_workspace_swarm_tail(monitor);
+    m_style_resources.for_each([&](auto live, const auto &resources) {
+        if constexpr (decltype(live)::HAS_SCREEN_CONTENT) {
+            needed = needed || live.screen_needs_frame(*this, resources, monitor);
+        }
+    });
+    return needed;
+}
+
+void CPluginRuntime::restore_screen_scanout(const PHLMONITOR &monitor) {
+    std::erase_if(m_screen_inhibited, [&](const auto &entry) {
         const auto CANDIDATE = entry.lock();
         if (!CANDIDATE) {
             return true;
         }
-        if (CANDIDATE != monitor) {
+        if ((monitor && CANDIDATE != monitor) || screen_needs_frame(CANDIDATE)) {
             return false;
         }
         CANDIDATE->recheckSolitary();
@@ -766,14 +752,18 @@ void CPluginRuntime::restore_bubble_scanout(const PHLMONITOR &monitor) {
     });
 }
 
-void CPluginRuntime::clear_bubble_residue() {
-    m_style_resources.get<SBubbleModule>().vestige.clear();
-    for (const auto &entry : m_residue_inhibited) {
+void CPluginRuntime::clear_screen_content() {
+    m_style_resources.for_each([&](auto live, auto &resources) {
+        if constexpr (decltype(live)::HAS_SCREEN_CONTENT) {
+            live.screen_clear(*this, resources);
+        }
+    });
+    for (const auto &entry : m_screen_inhibited) {
         if (const auto MONITOR = entry.lock()) {
             MONITOR->recheckSolitary();
         }
     }
-    m_residue_inhibited.clear();
+    m_screen_inhibited.clear();
 }
 
 SSwarmStyle *CPluginRuntime::workspace_swarm_tail(const PHLWINDOW &window) const {

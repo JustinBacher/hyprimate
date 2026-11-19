@@ -15,7 +15,6 @@
 #include "AnimationCloseRenderer.hpp"
 #include "AnimationTransformer.hpp"
 #include "WindowTracker.hpp"
-#include "animations/bubble/BubbleVestige.hpp"
 #include "animations/liquid/SolidFill.hpp"
 #include "config_generated.hpp"
 
@@ -52,6 +51,7 @@ class CPluginRuntime {
 
     bool plugin_enabled() const;
     bool movement_enabled() const;
+    bool style_selected(hyprimate::config::Style style) const;
     bool open_enabled() const;
     bool close_enabled() const;
     double movement_strength() const;
@@ -95,9 +95,9 @@ class CPluginRuntime {
     static void schedule_animation(const PHLWINDOW &window);
     static void detach_window(STracked &entry, const PHLWINDOW &window);
     void detach_all();
-    bool bubble_residue_enabled() const;
-    void clear_bubble_residue();
-    void restore_bubble_scanout(const PHLMONITOR &monitor);
+    bool screen_needs_frame(const PHLMONITOR &monitor) const;
+    void clear_screen_content();
+    void restore_screen_scanout(const PHLMONITOR &monitor);
     SSwarmStyle *workspace_swarm_tail(const PHLWINDOW &window) const;
     bool has_workspace_swarm_tail(const PHLMONITOR &monitor) const;
     void queue_workspace_swarm_tails(Render::CRenderContext &ctx, const PHLMONITOR &monitor);
@@ -113,7 +113,7 @@ class CPluginRuntime {
 
     std::vector<STracked> m_tracked;
     bool m_inert = false;
-    std::vector<PHLMONITORREF> m_residue_inhibited;
+    std::vector<PHLMONITORREF> m_screen_inhibited;
     std::unique_ptr<CAnimationCloseRenderer> m_close;
     mutable std::vector<hyprimate::Box>
         m_neighbours;  // tiled neighbours for the contact rule; rebuilt per edge choice

@@ -34,6 +34,17 @@
         static bool builtFor(const State &, const Resources &) noexcept;                   \
         static void step(CPluginRuntime &, CAnimationTransformer &, double,                \
             hyprimate::Vec2, bool, Resources &);                                            \
+        static void screen_tick(CPluginRuntime &, Resources &,                             \
+            std::chrono::steady_clock::time_point, const PHLMONITOR &);                     \
+        static bool screen_needs_frame(const CPluginRuntime &, const Resources &,           \
+            const PHLMONITOR &);                                                           \
+        static void screen_before_window(CPluginRuntime &, Resources &,                    \
+            Render::CRenderContext &, const PHLMONITOR &, const PHLWINDOW &);               \
+        static void screen_after_windows(CPluginRuntime &, Resources &,                    \
+            Render::CRenderContext &, const PHLMONITOR &);                                  \
+        static void screen_clear(CPluginRuntime &, Resources &);                            \
+        static std::optional<CBox> screen_window_capture(const CPluginRuntime &,            \
+            const Resources &, const PHLWINDOW &, const CAnimationTransformer *);           \
     };
 HYPRIMATE_STYLE_LIST(LIVE_STYLE_OPERATIONS, HYPRIMATE_STYLE_EMPTY)
 

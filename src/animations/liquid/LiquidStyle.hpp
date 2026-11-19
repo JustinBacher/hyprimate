@@ -35,6 +35,7 @@ struct SLiquidModule {
     static const Settings &settings(const auto &config) { return config.liquid; }
     static constexpr auto KIND = hyprimate::config::Style::Liquid;
     static constexpr bool FIXED_CLOSE_PLACEMENT = false;
+    static constexpr bool HAS_SCREEN_CONTENT = false;
 };
 
 hyprimate::LiquidPose live_pose(const SLiquidStyle &state);

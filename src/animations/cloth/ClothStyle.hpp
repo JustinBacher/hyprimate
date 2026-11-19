@@ -26,4 +26,5 @@ struct SClothModule {
     static const Settings &settings(const auto &config) { return config.cloth; }
     static constexpr auto KIND = hyprimate::config::Style::Cloth;
     static constexpr bool FIXED_CLOSE_PLACEMENT = false;
+    static constexpr bool HAS_SCREEN_CONTENT = false;
 };

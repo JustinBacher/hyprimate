@@ -12,7 +12,23 @@
 #include "LiveStyle.hpp"
 
 template <class T>
-concept StyleModule = requires(typename T::State &state, const typename T::State &constant,
+concept ScreenContentStyle = !T::HAS_SCREEN_CONTENT ||
+    requires(CPluginRuntime &runtime, const CPluginRuntime &const_runtime,
+        typename T::Resources &resources, const typename T::Resources &const_resources,
+        std::chrono::steady_clock::time_point now, const PHLMONITOR &monitor,
+        const PHLWINDOW &window, Render::CRenderContext &ctx,
+        const CAnimationTransformer *transformer) {
+        { T::screen_tick(runtime, resources, now, monitor) } -> std::same_as<void>;
+        { T::screen_needs_frame(const_runtime, const_resources, monitor) } -> std::same_as<bool>;
+        { T::screen_before_window(runtime, resources, ctx, monitor, window) } -> std::same_as<void>;
+        { T::screen_after_windows(runtime, resources, ctx, monitor) } -> std::same_as<void>;
+        { T::screen_clear(runtime, resources) } -> std::same_as<void>;
+        { T::screen_window_capture(const_runtime, const_resources, window, transformer) }
+            -> std::same_as<std::optional<CBox>>;
+    };
+
+template <class T>
+concept StyleModule = ScreenContentStyle<T> && requires(typename T::State &state, const typename T::State &constant,
     const typename T::CloseData &data, CPluginRuntime &runtime,
     typename T::Tracked &tracked, CAnimationTransformer &transformer,
     const CAnimationTransformer *transformer_ptr, const PHLWINDOW &window,
@@ -33,6 +49,8 @@ concept StyleModule = requires(typename T::State &state, const typename T::State
     typename T::Prepared;
     { T::KIND } -> std::convertible_to<hyprimate::config::Style>;
     { T::FIXED_CLOSE_PLACEMENT } -> std::convertible_to<bool>;
+    requires std::same_as<decltype(T::HAS_SCREEN_CONTENT), const bool>;
+    typename std::bool_constant<T::HAS_SCREEN_CONTENT>;
     { T::prepare_settings(settings) } -> std::same_as<typename T::Prepared>;
     { T::initial(const_resources, std::uint64_t{}) } -> std::same_as<typename T::State>;
     { T::prepare(settings, resources, false) } -> std::same_as<void>;

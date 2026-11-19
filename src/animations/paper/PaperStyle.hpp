@@ -23,4 +23,5 @@ struct SPaperModule {
     static const Settings &settings(const auto &config) { return config.paper; }
     static constexpr auto KIND = hyprimate::config::Style::Paper;
     static constexpr bool FIXED_CLOSE_PLACEMENT = false;
+    static constexpr bool HAS_SCREEN_CONTENT = false;
 };

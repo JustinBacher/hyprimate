@@ -40,6 +40,60 @@ namespace {
     }
 }  // namespace
 
+void SBubbleLiveStyle::screen_tick(CPluginRuntime &runtime, Resources &resources,
+    std::chrono::steady_clock::time_point now, const PHLMONITOR &monitor) {
+    const bool ENABLED =
+        (runtime.open_enabled() || runtime.close_enabled() ||
+            (runtime.movement_enabled() && !runtime.m_inert)) &&
+        runtime.style_selected(KIND);
+    resources.vestige.set_enabled(ENABLED);
+    // A null monitor initializes policy without advancing a monitor's simulation.
+    if (ENABLED && monitor) {
+        resources.vestige.tick(now, monitor);
+    }
+}
+
+bool SBubbleLiveStyle::screen_needs_frame(const CPluginRuntime &, const Resources &resources,
+    const PHLMONITOR &monitor) {
+    return monitor && resources.vestige.active(monitor);
+}
+
+void SBubbleLiveStyle::screen_before_window(CPluginRuntime &runtime, Resources &resources,
+    Render::CRenderContext &ctx, const PHLMONITOR &monitor, const PHLWINDOW &window) {
+    auto *transformer = window ? runtime.transformer_of(window) : nullptr;
+    auto *bubble =
+        transformer ? std::get_if<SBubbleStyle>(&transformer->style_state()) : nullptr;
+    // Capture lower windows before this window's transformed draw.
+    if (bubble && transformer->active() &&
+        (bubble->bubble.opening() || bubble->bubble.stirred())) {
+        if (!bubble->wallpaper) {
+            bubble->wallpaper = makeShared<SBubbleWallpaper>();
+        }
+        const auto PRESENTATION = window->presentation().renderPresentation();
+        const auto LOGICAL = window->getFullWindowBoundingBox().translate(
+            PRESENTATION.workspaceOffset + PRESENTATION.floatingOffset - monitor->m_position);
+        const auto SOURCE = LOGICAL.copy().scale(monitor->m_scale);
+        const auto BOUNDS =
+            transformer->transformedExtents(LOGICAL).expand(8.0).scale(monitor->m_scale);
+        queue_bubble_wallpaper(ctx, bubble->wallpaper, SOURCE, true, BOUNDS);
+    }
+    resources.vestige.queue_under(ctx, monitor, window, resources.renderer);
+}
+
+void SBubbleLiveStyle::screen_after_windows(CPluginRuntime &, Resources &resources,
+    Render::CRenderContext &ctx, const PHLMONITOR &monitor) {
+    resources.vestige.queue(ctx, monitor, resources.renderer);
+}
+
+void SBubbleLiveStyle::screen_clear(CPluginRuntime &, Resources &resources) {
+    resources.vestige.clear();
+}
+
+std::optional<CBox> SBubbleLiveStyle::screen_window_capture(
+    const CPluginRuntime &, const Resources &, const PHLWINDOW &, const CAnimationTransformer *) {
+    return std::nullopt;
+}
+
 CBox live_extents(const SBubbleStyle &state, const CBox &box) {
     const auto BOUNDS = state.bubble.bounds({.x = box.w, .y = box.h});
     return CBox{box.x + BOUNDS.x, box.y + BOUNDS.y, BOUNDS.w, BOUNDS.h}.expand(2.0);

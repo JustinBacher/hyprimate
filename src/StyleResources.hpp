@@ -21,6 +21,9 @@ template <class... Modules> class SStyleResources<STypeList<Modules...>> {
     template <class F> void for_each(F &&operation) {
         (operation(typename SStyleModuleFor<typename Modules::State>::Live{}, get<Modules>()), ...);
     }
+    template <class F> void for_each(F &&operation) const {
+        (operation(typename SStyleModuleFor<typename Modules::State>::Live{}, get<Modules>()), ...);
+    }
 
   private:
     std::tuple<typename Modules::Resources...> m_values;
