@@ -20,7 +20,7 @@ namespace {
     };
 }
 
-int main() {
+int main() try {
     using Pool = hyprimate::CSlotPool<State>;
     constexpr auto INVALID = Pool::INVALID_HANDLE;
     static_assert(INVALID == Pool::INVALID_HANDLE);
@@ -28,24 +28,24 @@ int main() {
     CHECK(pool.get(INVALID) == nullptr);
     CHECK(!pool.erase(INVALID));
     pool.reserve(2);
-    auto first = pool.emplace(10);
-    State *address = pool.get(first);
+    const auto FIRST = pool.emplace(10);
+    const State *address = pool.get(FIRST);
     CHECK(address != nullptr);
-    auto erased = pool.emplace(20);
-    CHECK(pool.erase(erased));
-    CHECK(pool.get(erased) == nullptr);
-    CHECK(!pool.erase(erased));
-    auto replacement = pool.emplace(30);
-    CHECK(replacement.index == erased.index);
-    CHECK(replacement != erased);
-    CHECK(pool.get(erased) == nullptr);
-    CHECK(pool.get(replacement)->value == 30);
+    const auto ERASED = pool.emplace(20);
+    CHECK(pool.erase(ERASED));
+    CHECK(pool.get(ERASED) == nullptr);
+    CHECK(!pool.erase(ERASED));
+    const auto REPLACEMENT = pool.emplace(30);
+    CHECK(REPLACEMENT.index == ERASED.index);
+    CHECK(REPLACEMENT != ERASED);
+    CHECK(pool.get(ERASED) == nullptr);
+    CHECK(pool.get(REPLACEMENT)->value == 30);
 
-    std::vector<Pool::SHandle> handles{first, replacement};
+    std::vector<Pool::SHandle> handles{FIRST, REPLACEMENT};
     for (int i = 0; i < 200; ++i) {
         handles.push_back(pool.emplace(i));
     }
-    CHECK(pool.get(first) == address);
+    CHECK(pool.get(FIRST) == address);
     CHECK(address->value == 10);
     CHECK(pool.size() == handles.size());
     std::size_t visited = 0;
@@ -56,7 +56,7 @@ int main() {
     });
     CHECK(visited == handles.size());
     pool.for_each([](Pool::SHandle, State &state) { ++state.value; });
-    CHECK(pool.get(first)->value == 11);
+    CHECK(pool.get(FIRST)->value == 11);
 
     try {
         (void)pool.emplace(-1);
@@ -64,22 +64,25 @@ int main() {
     } catch (const std::runtime_error &) {
         CHECK(pool.size() == handles.size());
     }
-    auto after_failure = pool.emplace(99);
-    handles.push_back(after_failure);
-    CHECK(pool.get(after_failure)->value == 99);
+    const auto AFTER_FAILURE = pool.emplace(99);
+    handles.push_back(AFTER_FAILURE);
+    CHECK(pool.get(AFTER_FAILURE)->value == 99);
     pool.clear();
     CHECK(pool.size() == 0);
-    for (auto handle : handles) {
-        CHECK(pool.get(handle) == nullptr);
+    for (const auto HANDLE : handles) {
+        CHECK(pool.get(HANDLE) == nullptr);
     }
     visited = 0;
     pool.for_each([&](Pool::SHandle, State &) { ++visited; });
     CHECK(visited == 0);
-    auto after_clear = pool.emplace(42);
-    for (auto handle : handles) {
-        CHECK(handle != after_clear);
-        CHECK(pool.get(handle) == nullptr);
+    const auto AFTER_CLEAR = pool.emplace(42);
+    for (const auto HANDLE : handles) {
+        CHECK(HANDLE != AFTER_CLEAR);
+        CHECK(pool.get(HANDLE) == nullptr);
     }
-    CHECK(pool.get(after_clear)->value == 42);
+    CHECK(pool.get(AFTER_CLEAR)->value == 42);
     return g_failures == 0 ? 0 : 1;
+}
+catch (const std::exception &) {
+    return 1;
 }

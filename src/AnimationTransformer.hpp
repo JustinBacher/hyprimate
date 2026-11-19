@@ -26,11 +26,11 @@ class CAnimationTransformer final : public Render::IWindowTransformer {
     Render::SWindowTransformBuffer transform(Render::CRenderContext &ctx,
         const Render::SWindowTransformBuffer &input,
         const Render::SWindowTransformContext &context) override;
-    int priority() const override;
-    bool active() const override;
-    bool blocksDirectScanout() const override;
-    CBox transformedExtents(const CBox &current_box) const override;
-    CBox sourceBoxForOutput(const CBox &output_box, const CBox &input_box) const override;
+    [[nodiscard]] int priority() const override;
+    [[nodiscard]] bool active() const override;
+    [[nodiscard]] bool blocksDirectScanout() const override;
+    [[nodiscard]] CBox transformedExtents(const CBox &current_box) const override;
+    [[nodiscard]] CBox sourceBoxForOutput(const CBox &output_box, const CBox &input_box) const override;
     [[nodiscard]] hyprimate::animation::Handle handle() const noexcept { return m_handle; }
     void mark_detached() noexcept { m_detached = true; }
 

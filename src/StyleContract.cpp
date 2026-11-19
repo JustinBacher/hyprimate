@@ -16,6 +16,6 @@ struct ProductionContract<hyprimate::animation::StyleList<Styles...>> {
     static_assert(UniqueTypes<typename Styles::State...>::value);
     static_assert(UniqueTypes<typename Styles::Resources...>::value);
     static_assert((hyprimate::animation::WindowStyle<Styles, CHyprAnimationCanvas> && ...));
-    static constexpr bool valid = true;
+    static constexpr bool VALID = true;
 };
-static_assert(ProductionContract<ProductionStyles>::valid);
+static_assert(ProductionContract<ProductionStyles>::VALID);

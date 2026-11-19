@@ -28,11 +28,12 @@ SSmokeModule::State SSmokeModule::start([[maybe_unused]] const Resources &resour
 
 bool SSmokeModule::open(State &state, const hyprimate::animation::Place &place,
     Resources &resources, hyprimate::animation::Effects &effects) {
-    if (!hyprimate::is_usable(place.goal_body) || !hyprimate::is_usable(place.rest_capture))
+    if (!resources.last || !hyprimate::is_usable(place.goal_body) || !hyprimate::is_usable(place.rest_capture)) {
         return false;
+    }
     state.smoke.begin(hyprimate::Transition::Open, resources.prepared.open_duration,
         {place.rest_capture.w, place.rest_capture.h},
-        hyprimate::smoke_route(resources.last->open.direction, edge_input(place, true)));
+        hyprimate::smoke_route(resources.last.value().open.direction, edge_input(place, true)));
     effects.snap_to_goal = true;
     effects.settle_native_open_alpha = true;
     return true;
@@ -47,10 +48,12 @@ hyprimate::animation::Frame SSmokeModule::advance(State &state,
     const hyprimate::animation::Step &step, Resources &resources,
     [[maybe_unused]] hyprimate::animation::Effects &effects) {
     auto &smoke = state.smoke;
-    if (!step.dying && !step.open_enabled && smoke.opening())
+    if (!step.dying && !step.open_enabled && smoke.opening()) {
         smoke.reset();
-    if (!step.dying && !step.movement_enabled)
+    }
+    if (!step.dying && !step.movement_enabled) {
         smoke.stop_motion();
+    }
     if (!step.dying && step.movement_enabled && step.motion && moves(*step.motion, resources)) {
         const auto &motion = *step.motion;
         const auto &now = motion.capture;
@@ -60,14 +63,18 @@ hyprimate::animation::Frame SSmokeModule::advance(State &state,
             motion.layout_animated && !motion.workspace_moving,
             {now.w - before.w, now.h - before.h});
     }
-    auto params = step.dying ? state.close_params :
-        (smoke.opening() ? resources.prepared.opening : resources.prepared.movement);
-    if (!step.dying && !step.movement_enabled)
+    auto params = smoke.opening() ? resources.prepared.opening : resources.prepared.movement;
+    if (step.dying) {
+        params = state.close_params;
+    }
+    if (!step.dying && !step.movement_enabled) {
         params.strength = 0;
+    }
     const hyprimate::Vec2 size{step.capture.w, step.capture.h};
     smoke.advance(std::min(step.elapsed, hyprimate::STALL_SECONDS), size, params);
-    if (!smoke.active())
+    if (!smoke.active()) {
         return {};
+    }
     auto bounds = smoke.bounds(size);
     bounds.x -= 2.0;
     bounds.y -= 2.0;
@@ -78,12 +85,13 @@ hyprimate::animation::Frame SSmokeModule::advance(State &state,
 
 hyprimate::animation::CloseStart SSmokeModule::close(State &state,
     const hyprimate::animation::Place &place, Resources &resources) {
-    if (!hyprimate::is_usable(place.capture))
+    if (!resources.last || !hyprimate::is_usable(place.capture)) {
         return hyprimate::animation::CloseStart::Declined;
+    }
     state.close_params = resources.prepared.closing;
     state.smoke.begin(hyprimate::Transition::Close, resources.prepared.close_duration,
-        {place.capture.w, place.capture.h},
-        hyprimate::smoke_route(resources.last->close.direction, edge_input(place, false)));
+        {.x = place.capture.w, .y = place.capture.h},
+        hyprimate::smoke_route(resources.last.value().close.direction, edge_input(place, false)));
     return hyprimate::animation::CloseStart::Owned;
 }
 
@@ -99,7 +107,7 @@ void SSmokeModule::warm(Resources &resources) {
 
 SSmokeModule::Prepared SSmokeModule::prepare_settings(const Settings &settings) {
     const auto &movement = settings.movement;
-    const hyprimate::SmokeParams params{
+    const hyprimate::SmokeParams PARAMS{
         .strength = movement.strength,
         .turbulence = movement.turbulence,
         .trail = movement.trail,
@@ -110,12 +118,12 @@ SSmokeModule::Prepared SSmokeModule::prepare_settings(const Settings &settings) 
         .density = settings.shared.density,
         .variation = settings.shared.variation,
     };
-    auto opening = params;
+    auto opening = PARAMS;
     opening.turbulence = settings.open.turbulence;
-    auto closing = params;
+    auto closing = PARAMS;
     closing.turbulence = settings.close.turbulence;
     closing.settle_speed = hyprimate::SmokeParams{}.settle_speed;
-    return {.movement = params,
+    return {.movement = PARAMS,
         .opening = opening,
         .closing = closing,
         .open_duration = settings.open.duration,

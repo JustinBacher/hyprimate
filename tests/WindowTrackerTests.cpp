@@ -8,8 +8,8 @@ int main() {
     Observation before;
     before.monitor = 1;
     before.workspace = 1;
-    before.body = {100, 80, 400, 300};
-    before.capture = {90, 70, 420, 320};
+    before.body = {.x = 100, .y = 80, .w = 400, .h = 300};
+    before.capture = {.x = 90, .y = 70, .w = 420, .h = 320};
     auto after = before;
     CHECK(!observe_motion(before, after, true, true));
 
@@ -52,7 +52,7 @@ int main() {
 
     after = before;
     after.workspace_moving = true;
-    after.workspace_offset = {3000, 0};
+    after.workspace_offset = {.x = 3000, .y = 0};
     motion = observe_motion(before, after, true, true);
     CHECK(motion && motion->translated && motion->workspace_moving);
     CHECK(motion && motion->body.x - motion->from_body.x == 3000);

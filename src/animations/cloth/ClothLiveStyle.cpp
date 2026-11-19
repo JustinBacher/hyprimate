@@ -23,15 +23,15 @@ Box bounds(const SheetFrame &frame, Vec2 size) {
     double max_x = -min_x;
     double max_y = -min_x;
     for (const auto &point : frame.position) {
-        const double X = size.x * (0.5 + point.x);
-        const double Y = size.y * (0.5 + point.y);
-        min_x = std::min(min_x, X);
-        min_y = std::min(min_y, Y);
-        max_x = std::max(max_x, X);
-        max_y = std::max(max_y, Y);
+        const double POS_X = size.x * (0.5 + point.x);
+        const double POS_Y = size.y * (0.5 + point.y);
+        min_x = std::min(min_x, POS_X);
+        min_y = std::min(min_y, POS_Y);
+        max_x = std::max(max_x, POS_X);
+        max_y = std::max(max_y, POS_Y);
     }
-    return {min_x - 4, min_y - 4, std::max(1.0, max_x - min_x) + 8,
-        std::max(1.0, max_y - min_y) + 8};
+    return {.x = min_x - 4, .y = min_y - 4, .w = std::max(1.0, max_x - min_x) + 8,
+        .h = std::max(1.0, max_y - min_y) + 8};
 }
 }
 
@@ -61,16 +61,16 @@ bool SClothModule::open(State &state, const Place &place, Resources &resources, 
     if (!is_usable(place.goal_body) || !is_usable(place.rest_capture) || !resources.last) {
         return false;
     }
-    const auto edge = resolve_style_open_edge(edge_input(place, true, std::nullopt), resources.last->open);
+    const auto EDGE = resolve_style_open_edge(edge_input(place, true, std::nullopt), resources.last->open);
     ClothFlutter opening;
     opening.begin(Transition::Open, resources.prepared.open, place.seed,
         place.rest_capture, place.near.obstacles);
     if (!opening.active()) {
         return false;
     }
-    state.origin = edge ? std::optional{edge->edge} : std::nullopt;
+    state.origin = EDGE ? std::optional{EDGE->edge} : std::nullopt;
     state.cloth = std::move(opening);
-    state.capture_size = {place.rest_capture.w, place.rest_capture.h};
+    state.capture_size = {.x = place.rest_capture.w, .y = place.rest_capture.h};
     state.cloth.frame(state.capture_size, *state.frame);
     effects.snap_to_goal = true;
     return true;
@@ -83,7 +83,7 @@ bool SClothModule::moves(const Motion &motion, const Resources &resources) noexc
         std::isfinite(params.variation);
 }
 
-Frame SClothModule::advance(State &state, const Step &step, Resources &resources, Effects &) {
+Frame SClothModule::advance(State &state, const Step &step, Resources &resources, [[maybe_unused]] Effects &effects) {
     if (!step.dying && state.movement != resources.prepared.movement) {
         state.movement = resources.prepared.movement;
         state.cloth.set_movement_params(state.movement);
@@ -107,7 +107,7 @@ Frame SClothModule::advance(State &state, const Step &step, Resources &resources
     if (!state.cloth.active()) {
         return {};
     }
-    state.capture_size = {step.capture.w, step.capture.h};
+    state.capture_size = {.x = step.capture.w, .y = step.capture.h};
     state.cloth.frame(state.capture_size, *state.frame);
     return {.running = true, .bounds = bounds(*state.frame, state.capture_size)};
 }
@@ -116,20 +116,20 @@ CloseStart SClothModule::close(State &state, const Place &place, Resources &reso
     if (!resources.last) {
         return CloseStart::Declined;
     }
-    const auto edge = resolve_style_close_edge(edge_input(place, false, state.origin), resources.last->close);
-    if (!edge) {
+    const auto EDGE = resolve_style_close_edge(edge_input(place, false, state.origin), resources.last->close);
+    if (!EDGE) {
         return CloseStart::Declined;
     }
     state.cloth.begin(Transition::Close, resources.prepared.close, place.seed, place.capture,
-        place.near.obstacles, ClothCloseGeometry{.edge = edge->edge, .screen = place.screen});
+        place.near.obstacles, ClothCloseGeometry{.edge = EDGE->edge, .screen = place.screen});
     if (!state.cloth.active()) {
         return CloseStart::Declined;
     }
-    state.capture_size = {place.capture.w, place.capture.h};
+    state.capture_size = {.x = place.capture.w, .y = place.capture.h};
     state.cloth.frame(state.capture_size, *state.frame);
     return CloseStart::Owned;
 }
 
-void SClothModule::end(State &state, Resources &, End) noexcept {
+void SClothModule::end(State &state, [[maybe_unused]] Resources &resources, [[maybe_unused]] End why) noexcept {
     state.cloth.reset();
 }

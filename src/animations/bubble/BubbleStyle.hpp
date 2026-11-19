@@ -72,7 +72,7 @@ inline void deposit_bubble_impacts(SBubbleStyle &state, CBubbleVestige &vestige,
     const hyprimate::BubbleFrame &frame,
     hyprimate::animation::MonitorId monitor,
     hyprimate::Vec2 centre) {
-    if (!monitor) {
+    if (monitor == 0) {
         return;
     }
     const auto DEPOSIT = [&](const hyprimate::BubbleSurface &surface, bool &done) {

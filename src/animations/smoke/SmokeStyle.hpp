@@ -18,9 +18,9 @@
 class CSmokeRenderer;
 class CHyprAnimationCanvas;
 struct SSmokeResources;
-bool draw_smoke(SSmokeStyle &, CHyprAnimationCanvas &, const SP<Render::IFramebuffer> &,
-    const hyprimate::Box &source, const hyprimate::Box &canvas, hyprimate::Vec2 image_origin,
-    hyprimate::Vec2 image_size, double scale, SSmokeResources &);
+bool draw_smoke(SSmokeStyle &state, CHyprAnimationCanvas &canvas, const SP<Render::IFramebuffer> &image,
+    const hyprimate::Box &source, const hyprimate::Box &canvas_box, hyprimate::Vec2 image_origin,
+    hyprimate::Vec2 image_size, double scale, const SSmokeResources &resources);
 
 struct SSmokePrepared {
     hyprimate::SmokeParams movement;
@@ -47,19 +47,19 @@ struct SSmokeModule {
 
     static Prepared prepare_settings(const Settings &settings);
     static State start(const Resources &resources, std::uint64_t seed);
-    static bool open(State &, const hyprimate::animation::Place &, Resources &,
-        hyprimate::animation::Effects &);
-    static hyprimate::animation::Frame advance(State &, const hyprimate::animation::Step &,
-        Resources &, hyprimate::animation::Effects &);
-    static hyprimate::animation::CloseStart close(State &, const hyprimate::animation::Place &,
-        Resources &);
-    static void end(State &, Resources &, hyprimate::animation::End) noexcept;
-    static bool moves(const hyprimate::animation::Motion &, const Resources &) noexcept;
-    static void warm(Resources &);
+    static bool open(State &state, const hyprimate::animation::Place &place, Resources &resources,
+        hyprimate::animation::Effects &effects);
+    static hyprimate::animation::Frame advance(State &state, const hyprimate::animation::Step &step,
+        Resources &resources, hyprimate::animation::Effects &effects);
+    static hyprimate::animation::CloseStart close(State &state, const hyprimate::animation::Place &place,
+        Resources &resources);
+    static void end(State &state, Resources &resources, hyprimate::animation::End why) noexcept;
+    static bool moves(const hyprimate::animation::Motion &motion, const Resources &resources) noexcept;
+    static void warm(Resources &resources);
     template<class Canvas> requires std::same_as<Canvas, CHyprAnimationCanvas>
     static bool draw(State &state, const hyprimate::animation::Draw<Canvas> &draw,
         Resources &resources) {
-        return draw_smoke(state, draw.canvas, draw.image, draw.source, draw.canvas_box,
+        return draw_smoke(state, *draw.canvas, *draw.image, draw.source, draw.canvas_box,
             draw.image_origin, draw.image_size, draw.scale, resources);
     }
 };

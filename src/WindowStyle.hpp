@@ -7,8 +7,8 @@
 
 namespace hyprimate::animation {
 template<class S> concept StyleCore = requires(
-    typename S::State &state, typename S::Resources &resources,
-    const typename S::Resources &constant_resources, const typename S::Settings &settings,
+    S::State &state, S::Resources &resources,
+    const S::Resources &constant_resources, const S::Settings &settings,
     const Place &place, const Step &step, Effects &effects, End why) {
     typename S::State;
     typename S::Settings;
@@ -28,15 +28,15 @@ template<class S> concept StyleCore = requires(
     { S::end(state, resources, why) } noexcept -> std::same_as<void>;
 };
 template<class S, class V> concept MeshDrawn = Vertex<V> && requires(
-    typename S::State &state, const MeshTarget<V> &target, typename S::Resources &resources) {
+    S::State &state, const MeshTarget<V> &target, S::Resources &resources) {
     { S::mesh(state, target, resources) } -> std::same_as<Mesh<V>>;
 };
 template<class S, class Canvas> concept SelfDrawn = requires(
-    typename S::State &state, const Draw<Canvas> &draw, typename S::Resources &resources) {
+    S::State &state, const Draw<Canvas> &draw, S::Resources &resources) {
     { S::draw(state, draw, resources) } -> std::same_as<bool>;
 };
 template<class S, class Canvas> concept ScreenContract = requires(
-    typename S::Resources &resources, const typename S::Resources &constant_resources,
+    S::Resources &resources, const S::Resources &constant_resources,
     const ScreenFacts &facts, const ScreenDraw<Canvas> &draw, MonitorId monitor) {
     { S::Screen::tick(resources, facts) } -> std::same_as<void>;
     { S::Screen::needs_frame(constant_resources, monitor) } -> std::same_as<bool>;

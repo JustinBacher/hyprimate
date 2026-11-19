@@ -26,15 +26,15 @@ int main() {
     step.elapsed = 0.1;
     step.capture = place.capture;
     step.open_enabled = true;
-    const auto frame = SPaperModule::advance(state, step, resources, effects);
-    CHECK(frame.running);
-    const auto before = *state.frame;
-    const double opacity = state.crumple.opacity();
+    const auto FRAME = SPaperModule::advance(state, step, resources, effects);
+    CHECK(FRAME.running);
+    const auto BEFORE = *state.frame;
+    const double OPACITY = state.crumple.opacity();
     CHECK(SPaperModule::close(state, place, resources) == CloseStart::Owned);
-    CHECK(std::abs(state.crumple.opacity() - opacity) < 1e-12);
-    for (std::size_t i = 0; i < before.position.size(); ++i) {
-        CHECK(std::abs(before.position[i].x - state.frame->position[i].x) < 1e-12);
-        CHECK(std::abs(before.position[i].y - state.frame->position[i].y) < 1e-12);
+    CHECK(std::abs(state.crumple.opacity() - OPACITY) < 1e-12);
+    for (std::size_t i = 0; i < BEFORE.position.size(); ++i) {
+        CHECK(std::abs(BEFORE.position[i].x - state.frame->position[i].x) < 1e-12);
+        CHECK(std::abs(BEFORE.position[i].y - state.frame->position[i].y) < 1e-12);
     }
     CHECK(state.crumple.shaded());
     resources.prepared.close.shading = 0;
@@ -43,13 +43,13 @@ int main() {
     CHECK(SPaperModule::advance(state, step, resources, effects).running);
     CHECK(state.crumple.shaded());
     MeshBuffers<MeshVertex> buffers;
-    const MeshTarget<MeshVertex> target{.source = {.x = 0, .y = 0, .w = 1000, .h = 700},
+    const MeshTarget<MeshVertex> TARGET{.source = {.x = 0, .y = 0, .w = 1000, .h = 700},
         .output = {.x = 0, .y = 0, .w = 1000, .h = 700}, .image_origin = {},
-        .image_size = {.x = 1000, .y = 700}, .scale = 1, .buffers = buffers};
-    const auto mesh = SPaperModule::mesh(state, target, resources);
-    CHECK(mesh.window != nullptr);
-    CHECK(mesh.shade != nullptr);
-    CHECK(mesh.window->size() == SHEET_VERTEX_COUNT);
+        .image_size = {.x = 1000, .y = 700}, .scale = 1, .buffers = &buffers};
+    const auto MESH = SPaperModule::mesh(state, TARGET, resources);
+    CHECK(MESH.window != nullptr);
+    CHECK(MESH.shade != nullptr);
+    CHECK(MESH.window->size() == SHEET_VERTEX_COUNT);
     SPaperModule::end(state, resources, End::Interrupted);
     CHECK(!state.crumple.active());
 

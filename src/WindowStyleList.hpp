@@ -12,17 +12,19 @@ template<class... Styles> class StyleResources<StyleList<Styles...>> {
     StyleResources() = default;
     template<class Shared> explicit StyleResources(Shared &shared)
         : m_values((static_cast<void>(sizeof(Styles)), shared)...) {}
-    template<class Style> typename Style::Resources &get() {
+    template<class Style> Style::Resources &get() {
         return std::get<typename Style::Resources>(m_values);
     }
-    template<class Style> const typename Style::Resources &get() const {
+    template<class Style> [[nodiscard]] const Style::Resources &get() const {
         return std::get<typename Style::Resources>(m_values);
     }
     template<class Function> void for_each(Function &&function) {
-        (function.template operator()<Styles>(get<Styles>()), ...);
+        auto &&callable = std::forward<Function>(function);
+        (callable.template operator()<Styles>(get<Styles>()), ...);
     }
     template<class Function> void for_each(Function &&function) const {
-        (function.template operator()<Styles>(get<Styles>()), ...);
+        auto &&callable = std::forward<Function>(function);
+        (callable.template operator()<Styles>(get<Styles>()), ...);
     }
   private:
     std::tuple<typename Styles::Resources...> m_values;

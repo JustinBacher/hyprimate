@@ -39,10 +39,10 @@ class CAnimationCloseRenderer {
 
     static CAnimationCloseRenderer *s_active;
     [[nodiscard]] void *create_original() const {
-        return m_create_hook ? m_create_hook->m_original : nullptr;
+        return m_create_hook != nullptr ? m_create_hook->m_original : nullptr;
     }
     [[nodiscard]] void *render_original() const {
-        return m_render_hook ? m_render_hook->m_original : nullptr;
+        return m_render_hook != nullptr ? m_render_hook->m_original : nullptr;
     }
 
   private:

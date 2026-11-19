@@ -248,13 +248,13 @@ namespace hyprimate {
         animation::Rgba under_color,
         std::optional<Box> clip) {
         fill_liquid_render_mesh(pose, target.source, target.scale, target.output,
-            target.image_origin, target.image_size, grid, target.buffers.window);
+            target.image_origin, target.image_size, grid, target.buffers->window);
         animation::Mesh<V> result{};
-        result.window = &target.buffers.window;
+        result.window = &target.buffers->window;
         if (under_output) {
             fill_liquid_meniscus_mesh(pose, target.source, target.scale, *under_output,
-                target.buffers.under);
-            result.under = &target.buffers.under;
+                target.buffers->under);
+            result.under = &target.buffers->under;
             result.under_output = *under_output;
             result.under_color = under_color;
         }

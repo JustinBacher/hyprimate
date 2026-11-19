@@ -16,7 +16,7 @@ struct SPaperPrepared {
 struct SPaperResources : hyprimate::animation::ResourcesBase<SPaperStyle,
                              hyprimate::config::SPaperSettings, SPaperPrepared> {
     SPaperResources() = default;
-    explicit SPaperResources(SSharedStyleResources &) {}
+    explicit SPaperResources([[maybe_unused]] SSharedStyleResources &shared) {}
     AnimationPool animations;
 };
 struct SPaperModule {
@@ -38,11 +38,12 @@ struct SPaperModule {
     static hyprimate::animation::CloseStart close(State &state, const hyprimate::animation::Place &place,
         Resources &resources);
     static void end(State &state, Resources &resources, hyprimate::animation::End why) noexcept;
-    static bool moves(const hyprimate::animation::Motion &, const Resources &) noexcept { return false; }
+    static bool moves([[maybe_unused]] const hyprimate::animation::Motion &motion,
+        [[maybe_unused]] const Resources &resources) noexcept { return false; }
 
     template<hyprimate::animation::Vertex V>
     static hyprimate::animation::Mesh<V> mesh(State &state,
-        const hyprimate::animation::MeshTarget<V> &target, Resources &) {
+        const hyprimate::animation::MeshTarget<V> &target, [[maybe_unused]] Resources &resources) {
         return hyprimate::fill_sheet_mesh(*state.frame, target, state.crumple.shaded(),
             static_cast<float>(state.crumple.opacity()));
     }

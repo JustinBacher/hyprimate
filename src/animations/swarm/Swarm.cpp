@@ -456,9 +456,9 @@ namespace hyprimate {
         }
         m_params = next;
         for (auto &agent : m_agents) {
-            agent.pace = 1.0 + m_params.variation * PACE_SPREAD * agent.pace_draw;
+            agent.pace = 1.0 + (m_params.variation * PACE_SPREAD * agent.pace_draw);
             agent.grip = lerp(GRIP_MIN, GRIP_MAX, m_params.responsiveness) *
-                         (1.0 + m_params.variation * GRIP_SPREAD * agent.grip_draw);
+                         (1.0 + (m_params.variation * GRIP_SPREAD * agent.grip_draw));
             agent.reaction = REACTION_SHARE * m_params.stagger * agent.reaction_draw;
             agent.arc = ARC_ANGLE * m_params.variation * agent.arc_draw;
         }

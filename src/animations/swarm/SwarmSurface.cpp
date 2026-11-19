@@ -26,8 +26,8 @@ CSwarmSurface::~CSwarmSurface() {
     if (!Render::GL::g_pHyprOpenGL) {
         // During compositor shutdown there is no backend/context in which CShader can delete GL
         // resources; deliberately release the wrappers and let context teardown reclaim them.
-        (void)m_surface_shader.release();
-        (void)m_field_shader.release();
+        [[maybe_unused]] const auto *surface = m_surface_shader.release();
+        [[maybe_unused]] const auto *field = m_field_shader.release();
         return;
     }
     if ((m_program == 0U) && (m_field_program == 0U) && (m_vao == 0U) && (m_quad == 0U) &&
@@ -266,6 +266,7 @@ SP<Render::IFramebuffer> CSwarmSurface::filter(Render::CRenderContext &ctx,
             glUniform1f(m_field_k, SMOOTH_RADIUS);
             glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, static_cast<GLsizei>(bodies.size()));
             glBindFramebuffer(GL_FRAMEBUFFER,
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): RT_GL owns this framebuffer.
                 static_cast<Render::GL::CGLFramebuffer *>(OUTPUT.get())->getFBID());
             glViewport(0, 0, static_cast<GLsizei>(size.x), HEIGHT);
             glDisable(GL_BLEND);

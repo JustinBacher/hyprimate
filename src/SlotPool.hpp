@@ -49,13 +49,13 @@ template <class T> class CSlotPool {
         if (m_free == INVALID_HANDLE.index) {
             grow();
         }
-        const auto index = m_free;
-        auto &slot = slot_at(index);
+        const auto INDEX = m_free;
+        auto &slot = slot_at(INDEX);
         // Leave the free list untouched if T's constructor throws.
         slot.value.emplace(std::forward<Args>(args)...);
         m_free = slot.next;
         ++m_size;
-        return {index, slot.generation};
+        return {INDEX, slot.generation};
     }
 
     T *get(SHandle handle) {
@@ -66,7 +66,7 @@ template <class T> class CSlotPool {
         return slot.generation == handle.generation && slot.value ? &*slot.value : nullptr;
     }
 
-    const T *get(SHandle handle) const {
+    [[nodiscard]] const T *get(SHandle handle) const {
         if (handle.index >= m_capacity) {
             return nullptr;
         }
@@ -91,27 +91,29 @@ template <class T> class CSlotPool {
 
     [[nodiscard]] std::size_t size() const { return m_size; }
 
-    template <class F> void for_each(F &&f) {
+    template <class F> void for_each(F &&callback) {
+        auto &&callable = std::forward<F>(callback);
         for (std::size_t i = 0; i < m_capacity; ++i) {
             auto &slot = slot_at(static_cast<std::uint32_t>(i));
             if (slot.value) {
-                f(SHandle{static_cast<std::uint32_t>(i), slot.generation}, *slot.value);
+                callable(SHandle{static_cast<std::uint32_t>(i), slot.generation}, *slot.value);
             }
         }
     }
 
-    template <class F> void for_each(F &&f) const {
+    template <class F> void for_each(F &&callback) const {
+        auto &&callable = std::forward<F>(callback);
         for (std::size_t i = 0; i < m_capacity; ++i) {
             const auto &slot = slot_at(static_cast<std::uint32_t>(i));
             if (slot.value) {
-                f(SHandle{static_cast<std::uint32_t>(i), slot.generation}, *slot.value);
+                callable(SHandle{static_cast<std::uint32_t>(i), slot.generation}, *slot.value);
             }
         }
     }
 
     void clear() {
         for (std::size_t i = 0; i < m_capacity; ++i) {
-            auto &slot = slot_at(static_cast<std::uint32_t>(i));
+            const auto &slot = slot_at(static_cast<std::uint32_t>(i));
             if (slot.value) {
                 (void)erase({static_cast<std::uint32_t>(i), slot.generation});
             }
@@ -128,7 +130,7 @@ template <class T> class CSlotPool {
     using SBlock = std::array<SSlot, BLOCK_SIZE>;
 
     SSlot &slot_at(std::uint32_t index) { return (*m_blocks[index / BLOCK_SIZE])[index % BLOCK_SIZE]; }
-    const SSlot &slot_at(std::uint32_t index) const { return (*m_blocks[index / BLOCK_SIZE])[index % BLOCK_SIZE]; }
+    [[nodiscard]] const SSlot &slot_at(std::uint32_t index) const { return (*m_blocks[index / BLOCK_SIZE])[index % BLOCK_SIZE]; }
 
     void grow() {
         if (m_capacity == INVALID_HANDLE.index) {
@@ -136,14 +138,14 @@ template <class T> class CSlotPool {
         }
         auto block = std::make_unique<SBlock>();
         m_blocks.push_back(std::move(block));
-        const auto count = std::min(BLOCK_SIZE, static_cast<std::size_t>(INVALID_HANDLE.index) - m_capacity);
-        for (std::size_t i = count; i > 0; --i) {
-            const auto index = static_cast<std::uint32_t>(m_capacity + i - 1);
-            auto &slot = slot_at(index);
+        const auto COUNT = std::min(BLOCK_SIZE, static_cast<std::size_t>(INVALID_HANDLE.index) - m_capacity);
+        for (std::size_t i = COUNT; i > 0; --i) {
+            const auto INDEX = static_cast<std::uint32_t>(m_capacity + i - 1);
+            auto &slot = slot_at(INDEX);
             slot.next = m_free;
-            m_free = index;
+            m_free = INDEX;
         }
-        m_capacity += count;
+        m_capacity += COUNT;
     }
 
     std::vector<std::unique_ptr<SBlock>> m_blocks;

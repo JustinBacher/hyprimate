@@ -165,6 +165,49 @@ namespace hyprimate {
                    std::isfinite(box.h) && std::abs(box.x) <= 1e9 && std::abs(box.y) <= 1e9 &&
                    box.w >= 1 && box.h >= 1 && box.w <= 1e7 && box.h <= 1e7;
         }
+        bool valid_close_geometry(const std::optional<ClothCloseGeometry> &geometry) noexcept {
+            return !geometry || (valid_box(geometry->screen) &&
+                (geometry->edge == Edge::Top || geometry->edge == Edge::Bottom ||
+                    geometry->edge == Edge::Left || geometry->edge == Edge::Right));
+        }
+        void collect_obstacles(std::vector<Box> &out, std::span<const Box> obstacles,
+            const Box &window, Transition kind, Edge edge) {
+            std::vector<std::pair<double, Box>> nearest;
+            for (const Box &obstacle : obstacles) {
+                if (!valid_box(obstacle) ||
+                    (obstacle.x < window.x + window.w && obstacle.x + obstacle.w > window.x &&
+                        obstacle.y < window.y + window.h && obstacle.y + obstacle.h > window.y)) {
+                    continue;
+                }
+                // Leave the closing sheet's exit corridor clear, while retaining adjacent obstacles.
+                if (kind == Transition::Close) {
+                    const bool OVERLAP_X =
+                        obstacle.x < window.x + window.w && obstacle.x + obstacle.w > window.x;
+                    const bool OVERLAP_Y =
+                        obstacle.y < window.y + window.h && obstacle.y + obstacle.h > window.y;
+                    if ((edge == Edge::Bottom && OVERLAP_X && obstacle.y >= window.y + window.h) ||
+                        (edge == Edge::Top && OVERLAP_X && obstacle.y + obstacle.h <= window.y) ||
+                        (edge == Edge::Left && OVERLAP_Y && obstacle.x + obstacle.w <= window.x) ||
+                        (edge == Edge::Right && OVERLAP_Y && obstacle.x >= window.x + window.w)) {
+                        continue;
+                    }
+                }
+                const double GAP_X = std::max(
+                    {window.x - obstacle.x - obstacle.w, obstacle.x - window.x - window.w, 0.0});
+                const double GAP_Y = std::max(
+                    {window.y - obstacle.y - obstacle.h, obstacle.y - window.y - window.h, 0.0});
+                nearest.push_back({std::hypot(GAP_X, GAP_Y),
+                    {.x = (obstacle.x - window.x - (window.w / 2)) / window.w,
+                        .y = -(obstacle.y + obstacle.h - window.y) / window.h,
+                        .w = obstacle.w / window.w, .h = obstacle.h / window.h}});
+            }
+            std::ranges::stable_sort(nearest,
+                [](const auto &left, const auto &right) { return left.first < right.first; });
+            for (const auto &obstacle : std::span(nearest).first(
+                     std::min(nearest.size(), static_cast<std::size_t>(MAX_OBSTACLES)))) {
+                out.push_back(obstacle.second);
+            }
+        }
         bool sanitize(ClothParams &params) noexcept {
             if (!std::isfinite(params.duration) || params.duration <= 0 ||
                 !std::isfinite(params.flutter) || !std::isfinite(params.shading) ||
@@ -560,7 +603,7 @@ namespace hyprimate {
                 auto *neighbour = neighbours.begin();
                 const auto *previous_id = ids.begin();
                 for (int i = 0; i < GRID; ++i) {
-                    const float POS_X = std::clamp(current ? (*current)[i].mPosition.GetX()
+                    const float POS_X = std::clamp(current != nullptr ? (*current)[i].mPosition.GetX()
                                                            : static_cast<float>(start_point[i].x),
                         -LIMIT, LIMIT);
                     BodyCreationSettings creation(
@@ -576,7 +619,7 @@ namespace hyprimate {
                     if (body_id->IsInvalid()) {
                         return;
                     }
-                    const float VELOCITY = current ? (*current)[i].mVelocity.GetX()
+                    const float VELOCITY = current != nullptr ? (*current)[i].mVelocity.GetX()
                                                    : static_cast<float>(
                                                          speed[i].x * run.movement.springiness);
                     bodies.SetLinearVelocity(*body_id, JPH::Vec3(VELOCITY, 0, 0));
@@ -637,7 +680,7 @@ namespace hyprimate {
                 JPH::JobSystem &jobs,
                 double quiet,
                 double springiness) {
-                const float SPRINGINESS = static_cast<float>(springiness);
+                const auto SPRINGINESS = static_cast<float>(springiness);
                 auto &bodies = system.GetBodyInterfaceNoLock();
                 // Reinforce the trailing end by up to 4x; blend through zero speed when stopping or
                 // reversing.
@@ -844,7 +887,6 @@ namespace hyprimate {
                 if (!pocket && movement.springiness > 0) {
                     pocket.emplace(run, &vertices);
                     if (!pocket->valid()) {
-                        good = false;
                         break;
                     }
                 }
@@ -1393,9 +1435,7 @@ namespace hyprimate {
         ClothParams cloth_params = params;
         if ((kind != Transition::Open && kind != Transition::Close) || !sanitize(cloth_params) ||
             !s_live.load(std::memory_order_acquire) || !valid_box(window) ||
-            (geometry && (!valid_box(geometry->screen) ||
-                             (geometry->edge != Edge::Top && geometry->edge != Edge::Bottom &&
-                                 geometry->edge != Edge::Left && geometry->edge != Edge::Right)))) {
+            !valid_close_geometry(geometry)) {
             reset();
             return;
         }
@@ -1458,48 +1498,7 @@ namespace hyprimate {
         input.phase_a = 2 * std::numbers::pi * DRAW();
         input.phase_b = 2 * std::numbers::pi * DRAW();
         input.freq_a = 9 + (4 * DRAW());
-        std::vector<std::pair<double, Box>> nearest;
-        for (const Box &obstacle : obstacles) {
-            if (!valid_box(obstacle) ||
-                (obstacle.x < window.x + window.w && obstacle.x + obstacle.w > window.x &&
-                    obstacle.y < window.y + window.h && obstacle.y + obstacle.h > window.y)) {
-                continue;
-            }
-            // A closing sheet must clear the screen. Slabs directly across its exit corridor would
-            // trap a zero-flutter sheet in the desktop plane; omit those while retaining obstacles
-            // beside that corridor.
-            if (kind == Transition::Close) {
-                const bool OVERLAP_X =
-                    obstacle.x < window.x + window.w && obstacle.x + obstacle.w > window.x;
-                const bool OVERLAP_Y =
-                    obstacle.y < window.y + window.h && obstacle.y + obstacle.h > window.y;
-                if ((RUN->edge == Edge::Bottom && OVERLAP_X && obstacle.y >= window.y + window.h) ||
-                    (RUN->edge == Edge::Top && OVERLAP_X && obstacle.y + obstacle.h <= window.y) ||
-                    (RUN->edge == Edge::Left && OVERLAP_Y && obstacle.x + obstacle.w <= window.x) ||
-                    (RUN->edge == Edge::Right && OVERLAP_Y && obstacle.x >= window.x + window.w)) {
-                    continue;
-                }
-            }
-            const double GAP_X = std::max(
-                {window.x - obstacle.x - obstacle.w, obstacle.x - window.x - window.w, 0.0});
-            const double GAP_Y = std::max(
-                {window.y - obstacle.y - obstacle.h, obstacle.y - window.y - window.h, 0.0});
-            nearest.push_back({
-                std::hypot(GAP_X, GAP_Y),
-                {
-                    .x = (obstacle.x - window.x - (window.w / 2)) / window.w,
-                    .y = -(obstacle.y + obstacle.h - window.y) / window.h,
-                    .w = obstacle.w / window.w,
-                    .h = obstacle.h / window.h,
-                },
-            });
-        }
-        std::ranges::stable_sort(
-            nearest, [](const auto &left, const auto &right) { return left.first < right.first; });
-        for (const auto &obstacle : std::span(nearest).first(
-                 std::min(nearest.size(), static_cast<std::size_t>(MAX_OBSTACLES)))) {
-            input.obstacles.push_back(obstacle.second);
-        }
+        collect_obstacles(input.obstacles, obstacles, window, kind, RUN->edge);
         RUN->outside_frame.store(RUN->frames, std::memory_order_relaxed);
         try {
             const auto LEASE = std::make_shared<Lease>();

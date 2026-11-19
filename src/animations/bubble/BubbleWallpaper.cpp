@@ -101,7 +101,7 @@ namespace {
             const auto STATE = ctx.saveDrawState();
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): RT_GL selects the GL framebuffer backend.
             const auto SOURCE_ID = static_cast<Render::GL::CGLFramebuffer *>(SOURCE.get())->getFBID();
-            const hyprimate::gl::CRawGlBracket<1> bracket{{
+            const hyprimate::gl::CRawGlBracket<1> BRACKET{{
                 .viewport_width = static_cast<GLsizei>(SOURCE->m_size.x),
                 .viewport_height = static_cast<GLsizei>(SOURCE->m_size.y),
                 .framebuffer = SOURCE_ID}};
@@ -125,8 +125,8 @@ namespace {
             }
 
             glBindFramebuffer(GL_READ_FRAMEBUFFER, SOURCE_ID);
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): RT_GL selects the GL framebuffer backend.
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER,
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): RT_GL selects the GL framebuffer backend.
                 static_cast<Render::GL::CGLFramebuffer *>(DESTINATION.get())->getFBID());
             glBlitFramebuffer(static_cast<GLint>(LEFT),
                 static_cast<GLint>(CLIP_TOP),

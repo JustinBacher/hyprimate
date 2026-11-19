@@ -300,7 +300,7 @@ void CHyprWindowPort::capture_backdrop(Handle handle, const WindowRef &window, C
             OBSERVATION->workspace_offset.y + OBSERVATION->floating_offset.y -
                 OBSERVATION->screen.y})
         .scale(OBSERVATION->scale);
-    queue_bubble_wallpaper(canvas.context, slot, source, true, bounds, canvas.pass());
+    queue_bubble_wallpaper(canvas.context(), slot, source, true, bounds, canvas.pass());
 }
 void CHyprWindowPort::retain_mapped_image(Handle handle,
     const Canvas::Image &image,
@@ -343,7 +343,7 @@ void CHyprWindowPort::queue_tail(
     data.frame = draw.frame;
     data.damage = CRegion{host_box(draw.canvas_box)};
     Render::IHyprRenderer::addPassElement(
-        canvas.context, makeUnique<CWindowAnimationPass>(std::move(data)));
+        canvas.context(), makeUnique<CWindowAnimationPass>(std::move(data)));
 }
 std::optional<RetainedFrame<CHyprWindowPort::Canvas>> CHyprWindowPort::retained_mapped_image(
     Handle handle) const {

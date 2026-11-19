@@ -134,15 +134,15 @@ void SBubbleModule::warm(Resources &resources) {
 
 bool SBubbleModule::draw(State &state,
     const hyprimate::animation::Draw<CHyprAnimationCanvas> &draw, Resources &resources) {
-    if (!draw.image || draw.scale <= 0) {
+    if (!*draw.image || draw.scale <= 0) {
         return false;
     }
     const hyprimate::Vec2 SIZE{.x = draw.source.w / draw.scale, .y = draw.source.h / draw.scale};
     const auto FRAME = state.bubble.frame(SIZE);
-    const auto &renderer = draw.canvas.pass() == hyprimate::animation::PassKind::Live
+    const auto &renderer = draw.canvas->pass() == hyprimate::animation::PassKind::Live
         ? resources.renderer : resources.scratch_renderer;
-    draw.canvas.layer = renderer->render(draw.canvas.context, SBubbleDraw{
-        .window = draw.image->getTexture(),
+    draw.canvas->layer() = renderer->render(draw.canvas->context(), SBubbleDraw{
+        .window = (*draw.image)->getTexture(),
         .wallpaper = draw.backdrop != nullptr ? *draw.backdrop : SP<SBubbleWallpaper>{},
         .frame = FRAME,
         .canvas = {draw.canvas_box.w, draw.canvas_box.h},
@@ -151,12 +151,12 @@ bool SBubbleModule::draw(State &state,
         .texture_size = draw.image_size,
         .output_origin = {.x = draw.canvas_box.x, .y = draw.canvas_box.y},
         .wake = {},
-        .pass = draw.canvas.pass(),
+        .pass = draw.canvas->pass(),
     });
-    if (!draw.canvas.layer) {
+    if (!draw.canvas->layer()) {
         return false;
     }
-    if (draw.real_pass && draw.canvas.pass() == hyprimate::animation::PassKind::Live) {
+    if (draw.real_pass && draw.canvas->pass() == hyprimate::animation::PassKind::Live) {
         const hyprimate::Vec2 CENTRE{.x = (draw.source.x + (draw.source.w * .5)) / draw.scale,
             .y = (draw.source.y + (draw.source.h * .5)) / draw.scale};
         deposit_bubble_impacts(state, resources.vestige, FRAME, draw.monitor, CENTRE);
@@ -185,16 +185,16 @@ bool SBubbleModule::Screen::needs_frame(const Resources &resources,
 
 void SBubbleModule::Screen::under_window(Resources &resources,
     const hyprimate::animation::ScreenDraw<CHyprAnimationCanvas> &draw) {
-    const bool LIVE = draw.canvas.pass() == hyprimate::animation::PassKind::Live && draw.real_pass;
+    const bool LIVE = draw.canvas->pass() == hyprimate::animation::PassKind::Live && draw.real_pass;
     const auto &renderer = LIVE ? resources.renderer : resources.scratch_renderer;
-    resources.vestige.queue_under(draw.canvas.context, draw.screen, draw.window, renderer, LIVE);
+    resources.vestige.queue_under(draw.canvas->context(), draw.screen, draw.window, renderer, LIVE);
 }
 
 void SBubbleModule::Screen::after_windows(Resources &resources,
     const hyprimate::animation::ScreenDraw<CHyprAnimationCanvas> &draw) {
-    const bool LIVE = draw.canvas.pass() == hyprimate::animation::PassKind::Live && draw.real_pass;
+    const bool LIVE = draw.canvas->pass() == hyprimate::animation::PassKind::Live && draw.real_pass;
     const auto &renderer = LIVE ? resources.renderer : resources.scratch_renderer;
-    resources.vestige.queue(draw.canvas.context, draw.screen, renderer, LIVE);
+    resources.vestige.queue(draw.canvas->context(), draw.screen, renderer, LIVE);
 }
 
 void SBubbleModule::Screen::clear(Resources &resources,

@@ -78,8 +78,8 @@ bool CBubbleRenderer::initialize() {
             return false;
         }
     }
-    m_ready = m_material.initialize({m_shaders[0]->program(), m_shaders[1]->program(),
-        m_shaders[2]->program(), m_shaders[3]->program(), m_shaders[4]->program()});
+    m_ready = m_material.initialize({.membrane = m_shaders[0]->program(), .curl = m_shaders[1]->program(),
+        .particles = m_shaders[2]->program(), .film = m_shaders[3]->program(), .micro = m_shaders[4]->program()});
     return m_ready;
 }
 
@@ -88,8 +88,8 @@ void CBubbleRenderer::warm_up() {
         return;
     }
     with_compositor_context([&] {
-        const Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
-        const hyprimate::gl::CRawGlBracket<4> bracket{{}};
+        const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
+        const hyprimate::gl::CRawGlBracket<4> BRACKET{{}};
         (void)initialize();
     });
 }
@@ -123,7 +123,7 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
     // RT_GL is the backend that owns the work buffer used by this renderer.
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): work buffer is GL-backed.
     const auto FRAMEBUFFER = static_cast<Render::GL::CGLFramebuffer *>(LAYER.get())->getFBID();
-    const hyprimate::gl::CRawGlBracket<4> bracket{{.viewport_width = static_cast<GLsizei>(draw.canvas.x),
+    const hyprimate::gl::CRawGlBracket<4> BRACKET{{.viewport_width = static_cast<GLsizei>(draw.canvas.x),
         .viewport_height = static_cast<GLsizei>(draw.canvas.y), .framebuffer = FRAMEBUFFER}};
     const bool READY = initialize();
     if (READY) {
@@ -170,9 +170,7 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
             const auto SHELL_COUNT = hyprimate::bubble_particles(
                 draw.frame.shell, std::span{m_particles}.first(hyprimate::K_BUBBLE_MAX_PARTICLES));
             const auto WINDOW_COUNT = hyprimate::bubble_particles(draw.frame.window,
-                // NOLINTNEXTLINE(readability-suspicious-call-argument): Shell count is the offset;
-                // the particle limit is the count.
-                std::span{m_particles}.subspan(SHELL_COUNT, hyprimate::K_BUBBLE_MAX_PARTICLES));
+                std::span{m_particles}.subspan(SHELL_COUNT).first(hyprimate::K_BUBBLE_MAX_PARTICLES));
             m_material.draw_particles(std::span{m_particles}.first(SHELL_COUNT + WINDOW_COUNT),
                 draw.frame.size,
                 TARGET,

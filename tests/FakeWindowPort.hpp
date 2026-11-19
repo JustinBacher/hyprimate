@@ -12,7 +12,7 @@
 namespace hyprimate::animation::test {
 struct FakeCanvas {
     using Vertex = MeshVertex;
-    struct Image { int id = 0; Vec2 size{110, 90}; };
+    struct Image { int id = 0; Vec2 size{.x = 110, .y = 90}; };
     struct Backdrop { int id = 0; };
     PassKind pass_kind = PassKind::Live;
     [[nodiscard]] PassKind pass() const { return pass_kind; }
@@ -21,7 +21,7 @@ struct FakeCanvas {
     static Vec2 image_size(const Image &image) { return image.size; }
     void composite(const Box &box, float /*alpha*/) { composites.push_back(box); }
     bool submit_mesh(const Mesh<Vertex> & /*mesh*/, const Draw<FakeCanvas> &draw) {
-        draws.push_back(draw.image.id);
+        draws.push_back(draw.image->id);
         return true;
     }
 };
@@ -140,9 +140,10 @@ struct FakeWindowPort {
     [[nodiscard]] const Canvas::Backdrop *backdrop(Handle handle, PassKind pass) const {
         const auto *cache = find_visuals(handle);
         if (cache == nullptr || pass == PassKind::Inert) { return nullptr; }
-        if (pass == PassKind::WorkspaceSource)
-            return cache->scratch_backdrops ? &cache->scratch_backdrop : nullptr;
-        return cache->live_backdrops ? &cache->live_backdrop : nullptr;
+        if (pass == PassKind::WorkspaceSource) {
+            return cache->scratch_backdrops != 0 ? &cache->scratch_backdrop : nullptr;
+        }
+        return cache->live_backdrops != 0 ? &cache->live_backdrop : nullptr;
     }
     [[nodiscard]] std::optional<RetainedFrame<Canvas>> retained_mapped_image(Handle handle) const {
         const auto *cache = find_visuals(handle);

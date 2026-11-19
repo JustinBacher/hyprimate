@@ -21,7 +21,7 @@ struct Observation {
     bool no_screen_share = false;
 };
 template<class Canvas> struct RetainedFrame {
-    const typename Canvas::Image *image = nullptr;
+    const Canvas::Image *image = nullptr;
     Vec2 image_origin{};
     Vec2 image_size{};
     Box capture{};
@@ -35,9 +35,9 @@ struct TailDraw {
     MonitorId monitor = 0;
     FrameId frame = 0;
 };
-struct FrameStamp { MonitorId monitor; FrameId frame; Clock::time_point now; };
+struct FrameStamp { MonitorId monitor = 0; FrameId frame = 0; Clock::time_point now; };
 struct FadeoutFacts {
-    Clock::time_point now{};
+    Clock::time_point now;
     std::uint64_t fadeout = 0;
     MonitorId monitor = 0;
     WorkspaceId workspace = 0;
@@ -61,10 +61,10 @@ struct DyingView {
     bool workspace_bound = false, no_screen_share = false;
 };
 template<class P> concept WindowPort = requires(P &port, const P &constant,
-    typename P::WindowRef window, WindowId id, MonitorId monitor, Handle handle,
-    const Box &box, const typename P::Canvas::Image &image,
-    typename P::RetainedImage retained, FrameId frame, std::uint64_t fadeout,
-    typename P::Canvas &canvas, const Mesh<typename P::Canvas::Vertex> &mesh,
+    P::WindowRef window, WindowId window_id, MonitorId monitor, Handle handle,
+    const Box &box, const P::Canvas::Image &image,
+    P::RetainedImage retained, FrameId frame, std::uint64_t fadeout,
+    P::Canvas &canvas, const Mesh<typename P::Canvas::Vertex> &mesh,
     const Draw<typename P::Canvas> &draw, const TailDraw &tail) {
     typename P::Canvas;
     typename P::RetainedImage;
@@ -101,7 +101,7 @@ template<class P> concept WindowPort = requires(P &port, const P &constant,
     { port.bind_fadeout(handle, fadeout, std::move(retained)) } -> std::same_as<void>;
     { constant.fadeout_facts(fadeout) } -> std::same_as<std::optional<FadeoutFacts>>;
     { port.suppress_native(fadeout, true) } -> std::same_as<void>;
-    { port.forget_window_reference(id) } -> std::same_as<void>;
+    { port.forget_window_reference(window_id) } -> std::same_as<void>;
     { constant.monitor_facts(monitor) } -> std::same_as<std::optional<ScreenFacts>>;
     { port.monitors_overlapping(box) } -> std::same_as<std::span<const MonitorId>>;
 };

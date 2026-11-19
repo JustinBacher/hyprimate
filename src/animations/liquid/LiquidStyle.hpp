@@ -53,17 +53,17 @@ struct SLiquidModule {
     template <hyprimate::animation::Vertex V>
     static hyprimate::animation::Mesh<V> mesh(State &state,
         const hyprimate::animation::MeshTarget<V> &target, Resources &resources) {
-        const auto pose = pose_for(state);
-        const hyprimate::Box logical{target.source.x / target.scale, target.source.y / target.scale,
+        const auto POSE = pose_for(state);
+        const hyprimate::Box LOGICAL{target.source.x / target.scale, target.source.y / target.scale,
             target.source.w / target.scale, target.source.h / target.scale};
-        const auto geometry = hyprimate::liquid_mesh_geometry(pose, logical);
-        const auto device = [scale = target.scale](hyprimate::Box box) {
+        const auto GEOMETRY = hyprimate::liquid_mesh_geometry(POSE, LOGICAL);
+        const auto DEVICE = [scale = target.scale](hyprimate::Box box) {
             return hyprimate::Box{box.x * scale, box.y * scale, box.w * scale, box.h * scale};
         };
-        return hyprimate::fill_liquid_mesh(pose, target, state.grid,
-            geometry.meniscus ? std::optional{device(*geometry.meniscus)} : std::nullopt,
+        return hyprimate::fill_liquid_mesh(POSE, target, state.grid,
+            GEOMETRY.meniscus ? std::optional{DEVICE(*GEOMETRY.meniscus)} : std::nullopt,
             state.dying ? resources.prepared.close_color : resources.prepared.open_color,
-            geometry.visible ? std::optional{device(*geometry.visible)} : std::nullopt);
+            GEOMETRY.visible ? std::optional{DEVICE(*GEOMETRY.visible)} : std::nullopt);
     }
 
   private:

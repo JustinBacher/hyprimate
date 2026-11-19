@@ -35,20 +35,22 @@ CSmokeFieldHandle::~CSmokeFieldHandle() {
     if (Render::GL::g_pHyprOpenGL && g_pHyprRenderer) with_context([&] {
         auto &renderer = *Render::GL::g_pHyprOpenGL;
         if (field.framebuffer() != 0) renderer.onFramebufferDeleted(field.framebuffer());
-        const Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
-        const hyprimate::gl::CRawGlBracket<7> bracket{{}};
+        const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
+        const hyprimate::gl::CRawGlBracket<7> BRACKET{{}};
         field.release();
     });
 }
 CSmokeRenderer::~CSmokeRenderer() {
     if (!Render::GL::g_pHyprOpenGL || !g_pHyprRenderer) {
         // Context teardown reclaims GL resources when the renderer is already gone.
-        for (auto &shader : m_shaders) (void)shader.release();
+        for (auto &shader : m_shaders) {
+            [[maybe_unused]] const auto *released = shader.release();
+        }
         return;
     }
     with_context([&] {
-        const Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
-        const hyprimate::gl::CRawGlBracket<7> bracket{{}};
+        const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
+        const hyprimate::gl::CRawGlBracket<7> BRACKET{{}};
         m_material.release();
         for (auto &shader : m_shaders) shader.reset();
     });
@@ -56,12 +58,12 @@ CSmokeRenderer::~CSmokeRenderer() {
 bool CSmokeRenderer::initialize() {
     if (m_tried) return m_programs.ids[SSmokePrograms::Composite] != 0;
     m_tried = true;
-    const std::array<const char *, SSmokePrograms::ProgramCount> sources{smoke_shader::VELOCITY.data(),
+    const std::array<const char *, SSmokePrograms::ProgramCount> SOURCES{smoke_shader::VELOCITY.data(),
         smoke_shader::DIVERGENCE.data(), smoke_shader::PRESSURE.data(), smoke_shader::PROJECT.data(),
         smoke_shader::ADVECT.data(), smoke_shader::DYE.data(), smoke_shader::COMPOSITE.data()};
-    for (std::size_t i = 0; i < sources.size(); ++i) {
+    for (std::size_t i = 0; i < SOURCES.size(); ++i) {
         m_shaders[i] = std::make_unique<CShader>();
-        if (!m_shaders[i]->createProgram(smoke_shader::VERTEX.data(), sources[i], true, true)) return false;
+        if (!m_shaders[i]->createProgram(smoke_shader::VERTEX.data(), SOURCES[i], true, true)) return false;
         m_programs.ids[i] = m_shaders[i]->program();
     }
     return m_material.initialize(m_programs);
@@ -70,8 +72,8 @@ void CSmokeRenderer::warm_up() {
     if (m_warmed || !Render::GL::g_pHyprOpenGL || !g_pHyprRenderer) return;
     m_warmed = true;
     with_context([&] {
-        const Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
-        const hyprimate::gl::CRawGlBracket<7> bracket{{}};
+        const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
+        const hyprimate::gl::CRawGlBracket<7> BRACKET{{}};
         initialize();
     });
 }
@@ -84,17 +86,17 @@ SP<Render::IFramebuffer> CSmokeRenderer::render(
         !(draw.canvas.x > 0 && draw.canvas.y > 0 && draw.source.w > 0 && draw.source.h > 0 &&
             draw.texture_size.x > 0 && draw.texture_size.y > 0))
         return nullptr;
-    const Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
+    const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     const auto state = ctx.saveDrawState();
     const auto layer = g_pHyprRenderer->getWorkBuffer(ctx, draw.canvas);
     if (!layer || !layer->getTexture() || layer->getTexture()->m_texID == draw.window->m_texID)
         return nullptr;
     auto *gl_layer = dynamic_cast<Render::GL::CGLFramebuffer *>(layer.get());
-    if (!gl_layer) return nullptr;
+    if (gl_layer == nullptr) return nullptr;
     g_pHyprRenderer->bindFB(ctx, layer);
-    const hyprimate::gl::SShadowedState known{.viewport_width = static_cast<GLsizei>(draw.canvas.x),
+    const hyprimate::gl::SShadowedState KNOWN{.viewport_width = static_cast<GLsizei>(draw.canvas.x),
         .viewport_height = static_cast<GLsizei>(draw.canvas.y), .framebuffer = gl_layer->getFBID()};
-    const hyprimate::gl::CRawGlBracket<7> bracket{known};
+    const hyprimate::gl::CRawGlBracket<7> BRACKET{KNOWN};
     const bool ready = initialize();
     if (ready) {
         glDisable(GL_DEPTH_TEST);
@@ -110,8 +112,8 @@ SP<Render::IFramebuffer> CSmokeRenderer::render(
         // The simulation is keyed by model time, not the number of draw calls.
         if (draw.simulate)
             m_material.simulate(draw.field->field, draw.frame, target, images);
-        glBindFramebuffer(GL_FRAMEBUFFER, known.framebuffer);
-        glViewport(0, 0, known.viewport_width, known.viewport_height);
+        glBindFramebuffer(GL_FRAMEBUFFER, KNOWN.framebuffer);
+        glViewport(0, 0, KNOWN.viewport_width, KNOWN.viewport_height);
         m_material.draw(draw.field->field, draw.frame, target, images);
     }
     return ready ? layer : nullptr;
@@ -120,24 +122,25 @@ SP<Render::IFramebuffer> CSmokeRenderer::render(
 bool draw_smoke(SSmokeStyle &state, CHyprAnimationCanvas &canvas,
     const SP<Render::IFramebuffer> &image, const hyprimate::Box &source,
     const hyprimate::Box &canvas_box, hyprimate::Vec2 image_origin,
-    hyprimate::Vec2 image_size, double scale, SSmokeResources &resources) {
+    hyprimate::Vec2 image_size, double scale, const SSmokeResources &resources) {
     using hyprimate::animation::PassKind;
-    const auto pass = canvas.pass();
-    auto &field = pass == PassKind::WorkspaceSource ? state.capture_field : state.field;
-    if (!field && pass != PassKind::Inert)
+    const auto PASS = canvas.pass();
+    auto &field = PASS == PassKind::WorkspaceSource ? state.capture_field : state.field;
+    if (!field && PASS != PassKind::Inert)
         field = std::make_shared<CSmokeFieldHandle>();
-    if (!field || !image || !(scale > 0))
+    if (!field || !image || !(scale > 0)) {
         return false;
-    canvas.layer = resources.renderer->render(canvas.context, SSmokeDraw{
+    }
+    canvas.layer() = resources.renderer->render(canvas.context(), SSmokeDraw{
         .window = image->getTexture(),
         .field = field,
-        .frame = state.smoke.frame({source.w / scale, source.h / scale}),
+        .frame = state.smoke.frame({.x = source.w / scale, .y = source.h / scale}),
         .canvas = {canvas_box.w, canvas_box.h},
         .source = {source.x, source.y, source.w, source.h},
         .texture_origin = image_origin,
         .texture_size = image_size,
-        .output_origin = {canvas_box.x, canvas_box.y},
-        .simulate = pass != PassKind::Inert,
+        .output_origin = {.x = canvas_box.x, .y = canvas_box.y},
+        .simulate = PASS != PassKind::Inert,
     });
-    return static_cast<bool>(canvas.layer);
+    return static_cast<bool>(canvas.layer());
 }

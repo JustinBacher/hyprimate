@@ -50,7 +50,7 @@ struct SClothModule {
 
     template<hyprimate::animation::Vertex V>
     static hyprimate::animation::Mesh<V> mesh(State &state,
-        const hyprimate::animation::MeshTarget<V> &target, Resources &) {
+        const hyprimate::animation::MeshTarget<V> &target, [[maybe_unused]] Resources &resources) {
         return hyprimate::fill_sheet_mesh(*state.frame, target, state.cloth.shaded(),
             static_cast<float>(state.cloth.opacity()));
     }

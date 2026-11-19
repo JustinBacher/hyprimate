@@ -63,18 +63,19 @@ enum class End : std::uint8_t { Completed, Interrupted };
 
 struct MeshVertex { float x = 0, y = 0, u = 0, v = 0; };
 struct Rgba { float r = 0, g = 0, b = 0, a = 0; };
-template<class V> concept Vertex = requires(V &v) {
-    requires std::same_as<decltype(v.x), float>;
-    requires std::same_as<decltype(v.y), float>;
-    requires std::same_as<decltype(v.u), float>;
-    requires std::same_as<decltype(v.v), float>;
+template<class V> concept Vertex = requires(V &vertex) {
+    requires std::same_as<decltype(vertex.x), float>;
+    requires std::same_as<decltype(vertex.y), float>;
+    requires std::same_as<decltype(vertex.u), float>;
+    requires std::same_as<decltype(vertex.v), float>;
 };
-template<Vertex V> struct MeshBuffers { std::vector<V> window, under, shade; };
+template<Vertex V> struct MeshBuffers { std::vector<V> window{}, under{}, shade{}; };
 template<Vertex V> struct MeshTarget {
     Box source, output;
     Vec2 image_origin, image_size;
     double scale = 1;
-    MeshBuffers<V> &buffers;
+    // Non-null, borrowed for the synchronous mesh call; storage stays owned by the port.
+    MeshBuffers<V> *buffers;
 };
 template<Vertex V> struct Mesh {
     const std::vector<V> *window = nullptr, *under = nullptr;
@@ -85,9 +86,10 @@ template<Vertex V> struct Mesh {
     std::optional<Box> clip;
 };
 template<class Canvas> struct Draw {
-    Canvas &canvas;
-    const typename Canvas::Image &image;
-    const typename Canvas::Backdrop *backdrop = nullptr;
+    // Non-null borrows; the canvas and image handle outlive this synchronous draw.
+    Canvas *canvas;
+    const Canvas::Image *image;
+    const Canvas::Backdrop *backdrop = nullptr;
     Box source, output, canvas_box;
     Vec2 image_origin, image_size;
     double scale = 1;
@@ -100,13 +102,14 @@ template<class Canvas> struct Draw {
 struct ScreenFacts {
     MonitorId monitor = 0;
     FrameId frame = 0;
-    Clock::time_point now{};
+    Clock::time_point now;
     Box screen, work_area;
     double scale = 1;
     bool enabled = false;
 };
 template<class Canvas> struct ScreenDraw {
-    Canvas &canvas;
+    // Non-null borrow; the canvas outlives this synchronous screen draw.
+    Canvas *canvas;
     ScreenFacts screen;
     WindowId window = 0;
     bool real_pass = false;

@@ -48,13 +48,13 @@ bool CBubbleVestige::deposit(MonitorId monitor,
     hyprimate::Vec2 centre,
     std::span<const hyprimate::BubbleImpact> impacts,
     const SP<SBubbleImpactClock> &clock) {
-    if (!m_enabled || !monitor || !std::isfinite(centre.x) || !std::isfinite(centre.y)) {
+    if (!m_enabled || monitor == 0 || !std::isfinite(centre.x) || !std::isfinite(centre.y)) {
         return false;
     }
     bool accepted = false;
     const auto NOW = std::chrono::steady_clock::now();
     for (const auto &impact : impacts) {
-        const hyprimate::Vec2 POSITION{centre.x + impact.position.x, centre.y + impact.position.y};
+        const hyprimate::Vec2 POSITION{.x = centre.x + impact.position.x, .y = centre.y + impact.position.y};
         if (!std::isfinite(POSITION.x) || !std::isfinite(POSITION.y) ||
             !std::isfinite(impact.radius) || !std::isfinite(impact.delay) ||
             !std::isfinite(impact.drift.x) || !std::isfinite(impact.drift.y) ||
@@ -75,7 +75,7 @@ bool CBubbleVestige::deposit(MonitorId monitor,
             .position = POSITION,
             .radius = EXTENT,
             .impact_radius = impact.radius,
-            .drift = {impact.drift.x, impact.drift.y},
+            .drift = {.x = impact.drift.x, .y = impact.drift.y},
             .lifetime = LIFETIME,
             .last = NOW,
             .age = -impact.delay,
@@ -164,7 +164,7 @@ std::uint64_t CBubbleVestige::trail(MonitorId monitor,
     hyprimate::Vec2 centre,
     std::span<const hyprimate::BubbleTrailPoint> points,
     std::span<const hyprimate::BubbleRelease> releases) {
-    if (!m_enabled || !monitor || !std::isfinite(centre.x) || !std::isfinite(centre.y)) {
+    if (!m_enabled || monitor == 0 || !std::isfinite(centre.x) || !std::isfinite(centre.y)) {
         return 0;
     }
     const hyprimate::Vec2 ORIGIN{.x = centre.x, .y = centre.y};
@@ -196,8 +196,11 @@ void CBubbleVestige::queue_wake(Render::CRenderContext &ctx,
     const ScreenFacts &screen,
     Wake &wake,
     const SP<CBubbleRenderer> &renderer, bool live) {
-    if (live) wake.queued = true;
-    else m_capture_wakes.push_back(wake.id);
+    if (live) {
+        wake.queued = true;
+    } else {
+        m_capture_wakes.push_back(wake.id);
+    }
     const auto BOUNDS = wake.film.bounds();
     if (!hyprimate::is_usable(BOUNDS)) {
         return;
@@ -225,7 +228,7 @@ void CBubbleVestige::queue_under(Render::CRenderContext &ctx,
     const ScreenFacts &screen,
     WindowId window,
     const SP<CBubbleRenderer> &renderer, bool live) {
-    if (!window || !renderer) {
+    if (window == 0 || !renderer) {
         return;
     }
     for (auto &wake : m_wakes) {
@@ -274,7 +277,9 @@ void CBubbleVestige::queue(
             queue_wake(ctx, screen, wake, renderer, live);
         }
     }
-    if (!live) m_capture_wakes.clear();
+    if (!live) {
+        m_capture_wakes.clear();
+    }
 }
 
 bool CBubbleVestige::active(MonitorId monitor) const {

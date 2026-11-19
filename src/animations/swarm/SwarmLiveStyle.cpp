@@ -21,21 +21,24 @@ SSwarmModule::Prepared SSwarmModule::prepare_settings(const Settings &settings) 
     };
 }
 
-SSwarmModule::State SSwarmModule::start(const Resources &, std::uint64_t seed) {
+SSwarmModule::State SSwarmModule::start([[maybe_unused]] const Resources &resources, std::uint64_t seed) {
     State state;
     state.seed = seed;
     return state;
 }
 
 bool SSwarmModule::open(State &state, const Place &place, Resources &resources, Effects &effects) {
-    const EdgeSet SIDES = place.near.alone ? resources.prepared.open_sides :
-        resolve_edge_sides(place.goal_body, place.screen, place.near.tiled_goals);
-    const auto &CREATURE = resources.last->open.sprite;
-    if (SIDES.empty() || !is_usable(place.rest_capture) || !is_usable(place.screen) ||
-        resources.sprites->sheet(CREATURE) == nullptr) {
+    if (!resources.last) {
         return false;
     }
-    state.creature = CREATURE;
+    const EdgeSet SIDES = place.near.alone ? resources.prepared.open_sides :
+        resolve_edge_sides(place.goal_body, place.screen, place.near.tiled_goals);
+    const auto &creature = resources.last.value().open.sprite;
+    if (SIDES.empty() || !is_usable(place.rest_capture) || !is_usable(place.screen) ||
+        resources.sprites->sheet(creature) == nullptr) {
+        return false;
+    }
+    state.creature = creature;
     state.swarm.reset();
     state.swarm.begin(Transition::Open, resources.prepared.open, place.seed,
         {.capture = place.rest_capture, .body = place.goal_body, .screen = place.screen}, SIDES);
@@ -47,19 +50,19 @@ bool SSwarmModule::open(State &state, const Place &place, Resources &resources, 
 }
 
 bool SSwarmModule::moves(const Motion &motion, const Resources &resources) {
-    return motion.translated && resources.sprites->sheet(resources.last->movement.sprite) != nullptr;
+    return motion.translated && resources.last && resources.sprites->sheet(resources.last.value().movement.sprite) != nullptr;
 }
 
-Frame SSwarmModule::advance(State &state, const Step &step, Resources &resources, Effects &) {
+Frame SSwarmModule::advance(State &state, const Step &step, Resources &resources, [[maybe_unused]] Effects &effects) {
     if ((state.swarm.opening() && !step.open_enabled) ||
         (state.swarm.moving() && !step.movement_enabled)) {
         state.swarm.reset();
     }
     if (!step.dying && step.motion) {
         const auto &motion = *step.motion;
-        if (step.movement_enabled && motion.translated && !state.swarm.active() &&
-            resources.sprites->sheet(resources.last->movement.sprite) != nullptr) {
-            state.creature = resources.last->movement.sprite;
+        if (step.movement_enabled && motion.translated && !state.swarm.active() && resources.last &&
+            resources.sprites->sheet(resources.last.value().movement.sprite) != nullptr) {
+            state.creature = resources.last.value().movement.sprite;
             state.swarm.reset();
             state.swarm.begin_movement(resources.prepared.movement, state.seed,
                 {.capture = motion.from_capture, .body = motion.from_body, .screen = step.screen});
@@ -88,10 +91,11 @@ Frame SSwarmModule::advance(State &state, const Step &step, Resources &resources
 CloseStart SSwarmModule::close(State &state, const Place &place, Resources &resources) {
     const EdgeSet SIDES = place.near.alone ? resources.prepared.close_sides :
         resolve_edge_sides(place.body, place.screen, place.near.tiled_goals);
-    if (SIDES.empty() || !is_usable(place.capture) || !is_usable(place.screen)) {
+    if (SIDES.empty() || !is_usable(place.capture) || !is_usable(place.screen) ||
+        (!state.swarm.active() && !resources.last)) {
         return CloseStart::Declined;
     }
-    const auto &creature = state.swarm.active() ? state.creature : resources.last->close.sprite;
+    const auto &creature = state.swarm.active() ? state.creature : resources.last.value().close.sprite;
     if (resources.sprites->sheet(creature) == nullptr) {
         return CloseStart::Declined;
     }
@@ -103,7 +107,7 @@ CloseStart SSwarmModule::close(State &state, const Place &place, Resources &reso
     return state.swarm.active() ? CloseStart::Owned : CloseStart::Declined;
 }
 
-void SSwarmModule::end(State &state, Resources &, End) noexcept {
+void SSwarmModule::end(State &state, [[maybe_unused]] Resources &resources, [[maybe_unused]] End why) noexcept {
     state.swarm.reset();
 }
 
@@ -111,8 +115,8 @@ bool SSwarmModule::draw_canvas(State &state, CHyprAnimationCanvas &canvas,
     const SP<Render::IFramebuffer> &image, Box source, Box output, Box canvas_box,
     Vec2 image_origin, Vec2 image_size, Resources &resources) {
     const auto *sheet = resources.sprites->sheet(state.creature);
-    const auto ATLAS = sheet ? resources.sprites->texture(state.creature) : SP<Render::ITexture>{};
-    if (!sheet || !ATLAS || !image || !image->getTexture()) {
+    const auto ATLAS = sheet != nullptr ? resources.sprites->texture(state.creature) : SP<Render::ITexture>{};
+    if (sheet == nullptr || !ATLAS || !image || !image->getTexture()) {
         return false;
     }
     const CBox SOURCE{source.x, source.y, source.w, source.h};
@@ -120,7 +124,7 @@ bool SSwarmModule::draw_canvas(State &state, CHyprAnimationCanvas &canvas,
     const CBox CANVAS{canvas_box.x, canvas_box.y, canvas_box.w, canvas_box.h};
     auto &meshes = canvas.pass() == PassKind::Live ? state.meshes : state.scratch_meshes;
     fill_swarm_meshes(state.swarm, *sheet, SOURCE, OUTPUT, image_origin, image_size, meshes);
-    auto &ctx = canvas.context;
+    auto &ctx = canvas.context();
     const auto LAYER = render_swarm_layer(ctx, image->getTexture(), ATLAS,
         swarm_layer_size(SOURCE), meshes, resources.sprites->surface());
     if (!LAYER) {
@@ -147,6 +151,6 @@ bool SSwarmModule::draw_canvas(State &state, CHyprAnimationCanvas &canvas,
         Render::GL::g_pHyprOpenGL->renderTextureMesh(
             ctx, LAYER->getTexture(), LOCAL, meshes.pieces, texture_data);
     }
-    canvas.layer = OUT;
+    canvas.layer() = OUT;
     return true;
 }

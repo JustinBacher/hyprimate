@@ -44,7 +44,7 @@ class CBubbleVestige {
         double radius = 0, impact_radius = 0;
         hyprimate::Vec2 drift{};
         double lifetime = 0;
-        std::chrono::steady_clock::time_point last{};
+        std::chrono::steady_clock::time_point last;
         double age = 0;
         SP<SBubbleImpactClock> clock;
         double land = 0;
@@ -61,7 +61,7 @@ class CBubbleVestige {
     Wake &begin_wake(MonitorId monitor, WindowId owner);
     void queue_wake(Render::CRenderContext &ctx, const ScreenFacts &screen, Wake &wake,
         const SP<CBubbleRenderer> &renderer, bool live);
-    bool queued(const Wake &wake, bool live) const;
+    [[nodiscard]] bool queued(const Wake &wake, bool live) const;
 
     bool m_enabled = true;
     std::vector<Deposit> m_deposits;

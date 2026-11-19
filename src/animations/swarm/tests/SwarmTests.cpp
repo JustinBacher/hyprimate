@@ -962,7 +962,7 @@ namespace {
         initial.variation = 0.0;
         Swarm swarm;
         swarm.begin_movement(initial, 42, placement());
-        swarm.update_movement(placement({200.0, 0.0}));
+        swarm.update_movement(placement({.x = 200.0, .y = 0.0}));
         swarm.advance(FRAME, true);
         const auto BEFORE = swarm.agents().front();
         SwarmParams changed = initial;

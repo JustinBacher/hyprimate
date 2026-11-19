@@ -37,7 +37,7 @@ bool CSmokeMaterial::initialize(const SSmokePrograms &programs) {
         return m_programs[Composite] != 0;
     }
     m_tried = true;
-    if (std::any_of(programs.ids.begin(), programs.ids.end(), [](GLuint program) { return program == 0; })) {
+    if (std::ranges::any_of(programs.ids, [](GLuint program) { return program == 0; })) {
         return false;
     }
     m_programs = programs.ids;

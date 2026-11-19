@@ -27,7 +27,7 @@ int main() {
         .source = {.x = 10, .y = 20, .w = 112, .h = 56},
         .output = {.x = 0, .y = 0, .w = 224, .h = 112},
         .image_origin = {.x = 0, .y = 0}, .image_size = {.x = 224, .y = 112},
-        .scale = 1, .buffers = buffers};
+        .scale = 1, .buffers = &buffers};
     SheetFrame frame;
     flat_sheet(frame);
     std::swap(frame.order[0], frame.order[1]);
@@ -53,10 +53,10 @@ int main() {
     CHECK(buffers.window.data() == window_data);
     CHECK(buffers.shade.data() == shade_data);
 
-    LiquidMesh liquid;
-    EdgeTransition transition;
+    const LiquidMesh LIQUID_MESH;
+    const EdgeTransition TRANSITION;
     LiquidPoseGrid grid;
-    const LiquidPose POSE{.mesh = liquid, .transition = transition};
+    const LiquidPose POSE{.mesh = LIQUID_MESH, .transition = TRANSITION};
     const auto LIQUID = fill_liquid_mesh(POSE, TARGET, grid, std::nullopt, {}, std::nullopt);
     CHECK(LIQUID.window == &buffers.window);
     CHECK(LIQUID.under == nullptr);

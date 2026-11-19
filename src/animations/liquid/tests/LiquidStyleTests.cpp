@@ -11,57 +11,57 @@ int main() {
     settings.close.strength = 0.8;
     settings.movement.strength = 0.8;
     resources.update(settings, SLiquidModule::prepare_settings);
-    const Place place{.body = {300, 200, 400, 300}, .capture = {290, 190, 420, 320},
-        .goal_body = {300, 200, 400, 300}, .rest_capture = {290, 190, 420, 320},
-        .screen = {0, 0, 1920, 1080}, .work_area = {0, 0, 1920, 1080},
+    const Place PLACE{.body = {.x = 300, .y = 200, .w = 400, .h = 300}, .capture = {.x = 290, .y = 190, .w = 420, .h = 320},
+        .goal_body = {.x = 300, .y = 200, .w = 400, .h = 300}, .rest_capture = {.x = 290, .y = 190, .w = 420, .h = 320},
+        .screen = {.x = 0, .y = 0, .w = 1920, .h = 1080}, .work_area = {.x = 0, .y = 0, .w = 1920, .h = 1080},
         .near = {}, .opening_edge = std::nullopt};
     auto state = SLiquidModule::start(resources, 42);
     Effects effects;
-    CHECK(SLiquidModule::open(state, place, resources, effects));
+    CHECK(SLiquidModule::open(state, PLACE, resources, effects));
     CHECK(effects.opening_edge.has_value());
-    Step step{.elapsed = 1.0 / 60.0, .body = place.body, .capture = place.capture,
-        .goal_body = place.goal_body, .rest_capture = place.rest_capture,
-        .screen = place.screen, .work_area = place.work_area,
+    Step step{.elapsed = 1.0 / 60.0, .body = PLACE.body, .capture = PLACE.capture,
+        .goal_body = PLACE.goal_body, .rest_capture = PLACE.rest_capture,
+        .screen = PLACE.screen, .work_area = PLACE.work_area,
         .motion = std::nullopt, .movement_enabled = true, .open_enabled = true};
     effects = {};
     CHECK(SLiquidModule::advance(state, step, resources, effects).running);
     CHECK(effects.drive_body.has_value());
-    const auto edge = state.transition.frame().edge;
+    const auto EDGE = state.transition.frame().edge;
     settings.movement.elasticity = 0.93;
     resources.update(settings, SLiquidModule::prepare_settings);
     effects = {};
     SLiquidModule::advance(state, step, resources, effects);
     CHECK(state.mesh.params().elasticity == settings.movement.elasticity);
-    CHECK(state.transition.frame().edge == edge);
-    CHECK(SLiquidModule::close(state, place, resources) == CloseStart::Owned);
+    CHECK(state.transition.frame().edge == EDGE);
+    CHECK(SLiquidModule::close(state, PLACE, resources) == CloseStart::Owned);
     CHECK(state.transition.active());
-    CHECK(state.transition.frame().edge == edge);
-    const auto latched = state.close_strength;
+    CHECK(state.transition.frame().edge == EDGE);
+    const auto LATCHED = state.close_strength;
     settings.close.strength = 0.1;
     resources.update(settings, SLiquidModule::prepare_settings);
     step.dying = true;
     effects = {};
     SLiquidModule::advance(state, step, resources, effects);
-    CHECK(state.close_strength == latched);
+    CHECK(state.close_strength == LATCHED);
     CHECK(!effects.drive_body.has_value());
     MeshBuffers<MeshVertex> buffers;
-    const MeshTarget<MeshVertex> target{.source = {0, 0, 420, 320},
-        .output = {-20, -20, 460, 360}, .image_origin = {0, 0},
-        .image_size = {420, 320}, .scale = 1, .buffers = buffers};
-    const auto mesh = SLiquidModule::mesh(state, target, resources);
-    CHECK(mesh.window == &buffers.window);
+    const MeshTarget<MeshVertex> TARGET{.source = {.x = 0, .y = 0, .w = 420, .h = 320},
+        .output = {.x = -20, .y = -20, .w = 460, .h = 360}, .image_origin = {.x = 0, .y = 0},
+        .image_size = {.x = 420, .y = 320}, .scale = 1, .buffers = &buffers};
+    const auto MESH = SLiquidModule::mesh(state, TARGET, resources);
+    CHECK(MESH.window == &buffers.window);
     CHECK(buffers.window.size() == LIQUID_RENDER_VERTEX_COUNT);
     SLiquidModule::end(state, resources, End::Completed);
 
     auto moving = SLiquidModule::start(resources, 7);
     Step motion_step = step;
     motion_step.dying = false;
-    motion_step.motion = Motion{.from_body = place.body, .from_capture = place.capture,
-        .body = {350, 200, 400, 300}, .capture = place.capture, .translated = true};
+    motion_step.motion = Motion{.from_body = PLACE.body, .from_capture = PLACE.capture,
+        .body = {.x = 350, .y = 200, .w = 400, .h = 300}, .capture = PLACE.capture, .translated = true};
     effects = {};
     SLiquidModule::advance(moving, motion_step, resources, effects);
     CHECK(!moving.mesh.settled());
-    Place invalid = place;
+    Place invalid = PLACE;
     invalid.screen = {};
     invalid.work_area = {};
     CHECK(SLiquidModule::close(moving, invalid, resources) == CloseStart::Native);
@@ -69,7 +69,7 @@ int main() {
 
     auto stalled = SLiquidModule::start(resources, 9);
     effects = {};
-    CHECK(SLiquidModule::open(stalled, place, resources, effects));
+    CHECK(SLiquidModule::open(stalled, PLACE, resources, effects));
     step.dying = false;
     step.elapsed = STALL_SECONDS + 0.01;
     step.stalled = true;

@@ -80,11 +80,11 @@ namespace {
             scene = texture(background);
             black = texture(dark);
             programs = {
-                gl_harness::build_program(bubble_shader::VERTEX.data(), bubble_shader::FRAGMENT.data()),
-                gl_harness::build_program(bubble_shader::CURL_VERTEX.data(), bubble_shader::CURL_FRAGMENT.data()),
-                gl_harness::build_program(bubble_shader::PARTICLE_VERTEX.data(), bubble_shader::PARTICLE_FRAGMENT.data()),
-                gl_harness::build_program(bubble_shader::FILM_VERTEX.data(), bubble_shader::FILM_FRAGMENT.data()),
-                gl_harness::build_program(bubble_shader::MICROBUBBLE_VERTEX.data(), bubble_shader::MICROBUBBLE_FRAGMENT.data()),
+                .membrane = gl_harness::build_program(bubble_shader::VERTEX.data(), bubble_shader::FRAGMENT.data()),
+                .curl = gl_harness::build_program(bubble_shader::CURL_VERTEX.data(), bubble_shader::CURL_FRAGMENT.data()),
+                .particles = gl_harness::build_program(bubble_shader::PARTICLE_VERTEX.data(), bubble_shader::PARTICLE_FRAGMENT.data()),
+                .film = gl_harness::build_program(bubble_shader::FILM_VERTEX.data(), bubble_shader::FILM_FRAGMENT.data()),
+                .micro = gl_harness::build_program(bubble_shader::MICROBUBBLE_VERTEX.data(), bubble_shader::MICROBUBBLE_FRAGMENT.data()),
             };
             CHECK(material.initialize(programs));
         }
@@ -94,10 +94,10 @@ namespace {
         Fixture &operator=(Fixture &&) = delete;
         ~Fixture() {
             material.release();
-            for (const GLuint program : {programs.membrane, programs.curl, programs.particles,
+            for (const GLuint PROGRAM : {programs.membrane, programs.curl, programs.particles,
                      programs.film, programs.micro}) {
-                if (program != 0U) {
-                    glDeleteProgram(program);
+                if (PROGRAM != 0U) {
+                    glDeleteProgram(PROGRAM);
                 }
             }
             const std::array<GLuint, 4> TEXTURES{window, other_window, scene, black};
@@ -487,8 +487,8 @@ namespace {
 }  // namespace
 
 int main() {
-    gl_harness::CContext context{WIDTH, HEIGHT};
-    if (!context.valid()) {
+    const gl_harness::CContext CONTEXT{WIDTH, HEIGHT};
+    if (!CONTEXT.valid()) {
         (void)std::fprintf(stderr, "Cannot create GLES 3 offscreen context\n");
         return 1;
     }

@@ -53,7 +53,7 @@ struct SSwarmModule {
     template<class Canvas>
     static bool draw(State &state, const hyprimate::animation::Draw<Canvas> &draw,
         Resources &resources) {
-        return draw_canvas(state, draw.canvas, draw.image, draw.source, draw.output,
+        return draw_canvas(state, *draw.canvas, *draw.image, draw.source, draw.output,
             draw.canvas_box, draw.image_origin, draw.image_size, resources);
     }
   private:

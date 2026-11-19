@@ -15,8 +15,8 @@ inline constexpr std::size_t SHEET_VERTEX_COUNT = SHEET_TRIANGLES * 3;
 template <animation::Vertex V>
 animation::Mesh<V> fill_sheet_mesh(const SheetFrame &frame,
     const animation::MeshTarget<V> &target, bool shaded, float opacity) {
-    auto &window = target.buffers.window;
-    auto &shade = target.buffers.shade;
+    auto &window = target.buffers->window;
+    auto &shade = target.buffers->shade;
     if (window.size() != SHEET_VERTEX_COUNT) {
         window.resize(SHEET_VERTEX_COUNT);
     }

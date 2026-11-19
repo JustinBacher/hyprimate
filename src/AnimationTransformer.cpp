@@ -53,7 +53,7 @@ SWindowTransformBuffer CAnimationTransformer::transform(CRenderContext &ctx,
         return input;
     }
     CHyprAnimationCanvas canvas{ctx, m_port.canvas_resources()};
-    const Draw<CHyprAnimationCanvas> DRAW{.canvas = canvas, .image = input.framebuffer,
+    const Draw<CHyprAnimationCanvas> DRAW{.canvas = &canvas, .image = &input.framebuffer,
         .source = to_box(SOURCE), .output = to_box(OUTPUT), .canvas_box = to_box(CANVAS),
         .image_origin = {.x = input.box.x, .y = input.box.y},
         .image_size = {.x = SIZE.x, .y = SIZE.y}, .scale = SCALE, .real_pass = true,
@@ -61,18 +61,18 @@ SWindowTransformBuffer CAnimationTransformer::transform(CRenderContext &ctx,
     if (!m_animations.draw(m_handle, DRAW)) {
         return {.framebuffer = input.framebuffer, .box = input.box, .success = false};
     }
-    if (!canvas.layer) {
-        canvas.layer = g_pHyprRenderer->getWorkBuffer(ctx, CANVAS.size());
-        if (!canvas.layer) {
+    if (!canvas.layer()) {
+        canvas.layer() = g_pHyprRenderer->getWorkBuffer(ctx, CANVAS.size());
+        if (!canvas.layer()) {
             return {.framebuffer = input.framebuffer, .box = input.box, .success = false};
         }
         const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
         const auto STATE = ctx.saveDrawState();
-        g_pHyprRenderer->bindFB(ctx, canvas.layer);
+        g_pHyprRenderer->bindFB(ctx, canvas.layer());
         ctx.m_data.damage = CRegion{0.0, 0.0, CANVAS.w, CANVAS.h};
         ctx.m_data.fbSize = CANVAS.size();
         g_pHyprRenderer->setProjectionType(ctx, Render::RPT_EXPORT);
         g_pHyprRenderer->draw(ctx, CClearPassElement::SClearData{CHyprColor(0, 0, 0, 0)});
     }
-    return {.framebuffer = canvas.layer, .box = CANVAS};
+    return {.framebuffer = canvas.layer(), .box = CANVAS};
 }

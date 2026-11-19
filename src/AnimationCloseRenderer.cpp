@@ -207,15 +207,15 @@ void CAnimationCloseRenderer::unhook() {
 }
 
 void CAnimationCloseRenderer::prune_records() {
-    const auto views = m_animations.dying_views();
+    const auto VIEWS = m_animations.dying_views();
     std::erase_if(m_records, [&](const Record &record) {
-        const bool active = std::ranges::find(views, record.fadeout, &hyprimate::animation::DyingView::fadeout) != views.end();
+        const bool ACTIVE = std::ranges::find(VIEWS, record.fadeout, &hyprimate::animation::DyingView::fadeout) != VIEWS.end();
         const auto NATIVE = record.native.lock();
         if (!NATIVE || NATIVE->done()) {
             m_animations.native_finished(record.fadeout);
-            return !active;
+            return !ACTIVE;
         }
-        return !active && !m_animations.suppresses(record.fadeout);
+        return !ACTIVE && !m_animations.suppresses(record.fadeout);
     });
 }
 
@@ -255,11 +255,11 @@ void CAnimationCloseRenderer::on_fadeout_created(
 
 bool CAnimationCloseRenderer::has_record_for(
     const PHLMONITOR &monitor, Desktop::eFadeoutPlane plane, const PHLWORKSPACE &workspace) const {
-    const auto views = m_animations.dying_views();
+    const auto VIEWS = m_animations.dying_views();
     return std::ranges::any_of(m_records, [&](const Record &record) {
         return record.monitor.lock() == monitor && record.plane == plane &&
             (!record.workspace_bound || (record.workspace.lock() && record.workspace.lock() == workspace)) &&
-            (std::ranges::find(views, record.fadeout, &hyprimate::animation::DyingView::fadeout) != views.end() ||
+            (std::ranges::find(VIEWS, record.fadeout, &hyprimate::animation::DyingView::fadeout) != VIEWS.end() ||
                 m_animations.suppresses(record.fadeout));
     });
 }

@@ -17,13 +17,13 @@ struct EntryFacts {
     WorkspaceId workspace = 0;
     Place closing_place{};
     Frame frame{};
-    Clock::time_point last_step{};
+    Clock::time_point last_step;
     FrameId last_frame = 0;
     std::array<Clock::time_point, STALL_LIMIT> stalls{};
     std::uint8_t stall_count = 0;
 };
 template<class State> struct Slot {
-    template<class Factory> Slot(std::in_place_t, Factory &&factory)
+    template<class Factory> Slot(std::in_place_t /*tag*/, Factory &&factory)
         : state(std::forward<Factory>(factory)()) {}
     template<class... Args> explicit Slot(Args &&...args) : state(std::forward<Args>(args)...) {}
     State state;
