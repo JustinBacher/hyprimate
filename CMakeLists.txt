@@ -171,4 +171,8 @@ if(BUILD_TESTING)
     target_link_libraries(window-tracker-tests PRIVATE hyprimate-core)
     add_test(NAME window-tracker-tests COMMAND window-tracker-tests)
 
+    add_executable(slot-pool-tests tests/SlotPoolTests.cpp)
+    target_include_directories(slot-pool-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    add_test(NAME slot-pool-tests COMMAND slot-pool-tests)
+
 endif()
