@@ -4,10 +4,12 @@
 #include "animations/swarm/SwarmCloseStyleData.hpp"
 #include "config_generated.hpp"
 
+struct SSwarmInputs {};
 struct SSwarmResources;
 struct SSwarmModule {
     using State = SSwarmStyle;
     using CloseData = SSwarmCloseData;
+    using Inputs = SSwarmInputs;
     using Resources = SSwarmResources;
     static constexpr auto KIND = hyprimate::config::Style::Swarm;
     static constexpr bool FIXED_CLOSE_PLACEMENT = false;

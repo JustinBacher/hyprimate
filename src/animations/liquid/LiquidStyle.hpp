@@ -9,9 +9,16 @@ struct SLiquidResources;
 struct SLiquidModule {
     using State = SLiquidStyle;
     using CloseData = SLiquidCloseData;
+    using Inputs = hyprimate::LiquidParams;
     using Resources = SLiquidResources;
     static constexpr auto KIND = hyprimate::config::Style::Liquid;
     static constexpr bool FIXED_CLOSE_PLACEMENT = false;
 };
 
 hyprimate::LiquidPose live_pose(const SLiquidStyle &state);
+
+inline hyprimate::LiquidParams liquid_inputs(const hyprimate::config::SConfig &config) {
+    const auto &liquid = config.movement.liquid;
+    return {.viscosity = liquid.viscosity, .elasticity = liquid.elasticity,
+        .momentum = liquid.momentum, .variation = liquid.variation};
+}

@@ -55,10 +55,7 @@ class CPluginRuntime {
     bool open_enabled() const;
     bool close_enabled() const;
     double movement_strength() const;
-    hyprimate::LiquidParams effective_material_params() const;
-    hyprimate::ClothMovementParams cloth_movement_params() const;
-    bool material_usable() const;
-    bool material_changed(const CAnimationTransformer &transformer) const;
+    SStyleState initial_style(std::uint64_t seed) const;
     bool wobble_enabled() const;
     void notify(const std::string &text) const;
     void on_reload();
@@ -74,13 +71,10 @@ class CPluginRuntime {
     // Edge pop-out placement and configuration.
     static bool workspace_has_other_windows(const PHLWINDOW &window);
     void gather_neighbours(const PHLWINDOW &window) const;
-    void gather_cloth_obstacles(const PHLWINDOW &window) const;
+    void gather_contact_obstacles(const PHLWINDOW &window) const;
     hyprimate::EdgeInput edge_input_for(const PHLWINDOW &window,
         bool opening,
         std::optional<hyprimate::Edge> origin = std::nullopt) const;
-    // Screen sides a swarm enters from (opening) or leaves through: the configured sides for a
-    // window alone on its workspace, otherwise the sides it appears from.
-    hyprimate::EdgeSet swarm_sides(const PHLWINDOW &window, bool opening) const;
 
     // Sampling and simulation.
     void on_render_pre(const PHLMONITOR &monitor);

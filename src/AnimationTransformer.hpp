@@ -30,13 +30,8 @@ inline CBox to_cbox(const hyprimate::Box &box) {
     return CBox{box.x, box.y, box.w, box.h};
 }
 
+class CPluginRuntime;
 
-// The state a window starts from in `style`. `liquid`, `cloth`, and `seed` are the settings it is
-// built for.
-SStyleState initial_style(hyprimate::config::Style style,
-    hyprimate::LiquidParams liquid,
-    hyprimate::ClothMovementParams cloth,
-    std::uint64_t seed);
 
 class CAnimationTransformer final : public Render::IWindowTransformer {
   public:
@@ -65,9 +60,7 @@ class CAnimationTransformer final : public Render::IWindowTransformer {
 
     // True when the state was built for these settings; a mismatch means the runtime rebuilds the
     // transformer.
-    bool built_for(hyprimate::config::Style style,
-        hyprimate::LiquidParams liquid,
-        hyprimate::ClothMovementParams cloth) const;
+    bool built_for(hyprimate::config::Style style, const CPluginRuntime &runtime) const;
 
     void cancel_opening();
     void cancel_movement();

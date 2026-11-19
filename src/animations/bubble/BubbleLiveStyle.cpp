@@ -241,15 +241,11 @@ bool SBubbleLiveStyle::deforming(const SBubbleStyle &state) noexcept {
 }
 
 bool SBubbleLiveStyle::builtFor([[maybe_unused]] const SBubbleStyle &state,
-    hyprimate::config::Style style,
-    [[maybe_unused]] hyprimate::LiquidParams liquid,
-    [[maybe_unused]] hyprimate::ClothMovementParams cloth_movement) noexcept {
-    return style == hyprimate::config::Style::Bubble;
+    [[maybe_unused]] const Inputs &inputs) noexcept {
+    return true;
 }
 
-SStyleState SBubbleLiveStyle::initial([[maybe_unused]] hyprimate::LiquidParams liquid,
-    [[maybe_unused]] hyprimate::ClothMovementParams cloth_movement,
-    std::uint64_t seed) {
+SBubbleStyle SBubbleLiveStyle::initial([[maybe_unused]] const Inputs &inputs, std::uint64_t seed) {
     SBubbleStyle state;
     state.bubble.seed_motion(seed);
     return state;
@@ -260,4 +256,12 @@ double SBubbleLiveStyle::strength(const CPluginRuntime &runtime) {
 }
 bool SBubbleLiveStyle::usable([[maybe_unused]] const CPluginRuntime &runtime) {
     return true;
+}
+
+SBubbleLiveStyle::Inputs SBubbleLiveStyle::inputs([[maybe_unused]] const CPluginRuntime &runtime) { return {}; }
+void SBubbleLiveStyle::prepare(CPluginRuntime &runtime, bool selected) {
+    if (selected) runtime.m_bubble->warm_up();
+}
+bool SBubbleLiveStyle::movement_requested(const hyprimate::TrackDecision &decision) noexcept {
+    return decision.translated;
 }

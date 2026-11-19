@@ -20,13 +20,11 @@ namespace close_style {
         const PHLWINDOW &window,
         [[maybe_unused]] bool state_active,
         const hyprimate::config::SConfig &config,
-        [[maybe_unused]] hyprimate::LiquidParams liquid,
-        [[maybe_unused]] const std::function<hyprimate::EdgeInput()> &edge_input,
+        const std::function<hyprimate::EdgeInput()> &edge_input,
         [[maybe_unused]] const std::function<std::span<const hyprimate::Box>()> &obstacles,
-        const std::function<std::uint64_t()> &next_seed,
-        const std::function<hyprimate::EdgeSet()> &swarm_sides) {
+        const std::function<std::uint64_t()> &next_seed) {
         const auto MONITOR = window->m_monitor.lock();
-        const auto SIDES = swarm_sides();
+        const auto SIDES = swarm_sides(edge_input(), config.close.swarm.loneWindowSides);
         const auto SEED = next_seed();
         if (!MONITOR || SIDES.empty()) {
             return false;

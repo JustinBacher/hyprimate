@@ -319,11 +319,9 @@ void CAnimationCloseRenderer::stage(const PHLWINDOW &window,
     SStyleState &state,
     bool state_active,
     const hyprimate::config::SConfig &config,
-    hyprimate::LiquidParams liquid,
     const std::function<hyprimate::EdgeInput()> &edge_input,
     const std::function<std::span<const hyprimate::Box>()> &obstacles,
-    const std::function<std::uint64_t()> &next_seed,
-    const std::function<hyprimate::EdgeSet()> &swarm_sides) {
+    const std::function<std::uint64_t()> &next_seed) {
     auto pending = pending_for(window);
     const bool CAN_STAGE = pending.has_value();
     if (!pending) {
@@ -336,11 +334,9 @@ void CAnimationCloseRenderer::stage(const PHLWINDOW &window,
                 window,
                 state_active,
                 config,
-                liquid,
                 edge_input,
                 obstacles,
-                next_seed,
-                swarm_sides);
+                next_seed);
         },
         state);
     if (STAGED && CAN_STAGE) {

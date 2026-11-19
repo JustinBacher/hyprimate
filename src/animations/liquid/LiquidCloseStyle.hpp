@@ -187,11 +187,9 @@ namespace close_style {
         const PHLWINDOW &window,
         bool active,
         const hyprimate::config::SConfig &config,
-        hyprimate::LiquidParams liquid,
         const std::function<hyprimate::EdgeInput()> &edge_input,
         [[maybe_unused]] const std::function<std::span<const hyprimate::Box>()> &surfaces,
-        [[maybe_unused]] const std::function<std::uint64_t()> &seed,
-        [[maybe_unused]] const std::function<hyprimate::EdgeSet()> &edges) {
+        [[maybe_unused]] const std::function<std::uint64_t()> &seed) {
         const auto &close = config.close.liquid;
         if (!std::isfinite(close.strength) || close.strength <= 0.0) {
             return false;
@@ -206,7 +204,7 @@ namespace close_style {
                 SLiquidStyle{.mesh = POSE.mesh.get(), .transition = POSE.transition.get()};
             data.compensation = POSE.compensation;
         } else {
-            pending.style = SLiquidStyle{.mesh = hyprimate::LiquidMesh{liquid}};
+            pending.style = SLiquidStyle{.mesh = hyprimate::LiquidMesh{liquid_inputs(config)}};
         }
         data.strength = close.strength;
         data.frame = FRAME;

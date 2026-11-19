@@ -147,15 +147,11 @@ bool SSmokeLiveStyle::deforming(const SSmokeStyle &state) noexcept {
 }
 
 bool SSmokeLiveStyle::builtFor([[maybe_unused]] const SSmokeStyle &state,
-    hyprimate::config::Style style,
-    [[maybe_unused]] hyprimate::LiquidParams liquid,
-    [[maybe_unused]] hyprimate::ClothMovementParams cloth) noexcept {
-    return style == hyprimate::config::Style::Smoke;
+    [[maybe_unused]] const Inputs &inputs) noexcept {
+    return true;
 }
 
-SStyleState SSmokeLiveStyle::initial([[maybe_unused]] hyprimate::LiquidParams liquid,
-    [[maybe_unused]] hyprimate::ClothMovementParams cloth,
-    std::uint64_t seed) {
+SSmokeStyle SSmokeLiveStyle::initial([[maybe_unused]] const Inputs &inputs, std::uint64_t seed) {
     SSmokeStyle state;
     state.smoke.seed(seed);
     return state;
@@ -167,4 +163,12 @@ double SSmokeLiveStyle::strength(const CPluginRuntime &runtime) {
 
 bool SSmokeLiveStyle::usable([[maybe_unused]] const CPluginRuntime &runtime) {
     return true;
+}
+
+SSmokeLiveStyle::Inputs SSmokeLiveStyle::inputs([[maybe_unused]] const CPluginRuntime &runtime) { return {}; }
+void SSmokeLiveStyle::prepare(CPluginRuntime &runtime, bool selected) {
+    if (selected) runtime.m_smoke->warm_up();
+}
+bool SSmokeLiveStyle::movement_requested(const hyprimate::TrackDecision &decision) noexcept {
+    return decision.translated || decision.resized;
 }

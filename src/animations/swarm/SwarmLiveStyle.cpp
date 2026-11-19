@@ -146,7 +146,8 @@ Render::SWindowTransformBuffer render_live(SSwarmStyle &state,
 
 bool SSwarmLiveStyle::open(
     CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window) {
-    const auto SIDES = runtime.swarm_sides(window, true);
+    const auto SIDES = swarm_sides(runtime.edge_input_for(window, true),
+        runtime.m_config.open.swarm.loneWindowSides);
     const auto PLACEMENT = placement_of(window, true);
     const auto CREATURE = swarm_creature(runtime.m_config.open.swarm);
     if (!PLACEMENT || SIDES.empty() || (runtime.m_sprites->sheet(CREATURE) == nullptr)) {
@@ -252,18 +253,15 @@ bool SSwarmLiveStyle::deforming(const SSwarmStyle &state) noexcept {
 
 // Swarm settings are read when an animation begins, so a state is never stale for them.
 bool SSwarmLiveStyle::builtFor([[maybe_unused]] const SSwarmStyle &state,
-    hyprimate::config::Style style,
-    [[maybe_unused]] hyprimate::LiquidParams liquid,
-    [[maybe_unused]] hyprimate::ClothMovementParams cloth) noexcept {
-    return style == hyprimate::config::Style::Swarm;
+    [[maybe_unused]] const Inputs &inputs) noexcept {
+    return true;
 }
 
 bool SSwarmLiveStyle::available([[maybe_unused]] const SSwarmStyle &state) noexcept {
     return true;
 }
 
-SStyleState SSwarmLiveStyle::initial([[maybe_unused]] hyprimate::LiquidParams liquid,
-    [[maybe_unused]] hyprimate::ClothMovementParams cloth,
+SSwarmStyle SSwarmLiveStyle::initial([[maybe_unused]] const Inputs &inputs,
     [[maybe_unused]] std::uint64_t seed) {
     return SSwarmStyle{};
 }
@@ -274,4 +272,10 @@ double SSwarmLiveStyle::strength([[maybe_unused]] const CPluginRuntime &runtime)
 }
 bool SSwarmLiveStyle::usable(const CPluginRuntime &runtime) {
     return runtime.m_sprites->sheet(swarm_creature(runtime.m_config.movement.swarm)) != nullptr;
+}
+
+SSwarmLiveStyle::Inputs SSwarmLiveStyle::inputs([[maybe_unused]] const CPluginRuntime &runtime) { return {}; }
+void SSwarmLiveStyle::prepare([[maybe_unused]] CPluginRuntime &runtime, [[maybe_unused]] bool selected) {}
+bool SSwarmLiveStyle::movement_requested(const hyprimate::TrackDecision &decision) noexcept {
+    return decision.translated;
 }

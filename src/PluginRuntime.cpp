@@ -62,14 +62,6 @@ namespace {
         return reinterpret_cast<std::uintptr_t>(window->m_monitor.lock().get());
     }
 
-    // ARGB config value to a float colour; channel bytes are unpacked, not treated as one packed
-    // integer.
-    CHyprColor color_from_argb(std::uint32_t argb) {
-        const auto CHANNEL = [argb](unsigned int shift) {
-            return static_cast<float>((argb >> shift) & 0xFFU) / 255.F;
-        };
-        return {CHANNEL(16), CHANNEL(8), CHANNEL(0), CHANNEL(24)};
-    }
 
 }  // namespace
 
@@ -105,11 +97,10 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
             // Stage before detaching so a matching animation can continue into the close.
             if (close_enabled() && eligible(window)) {
                 auto *transformer = transformer_of(window);
-                const bool MATCHED = transformer && !material_changed(*transformer);
+                const bool MATCHED = transformer && transformer->built_for(m_config.style, *this);
                 std::optional<SStyleState> fresh;
                 if (!MATCHED) {
-                    fresh.emplace(initial_style(
-                        m_config.style, effective_material_params(), cloth_movement_params(), 0));
+                    fresh.emplace(initial_style(0));
                 }
                 auto &state = MATCHED ? transformer->style_state() : *fresh;
                 if (auto *bubble = std::get_if<SBubbleStyle>(&state)) {
@@ -123,7 +114,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                 const auto EDGE = [&] { return edge_input_for(window, false, entry->open_edge); };
                 const auto OBSTACLES = [&] -> std::span<const hyprimate::Box> {
                     m_neighbours.clear();
-                    gather_cloth_obstacles(window);
+                    gather_contact_obstacles(window);
                     return m_neighbours;
                 };
                 m_close->stage(
@@ -131,11 +122,9 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                     state,
                     MATCHED && transformer->active(),
                     m_config,
-                    effective_material_params(),
                     EDGE,
                     OBSTACLES,
-                    [this] { return m_next_seed++; },
-                    [&] { return swarm_sides(window, false); });
+                    [this] { return m_next_seed++; });
             }
             detach_window(*entry, window);
         }
@@ -275,31 +264,15 @@ double CPluginRuntime::movement_strength() const {
     return with_live_style(m_config.style, [&](auto style) { return style.strength(*this); });
 }
 
-hyprimate::LiquidParams CPluginRuntime::effective_material_params() const {
-    const auto &liquid = m_config.movement.liquid;
-    return {
-        .viscosity = liquid.viscosity,
-        .elasticity = liquid.elasticity,
-        .momentum = liquid.momentum,
-        .variation = liquid.variation,
-    };
-}
-
-hyprimate::ClothMovementParams CPluginRuntime::cloth_movement_params() const {
-    const auto &cloth = m_config.movement.cloth;
-    return {
-        .strength = cloth.strength,
-        .flutter = cloth.flutter,
-        .shading = cloth.shading,
-        .variation = cloth.variation,
-        .shine = cloth.shine,
-        .springiness = cloth.springiness,
-        .gravity = cloth.gravity,
-    };
+SStyleState CPluginRuntime::initial_style(std::uint64_t seed) const {
+    return with_live_style(m_config.style, [&](auto live) {
+        return SStyleState{live.initial(live.inputs(*this), seed)};
+    });
 }
 
 bool CPluginRuntime::movement_enabled() const {
-    return plugin_enabled() && m_config.movement.enabled && material_usable() &&
+    return plugin_enabled() && m_config.movement.enabled &&
+           with_live_style(m_config.style, [&](auto live) { return live.usable(*this); }) &&
            movement_strength() > 0.0;
 }
 
@@ -337,7 +310,7 @@ void CPluginRuntime::gather_neighbours(const PHLWINDOW &window) const {
     }
 }
 
-void CPluginRuntime::gather_cloth_obstacles(const PHLWINDOW &window) const {
+void CPluginRuntime::gather_contact_obstacles(const PHLWINDOW &window) const {
     for (const auto &other : Desktop::windowState()->windows()) {
         if (other && other.get() != window.get() && other->m_workspace == window->m_workspace &&
             other->mapped() && !other->isHidden()) {
@@ -388,14 +361,6 @@ hyprimate::EdgeInput CPluginRuntime::edge_input_for(
     };
 }
 
-bool CPluginRuntime::material_usable() const {
-    return with_live_style(m_config.style, [&](auto style) { return style.usable(*this); });
-}
-
-bool CPluginRuntime::material_changed(const CAnimationTransformer &transformer) const {
-    return !transformer.built_for(
-        m_config.style, effective_material_params(), cloth_movement_params());
-}
 
 bool CPluginRuntime::wobble_enabled() const {
     return *m_wobble != 0;
@@ -424,24 +389,6 @@ void CPluginRuntime::on_reload() {
     baseline_all();
 }
 
-hyprimate::EdgeSet CPluginRuntime::swarm_sides(const PHLWINDOW &window, bool opening) const {
-    const auto MONITOR = window->m_monitor.lock();
-    if (!MONITOR) {
-        return {};
-    }
-    // Alone on its workspace, the window has no side it appears from: the configured sides apply.
-    if (!workspace_has_other_windows(window)) {
-        return ::swarm_sides(
-            opening ? m_config.open.swarm.loneWindowSides : m_config.close.swarm.loneWindowSides);
-    }
-    m_neighbours.clear();
-    if (!window->isFloating()) {
-        gather_neighbours(window);
-    }
-    const CBox BODY = window->geometricBox(opening ? Desktop::View::IGeometric::GEOMETRIC_GOAL
-                                                   : Desktop::View::IGeometric::GEOMETRIC_CURRENT);
-    return hyprimate::resolve_edge_sides(to_box(BODY), to_box(MONITOR->logicalBox()), m_neighbours);
-}
 
 CPluginRuntime::STracked *CPluginRuntime::find(const PHLWINDOW &window) {
     for (auto &entry : m_tracked) {
@@ -498,14 +445,9 @@ void CPluginRuntime::on_render_pre(const PHLMONITOR &monitor) {
     // Config is read live: runtime edits (hl.config, hyprctl keyword) need not fire a reload. The
     // texture is rebuilt only when the value actually changes.
     m_config = hyprimate::config::readConfig(m_values);
-    // Compile the bubble material before any bubble needs it: done mid-animation, the compile reads
-    // as a stall.
-    if (m_config.style == hyprimate::config::Style::Bubble) {
-        m_bubble->warm_up();
-    }
-    if (m_config.style == hyprimate::config::Style::Smoke) {
-        m_smoke->warm_up();
-    }
+#define HYPRIMATE_PREPARE(kind, tag, module) tag::prepare(*this, m_config.style == module::KIND);
+    HYPRIMATE_STYLE_LIST(HYPRIMATE_PREPARE, HYPRIMATE_STYLE_EMPTY)
+#undef HYPRIMATE_PREPARE
     const bool RESIDUE_ENABLED = bubble_residue_enabled();
     m_bubble_residue->set_enabled(RESIDUE_ENABLED);
     if (!RESIDUE_ENABLED) {
@@ -516,8 +458,6 @@ void CPluginRuntime::on_render_pre(const PHLMONITOR &monitor) {
             restore_bubble_scanout(monitor);
         }
     }
-    m_open_solid->set_color(color_from_argb(m_config.open.liquid.color));
-    m_close_solid->set_color(color_from_argb(m_config.close.liquid.color));
     // Sampling runs on each window's own monitor only, so a window steps once per frame of the
     // monitor it is on.
     const auto NOW = Clock::now();
@@ -603,7 +543,8 @@ hyprimate::WindowSnapshot CPluginRuntime::snapshot_of(
     window_snapshot.animating_in = animating;
     with_live_style(
         m_config.style, [&](auto style) { style.snapshot(transformer, window_snapshot); });
-    window_snapshot.material_changed = (transformer != nullptr) && material_changed(*transformer);
+    window_snapshot.material_changed =
+        (transformer != nullptr) && !transformer->built_for(m_config.style, *this);
     window_snapshot.open_enabled = open_enabled();
     window_snapshot.movement_enabled = movement_enabled();
     window_snapshot.monitor = monitor_id(window);
@@ -638,8 +579,8 @@ void CPluginRuntime::record_movement(STracked &entry,
     const hyprimate::TrackDecision &decision,
     double elapsed) {
     const bool ENABLED = movement_enabled();
-    const bool MOVING = ENABLED &&
-        (decision.translated || (decision.resized && m_config.style == hyprimate::config::Style::Smoke));
+    const bool MOVING = ENABLED && with_live_style(m_config.style,
+        [&](auto live) { return live.movement_requested(decision); });
     auto *transformer = transformer_of(window);
     if (!MOVING && (transformer == nullptr)) {
         return;
@@ -746,8 +687,7 @@ CAnimationTransformer *CPluginRuntime::acquire_transformer(const PHLWINDOW &wind
     }
     // Each window draws from its own stream, so windows moved together (scrolling, workspace
     // slides) still differ.
-    auto state = initial_style(
-        m_config.style, effective_material_params(), cloth_movement_params(), m_next_seed++);
+    auto state = initial_style(m_next_seed++);
     if (auto *bubble = std::get_if<SBubbleStyle>(&state)) {
         bubble->renderer = m_bubble;
         bubble->residue = m_bubble_residue;

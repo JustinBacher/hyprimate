@@ -81,11 +81,9 @@ class CAnimationCloseRenderer {
         SStyleState &state,
         bool state_active,
         const hyprimate::config::SConfig &config,
-        hyprimate::LiquidParams liquid,
         const std::function<hyprimate::EdgeInput()> &edge_input,
         const std::function<std::span<const hyprimate::Box>()> &obstacles,
-        const std::function<std::uint64_t()> &next_seed,
-        const std::function<hyprimate::EdgeSet()> &swarm_sides);
+        const std::function<std::uint64_t()> &next_seed);
 
     // Called before `rendering` draws a frame. Prunes every finished record and advances the
     // records drawn on `rendering`. `damage` is refilled with the global logical boxes (what

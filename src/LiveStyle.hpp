@@ -10,8 +10,10 @@
     struct name : module {                                                                 \
         using Module = module;                                                             \
         using Tracked = CPluginRuntime::STracked;                                         \
-        static SStyleState initial(                                                        \
-            hyprimate::LiquidParams, hyprimate::ClothMovementParams, std::uint64_t);     \
+        static Inputs inputs(const CPluginRuntime &);                                      \
+        static State initial(const Inputs &, std::uint64_t);                               \
+        static void prepare(CPluginRuntime &, bool selected);                               \
+        static bool movement_requested(const hyprimate::TrackDecision &) noexcept;         \
         static double strength(const CPluginRuntime &);                                    \
         static bool usable(const CPluginRuntime &);                                        \
         static bool open(CPluginRuntime &, CPluginRuntime::STracked &, const PHLWINDOW &); \
@@ -27,10 +29,7 @@
         static void cancelMovement(CAnimationTransformer &);                               \
         static bool available(const State &) noexcept;                                     \
         static bool deforming(const State &) noexcept;                                     \
-        static bool builtFor(const State &,                                                \
-            hyprimate::config::Style,                                                      \
-            hyprimate::LiquidParams,                                                     \
-            hyprimate::ClothMovementParams) noexcept;                                      \
+        static bool builtFor(const State &, const Inputs &) noexcept;                       \
         static void step(                                                                  \
             CPluginRuntime &, CAnimationTransformer &, double, hyprimate::Vec2, bool);     \
     };

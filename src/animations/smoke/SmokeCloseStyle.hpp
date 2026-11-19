@@ -22,11 +22,9 @@ namespace close_style {
         [[maybe_unused]] const PHLWINDOW &window,
         bool state_active,
         const hyprimate::config::SConfig &config,
-        [[maybe_unused]] hyprimate::LiquidParams liquid,
         const std::function<hyprimate::EdgeInput()> &edge_input,
         [[maybe_unused]] const std::function<std::span<const hyprimate::Box>()> &obstacles,
-        const std::function<std::uint64_t()> &next_seed,
-        [[maybe_unused]] const std::function<hyprimate::EdgeSet()> &swarm_sides) {
+        const std::function<std::uint64_t()> &next_seed) {
         if (!style.renderer) {
             return false;
         }

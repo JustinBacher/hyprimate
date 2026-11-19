@@ -18,11 +18,9 @@ namespace close_style {
         const PHLWINDOW &window,
         [[maybe_unused]] bool state_active,
         const hyprimate::config::SConfig &config,
-        [[maybe_unused]] hyprimate::LiquidParams liquid,
         const std::function<hyprimate::EdgeInput()> &edge_input,
         const std::function<std::span<const hyprimate::Box>()> &obstacles,
-        const std::function<std::uint64_t()> &next_seed,
-        [[maybe_unused]] const std::function<hyprimate::EdgeSet()> &swarm_sides) {
+        const std::function<std::uint64_t()> &next_seed) {
         const auto INPUT = edge_input();
         const auto FRAME = hyprimate::resolve_style_close_edge(INPUT, config.close.cloth);
         const auto MONITOR = window->m_monitor.lock();

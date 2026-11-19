@@ -329,20 +329,15 @@ bool SLiquidLiveStyle::deforming(const SLiquidStyle &state) noexcept {
     return !state.mesh.settled() || state.transition.active();
 }
 
-bool SLiquidLiveStyle::builtFor(const SLiquidStyle &state,
-    hyprimate::config::Style style,
-    hyprimate::LiquidParams liquid,
-    [[maybe_unused]] hyprimate::ClothMovementParams cloth) noexcept {
-    return style == hyprimate::config::Style::Liquid && state.mesh.params() == liquid;
+bool SLiquidLiveStyle::builtFor(const SLiquidStyle &state, const Inputs &liquid) noexcept {
+    return state.mesh.params() == liquid;
 }
 
 bool SLiquidLiveStyle::available([[maybe_unused]] const SLiquidStyle &state) noexcept {
     return true;
 }
 
-SStyleState SLiquidLiveStyle::initial(hyprimate::LiquidParams liquid,
-    [[maybe_unused]] hyprimate::ClothMovementParams cloth,
-    std::uint64_t seed) {
+SLiquidStyle SLiquidLiveStyle::initial(const Inputs &liquid, std::uint64_t seed) {
     return SLiquidStyle{.mesh = hyprimate::LiquidMesh{liquid, seed}};
 }
 
@@ -350,7 +345,24 @@ double SLiquidLiveStyle::strength(const CPluginRuntime &runtime) {
     return runtime.m_config.movement.liquid.strength;
 }
 bool SLiquidLiveStyle::usable(const CPluginRuntime &runtime) {
-    const auto PARAMS = runtime.effective_material_params();
+    const auto PARAMS = inputs(runtime);
     return std::isfinite(PARAMS.viscosity) && std::isfinite(PARAMS.elasticity) &&
            std::isfinite(PARAMS.momentum) && std::isfinite(PARAMS.variation);
+}
+
+SLiquidLiveStyle::Inputs SLiquidLiveStyle::inputs(const CPluginRuntime &runtime) {
+    return liquid_inputs(runtime.m_config);
+}
+void SLiquidLiveStyle::prepare(CPluginRuntime &runtime, [[maybe_unused]] bool selected) {
+    const auto color = [](std::uint32_t argb) {
+        const auto channel = [argb](unsigned int shift) {
+            return static_cast<float>((argb >> shift) & 0xFFU) / 255.F;
+        };
+        return CHyprColor{channel(16), channel(8), channel(0), channel(24)};
+    };
+    runtime.m_open_solid->set_color(color(runtime.m_config.open.liquid.color));
+    runtime.m_close_solid->set_color(color(runtime.m_config.close.liquid.color));
+}
+bool SLiquidLiveStyle::movement_requested(const hyprimate::TrackDecision &decision) noexcept {
+    return decision.translated;
 }

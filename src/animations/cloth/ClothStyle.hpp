@@ -8,6 +8,7 @@ struct SClothResources;
 struct SClothModule {
     using State = SClothStyle;
     using CloseData = SClothCloseData;
+    using Inputs = hyprimate::ClothMovementParams;
     using Resources = SClothResources;
     static constexpr auto KIND = hyprimate::config::Style::Cloth;
     static constexpr bool FIXED_CLOSE_PLACEMENT = false;

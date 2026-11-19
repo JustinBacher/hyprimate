@@ -29,12 +29,6 @@
 using namespace Render;
 
 
-SStyleState initial_style(hyprimate::config::Style style,
-    hyprimate::LiquidParams liquid,
-    hyprimate::ClothMovementParams cloth,
-    std::uint64_t seed) {
-    return with_live_style(style, [&](auto live) { return live.initial(liquid, cloth, seed); });
-}
 
 CAnimationTransformer::CAnimationTransformer(PHLWINDOWREF window,
     SStyleState state,
@@ -48,12 +42,12 @@ CAnimationTransformer::CAnimationTransformer(PHLWINDOWREF window,
       m_sprites(std::move(sprites)) {
 }
 
-bool CAnimationTransformer::built_for(hyprimate::config::Style style,
-    hyprimate::LiquidParams liquid,
-    hyprimate::ClothMovementParams cloth) const {
+bool CAnimationTransformer::built_for(
+    hyprimate::config::Style style, const CPluginRuntime &runtime) const {
     return std::visit(
         [&](const auto &state) {
-            return live_style_for(state).builtFor(state, style, liquid, cloth);
+            using Live = decltype(live_style_for(state));
+            return style == Live::KIND && Live::builtFor(state, Live::inputs(runtime));
         },
         m_style);
 }

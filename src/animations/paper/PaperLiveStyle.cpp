@@ -108,18 +108,15 @@ bool SPaperLiveStyle::deforming(const SPaperStyle &state) noexcept {
 }
 
 bool SPaperLiveStyle::builtFor([[maybe_unused]] const SPaperStyle &state,
-    hyprimate::config::Style style,
-    [[maybe_unused]] hyprimate::LiquidParams liquid,
-    [[maybe_unused]] hyprimate::ClothMovementParams cloth) noexcept {
-    return style == hyprimate::config::Style::Paper;
+    [[maybe_unused]] const Inputs &inputs) noexcept {
+    return true;
 }
 
 bool SPaperLiveStyle::available(const SPaperStyle &state) noexcept {
     return static_cast<bool>(state.sheet.frame);
 }
 
-SStyleState SPaperLiveStyle::initial([[maybe_unused]] hyprimate::LiquidParams liquid,
-    [[maybe_unused]] hyprimate::ClothMovementParams cloth,
+SPaperStyle SPaperLiveStyle::initial([[maybe_unused]] const Inputs &inputs,
     [[maybe_unused]] std::uint64_t seed) {
     return SPaperStyle{};
 }
@@ -127,8 +124,9 @@ SStyleState SPaperLiveStyle::initial([[maybe_unused]] hyprimate::LiquidParams li
 double SPaperLiveStyle::strength([[maybe_unused]] const CPluginRuntime &runtime) {
     return 0.0;
 }
-bool SPaperLiveStyle::usable(const CPluginRuntime &runtime) {
-    const auto PARAMS = runtime.effective_material_params();
-    return std::isfinite(PARAMS.viscosity) && std::isfinite(PARAMS.elasticity) &&
-           std::isfinite(PARAMS.momentum) && std::isfinite(PARAMS.variation);
+bool SPaperLiveStyle::usable([[maybe_unused]] const CPluginRuntime &runtime) { return true; }
+SPaperLiveStyle::Inputs SPaperLiveStyle::inputs([[maybe_unused]] const CPluginRuntime &runtime) { return {}; }
+void SPaperLiveStyle::prepare([[maybe_unused]] CPluginRuntime &runtime, [[maybe_unused]] bool selected) {}
+bool SPaperLiveStyle::movement_requested(const hyprimate::TrackDecision &decision) noexcept {
+    return decision.translated;
 }

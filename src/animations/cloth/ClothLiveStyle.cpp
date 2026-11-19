@@ -65,7 +65,7 @@ bool SClothLiveStyle::open(
         return false;
     }
     runtime.m_neighbours.clear();
-    runtime.gather_cloth_obstacles(window);
+    runtime.gather_contact_obstacles(window);
     auto *transformer = runtime.acquire_transformer(window);
     const auto &cloth = runtime.m_config.open.cloth;
     auto &state = std::get<SClothStyle>(transformer->m_style);
@@ -163,20 +163,15 @@ bool SClothLiveStyle::deforming(const SClothStyle &state) noexcept {
     return state.cloth.active();
 }
 
-bool SClothLiveStyle::builtFor(const SClothStyle &state,
-    hyprimate::config::Style style,
-    [[maybe_unused]] hyprimate::LiquidParams liquid,
-    hyprimate::ClothMovementParams cloth) noexcept {
-    return style == hyprimate::config::Style::Cloth && state.movement == cloth;
+bool SClothLiveStyle::builtFor(const SClothStyle &state, const Inputs &cloth) noexcept {
+    return state.movement == cloth;
 }
 
 bool SClothLiveStyle::available(const SClothStyle &state) noexcept {
     return static_cast<bool>(state.sheet.frame);
 }
 
-SStyleState SClothLiveStyle::initial([[maybe_unused]] hyprimate::LiquidParams liquid,
-    hyprimate::ClothMovementParams cloth,
-    [[maybe_unused]] std::uint64_t seed) {
+SClothStyle SClothLiveStyle::initial(const Inputs &cloth, [[maybe_unused]] std::uint64_t seed) {
     return SClothStyle{.movement = cloth};
 }
 
@@ -184,7 +179,18 @@ double SClothLiveStyle::strength(const CPluginRuntime &runtime) {
     return runtime.m_config.movement.cloth.strength;
 }
 bool SClothLiveStyle::usable(const CPluginRuntime &runtime) {
-    const auto PARAMS = runtime.cloth_movement_params();
+    const auto PARAMS = inputs(runtime);
     return std::isfinite(PARAMS.flutter) && std::isfinite(PARAMS.shading) &&
            std::isfinite(PARAMS.variation);
+}
+
+SClothLiveStyle::Inputs SClothLiveStyle::inputs(const CPluginRuntime &runtime) {
+    const auto &cloth = runtime.m_config.movement.cloth;
+    return {.strength = cloth.strength, .flutter = cloth.flutter, .shading = cloth.shading,
+        .variation = cloth.variation, .shine = cloth.shine, .springiness = cloth.springiness,
+        .gravity = cloth.gravity};
+}
+void SClothLiveStyle::prepare([[maybe_unused]] CPluginRuntime &runtime, [[maybe_unused]] bool selected) {}
+bool SClothLiveStyle::movement_requested(const hyprimate::TrackDecision &decision) noexcept {
+    return decision.translated;
 }

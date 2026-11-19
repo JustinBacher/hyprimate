@@ -4,10 +4,12 @@
 #include "animations/smoke/SmokeCloseStyleData.hpp"
 #include "config_generated.hpp"
 
+struct SSmokeInputs {};
 struct SSmokeResources;
 struct SSmokeModule {
     using State = SSmokeStyle;
     using CloseData = SSmokeCloseData;
+    using Inputs = SSmokeInputs;
     using Resources = SSmokeResources;
     static constexpr auto KIND = hyprimate::config::Style::Smoke;
     static constexpr bool FIXED_CLOSE_PLACEMENT = true;
