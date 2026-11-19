@@ -34,12 +34,6 @@ namespace {
         return static_cast<uint8_t>(std::lround(std::clamp(unit, 0.0, 1.0) * 255.0));
     }
 
-    // Ramp U for a shade in [-1, 1]; the centre texel is neutral. Continuous, so a triangle's
-    // corners interpolate.
-    float shade_u(double shade) noexcept {
-        const double TEXEL = RAMP_CENTRE + (std::clamp(shade, -1.0, 1.0) * RAMP_SPAN);
-        return static_cast<float>((TEXEL + 0.5) / RAMP_SIZE);
-    }
 }  // namespace
 
 SP<Render::ITexture> CSheetShade::texture() {
@@ -94,55 +88,6 @@ CBox sheet_extents(const hyprimate::SheetFrame &frame, const CBox &logical_box) 
     return CBox{min_x, min_y, std::max(1.0, max_x - min_x), std::max(1.0, max_y - min_y)};
 }
 
-void fill_sheet_meshes(const hyprimate::SheetFrame &frame,
-    const CBox &source_device,
-    const CBox &output_device,
-    hyprimate::Vec2 texture_origin,
-    hyprimate::Vec2 texture_size,
-    std::vector<SMeshRenderVertex> &window,
-    std::vector<SMeshRenderVertex> &shade) {
-    if (window.size() != SHEET_VERTEX_COUNT) {
-        window.resize(SHEET_VERTEX_COUNT);
-    }
-    if (shade.size() != SHEET_VERTEX_COUNT) {
-        shade.resize(SHEET_VERTEX_COUNT);
-    }
-
-    const double CENTRE_X = source_device.x + (0.5 * source_device.w);
-    const double CENTRE_Y = source_device.y + (0.5 * source_device.h);
-    auto window_vertex = window.begin();
-    auto shade_vertex = shade.begin();
-    for (const std::size_t TRI : frame.order) {
-        const auto &corners = hyprimate::sheet_triangle(TRI);
-        for (auto &&[vertex_index, corner_shade] : std::views::zip(corners, frame.shade[TRI])) {
-            const auto &sheet_point = frame.position[vertex_index];
-            const auto TEX_COORD = hyprimate::sheet_uv(vertex_index);
-            const auto POS_X = static_cast<float>(
-                (CENTRE_X + (sheet_point.x * source_device.w) - output_device.x) / output_device.w);
-            const auto POS_Y = static_cast<float>(
-                (CENTRE_Y + (sheet_point.y * source_device.h) - output_device.y) / output_device.h);
-
-            *window_vertex = {
-                .x = POS_X,
-                .y = POS_Y,
-                .u = static_cast<float>(
-                    (source_device.x + (source_device.w * TEX_COORD.x) - texture_origin.x) /
-                    texture_size.x),
-                .v = static_cast<float>(
-                    (source_device.y + (source_device.h * TEX_COORD.y) - texture_origin.y) /
-                    texture_size.y),
-            };
-            *shade_vertex = {
-                .x = POS_X,
-                .y = POS_Y,
-                .u = shade_u(corner_shade),
-                .v = 0.5F,
-            };
-            ++window_vertex;
-            ++shade_vertex;
-        }
-    }
-}
 
 const std::vector<SMeshRenderVertex> &sheet_canvas_quad() {
     static const std::vector<SMeshRenderVertex> QUAD{

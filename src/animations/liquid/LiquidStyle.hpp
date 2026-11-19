@@ -4,7 +4,7 @@
 #include "animations/liquid/LiquidCloseStyleData.hpp"
 #include "config_generated.hpp"
 #include "animations/liquid/LiquidPose.hpp"
-#include "animations/liquid/SolidFill.hpp"
+#include "animations/shared/SolidFill.hpp"
 #include "animations/shared/SheetResources.hpp"
 #include "StyleSettingsCache.hpp"
 

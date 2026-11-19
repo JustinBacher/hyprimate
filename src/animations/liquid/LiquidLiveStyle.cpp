@@ -24,7 +24,7 @@
 #include "animations/liquid/LiquidLiveState.hpp"
 #include "animations/liquid/LiquidMesh.hpp"
 #include "animations/liquid/LiquidPose.hpp"
-#include "animations/liquid/SolidFill.hpp"
+#include "animations/shared/SolidFill.hpp"
 #include "animations/shared/Core.hpp"
 #include "animations/shared/EdgeStyleConfig.hpp"
 #include "animations/shared/SheetRenderer.hpp"
@@ -32,12 +32,6 @@
 
 using namespace Render;
 using hyprimate::Vec2;
-// Liquid mesh vertices are passed directly to Hyprland's renderer.
-static_assert(sizeof(SMeshRenderVertex) == sizeof(hyprimate::LiquidVertex));
-static_assert(offsetof(SMeshRenderVertex, x) == offsetof(hyprimate::LiquidVertex, x));
-static_assert(offsetof(SMeshRenderVertex, y) == offsetof(hyprimate::LiquidVertex, y));
-static_assert(offsetof(SMeshRenderVertex, u) == offsetof(hyprimate::LiquidVertex, u));
-static_assert(offsetof(SMeshRenderVertex, v) == offsetof(hyprimate::LiquidVertex, v));
 namespace {
     void refresh_pose(SLiquidStyle &state, Vec2 capture_size);
     void restore_box(SLiquidStyle &state, const PHLWINDOWREF &window_ref);
@@ -90,26 +84,24 @@ SWindowTransformBuffer render_live(SLiquidStyle &state,
 
     const auto POSE = live_pose(state);
     const auto LOGICAL = to_box(context.currentBox);
-    const auto VISIBLE = hyprimate::liquid_visible_box(POSE, LOGICAL);
-    const auto MENISCUS = hyprimate::liquid_meniscus_extents(POSE, LOGICAL);
+    const auto LIQUID_GEOMETRY = hyprimate::liquid_mesh_geometry(POSE, LOGICAL);
+    const auto &VISIBLE = LIQUID_GEOMETRY.visible;
+    const auto &MENISCUS = LIQUID_GEOMETRY.meniscus;
     const SP<ITexture> SOLID = MENISCUS ? resources.open_solid.texture() : SP<ITexture>{};
     const CBox LIQUID_BOX =
         MENISCUS ? pixelBoxForLogical(to_cbox(*MENISCUS), geometry.scale) : CBox{};
-    hyprimate::fill_liquid_render_mesh(POSE,
-        to_box(geometry.source),
-        geometry.scale,
-        to_box(geometry.output),
-        Vec2{.x = input.box.x, .y = input.box.y},
-        geometry.texture_size,
-        state.grid,
-        state.vertices);
-    if (SOLID) {
-        hyprimate::fill_liquid_meniscus_mesh(POSE,
-            to_box(geometry.source),
-            geometry.scale,
-            to_box(LIQUID_BOX),
-            state.meniscus_vertices);
-    }
+    const auto MESH = hyprimate::fill_liquid_mesh(POSE,
+        hyprimate::animation::MeshTarget<SMeshRenderVertex>{
+            .source = to_box(geometry.source), .output = to_box(geometry.output),
+            .image_origin = {.x = input.box.x, .y = input.box.y},
+            .image_size = geometry.texture_size, .scale = geometry.scale, .buffers = state.buffers},
+        state.grid, SOLID ? std::optional{to_box(LIQUID_BOX)} : std::nullopt,
+        {.r = static_cast<float>(resources.prepared.open_color.r),
+            .g = static_cast<float>(resources.prepared.open_color.g),
+            .b = static_cast<float>(resources.prepared.open_color.b),
+            .a = static_cast<float>(resources.prepared.open_color.a)},
+        VISIBLE ? std::optional{to_box(pixelBoxForLogical(to_cbox(*VISIBLE), geometry.scale))}
+                : std::nullopt);
 
     const GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     const auto DRAW_STATE = ctx.saveDrawState();
@@ -119,8 +111,8 @@ SWindowTransformBuffer render_live(SLiquidStyle &state,
     render_data.fbSize = geometry.canvas.size();
     g_pHyprRenderer->setProjectionType(ctx, RPT_EXPORT);
     g_pHyprRenderer->draw(ctx, CClearPassElement::SClearData{CHyprColor(0, 0, 0, 0)});
-    if (VISIBLE) {
-        CBox clip = pixelBoxForLogical(to_cbox(*VISIBLE), geometry.scale);
+    if (MESH.clip) {
+        CBox clip = to_cbox(*MESH.clip);
         clip.translate(-geometry.canvas.pos());
         render_data.damage.intersect(CRegion{clip});
     }
@@ -128,15 +120,15 @@ SWindowTransformBuffer render_live(SLiquidStyle &state,
     texture_data.damage = &render_data.damage;
     texture_data.a = 1.F;
     texture_data.allowCustomUV = true;
-    if (SOLID) {
+    if (MESH.under) {
         GL::g_pHyprOpenGL->renderTextureMesh(ctx,
             SOLID,
-            LIQUID_BOX.copy().translate(-geometry.canvas.pos()),
-            state.meniscus_vertices,
+            to_cbox(MESH.under_output).translate(-geometry.canvas.pos()),
+            *MESH.under,
             texture_data);
     }
     GL::g_pHyprOpenGL->renderTextureMesh(
-        ctx, input.framebuffer->getTexture(), geometry.local_output, state.vertices, texture_data);
+        ctx, input.framebuffer->getTexture(), geometry.local_output, *MESH.window, texture_data);
     return {.framebuffer = OUT, .box = geometry.canvas};
 }
 

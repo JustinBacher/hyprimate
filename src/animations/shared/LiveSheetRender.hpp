@@ -17,22 +17,21 @@ inline Render::SWindowTransformBuffer render_live_sheet(SSheetBuffers &sheet,
     const Render::SWindowTransformBuffer &input,
     const SLiveRenderGeometry &geometry,
     CSheetShade &shade) {
-    fill_sheet_meshes(*sheet.frame,
-        geometry.source,
-        geometry.output,
-        {.x = input.box.x, .y = input.box.y},
-        geometry.texture_size,
-        sheet.window,
-        sheet.shade);
+    const auto MESH = hyprimate::fill_sheet_mesh(*sheet.frame,
+        hyprimate::animation::MeshTarget<SMeshRenderVertex>{
+            .source = to_box(geometry.source), .output = to_box(geometry.output),
+            .image_origin = {.x = input.box.x, .y = input.box.y},
+            .image_size = geometry.texture_size, .scale = geometry.scale, .buffers = sheet.buffers},
+        shaded, static_cast<float>(opacity));
     const auto LAYER = render_sheet(ctx,
         SSheetDraw{
             .window = input.framebuffer->getTexture(),
-            .shade = shaded ? shade.texture() : SP<Render::ITexture>{},
+            .shade = MESH.shade ? shade.texture() : SP<Render::ITexture>{},
             .canvas = geometry.canvas.size(),
             .mesh_box = geometry.local_output,
-            .window_vertices = &sheet.window,
-            .shade_vertices = &sheet.shade,
-            .alpha = static_cast<float>(opacity),
+            .window_vertices = MESH.window,
+            .shade_vertices = MESH.shade,
+            .alpha = MESH.opacity,
         });
     if (!LAYER) {
         return {.framebuffer = input.framebuffer, .box = input.box, .success = false};

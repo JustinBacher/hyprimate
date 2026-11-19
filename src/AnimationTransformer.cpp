@@ -21,7 +21,7 @@
 #include "animations/cloth/ClothFlutter.hpp"
 #include "animations/liquid/LiquidMesh.hpp"
 #include "animations/liquid/LiquidPose.hpp"
-#include "animations/liquid/SolidFill.hpp"
+#include "animations/shared/SolidFill.hpp"
 #include "animations/shared/SheetRenderer.hpp"
 #include "animations/swarm/SwarmRenderer.hpp"
 #include "config_generated.hpp"

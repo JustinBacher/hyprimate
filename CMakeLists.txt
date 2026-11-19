@@ -97,6 +97,7 @@ add_library(hyprimate SHARED
     src/StyleContract.cpp
     src/NativeFadeoutPass.cpp
     src/animations/shared/SheetRenderer.cpp
+    src/animations/shared/SolidFill.cpp
     src/workspace/WorkspaceCapture.cpp
     src/workspace/WorkspaceAnimation.cpp
     src/workspace/rotation/RotationRenderer.cpp
@@ -210,6 +211,11 @@ if(BUILD_TESTING)
     add_library(window-mesh-abi-tests OBJECT tests/WindowMeshAbiTests.cpp)
     target_include_directories(window-mesh-abi-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_link_libraries(window-mesh-abi-tests PRIVATE PkgConfig::HYPRLAND)
+
+    add_executable(sheet-mesh-tests tests/SheetMeshTests.cpp)
+    target_link_libraries(sheet-mesh-tests PRIVATE hyprimate-core)
+    target_include_directories(sheet-mesh-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    add_test(NAME sheet-mesh-tests COMMAND sheet-mesh-tests)
 
     add_executable(slot-pool-tests tests/SlotPoolTests.cpp)
     target_include_directories(slot-pool-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)

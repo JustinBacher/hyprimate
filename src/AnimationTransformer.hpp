@@ -17,7 +17,7 @@
 #include "StyleResources.hpp"
 #include "animations/cloth/ClothFlutter.hpp"
 #include "animations/liquid/LiquidMesh.hpp"
-#include "animations/liquid/SolidFill.hpp"
+#include "animations/shared/SolidFill.hpp"
 #include "animations/shared/Core.hpp"
 #include "animations/shared/SheetRenderer.hpp"
 #include "animations/swarm/SwarmRenderer.hpp"

@@ -4,7 +4,6 @@ target_sources(hyprimate-core PRIVATE
 )
 
 target_sources(hyprimate PRIVATE
-    src/animations/liquid/SolidFill.cpp
     src/animations/liquid/LiquidLiveStyle.cpp
     src/animations/liquid/LiquidCloseStyle.cpp
 )

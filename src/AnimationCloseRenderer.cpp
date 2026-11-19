@@ -36,7 +36,7 @@
 #include "animations/bubble/BubbleLiveState.hpp"
 #include "animations/liquid/LiquidMesh.hpp"
 #include "animations/liquid/LiquidPose.hpp"
-#include "animations/liquid/SolidFill.hpp"
+#include "animations/shared/SolidFill.hpp"
 #include "animations/shared/Core.hpp"
 #include "animations/shared/EdgeTransition.hpp"
 #include "animations/shared/SheetRenderer.hpp"

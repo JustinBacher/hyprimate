@@ -20,7 +20,7 @@
 #include "AnimationTransformer.hpp"
 #include "StyleTypes.hpp"
 #include "animations/liquid/LiquidMesh.hpp"
-#include "animations/liquid/SolidFill.hpp"
+#include "animations/shared/SolidFill.hpp"
 #include "animations/shared/EdgeTransition.hpp"
 #include "animations/shared/SheetRenderer.hpp"
 bool close_animation_enabled(const hyprimate::config::SConfig &config,

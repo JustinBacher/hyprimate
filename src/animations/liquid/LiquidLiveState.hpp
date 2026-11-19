@@ -21,6 +21,5 @@ struct SLiquidStyle {
     double displacement_gain = 1.0;
     // The grid is invalidated on pose changes; render buffers are reused each frame.
     mutable hyprimate::LiquidPoseGrid grid{};
-    std::vector<SMeshRenderVertex> vertices;
-    std::vector<SMeshRenderVertex> meniscus_vertices;
+    hyprimate::animation::MeshBuffers<SMeshRenderVertex> buffers{};
 };

@@ -7,6 +7,7 @@
 #include <optional>
 #include <vector>
 
+#include "WindowAnimationFacts.hpp"
 #include "animations/liquid/LiquidMesh.hpp"
 #include "animations/shared/Core.hpp"
 #include "animations/shared/EdgeTransition.hpp"
@@ -110,6 +111,17 @@ namespace hyprimate {
     // Box helpers matching the clipping and padding the liquid paths use.
     Box intersect_boxes(const Box &first, const Box &second) noexcept;
     void expand_box(Box &box, double padding) noexcept;
+
+    struct LiquidMeshGeometry {
+        std::optional<Box> visible;
+        std::optional<Box> meniscus;
+    };
+
+    // Logical geometry is separate from device rounding, which differs for live and close.
+    inline LiquidMeshGeometry liquid_mesh_geometry(const LiquidPose &pose, const Box &logical_box) {
+        return {.visible = liquid_visible_box(pose, logical_box),
+            .meniscus = liquid_meniscus_extents(pose, logical_box)};
+    }
     bool empty_box(const Box &box) noexcept;
 
     // Places the render mesh. source_device is the window in device px, output_device the target in
@@ -224,6 +236,30 @@ namespace hyprimate {
             PLACE(*output++, TANGENT_END, HEIGHT_END);
             PLACE(*output++, TANGENT_START, HEIGHT_START);
         }
+    }
+
+    // The caller supplies device-space clipping and the separately normalised meniscus box.
+    // Returned storage is borrowed from target and stays valid until its next fill.
+    template <animation::Vertex V>
+    animation::Mesh<V> fill_liquid_mesh(const LiquidPose &pose,
+        const animation::MeshTarget<V> &target,
+        LiquidPoseGrid &grid,
+        std::optional<Box> under_output,
+        animation::Rgba under_color,
+        std::optional<Box> clip) {
+        fill_liquid_render_mesh(pose, target.source, target.scale, target.output,
+            target.image_origin, target.image_size, grid, target.buffers.window);
+        animation::Mesh<V> result{};
+        result.window = &target.buffers.window;
+        if (under_output) {
+            fill_liquid_meniscus_mesh(pose, target.source, target.scale, *under_output,
+                target.buffers.under);
+            result.under = &target.buffers.under;
+            result.under_output = *under_output;
+            result.under_color = under_color;
+        }
+        result.clip = clip;
+        return result;
     }
 
 }  // namespace hyprimate

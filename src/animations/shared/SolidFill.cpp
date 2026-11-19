@@ -11,7 +11,7 @@
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/render/Texture.hpp>
 
-#include "animations/liquid/SolidFill.hpp"
+#include "animations/shared/SolidFill.hpp"
 
 namespace {
     constexpr int SOLID_SIZE = 4;

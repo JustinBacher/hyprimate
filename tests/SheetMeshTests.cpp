@@ -1,0 +1,84 @@
+#include <algorithm>
+#include <cmath>
+#include <utility>
+
+#include "Check.hpp"
+#include "animations/liquid/LiquidPose.hpp"
+#include "animations/shared/SheetMesh.hpp"
+
+namespace {
+    bool near(float first, double second) {
+        return std::abs(static_cast<double>(first) - second) < 1e-6;
+    }
+
+    void check_vertex(const hyprimate::animation::MeshVertex &vertex,
+        double pos_x, double pos_y, double tex_u, double tex_v) {
+        CHECK(near(vertex.x, pos_x));
+        CHECK(near(vertex.y, pos_y));
+        CHECK(near(vertex.u, tex_u));
+        CHECK(near(vertex.v, tex_v));
+    }
+}
+
+int main() {
+    using namespace hyprimate;
+    animation::MeshBuffers<animation::MeshVertex> buffers;
+    const animation::MeshTarget<animation::MeshVertex> TARGET{
+        .source = {.x = 10, .y = 20, .w = 112, .h = 56},
+        .output = {.x = 0, .y = 0, .w = 224, .h = 112},
+        .image_origin = {.x = 0, .y = 0}, .image_size = {.x = 224, .y = 112},
+        .scale = 1, .buffers = buffers};
+    SheetFrame frame;
+    flat_sheet(frame);
+    std::swap(frame.order[0], frame.order[1]);
+    frame.shade[1] = {-1.F, 0.F, 1.F};
+    const auto SHEET = fill_sheet_mesh(frame, TARGET, true, 0.75F);
+    CHECK(SHEET.window == &buffers.window);
+    CHECK(SHEET.shade == &buffers.shade);
+    CHECK(SHEET.opacity == 0.75F);
+    CHECK(buffers.window.size() == SHEET_VERTEX_COUNT);
+    CHECK(buffers.shade.size() == SHEET_VERTEX_COUNT);
+    // Triangle 1 precedes triangle 0; its corners are (1,0), (0,1), (1,1).
+    check_vertex(buffers.window[0], 12.0 / 224, 20.0 / 112, 12.0 / 224, 20.0 / 112);
+    check_vertex(buffers.window[1], 10.0 / 224, 21.0 / 112, 10.0 / 224, 21.0 / 112);
+    check_vertex(buffers.window[2], 12.0 / 224, 21.0 / 112, 12.0 / 224, 21.0 / 112);
+    check_vertex(buffers.window[3], 10.0 / 224, 20.0 / 112, 10.0 / 224, 20.0 / 112);
+    CHECK(near(buffers.shade[0].u, 1.5 / 256));
+    CHECK(near(buffers.shade[1].u, 128.5 / 256));
+    CHECK(near(buffers.shade[2].u, 255.5 / 256));
+    const auto *window_data = buffers.window.data();
+    const auto *shade_data = buffers.shade.data();
+    const auto UNSHADED = fill_sheet_mesh(frame, TARGET, false, 1.F);
+    CHECK(UNSHADED.shade == nullptr);
+    CHECK(buffers.window.data() == window_data);
+    CHECK(buffers.shade.data() == shade_data);
+
+    LiquidMesh liquid;
+    EdgeTransition transition;
+    LiquidPoseGrid grid;
+    const LiquidPose POSE{.mesh = liquid, .transition = transition};
+    const auto LIQUID = fill_liquid_mesh(POSE, TARGET, grid, std::nullopt, {}, std::nullopt);
+    CHECK(LIQUID.window == &buffers.window);
+    CHECK(LIQUID.under == nullptr);
+    CHECK(!LIQUID.clip);
+    CHECK(buffers.window.size() == LIQUID_RENDER_VERTEX_COUNT);
+    check_vertex(buffers.window[0], 10.0 / 224, 20.0 / 112, 10.0 / 224, 20.0 / 112);
+    check_vertex(buffers.window[1], 10.0 / 224, 21.75 / 112, 10.0 / 224, 21.75 / 112);
+    check_vertex(buffers.window[2], 13.5 / 224, 20.0 / 112, 13.5 / 224, 20.0 / 112);
+    window_data = buffers.window.data();
+    fill_liquid_mesh(POSE, TARGET, grid, std::nullopt, {}, std::nullopt);
+    CHECK(buffers.window.data() == window_data);
+    const Box UNDER_BOX{.x = 5, .y = 6, .w = 70, .h = 80};
+    const Box CLIP{.x = 1, .y = 2, .w = 3, .h = 4};
+    const auto WITH_UNDER = fill_liquid_mesh(POSE, TARGET, grid, UNDER_BOX,
+        {.r = 0.2F, .g = 0.3F, .b = 0.4F, .a = 0.5F}, CLIP);
+    CHECK(WITH_UNDER.under == &buffers.under);
+    CHECK(buffers.under.size() == LIQUID_MENISCUS_VERTEX_COUNT);
+    CHECK(WITH_UNDER.under_output.x == 5 && WITH_UNDER.under_output.h == 80);
+    CHECK(WITH_UNDER.under_color.r == 0.2F && WITH_UNDER.under_color.a == 0.5F);
+    CHECK(WITH_UNDER.clip && WITH_UNDER.clip->x == 1 && WITH_UNDER.clip->h == 4);
+    const auto *under_data = buffers.under.data();
+    fill_liquid_mesh(POSE, TARGET, grid, UNDER_BOX, {}, CLIP);
+    CHECK(buffers.under.data() == under_data);
+    return g_failures == 0 ? 0 : 1;
+}

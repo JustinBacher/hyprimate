@@ -10,8 +10,6 @@
 
 #include "animations/shared/SheetFrame.hpp"
 
-// Vertices per sheet mesh: three per triangle, SHEET_TRIANGLES triangles.
-inline constexpr std::size_t SHEET_VERTEX_COUNT = hyprimate::SHEET_TRIANGLES * 3;
 
 // Shade ramp for sheet lighting: a 256x1 premultiplied texture indexed by triangle shade. Texel 128
 // is fully transparent (neutral); lower texels are black shadow, higher texels are white highlight.
@@ -29,18 +27,6 @@ class CSheetShade {
 // logical pixels; the result is in the same space. Width and height are at least 1.
 CBox sheet_extents(const hyprimate::SheetFrame &frame, const CBox &logical_box);
 
-// Fills the window mesh (triangles in frame.order, uv into the source texture) and the shade mesh
-// (same positions, uv into the shade ramp). `source_device` is the rest window box in device pixels
-// and `output_device` is the output box in device pixels. Positions are normalised to the rest
-// size, so no scale is needed. Both vectors are resized to SHEET_VERTEX_COUNT only when their size
-// differs.
-void fill_sheet_meshes(const hyprimate::SheetFrame &frame,
-    const CBox &source_device,
-    const CBox &output_device,
-    hyprimate::Vec2 texture_origin,
-    hyprimate::Vec2 texture_size,
-    std::vector<SMeshRenderVertex> &window,
-    std::vector<SMeshRenderVertex> &shade);
 
 // Six vertices covering a unit box with uv equal to position. Draws a full-canvas texture as a
 // mesh.

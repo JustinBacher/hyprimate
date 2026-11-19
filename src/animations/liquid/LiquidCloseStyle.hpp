@@ -85,26 +85,20 @@ namespace close_style {
         auto extents = hyprimate::liquid_render_extents(pose, LOGICAL_BOX, style.grid);
         hyprimate::expand_box(extents, 16.0);
         record.extents_device = to_cbox(extents).scale(record.scale);
-        const auto MENISCUS = hyprimate::liquid_meniscus_extents(pose, LOGICAL_BOX);
+        const auto MENISCUS = hyprimate::liquid_mesh_geometry(pose, LOGICAL_BOX).meniscus;
         data.has_liquid = MENISCUS.has_value();
         if (MENISCUS) {
             data.liquid_device = to_box(to_cbox(*MENISCUS).scale(record.scale));
         }
-        hyprimate::fill_liquid_render_mesh(pose,
-            to_box(record.source_device),
-            record.scale,
-            to_box(record.extents_device),
-            Vec2{.x = 0.0, .y = 0.0},
-            Vec2{.x = record.snapshot_size.x, .y = record.snapshot_size.y},
-            style.grid,
-            style.vertices);
-        if (MENISCUS) {
-            hyprimate::fill_liquid_meniscus_mesh(pose,
-                to_box(record.source_device),
-                record.scale,
-                data.liquid_device,
-                style.meniscus_vertices);
-        }
+        const auto MESH = hyprimate::fill_liquid_mesh(pose,
+            hyprimate::animation::MeshTarget<SMeshRenderVertex>{
+                .source = to_box(record.source_device), .output = to_box(record.extents_device),
+                .image_origin = {.x = 0.0, .y = 0.0},
+                .image_size = {.x = record.snapshot_size.x, .y = record.snapshot_size.y},
+                .scale = record.scale, .buffers = style.buffers},
+            style.grid, MENISCUS ? std::optional{data.liquid_device} : std::nullopt,
+            {}, std::nullopt);
+        data.has_liquid = MESH.under != nullptr;
         data.vertices_stale = false;
     }
     inline void render(SLiquidStyle &style,
@@ -120,7 +114,7 @@ namespace close_style {
         CLiquidClosePassElement::SData data;
         data.tex = tex;
         data.box = project(record.extents_device, record.render_box, record.snapshot_size);
-        data.vertices = &style.vertices;
+        data.vertices = &style.buffers.window;
         data.alpha = record.source_alpha;
         data.scale = record.scale;
         CBox clip{0.0, 0.0, monitor->m_transformedSize.x, monitor->m_transformedSize.y};
@@ -139,7 +133,7 @@ namespace close_style {
         }
         data.damage = CRegion{clip};
         data.solid = resources.close_solid.texture();
-        data.liquid = close.has_liquid && data.solid ? &style.meniscus_vertices : nullptr;
+        data.liquid = close.has_liquid && data.solid ? &style.buffers.under : nullptr;
         data.liquid_box =
             project(to_cbox(close.liquid_device), record.render_box, record.snapshot_size);
         Render::IHyprRenderer::addPassElement(
@@ -224,7 +218,7 @@ namespace close_style {
         CLiquidClosePassElement::SData data;
         data.tex = tex;
         data.box = project(record.extents_device, fadeout->renderBox(), record.snapshot_size);
-        data.vertices = &style.vertices;
+        data.vertices = &style.buffers.window;
         data.alpha = fadeout->alpha();
         data.scale = record.scale;
         data.damage = std::move(damage);
