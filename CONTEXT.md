@@ -1,5 +1,8 @@
 # hypr-bubble domain glossary
 
+**Window animation**: everything one window does, from its opening, through any movement, to the end of its close, as one continuous state. It may outlive the window: once the window is gone, its close carries on from wherever the animation was (mid-settle, mid-opening) until it finishes.
+_Avoid_: live (as opposed to closing), lifecycle, phase.
+
 **Movement**: deformation of a window while it is dragged or moved. Independent of opening and closing.
 
 **Transition**: a window's open or close animation. Each direction (open, close) has its own **Transition settings**: enabled, style, and the per-style options; a few settings exist for only one direction.

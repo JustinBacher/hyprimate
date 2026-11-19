@@ -1,0 +1,5 @@
+# Core animation code and its tests are compositor-independent
+
+Animation models, materials and their tests never depend on a running compositor. Compositor specifics, such as Hyprland's `CShader` program building, its shadowed GL state (`g_pHyprOpenGL` setters), its hooks, and its window and fadeout types, live only in the compositor-facing code. Production programs come from `CShader`. The GPU tests instead render the same GLSL sources through a minimal offscreen (surfaceless EGL) harness and check pixels. A small nested-Hyprland suite covers the production `CShader` path, GL state synchronisation and compositor interaction.
+
+We accept that the test harness builds programs differently from production, in exchange for tests that run without Hyprland and a core that could support another compositor (e.g. Niri) without restructuring models or tests. We rejected maintaining our own shader-management code in production solely to share it with tests, and rejected adapter layers introduced only for testing.
