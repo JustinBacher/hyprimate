@@ -29,13 +29,13 @@ struct RotationStyle {
         SStyleSettingsCache<config::SWorkspaceRotation, Prepared> settings;
         bool ready = false;
     };
-    static double duration(const Resources &resources, const JourneyEndpoint &, const JourneyEndpoint &) {
+    static double duration(const Resources &resources, const JourneyEndpoint & /*from*/, const JourneyEndpoint & /*to*/) {
         return resources.settings.prepared.duration;
     }
-    static constexpr double live_boundary(const Resources &) { return 1.0; }
-    static constexpr bool needs_individual_windows(const Resources &) { return false; }
-    static constexpr bool uses_native_hud(const Resources &) { return false; }
-    static constexpr bool uses_workspace_previews(const Resources &) { return false; }
+    static constexpr double live_boundary(const Resources & /*resources*/) { return 1.0; }
+    static constexpr bool needs_individual_windows(const Resources & /*resources*/) { return false; }
+    static constexpr bool uses_native_hud(const Resources & /*resources*/) { return false; }
+    static constexpr bool uses_workspace_previews(const Resources & /*resources*/) { return false; }
     static bool draw(Resources &resources, Render::CRenderContext &ctx, const WorkspaceFrame &frame,
         double progress, Direction direction, bool matching_wallpaper) {
         return resources.renderer.draw(ctx, frame.source.composite, frame.destination.composite, frame.presentation,

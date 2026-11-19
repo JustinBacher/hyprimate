@@ -269,6 +269,8 @@ namespace {
         ~ScopedCapture() { --m_depth; }
         ScopedCapture(const ScopedCapture &) = delete;
         ScopedCapture &operator=(const ScopedCapture &) = delete;
+        ScopedCapture(ScopedCapture &&) = delete;
+        ScopedCapture &operator=(ScopedCapture &&) = delete;
       private:
         int &m_depth;
     };
@@ -308,7 +310,7 @@ class CWorkspaceAnimation::Impl {
         [[nodiscard]] bool hud_safe() const;
         [[nodiscard]] bool capture(TurnKind kind, const hyprimate::workspace::TurnComposition<Workspace> &composition) const;
         [[nodiscard]] double duration(const hyprimate::workspace::JourneyEndpoint &from,
-            const hyprimate::workspace::JourneyEndpoint &to, double base) const;
+            const hyprimate::workspace::JourneyEndpoint &destination, double base) const;
         [[nodiscard]] double live_boundary() const;
         [[nodiscard]] bool layered() const {
             return owner->m_layered;
@@ -417,8 +419,10 @@ class CWorkspaceAnimation::Impl {
         std::uint32_t order = 0;
         if (ordered && NUMBER) {
             for (const auto &candidate : State::Workspace::state()->workspaces()) {
-                const auto ID = candidate->numberedID();
-                if (ID && *ID < *NUMBER && candidate->type() != Workspace::eWorkspaceType::SPECIAL) ++order;
+                const auto NUMBER_ID = candidate->numberedID();
+                if (NUMBER_ID && *NUMBER_ID < *NUMBER && candidate->type() != Workspace::eWorkspaceType::SPECIAL) {
+                    ++order;
+                }
             }
         }
         std::uint64_t placement = 0;
@@ -449,6 +453,7 @@ class CWorkspaceAnimation::Impl {
 
     bool install(std::string &error);
     void shutdown();
+    void on_render_stage(const Event::SRenderStageEvent &event);
     void configure(const hyprimate::config::SWorkspaceSettings &settings);
     void configure_style(bool enabled, hyprimate::config::WorkspaceStyle kind, bool wallpaper,
         double duration, std::string_view curve_name);
@@ -489,6 +494,8 @@ class CWorkspaceAnimation::Impl {
     MonitorState *state(const PHLMONITOR &monitor);
     MonitorState &ensure_state(const PHLMONITOR &monitor);
     bool ensure_buffers(MonitorState &entry, const PHLMONITOR &monitor);
+    hyprimate::workspace::CaptureBufferFacts buffer_facts(const MonitorState &entry, const PHLMONITOR &monitor);
+    static void release_floating_tail(MonitorState &entry, hyprimate::workspace::WorkspaceCapture &frame);
     bool capture(MonitorState &entry,
         const PHLMONITOR &monitor,
         const PHLWORKSPACE &workspace,
@@ -501,7 +508,15 @@ class CWorkspaceAnimation::Impl {
         TurnKind kind,
         hyprimate::workspace::WorkspaceCapture &frame,
         double mix);
-    void release_blend(MonitorState &entry, MonitorState::CaptureBlend &blend);
+    static void release_blend(MonitorState &entry, MonitorState::CaptureBlend &blend);
+    struct IdentityScan {
+        MonitorState *state;
+        std::vector<WallpaperIdentity> *identity;
+        Vector2D position;
+        float alpha = 1.F;
+        std::size_t plane = 0;
+    };
+    static void scan_wallpaper_surface(const SP<CWLSurfaceResource> &child, const Vector2D &offset, void *opaque);
     void capture_wallpaper_identity(MonitorState &entry, const PHLMONITOR &monitor,
         std::vector<WallpaperIdentity> &identity, bool shell = false) const;
     void remember_wallpaper(const PHLMONITOR &monitor,
@@ -684,6 +699,9 @@ namespace {
         return true;
     }
 
+    // Hook trampolines below must match Hyprland's original signatures exactly (ABI), so their
+    // smart-pointer and optional parameters stay by value.
+    // NOLINTBEGIN(performance-unnecessary-value-param)
     SP<Render::IFramebuffer> hook_blur(Render::IHyprRenderer *renderer,
         Render::CRenderContext &ctx, SP<Render::IFramebuffer> source, float strength,
         const CRegion &damage, const Render::SBlurContext &context) {
@@ -701,7 +719,9 @@ namespace {
                 return nullptr;
             }
             const auto RESULT = function(renderer, ctx, BACKDROP, strength, damage, context);
-            if (!RESULT) manager->m_capturing->capture_failed = true;
+            if (!RESULT) {
+                manager->m_capturing->capture_failed = true;
+            }
             return RESULT;
         }
         return function(renderer, ctx, source, strength, damage, context);
@@ -711,8 +731,10 @@ namespace {
         PHLLS layer, PHLMONITOR monitor, const Time::steady_tp &now,
         bool popups, bool lockscreen, bool workspace_scene) {
         const auto *manager = active();
-        const auto ORIGINAL = original<LayerFn>(manager ? manager->m_layer_hook : nullptr);
-        if (!ORIGINAL) return;
+        const auto ORIGINAL = original<LayerFn>(manager != nullptr ? manager->m_layer_hook : nullptr);
+        if (ORIGINAL == nullptr) {
+            return;
+        }
         // Capture only the world. Native layer drawing bakes blur RGB into the
         // target before coverage alpha is recorded; subtracting wallpaper later
         // cannot make that old blur sample the animated planetary scene.
@@ -859,6 +881,7 @@ namespace {
         }
         return BEGUN;
     }
+    // NOLINTEND(performance-unnecessary-value-param)
 
     void hook_gesture_end(CUnifiedWorkspaceSwipeGesture *gesture) {
         auto *manager = active();
@@ -963,6 +986,8 @@ namespace {
         }
     }
 
+    // Hook trampoline: must match Hyprland's original signature exactly (ABI).
+    // NOLINTBEGIN(performance-unnecessary-value-param)
     void hook_window(Render::IHyprRenderer *renderer, Render::CRenderContext &ctx,
         PHLWINDOW window, PHLMONITOR monitor, const Render::SWindowRenderPresentation &presentation,
         const Time::steady_tp &now, bool decorate, Render::eRenderPassMode pass,
@@ -1039,6 +1064,7 @@ namespace {
             BOUNDARY(floating->layer.accumulated, crop);
         }
     }
+    // NOLINTEND(performance-unnecessary-value-param)
 
     // Pass analysis has already determined native optimized-blur demand when
     // draw runs. Refresh its real compositor cache here, never before the scene
@@ -1214,54 +1240,61 @@ bool CWorkspaceAnimation::Impl::install(std::string &error) {
         }
     }
     m_wallpaper_listener = Event::bus()->m_events.render.stage.listen(
-        [this](const Event::SRenderStageEvent &event) {
-            if (event.stage == RENDER_POST && event.monitor && event.monitor->m_enabled &&
-                event.monitor->m_output && event.monitor->m_drmFormat != DRM_FORMAT_INVALID &&
-                event.monitor->m_transformedSize.x > 0 && event.monitor->m_transformedSize.y > 0) {
-                std::erase_if(m_ready_monitors, [](const auto &weak) { return weak.expired(); });
-                if (!ready(event.monitor)) m_ready_monitors.emplace_back(event.monitor);
-            }
-            if (!event.context || m_capturing == nullptr || !m_capture_wallpaper || m_capture_depth == 0) return;
-            auto &entry = *m_capturing;
-            auto *frame = entry.capturing_frame;
-            const auto BOUNDARY = [&](const SP<Render::IFramebuffer> &target) {
-                Render::IHyprRenderer::addPassElement(event.context->get(),
-                    makeUnique<CWorkspaceWallpaperPass>(target, entry.wallpaper_captured, &entry.capture_failed));
-            };
-            std::optional<hyprimate::workspace::CaptureBoundary> boundary;
-            if (event.stage == RENDER_POST_WALLPAPER) {
-                boundary = hyprimate::workspace::CaptureBoundary::Wallpaper;
-            } else if (event.stage == RENDER_PRE_WINDOWS) {
-                boundary = hyprimate::workspace::CaptureBoundary::BeforeWindows;
-            } else if (event.stage == RENDER_POST_WINDOWS) {
-                boundary = hyprimate::workspace::CaptureBoundary::AfterWindows;
-            }
-            if (boundary.has_value()) {
-                const auto PLAN = entry.capture_policy.boundary(*boundary);
-                for (std::size_t index = 0; index < PLAN.count; ++index) {
-                    switch (PLAN.planes[index]) {
-                        case hyprimate::workspace::CapturePlane::Wallpaper:
-                            BOUNDARY(m_capture_wallpaper);
-                            break;
-                        case hyprimate::workspace::CapturePlane::Bottom:
-                            BOUNDARY(frame->bottom.accumulated);
-                            break;
-                        case hyprimate::workspace::CapturePlane::Windows:
-                            BOUNDARY(frame->windows.accumulated);
-                            break;
-                        case hyprimate::workspace::CapturePlane::TopBackdrop:
-                            BOUNDARY(frame->top.backdrop);
-                            break;
-                    }
-                }
-            }
-        });
-    auto changed = [this](PHLWORKSPACEREF) { ++m_inventory_revision; };
+        [this](const Event::SRenderStageEvent &event) { on_render_stage(event); });
+    const auto CHANGED = [this](const PHLWORKSPACEREF &) { ++m_inventory_revision; };
     auto &workspaces = Event::bus()->m_events.workspace;
-    m_inventory_listeners = {workspaces.createdLate.listen(changed), workspaces.removed.listen(changed),
-        workspaces.renamed.listen(changed), workspaces.moveToMonitor.listen(
-            [this](PHLWORKSPACE, PHLMONITOR) { ++m_inventory_revision; })};
+    m_inventory_listeners = {workspaces.createdLate.listen(CHANGED), workspaces.removed.listen(CHANGED),
+        workspaces.renamed.listen(CHANGED), workspaces.moveToMonitor.listen(
+            [this](const PHLWORKSPACE &, const PHLMONITOR &) { ++m_inventory_revision; })};
     return true;
+}
+
+void CWorkspaceAnimation::Impl::on_render_stage(const Event::SRenderStageEvent &event) {
+    if (event.stage == RENDER_POST && event.monitor && event.monitor->m_enabled &&
+        event.monitor->m_output && event.monitor->m_drmFormat != DRM_FORMAT_INVALID &&
+        event.monitor->m_transformedSize.x > 0 && event.monitor->m_transformedSize.y > 0) {
+        std::erase_if(m_ready_monitors, [](const auto &weak) { return weak.expired(); });
+        if (!ready(event.monitor)) {
+            m_ready_monitors.emplace_back(event.monitor);
+        }
+    }
+    if (!event.context || m_capturing == nullptr || !m_capture_wallpaper || m_capture_depth == 0) {
+        return;
+    }
+    auto &entry = *m_capturing;
+    const auto *frame = entry.capturing_frame;
+    const auto BOUNDARY = [&](const SP<Render::IFramebuffer> &target) {
+        Render::IHyprRenderer::addPassElement(event.context->get(),
+            makeUnique<CWorkspaceWallpaperPass>(target, entry.wallpaper_captured, &entry.capture_failed));
+    };
+    std::optional<hyprimate::workspace::CaptureBoundary> boundary;
+    if (event.stage == RENDER_POST_WALLPAPER) {
+        boundary = hyprimate::workspace::CaptureBoundary::Wallpaper;
+    } else if (event.stage == RENDER_PRE_WINDOWS) {
+        boundary = hyprimate::workspace::CaptureBoundary::BeforeWindows;
+    } else if (event.stage == RENDER_POST_WINDOWS) {
+        boundary = hyprimate::workspace::CaptureBoundary::AfterWindows;
+    }
+    if (!boundary.has_value()) {
+        return;
+    }
+    const auto PLAN = entry.capture_policy.boundary(*boundary);
+    for (std::size_t index = 0; index < PLAN.count; ++index) {
+        switch (PLAN.planes[index]) {
+            case hyprimate::workspace::CapturePlane::Wallpaper:
+                BOUNDARY(m_capture_wallpaper);
+                break;
+            case hyprimate::workspace::CapturePlane::Bottom:
+                BOUNDARY(frame->bottom.accumulated);
+                break;
+            case hyprimate::workspace::CapturePlane::Windows:
+                BOUNDARY(frame->windows.accumulated);
+                break;
+            case hyprimate::workspace::CapturePlane::TopBackdrop:
+                BOUNDARY(frame->top.backdrop);
+                break;
+        }
+    }
 }
 
 void CWorkspaceAnimation::Impl::shutdown() {
@@ -1314,14 +1347,18 @@ void CWorkspaceAnimation::Impl::configure(const hyprimate::config::SWorkspaceSet
         if (settings.style != Style::KIND) {
             return;
         }
-        const auto previous = resources.settings.last;
+        const auto PREVIOUS = resources.settings.last;
         Style::prepare(resources, settings);
-        if (previous != resources.settings.last || m_style_kind != Style::KIND || !settings.enabled) clear();
+        if (PREVIOUS != resources.settings.last || m_style_kind != Style::KIND || !settings.enabled) {
+            clear();
+        }
         m_layered = Style::LAYERED;
         m_individual_windows = Style::needs_individual_windows(resources);
         m_native_hud = Style::uses_native_hud(resources);
         m_uses_previews = settings.enabled && Style::uses_workspace_previews(resources);
-        if (!m_uses_previews) m_observed.clear();
+        if (!m_uses_previews) {
+            m_observed.clear();
+        }
         const auto &prepared = resources.settings.prepared;
         configure_style(settings.enabled, Style::KIND, Style::USES_WALLPAPER, prepared.duration, prepared.curve);
     });
@@ -1388,7 +1425,9 @@ CWorkspaceAnimation::Impl::MonitorState &CWorkspaceAnimation::Impl::ensure_state
 
 SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::allocate_capture(
     MonitorState &entry, const PHLMONITOR &monitor, std::optional<Vector2D> size) {
-    if (!g_pHyprRenderer || !ready(monitor)) return nullptr;
+    if (!g_pHyprRenderer || !ready(monitor)) {
+        return nullptr;
+    }
     const auto SIZE = size.value_or(monitor->m_transformedSize);
     const auto FORMAT = capture_format(monitor);
     const auto BYTES = static_cast<std::uint64_t>(SIZE.x) * static_cast<std::uint64_t>(SIZE.y) *
@@ -1404,8 +1443,9 @@ SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::allocate_capture(
         return nullptr;
     }
     auto framebuffer = g_pHyprRenderer->createFB("hyprimate workspace capture");
-    if (!framebuffer || !framebuffer->alloc(static_cast<int>(SIZE.x), static_cast<int>(SIZE.y),
-            FORMAT)) return nullptr;
+    if (!framebuffer || !framebuffer->alloc(static_cast<int>(SIZE.x), static_cast<int>(SIZE.y), FORMAT)) {
+        return nullptr;
+    }
     framebuffer->setImageDescription(monitor->workBufferImageDescription());
     entry.allocated_bytes += BYTES;
     return framebuffer;
@@ -1418,48 +1458,50 @@ bool CWorkspaceAnimation::Impl::ready(const PHLMONITOR &monitor) const {
         std::ranges::any_of(m_ready_monitors, [&](const auto &weak) { return weak.lock() == monitor; });
 }
 
+hyprimate::workspace::CaptureBufferFacts CWorkspaceAnimation::Impl::buffer_facts(
+    const MonitorState &entry, const PHLMONITOR &monitor) {
+    hyprimate::workspace::CaptureBufferFacts facts;
+    facts.native_ready = monitor->m_activeWorkspace != nullptr &&
+                         g_pHyprRenderer->type() == Render::IHyprRenderer::RT_GL &&
+                         g_pHyprRenderer->glBackend() != nullptr;
+    facts.compatible =
+        entry.source == nullptr ||
+        (entry.logical_size == monitor->m_size && entry.scale == monitor->m_scale &&
+            entry.transform == monitor->m_transform &&
+            entry.output_format == monitor->m_drmFormat &&
+            entry.source->m_drmFormat == capture_format(monitor) &&
+            entry.source->imageDescription() == monitor->workBufferImageDescription());
+    facts.scene_safe = TurnPort::scene_safe();
+    facts.hud_safe = entry.port.hud_safe();
+    const auto *const ACTIVE_TURN = turn(monitor);
+    facts.active = ACTIVE_TURN != nullptr && ACTIVE_TURN->active();
+    const auto USABLE = [&](const SP<Render::IFramebuffer> &framebuffer) {
+        return framebuffer != nullptr && framebuffer->isAllocated() &&
+               framebuffer->m_size == monitor->m_transformedSize &&
+               framebuffer->getTexture() != nullptr;
+    };
+    facts.base = {USABLE(entry.source),
+        USABLE(entry.destination),
+        USABLE(entry.presentation),
+        USABLE(entry.source_wallpaper),
+        USABLE(entry.destination_wallpaper),
+        USABLE(entry.opaque_backdrop)};
+    facts.planes = {USABLE(entry.source_frame.bottom.accumulated),
+        USABLE(entry.source_frame.windows.accumulated),
+        USABLE(entry.source_frame.top.backdrop),
+        USABLE(entry.destination_frame.bottom.accumulated),
+        USABLE(entry.destination_frame.windows.accumulated),
+        USABLE(entry.destination_frame.top.backdrop)};
+    return facts;
+}
+
 bool CWorkspaceAnimation::Impl::ensure_buffers(MonitorState &entry, const PHLMONITOR &monitor) {
     // resources() is lazy and fatal on an unconfigured output. A completed native
     // POST frame, not resources(), is the readiness proof during connect/disconnect.
     if (g_pHyprRenderer == nullptr || !ready(monitor)) {
         return false;
     }
-    const auto FACTS = [&] {
-        hyprimate::workspace::CaptureBufferFacts facts;
-        facts.native_ready = monitor->m_activeWorkspace != nullptr &&
-                             g_pHyprRenderer->type() == Render::IHyprRenderer::RT_GL &&
-                             g_pHyprRenderer->glBackend() != nullptr;
-        facts.compatible =
-            entry.source == nullptr ||
-            (entry.logical_size == monitor->m_size && entry.scale == monitor->m_scale &&
-                entry.transform == monitor->m_transform &&
-                entry.output_format == monitor->m_drmFormat &&
-                entry.source->m_drmFormat == capture_format(monitor) &&
-                entry.source->imageDescription() == monitor->workBufferImageDescription());
-        facts.scene_safe = entry.port.scene_safe();
-        facts.hud_safe = entry.port.hud_safe();
-        const auto *const ACTIVE_TURN = turn(monitor);
-        facts.active = ACTIVE_TURN != nullptr && ACTIVE_TURN->active();
-        const auto USABLE = [&](const SP<Render::IFramebuffer> &framebuffer) {
-            return framebuffer != nullptr && framebuffer->isAllocated() &&
-                   framebuffer->m_size == monitor->m_transformedSize &&
-                   framebuffer->getTexture() != nullptr;
-        };
-        facts.base = {USABLE(entry.source),
-            USABLE(entry.destination),
-            USABLE(entry.presentation),
-            USABLE(entry.source_wallpaper),
-            USABLE(entry.destination_wallpaper),
-            USABLE(entry.opaque_backdrop)};
-        facts.planes = {USABLE(entry.source_frame.bottom.accumulated),
-            USABLE(entry.source_frame.windows.accumulated),
-            USABLE(entry.source_frame.top.backdrop),
-            USABLE(entry.destination_frame.bottom.accumulated),
-            USABLE(entry.destination_frame.windows.accumulated),
-            USABLE(entry.destination_frame.top.backdrop)};
-        return facts;
-    };
-    const auto PLAN = hyprimate::workspace::capture_buffer_plan(FACTS(), capture_features());
+    const auto PLAN = hyprimate::workspace::capture_buffer_plan(buffer_facts(entry, monitor), capture_features());
     if (PLAN == hyprimate::workspace::CaptureBufferAction::Reject) {
         return false;
     }
@@ -1498,7 +1540,7 @@ bool CWorkspaceAnimation::Impl::ensure_buffers(MonitorState &entry, const PHLMON
         PREPARE(entry.source_frame, entry.source, entry.source_wallpaper);
         PREPARE(entry.destination_frame, entry.destination, entry.destination_wallpaper);
     }
-    if (hyprimate::workspace::capture_buffer_plan(FACTS(), capture_features()) !=
+    if (hyprimate::workspace::capture_buffer_plan(buffer_facts(entry, monitor), capture_features()) !=
         hyprimate::workspace::CaptureBufferAction::Reuse) {
         return false;
     }
@@ -1526,71 +1568,87 @@ bool CWorkspaceAnimation::Impl::ensure_buffers(MonitorState &entry, const PHLMON
     return ready;
 }
 
+void CWorkspaceAnimation::Impl::scan_wallpaper_surface(
+    const SP<CWLSurfaceResource> &child, const Vector2D &offset, void *opaque) {
+    const auto &args = *static_cast<IdentityScan *>(opaque);
+    if (!child->m_current.texture) {
+        return;
+    }
+    auto found = std::ranges::find_if(args.state->wallpaper_resources,
+        [&](const auto &item) { return item->surface.lock() == child; });
+    if (found == args.state->wallpaper_resources.end()) {
+        auto resource = std::make_unique<WallpaperResource>();
+        resource->surface = child;
+        auto *tracked = resource.get();
+        resource->commit = child->m_events.commit.listen([tracked] {
+            const auto SURFACE = tracked->surface.lock();
+            if (!SURFACE) {
+                return;
+            }
+            const auto &bits = SURFACE->m_current.updated.bits;
+            // SHM surfaces reuse their texture object; identity must include content
+            // commits, but not frame callbacks or input-only state changes.
+            if (bits.buffer || bits.damage || bits.viewport || bits.transform ||
+                bits.scale || bits.offset || bits.alphaModifier) {
+                ++tracked->generation;
+            }
+        });
+        args.state->wallpaper_resources.push_back(std::move(resource));
+        found = std::prev(args.state->wallpaper_resources.end());
+    }
+    auto &tracked = **found;
+    const CBox GEOMETRY{args.position + offset, child->m_current.size};
+    if (tracked.geometry && (tracked.geometry->x != GEOMETRY.x || tracked.geometry->y != GEOMETRY.y ||
+        tracked.geometry->width != GEOMETRY.width || tracked.geometry->height != GEOMETRY.height ||
+        tracked.alpha != args.alpha || tracked.plane != args.plane)) {
+        ++tracked.generation;
+    }
+    tracked.geometry = GEOMETRY;
+    tracked.alpha = args.alpha;
+    tracked.plane = args.plane;
+    args.identity->push_back({.texture = child->m_current.texture, .generation = tracked.generation});
+}
+
 void CWorkspaceAnimation::Impl::capture_wallpaper_identity(MonitorState &entry,
     const PHLMONITOR &monitor, std::vector<WallpaperIdentity> &identity, bool shell) const {
     identity.clear();
     std::erase_if(entry.wallpaper_resources, [](const auto &item) { return item->surface.expired(); });
-    struct IdentityData {
-        MonitorState *state;
-        std::vector<WallpaperIdentity> *identity;
-        Vector2D position;
-        float alpha = 1.F;
-        std::size_t plane = 0;
-    } identity_data{.state = &entry, .identity = &identity, .position = {}};
+    IdentityScan scan{.state = &entry, .identity = &identity, .position = {}};
     if (!m_uses_wallpaper) {
         return;
     }
     for (std::size_t layer = 0; layer < monitor->m_layerSurfaceLayers.size(); ++layer) {
-      if (!shell && layer != ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND) continue;
-      if (m_native_hud && layer != ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND) continue;
-      for (const auto &weak : monitor->m_layerSurfaceLayers[layer]) {
-        const auto LAYER = weak.lock();
-        const auto SURFACE = LAYER && LAYER->mapped() ? LAYER->resource() : nullptr;
-        if (!SURFACE) {
+        if (layer != ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND && (!shell || m_native_hud)) {
             continue;
         }
-        identity_data.position = LAYER->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
-        identity_data.alpha = LAYER->alpha()[Desktop::View::LS_ALPHA_FADE]->value();
-        identity_data.plane = layer;
-        SURFACE->breadthfirst([](SP<CWLSurfaceResource> child, const Vector2D &offset, void *opaque) {
-            const auto &args = *static_cast<IdentityData *>(opaque);
-            if (!child->m_current.texture) {
-                return;
+        for (const auto &weak : monitor->m_layerSurfaceLayers[layer]) {
+            const auto LAYER = weak.lock();
+            const auto SURFACE = LAYER && LAYER->mapped() ? LAYER->resource() : nullptr;
+            if (!SURFACE) {
+                continue;
             }
-            auto found = std::ranges::find_if(args.state->wallpaper_resources,
-                [&](const auto &item) { return item->surface.lock() == child; });
-            if (found == args.state->wallpaper_resources.end()) {
-                auto resource = std::make_unique<WallpaperResource>();
-                resource->surface = child;
-                auto *tracked = resource.get();
-                resource->commit = child->m_events.commit.listen([tracked] {
-                    const auto SURFACE = tracked->surface.lock();
-                    if (!SURFACE) {
-                        return;
-                    }
-                    const auto &bits = SURFACE->m_current.updated.bits;
-                    // SHM surfaces reuse their texture object; identity must include content
-                    // commits, but not frame callbacks or input-only state changes.
-                    if (bits.buffer || bits.damage || bits.viewport || bits.transform ||
-                        bits.scale || bits.offset || bits.alphaModifier) {
-                        ++tracked->generation;
-                    }
-                });
-                args.state->wallpaper_resources.push_back(std::move(resource));
-                found = std::prev(args.state->wallpaper_resources.end());
-            }
-            auto &tracked = **found;
-            const CBox GEOMETRY{args.position + offset, child->m_current.size};
-            if (tracked.geometry && (tracked.geometry->x != GEOMETRY.x || tracked.geometry->y != GEOMETRY.y ||
-                tracked.geometry->width != GEOMETRY.width || tracked.geometry->height != GEOMETRY.height ||
-                tracked.alpha != args.alpha || tracked.plane != args.plane)) ++tracked.generation;
-            tracked.geometry = GEOMETRY;
-            tracked.alpha = args.alpha;
-            tracked.plane = args.plane;
-            args.identity->push_back({.texture = child->m_current.texture, .generation = (*found)->generation});
-        }, &identity_data);
+            scan.position = LAYER->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+            scan.alpha = LAYER->alpha()[Desktop::View::LS_ALPHA_FADE]->value();
+            scan.plane = layer;
+            SURFACE->breadthfirst(scan_wallpaper_surface, &scan);
+        }
     }
+}
+
+void CWorkspaceAnimation::Impl::release_floating_tail(MonitorState &entry, hyprimate::workspace::WorkspaceCapture &frame) {
+    if (!frame.floating || frame.floating->size() <= entry.floating_used) {
+        return;
     }
+    const auto RELEASE = [&](const SP<Render::IFramebuffer> &target) {
+        if (target) {
+            entry.allocated_bytes -= framebuffer_bytes(target);
+        }
+    };
+    for (std::size_t index = entry.floating_used; index < frame.floating->size(); ++index) {
+        RELEASE((*frame.floating)[index].layer.accumulated);
+        RELEASE((*frame.floating)[index].layer.backdrop);
+    }
+    frame.floating->resize(entry.floating_used);
 }
 
 bool CWorkspaceAnimation::Impl::capture(MonitorState &entry,
@@ -1603,9 +1661,13 @@ bool CWorkspaceAnimation::Impl::capture(MonitorState &entry,
     }
     entry.capture_policy = hyprimate::workspace::CaptureSession{capture_features()};
     for (const auto &fadeout : Desktop::fadingOutState()->fadeouts()) {
-        if (fadeout->monitor().lock() != monitor || fadeout->done() || fadeout->alpha() <= 0.F) continue;
+        if (fadeout->monitor().lock() != monitor || fadeout->done() || fadeout->alpha() <= 0.F) {
+            continue;
+        }
         const auto SOURCE = fadeout->source();
-        if (SOURCE.type != Desktop::eFadeoutSource::WINDOW) continue;
+        if (SOURCE.type != Desktop::eFadeoutSource::WINDOW) {
+            continue;
+        }
         const bool SELECTED = inactive
             ? Render::sceneSelectsFadeout(Render::eSceneMode::WORKSPACE_WITH_SHELL, SOURCE.type,
                 SOURCE.workspace.lock() == workspace, SOURCE.pinned)
@@ -1656,22 +1718,13 @@ bool CWorkspaceAnimation::Impl::capture(MonitorState &entry,
     if (m_uses_wallpaper) {
         m_capture_wallpaper = target == entry.source ? entry.source_wallpaper : entry.destination_wallpaper;
     }
-    const ScopedCapture capture_scope{m_capture_depth};
+    const ScopedCapture CAPTURE_SCOPE{m_capture_depth};
     const bool CAPTURED = hyprimate::workspace::capture_workspace(
         *g_pHyprRenderer, m_begin_render, monitor, target, RESOURCES, kind, DRAW, &data);
     m_capturing = nullptr;
     m_capture_wallpaper.reset();
     entry.capturing_frame = nullptr;
-    if (frame.floating && frame.floating->size() > entry.floating_used) {
-        for (std::size_t i = entry.floating_used; i < frame.floating->size(); ++i) {
-            const auto RELEASE = [&](const SP<Render::IFramebuffer> &target) {
-                if (target) entry.allocated_bytes -= framebuffer_bytes(target);
-            };
-            RELEASE((*frame.floating)[i].layer.accumulated);
-            RELEASE((*frame.floating)[i].layer.backdrop);
-        }
-        frame.floating->resize(entry.floating_used);
-    }
+    release_floating_tail(entry, frame);
     return entry.capture_policy.complete({.native_captured = CAPTURED && !entry.capture_failed,
         .wallpaper_captured = entry.wallpaper_captured});
 }
@@ -1680,16 +1733,24 @@ void CWorkspaceAnimation::Impl::release_blend(MonitorState &entry, MonitorState:
     if (blend.stale) {
         const auto &old = *blend.stale;
         const auto RELEASE = [&](const SP<Render::IFramebuffer> &target) {
-            if (target) entry.allocated_bytes -= framebuffer_bytes(target);
+            if (target) {
+                entry.allocated_bytes -= framebuffer_bytes(target);
+            }
         };
         RELEASE(old.composite);
         RELEASE(old.wallpaper);
         RELEASE(old.bottom.accumulated);
-        if (old.windows.accumulated != old.bottom.accumulated) RELEASE(old.windows.accumulated);
-        if (old.top.backdrop != old.windows.accumulated) RELEASE(old.top.backdrop);
-        if (old.floating) for (const auto &window : *old.floating) {
-            RELEASE(window.layer.accumulated);
-            RELEASE(window.layer.backdrop);
+        if (old.windows.accumulated != old.bottom.accumulated) {
+            RELEASE(old.windows.accumulated);
+        }
+        if (old.top.backdrop != old.windows.accumulated) {
+            RELEASE(old.top.backdrop);
+        }
+        if (old.floating) {
+            for (const auto &window : *old.floating) {
+                RELEASE(window.layer.accumulated);
+                RELEASE(window.layer.backdrop);
+            }
         }
     }
     blend.presentation.reset();
@@ -1711,14 +1772,22 @@ bool CWorkspaceAnimation::Impl::begin_refresh(MonitorState &entry, const PHLMONI
         old.endpoint = live.endpoint;
         old.layered = live.layered;
         if (!CLONE(live.composite, old.composite) || !CLONE(live.wallpaper, old.wallpaper) ||
-            !CLONE(live.bottom.accumulated, old.bottom.accumulated)) return false;
+            !CLONE(live.bottom.accumulated, old.bottom.accumulated)) {
+            return false;
+        }
         old.bottom.backdrop = old.wallpaper;
         old.windows.backdrop = old.bottom.accumulated;
         old.top.accumulated = old.composite;
-        if (live.windows.accumulated == live.bottom.accumulated) old.windows.accumulated = old.bottom.accumulated;
-        else if (!CLONE(live.windows.accumulated, old.windows.accumulated)) return false;
-        if (live.top.backdrop == live.windows.accumulated) old.top.backdrop = old.windows.accumulated;
-        else if (!CLONE(live.top.backdrop, old.top.backdrop)) return false;
+        if (live.windows.accumulated == live.bottom.accumulated) {
+            old.windows.accumulated = old.bottom.accumulated;
+        } else if (!CLONE(live.windows.accumulated, old.windows.accumulated)) {
+            return false;
+        }
+        if (live.top.backdrop == live.windows.accumulated) {
+            old.top.backdrop = old.windows.accumulated;
+        } else if (!CLONE(live.top.backdrop, old.top.backdrop)) {
+            return false;
+        }
         if (live.floating) {
             old.floating = std::make_shared<std::vector<hyprimate::workspace::WorkspaceFloating>>();
             old.floating->reserve(live.floating->size());
@@ -1729,7 +1798,9 @@ bool CWorkspaceAnimation::Impl::begin_refresh(MonitorState &entry, const PHLMONI
                 item.rect = window.rect;
                 item.order = window.order;
                 if (!CLONE(window.layer.accumulated, item.layer.accumulated) ||
-                    !CLONE(window.layer.backdrop, item.layer.backdrop)) return false;
+                    !CLONE(window.layer.backdrop, item.layer.backdrop)) {
+                    return false;
+                }
             }
         }
     } catch (...) {
@@ -1770,7 +1841,7 @@ bool CWorkspaceAnimation::Impl::prepare_frame(
         [[nodiscard]] Facts live_window(std::size_t index) const {
             return facts((*live)[index]);
         }
-        void begin(std::size_t count) {
+        void begin(std::size_t count) const {
             if (count == 0) {
                 return;
             }
@@ -1781,7 +1852,7 @@ bool CWorkspaceAnimation::Impl::prepare_frame(
             blend->presentation->reserve(count);
             frame->floating = blend->presentation;
         }
-        void emit(const hyprimate::workspace::FloatingPresentation &command) {
+        void emit(const hyprimate::workspace::FloatingPresentation &command) const {
             blend->presentation->push_back(
                 command.stale ? (*blend->stale->floating)[command.index] : (*live)[command.index]);
             auto &item = blend->presentation->back();
@@ -1819,10 +1890,12 @@ bool CWorkspaceAnimation::Impl::TurnPort::capture(
 }
 double CWorkspaceAnimation::Impl::TurnPort::duration(
     const hyprimate::workspace::JourneyEndpoint &from,
-    const hyprimate::workspace::JourneyEndpoint &to, double base) const {
+    const hyprimate::workspace::JourneyEndpoint &destination, double base) const {
     double duration = base;
     owner->m_styles.for_each([&]<class Style>(auto &resources) {
-        if (Style::KIND == owner->m_style_kind) duration = Style::duration(resources, from, to);
+        if (Style::KIND == owner->m_style_kind) {
+            duration = Style::duration(resources, from, destination);
+        }
     });
     return duration;
 }
@@ -1830,7 +1903,9 @@ double CWorkspaceAnimation::Impl::TurnPort::duration(
 double CWorkspaceAnimation::Impl::TurnPort::live_boundary() const {
     double boundary = 1.0;
     owner->m_styles.for_each([&]<class Style>(auto &resources) {
-        if (Style::KIND == owner->m_style_kind) boundary = Style::live_boundary(resources);
+        if (Style::KIND == owner->m_style_kind) {
+            boundary = Style::live_boundary(resources);
+        }
     });
     return boundary;
 }
@@ -1848,7 +1923,7 @@ CWorkspaceAnimation::Impl::TurnPort::inactive_source_facts(
         }
         if (const auto HEAD = layer->popupHead(); HEAD) {
             HEAD->breadthfirst(
-                [&](WP<Desktop::View::CPopup> weak, void *) {
+                [&](const WP<Desktop::View::CPopup> &weak, void *) {
                     const auto ITEM = weak.lock();
                     facts.popup = facts.popup || (ITEM && ITEM->mapped());
                 },
@@ -1879,7 +1954,7 @@ bool CWorkspaceAnimation::Impl::TurnPort::clone_capture(TurnKind kind) const {
 }
 
 void CWorkspaceAnimation::Impl::TurnPort::release_blend(TurnKind kind) const {
-    owner->release_blend(
+    Impl::release_blend(
         *entry, kind == TurnKind::SourceIsolated ? entry->source_blend : entry->destination_blend);
 }
 
