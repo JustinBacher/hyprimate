@@ -30,25 +30,16 @@
 
 #include "AnimationCloseRenderer.hpp"
 #include "AnimationTransformer.hpp"
+#include "CloseStyles.hpp"
+#include "LiveStyle.hpp"
 #include "NativeFadeoutPass.hpp"
-#include "animations/bubble/BubbleCloseStyle.hpp"
-#include "animations/bubble/BubbleCloseStyleData.hpp"
 #include "animations/bubble/BubbleLiveState.hpp"
-#include "animations/cloth/ClothCloseStyle.hpp"
-#include "animations/cloth/ClothCloseStyleData.hpp"
-#include "animations/liquid/LiquidCloseStyle.hpp"
-#include "animations/liquid/LiquidCloseStyleData.hpp"
 #include "animations/liquid/LiquidMesh.hpp"
 #include "animations/liquid/LiquidPose.hpp"
 #include "animations/liquid/SolidFill.hpp"
-#include "animations/paper/PaperCloseStyle.hpp"
-#include "animations/paper/PaperCloseStyleData.hpp"
 #include "animations/shared/Core.hpp"
 #include "animations/shared/EdgeTransition.hpp"
 #include "animations/shared/SheetRenderer.hpp"
-#include "animations/smoke/SmokeCloseStyle.hpp"
-#include "animations/swarm/SwarmCloseStyle.hpp"
-#include "animations/swarm/SwarmCloseStyleData.hpp"
 #include "animations/swarm/SwarmRenderer.hpp"
 #include "config_generated.hpp"
 
@@ -234,22 +225,16 @@ namespace {
 }  // namespace
 
 bool close_animation_enabled(const hyprimate::config::SConfig &config) {
-    using hyprimate::config::Style;
     switch (config.style) {
-        case Style::Liquid:
-            return close_style::close_enabled(SLiquidCloseData{}, config);
-        case Style::Paper:
-            return close_style::close_enabled(SPaperCloseData{}, config);
-        case Style::Cloth:
-            return close_style::close_enabled(SClothCloseData{}, config);
-        case Style::Swarm:
-            return close_style::close_enabled(SSwarmCloseData{}, config);
-        case Style::Bubble:
-            return close_style::close_enabled(SBubbleCloseData{}, config);
-        case Style::Smoke:
-            return close_style::close_enabled(SSmokeCloseData{}, config);
+#define HYPRIMATE_VALID_STYLE(kind, tag, module) case hyprimate::config::Style::kind: break;
+        HYPRIMATE_STYLE_LIST(HYPRIMATE_VALID_STYLE, HYPRIMATE_STYLE_EMPTY)
+#undef HYPRIMATE_VALID_STYLE
+        default: return false;
     }
-    return false;
+    return with_live_style(config.style, [&](auto live) {
+        using Live = decltype(live);
+        return close_style::close_enabled(typename Live::CloseData{}, config);
+    });
 }
 
 CAnimationCloseRenderer *CAnimationCloseRenderer::s_active = nullptr;

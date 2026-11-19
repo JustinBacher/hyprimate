@@ -91,6 +91,7 @@ add_library(hyprimate SHARED
     src/animations/shared/SheetClosePass.cpp
     src/AnimationTransformer.cpp
     src/AnimationCloseRenderer.cpp
+    src/StyleContract.cpp
     src/NativeFadeoutPass.cpp
     src/animations/shared/SheetRenderer.cpp
 )

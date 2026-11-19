@@ -34,6 +34,12 @@
 
 using namespace Render;
 using hyprimate::Vec2;
+// Liquid mesh vertices are passed directly to Hyprland's renderer.
+static_assert(sizeof(SMeshRenderVertex) == sizeof(hyprimate::LiquidVertex));
+static_assert(offsetof(SMeshRenderVertex, x) == offsetof(hyprimate::LiquidVertex, x));
+static_assert(offsetof(SMeshRenderVertex, y) == offsetof(hyprimate::LiquidVertex, y));
+static_assert(offsetof(SMeshRenderVertex, u) == offsetof(hyprimate::LiquidVertex, u));
+static_assert(offsetof(SMeshRenderVertex, v) == offsetof(hyprimate::LiquidVertex, v));
 namespace {
     void refresh_pose(SLiquidStyle &state, Vec2 capture_size);
     void restore_box(SLiquidStyle &state, const PHLWINDOWREF &window_ref);

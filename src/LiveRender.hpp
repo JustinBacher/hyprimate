@@ -13,64 +13,12 @@ struct SLiveRenderGeometry {
     hyprimate::Vec2 texture_size;
 };
 
-hyprimate::LiquidPose live_pose(const SLiquidStyle &state);
-CBox live_extents(const SLiquidStyle &state, const CBox &box);
-CBox live_extents(const SPaperStyle &state, const CBox &box);
-CBox live_extents(const SClothStyle &state, const CBox &box);
-CBox live_extents(const SSwarmStyle &state, const CBox &box);
-CBox live_extents(const SBubbleStyle &state, const CBox &box);
-CBox live_extents(const SSmokeStyle &state, const CBox &box);
-
-Render::SWindowTransformBuffer render_live(SLiquidStyle &state,
-    Render::CRenderContext &ctx,
-    const Render::SWindowTransformBuffer &input,
-    const Render::SWindowTransformContext &context,
-    const SLiveRenderGeometry &geometry,
-    const SP<CSolidFill> &solid,
-    const SP<CSheetShade> &shade,
-    const SP<CSwarmSprites> &sprites);
-
-Render::SWindowTransformBuffer render_live(SPaperStyle &state,
-    Render::CRenderContext &ctx,
-    const Render::SWindowTransformBuffer &input,
-    const Render::SWindowTransformContext &context,
-    const SLiveRenderGeometry &geometry,
-    const SP<CSolidFill> &solid,
-    const SP<CSheetShade> &shade,
-    const SP<CSwarmSprites> &sprites);
-
-Render::SWindowTransformBuffer render_live(SClothStyle &state,
-    Render::CRenderContext &ctx,
-    const Render::SWindowTransformBuffer &input,
-    const Render::SWindowTransformContext &context,
-    const SLiveRenderGeometry &geometry,
-    const SP<CSolidFill> &solid,
-    const SP<CSheetShade> &shade,
-    const SP<CSwarmSprites> &sprites);
-
-Render::SWindowTransformBuffer render_live(SSwarmStyle &state,
-    Render::CRenderContext &ctx,
-    const Render::SWindowTransformBuffer &input,
-    const Render::SWindowTransformContext &context,
-    const SLiveRenderGeometry &geometry,
-    const SP<CSolidFill> &solid,
-    const SP<CSheetShade> &shade,
-    const SP<CSwarmSprites> &sprites);
-
-Render::SWindowTransformBuffer render_live(SBubbleStyle &state,
-    Render::CRenderContext &ctx,
-    const Render::SWindowTransformBuffer &input,
-    const Render::SWindowTransformContext &context,
-    const SLiveRenderGeometry &geometry,
-    const SP<CSolidFill> &solid,
-    const SP<CSheetShade> &shade,
-    const SP<CSwarmSprites> &sprites);
-
-Render::SWindowTransformBuffer render_live(SSmokeStyle &state,
-    Render::CRenderContext &ctx,
-    const Render::SWindowTransformBuffer &input,
-    const Render::SWindowTransformContext &context,
-    const SLiveRenderGeometry &geometry,
-    const SP<CSolidFill> &solid,
-    const SP<CSheetShade> &shade,
-    const SP<CSwarmSprites> &sprites);
+#define HYPRIMATE_RENDER_DECL(kind, tag, module)                                            \
+    CBox live_extents(const module::State &state, const CBox &box);                         \
+    Render::SWindowTransformBuffer render_live(module::State &state,                        \
+        Render::CRenderContext &ctx, const Render::SWindowTransformBuffer &input,            \
+        const Render::SWindowTransformContext &context, const SLiveRenderGeometry &geometry, \
+        const SP<CSolidFill> &solid, const SP<CSheetShade> &shade,                          \
+        const SP<CSwarmSprites> &sprites);
+HYPRIMATE_STYLE_LIST(HYPRIMATE_RENDER_DECL, HYPRIMATE_STYLE_EMPTY)
+#undef HYPRIMATE_RENDER_DECL

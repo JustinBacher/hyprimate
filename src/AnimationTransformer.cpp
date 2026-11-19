@@ -28,13 +28,6 @@
 
 using namespace Render;
 
-// The core fills write hyprimate::LiquidVertex straight into Hyprland's mesh vertices: the
-// layout must match.
-static_assert(sizeof(SMeshRenderVertex) == sizeof(hyprimate::LiquidVertex));
-static_assert(offsetof(SMeshRenderVertex, x) == offsetof(hyprimate::LiquidVertex, x));
-static_assert(offsetof(SMeshRenderVertex, y) == offsetof(hyprimate::LiquidVertex, y));
-static_assert(offsetof(SMeshRenderVertex, u) == offsetof(hyprimate::LiquidVertex, u));
-static_assert(offsetof(SMeshRenderVertex, v) == offsetof(hyprimate::LiquidVertex, v));
 
 SStyleState initial_style(hyprimate::config::Style style,
     hyprimate::LiquidParams liquid,

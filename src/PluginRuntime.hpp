@@ -32,12 +32,9 @@ class CPluginRuntime {
     CPluginRuntime(CPluginRuntime &&) = delete;
     CPluginRuntime &operator=(CPluginRuntime &&) = delete;
 
-    friend struct SLiquidLiveStyle;
-    friend struct SPaperLiveStyle;
-    friend struct SClothLiveStyle;
-    friend struct SSwarmLiveStyle;
-    friend struct SBubbleLiveStyle;
-    friend struct SSmokeLiveStyle;
+#define HYPRIMATE_FRIEND(kind, tag, module) friend struct tag;
+    HYPRIMATE_STYLE_LIST(HYPRIMATE_FRIEND, HYPRIMATE_STYLE_EMPTY)
+#undef HYPRIMATE_FRIEND
 
   private:
     using Clock = std::chrono::steady_clock;

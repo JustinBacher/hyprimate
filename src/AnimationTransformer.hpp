@@ -13,17 +13,12 @@
 #include <hyprland/src/render/transformer/Transformer.hpp>
 #include <hyprutils/memory/WeakPtr.hpp>
 
-#include "animations/bubble/BubbleLiveState.hpp"
+#include "StyleTypes.hpp"
 #include "animations/cloth/ClothFlutter.hpp"
-#include "animations/cloth/ClothLiveState.hpp"
-#include "animations/liquid/LiquidLiveState.hpp"
 #include "animations/liquid/LiquidMesh.hpp"
 #include "animations/liquid/SolidFill.hpp"
-#include "animations/paper/PaperLiveState.hpp"
 #include "animations/shared/Core.hpp"
 #include "animations/shared/SheetRenderer.hpp"
-#include "animations/swarm/SwarmLiveState.hpp"
-#include "animations/smoke/SmokeLiveState.hpp"
 #include "animations/swarm/SwarmRenderer.hpp"
 #include "config_generated.hpp"
 
@@ -35,9 +30,6 @@ inline CBox to_cbox(const hyprimate::Box &box) {
     return CBox{box.x, box.y, box.w, box.h};
 }
 
-// The one style a window's transformer or close record carries.
-using SStyleState =
-    std::variant<SLiquidStyle, SPaperStyle, SClothStyle, SSwarmStyle, SBubbleStyle, SSmokeStyle>;
 
 // The state a window starts from in `style`. `liquid`, `cloth`, and `seed` are the settings it is
 // built for.
@@ -92,12 +84,9 @@ class CAnimationTransformer final : public Render::IWindowTransformer {
     void mark_detached();
 
   private:
-    friend struct SLiquidLiveStyle;
-    friend struct SPaperLiveStyle;
-    friend struct SClothLiveStyle;
-    friend struct SSwarmLiveStyle;
-    friend struct SBubbleLiveStyle;
-    friend struct SSmokeLiveStyle;
+#define HYPRIMATE_FRIEND(kind, tag, module) friend struct tag;
+    HYPRIMATE_STYLE_LIST(HYPRIMATE_FRIEND, HYPRIMATE_STYLE_EMPTY)
+#undef HYPRIMATE_FRIEND
 
     // Whether the active style is still deforming the window.
     bool deforming() const;

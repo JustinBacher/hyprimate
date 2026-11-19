@@ -6,8 +6,10 @@
 
 // The configured style is selected once here; compositor orchestration invokes the same operations
 // for every style.
-#define LIVE_STYLE_OPERATIONS(name, state)                                                 \
-    struct name {                                                                          \
+#define LIVE_STYLE_OPERATIONS(kind, name, module)                                          \
+    struct name : module {                                                                 \
+        using Module = module;                                                             \
+        using Tracked = CPluginRuntime::STracked;                                         \
         static SStyleState initial(                                                        \
             hyprimate::LiquidParams, hyprimate::ClothMovementParams, std::uint64_t);     \
         static double strength(const CPluginRuntime &);                                    \
@@ -23,60 +25,30 @@
         static void snapshot(const CAnimationTransformer *, hyprimate::WindowSnapshot &);  \
         static void cancelOpening(CAnimationTransformer &);                                \
         static void cancelMovement(CAnimationTransformer &);                               \
-        static bool available(const state &) noexcept;                                     \
-        static bool deforming(const state &) noexcept;                                     \
-        static bool builtFor(const state &,                                                \
+        static bool available(const State &) noexcept;                                     \
+        static bool deforming(const State &) noexcept;                                     \
+        static bool builtFor(const State &,                                                \
             hyprimate::config::Style,                                                      \
             hyprimate::LiquidParams,                                                     \
             hyprimate::ClothMovementParams) noexcept;                                      \
         static void step(                                                                  \
             CPluginRuntime &, CAnimationTransformer &, double, hyprimate::Vec2, bool);     \
     };
-LIVE_STYLE_OPERATIONS(SLiquidLiveStyle, SLiquidStyle)
-LIVE_STYLE_OPERATIONS(SPaperLiveStyle, SPaperStyle)
-LIVE_STYLE_OPERATIONS(SClothLiveStyle, SClothStyle)
-LIVE_STYLE_OPERATIONS(SSwarmLiveStyle, SSwarmStyle)
-LIVE_STYLE_OPERATIONS(SBubbleLiveStyle, SBubbleStyle)
-LIVE_STYLE_OPERATIONS(SSmokeLiveStyle, SSmokeStyle)
+HYPRIMATE_STYLE_LIST(LIVE_STYLE_OPERATIONS, HYPRIMATE_STYLE_EMPTY)
 
-inline SLiquidLiveStyle live_style_for([[maybe_unused]] const SLiquidStyle &state) {
-    return {};
-}
-inline SPaperLiveStyle live_style_for([[maybe_unused]] const SPaperStyle &state) {
-    return {};
-}
-inline SClothLiveStyle live_style_for([[maybe_unused]] const SClothStyle &state) {
-    return {};
-}
-inline SSwarmLiveStyle live_style_for([[maybe_unused]] const SSwarmStyle &state) {
-    return {};
-}
-inline SBubbleLiveStyle live_style_for([[maybe_unused]] const SBubbleStyle &state) {
-    return {};
-}
-inline SSmokeLiveStyle live_style_for([[maybe_unused]] const SSmokeStyle &state) {
-    return {};
-}
+#define HYPRIMATE_LIVE_FOR(kind, name, module)                                              \
+    inline name live_style_for([[maybe_unused]] const module::State &state) { return {}; }
+HYPRIMATE_STYLE_LIST(HYPRIMATE_LIVE_FOR, HYPRIMATE_STYLE_EMPTY)
+#undef HYPRIMATE_LIVE_FOR
 #undef LIVE_STYLE_OPERATIONS
 
 template <class F>
 decltype(auto) with_live_style(hyprimate::config::Style style, F &&operation) {
-    using enum hyprimate::config::Style;
-
     switch (style) {
-        case Paper:
-            return std::forward<F>(operation)(SPaperLiveStyle{});
-        case Cloth:
-            return std::forward<F>(operation)(SClothLiveStyle{});
-        case Swarm:
-            return std::forward<F>(operation)(SSwarmLiveStyle{});
-        case Bubble:
-            return std::forward<F>(operation)(SBubbleLiveStyle{});
-        case Smoke:
-            return std::forward<F>(operation)(SSmokeLiveStyle{});
-        case Liquid:
-            return std::forward<F>(operation)(SLiquidLiveStyle{});
+#define HYPRIMATE_CASE(kind, name, module)                                                  \
+        case hyprimate::config::Style::kind: return std::forward<F>(operation)(name{});
+        HYPRIMATE_STYLE_LIST(HYPRIMATE_CASE, HYPRIMATE_STYLE_EMPTY)
+#undef HYPRIMATE_CASE
     }
-
-    return std::forward<F>(operation)(SLiquidLiveStyle{});
+    return std::forward<F>(operation)(SDefaultLiveStyle{});
 }

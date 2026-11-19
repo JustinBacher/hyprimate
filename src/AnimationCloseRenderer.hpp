@@ -18,19 +18,12 @@
 #include <hyprland/src/render/pass/PassElement.hpp>
 
 #include "AnimationTransformer.hpp"
-#include "animations/bubble/BubbleCloseStyleData.hpp"
-#include "animations/cloth/ClothCloseStyleData.hpp"
-#include "animations/liquid/LiquidCloseStyleData.hpp"
+#include "StyleTypes.hpp"
 #include "animations/liquid/LiquidMesh.hpp"
 #include "animations/liquid/SolidFill.hpp"
-#include "animations/paper/PaperCloseStyleData.hpp"
 #include "animations/shared/EdgeTransition.hpp"
 #include "animations/shared/SheetRenderer.hpp"
-#include "animations/swarm/SwarmCloseStyleData.hpp"
-#include "animations/smoke/SmokeCloseStyleData.hpp"
 bool close_animation_enabled(const hyprimate::config::SConfig &config);
-using SCloseStyleData = std::variant<SLiquidCloseData,
-    SPaperCloseData, SClothCloseData, SSwarmCloseData, SBubbleCloseData, SSmokeCloseData>;
 
 // Deforms the native window-close fadeout through two narrow hooks, each selected by exact
 // demangled signature:
