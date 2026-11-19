@@ -47,7 +47,6 @@ class CAnimationCloseRenderer {
 
   private:
     struct Record {
-        hyprimate::animation::Handle handle;
         std::uint64_t fadeout = 0;
         PHLMONITORREF monitor;
         WP<Desktop::IFadeout> native;

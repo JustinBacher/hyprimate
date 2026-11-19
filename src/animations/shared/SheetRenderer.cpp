@@ -3,7 +3,6 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <limits>
 #include <ranges>
 #include <vector>
 
@@ -21,7 +20,6 @@
 #include <hyprutils/math/Box.hpp>
 
 #include "animations/shared/SheetRenderer.hpp"
-#include "animations/shared/SheetFrame.hpp"
 
 namespace {
     constexpr int RAMP_SIZE = 256;
@@ -70,22 +68,6 @@ SP<Render::ITexture> CSheetShade::texture() {
         false,
         false);
     return m_texture;
-}
-
-CBox sheet_extents(const hyprimate::SheetFrame &frame, const CBox &logical_box) {
-    double min_x = std::numeric_limits<double>::infinity();
-    double min_y = std::numeric_limits<double>::infinity();
-    double max_x = -std::numeric_limits<double>::infinity();
-    double max_y = -std::numeric_limits<double>::infinity();
-    for (const auto &sheet_point : frame.position) {
-        const double POS_X = logical_box.x + (logical_box.w * (0.5 + sheet_point.x));
-        const double POS_Y = logical_box.y + (logical_box.h * (0.5 + sheet_point.y));
-        min_x = std::min(min_x, POS_X);
-        min_y = std::min(min_y, POS_Y);
-        max_x = std::max(max_x, POS_X);
-        max_y = std::max(max_y, POS_Y);
-    }
-    return CBox{min_x, min_y, std::max(1.0, max_x - min_x), std::max(1.0, max_y - min_y)};
 }
 
 

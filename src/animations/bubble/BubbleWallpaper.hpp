@@ -4,7 +4,7 @@
 #include <hyprland/src/render/Framebuffer.hpp>
 #include "WindowAnimationFacts.hpp"
 
-// A GPU scene capture, shared with the close record if opening is interrupted.
+// A GPU scene capture retained by the animation while it needs a backdrop.
 struct SBubbleWallpaper {
     SP<Render::IFramebuffer> framebuffer;
     Vector2D origin;

@@ -6,7 +6,6 @@
 #include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/Framebuffer.hpp>
 #include <hyprland/src/render/Texture.hpp>
-#include <hyprland/src/render/pass/PassElement.hpp>
 
 #include <hyprland/src/render/Shader.hpp>
 #include "animations/smoke/SmokeMaterial.hpp"

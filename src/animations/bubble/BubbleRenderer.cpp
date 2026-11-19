@@ -193,47 +193,12 @@ std::vector<UP<IPassElement>> CBubblePassElement::draw(Render::CRenderContext &c
         m_data.renderer ? m_data.renderer->render(ctx, m_data.draw) : SP<Render::IFramebuffer>{};
     Render::GL::CHyprOpenGLImpl::STextureRenderData texture_data{};
     texture_data.damage = &m_data.damage;
-    texture_data.a = m_data.alpha;
+    texture_data.a = 1.F;
     texture_data.allowCustomUV = true;
     texture_data.allowDim = false;
     if (LAYER) {
         Render::GL::g_pHyprOpenGL->renderTextureMesh(
             ctx, LAYER->getTexture(), m_data.box, sheet_canvas_quad(), texture_data);
-    } else {
-        // Preserve the native snapshot when the material cannot run. The
-        // capture may occupy only a sub-rectangle of a larger texture.
-        const auto &draw_data = m_data.draw;
-        if (!draw_data.window || !(draw_data.canvas.x > 0) || !(draw_data.canvas.y > 0) ||
-            !(draw_data.source.w > 0) || !(draw_data.source.h > 0) ||
-            !(draw_data.texture_size.x > 0) || !(draw_data.texture_size.y > 0)) {
-            return {};
-        }
-        const auto U_MIN = static_cast<float>(
-            (draw_data.source.x - draw_data.texture_origin.x) / draw_data.texture_size.x);
-        const auto V_MIN = static_cast<float>(
-            (draw_data.source.y - draw_data.texture_origin.y) / draw_data.texture_size.y);
-        const auto U_MAX = static_cast<float>(
-            (draw_data.source.x + draw_data.source.w - draw_data.texture_origin.x) /
-            draw_data.texture_size.x);
-        const auto V_MAX = static_cast<float>(
-            (draw_data.source.y + draw_data.source.h - draw_data.texture_origin.y) /
-            draw_data.texture_size.y);
-        const CBox BOX{m_data.box.x + ((draw_data.source.x - draw_data.output_origin.x) *
-                                          m_data.box.w / draw_data.canvas.x),
-            m_data.box.y + ((draw_data.source.y - draw_data.output_origin.y) * m_data.box.h /
-                               draw_data.canvas.y),
-            draw_data.source.w * m_data.box.w / draw_data.canvas.x,
-            draw_data.source.h * m_data.box.h / draw_data.canvas.y};
-        const std::vector<SMeshRenderVertex> QUAD{
-            {.x = 0.F, .y = 0.F, .u = U_MIN, .v = V_MIN},
-            {.x = 0.F, .y = 1.F, .u = U_MIN, .v = V_MAX},
-            {.x = 1.F, .y = 0.F, .u = U_MAX, .v = V_MIN},
-            {.x = 1.F, .y = 0.F, .u = U_MAX, .v = V_MIN},
-            {.x = 0.F, .y = 1.F, .u = U_MIN, .v = V_MAX},
-            {.x = 1.F, .y = 1.F, .u = U_MAX, .v = V_MAX},
-        };
-        Render::GL::g_pHyprOpenGL->renderTextureMesh(
-            ctx, draw_data.window, BOX, QUAD, texture_data);
     }
     return {};
 }

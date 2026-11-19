@@ -497,7 +497,6 @@ void CWindowAnimations<Port, StyleList<Styles...>>::frame(const FrameStamp &stam
             if (fadeout && fadeout->alive) entry.fadeout_info = *fadeout;
             else {
                 m_port.suppress_native(entry.fadeout, false);
-                entry.fadeout = 0;
             }
         }
         const double elapsed = entry.stepped ? std::chrono::duration<double>(stamp.now - entry.last_step).count() : 0;
@@ -524,7 +523,10 @@ void CWindowAnimations<Port, StyleList<Styles...>>::frame(const FrameStamp &stam
         visit(handle, [&]<class Style>(auto &slot, auto &resources) {
             entry.current = Style::advance(slot.state, step, resources, effects);
         });
-        entry.footprint = detail::translated(entry.current.bounds, {place.capture.x, place.capture.y});
+        const auto bounds = dying_view(entry).bounds_device;
+        entry.footprint = {place.screen.x + bounds.x / entry.captured_scale,
+            place.screen.y + bounds.y / entry.captured_scale,
+            bounds.w / entry.captured_scale, bounds.h / entry.captured_scale};
         if (is_usable(entry.footprint)) m_port.damage(entry.footprint);
         if (!entry.current.running) { end(handle, End::Completed); continue; }
         m_port.schedule(stamp.monitor);
@@ -568,8 +570,6 @@ void CWindowAnimations<Port, StyleList<Styles...>>::native_finished(std::uint64_
         auto &entry = m_entries[index - 1];
         if (entry.fadeout == fadeout && entry.life == Life::DyingNative)
             end(entry.handle, End::Completed);
-        else if (entry.fadeout == fadeout && entry.life == Life::DyingOwned)
-            entry.fadeout = 0;
     }
 }
 template<class Port, class... Styles>
@@ -723,28 +723,32 @@ void CWindowAnimations<Port, StyleList<Styles...>>::reload() {
     }
 }
 template<class Port, class... Styles>
+DyingView CWindowAnimations<Port, StyleList<Styles...>>::dying_view(const Record &entry) const {
+    const auto &facts = entry.fadeout_info;
+    Box render = facts.native_box;
+    bool fixed = false;
+    visit(entry.handle, [&]<class Style>(const auto &, const auto &) { fixed = Style::FIXED_CLOSE_PLACEMENT; });
+    if (entry.life == Life::DyingOwned) {
+        render = entry.source_device;
+        if (!fixed) {
+            render.x = facts.native_box.x + (facts.native_box.w - render.w) / 2;
+            render.y = facts.native_box.y + (facts.native_box.h - render.h) / 2;
+        }
+    }
+    const auto bounds = entry.current.bounds;
+    return {entry.handle, entry.monitor, entry.workspace, entry.fadeout, entry.ownership,
+        entry.source_device, render,
+        {render.x + bounds.x * facts.scale, render.y + bounds.y * facts.scale,
+            bounds.w * facts.scale, bounds.h * facts.scale},
+        facts.image_size, facts.scale, entry.life == Life::DyingOwned ? entry.captured_alpha : facts.alpha,
+        facts.workspace_bound, entry.no_screen_share};
+}
+template<class Port, class... Styles>
 std::span<const DyingView> CWindowAnimations<Port, StyleList<Styles...>>::dying_views() const {
     m_views.clear();
     for (const auto &entry : m_entries) {
         if (entry.life != Life::DyingOwned && entry.life != Life::DyingNative) continue;
-        const auto &facts = entry.fadeout_info;
-        Box render = facts.native_box;
-        bool fixed = false;
-        visit(entry.handle, [&]<class Style>(const auto &, const auto &) { fixed = Style::FIXED_CLOSE_PLACEMENT; });
-        if (entry.life == Life::DyingOwned) {
-            render = entry.source_device;
-            if (!fixed) {
-                render.x = facts.native_box.x + (facts.native_box.w - render.w) / 2;
-                render.y = facts.native_box.y + (facts.native_box.h - render.h) / 2;
-            }
-        }
-        const auto bounds = entry.current.bounds;
-        m_views.push_back({entry.handle, entry.monitor, entry.workspace, entry.fadeout, entry.ownership,
-            entry.source_device, render,
-            {render.x + bounds.x * facts.scale, render.y + bounds.y * facts.scale,
-                bounds.w * facts.scale, bounds.h * facts.scale},
-            facts.image_size, facts.scale, entry.life == Life::DyingOwned ? entry.captured_alpha : facts.alpha,
-            facts.workspace_bound, entry.no_screen_share});
+        m_views.push_back(dying_view(entry));
     }
     return m_views;
 }

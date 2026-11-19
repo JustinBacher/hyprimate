@@ -100,6 +100,7 @@ class CWindowAnimations<Port, StyleList<Styles...>> {
     const Tracked *tracked(WindowId id) const;
     Record *record(Handle handle);
     const Record *record(Handle handle) const;
+    DyingView dying_view(const Record &entry) const;
     std::optional<Handle> acquire(Tracked &tracked, const Observation &observation, std::uint64_t seed);
     void end(Handle handle, End why);
     void release_drive(Tracked &tracked);
