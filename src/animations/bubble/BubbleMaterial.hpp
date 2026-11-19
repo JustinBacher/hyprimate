@@ -31,11 +31,15 @@ struct SBubbleImages {
     hyprimate::Vec2 wallpaper_pixel;  // 1 / wallpaper texture size
 };
 
+// Borrowed program handles; the caller retains ownership and keeps them alive until release().
+struct SBubblePrograms {
+    GLuint membrane = 0, curl = 0, particles = 0, film = 0, micro = 0;
+};
+
 class CBubbleMaterial {
   public:
-    // Compiles the programs and builds lookup textures and instance buffers; idempotent. False when
-    // unavailable.
-    bool initialize();
+    // Builds lookup textures and instance buffers using borrowed programs; idempotent.
+    bool initialize(const SBubblePrograms &programs);
     // Deletes GL objects; the creating context must be current.
     void release();
 

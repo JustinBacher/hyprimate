@@ -18,50 +18,6 @@
 #include "animations/shared/Core.hpp"
 
 namespace {
-#include "bubble_shaders_generated.hpp"
-
-    GLuint program(const char *vertex, const char *fragment) {
-        const auto COMPILE = [](GLenum type, const char *source) {
-            const GLuint SHADER = glCreateShader(type);
-            glShaderSource(SHADER, 1, &source, nullptr);
-            glCompileShader(SHADER);
-            GLint compile_status = 0;
-            glGetShaderiv(SHADER, GL_COMPILE_STATUS, &compile_status);
-            if (!compile_status) {
-                std::array<char, 2048> log{};
-                glGetShaderInfoLog(SHADER, sizeof(log), nullptr, log.data());
-                (void)std::fprintf(stderr, "bubble shader: %s\n", log.data());
-                glDeleteShader(SHADER);
-                return GLuint{0};
-            }
-            return SHADER;
-        };
-        const GLuint VERTEX_SHADER = COMPILE(GL_VERTEX_SHADER, vertex);
-        const GLuint FRAGMENT_SHADER = COMPILE(GL_FRAGMENT_SHADER, fragment);
-        GLuint result = 0;
-        if ((VERTEX_SHADER != 0U) && (FRAGMENT_SHADER != 0U)) {
-            result = glCreateProgram();
-            glAttachShader(result, VERTEX_SHADER);
-            glAttachShader(result, FRAGMENT_SHADER);
-            glLinkProgram(result);
-            GLint status = 0;
-            glGetProgramiv(result, GL_LINK_STATUS, &status);
-            if (status == 0) {
-                std::array<char, 2048> log{};
-                glGetProgramInfoLog(result, sizeof(log), nullptr, log.data());
-                (void)std::fprintf(stderr, "bubble program: %s\n", log.data());
-                glDeleteProgram(result);
-                result = 0;
-            }
-        }
-        if (VERTEX_SHADER != 0U) {
-            glDeleteShader(VERTEX_SHADER);
-        }
-        if (FRAGMENT_SHADER != 0U) {
-            glDeleteShader(FRAGMENT_SHADER);
-        }
-        return result;
-    }
     template <typename... Args>
     GLint formatted_uniform(GLuint program_id, bool &valid, const char *format, Args... args) {
         if (!valid) {
@@ -184,20 +140,18 @@ namespace {
     };
 }  // namespace
 
-bool CBubbleMaterial::initialize() {
+bool CBubbleMaterial::initialize(const SBubblePrograms &programs) {
     if (m_tried) {
         return (m_membrane != 0U) && (m_curl != 0U) && (m_particles != 0U) && (m_film != 0U) &&
                (m_micro != 0U) && (m_vao != 0U) && (m_particle_vao != 0U) && (m_micro_vao != 0U) &&
                (m_instance != 0U) && (m_micro_instance != 0U) && (m_lut != 0U);
     }
     m_tried = true;
-    m_membrane = program(bubble_shader::VERTEX.data(), bubble_shader::FRAGMENT.data());
-    m_curl = program(bubble_shader::CURL_VERTEX.data(), bubble_shader::CURL_FRAGMENT.data());
-    m_particles =
-        program(bubble_shader::PARTICLE_VERTEX.data(), bubble_shader::PARTICLE_FRAGMENT.data());
-    m_film = program(bubble_shader::FILM_VERTEX.data(), bubble_shader::FILM_FRAGMENT.data());
-    m_micro = program(
-        bubble_shader::MICROBUBBLE_VERTEX.data(), bubble_shader::MICROBUBBLE_FRAGMENT.data());
+    m_membrane = programs.membrane;
+    m_curl = programs.curl;
+    m_particles = programs.particles;
+    m_film = programs.film;
+    m_micro = programs.micro;
     if ((m_membrane == 0U) || (m_curl == 0U) || (m_particles == 0U) || (m_film == 0U) ||
         (m_micro == 0U)) {
         release();
@@ -447,21 +401,6 @@ bool CBubbleMaterial::initialize() {
            (m_micro_instance != 0U) && (m_lut != 0U);
 }
 void CBubbleMaterial::release() {
-    if (m_membrane != 0U) {
-        glDeleteProgram(m_membrane);
-    }
-    if (m_curl != 0U) {
-        glDeleteProgram(m_curl);
-    }
-    if (m_particles != 0U) {
-        glDeleteProgram(m_particles);
-    }
-    if (m_film != 0U) {
-        glDeleteProgram(m_film);
-    }
-    if (m_micro != 0U) {
-        glDeleteProgram(m_micro);
-    }
     if (m_vao != 0U) {
         glDeleteVertexArrays(1, &m_vao);
     }

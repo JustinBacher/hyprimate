@@ -560,17 +560,12 @@ SP<Render::IFramebuffer> render_swarm_layer(Render::CRenderContext &ctx,
     const bool ENTRY_BLEND = Render::GL::g_pHyprOpenGL->blendEnabled();
     GLint entry_src = 0;
     GLint entry_dst = 0;
-    GLint entry_src_alpha = 0;
-    GLint entry_dst_alpha = 0;
     glGetIntegerv(GL_BLEND_SRC_RGB, &entry_src);
     glGetIntegerv(GL_BLEND_DST_RGB, &entry_dst);
-    glGetIntegerv(GL_BLEND_SRC_ALPHA, &entry_src_alpha);
-    glGetIntegerv(GL_BLEND_DST_ALPHA, &entry_dst_alpha);
     const auto RESTORE_BLEND = [&] {
         Render::GL::g_pHyprOpenGL->blend(ENTRY_BLEND);
         Render::GL::g_pHyprOpenGL->blendFunc(
             static_cast<GLenum>(entry_src), static_cast<GLenum>(entry_dst));
-        glBlendFuncSeparate(entry_src, entry_dst, entry_src_alpha, entry_dst_alpha);
     };
 
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};

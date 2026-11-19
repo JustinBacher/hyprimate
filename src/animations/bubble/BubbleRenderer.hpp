@@ -1,12 +1,14 @@
 #pragma once
 
 #include <array>
+#include <memory>
 #include <optional>
 
 #include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/Framebuffer.hpp>
 #include <hyprland/src/render/Texture.hpp>
 #include <hyprland/src/render/pass/PassElement.hpp>
+#include <hyprland/src/render/Shader.hpp>
 
 #include "animations/bubble/Bubble.hpp"
 #include "animations/bubble/BubbleMaterial.hpp"
@@ -42,8 +44,11 @@ class CBubbleRenderer {
     void warm_up();
 
   private:
+    bool initialize();
+    std::array<std::unique_ptr<CShader>, 5> m_shaders;
     CBubbleMaterial m_material;
     std::array<hyprimate::BubbleParticle, 2 * hyprimate::K_BUBBLE_MAX_PARTICLES> m_particles{};
+    bool m_ready = false;
     bool m_warmed = false;
 };
 

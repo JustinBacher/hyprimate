@@ -19,67 +19,19 @@
 
 #include "animations/swarm/SwarmSurface.hpp"
 #include "animations/swarm/SwarmSurfaceBody.hpp"
+#include "gl/RawGlBracket.hpp"
 #include "swarm_shaders_generated.hpp"
 
-namespace {
-    GLuint compile(GLenum type, const char *source) {
-        const GLuint SHADER = glCreateShader(type);
-        if (SHADER == 0U) {
-            (void)std::fprintf(stderr, "swarm surface: cannot create shader\n");
-            return 0;
-        }
-        glShaderSource(SHADER, 1, &source, nullptr);
-        glCompileShader(SHADER);
-        GLint compile_status = 0;
-        glGetShaderiv(SHADER, GL_COMPILE_STATUS, &compile_status);
-        if (compile_status == 0) {
-            std::array<char, 2048> log{};
-            glGetShaderInfoLog(SHADER, log.size(), nullptr, log.data());
-            (void)std::fprintf(stderr, "swarm surface shader: %s\n", log.data());
-            glDeleteShader(SHADER);
-            return 0;
-        }
-        return SHADER;
-    }
-
-    GLuint link_program(const char *vertex, const char *fragment) {
-        const GLuint VERTEX_SHADER = compile(GL_VERTEX_SHADER, vertex);
-        const GLuint FRAGMENT_SHADER = compile(GL_FRAGMENT_SHADER, fragment);
-        GLuint program = 0;
-        if ((VERTEX_SHADER != 0U) && (FRAGMENT_SHADER != 0U)) {
-            program = glCreateProgram();
-            if (program != 0U) {
-                glAttachShader(program, VERTEX_SHADER);
-                glAttachShader(program, FRAGMENT_SHADER);
-                glLinkProgram(program);
-                GLint link_status = 0;
-                glGetProgramiv(program, GL_LINK_STATUS, &link_status);
-                if (link_status == 0) {
-                    std::array<char, 2048> log{};
-                    glGetProgramInfoLog(program, log.size(), nullptr, log.data());
-                    (void)std::fprintf(stderr, "swarm surface program: %s\n", log.data());
-                    glDeleteProgram(program);
-                    program = 0;
-                }
-            }
-        }
-        if (program == 0U) {
-            (void)std::fprintf(stderr, "swarm surface: cannot create program\n");
-        }
-        if (VERTEX_SHADER != 0U) {
-            glDeleteShader(VERTEX_SHADER);
-        }
-        if (FRAGMENT_SHADER != 0U) {
-            glDeleteShader(FRAGMENT_SHADER);
-        }
-        return program;
-    }
-}  // namespace
-
 CSwarmSurface::~CSwarmSurface() {
-    if (((m_program == 0U) && (m_field_program == 0U) && (m_vao == 0U) && (m_quad == 0U) &&
-            (m_instances == 0U) && (m_field_framebuffer == 0U) && (m_field_texture == 0U)) ||
-        !Render::GL::g_pHyprOpenGL) {
+    if (!Render::GL::g_pHyprOpenGL) {
+        // During compositor shutdown there is no backend/context in which CShader can delete GL
+        // resources; deliberately release the wrappers and let context teardown reclaim them.
+        (void)m_surface_shader.release();
+        (void)m_field_shader.release();
+        return;
+    }
+    if ((m_program == 0U) && (m_field_program == 0U) && (m_vao == 0U) && (m_quad == 0U) &&
+        (m_instances == 0U) && (m_field_framebuffer == 0U) && (m_field_texture == 0U)) {
         return;
     }
     const EGLDisplay DISPLAY = eglGetCurrentDisplay();
@@ -88,12 +40,9 @@ CSwarmSurface::~CSwarmSurface() {
     const EGLSurface READ = eglGetCurrentSurface(EGL_READ);
     auto &renderer = *Render::GL::g_pHyprOpenGL;
     renderer.makeEGLCurrent();
-    if (m_program != 0U) {
-        glDeleteProgram(m_program);
-    }
-    if (m_field_program != 0U) {
-        glDeleteProgram(m_field_program);
-    }
+    m_surface_shader.reset();
+    m_field_shader.reset();
+    renderer.bindArrayBuffer(0);
     if (m_vao != 0U) {
         glDeleteVertexArrays(1, &m_vao);
     }
@@ -104,6 +53,7 @@ CSwarmSurface::~CSwarmSurface() {
         glDeleteBuffers(1, &m_instances);
     }
     if (m_field_framebuffer != 0U) {
+        renderer.onFramebufferDeleted(m_field_framebuffer);
         glDeleteFramebuffers(1, &m_field_framebuffer);
     }
     if (m_field_texture != 0U) {
@@ -122,12 +72,22 @@ bool CSwarmSurface::initialize() {
         return true;
     }
     if (m_program == 0U) {
-        m_program = link_program(
-            swarm_shader::SURFACE_VERTEX.data(), swarm_shader::SURFACE_FRAGMENT.data());
+        if (!m_surface_shader) {
+            m_surface_shader = std::make_unique<CShader>();
+        }
+        if (m_surface_shader->createProgram(swarm_shader::SURFACE_VERTEX.data(),
+                swarm_shader::SURFACE_FRAGMENT.data(), true, true)) {
+            m_program = m_surface_shader->program();
+        }
     }
     if (m_field_program == 0U) {
-        m_field_program =
-            link_program(swarm_shader::FIELD_VERTEX.data(), swarm_shader::FIELD_FRAGMENT.data());
+        if (!m_field_shader) {
+            m_field_shader = std::make_unique<CShader>();
+        }
+        if (m_field_shader->createProgram(swarm_shader::FIELD_VERTEX.data(),
+                swarm_shader::FIELD_FRAGMENT.data(), true, true)) {
+            m_field_program = m_field_shader->program();
+        }
     }
     if (m_vao == 0U) {
         glGenVertexArrays(1, &m_vao);
@@ -210,7 +170,6 @@ SP<Render::IFramebuffer> CSwarmSurface::filter(Render::CRenderContext &ctx,
     if (WIDTH == 0) {
         return input;
     }
-    auto &renderer = *Render::GL::g_pHyprOpenGL;
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     const auto DRAW_STATE = ctx.saveDrawState();
     const auto OUTPUT = g_pHyprRenderer->getWorkBuffer(ctx, size);
@@ -220,65 +179,26 @@ SP<Render::IFramebuffer> CSwarmSurface::filter(Render::CRenderContext &ctx,
         return nullptr;
     }
 
-    GLint program = 0;
-    GLint vao = 0;
-    GLint array_buffer = 0;
-    GLint active = 0;
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): glGetIntegerv writes the viewport before restoration.
-    std::array<GLint, 4> viewport;
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): glGetIntegerv writes each texture binding before restoration.
-    std::array<GLint, 2> textures;
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): glGetIntegerv writes each sampler binding before restoration.
-    std::array<GLint, 2> samplers;
-    GLint src = 0;
-    GLint dst = 0;
-    GLint src_alpha = 0;
-    GLint dst_alpha = 0;
-    GLint equation = 0;
-    GLint equation_alpha = 0;
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): glGetIntegerv writes the scissor box before restoration.
-    std::array<GLint, 4> scissor_box;
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): glGetFloatv writes the clear color before restoration.
-    std::array<GLfloat, 4> clear_color;
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): glGetBooleanv writes the color mask before restoration.
-    std::array<GLboolean, 4> mask;
-    glGetIntegerv(GL_CURRENT_PROGRAM, &program);
-    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
-    glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &array_buffer);
-    glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
-    glGetIntegerv(GL_VIEWPORT, viewport.data());
-    glGetIntegerv(GL_SCISSOR_BOX, scissor_box.data());
-    glGetIntegerv(GL_BLEND_SRC_RGB, &src);
-    glGetIntegerv(GL_BLEND_DST_RGB, &dst);
-    glGetIntegerv(GL_BLEND_SRC_ALPHA, &src_alpha);
-    glGetIntegerv(GL_BLEND_DST_ALPHA, &dst_alpha);
-    glGetIntegerv(GL_BLEND_EQUATION_RGB, &equation);
-    glGetIntegerv(GL_BLEND_EQUATION_ALPHA, &equation_alpha);
-    glGetFloatv(GL_COLOR_CLEAR_VALUE, clear_color.data());
-    glGetBooleanv(GL_COLOR_WRITEMASK, mask.data());
-    const bool SCISSOR = glIsEnabled(GL_SCISSOR_TEST) != 0U;
-    const bool STENCIL = glIsEnabled(GL_STENCIL_TEST) != 0U;
-    const bool DEPTH = glIsEnabled(GL_DEPTH_TEST) != 0U;
-    const bool CULL = glIsEnabled(GL_CULL_FACE) != 0U;
-    const bool BLEND = renderer.blendEnabled();
-    auto *texture = textures.begin();
-    auto *sampler = samplers.begin();
-    for (int i = 0; i < 2; ++i, ++texture, ++sampler) {
-        renderer.setActiveTexture(GL_TEXTURE0 + i);
-        glGetIntegerv(GL_TEXTURE_BINDING_2D, &*texture);
-        glGetIntegeri_v(GL_SAMPLER_BINDING, i, &*sampler);
-    }
+    const hyprimate::gl::CRawGlBracket<2> GL_STATE{{
+        .viewport_width = static_cast<GLsizei>(size.x),
+        .viewport_height = HEIGHT,
+        .framebuffer = 0,
+        .blend = false,
+        .blend_src = GL_ONE,
+        .blend_dst = GL_ZERO,
+    }};
+    constexpr std::array<GLfloat, 4> CLEAR_COLOR{0.F, 0.F, 0.F, 0.F};
 
     bool ready = initialize();
     if (ready) {
-        renderer.setCapStatus(GL_SCISSOR_TEST, false);
-        renderer.setCapStatus(GL_STENCIL_TEST, false);
+        glDisable(GL_SCISSOR_TEST);
+        glDisable(GL_STENCIL_TEST);
         glDisable(GL_DEPTH_TEST);
         glDisable(GL_CULL_FACE);
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        renderer.setActiveTexture(GL_TEXTURE0);
+        glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, m_field_texture);
-        renderer.bindFramebuffer(GL_FRAMEBUFFER, m_field_framebuffer);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_field_framebuffer);
         // One surface serves differently sized windows in the same frame. Retain capacity,
         // rather than reallocating its texture every time the next window is smaller.
         if (WIDTH > m_field_width || HEIGHT > m_field_height) {
@@ -332,23 +252,23 @@ SP<Render::IFramebuffer> CSwarmSurface::filter(Render::CRenderContext &ctx,
         }
         if (ready) {
             const float SMOOTH_RADIUS = static_cast<float>(std::max(radius, 0.5));
-            renderer.setViewport(0, 0, WIDTH, HEIGHT);
+            glViewport(0, 0, WIDTH, HEIGHT);
+            glEnable(GL_SCISSOR_TEST);
             glScissor(0, 0, WIDTH, HEIGHT);
-            renderer.setCapStatus(GL_SCISSOR_TEST, true);
-            glClearColor(0, 0, 0, 0);
-            glClear(GL_COLOR_BUFFER_BIT);
-            renderer.setCapStatus(GL_SCISSOR_TEST, false);
-            renderer.blend(true);
-            renderer.blendFunc(GL_ONE, GL_ONE);
+            glClearBufferfv(GL_COLOR, 0, CLEAR_COLOR.data());
+            glDisable(GL_SCISSOR_TEST);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_ONE, GL_ONE);
             glBlendEquation(GL_FUNC_ADD);
             glUseProgram(m_field_program);
             glUniform2f(
                 m_field_size_uniform, static_cast<float>(WIDTH), static_cast<float>(HEIGHT));
             glUniform1f(m_field_k, SMOOTH_RADIUS);
             glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, static_cast<GLsizei>(bodies.size()));
-            g_pHyprRenderer->bindFB(ctx, OUTPUT);
-            renderer.setViewport(0, 0, static_cast<GLsizei>(size.x), HEIGHT);
-            renderer.blend(false);
+            glBindFramebuffer(GL_FRAMEBUFFER,
+                static_cast<Render::GL::CGLFramebuffer *>(OUTPUT.get())->getFBID());
+            glViewport(0, 0, static_cast<GLsizei>(size.x), HEIGHT);
+            glDisable(GL_BLEND);
             glUseProgram(m_program);
             glUniform1i(m_tex, 0);
             glUniform1i(m_field, 1);
@@ -358,54 +278,13 @@ SP<Render::IFramebuffer> CSwarmSurface::filter(Render::CRenderContext &ctx,
             glUniform1f(m_canvas_radius, static_cast<float>(corner_radius));
             glBindSampler(0, 0);
             glBindSampler(1, 0);
-            renderer.setActiveTexture(GL_TEXTURE0);
+            glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, input->getTexture()->m_texID);
-            renderer.setActiveTexture(GL_TEXTURE1);
+            glActiveTexture(GL_TEXTURE1);
             glBindTexture(GL_TEXTURE_2D, m_field_texture);
             glDrawArrays(GL_TRIANGLES, 0, 3);
         }
     }
 
-    texture = textures.begin();
-    sampler = samplers.begin();
-    for (int i = 0; i < 2; ++i, ++texture, ++sampler) {
-        renderer.setActiveTexture(GL_TEXTURE0 + i);
-        glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(*texture));
-        glBindSampler(i, static_cast<GLuint>(*sampler));
-    }
-    renderer.setActiveTexture(static_cast<GLenum>(active));
-    glBindVertexArray(static_cast<GLuint>(vao));
-    glBindBuffer(GL_ARRAY_BUFFER, static_cast<GLuint>(array_buffer));
-    glUseProgram(static_cast<GLuint>(program));
-    glClearColor(std::get<0>(clear_color),
-        std::get<1>(clear_color),
-        std::get<2>(clear_color),
-        std::get<3>(clear_color));
-    glColorMask(std::get<0>(mask), std::get<1>(mask), std::get<2>(mask), std::get<3>(mask));
-    if (DEPTH) {
-        glEnable(GL_DEPTH_TEST);
-    } else {
-        glDisable(GL_DEPTH_TEST);
-    }
-    if (CULL) {
-        glEnable(GL_CULL_FACE);
-    } else {
-        glDisable(GL_CULL_FACE);
-    }
-    glScissor(std::get<0>(scissor_box),
-        std::get<1>(scissor_box),
-        std::get<2>(scissor_box),
-        std::get<3>(scissor_box));
-    renderer.setCapStatus(GL_SCISSOR_TEST, SCISSOR);
-    renderer.setCapStatus(GL_STENCIL_TEST, STENCIL);
-    renderer.blend(BLEND);
-    renderer.blendFunc(static_cast<GLenum>(src), static_cast<GLenum>(dst));
-    glBlendFuncSeparate(static_cast<GLenum>(src),
-        static_cast<GLenum>(dst),
-        static_cast<GLenum>(src_alpha),
-        static_cast<GLenum>(dst_alpha));
-    glBlendEquationSeparate(static_cast<GLenum>(equation), static_cast<GLenum>(equation_alpha));
-    renderer.setViewport(
-        std::get<0>(viewport), std::get<1>(viewport), std::get<2>(viewport), std::get<3>(viewport));
     return ready ? OUTPUT : nullptr;
 }

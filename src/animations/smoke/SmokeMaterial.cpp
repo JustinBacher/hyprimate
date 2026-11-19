@@ -5,7 +5,6 @@
 #include <cstdio>
 
 #include "animations/smoke/SmokeMaterial.hpp"
-#include "smoke_shaders_generated.hpp"
 
 namespace {
     // Cells along the domain's longer side: fine enough for curling filaments, small enough
@@ -14,45 +13,6 @@ namespace {
     constexpr int PRESSURE_ITERATIONS = 22;
     constexpr double MAX_STEP = 1.0 / 20.0;
 
-    GLuint compile(GLenum type, const char *source) {
-        const GLuint SHADER = glCreateShader(type);
-        glShaderSource(SHADER, 1, &source, nullptr);
-        glCompileShader(SHADER);
-        GLint ok = 0;
-        glGetShaderiv(SHADER, GL_COMPILE_STATUS, &ok);
-        if (ok == 0) {
-            std::array<char, 2048> log{};
-            glGetShaderInfoLog(SHADER, log.size(), nullptr, log.data());
-            (void)std::fprintf(stderr, "smoke shader: %s\n", log.data());
-            glDeleteShader(SHADER);
-            return 0;
-        }
-        return SHADER;
-    }
-    GLuint link(GLuint vertex, const char *fragment_source) {
-        const GLuint FRAGMENT = compile(GL_FRAGMENT_SHADER, fragment_source);
-        if (vertex == 0 || FRAGMENT == 0) {
-            if (FRAGMENT != 0) {
-                glDeleteShader(FRAGMENT);
-            }
-            return 0;
-        }
-        GLuint program = glCreateProgram();
-        glAttachShader(program, vertex);
-        glAttachShader(program, FRAGMENT);
-        glLinkProgram(program);
-        glDeleteShader(FRAGMENT);
-        GLint ok = 0;
-        glGetProgramiv(program, GL_LINK_STATUS, &ok);
-        if (ok == 0) {
-            std::array<char, 2048> log{};
-            glGetProgramInfoLog(program, log.size(), nullptr, log.data());
-            (void)std::fprintf(stderr, "smoke program: %s\n", log.data());
-            glDeleteProgram(program);
-            program = 0;
-        }
-        return program;
-    }
     void bind(GLenum unit, GLenum target, GLuint texture) {
         glActiveTexture(unit);
         glBindTexture(target, texture);
@@ -72,32 +32,15 @@ void CSmokeField::release() {
     *this = CSmokeField{};
 }
 
-bool CSmokeMaterial::initialize() {
+bool CSmokeMaterial::initialize(const SSmokePrograms &programs) {
     if (m_tried) {
         return m_programs[Composite] != 0;
     }
     m_tried = true;
-    const GLuint VERTEX = compile(GL_VERTEX_SHADER, smoke_shader::VERTEX.data());
-    const std::array<const char *, ProgramCount> SOURCES{smoke_shader::VELOCITY.data(),
-        smoke_shader::DIVERGENCE.data(),
-        smoke_shader::PRESSURE.data(),
-        smoke_shader::PROJECT.data(),
-        smoke_shader::ADVECT.data(),
-        smoke_shader::DYE.data(),
-        smoke_shader::COMPOSITE.data()};
-    bool ok = true;
-    for (std::size_t i = 0; i < ProgramCount; ++i) {
-        m_programs[i] = link(VERTEX, SOURCES[i]);
-        ok = ok && m_programs[i] != 0;
-    }
-    if (VERTEX != 0) {
-        glDeleteShader(VERTEX);
-    }
-    if (!ok) {
-        release();
-        m_tried = true;
+    if (std::any_of(programs.ids.begin(), programs.ids.end(), [](GLuint program) { return program == 0; })) {
         return false;
     }
+    m_programs = programs.ids;
     constexpr std::array<const char *, UniformCount> NAMES{"u_window",
         "u_noise",
         "u_dye",
@@ -207,12 +150,7 @@ bool CSmokeMaterial::initialize() {
 }
 
 void CSmokeMaterial::release() {
-    for (auto &program : m_programs) {
-        if (program != 0) {
-            glDeleteProgram(program);
-        }
-        program = 0;
-    }
+    m_programs.fill(0);
     if (m_noise != 0) {
         glDeleteTextures(1, &m_noise);
     }
@@ -338,19 +276,9 @@ bool CSmokeMaterial::simulate(CSmokeField &field,
     }
     const hyprimate::Vec2 DOMAIN = hyprimate::smoke_domain(frame.size);
 
-    GLint draw_framebuffer = 0, read_framebuffer = 0;
-    std::array<GLint, 4> viewport{};
     std::array<GLfloat, 4> clear{};
-    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &draw_framebuffer);
-    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &read_framebuffer);
-    glGetIntegerv(GL_VIEWPORT, viewport.data());
     glGetFloatv(GL_COLOR_CLEAR_VALUE, clear.data());
-    const auto RESTORE = [&] {
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(draw_framebuffer));
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(read_framebuffer));
-        glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
-        glClearColor(clear[0], clear[1], clear[2], clear[3]);
-    };
+    const auto RESTORE = [&] { glClearColor(clear[0], clear[1], clear[2], clear[3]); };
     // Keep the allocation for this field's lifetime. Resizing changes its world-space
     // domain, not its storage; the advection passes remap the previous domain below.
     if (field.m_framebuffer == 0) {

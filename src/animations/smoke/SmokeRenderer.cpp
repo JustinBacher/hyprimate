@@ -9,6 +9,8 @@
 
 #include "animations/shared/SheetRenderer.hpp"
 #include "animations/smoke/SmokeRenderer.hpp"
+#include "gl/RawGlBracket.hpp"
+#include "smoke_shaders_generated.hpp"
 
 namespace {
     template <class F>
@@ -29,27 +31,47 @@ namespace {
     }
 }  // namespace
 CSmokeFieldHandle::~CSmokeFieldHandle() {
-    if (Render::GL::g_pHyprOpenGL) with_context([&] { field.release(); });
+    if (Render::GL::g_pHyprOpenGL && g_pHyprRenderer) with_context([&] {
+        auto &renderer = *Render::GL::g_pHyprOpenGL;
+        if (field.framebuffer() != 0) renderer.onFramebufferDeleted(field.framebuffer());
+        const Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
+        const hyprimate::gl::CRawGlBracket<7> bracket{{}};
+        field.release();
+    });
 }
 CSmokeRenderer::~CSmokeRenderer() {
-    if (Render::GL::g_pHyprOpenGL) with_context([&] { m_material.release(); });
+    if (!Render::GL::g_pHyprOpenGL || !g_pHyprRenderer) {
+        // Context teardown reclaims GL resources when the renderer is already gone.
+        for (auto &shader : m_shaders) (void)shader.release();
+        return;
+    }
+    with_context([&] {
+        const Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
+        const hyprimate::gl::CRawGlBracket<7> bracket{{}};
+        m_material.release();
+        for (auto &shader : m_shaders) shader.reset();
+    });
+}
+bool CSmokeRenderer::initialize() {
+    if (m_tried) return m_programs.ids[SSmokePrograms::Composite] != 0;
+    m_tried = true;
+    const std::array<const char *, SSmokePrograms::ProgramCount> sources{smoke_shader::VELOCITY.data(),
+        smoke_shader::DIVERGENCE.data(), smoke_shader::PRESSURE.data(), smoke_shader::PROJECT.data(),
+        smoke_shader::ADVECT.data(), smoke_shader::DYE.data(), smoke_shader::COMPOSITE.data()};
+    for (std::size_t i = 0; i < sources.size(); ++i) {
+        m_shaders[i] = std::make_unique<CShader>();
+        if (!m_shaders[i]->createProgram(smoke_shader::VERTEX.data(), sources[i], true, true)) return false;
+        m_programs.ids[i] = m_shaders[i]->program();
+    }
+    return m_material.initialize(m_programs);
 }
 void CSmokeRenderer::warm_up() {
-    if (m_warmed || !Render::GL::g_pHyprOpenGL) return;
+    if (m_warmed || !Render::GL::g_pHyprOpenGL || !g_pHyprRenderer) return;
     m_warmed = true;
     with_context([&] {
-        GLint active = 0, noise = 0, empty = 0;
-        glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
-        glActiveTexture(GL_TEXTURE1);
-        glGetIntegerv(GL_TEXTURE_BINDING_3D, &noise);
-        glActiveTexture(GL_TEXTURE2);
-        glGetIntegerv(GL_TEXTURE_BINDING_2D, &empty);
-        m_material.initialize();
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_3D, static_cast<GLuint>(noise));
-        glActiveTexture(GL_TEXTURE2);
-        glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(empty));
-        glActiveTexture(static_cast<GLenum>(active));
+        const Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
+        const hyprimate::gl::CRawGlBracket<7> bracket{{}};
+        initialize();
     });
 }
 SP<Render::IFramebuffer> CSmokeRenderer::render(
@@ -61,42 +83,21 @@ SP<Render::IFramebuffer> CSmokeRenderer::render(
         !(draw.canvas.x > 0 && draw.canvas.y > 0 && draw.source.w > 0 && draw.source.h > 0 &&
             draw.texture_size.x > 0 && draw.texture_size.y > 0))
         return nullptr;
-    auto &renderer = *Render::GL::g_pHyprOpenGL;
     const Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
     const auto state = ctx.saveDrawState();
     const auto layer = g_pHyprRenderer->getWorkBuffer(ctx, draw.canvas);
     if (!layer || !layer->getTexture() || layer->getTexture()->m_texID == draw.window->m_texID)
         return nullptr;
-    GLint program = 0, vao = 0, buffer = 0, active = 0, src = 0, dst = 0, srca = 0, dsta = 0;
-    std::array<GLint, 4> viewport{};
-    std::array<GLboolean, 4> mask{};
-    // The fluid passes use texture units 0-6.
-    std::array<std::array<GLint, 2>, 7> textures{};
-    glGetIntegerv(GL_CURRENT_PROGRAM, &program);
-    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
-    glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &buffer);
-    glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
-    glGetIntegerv(GL_VIEWPORT, viewport.data());
-    glGetBooleanv(GL_COLOR_WRITEMASK, mask.data());
-    glGetIntegerv(GL_BLEND_SRC_RGB, &src);
-    glGetIntegerv(GL_BLEND_DST_RGB, &dst);
-    glGetIntegerv(GL_BLEND_SRC_ALPHA, &srca);
-    glGetIntegerv(GL_BLEND_DST_ALPHA, &dsta);
-    const bool scissor = glIsEnabled(GL_SCISSOR_TEST), stencil = glIsEnabled(GL_STENCIL_TEST);
-    const bool depth = glIsEnabled(GL_DEPTH_TEST), cull = glIsEnabled(GL_CULL_FACE),
-               blend = renderer.blendEnabled();
-    for (int i = 0; i < static_cast<int>(textures.size()); ++i) {
-        renderer.setActiveTexture(GL_TEXTURE0 + i);
-        glGetIntegerv(GL_TEXTURE_BINDING_2D, &textures[i][0]);
-        glGetIntegerv(GL_TEXTURE_BINDING_3D, &textures[i][1]);
-    }
-    const bool ready = m_material.initialize();
+    auto *gl_layer = dynamic_cast<Render::GL::CGLFramebuffer *>(layer.get());
+    if (!gl_layer) return nullptr;
+    g_pHyprRenderer->bindFB(ctx, layer);
+    const hyprimate::gl::SShadowedState known{.viewport_width = static_cast<GLsizei>(draw.canvas.x),
+        .viewport_height = static_cast<GLsizei>(draw.canvas.y), .framebuffer = gl_layer->getFBID()};
+    const hyprimate::gl::CRawGlBracket<7> bracket{known};
+    const bool ready = initialize();
     if (ready) {
-        renderer.setCapStatus(GL_SCISSOR_TEST, false);
-        renderer.setCapStatus(GL_STENCIL_TEST, false);
         glDisable(GL_DEPTH_TEST);
         glDisable(GL_CULL_FACE);
-        renderer.blend(false);
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         const SSmokeTarget target{.canvas = {draw.canvas.x, draw.canvas.y},
             .origin = draw.output_origin,
@@ -107,35 +108,10 @@ SP<Render::IFramebuffer> CSmokeRenderer::render(
             .texture_size = draw.texture_size};
         // Steps once per frame; further monitors reuse the advanced field.
         m_material.simulate(draw.field->field, draw.frame, target, images);
-        g_pHyprRenderer->bindFB(ctx, layer);
-        renderer.setViewport(
-            0, 0, static_cast<GLsizei>(draw.canvas.x), static_cast<GLsizei>(draw.canvas.y));
+        glBindFramebuffer(GL_FRAMEBUFFER, known.framebuffer);
+        glViewport(0, 0, known.viewport_width, known.viewport_height);
         m_material.draw(draw.field->field, draw.frame, target, images);
     }
-    for (int i = 0; i < static_cast<int>(textures.size()); ++i) {
-        renderer.setActiveTexture(GL_TEXTURE0 + i);
-        glBindTexture(GL_TEXTURE_2D, textures[i][0]);
-        glBindTexture(GL_TEXTURE_3D, textures[i][1]);
-    }
-    renderer.setActiveTexture(static_cast<GLenum>(active));
-    glBindVertexArray(static_cast<GLuint>(vao));
-    glBindBuffer(GL_ARRAY_BUFFER, static_cast<GLuint>(buffer));
-    glUseProgram(static_cast<GLuint>(program));
-    glColorMask(mask[0], mask[1], mask[2], mask[3]);
-    if (depth)
-        glEnable(GL_DEPTH_TEST);
-    else
-        glDisable(GL_DEPTH_TEST);
-    if (cull)
-        glEnable(GL_CULL_FACE);
-    else
-        glDisable(GL_CULL_FACE);
-    renderer.setCapStatus(GL_SCISSOR_TEST, scissor);
-    renderer.setCapStatus(GL_STENCIL_TEST, stencil);
-    renderer.blend(blend);
-    renderer.blendFunc(static_cast<GLenum>(src), static_cast<GLenum>(dst));
-    if (srca != src || dsta != dst) glBlendFuncSeparate(src, dst, srca, dsta);
-    renderer.setViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
     return ready ? layer : nullptr;
 }
 CSmokePassElement::CSmokePassElement(SData data) : m_data(std::move(data)) {

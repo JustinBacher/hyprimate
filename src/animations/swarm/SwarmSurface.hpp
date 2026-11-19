@@ -1,10 +1,12 @@
 #pragma once
 
+#include <memory>
 #include <span>
 
 #include <GLES3/gl32.h>
 #include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/Framebuffer.hpp>
+#include <hyprland/src/render/Shader.hpp>
 
 #include "animations/swarm/SwarmSurfaceBody.hpp"
 
@@ -29,6 +31,7 @@ class CSwarmSurface {
 
   private:
     bool initialize();
+    std::unique_ptr<CShader> m_surface_shader, m_field_shader;
     GLuint m_program = 0, m_field_program = 0, m_vao = 0, m_quad = 0, m_instances = 0;
     GLuint m_field_texture = 0, m_field_framebuffer = 0;
     GLsizei m_field_width = 0, m_field_height = 0;

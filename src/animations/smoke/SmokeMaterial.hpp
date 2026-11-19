@@ -15,12 +15,18 @@ struct SSmokeImages {
     hyprimate::Vec2 texture_origin, texture_size;
 };
 
+struct SSmokePrograms {
+    enum Program : std::size_t { Velocity, Divergence, Pressure, Project, Advect, Dye, Composite, ProgramCount };
+    std::array<GLuint, ProgramCount> ids{};
+};
+
 // One window's smoke fluid: velocity, pressure, window-coloured density and the density's age
 // on a grid that follows the window while the smoke itself stays anchored to the world.
 // release() needs the owning context current.
 class CSmokeField {
   public:
     void release();
+    [[nodiscard]] GLuint framebuffer() const { return m_framebuffer; }
 
   private:
     friend class CSmokeMaterial;
@@ -54,10 +60,10 @@ class CSmokeField {
 // restores texture units 0-6 (2D and 3D), program and VAO afterwards.
 class CSmokeMaterial {
   public:
-    bool initialize();
+    bool initialize(const SSmokePrograms &programs);
     void release();
     // Advances the field to frame.time; later calls for the same time do nothing.
-    // Uses its own framebuffer and restores the caller's framebuffers and viewport.
+    // Uses its own framebuffer and viewport; the caller must restore them afterwards.
     bool simulate(CSmokeField &field,
         const hyprimate::SmokeFrame &frame,
         const SSmokeTarget &target,
@@ -69,16 +75,8 @@ class CSmokeMaterial {
         const SSmokeImages &images);
 
   private:
-    enum Program : std::size_t {
-        Velocity,
-        Divergence,
-        Pressure,
-        Project,
-        Advect,
-        Dye,
-        Composite,
-        ProgramCount
-    };
+    using Program = SSmokePrograms::Program;
+    using enum SSmokePrograms::Program;
     enum Uniform : std::size_t {
         Window,
         Noise,

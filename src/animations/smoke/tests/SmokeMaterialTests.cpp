@@ -10,11 +10,12 @@
 #include <string>
 #include <vector>
 
-#include <EGL/egl.h>
 #include <GLES3/gl32.h>
 
 #include "Check.hpp"
+#include "GlHarness.hpp"
 #include "animations/smoke/SmokeMaterial.hpp"
+#include "smoke_shaders_generated.hpp"
 
 namespace {
     constexpr int W = 512, H = 256, TW = 160, TH = 120;
@@ -61,6 +62,8 @@ namespace {
             glViewport(0, 0, WIDTH, HEIGHT);
             glDisable(GL_BLEND);
             CHECK(material.simulate(field, frame, target, images()));
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glViewport(0, 0, WIDTH, HEIGHT);
             material.draw(field, frame, target, images());
             Image result(static_cast<std::size_t>(WIDTH) * HEIGHT);
             glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, result.data());
@@ -99,30 +102,8 @@ int main(int argc, char **argv) {
             capture = argv[++i];
         }
     }
-    EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-    EGLint major = 0, minor = 0;
-    if (display == EGL_NO_DISPLAY || (eglInitialize(display, &major, &minor) == 0U) ||
-        (eglBindAPI(EGL_OPENGL_ES_API) == 0U)) {
-        (void)std::fprintf(stderr, "Cannot initialize EGL; try EGL_PLATFORM=surfaceless\n");
-        return 1;
-    }
-    const std::array<EGLint, 13> attrs{EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE,
-        EGL_OPENGL_ES3_BIT, EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
-        EGL_NONE};
-    EGLConfig config{};
-    EGLint count = 0;
-    if ((eglChooseConfig(display, attrs.data(), &config, 1, &count) == 0U) || count != 1) {
-        return 1;
-    }
-    // Large pbuffer permits realistic full-HD timing without changing the shader.
-    const std::array<EGLint, 5> surface_attrs{EGL_WIDTH, 1920, EGL_HEIGHT, 1080, EGL_NONE};
-    const std::array<EGLint, 3> context_attrs{EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
-    EGLSurface surface = eglCreatePbufferSurface(display, config, surface_attrs.data());
-    EGLContext context = eglCreateContext(display, config, EGL_NO_CONTEXT, context_attrs.data());
-    if (surface == EGL_NO_SURFACE || context == EGL_NO_CONTEXT ||
-        (eglMakeCurrent(display, surface, surface, context) == 0U)) {
-        return 1;
-    }
+    gl_harness::CContext context;
+    if (!context.valid()) return 1;
     {
         Image pixels(static_cast<std::size_t>(TW) * TH);
         for (int y = 0; y < TH; ++y) {
@@ -132,7 +113,15 @@ int main(int argc, char **argv) {
             }
         }
         Harness h;
-        CHECK(h.material.initialize());
+        SSmokePrograms programs;
+        const std::array<const char *, SSmokePrograms::ProgramCount> sources{smoke_shader::VELOCITY.data(),
+            smoke_shader::DIVERGENCE.data(), smoke_shader::PRESSURE.data(), smoke_shader::PROJECT.data(),
+            smoke_shader::ADVECT.data(), smoke_shader::DYE.data(), smoke_shader::COMPOSITE.data()};
+        for (std::size_t i = 0; i < sources.size(); ++i) {
+            programs.ids[i] = gl_harness::build_program(smoke_shader::VERTEX.data(), sources[i]);
+            CHECK(programs.ids[i] != 0);
+        }
+        CHECK(h.material.initialize(programs));
         glGenTextures(1, &h.texture);
         glBindTexture(GL_TEXTURE_2D, h.texture);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -461,6 +450,8 @@ int main(int argc, char **argv) {
             h.frame.time += .016;
             h.frame.smoke = 0.2 * (i + 1);
             h.material.simulate(field, h.frame, h.target, h.images());
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glViewport(0, 0, 1920, 1080);
             h.material.draw(field, h.frame, h.target, h.images());
         }
         glFinish();
@@ -470,11 +461,8 @@ int main(int argc, char **argv) {
         CHECK(glGetError() == GL_NO_ERROR);
         field.release();
         h.material.release();
+        for (GLuint program : programs.ids) glDeleteProgram(program);
         glDeleteTextures(1, &h.texture);
     }
-    eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-    eglDestroyContext(display, context);
-    eglDestroySurface(display, surface);
-    eglTerminate(display);
     return g_failures == 0 ? 0 : 1;
 }

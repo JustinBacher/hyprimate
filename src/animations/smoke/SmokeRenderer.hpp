@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include <memory>
 #include <optional>
 
 #include <hyprland/src/render/Context.hpp>
@@ -6,6 +8,7 @@
 #include <hyprland/src/render/Texture.hpp>
 #include <hyprland/src/render/pass/PassElement.hpp>
 
+#include <hyprland/src/render/Shader.hpp>
 #include "animations/smoke/SmokeMaterial.hpp"
 
 // One window's smoke fluid, released in the compositor's context when the window's smoke
@@ -36,6 +39,10 @@ class CSmokeRenderer {
     void warm_up();
 
   private:
+    bool initialize();
+    std::array<std::unique_ptr<CShader>, SSmokePrograms::ProgramCount> m_shaders;
+    SSmokePrograms m_programs;
+    bool m_tried = false;
     CSmokeMaterial m_material;
     bool m_warmed = false;
 };

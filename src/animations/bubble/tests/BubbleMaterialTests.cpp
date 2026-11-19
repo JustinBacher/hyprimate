@@ -7,15 +7,15 @@
 #include <cstdlib>
 #include <vector>
 
-#include <EGL/egl.h>
-#include <EGL/eglplatform.h>
 #include <GLES3/gl32.h>
 
 #include "Check.hpp"
+#include "GlHarness.hpp"
 #include "animations/bubble/Bubble.hpp"
 #include "animations/bubble/BubbleMaterial.hpp"
 #include "animations/bubble/BubbleMotion.hpp"
 #include "animations/shared/Core.hpp"
+#include "bubble_shaders_generated.hpp"
 
 namespace {
     constexpr int WIDTH = 256, HEIGHT = 256;
@@ -42,6 +42,7 @@ namespace {
 
     struct Fixture {
         CBubbleMaterial material;
+        SBubblePrograms programs{};
         GLuint window = 0, other_window = 0, scene = 0, black = 0;
 
         Fixture() {
@@ -78,7 +79,14 @@ namespace {
             other_window = texture(alternative);
             scene = texture(background);
             black = texture(dark);
-            CHECK(material.initialize());
+            programs = {
+                gl_harness::build_program(bubble_shader::VERTEX.data(), bubble_shader::FRAGMENT.data()),
+                gl_harness::build_program(bubble_shader::CURL_VERTEX.data(), bubble_shader::CURL_FRAGMENT.data()),
+                gl_harness::build_program(bubble_shader::PARTICLE_VERTEX.data(), bubble_shader::PARTICLE_FRAGMENT.data()),
+                gl_harness::build_program(bubble_shader::FILM_VERTEX.data(), bubble_shader::FILM_FRAGMENT.data()),
+                gl_harness::build_program(bubble_shader::MICROBUBBLE_VERTEX.data(), bubble_shader::MICROBUBBLE_FRAGMENT.data()),
+            };
+            CHECK(material.initialize(programs));
         }
         Fixture(const Fixture &) = delete;
         Fixture &operator=(const Fixture &) = delete;
@@ -86,6 +94,12 @@ namespace {
         Fixture &operator=(Fixture &&) = delete;
         ~Fixture() {
             material.release();
+            for (const GLuint program : {programs.membrane, programs.curl, programs.particles,
+                     programs.film, programs.micro}) {
+                if (program != 0U) {
+                    glDeleteProgram(program);
+                }
+            }
             const std::array<GLuint, 4> TEXTURES{window, other_window, scene, black};
             glDeleteTextures(4, TEXTURES.data());
         }
@@ -473,40 +487,8 @@ namespace {
 }  // namespace
 
 int main() {
-    EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-    EGLint major = 0;
-    EGLint minor = 0;
-    if (display == EGL_NO_DISPLAY || (eglInitialize(display, &major, &minor) == 0U) ||
-        (eglBindAPI(EGL_OPENGL_ES_API) == 0U)) {
-        (void)std::fprintf(stderr, "Cannot initialize offscreen EGL (try EGL_PLATFORM=surfaceless)\n");
-        return 1;
-    }
-    const std::array<EGLint, 13> CONFIG_ATTRS{
-        EGL_SURFACE_TYPE,
-        EGL_PBUFFER_BIT,
-        EGL_RENDERABLE_TYPE,
-        EGL_OPENGL_ES3_BIT,
-        EGL_RED_SIZE,
-        8,
-        EGL_GREEN_SIZE,
-        8,
-        EGL_BLUE_SIZE,
-        8,
-        EGL_ALPHA_SIZE,
-        8,
-        EGL_NONE,
-    };
-    EGLConfig config{};
-    EGLint count = 0;
-    if ((eglChooseConfig(display, CONFIG_ATTRS.data(), &config, 1, &count) == 0U) || count != 1) {
-        return 1;
-    }
-    const std::array<EGLint, 5> SURFACE_ATTRS{EGL_WIDTH, WIDTH, EGL_HEIGHT, HEIGHT, EGL_NONE};
-    const std::array<EGLint, 3> CONTEXT_ATTRS{EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
-    EGLSurface surface = eglCreatePbufferSurface(display, config, SURFACE_ATTRS.data());
-    EGLContext context = eglCreateContext(display, config, EGL_NO_CONTEXT, CONTEXT_ATTRS.data());
-    if (surface == EGL_NO_SURFACE || context == EGL_NO_CONTEXT ||
-        (eglMakeCurrent(display, surface, surface, context) == 0U)) {
+    gl_harness::CContext context{WIDTH, HEIGHT};
+    if (!context.valid()) {
         (void)std::fprintf(stderr, "Cannot create GLES 3 offscreen context\n");
         return 1;
     }
@@ -524,9 +506,5 @@ int main() {
         test_moving(fixture, {.width = 150, .height = 90}, .85, {.x = 48, .y = 48});
         test_bud(fixture);
     }
-    eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-    eglDestroyContext(display, context);
-    eglDestroySurface(display, surface);
-    eglTerminate(display);
     return g_failures == 0 ? 0 : 1;
 }

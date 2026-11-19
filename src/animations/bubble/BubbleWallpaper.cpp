@@ -15,6 +15,7 @@
 #include <hyprutils/memory/UniquePtr.hpp>
 
 #include "BubbleWallpaper.hpp"
+#include "gl/RawGlBracket.hpp"
 
 namespace {
     class CBubbleWallpaperPass final : public IPassElement {
@@ -94,29 +95,23 @@ namespace {
                 return {};
             }
 
-            auto &renderer = *Render::GL::g_pHyprOpenGL;
             const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
             const auto STATE = ctx.saveDrawState();
-            GLint active = 0;
-            GLint texture = 0;
-            glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
-            renderer.setActiveTexture(GL_TEXTURE0);
-            glGetIntegerv(GL_TEXTURE_BINDING_2D, &texture);
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): RT_GL selects the GL framebuffer backend.
+            const auto SOURCE_ID = static_cast<Render::GL::CGLFramebuffer *>(SOURCE.get())->getFBID();
+            const hyprimate::gl::CRawGlBracket<1> bracket{{
+                .viewport_width = static_cast<GLsizei>(SOURCE->m_size.x),
+                .viewport_height = static_cast<GLsizei>(SOURCE->m_size.y),
+                .framebuffer = SOURCE_ID}};
             const auto DESTINATION = g_pHyprRenderer->getWorkBuffer(ctx, EXTENT);
-            glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(texture));
-            renderer.setActiveTexture(static_cast<GLenum>(active));
             if (!DESTINATION || !DESTINATION->getTexture() ||
                 DESTINATION->getTexture()->m_texID == SOURCE->getTexture()->m_texID) {
                 return {};
             }
 
-            const bool SCISSOR = glIsEnabled(GL_SCISSOR_TEST) != 0U;
-            renderer.setCapStatus(GL_SCISSOR_TEST, false);
-            renderer.bindFramebuffer(GL_READ_FRAMEBUFFER,
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): RT_GL selects the GL framebuffer backend.
-                static_cast<Render::GL::CGLFramebuffer *>(SOURCE.get())->getFBID());
-            renderer.bindFramebuffer(GL_DRAW_FRAMEBUFFER,
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): RT_GL selects the GL framebuffer backend.
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, SOURCE_ID);
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): RT_GL selects the GL framebuffer backend.
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER,
                 static_cast<Render::GL::CGLFramebuffer *>(DESTINATION.get())->getFBID());
             glBlitFramebuffer(static_cast<GLint>(LEFT),
                 static_cast<GLint>(CLIP_TOP),
@@ -128,7 +123,6 @@ namespace {
                 static_cast<GLint>(EXTENT.y),
                 GL_COLOR_BUFFER_BIT,
                 GL_NEAREST);
-            renderer.setCapStatus(GL_SCISSOR_TEST, SCISSOR);
             m_wallpaper->origin = (ORIGIN - Vector2D{LEFT, CLIP_TOP}) / EXTENT;
             m_wallpaper->axis_x = (AXIS_X - ORIGIN) / EXTENT;
             m_wallpaper->axis_y = (AXIS_Y - ORIGIN) / EXTENT;
