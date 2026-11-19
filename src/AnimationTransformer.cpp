@@ -30,16 +30,9 @@ using namespace Render;
 
 
 
-CAnimationTransformer::CAnimationTransformer(PHLWINDOWREF window,
-    SStyleState state,
-    SP<CSolidFill> solid,
-    SP<CSheetShade> shade,
-    SP<CSwarmSprites> sprites)
-    : m_window(std::move(window)),
-      m_style(std::move(state)),
-      m_solid(std::move(solid)),
-      m_shade(std::move(shade)),
-      m_sprites(std::move(sprites)) {
+CAnimationTransformer::CAnimationTransformer(
+    PHLWINDOWREF window, SStyleState state, SStyleResources<StyleModules> &resources)
+    : m_window(std::move(window)), m_style(std::move(state)), m_resources(resources) {
 }
 
 bool CAnimationTransformer::built_for(
@@ -145,7 +138,8 @@ SWindowTransformBuffer CAnimationTransformer::transform(CRenderContext &ctx,
     };
     return std::visit(
         [&](auto &state) {
-            return render_live(state, ctx, input, context, GEOMETRY, m_solid, m_shade, m_sprites);
+            using Module = typename SStyleModuleFor<std::decay_t<decltype(state)>>::Module;
+            return render_live(state, ctx, input, context, GEOMETRY, m_resources.get<Module>());
         },
         m_style);
 }

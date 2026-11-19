@@ -107,9 +107,8 @@ namespace close_style {
         Render::CRenderContext &ctx,
         const PHLMONITOR &monitor,
         const SP<Render::ITexture> &tex,
-        [[maybe_unused]] const SP<CSolidFill> &solid_fill,
-        [[maybe_unused]] const SP<CSheetShade> &shade,
-        const SP<CSwarmSprites> &sprites) {
+        SSwarmResources &resources) {
+        const auto &sprites = resources.sprites;
         const auto *sheet = sprites ? sprites->sheet(style.creature) : nullptr;
         const auto ATLAS =
             (sheet != nullptr) ? sprites->texture(style.creature) : SP<Render::ITexture>{};

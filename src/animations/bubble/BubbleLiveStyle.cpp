@@ -22,12 +22,8 @@
 #include "animations/bubble/BubbleMotion.hpp"
 #include "animations/bubble/BubbleRenderer.hpp"
 #include "animations/bubble/BubbleWallpaper.hpp"
-#include "animations/cloth/ClothFlutter.hpp"
-#include "animations/liquid/LiquidMesh.hpp"
-#include "animations/liquid/SolidFill.hpp"
 #include "animations/shared/Core.hpp"
 #include "animations/shared/SheetRenderer.hpp"
-#include "animations/swarm/SwarmRenderer.hpp"
 #include "config_generated.hpp"
 
 namespace {
@@ -54,18 +50,13 @@ Render::SWindowTransformBuffer render_live(SBubbleStyle &state,
     const Render::SWindowTransformBuffer &input,
     const Render::SWindowTransformContext &context,
     const SLiveRenderGeometry &geometry,
-    [[maybe_unused]] const SP<CSolidFill> &solid_fill,
-    [[maybe_unused]] const SP<CSheetShade> &shade,
-    [[maybe_unused]] const SP<CSwarmSprites> &sprites) {
-    if (!state.renderer) {
-        return {.framebuffer = input.framebuffer, .box = input.box, .success = false};
-    }
+    SBubbleResources &resources) {
     const hyprimate::Vec2 SIZE{
         .x = geometry.source.w / geometry.scale,
         .y = geometry.source.h / geometry.scale,
     };
     const auto FRAME = state.bubble.frame(SIZE);
-    const auto LAYER = state.renderer->render(ctx,
+    const auto LAYER = resources.renderer->render(ctx,
         SBubbleDraw{
             .window = input.framebuffer->getTexture(),
             .wallpaper = state.wallpaper,
@@ -83,13 +74,13 @@ Render::SWindowTransformBuffer render_live(SBubbleStyle &state,
     if (!ctx.readOnlyEffects() && !ctx.m_renderingCapture && !ctx.m_renderingSnapshot) {
         const auto MONITOR = context.monitor.lock();
         const auto CENTRE = context.currentBox.middle();
-        deposit_bubble_impacts(state, FRAME, MONITOR, CENTRE);
+        deposit_bubble_impacts(state, resources.vestige, FRAME, MONITOR, CENTRE);
         // Film and microbubbles the movement shed since the last frame stay where they were laid,
         // relative to the window drawn now.
         const auto &motion = state.bubble.motion();
         if (!motion.trail().empty() || !motion.releases().empty()) {
-            if (state.residue && MONITOR) {
-                state.wake = state.residue->trail(MONITOR,
+            if (MONITOR) {
+                state.wake = resources.vestige.trail(MONITOR,
                     state.window.lock(),
                     state.wake,
                     CENTRE,
@@ -103,7 +94,8 @@ Render::SWindowTransformBuffer render_live(SBubbleStyle &state,
 }
 
 bool SBubbleLiveStyle::open(
-    CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window) {
+    CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window,
+    [[maybe_unused]] SBubbleResources &resources) {
     const CBox CURRENT = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
     const CBox GOAL = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
     const CBox CAPTURE = window->getFullWindowBoundingBox();
@@ -131,7 +123,6 @@ bool SBubbleLiveStyle::open(
         return false;
     }
     state.wallpaper = makeShared<SBubbleWallpaper>();
-    state.residue = runtime.m_bubble_residue;
     state.shell_impacts_deposited = state.window_impacts_deposited = false;
     state.impacts.start();
     // Bubble owns formation, placement and opacity. Keep focus/workspace/user alpha factors intact.
@@ -231,8 +222,8 @@ void SBubbleLiveStyle::cancelMovement(CAnimationTransformer &transformer) {
     state.wake = 0;
 }
 
-bool SBubbleLiveStyle::available(const SBubbleStyle &state) noexcept {
-    return static_cast<bool>(state.renderer);
+bool SBubbleLiveStyle::available([[maybe_unused]] const SBubbleStyle &state) noexcept {
+    return true;
 }
 
 bool SBubbleLiveStyle::deforming(const SBubbleStyle &state) noexcept {
@@ -254,13 +245,13 @@ SBubbleStyle SBubbleLiveStyle::initial([[maybe_unused]] const Inputs &inputs, st
 double SBubbleLiveStyle::strength(const CPluginRuntime &runtime) {
     return runtime.m_config.movement.bubble.strength;
 }
-bool SBubbleLiveStyle::usable([[maybe_unused]] const CPluginRuntime &runtime) {
+bool SBubbleLiveStyle::usable([[maybe_unused]] const CPluginRuntime &runtime, [[maybe_unused]] const Resources &resources) {
     return true;
 }
 
 SBubbleLiveStyle::Inputs SBubbleLiveStyle::inputs([[maybe_unused]] const CPluginRuntime &runtime) { return {}; }
-void SBubbleLiveStyle::prepare(CPluginRuntime &runtime, bool selected) {
-    if (selected) runtime.m_bubble->warm_up();
+void SBubbleLiveStyle::prepare([[maybe_unused]] CPluginRuntime &runtime, Resources &resources, bool selected) {
+    if (selected) resources.renderer->warm_up();
 }
 bool SBubbleLiveStyle::movement_requested(const hyprimate::TrackDecision &decision) noexcept {
     return decision.translated;

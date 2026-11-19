@@ -63,8 +63,7 @@ class CAnimationCloseRenderer {
         Clock::time_point last_advance;
     };
 
-    explicit CAnimationCloseRenderer(
-        HANDLE handle, SP<CSolidFill> solid, SP<CSheetShade> shade, SP<CSwarmSprites> sprites);
+    explicit CAnimationCloseRenderer(HANDLE handle, SStyleResources<StyleModules> &resources);
     ~CAnimationCloseRenderer();
 
     CAnimationCloseRenderer(const CAnimationCloseRenderer &) = delete;
@@ -147,9 +146,7 @@ class CAnimationCloseRenderer {
     void push(SPending pending);
 
     HANDLE m_handle;
-    SP<CSolidFill> m_solid;
-    SP<CSheetShade> m_shade;
-    SP<CSwarmSprites> m_sprites;
+    SStyleResources<StyleModules> &m_resources;
     // Owned by the host hook system; created and removed only through HyprlandAPI.
     CFunctionHook *m_create_hook = nullptr;
     CFunctionHook *m_render_hook = nullptr;

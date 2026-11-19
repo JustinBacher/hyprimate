@@ -18,7 +18,6 @@ struct SLiveRenderGeometry {
     Render::SWindowTransformBuffer render_live(module::State &state,                        \
         Render::CRenderContext &ctx, const Render::SWindowTransformBuffer &input,            \
         const Render::SWindowTransformContext &context, const SLiveRenderGeometry &geometry, \
-        const SP<CSolidFill> &solid, const SP<CSheetShade> &shade,                          \
-        const SP<CSwarmSprites> &sprites);
+        module::Resources &resources);
 HYPRIMATE_STYLE_LIST(HYPRIMATE_RENDER_DECL, HYPRIMATE_STYLE_EMPTY)
 #undef HYPRIMATE_RENDER_DECL

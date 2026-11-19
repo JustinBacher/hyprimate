@@ -4,8 +4,14 @@
 #include "animations/liquid/LiquidCloseStyleData.hpp"
 #include "config_generated.hpp"
 #include "animations/liquid/LiquidPose.hpp"
+#include "animations/liquid/SolidFill.hpp"
+#include "animations/shared/SheetResources.hpp"
 
-struct SLiquidResources;
+struct SLiquidResources {
+    explicit SLiquidResources([[maybe_unused]] SSharedStyleResources &shared) {}
+    CSolidFill open_solid;
+    CSolidFill close_solid;
+};
 struct SLiquidModule {
     using State = SLiquidStyle;
     using CloseData = SLiquidCloseData;

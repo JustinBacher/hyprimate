@@ -101,8 +101,9 @@ class CPluginRuntime {
     bool has_workspace_swarm_tail(const PHLMONITOR &monitor) const;
     void queue_workspace_swarm_tails(Render::CRenderContext &ctx, const PHLMONITOR &monitor);
 
-    // Must outlive close records and every transformer detached during destruction.
-    hyprimate::ClothPhysics m_cloth_physics;
+    // Resources and physics outlive all close records and detached transformers.
+    SSharedStyleResources m_shared_style_resources;
+    SStyleResources<StyleModules> m_style_resources{m_shared_style_resources};
 
     HANDLE m_handle = nullptr;
     hyprimate::config::SConfigValues m_values;
@@ -111,13 +112,6 @@ class CPluginRuntime {
 
     std::vector<STracked> m_tracked;
     bool m_inert = false;
-    SP<CSolidFill> m_open_solid = makeShared<CSolidFill>();
-    SP<CSolidFill> m_close_solid = makeShared<CSolidFill>();
-    SP<CSheetShade> m_shade = makeShared<CSheetShade>();
-    SP<CSwarmSprites> m_sprites = makeShared<CSwarmSprites>();
-    SP<CBubbleRenderer> m_bubble = makeShared<CBubbleRenderer>();
-    SP<CSmokeRenderer> m_smoke = makeShared<CSmokeRenderer>();
-    SP<CBubbleResidue> m_bubble_residue = makeShared<CBubbleResidue>();
     std::vector<PHLMONITORREF> m_residue_inhibited;
     std::unique_ptr<CAnimationCloseRenderer> m_close;
     mutable std::vector<hyprimate::Box>

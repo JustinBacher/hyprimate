@@ -79,9 +79,7 @@ namespace close_style {
         Render::CRenderContext &ctx,
         const PHLMONITOR &monitor,
         const SP<Render::ITexture> &tex,
-        [[maybe_unused]] const SP<CSolidFill> &solid_fill,
-        const SP<CSheetShade> &shade,
-        [[maybe_unused]] const SP<CSwarmSprites> &sprites) {
+        SPaperResources &resources) {
         render_sheet(style.sheet,
             style.crumple.shaded(),
             style.crumple.opacity(),
@@ -89,6 +87,6 @@ namespace close_style {
             ctx,
             monitor,
             tex,
-            shade);
+            resources.shade);
     }
 }  // namespace close_style

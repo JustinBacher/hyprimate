@@ -3,9 +3,13 @@
 #include "animations/smoke/SmokeLiveState.hpp"
 #include "animations/smoke/SmokeCloseStyleData.hpp"
 #include "config_generated.hpp"
+#include "animations/shared/SheetResources.hpp"
 
 struct SSmokeInputs {};
-struct SSmokeResources;
+struct SSmokeResources {
+    explicit SSmokeResources([[maybe_unused]] SSharedStyleResources &shared) {}
+    SP<CSmokeRenderer> renderer = makeShared<CSmokeRenderer>();
+};
 struct SSmokeModule {
     using State = SSmokeStyle;
     using CloseData = SSmokeCloseData;

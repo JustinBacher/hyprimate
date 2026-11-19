@@ -3,8 +3,13 @@
 #include "animations/cloth/ClothLiveState.hpp"
 #include "animations/cloth/ClothCloseStyleData.hpp"
 #include "config_generated.hpp"
+#include "animations/shared/SheetResources.hpp"
 
-struct SClothResources;
+struct SClothResources {
+    explicit SClothResources(SSharedStyleResources &shared) : shade(shared.sheet_shade) {}
+    hyprimate::ClothPhysics physics;
+    CSheetShade &shade;
+};
 struct SClothModule {
     using State = SClothStyle;
     using CloseData = SClothCloseData;

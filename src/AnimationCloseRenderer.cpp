@@ -240,11 +240,8 @@ bool close_animation_enabled(const hyprimate::config::SConfig &config) {
 CAnimationCloseRenderer *CAnimationCloseRenderer::s_active = nullptr;
 
 CAnimationCloseRenderer::CAnimationCloseRenderer(
-    HANDLE handle, SP<CSolidFill> solid, SP<CSheetShade> shade, SP<CSwarmSprites> sprites)
-    : m_handle(handle),
-      m_solid(std::move(solid)),
-      m_shade(std::move(shade)),
-      m_sprites(std::move(sprites)) {
+    HANDLE handle, SStyleResources<StyleModules> &resources)
+    : m_handle(handle), m_resources(resources) {
 }
 
 CAnimationCloseRenderer::~CAnimationCloseRenderer() {
@@ -462,8 +459,10 @@ void CAnimationCloseRenderer::on_fadeout_created(
     if (record->owned) {
         // Material-state closes stay at the captured position, independent of native slide/pop.
         record->render_box =
-            (std::holds_alternative<SBubbleStyle>(record->style) ||
-                std::holds_alternative<SSmokeStyle>(record->style))
+            std::visit([](const auto &style) {
+                using Module = typename SStyleModuleFor<std::decay_t<decltype(style)>>::Module;
+                return Module::FIXED_CLOSE_PLACEMENT;
+            }, record->style)
                 ? CBox{0.0, 0.0, record->snapshot_size.x, record->snapshot_size.y}
                 : owned_render_box(
                       record->source_device, created->renderBox(), record->snapshot_size);
@@ -503,8 +502,10 @@ void CAnimationCloseRenderer::tick(
                 return !NATIVE_ALIVE;
             }
 
-            if (NATIVE_ALIVE && !std::holds_alternative<SBubbleStyle>(record->style) &&
-                !std::holds_alternative<SSmokeStyle>(record->style)) {
+            if (NATIVE_ALIVE && !std::visit([](const auto &style) {
+                    using Module = typename SStyleModuleFor<std::decay_t<decltype(style)>>::Module;
+                    return Module::FIXED_CLOSE_PLACEMENT;
+                }, record->style)) {
                 record->render_box = owned_render_box(
                     record->source_device, FADEOUT->renderBox(), record->snapshot_size);
             }
@@ -692,8 +693,8 @@ bool CAnimationCloseRenderer::render_batch(Render::CRenderContext &ctx,
 
             std::visit(
                 [&](auto &style) {
-                    close_style::render(
-                        style, *record, ctx, monitor, TEX, m_solid, m_shade, m_sprites);
+                    using Module = typename SStyleModuleFor<std::decay_t<decltype(style)>>::Module;
+                    close_style::render(style, *record, ctx, monitor, TEX, m_resources.get<Module>());
                 },
                 record->style);
             continue;

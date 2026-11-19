@@ -12,11 +12,11 @@
         using Tracked = CPluginRuntime::STracked;                                         \
         static Inputs inputs(const CPluginRuntime &);                                      \
         static State initial(const Inputs &, std::uint64_t);                               \
-        static void prepare(CPluginRuntime &, bool selected);                               \
+        static void prepare(CPluginRuntime &, Resources &, bool selected);                  \
         static bool movement_requested(const hyprimate::TrackDecision &) noexcept;         \
         static double strength(const CPluginRuntime &);                                    \
-        static bool usable(const CPluginRuntime &);                                        \
-        static bool open(CPluginRuntime &, CPluginRuntime::STracked &, const PHLWINDOW &); \
+        static bool usable(const CPluginRuntime &, const Resources &);                      \
+        static bool open(CPluginRuntime &, CPluginRuntime::STracked &, const PHLWINDOW &, Resources &); \
         static void movement(CPluginRuntime &,                                             \
             CAnimationTransformer &,                                                       \
             const PHLWINDOW &,                                                             \

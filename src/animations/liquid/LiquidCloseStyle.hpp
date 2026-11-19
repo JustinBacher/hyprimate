@@ -112,9 +112,7 @@ namespace close_style {
         Render::CRenderContext &ctx,
         const PHLMONITOR &monitor,
         const SP<Render::ITexture> &tex,
-        const SP<CSolidFill> &solid,
-        [[maybe_unused]] const SP<CSheetShade> &shade,
-        [[maybe_unused]] const SP<CSwarmSprites> &sprites) {
+        SLiquidResources &resources) {
         const auto &close = std::get<SLiquidCloseData>(record.close_data);
         if (close.vertices_stale) {
             fill(style, record);
@@ -140,7 +138,7 @@ namespace close_style {
             clip = clip.intersection(to_cbox(*VISIBLE).scale(record.scale));
         }
         data.damage = CRegion{clip};
-        data.solid = solid ? solid->texture() : nullptr;
+        data.solid = resources.close_solid.texture();
         data.liquid = close.has_liquid && data.solid ? &style.meniscus_vertices : nullptr;
         data.liquid_box =
             project(to_cbox(close.liquid_device), record.render_box, record.snapshot_size);

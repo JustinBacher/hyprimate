@@ -6,7 +6,7 @@
 #include <span>
 
 #include "Bubble.hpp"
-#include "BubbleRenderer.hpp"
+#include "BubbleWallpaper.hpp"
 #include "BubbleResidue.hpp"
 
 // A transition's hold on its impact clock. However the transition stops, the clock is marked:
@@ -63,9 +63,7 @@ class CBubbleImpactLease {
 
 struct SBubbleStyle {
     hyprimate::Bubble bubble;
-    SP<CBubbleRenderer> renderer;
     SP<SBubbleWallpaper> wallpaper;
-    SP<CBubbleResidue> residue;
     bool shell_impacts_deposited = false;
     bool window_impacts_deposited = false;
     CBubbleImpactLease impacts;
@@ -73,34 +71,3 @@ struct SBubbleStyle {
     PHLWINDOWREF window;  // the window the film belongs to; its wakes lie under it
 };
 
-// Hands each surface's glass impacts to the residue once, as soon as its first hole has opened.
-// Pending beads land when the transition's shared clock reaches them, so they neither lead their
-// droplets nor outlive an aborted opening. Callers exclude capture and read-only passes. centre is
-// the frame centre in monitor-local logical coordinates.
-inline void deposit_bubble_impacts(SBubbleStyle &state,
-    const hyprimate::BubbleFrame &frame,
-    const PHLMONITOR &monitor,
-    Vector2D centre) {
-    if (!state.residue || !monitor) {
-        return;
-    }
-    const auto DEPOSIT = [&](const hyprimate::BubbleSurface &surface, bool &done) {
-        if (done) {
-            return;
-        }
-        const auto HOLES =
-            std::span(surface.holes).first(std::min(surface.hole_count, surface.holes.size()));
-        if (std::ranges::none_of(
-                HOLES, [](const hyprimate::BubbleHole &hole) { return hole.radius > 0; })) {
-            return;
-        }
-        std::array<hyprimate::BubbleImpact, hyprimate::K_BUBBLE_MAX_IMPACTS> found{};
-        const auto COUNT = hyprimate::bubble_impacts(surface, found);
-        // A disabled residue declines the beads; they are not retried later.
-        state.residue->deposit(
-            monitor, centre, std::span(found).first(COUNT), state.impacts.clock());
-        done = true;
-    };
-    DEPOSIT(frame.shell, state.shell_impacts_deposited);
-    DEPOSIT(frame.window, state.window_impacts_deposited);
-}

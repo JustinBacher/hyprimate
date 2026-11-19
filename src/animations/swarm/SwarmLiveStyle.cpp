@@ -23,9 +23,6 @@
 #include "LiveStyle.hpp"
 #include "PluginRuntime.hpp"
 #include "WindowTracker.hpp"
-#include "animations/cloth/ClothFlutter.hpp"
-#include "animations/liquid/LiquidMesh.hpp"
-#include "animations/liquid/SolidFill.hpp"
 #include "animations/shared/Core.hpp"
 #include "animations/shared/SheetRenderer.hpp"
 #include "animations/swarm/Swarm.hpp"
@@ -85,9 +82,8 @@ Render::SWindowTransformBuffer render_live(SSwarmStyle &state,
     const Render::SWindowTransformBuffer &input,
     [[maybe_unused]] const Render::SWindowTransformContext &context,
     const SLiveRenderGeometry &geometry,
-    [[maybe_unused]] const SP<CSolidFill> &solid,
-    [[maybe_unused]] const SP<CSheetShade> &shade,
-    const SP<CSwarmSprites> &sprites) {
+    SSwarmResources &resources) {
+    const auto &sprites = resources.sprites;
     const auto *sheet = sprites ? sprites->sheet(state.creature) : nullptr;
     const auto ATLAS =
         (sheet != nullptr) ? sprites->texture(state.creature) : SP<Render::ITexture>{};
@@ -145,12 +141,12 @@ Render::SWindowTransformBuffer render_live(SSwarmStyle &state,
 }
 
 bool SSwarmLiveStyle::open(
-    CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window) {
+    CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window, SSwarmResources &resources) {
     const auto SIDES = swarm_sides(runtime.edge_input_for(window, true),
         runtime.m_config.open.swarm.loneWindowSides);
     const auto PLACEMENT = placement_of(window, true);
     const auto CREATURE = swarm_creature(runtime.m_config.open.swarm);
-    if (!PLACEMENT || SIDES.empty() || (runtime.m_sprites->sheet(CREATURE) == nullptr)) {
+    if (!PLACEMENT || SIDES.empty() || (resources.sprites->sheet(CREATURE) == nullptr)) {
         return false;
     }
 
@@ -270,12 +266,12 @@ SSwarmStyle SSwarmLiveStyle::initial([[maybe_unused]] const Inputs &inputs,
 double SSwarmLiveStyle::strength([[maybe_unused]] const CPluginRuntime &runtime) {
     return 1.0;
 }
-bool SSwarmLiveStyle::usable(const CPluginRuntime &runtime) {
-    return runtime.m_sprites->sheet(swarm_creature(runtime.m_config.movement.swarm)) != nullptr;
+bool SSwarmLiveStyle::usable(const CPluginRuntime &runtime, const Resources &resources) {
+    return resources.sprites->sheet(swarm_creature(runtime.m_config.movement.swarm)) != nullptr;
 }
 
 SSwarmLiveStyle::Inputs SSwarmLiveStyle::inputs([[maybe_unused]] const CPluginRuntime &runtime) { return {}; }
-void SSwarmLiveStyle::prepare([[maybe_unused]] CPluginRuntime &runtime, [[maybe_unused]] bool selected) {}
+void SSwarmLiveStyle::prepare([[maybe_unused]] CPluginRuntime &runtime, [[maybe_unused]] Resources &resources, [[maybe_unused]] bool selected) {}
 bool SSwarmLiveStyle::movement_requested(const hyprimate::TrackDecision &decision) noexcept {
     return decision.translated;
 }

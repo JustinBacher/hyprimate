@@ -14,14 +14,10 @@
 #include "LiveStyle.hpp"
 #include "PluginRuntime.hpp"
 #include "WindowTracker.hpp"
-#include "animations/cloth/ClothFlutter.hpp"
-#include "animations/liquid/LiquidMesh.hpp"
-#include "animations/liquid/SolidFill.hpp"
 #include "animations/paper/PaperLiveState.hpp"
 #include "animations/shared/Core.hpp"
 #include "animations/shared/LiveSheetRender.hpp"
 #include "animations/shared/SheetRenderer.hpp"
-#include "animations/swarm/SwarmRenderer.hpp"
 #include "config_generated.hpp"
 using hyprimate::Vec2;
 
@@ -34,16 +30,14 @@ Render::SWindowTransformBuffer render_live(SPaperStyle &state,
     const Render::SWindowTransformBuffer &input,
     [[maybe_unused]] const Render::SWindowTransformContext &context,
     const SLiveRenderGeometry &geometry,
-    [[maybe_unused]] const SP<CSolidFill> &solid,
-    const SP<CSheetShade> &shade,
-    [[maybe_unused]] const SP<CSwarmSprites> &sprites) {
+    SPaperResources &resources) {
     return render_live_sheet(
-        state.sheet, state.crumple.opacity(), state.crumple.shaded(), ctx, input, geometry, shade);
+        state.sheet, state.crumple.opacity(), state.crumple.shaded(), ctx, input, geometry, resources.shade);
 }
 
 bool SPaperLiveStyle::open(CPluginRuntime &runtime,
     [[maybe_unused]] CPluginRuntime::STracked &tracked,
-    const PHLWINDOW &window) {
+    const PHLWINDOW &window, [[maybe_unused]] SPaperResources &resources) {
     const CBox CAPTURE = window->getFullWindowBoundingBox();
     const auto &paper = runtime.m_config.open.paper;
     auto *transformer = runtime.acquire_transformer(window);
@@ -124,9 +118,9 @@ SPaperStyle SPaperLiveStyle::initial([[maybe_unused]] const Inputs &inputs,
 double SPaperLiveStyle::strength([[maybe_unused]] const CPluginRuntime &runtime) {
     return 0.0;
 }
-bool SPaperLiveStyle::usable([[maybe_unused]] const CPluginRuntime &runtime) { return true; }
+bool SPaperLiveStyle::usable([[maybe_unused]] const CPluginRuntime &runtime, [[maybe_unused]] const Resources &resources) { return true; }
 SPaperLiveStyle::Inputs SPaperLiveStyle::inputs([[maybe_unused]] const CPluginRuntime &runtime) { return {}; }
-void SPaperLiveStyle::prepare([[maybe_unused]] CPluginRuntime &runtime, [[maybe_unused]] bool selected) {}
+void SPaperLiveStyle::prepare([[maybe_unused]] CPluginRuntime &runtime, [[maybe_unused]] Resources &resources, [[maybe_unused]] bool selected) {}
 bool SPaperLiveStyle::movement_requested(const hyprimate::TrackDecision &decision) noexcept {
     return decision.translated;
 }

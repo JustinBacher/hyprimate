@@ -25,14 +25,14 @@ namespace close_style {
         Render::CRenderContext &ctx,
         const PHLMONITOR &monitor,
         const SP<Render::ITexture> &tex,
-        const SP<CSheetShade> &shade) {
+        CSheetShade &shade) {
         const float ALPHA = record.source_alpha * static_cast<float>(opacity);
         if (ALPHA <= 0.F) {
             return;
         }
         CPaperClosePassElement::SData data;
         data.tex = tex;
-        data.shade = shaded && shade ? shade->texture() : nullptr;
+        data.shade = shaded ? shade.texture() : nullptr;
         data.box = project(record.extents_device, record.render_box, record.snapshot_size);
         data.vertices = &sheet.window;
         data.shade_vertices = &sheet.shade;

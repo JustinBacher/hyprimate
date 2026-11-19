@@ -21,16 +21,11 @@ Render::SWindowTransformBuffer render_live(SSmokeStyle &state,
     const Render::SWindowTransformBuffer &input,
     [[maybe_unused]] const Render::SWindowTransformContext &context,
     const SLiveRenderGeometry &geometry,
-    [[maybe_unused]] const SP<CSolidFill> &solid,
-    [[maybe_unused]] const SP<CSheetShade> &shade,
-    [[maybe_unused]] const SP<CSwarmSprites> &sprites) {
-    if (!state.renderer) {
-        return {.framebuffer = input.framebuffer, .box = input.box, .success = false};
-    }
+    SSmokeResources &resources) {
     if (!state.field) {
         state.field = makeShared<CSmokeFieldHandle>();
     }
-    const auto layer = state.renderer->render(ctx,
+    const auto layer = resources.renderer->render(ctx,
         SSmokeDraw{
             .window = input.framebuffer->getTexture(),
             .field = state.field,
@@ -49,7 +44,8 @@ Render::SWindowTransformBuffer render_live(SSmokeStyle &state,
 }
 
 bool SSmokeLiveStyle::open(
-    CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window) {
+    CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window,
+    [[maybe_unused]] SSmokeResources &resources) {
     const auto current = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
     const auto goal = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL);
     const auto capture = window->getFullWindowBoundingBox();
@@ -138,8 +134,8 @@ void SSmokeLiveStyle::cancelMovement(CAnimationTransformer &transformer) {
     std::get<SSmokeStyle>(transformer.m_style).smoke.stop_motion();
 }
 
-bool SSmokeLiveStyle::available(const SSmokeStyle &state) noexcept {
-    return static_cast<bool>(state.renderer);
+bool SSmokeLiveStyle::available([[maybe_unused]] const SSmokeStyle &state) noexcept {
+    return true;
 }
 
 bool SSmokeLiveStyle::deforming(const SSmokeStyle &state) noexcept {
@@ -161,13 +157,13 @@ double SSmokeLiveStyle::strength(const CPluginRuntime &runtime) {
     return runtime.m_config.movement.smoke.strength;
 }
 
-bool SSmokeLiveStyle::usable([[maybe_unused]] const CPluginRuntime &runtime) {
+bool SSmokeLiveStyle::usable([[maybe_unused]] const CPluginRuntime &runtime, [[maybe_unused]] const Resources &resources) {
     return true;
 }
 
 SSmokeLiveStyle::Inputs SSmokeLiveStyle::inputs([[maybe_unused]] const CPluginRuntime &runtime) { return {}; }
-void SSmokeLiveStyle::prepare(CPluginRuntime &runtime, bool selected) {
-    if (selected) runtime.m_smoke->warm_up();
+void SSmokeLiveStyle::prepare([[maybe_unused]] CPluginRuntime &runtime, Resources &resources, bool selected) {
+    if (selected) resources.renderer->warm_up();
 }
 bool SSmokeLiveStyle::movement_requested(const hyprimate::TrackDecision &decision) noexcept {
     return decision.translated || decision.resized;

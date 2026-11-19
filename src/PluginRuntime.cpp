@@ -71,7 +71,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
     m_next_seed = (std::uint64_t{entropy()} << 32U) | entropy();
     hyprimate::config::registerConfigValues(m_handle, m_values);
     m_config = hyprimate::config::readConfig(m_values);
-    m_bubble_residue->set_enabled(bubble_residue_enabled());
+    m_style_resources.get<SBubbleModule>().vestige.set_enabled(bubble_residue_enabled());
 
     if (plugin_enabled() && wobble_enabled()) {
         notify(WOBBLE_MESSAGE);
@@ -80,8 +80,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
 
     // Close transitions are optional: if the compositor symbols are not found, movement deformation
     // still runs.
-    m_close =
-        std::make_unique<CAnimationCloseRenderer>(m_handle, m_close_solid, m_shade, m_sprites);
+    m_close = std::make_unique<CAnimationCloseRenderer>(m_handle, m_style_resources);
     std::string close_error;
     if (!m_close->install(close_error)) {
         notify("[hyprimate] close transitions unavailable: " + close_error);
@@ -103,13 +102,6 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                     fresh.emplace(initial_style(0));
                 }
                 auto &state = MATCHED ? transformer->style_state() : *fresh;
-                if (auto *bubble = std::get_if<SBubbleStyle>(&state)) {
-                    bubble->renderer = m_bubble;
-                    bubble->residue = m_bubble_residue;
-                }
-                if (auto *smoke = std::get_if<SSmokeStyle>(&state)) {
-                    smoke->renderer = m_smoke;
-                }
 
                 const auto EDGE = [&] { return edge_input_for(window, false, entry->open_edge); };
                 const auto OBSTACLES = [&] -> std::span<const hyprimate::Box> {
@@ -146,7 +138,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                 monitor->m_solitaryClient.reset();
                 return;
             }
-            if (!monitor || !m_bubble_residue->active(monitor) ||
+            if (!monitor || !m_style_resources.get<SBubbleModule>().vestige.active(monitor) ||
                 monitor->m_solitaryClient.expired()) {
                 return;
             }
@@ -196,12 +188,14 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                         event.monitor->m_scale);
                     queue_bubble_wallpaper(ctx, bubble->wallpaper, SOURCE, true, BOUNDS);
                 }
-                m_bubble_residue->queue_under(
-                    ctx, event.monitor, ctx.m_data.currentWindow.lock(), m_bubble);
+                auto &bubble_resources = m_style_resources.get<SBubbleModule>();
+                bubble_resources.vestige.queue_under(
+                    ctx, event.monitor, ctx.m_data.currentWindow.lock(), bubble_resources.renderer);
                 return;
             }
             if (event.stage == RENDER_POST_WINDOWS && event.context && event.monitor) {
-                m_bubble_residue->queue(event.context->get(), event.monitor, m_bubble);
+                auto &bubble_resources = m_style_resources.get<SBubbleModule>();
+                bubble_resources.vestige.queue(event.context->get(), event.monitor, bubble_resources.renderer);
                 queue_workspace_swarm_tails(event.context->get(), event.monitor);
                 return;
             }
@@ -209,7 +203,7 @@ CPluginRuntime::CPluginRuntime(HANDLE handle) : m_handle(handle) {
                 return;
             }
             if (event.monitor &&
-                (m_bubble_residue->active(event.monitor) || m_close->needs_frame(event.monitor) ||
+                (m_style_resources.get<SBubbleModule>().vestige.active(event.monitor) || m_close->needs_frame(event.monitor) ||
                     has_workspace_swarm_tail(event.monitor))) {
                 event.monitor->scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_ANIMATION);
             }
@@ -248,12 +242,6 @@ CPluginRuntime::~CPluginRuntime() {
     clear_bubble_residue();
     m_close->shutdown();
     detach_all();
-    m_close_solid.reset();
-    m_open_solid.reset();
-    m_shade.reset();
-    m_sprites.reset();
-    m_bubble.reset();
-    m_bubble_residue.reset();
 }
 
 bool CPluginRuntime::plugin_enabled() const {
@@ -272,7 +260,10 @@ SStyleState CPluginRuntime::initial_style(std::uint64_t seed) const {
 
 bool CPluginRuntime::movement_enabled() const {
     return plugin_enabled() && m_config.movement.enabled &&
-           with_live_style(m_config.style, [&](auto live) { return live.usable(*this); }) &&
+           with_live_style(m_config.style, [&](auto live) {
+               using Module = typename decltype(live)::Module;
+               return live.usable(*this, m_style_resources.get<Module>());
+           }) &&
            movement_strength() > 0.0;
 }
 
@@ -372,7 +363,7 @@ void CPluginRuntime::notify(const std::string &text) const {
 
 void CPluginRuntime::on_reload() {
     m_config = hyprimate::config::readConfig(m_values);
-    m_bubble_residue->set_enabled(bubble_residue_enabled());
+    m_style_resources.get<SBubbleModule>().vestige.set_enabled(bubble_residue_enabled());
     clear_bubble_residue();
     detach_all();
     m_close->clear();
@@ -445,16 +436,17 @@ void CPluginRuntime::on_render_pre(const PHLMONITOR &monitor) {
     // Config is read live: runtime edits (hl.config, hyprctl keyword) need not fire a reload. The
     // texture is rebuilt only when the value actually changes.
     m_config = hyprimate::config::readConfig(m_values);
-#define HYPRIMATE_PREPARE(kind, tag, module) tag::prepare(*this, m_config.style == module::KIND);
-    HYPRIMATE_STYLE_LIST(HYPRIMATE_PREPARE, HYPRIMATE_STYLE_EMPTY)
-#undef HYPRIMATE_PREPARE
+    m_style_resources.for_each([&](auto live, auto &resources) {
+        live.prepare(*this, resources, m_config.style == decltype(live)::KIND);
+    });
     const bool RESIDUE_ENABLED = bubble_residue_enabled();
-    m_bubble_residue->set_enabled(RESIDUE_ENABLED);
+    auto &vestige = m_style_resources.get<SBubbleModule>().vestige;
+    vestige.set_enabled(RESIDUE_ENABLED);
     if (!RESIDUE_ENABLED) {
         clear_bubble_residue();
     } else {
-        m_bubble_residue->tick(Clock::now(), monitor);
-        if (!m_bubble_residue->active(monitor)) {
+        vestige.tick(Clock::now(), monitor);
+        if (!vestige.active(monitor)) {
             restore_bubble_scanout(monitor);
         }
     }
@@ -608,8 +600,10 @@ void CPluginRuntime::begin_opening(STracked &entry, const PHLWINDOW &window) {
         return;
     }
 
-    if (!with_live_style(
-            m_config.style, [&](auto style) { return style.open(*this, entry, window); })) {
+    if (!with_live_style(m_config.style, [&](auto style) {
+            using Module = typename decltype(style)::Module;
+            return style.open(*this, entry, window, m_style_resources.get<Module>());
+        })) {
         return;
     }
 
@@ -688,15 +682,7 @@ CAnimationTransformer *CPluginRuntime::acquire_transformer(const PHLWINDOW &wind
     // Each window draws from its own stream, so windows moved together (scrolling, workspace
     // slides) still differ.
     auto state = initial_style(m_next_seed++);
-    if (auto *bubble = std::get_if<SBubbleStyle>(&state)) {
-        bubble->renderer = m_bubble;
-        bubble->residue = m_bubble_residue;
-    }
-    if (auto *smoke = std::get_if<SSmokeStyle>(&state)) {
-        smoke->renderer = m_smoke;
-    }
-    return list->emplace<CAnimationTransformer>(
-        window->m_self, std::move(state), m_open_solid, m_shade, m_sprites);
+    return list->emplace<CAnimationTransformer>(window->m_self, std::move(state), m_style_resources);
 }
 
 CBox CPluginRuntime::world_footprint(const PHLWINDOW &window) const {
@@ -765,7 +751,7 @@ void CPluginRuntime::restore_bubble_scanout(const PHLMONITOR &monitor) {
 }
 
 void CPluginRuntime::clear_bubble_residue() {
-    m_bubble_residue->clear();
+    m_style_resources.get<SBubbleModule>().vestige.clear();
     for (const auto &entry : m_residue_inhibited) {
         if (const auto MONITOR = entry.lock()) {
             MONITOR->recheckSolitary();
@@ -800,6 +786,7 @@ bool CPluginRuntime::has_workspace_swarm_tail(const PHLMONITOR &monitor) const {
 
 void CPluginRuntime::queue_workspace_swarm_tails(
     Render::CRenderContext &ctx, const PHLMONITOR &monitor) {
+    const auto &sprites = m_style_resources.get<SSwarmModule>().sprites;
     for (const auto &entry : m_tracked) {
         const auto WINDOW = entry.window.lock();
         if (!WINDOW || WINDOW->m_monitor.lock() != monitor ||
@@ -810,9 +797,9 @@ void CPluginRuntime::queue_workspace_swarm_tails(
         if (state == nullptr) {
             continue;
         }
-        const auto *sheet = m_sprites->sheet(state->creature);
+        const auto *sheet = sprites->sheet(state->creature);
         const auto ATLAS =
-            (sheet != nullptr) ? m_sprites->texture(state->creature) : SP<Render::ITexture>{};
+            (sheet != nullptr) ? sprites->texture(state->creature) : SP<Render::ITexture>{};
         const auto TEXTURE = state->workspace_snapshot->getTexture();
         if ((sheet == nullptr) || !ATLAS || !TEXTURE) {
             continue;
@@ -837,7 +824,7 @@ void CPluginRuntime::queue_workspace_swarm_tails(
         CSwarmClosePassElement::SData data;
         data.tex = TEXTURE;
         data.atlas = ATLAS;
-        data.sprites = m_sprites;
+        data.sprites = sprites;
         data.layer_size = swarm_layer_size(SOURCE);
         data.box = OUTPUT;
         data.meshes = &state->meshes;

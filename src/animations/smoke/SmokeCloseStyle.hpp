@@ -25,9 +25,6 @@ namespace close_style {
         const std::function<hyprimate::EdgeInput()> &edge_input,
         [[maybe_unused]] const std::function<std::span<const hyprimate::Box>()> &obstacles,
         const std::function<std::uint64_t()> &next_seed) {
-        if (!style.renderer) {
-            return false;
-        }
         if (!state_active) {
             style.smoke.seed(next_seed());
         }
@@ -118,17 +115,15 @@ namespace close_style {
         Render::CRenderContext &ctx,
         const PHLMONITOR &monitor,
         const SP<Render::ITexture> &tex,
-        [[maybe_unused]] const SP<CSolidFill> &solid,
-        [[maybe_unused]] const SP<CSheetShade> &shade,
-        [[maybe_unused]] const SP<CSwarmSprites> &sprites) {
-        if (!style.renderer || record.extents_device.empty() || record.source_alpha <= 0.F) {
+        SSmokeResources &resources) {
+        if (record.extents_device.empty() || record.source_alpha <= 0.F) {
             return;
         }
         if (!style.field) {
             style.field = makeShared<CSmokeFieldHandle>();
         }
         CSmokePassElement::SData data;
-        data.renderer = style.renderer;
+        data.renderer = resources.renderer;
         data.draw = SSmokeDraw{
             .window = tex,
             .field = style.field,

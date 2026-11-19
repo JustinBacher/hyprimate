@@ -19,13 +19,10 @@
 #include "WindowTracker.hpp"
 #include "animations/cloth/ClothFlutter.hpp"
 #include "animations/cloth/ClothLiveState.hpp"
-#include "animations/liquid/LiquidMesh.hpp"
-#include "animations/liquid/SolidFill.hpp"
 #include "animations/shared/Core.hpp"
 #include "animations/shared/EdgeStyleConfig.hpp"
 #include "animations/shared/LiveSheetRender.hpp"
 #include "animations/shared/SheetRenderer.hpp"
-#include "animations/swarm/SwarmRenderer.hpp"
 #include "config_generated.hpp"
 
 CBox live_extents(const SClothStyle &state, const CBox &box) {
@@ -37,15 +34,14 @@ Render::SWindowTransformBuffer render_live(SClothStyle &state,
     const Render::SWindowTransformBuffer &input,
     [[maybe_unused]] const Render::SWindowTransformContext &context,
     const SLiveRenderGeometry &geometry,
-    [[maybe_unused]] const SP<CSolidFill> &solid_fill,
-    const SP<CSheetShade> &shade,
-    [[maybe_unused]] const SP<CSwarmSprites> &sprites) {
+    SClothResources &resources) {
     return render_live_sheet(
-        state.sheet, state.cloth.opacity(), state.cloth.shaded(), ctx, input, geometry, shade);
+        state.sheet, state.cloth.opacity(), state.cloth.shaded(), ctx, input, geometry, resources.shade);
 }
 
 bool SClothLiveStyle::open(
-    CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window) {
+    CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window,
+    [[maybe_unused]] SClothResources &resources) {
     if (const auto FRAME = hyprimate::resolve_style_open_edge(
             runtime.edge_input_for(window, true), runtime.m_config.open.cloth)) {
         entry.open_edge = FRAME->edge;
@@ -178,7 +174,7 @@ SClothStyle SClothLiveStyle::initial(const Inputs &cloth, [[maybe_unused]] std::
 double SClothLiveStyle::strength(const CPluginRuntime &runtime) {
     return runtime.m_config.movement.cloth.strength;
 }
-bool SClothLiveStyle::usable(const CPluginRuntime &runtime) {
+bool SClothLiveStyle::usable(const CPluginRuntime &runtime, [[maybe_unused]] const Resources &resources) {
     const auto PARAMS = inputs(runtime);
     return std::isfinite(PARAMS.flutter) && std::isfinite(PARAMS.shading) &&
            std::isfinite(PARAMS.variation);
@@ -190,7 +186,7 @@ SClothLiveStyle::Inputs SClothLiveStyle::inputs(const CPluginRuntime &runtime) {
         .variation = cloth.variation, .shine = cloth.shine, .springiness = cloth.springiness,
         .gravity = cloth.gravity};
 }
-void SClothLiveStyle::prepare([[maybe_unused]] CPluginRuntime &runtime, [[maybe_unused]] bool selected) {}
+void SClothLiveStyle::prepare([[maybe_unused]] CPluginRuntime &runtime, [[maybe_unused]] Resources &resources, [[maybe_unused]] bool selected) {}
 bool SClothLiveStyle::movement_requested(const hyprimate::TrackDecision &decision) noexcept {
     return decision.translated;
 }

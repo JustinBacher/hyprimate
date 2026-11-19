@@ -19,9 +19,6 @@ namespace close_style {
         [[maybe_unused]] const std::function<hyprimate::EdgeInput()> &edge_input,
         [[maybe_unused]] const std::function<std::span<const hyprimate::Box>()> &obstacles,
         const std::function<std::uint64_t()> &next_seed) {
-        if (!style.renderer) {
-            return false;
-        }
         pending.close_data =
             SBubbleCloseData{.duration = config.close.bubble.duration, .seed = next_seed()};
         pending.style = std::move(style);
@@ -98,14 +95,12 @@ namespace close_style {
         Render::CRenderContext &ctx,
         const PHLMONITOR &monitor,
         const SP<Render::ITexture> &tex,
-        [[maybe_unused]] const SP<CSolidFill> &solid_fill,
-        [[maybe_unused]] const SP<CSheetShade> &shade,
-        [[maybe_unused]] const SP<CSwarmSprites> &sprites) {
-        if (!style.renderer || record.extents_device.empty() || record.source_alpha <= 0.F) {
+        SBubbleResources &resources) {
+        if (record.extents_device.empty() || record.source_alpha <= 0.F) {
             return;
         }
         CBubblePassElement::SData data;
-        data.renderer = style.renderer;
+        data.renderer = resources.renderer;
         data.draw = SBubbleDraw{
             .window = tex,
             .wallpaper = style.wallpaper,
@@ -120,7 +115,7 @@ namespace close_style {
             const auto SOURCE =
                 project(record.source_device, record.render_box, record.snapshot_size)
                     .scale(1.0 / record.scale);
-            deposit_bubble_impacts(style, data.draw.frame, monitor, SOURCE.middle());
+            deposit_bubble_impacts(style, resources.vestige, data.draw.frame, monitor, SOURCE.middle());
         }
         data.box = project(record.extents_device, record.render_box, record.snapshot_size);
         data.alpha = record.source_alpha;

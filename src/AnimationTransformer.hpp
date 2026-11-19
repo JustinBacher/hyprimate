@@ -14,6 +14,7 @@
 #include <hyprutils/memory/WeakPtr.hpp>
 
 #include "StyleTypes.hpp"
+#include "StyleResources.hpp"
 #include "animations/cloth/ClothFlutter.hpp"
 #include "animations/liquid/LiquidMesh.hpp"
 #include "animations/liquid/SolidFill.hpp"
@@ -37,11 +38,7 @@ class CAnimationTransformer final : public Render::IWindowTransformer {
   public:
     // `state` fixes the window's style for its lifetime; the runtime rebuilds the transformer when
     // the style changes.
-    CAnimationTransformer(PHLWINDOWREF window,
-        SStyleState state,
-        SP<CSolidFill> solid,
-        SP<CSheetShade> shade,
-        SP<CSwarmSprites> sprites);
+    CAnimationTransformer(PHLWINDOWREF window, SStyleState state, SStyleResources<StyleModules> &resources);
     ~CAnimationTransformer() override = default;
 
     CAnimationTransformer(const CAnimationTransformer &) = delete;
@@ -86,8 +83,6 @@ class CAnimationTransformer final : public Render::IWindowTransformer {
 
     PHLWINDOWREF m_window;
     SStyleState m_style;
-    SP<CSolidFill> m_solid;
-    SP<CSheetShade> m_shade;
-    SP<CSwarmSprites> m_sprites;
+    SStyleResources<StyleModules> &m_resources;
     bool m_detached = false;
 };

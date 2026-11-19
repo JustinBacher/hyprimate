@@ -21,7 +21,6 @@
 #include "LiveStyle.hpp"
 #include "PluginRuntime.hpp"
 #include "WindowTracker.hpp"
-#include "animations/cloth/ClothFlutter.hpp"
 #include "animations/liquid/LiquidLiveState.hpp"
 #include "animations/liquid/LiquidMesh.hpp"
 #include "animations/liquid/LiquidPose.hpp"
@@ -29,7 +28,6 @@
 #include "animations/shared/Core.hpp"
 #include "animations/shared/EdgeStyleConfig.hpp"
 #include "animations/shared/SheetRenderer.hpp"
-#include "animations/swarm/SwarmRenderer.hpp"
 #include "config_generated.hpp"
 
 using namespace Render;
@@ -84,9 +82,7 @@ SWindowTransformBuffer render_live(SLiquidStyle &state,
     const SWindowTransformBuffer &input,
     const SWindowTransformContext &context,
     const SLiveRenderGeometry &geometry,
-    const SP<CSolidFill> &solid_fill,
-    [[maybe_unused]] const SP<CSheetShade> &shade,
-    [[maybe_unused]] const SP<CSwarmSprites> &sprites) {
+    SLiquidResources &resources) {
     const auto OUT = g_pHyprRenderer->getWorkBuffer(ctx, geometry.canvas.size());
     if (!OUT) {
         return {.framebuffer = input.framebuffer, .box = input.box, .success = false};
@@ -96,7 +92,7 @@ SWindowTransformBuffer render_live(SLiquidStyle &state,
     const auto LOGICAL = to_box(context.currentBox);
     const auto VISIBLE = hyprimate::liquid_visible_box(POSE, LOGICAL);
     const auto MENISCUS = hyprimate::liquid_meniscus_extents(POSE, LOGICAL);
-    const SP<ITexture> SOLID = MENISCUS && solid_fill ? solid_fill->texture() : SP<ITexture>{};
+    const SP<ITexture> SOLID = MENISCUS ? resources.open_solid.texture() : SP<ITexture>{};
     const CBox LIQUID_BOX =
         MENISCUS ? pixelBoxForLogical(to_cbox(*MENISCUS), geometry.scale) : CBox{};
     hyprimate::fill_liquid_render_mesh(POSE,
@@ -145,7 +141,8 @@ SWindowTransformBuffer render_live(SLiquidStyle &state,
 }
 
 bool SLiquidLiveStyle::open(
-    CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window) {
+    CPluginRuntime &runtime, CPluginRuntime::STracked &entry, const PHLWINDOW &window,
+    [[maybe_unused]] SLiquidResources &resources) {
     const auto FRAME = hyprimate::resolve_style_open_edge(
         runtime.edge_input_for(window, true), runtime.m_config.open.liquid);
     if (!FRAME) {
@@ -344,7 +341,7 @@ SLiquidStyle SLiquidLiveStyle::initial(const Inputs &liquid, std::uint64_t seed)
 double SLiquidLiveStyle::strength(const CPluginRuntime &runtime) {
     return runtime.m_config.movement.liquid.strength;
 }
-bool SLiquidLiveStyle::usable(const CPluginRuntime &runtime) {
+bool SLiquidLiveStyle::usable(const CPluginRuntime &runtime, [[maybe_unused]] const Resources &resources) {
     const auto PARAMS = inputs(runtime);
     return std::isfinite(PARAMS.viscosity) && std::isfinite(PARAMS.elasticity) &&
            std::isfinite(PARAMS.momentum) && std::isfinite(PARAMS.variation);
@@ -353,15 +350,15 @@ bool SLiquidLiveStyle::usable(const CPluginRuntime &runtime) {
 SLiquidLiveStyle::Inputs SLiquidLiveStyle::inputs(const CPluginRuntime &runtime) {
     return liquid_inputs(runtime.m_config);
 }
-void SLiquidLiveStyle::prepare(CPluginRuntime &runtime, [[maybe_unused]] bool selected) {
+void SLiquidLiveStyle::prepare(CPluginRuntime &runtime, Resources &resources, [[maybe_unused]] bool selected) {
     const auto color = [](std::uint32_t argb) {
         const auto channel = [argb](unsigned int shift) {
             return static_cast<float>((argb >> shift) & 0xFFU) / 255.F;
         };
         return CHyprColor{channel(16), channel(8), channel(0), channel(24)};
     };
-    runtime.m_open_solid->set_color(color(runtime.m_config.open.liquid.color));
-    runtime.m_close_solid->set_color(color(runtime.m_config.close.liquid.color));
+    resources.open_solid.set_color(color(runtime.m_config.open.liquid.color));
+    resources.close_solid.set_color(color(runtime.m_config.close.liquid.color));
 }
 bool SLiquidLiveStyle::movement_requested(const hyprimate::TrackDecision &decision) noexcept {
     return decision.translated;
