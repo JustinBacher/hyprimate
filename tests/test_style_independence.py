@@ -53,6 +53,10 @@ def configuration_violations(source_root, category='animations'):
                                   f'{match.group().decode()}')
     return violations
 
+def style_name_pattern(styles):
+    # Accept either spelling as a style reference: "planet_hop" and "PlanetHopStyle".
+    return '|'.join('_?'.join(map(re.escape, name.split('_'))) for name in styles)
+
 def runtime_style_violations(source_root):
     animations = source_root / 'animations'
     styles = sorted(path.name for path in animations.iterdir()
@@ -70,7 +74,7 @@ def runtime_style_violations(source_root):
     workspace_styles = sorted(path.name for path in workspace.iterdir()
                               if path.is_dir() and (path / 'Style.cmake').is_file()) if workspace.is_dir() else []
     if workspace_styles:
-        workspace_names = '|'.join(re.escape(name) for name in workspace_styles)
+        workspace_names = style_name_pattern(workspace_styles)
         patterns.append(rf'(?i:workspace/(?:{workspace_names})/|\b\w*(?:{workspace_names})\w*\b)')
     forbidden = re.compile('|'.join(f'(?:{pattern})' for pattern in patterns))
     violations = []
@@ -94,12 +98,14 @@ def workspace_orchestration_style_violations(source_root):
                     if path.is_dir() and (path / 'Style.cmake').is_file())
     if not styles:
         return []
-    names = '|'.join(re.escape(name) for name in styles)
+    names = style_name_pattern(styles)
     # The list is the one composition root where concrete styles must be named.
     forbidden = re.compile(rf'(?i)(?:workspace/(?:{names})/[\w./]*|\b\w*(?:{names})\w*\b)')
     violations = []
-    for source in sorted(workspace.iterdir()):
-        if not source.is_file() or source.suffix not in SOURCE_EXTENSIONS or source.name == 'WorkspaceStyleList.hpp':
+    for source in sorted(workspace.rglob('*')):
+        if (source.relative_to(workspace).parts[0] in {*styles, 'tests'} or
+                source == workspace / 'WorkspaceStyleList.hpp' or
+                not source.is_file() or source.suffix not in SOURCE_EXTENSIONS):
             continue
         for line_number, line in enumerate(source.read_text(encoding='utf-8').splitlines(), 1):
             for match in forbidden.finditer(line):
@@ -150,12 +156,16 @@ class StyleIndependenceTests(unittest.TestCase):
             workspace = source_root / 'workspace'
             (workspace / 'rotation').mkdir(parents=True)
             (workspace / 'rotation' / 'Style.cmake').touch()
+            (workspace / 'test_style').mkdir()
+            (workspace / 'test_style' / 'Style.cmake').touch()
+            (workspace / 'core').mkdir()
+            (workspace / 'core' / 'Scheduling.hpp').write_text('using Timing = TestStyleTiming;\n')
             (workspace / 'WorkspaceStyleList.hpp').write_text('using Styles = RotationStyle;\n')
             (workspace / 'WorkspaceTurn.cpp').write_text(
                 '#include "workspace/rotation/RotationStyle.hpp"\n'
                 'auto style = RotationStyle{};\n')
             violations = workspace_orchestration_style_violations(source_root)
-            self.assertEqual(len(violations), 2, violations)
+            self.assertEqual(len(violations), 3, violations)
 
     def test_workspace_independence_rules_detect_violations(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -194,6 +194,11 @@ if(BUILD_TESTING)
     target_include_directories(workspace-turn-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME workspace-turn-tests COMMAND workspace-turn-tests)
 
+    add_executable(workspace-inventory-tests src/workspace/tests/WorkspaceInventoryTests.cpp)
+    target_link_libraries(workspace-inventory-tests PRIVATE hyprimate-core)
+    target_include_directories(workspace-inventory-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    add_test(NAME workspace-inventory-tests COMMAND workspace-inventory-tests)
+
 
     add_executable(window-tracker-tests tests/WindowTrackerTests.cpp)
     target_link_libraries(window-tracker-tests PRIVATE hyprimate-core)

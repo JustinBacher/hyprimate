@@ -22,6 +22,8 @@ In `solar_system`, every workspace in Hyprland's inventory has a position. Numbe
 
 Use `window_mode = "floating"` and adjust `elevation` for rectangular, separately anchored windows. Use `overlay_mode = "hud"` to keep panels screen-aligned. Set `sampling_quality = 0` to reduce tessellation and material sampling without turning off lighting, depth, clouds, stars or atmosphere. These effects and rotation each have their own switch. `depth_source` accepts a grayscale PNG depth map in wallpaper/screen coordinates (top row first); with no usable map, the renderer uses subtle procedural relief, not wallpaper luminance. See the [generated settings table](../README.md) for all ranges, defaults and switches.
 
+The plugin links libpng to decode the configured `depth_source` at runtime. The GPU samples the resulting texture during the hop; frames do not decode the PNG again.
+
 ## Capture and safety
 
 The style uses Hyprland's normal monitor-scene render order. A background-layer capture supplies the wallpaper; bottom shell, windows and top shell have independent coverage. A floating window gets native cropped captures before and after its draw—including decorations, shadow and popup extents. Surface transformation never moves a Wayland client. Desktop components painted *inside* a wallpaper client's own surface are wallpaper pixels, not independent overlays.

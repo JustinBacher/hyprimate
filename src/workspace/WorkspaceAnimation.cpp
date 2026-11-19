@@ -7,55 +7,58 @@
 #include <functional>
 #include <optional>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
 #include <drm_fourcc.h>
 #include <hyprland/protocols/wlr-layer-shell-unstable-v1.hpp>
 #include <hyprland/src/animation/AnimationManager.hpp>
-#include <hyprland/src/event/EventBus.hpp>
-#include <hyprland/src/protocols/core/Compositor.hpp>
-#include <hyprland/src/render/gl/GLFramebuffer.hpp>
 #include <hyprland/src/animation/WorkspaceAnimationController.hpp>
-#include <hyprland/src/managers/input/UnifiedWorkspaceSwipeGesture.hpp>
+#include <hyprland/src/desktop/rule/layerRule/LayerRuleApplicator.hpp>
+#include <hyprland/src/desktop/rule/windowRule/WindowRuleApplicator.hpp>
+#include <hyprland/src/desktop/state/Fadeout.hpp>
+#include <hyprland/src/desktop/state/FadingOutState.hpp>
+#include <hyprland/src/desktop/state/FocusState.hpp>
+#include <hyprland/src/desktop/state/LayerState.hpp>
+#include <hyprland/src/desktop/state/WindowState.hpp>
+#include <hyprland/src/desktop/view/LayerSurface.hpp>
+#include <hyprland/src/desktop/view/Popup.hpp>
+#include <hyprland/src/desktop/view/window/Window.hpp>
+#include <hyprland/src/desktop/view/window/WindowEffectsController.hpp>
+#include <hyprland/src/desktop/view/window/WindowPresentation.hpp>
+#include <hyprland/src/event/EventBus.hpp>
 #include <hyprland/src/managers/SessionLockManager.hpp>
 #include <hyprland/src/managers/input/InputManager.hpp>
 #include <hyprland/src/managers/input/InputMethodRelay.hpp>
-#include <hyprland/src/desktop/view/window/Window.hpp>
-#include <hyprland/src/desktop/state/FadingOutState.hpp>
-#include <hyprland/src/desktop/state/Fadeout.hpp>
-#include <hyprland/src/desktop/state/FocusState.hpp>
-#include <hyprland/src/state/WorkspaceState.hpp>
-#include <hyprland/src/desktop/state/WindowState.hpp>
-#include <hyprland/src/desktop/state/LayerState.hpp>
-#include <hyprland/src/desktop/view/LayerSurface.hpp>
-#include <hyprland/src/desktop/rule/windowRule/WindowRuleApplicator.hpp>
-#include <hyprland/src/desktop/rule/layerRule/LayerRuleApplicator.hpp>
-#include <hyprland/src/desktop/view/Popup.hpp>
-#include <hyprland/src/desktop/view/window/WindowPresentation.hpp>
-#include <hyprland/src/desktop/view/window/WindowEffectsController.hpp>
-#include <hyprland/src/render/decorations/IHyprWindowDecoration.hpp>
+#include <hyprland/src/managers/input/UnifiedWorkspaceSwipeGesture.hpp>
 #include <hyprland/src/output/Monitor.hpp>
 #include <hyprland/src/output/MonitorResources.hpp>
+#include <hyprland/src/protocols/core/Compositor.hpp>
 #include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/render/SceneResources.hpp>
+#include <hyprland/src/render/decorations/IHyprWindowDecoration.hpp>
+#include <hyprland/src/render/gl/GLFramebuffer.hpp>
 #include <hyprland/src/render/pass/PassElement.hpp>
 #include <hyprland/src/render/pass/TexPassElement.hpp>
 #include <hyprland/src/render/scene/SceneSelection.hpp>
+#include <hyprland/src/state/WorkspaceState.hpp>
 #include <hyprland/src/state/workspace/PlacementController.hpp>
 #include <hyprland/src/workspace/HLWorkspace.hpp>
 #include <hyprutils/math/Box.hpp>
 #include <hyprutils/math/Vector2D.hpp>
 #include <hyprutils/memory/UniquePtr.hpp>
 
+#include "gl/RawGlBracket.hpp"
 #include "workspace/WorkspaceAnimation.hpp"
 #include "workspace/WorkspaceCapture.hpp"
-#include "workspace/WorkspaceTurn.hpp"
+#include "workspace/WorkspaceCapturePlan.hpp"
 #include "workspace/WorkspaceFrame.hpp"
 #include "workspace/WorkspaceIdentity.hpp"
 #include "workspace/WorkspaceStyleList.hpp"
+#include "workspace/WorkspaceTurn.hpp"
 
 namespace {
     using Clock = std::chrono::steady_clock;
@@ -162,42 +165,69 @@ namespace {
         "std::chrono::time_point<std::chrono::_V2::steady_clock, std::chrono::duration<long, "
         "std::ratio<1l, 1000000000l> > > const&, bool, bool, bool)";
 
-    bool native_hud_safe(const PHLMONITOR &monitor) {
-        // A retiring shell snapshot can already contain its old backdrop. Keep
-        // that fade on the native scene rather than moving or drawing it twice.
+    struct NativeHudFacts {
+        bool retiring_shell = false;
+    };
+
+    NativeHudFacts native_hud_facts(const PHLMONITOR &monitor) {
+        NativeHudFacts facts;
         for (const auto &fadeout : Desktop::fadingOutState()->fadeouts()) {
-            if (fadeout && fadeout->monitor().lock() == monitor && !fadeout->done() &&
-                fadeout->alpha() > 0.F && fadeout->source().type == Desktop::eFadeoutSource::LAYER &&
-                fadeout->plane() != Desktop::FADEOUT_PLANE_LAYER_BACKGROUND) return false;
+            facts.retiring_shell = facts.retiring_shell ||
+                                   (fadeout != nullptr && fadeout->monitor().lock() == monitor &&
+                                       !fadeout->done() && fadeout->alpha() > 0.F &&
+                                       fadeout->source().type == Desktop::eFadeoutSource::LAYER &&
+                                       fadeout->plane() != Desktop::FADEOUT_PLANE_LAYER_BACKGROUND);
         }
-        return true;
+        return facts;
+    }
+
+    bool native_hud_safe(const PHLMONITOR &monitor) {
+        return hyprimate::workspace::capture_hud_safe(native_hud_facts(monitor).retiring_shell);
+    }
+
+    hyprimate::workspace::CaptureSafetyFacts scene_facts() {
+        hyprimate::workspace::CaptureSafetyFacts facts;
+        facts.session_available = g_pSessionLockManager != nullptr;
+        facts.locked = g_pSessionLockManager != nullptr && g_pSessionLockManager->isSessionLocked();
+        facts.input_available = g_pInputManager != nullptr;
+        facts.exclusive_input =
+            g_pInputManager != nullptr && !g_pInputManager->m_exclusiveKeyboardLSes.empty();
+        facts.input_method = g_pInputManager != nullptr &&
+                             g_pInputManager->m_relay.m_inputMethod.lock() != nullptr &&
+                             g_pInputManager->m_relay.getFocusedTextInput() != nullptr;
+        const auto FOCUS = Desktop::focusState();
+        facts.non_window_focus =
+            FOCUS != nullptr && FOCUS->surface() != nullptr && FOCUS->window() == nullptr;
+        // Include inactive, unmapped and fading views: retained pixels can outlive
+        // native screenshare masks at their original output coordinates.
+        for (const auto &window : Desktop::windowState()->windows()) {
+            facts.protected_content = facts.protected_content ||
+                                      window->m_ruleApplicator->noScreenShare().valueOrDefault();
+        }
+        for (const auto &layer : Desktop::layerState()->layers()) {
+            facts.protected_content = facts.protected_content ||
+                                      layer->m_ruleApplicator->noScreenShare().valueOrDefault();
+        }
+        for (const auto &fadeout : Desktop::fadingOutState()->fadeouts()) {
+            if (fadeout == nullptr || fadeout->monitor().lock() == nullptr) {
+                facts.invalid_fadeout = true;
+                continue;
+            }
+            const auto SOURCE = fadeout->source();
+            facts.protected_content = facts.protected_content || SOURCE.noScreenShare;
+            const auto FRAMEBUFFER = fadeout->framebuffer();
+            facts.invalid_fadeout = facts.invalid_fadeout ||
+                                    (SOURCE.type != Desktop::eFadeoutSource::WINDOW &&
+                                        SOURCE.type != Desktop::eFadeoutSource::LAYER) ||
+                                    FRAMEBUFFER == nullptr || !FRAMEBUFFER->isAllocated() ||
+                                    FRAMEBUFFER->getTexture() == nullptr ||
+                                    !std::isfinite(fadeout->alpha());
+        }
+        return facts;
     }
 
     bool safe_scene() {
-        if (!g_pSessionLockManager || g_pSessionLockManager->isSessionLocked() ||
-            !g_pInputManager || !g_pInputManager->m_exclusiveKeyboardLSes.empty() ||
-            (g_pInputManager->m_relay.m_inputMethod.lock() &&
-                g_pInputManager->m_relay.getFocusedTextInput())) return false;
-        const auto FOCUS = Desktop::focusState();
-        if (FOCUS && FOCUS->surface() && !FOCUS->window()) return false;
-        // Native screenshare masking occurs after scene composition at native boxes.
-        // Moving any protected pixels would escape those masks. Include inactive
-        // workspaces and unmapped/fading views: the departing capture can retain them.
-        for (const auto &window : Desktop::windowState()->windows()) {
-            if (window->m_ruleApplicator->noScreenShare().valueOrDefault()) return false;
-        }
-        for (const auto &layer : Desktop::layerState()->layers()) {
-            if (layer->m_ruleApplicator->noScreenShare().valueOrDefault()) return false;
-        }
-        for (const auto &fadeout : Desktop::fadingOutState()->fadeouts()) {
-            if (!fadeout || !fadeout->monitor().lock()) return false;
-            const auto SOURCE = fadeout->source();
-            if (SOURCE.noScreenShare || (SOURCE.type != Desktop::eFadeoutSource::WINDOW &&
-                SOURCE.type != Desktop::eFadeoutSource::LAYER)) return false;
-            const auto FB = fadeout->framebuffer();
-            if (!FB || !FB->isAllocated() || !FB->getTexture() || !std::isfinite(fadeout->alpha())) return false;
-        }
-        return true;
+        return hyprimate::workspace::capture_scene_safe(scene_facts());
     }
 
     void *exact_symbol(const std::vector<SFunctionMatch> &matches, const char *signature) {
@@ -270,14 +300,31 @@ class CWorkspaceAnimation::Impl {
     struct MonitorState;
     struct TurnPort {
         using Workspace = PHLWORKSPACEREF;
+        using Preview = hyprimate::workspace::WorkspacePreview;
         Impl *owner;
         MonitorState *entry;
         [[nodiscard]] bool buffers(bool active) const;
+        [[nodiscard]] static bool scene_safe();
+        [[nodiscard]] bool hud_safe() const;
         [[nodiscard]] bool capture(TurnKind kind, const hyprimate::workspace::TurnComposition<Workspace> &composition) const;
         [[nodiscard]] double duration(const hyprimate::workspace::JourneyEndpoint &from,
             const hyprimate::workspace::JourneyEndpoint &to, double base) const;
-        [[nodiscard]] bool should_refresh(TurnKind kind, double progress) const;
-        [[nodiscard]] bool refresh_inactive_source(const hyprimate::workspace::TurnComposition<Workspace> &composition) const;
+        [[nodiscard]] double live_boundary() const;
+        [[nodiscard]] bool layered() const {
+            return owner->m_layered;
+        }
+        [[nodiscard]] bool native_hud() const {
+            return owner->m_native_hud;
+        }
+        [[nodiscard]] static double now() {
+            return std::chrono::duration<double>(Clock::now().time_since_epoch()).count();
+        }
+        [[nodiscard]] bool clone_capture(TurnKind kind) const;
+        void release_blend(TurnKind kind) const;
+        [[nodiscard]] hyprimate::workspace::InactiveSourceFacts inactive_source_facts(
+            const hyprimate::workspace::TurnComposition<Workspace> &composition) const;
+        [[nodiscard]] bool capture_inactive_source(
+            const hyprimate::workspace::TurnComposition<Workspace> &composition) const;
         void present_native() const;
         void swap_slots() const;
         void damage() const;
@@ -297,23 +344,13 @@ class CWorkspaceAnimation::Impl {
         bool wallpaper_captured = false;
         hyprimate::workspace::WorkspaceCapture source_frame;
         hyprimate::workspace::WorkspaceCapture destination_frame;
-        bool wallpaper_seen = false;
         hyprimate::workspace::WorkspaceCapture *capturing_frame = nullptr;
-        bool pre_windows_seen = false;
-        bool post_windows_seen = false;
+        hyprimate::workspace::CaptureSession capture_policy;
         bool capture_failed = false;
-        bool floating_started = false;
         std::size_t floating_used = 0;
         struct CaptureBlend {
             std::shared_ptr<hyprimate::workspace::WorkspaceCapture> stale;
             std::shared_ptr<std::vector<hyprimate::workspace::WorkspaceFloating>> presentation;
-            std::vector<std::pair<std::int64_t, std::size_t>> old_order;
-            std::vector<std::uint8_t> matched;
-            Clock::time_point started{};
-            double start_distance = 0.0;
-            double mix = 0.0;
-            bool active = false;
-            bool cached = false;
         };
         CaptureBlend source_blend;
         CaptureBlend destination_blend;
@@ -327,21 +364,47 @@ class CWorkspaceAnimation::Impl {
         uint32_t output_format = 0;
         SP<Render::CSceneResources> source_resources;
         std::shared_ptr<std::vector<hyprimate::workspace::WorkspacePreview>> neighbors;
-        struct PreviewJob {
-            PHLWORKSPACEREF workspace;
-            std::size_t index;
-            double priority;
-            SP<Render::IFramebuffer> paper;
-            Clock::time_point started{};
-        };
-        std::vector<PreviewJob> preview_jobs;
-        std::size_t preview_next = 0, preview_blending = 0;
-        int preview_side = 0;
-        std::int64_t preview_from = 0, preview_to = 0;
-        std::uint64_t inventory_revision = 0;
         Clock::time_point last = Clock::now();
         TurnPort port;
     };
+    struct InventoryPort {
+        using Fact =
+            hyprimate::workspace::InventoryWorkspace<PHLWORKSPACEREF, SP<Render::IFramebuffer>>;
+        Impl *owner;
+        MonitorState *entry;
+        PHLMONITOR monitor;
+        [[nodiscard]] std::uint64_t revision() const {
+            return owner->m_inventory_revision;
+        }
+        [[nodiscard]] static double now() {
+            return std::chrono::duration<double>(Clock::now().time_since_epoch()).count();
+        }
+        [[nodiscard]] static std::size_t workspace_count() {
+            return static_cast<std::size_t>(
+                std::ranges::distance(State::Workspace::state()->workspaces()));
+        }
+        [[nodiscard]] std::vector<Fact> workspaces() const;
+        [[nodiscard]] hyprimate::workspace::PreviewCaptureFacts capture_facts(
+            const PHLWORKSPACEREF &workspace) const;
+        [[nodiscard]] hyprimate::workspace::CompositionPlacements &placements() const {
+            return owner->m_placements;
+        }
+        [[nodiscard]] SP<Render::IFramebuffer> local_wallpaper(int side) const;
+        [[nodiscard]] SP<Render::IFramebuffer> capture(const PHLWORKSPACEREF &workspace,
+            const SP<Render::IFramebuffer> &wallpaper,
+            hyprimate::workspace::PreviewCapturePlan plan) const;
+        void publish(
+            const std::shared_ptr<std::vector<hyprimate::workspace::WorkspacePreview>> &previews)
+            const {
+            entry->neighbors = previews;
+        }
+    };
+    [[nodiscard]] hyprimate::workspace::CaptureFeatures capture_features() const {
+        return {.wallpaper = m_uses_wallpaper,
+            .layered = m_layered,
+            .individual = m_individual_windows,
+            .native_hud = m_native_hud};
+    }
 
     using Composition = hyprimate::workspace::TurnComposition<PHLWORKSPACEREF>;
     struct Snapshot {
@@ -372,9 +435,12 @@ class CWorkspaceAnimation::Impl {
                 }
             }
         }
-        return {.identity = composition_id(monitor), .workspace = monitor->m_activeWorkspace,
-            .numbered = NUMBER, .special = monitor->m_activeSpecialWorkspace != nullptr,
-            .logicalOrder = order, .placement = placement};
+        return {.identity = composition_id(monitor),
+            .workspace = monitor->m_activeWorkspace,
+            .numbered = NUMBER,
+            .special = monitor->m_activeSpecialWorkspace != nullptr,
+            .logical_order = order,
+            .placement = placement};
     }
     std::int64_t composition_id(const PHLMONITOR &monitor) {
         return monitor ? m_compositions.get(monitor->m_activeWorkspace, monitor->m_activeSpecialWorkspace) : 0;
@@ -431,17 +497,20 @@ class CWorkspaceAnimation::Impl {
     SP<Render::IFramebuffer> allocate_capture(MonitorState &entry, const PHLMONITOR &monitor,
         std::optional<Vector2D> size = std::nullopt);
     bool begin_refresh(MonitorState &entry, const PHLMONITOR &monitor, TurnKind kind);
-    bool finish_refresh(MonitorState &entry, TurnKind kind);
-    bool prepare_frame(MonitorState &entry, TurnKind kind,
-        hyprimate::workspace::WorkspaceCapture &frame, double progress);
+    bool prepare_frame(MonitorState &entry,
+        TurnKind kind,
+        hyprimate::workspace::WorkspaceCapture &frame,
+        double mix);
     void release_blend(MonitorState &entry, MonitorState::CaptureBlend &blend);
     void capture_wallpaper_identity(MonitorState &entry, const PHLMONITOR &monitor,
         std::vector<WallpaperIdentity> &identity, bool shell = false) const;
-    void remember_wallpaper(const PHLMONITOR &, const PHLWORKSPACE &, const SP<Render::IFramebuffer> &);
-    void prepare_previews(MonitorState &, const PHLMONITOR &, const Composition &, const Composition &);
-    void index_previews(MonitorState &, const PHLMONITOR &, const Composition &, const Composition &);
-    SP<Render::IFramebuffer> capture_preview(MonitorState &, const PHLMONITOR &, const PHLWORKSPACE &,
-        const SP<Render::IFramebuffer> &paper);
+    void remember_wallpaper(const PHLMONITOR &monitor,
+        const PHLWORKSPACE &workspace,
+        const SP<Render::IFramebuffer> &source);
+    SP<Render::IFramebuffer> capture_preview(MonitorState &entry,
+        const PHLWORKSPACE &workspace,
+        const SP<Render::IFramebuffer> &paper,
+        hyprimate::workspace::PreviewCapturePlan plan);
     void erase_state(const PHLMONITOR &monitor);
     static void damage(const PHLMONITOR &monitor);
 
@@ -451,14 +520,23 @@ class CWorkspaceAnimation::Impl {
     bool m_individual_windows = false;
     bool m_native_hud = false;
     bool m_uses_previews = false;
-    struct ObservedWallpaper {
-        PHLWORKSPACEREF workspace;
-        PHLMONITORREF monitor;
-        SP<Render::IFramebuffer> image;
+    struct WallpaperAllocation {
         Vector2D size;
-        wl_output_transform transform;
+        std::uint32_t format = 0;
+        std::remove_cvref_t<decltype(std::declval<Render::IFramebuffer>().imageDescription())>
+            description;
+        bool operator==(const WallpaperAllocation &) const = default;
     };
-    std::vector<ObservedWallpaper> m_observed;
+    struct WallpaperSignature {
+        WallpaperAllocation allocation;
+        wl_output_transform transform = WL_OUTPUT_TRANSFORM_NORMAL;
+        bool operator==(const WallpaperSignature &) const = default;
+    };
+    hyprimate::workspace::WallpaperHistory<PHLWORKSPACEREF,
+        PHLMONITORREF,
+        SP<Render::IFramebuffer>,
+        WallpaperSignature>
+        m_observed;
     std::uint64_t m_inventory_revision = 1;
     std::array<CHyprSignalListener, 4> m_inventory_listeners;
     bool m_settings_changed = true;
@@ -508,50 +586,65 @@ namespace {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): Hyprland exposes original hook functions as void pointers.
         return reinterpret_cast<Fn>(hook != nullptr ? hook->m_original : nullptr);
     }
-    // Coverage alpha belongs to the captured scene, not the native blur input.
-    bool copy_opaque(const SP<Render::IFramebuffer> &source,
-        const SP<Render::IFramebuffer> &target, bool opaque = true, bool downsample = false) {
+    enum class Coverage { Preserve, OpaqueTarget, ResetSource };
+
+    bool copy_capture(const SP<Render::IFramebuffer> &source,
+        const SP<Render::IFramebuffer> &target,
+        Coverage coverage,
+        bool downsample,
+        const std::optional<CBox> &crop = std::nullopt) {
         if (!source || !target || source == target || !source->isAllocated() ||
-            !target->isAllocated() || (!downsample && source->m_size != target->m_size)) {
+            !target->isAllocated() || (!crop && !downsample && source->m_size != target->m_size)) {
             return false;
         }
-        GLint read = 0;
-        GLint draw = 0;
-        std::array<GLboolean, 4> mask{};
-        std::array<GLfloat, 4> clear{};
-        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &read);
-        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &draw);
-        glGetBooleanv(GL_COLOR_WRITEMASK, mask.data());
-        glGetFloatv(GL_COLOR_CLEAR_VALUE, clear.data());
-        const bool SCISSOR = glIsEnabled(GL_SCISSOR_TEST) != GL_FALSE;
-        glDisable(GL_SCISSOR_TEST);
-        glBindFramebuffer(GL_READ_FRAMEBUFFER,
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): RT_GL selects the GL framebuffer backend.
-            static_cast<Render::GL::CGLFramebuffer *>(source.get())->getFBID());
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER,
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): RT_GL selects the GL framebuffer backend.
-            static_cast<Render::GL::CGLFramebuffer *>(target.get())->getFBID());
-        const bool COMPLETE = glCheckFramebufferStatus(GL_READ_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE &&
-                              glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
-        if (COMPLETE) {
-            const auto WIDTH = static_cast<GLint>(source->m_size.x);
-            const auto HEIGHT = static_cast<GLint>(source->m_size.y);
-            glBlitFramebuffer(0, 0, WIDTH, HEIGHT, 0, 0, static_cast<GLint>(target->m_size.x),
-                static_cast<GLint>(target->m_size.y), GL_COLOR_BUFFER_BIT, downsample ? GL_LINEAR : GL_NEAREST);
-            if (opaque) {
-                glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
-                glClearColor(0.F, 0.F, 0.F, 1.F);
-                glClear(GL_COLOR_BUFFER_BIT);
+        auto *src = dynamic_cast<Render::GL::CGLFramebuffer *>(source.get());
+        auto *dst = dynamic_cast<Render::GL::CGLFramebuffer *>(target.get());
+        if (src == nullptr || dst == nullptr) {
+            return false;
+        }
+        const auto SOURCE_ID = src->getFBID();
+        const auto TARGET_ID = dst->getFBID();
+        const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
+        const hyprimate::gl::CRawGlBracket<0> STATE{{.framebuffer = TARGET_ID}};
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, SOURCE_ID);
+        if (glCheckFramebufferStatus(GL_READ_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE ||
+            glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            return false;
+        }
+        const auto LEFT = crop ? static_cast<GLint>(crop->x) : 0;
+        const auto BOTTOM = crop ? static_cast<GLint>(crop->y) : 0;
+        const auto WIDTH = static_cast<GLint>(target->m_size.x);
+        const auto HEIGHT = static_cast<GLint>(target->m_size.y);
+        const auto SOURCE_WIDTH = crop ? WIDTH : static_cast<GLint>(source->m_size.x);
+        const auto SOURCE_HEIGHT = crop ? HEIGHT : static_cast<GLint>(source->m_size.y);
+        glBlitFramebuffer(LEFT,
+            BOTTOM,
+            LEFT + SOURCE_WIDTH,
+            BOTTOM + SOURCE_HEIGHT,
+            0,
+            0,
+            WIDTH,
+            HEIGHT,
+            GL_COLOR_BUFFER_BIT,
+            downsample ? GL_LINEAR : GL_NEAREST);
+        if (coverage != Coverage::Preserve) {
+            if (coverage == Coverage::ResetSource) {
+                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, SOURCE_ID);
             }
+            const std::array<GLfloat, 4> CLEAR{
+                0.F, 0.F, 0.F, coverage == Coverage::OpaqueTarget ? 1.F : 0.F};
+            glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
+            glClearBufferfv(GL_COLOR, 0, CLEAR.data());
         }
-        glColorMask(mask[0], mask[1], mask[2], mask[3]);
-        glClearColor(clear[0], clear[1], clear[2], clear[3]);
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(read));
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(draw));
-        if (SCISSOR) {
-            glEnable(GL_SCISSOR_TEST);
-        }
-        return COMPLETE;
+        return true;
+    }
+
+    bool copy_opaque(const SP<Render::IFramebuffer> &source,
+        const SP<Render::IFramebuffer> &target,
+        bool opaque = true,
+        bool downsample = false) {
+        return copy_capture(
+            source, target, opaque ? Coverage::OpaqueTarget : Coverage::Preserve, downsample);
     }
 
     // Borrow protected native draw methods without downcasting the renderer.
@@ -562,30 +655,32 @@ namespace {
 
     SP<Render::IFramebuffer> preview_target(const PHLMONITOR &monitor, int longest_side) {
         g_pHyprRenderer->glBackend()->makeEGLCurrent();
-        const auto size = monitor->m_transformedSize;
-        const double scale = std::min(1.0, longest_side / std::max(size.x, size.y));
+        const auto SIZE = monitor->m_transformedSize;
+        const double SCALE = std::min(1.0, longest_side / std::max(SIZE.x, SIZE.y));
         auto image = g_pHyprRenderer->createFB("hyprimate workspace preview");
-        if (!image) return {};
-        // Hyprland's FBO allocator unbinds the current unit's 2D texture.
-        GLint prior = 0;
-        glGetIntegerv(GL_TEXTURE_BINDING_2D, &prior);
-        const bool allocated = image->alloc(std::max(1, static_cast<int>(std::lround(size.x * scale))),
-            std::max(1, static_cast<int>(std::lround(size.y * scale))), capture_format(monitor));
-        glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(prior));
-        if (!allocated) return {};
+        if (!image) {
+            return {};
+        }
+        const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
+        const hyprimate::gl::CRawGlBracket<1> STATE{{}};
+        if (!image->alloc(std::max(1, static_cast<int>(std::lround(SIZE.x * SCALE))),
+                std::max(1, static_cast<int>(std::lround(SIZE.y * SCALE))),
+                capture_format(monitor))) {
+            return {};
+        }
         image->setImageDescription(monitor->workBufferImageDescription());
         return image;
     }
 
     bool write_thumbnail(const SP<Render::IFramebuffer> &source, const SP<Render::IFramebuffer> &thumbnail) {
-        if (!copy_opaque(source, thumbnail, true, true)) return false;
-        // Stars and shell stay at output resolution. Only images owned by the
-        // preview cache get mip levels, once per capture, never on native client buffers.
-        GLint prior = 0;
-        glGetIntegerv(GL_TEXTURE_BINDING_2D, &prior);
+        if (!copy_opaque(source, thumbnail, true, true)) {
+            return false;
+        }
+        // Only plugin-owned thumbnails receive mip levels; never modify a native client texture.
+        const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
+        const hyprimate::gl::CRawGlBracket<1> STATE{{}};
         glBindTexture(GL_TEXTURE_2D, thumbnail->getTexture()->m_texID);
         glGenerateMipmap(GL_TEXTURE_2D);
-        glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(prior));
         return true;
     }
 
@@ -621,8 +716,12 @@ namespace {
         // Capture only the world. Native layer drawing bakes blur RGB into the
         // target before coverage alpha is recorded; subtracting wallpaper later
         // cannot make that old blur sample the animated planetary scene.
-        if (manager && manager->m_native_hud && manager->m_capture_depth > 0 && layer &&
-            (popups || layer->m_layer != ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND)) return;
+        if (manager != nullptr && manager->m_capture_depth > 0 && layer != nullptr &&
+            !hyprimate::workspace::CaptureSession{manager->capture_features()}.include_layer(
+                {.background = layer->m_layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND,
+                    .popup = popups})) {
+            return;
+        }
         // Copy ABI owners: optimized native callers may lend their argument slots.
         ORIGINAL(renderer, ctx, layer, monitor, now, popups, lockscreen, workspace_scene);
     }
@@ -792,53 +891,14 @@ namespace {
             : m_target(std::move(target)), m_captured(&captured), m_failed(failed), m_reset(reset), m_crop(crop) {}
 
         std::vector<UP<IPassElement>> draw(Render::CRenderContext &ctx) override {
-            const auto SOURCE = ctx.m_data.currentFB;
-            if (!SOURCE || !m_target || SOURCE == m_target ||
-                (!m_crop && SOURCE->m_size != m_target->m_size)) {
-                if (m_failed) *m_failed = true;
-                return {};
+            *m_captured = copy_capture(ctx.m_data.currentFB,
+                m_target,
+                m_reset ? Coverage::ResetSource : Coverage::Preserve,
+                false,
+                m_crop);
+            if (!*m_captured && m_failed != nullptr) {
+                *m_failed = true;
             }
-            GLint read = 0;
-            GLint draw = 0;
-            std::array<GLboolean, 4> mask{};
-            std::array<GLfloat, 4> clear{};
-            glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &read);
-            glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &draw);
-            glGetBooleanv(GL_COLOR_WRITEMASK, mask.data());
-            glGetFloatv(GL_COLOR_CLEAR_VALUE, clear.data());
-            const bool SCISSOR = glIsEnabled(GL_SCISSOR_TEST) != GL_FALSE;
-            glDisable(GL_SCISSOR_TEST);
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): RT_GL selects the GL framebuffer backend.
-            const auto SOURCE_ID = static_cast<Render::GL::CGLFramebuffer *>(SOURCE.get())->getFBID();
-            glBindFramebuffer(GL_READ_FRAMEBUFFER, SOURCE_ID);
-            glBindFramebuffer(GL_DRAW_FRAMEBUFFER,
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): RT_GL selects the GL framebuffer backend.
-                static_cast<Render::GL::CGLFramebuffer *>(m_target.get())->getFBID());
-            const bool COMPLETE = glCheckFramebufferStatus(GL_READ_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE &&
-                glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
-            if (COMPLETE) {
-                const auto WIDTH = static_cast<GLint>(m_target->m_size.x);
-                const auto HEIGHT = static_cast<GLint>(m_target->m_size.y);
-                const auto X = m_crop ? static_cast<GLint>(m_crop->x) : 0;
-                const auto Y = m_crop ? static_cast<GLint>(m_crop->y) : 0;
-                glBlitFramebuffer(X, Y, X + WIDTH, Y + HEIGHT, 0, 0, WIDTH, HEIGHT,
-                    GL_COLOR_BUFFER_BIT, GL_NEAREST);
-                if (m_reset) {
-                    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, SOURCE_ID);
-                    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
-                    glClearColor(0.F, 0.F, 0.F, 0.F);
-                    glClear(GL_COLOR_BUFFER_BIT);
-                }
-            }
-            glColorMask(mask[0], mask[1], mask[2], mask[3]);
-            glClearColor(clear[0], clear[1], clear[2], clear[3]);
-            glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(read));
-            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(draw));
-            if (SCISSOR) {
-                glEnable(GL_SCISSOR_TEST);
-            }
-            *m_captured = COMPLETE;
-            if (!COMPLETE && m_failed) *m_failed = true;
             return {};
         }
         bool needsLiveBlur(Render::CRenderContext & /*ctx*/) override { return false; }
@@ -857,82 +917,127 @@ namespace {
         std::optional<CBox> m_crop;
     };
 
+    void read_window_capture_details(hyprimate::workspace::CaptureWindowFacts &facts,
+        const PHLWINDOW &window,
+        const PHLMONITOR &monitor,
+        bool decorate) {
+        if (facts.popup_pass) {
+            if (const auto HEAD = window->popupHead(); HEAD != nullptr) {
+                HEAD->breadthfirst(
+                    [&](const WP<Desktop::View::CPopup> &weak, void * /*unused*/) {
+                        const auto POPUP = weak.lock();
+                        facts.visible_popup =
+                            facts.visible_popup || (POPUP != nullptr && POPUP->mapped());
+                    },
+                    nullptr);
+            }
+            if (decorate) {
+                for (const auto &decoration : window->presentation().decorations()) {
+                    facts.overlay = facts.overlay ||
+                                    decoration->getDecorationLayer() == DECORATION_LAYER_OVERLAY;
+                }
+            }
+        }
+        const auto BOX = window->effects().transformedExtents(window->getFullWindowBoundingBox());
+        facts.bounds = {.left = (BOX.x - monitor->m_position.x) * monitor->m_scale,
+            .top = (BOX.y - monitor->m_position.y) * monitor->m_scale,
+            .right = (BOX.x + BOX.width - monitor->m_position.x) * monitor->m_scale,
+            .bottom = (BOX.y + BOX.height - monitor->m_position.y) * monitor->m_scale};
+        facts.output_width = monitor->m_transformedSize.x;
+        facts.output_height = monitor->m_transformedSize.y;
+    }
+
+    void prepare_window_capture_target(CWorkspaceAnimation::Impl &manager,
+        CWorkspaceAnimation::Impl::MonitorState &entry,
+        const PHLMONITOR &monitor,
+        SP<Render::IFramebuffer> &target,
+        const Vector2D &extent) {
+        const auto PLAN = hyprimate::workspace::capture_target_plan({.present = target != nullptr,
+            .matching_extent = target != nullptr && target->m_size == extent});
+        if (PLAN.release) {
+            entry.allocated_bytes -= framebuffer_bytes(target);
+            target.reset();
+        }
+        if (PLAN.allocate) {
+            target = manager.allocate_capture(entry, monitor, extent);
+        }
+    }
+
     void hook_window(Render::IHyprRenderer *renderer, Render::CRenderContext &ctx,
         PHLWINDOW window, PHLMONITOR monitor, const Render::SWindowRenderPresentation &presentation,
         const Time::steady_tp &now, bool decorate, Render::eRenderPassMode pass,
         bool ignore_position, bool standalone) {
         auto *manager = active();
-        const auto ORIGINAL = original<WindowFn>(manager ? manager->m_window_hook : nullptr);
-        if (!ORIGINAL) return;
-        auto *entry = manager ? manager->m_capturing : nullptr;
-        auto *frame = entry ? entry->capturing_frame : nullptr;
-        bool INDIVIDUAL = frame && frame->layered && manager->m_individual_windows && window &&
-            window->mapped() && !window->isHidden() && presentation.alphaVisible;
-        if (INDIVIDUAL && pass == Render::RENDER_PASS_POPUP) {
-            bool visible_popup = false;
-            if (const auto head = window->popupHead(); head) head->breadthfirst([&](WP<Desktop::View::CPopup> weak, void *) {
-                const auto popup = weak.lock();
-                visible_popup = visible_popup || (popup && popup->mapped());
-            }, nullptr);
-            bool overlay = false;
-            if (decorate) for (const auto &decoration : window->presentation().decorations()) {
-                overlay = overlay || decoration->getDecorationLayer() == DECORATION_LAYER_OVERLAY;
-            }
-            INDIVIDUAL = visible_popup || overlay;
+        const auto ORIGINAL =
+            original<WindowFn>(manager != nullptr ? manager->m_window_hook : nullptr);
+        if (ORIGINAL == nullptr) {
+            return;
         }
+        auto *entry = manager != nullptr ? manager->m_capturing : nullptr;
+        auto *frame = entry != nullptr ? entry->capturing_frame : nullptr;
+        hyprimate::workspace::CaptureWindowFacts facts;
+        facts.present = window != nullptr;
+        facts.mapped = window != nullptr && window->mapped();
+        facts.hidden = window != nullptr && window->isHidden();
+        facts.visible = presentation.alphaVisible;
+        facts.popup_pass = pass == Render::RENDER_PASS_POPUP;
+        if (frame == nullptr || entry->capture_failed ||
+            !entry->capture_policy.needs_window_details(facts)) {
+            ORIGINAL(renderer,
+                ctx,
+                window,
+                monitor,
+                presentation,
+                now,
+                decorate,
+                pass,
+                ignore_position,
+                standalone);
+            return;
+        }
+        read_window_capture_details(facts, window, monitor, decorate);
         hyprimate::workspace::WorkspaceFloating *floating = nullptr;
         std::optional<CBox> crop;
         const auto BOUNDARY = [&](const SP<Render::IFramebuffer> &target, std::optional<CBox> region = std::nullopt) {
             Render::IHyprRenderer::addPassElement(ctx, makeUnique<CWorkspaceWallpaperPass>(
                 target, entry->wallpaper_captured, &entry->capture_failed, true, region));
         };
-        if (INDIVIDUAL && !entry->capture_failed) {
-            if (!entry->pre_windows_seen || entry->post_windows_seen) {
+        const auto PLAN = entry->capture_policy.window(facts);
+        if (PLAN.crop.has_value()) {
+            crop = CBox{PLAN.crop->x, PLAN.crop->y, PLAN.crop->width, PLAN.crop->height};
+            const auto SIZE = monitor->m_transformedSize;
+            if (frame->floating == nullptr) {
+                frame->floating =
+                    std::make_shared<std::vector<hyprimate::workspace::WorkspaceFloating>>();
+            }
+            if (frame->floating->size() <= entry->floating_used) {
+                frame->floating->emplace_back();
+            }
+            auto &item = (*frame->floating)[entry->floating_used++];
+            const Vector2D EXTENT{crop->width, crop->height};
+            prepare_window_capture_target(*manager, *entry, monitor, item.layer.backdrop, EXTENT);
+            prepare_window_capture_target(
+                *manager, *entry, monitor, item.layer.accumulated, EXTENT);
+            if (item.layer.accumulated == nullptr || item.layer.backdrop == nullptr) {
                 entry->capture_failed = true;
             } else {
-                const auto BOX = window->effects().transformedExtents(window->getFullWindowBoundingBox());
-                const auto SIZE = monitor->m_transformedSize;
-                const double X = std::clamp(std::floor((BOX.x - monitor->m_position.x) * monitor->m_scale), 0.0, SIZE.x);
-                const double Y = std::clamp(std::floor((BOX.y - monitor->m_position.y) * monitor->m_scale), 0.0, SIZE.y);
-                const double RIGHT = std::clamp(std::ceil((BOX.x + BOX.width - monitor->m_position.x) * monitor->m_scale), 0.0, SIZE.x);
-                const double BOTTOM = std::clamp(std::ceil((BOX.y + BOX.height - monitor->m_position.y) * monitor->m_scale), 0.0, SIZE.y);
-                if (RIGHT > X && BOTTOM > Y) {
-                    crop = CBox{X, Y, RIGHT - X, BOTTOM - Y};
-                    if (!entry->floating_started) {
-                        if (frame->windows.accumulated != frame->bottom.accumulated)
-                            BOUNDARY(frame->windows.accumulated);
-                        entry->floating_started = true;
-                    }
-                    if (!frame->floating) frame->floating = std::make_shared<std::vector<hyprimate::workspace::WorkspaceFloating>>();
-                    if (frame->floating->size() <= entry->floating_used) frame->floating->emplace_back();
-                    auto &item = (*frame->floating)[entry->floating_used++];
-                    const Vector2D EXTENT{crop->width, crop->height};
-                    const auto PREPARE = [&](SP<Render::IFramebuffer> &target) {
-                        if (target && target->m_size != EXTENT) {
-                            entry->allocated_bytes -= framebuffer_bytes(target);
-                            target.reset();
-                        }
-                        if (!target) target = manager->allocate_capture(*entry, monitor, EXTENT);
-                    };
-                    PREPARE(item.layer.backdrop);
-                    PREPARE(item.layer.accumulated);
-                    if (!item.layer.accumulated || !item.layer.backdrop) {
-                        entry->capture_failed = true;
-                    } else {
-                        floating = &item;
-                        // Body and popup plates share one window, but never share temporal pixels.
-                        floating->identity = manager->m_window_identities.get(window, PHLWINDOW{}) * 4 +
-                            static_cast<std::int64_t>(pass);
-                        floating->rect = {X / SIZE.x, Y / SIZE.y, crop->width / SIZE.x, crop->height / SIZE.y};
-                        floating->order = static_cast<double>(entry->floating_used - 1);
-                        BOUNDARY(floating->layer.backdrop, crop);
-                    }
-                }
+                floating = &item;
+                // Body and popup plates share a window, never temporal pixels.
+                floating->identity = (manager->m_window_identities.get(window, PHLWINDOW{}) * 4) +
+                                     static_cast<std::int64_t>(pass);
+                floating->rect = {crop->x / SIZE.x,
+                    crop->y / SIZE.y,
+                    crop->width / SIZE.x,
+                    crop->height / SIZE.y};
+                floating->order = static_cast<double>(entry->floating_used - 1);
+                BOUNDARY(floating->layer.backdrop, crop);
             }
         }
         ORIGINAL(renderer, ctx, window, monitor, presentation, now,
             decorate, pass, ignore_position, standalone);
-        if (floating) BOUNDARY(floating->layer.accumulated, crop);
+        if (floating != nullptr) {
+            BOUNDARY(floating->layer.accumulated, crop);
+        }
     }
 
     // Pass analysis has already determined native optimized-blur demand when
@@ -1123,23 +1228,32 @@ bool CWorkspaceAnimation::Impl::install(std::string &error) {
                 Render::IHyprRenderer::addPassElement(event.context->get(),
                     makeUnique<CWorkspaceWallpaperPass>(target, entry.wallpaper_captured, &entry.capture_failed));
             };
+            std::optional<hyprimate::workspace::CaptureBoundary> boundary;
             if (event.stage == RENDER_POST_WALLPAPER) {
-                BOUNDARY(m_capture_wallpaper);
-                entry.wallpaper_seen = true;
-            } else if (frame && frame->layered && event.stage == RENDER_PRE_WINDOWS) {
-                if (!entry.pre_windows_seen) {
-                    BOUNDARY(frame->bottom.accumulated);
-                    entry.pre_windows_seen = true;
-                } else if (m_individual_windows) {
-                    // Special dim/blur between individual window batches cannot be
-                    // assigned to one window plate without changing native stacking.
-                    entry.capture_failed = true;
+                boundary = hyprimate::workspace::CaptureBoundary::Wallpaper;
+            } else if (event.stage == RENDER_PRE_WINDOWS) {
+                boundary = hyprimate::workspace::CaptureBoundary::BeforeWindows;
+            } else if (event.stage == RENDER_POST_WINDOWS) {
+                boundary = hyprimate::workspace::CaptureBoundary::AfterWindows;
+            }
+            if (boundary.has_value()) {
+                const auto PLAN = entry.capture_policy.boundary(*boundary);
+                for (std::size_t index = 0; index < PLAN.count; ++index) {
+                    switch (PLAN.planes[index]) {
+                        case hyprimate::workspace::CapturePlane::Wallpaper:
+                            BOUNDARY(m_capture_wallpaper);
+                            break;
+                        case hyprimate::workspace::CapturePlane::Bottom:
+                            BOUNDARY(frame->bottom.accumulated);
+                            break;
+                        case hyprimate::workspace::CapturePlane::Windows:
+                            BOUNDARY(frame->windows.accumulated);
+                            break;
+                        case hyprimate::workspace::CapturePlane::TopBackdrop:
+                            BOUNDARY(frame->top.backdrop);
+                            break;
+                    }
                 }
-            } else if (frame && frame->layered && event.stage == RENDER_POST_WINDOWS) {
-                if (!entry.floating_started && frame->windows.accumulated != frame->bottom.accumulated)
-                    BOUNDARY(frame->windows.accumulated);
-                if (frame->top.backdrop != frame->windows.accumulated) BOUNDARY(frame->top.backdrop);
-                entry.post_windows_seen = true;
             }
         });
     auto changed = [this](PHLWORKSPACEREF) { ++m_inventory_revision; };
@@ -1279,13 +1393,16 @@ SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::allocate_capture(
     const auto FORMAT = capture_format(monitor);
     const auto BYTES = static_cast<std::uint64_t>(SIZE.x) * static_cast<std::uint64_t>(SIZE.y) *
         (FORMAT == DRM_FORMAT_ABGR8888 ? 4 : 8);
-    const std::uint64_t MONITOR_LIMIT = (FORMAT == DRM_FORMAT_ABGR8888 ? 512ULL : 1024ULL) * 1024 * 1024;
-    // Retained targets only; Hyprland's isolated scene/blur caches remain compositor-owned.
-    constexpr std::uint64_t GLOBAL_LIMIT = 2048ULL * 1024 * 1024;
     std::uint64_t total = 0;
-    for (const auto &state : m_states) total += state->allocated_bytes;
-    if (BYTES == 0 || BYTES > MONITOR_LIMIT || entry.allocated_bytes > MONITOR_LIMIT - BYTES ||
-        total > GLOBAL_LIMIT - BYTES) return nullptr;
+    for (const auto &state : m_states) {
+        total += state->allocated_bytes;
+    }
+    if (!hyprimate::workspace::capture_allocation_allowed({.bytes = BYTES,
+            .monitor_bytes = entry.allocated_bytes,
+            .total_bytes = total,
+            .wide_color = FORMAT != DRM_FORMAT_ABGR8888})) {
+        return nullptr;
+    }
     auto framebuffer = g_pHyprRenderer->createFB("hyprimate workspace capture");
     if (!framebuffer || !framebuffer->alloc(static_cast<int>(SIZE.x), static_cast<int>(SIZE.y),
             FORMAT)) return nullptr;
@@ -1304,28 +1421,50 @@ bool CWorkspaceAnimation::Impl::ready(const PHLMONITOR &monitor) const {
 bool CWorkspaceAnimation::Impl::ensure_buffers(MonitorState &entry, const PHLMONITOR &monitor) {
     // resources() is lazy and fatal on an unconfigured output. A completed native
     // POST frame, not resources(), is the readiness proof during connect/disconnect.
-    if (!g_pHyprRenderer || !ready(monitor) || !monitor->m_activeWorkspace || !safe_scene() ||
-        (m_native_hud && !native_hud_safe(monitor)) ||
-        g_pHyprRenderer->type() != Render::IHyprRenderer::RT_GL || !g_pHyprRenderer->glBackend()) {
+    if (g_pHyprRenderer == nullptr || !ready(monitor)) {
+        return false;
+    }
+    const auto FACTS = [&] {
+        hyprimate::workspace::CaptureBufferFacts facts;
+        facts.native_ready = monitor->m_activeWorkspace != nullptr &&
+                             g_pHyprRenderer->type() == Render::IHyprRenderer::RT_GL &&
+                             g_pHyprRenderer->glBackend() != nullptr;
+        facts.compatible =
+            entry.source == nullptr ||
+            (entry.logical_size == monitor->m_size && entry.scale == monitor->m_scale &&
+                entry.transform == monitor->m_transform &&
+                entry.output_format == monitor->m_drmFormat &&
+                entry.source->m_drmFormat == capture_format(monitor) &&
+                entry.source->imageDescription() == monitor->workBufferImageDescription());
+        facts.scene_safe = entry.port.scene_safe();
+        facts.hud_safe = entry.port.hud_safe();
+        const auto *const ACTIVE_TURN = turn(monitor);
+        facts.active = ACTIVE_TURN != nullptr && ACTIVE_TURN->active();
+        const auto USABLE = [&](const SP<Render::IFramebuffer> &framebuffer) {
+            return framebuffer != nullptr && framebuffer->isAllocated() &&
+                   framebuffer->m_size == monitor->m_transformedSize &&
+                   framebuffer->getTexture() != nullptr;
+        };
+        facts.base = {USABLE(entry.source),
+            USABLE(entry.destination),
+            USABLE(entry.presentation),
+            USABLE(entry.source_wallpaper),
+            USABLE(entry.destination_wallpaper),
+            USABLE(entry.opaque_backdrop)};
+        facts.planes = {USABLE(entry.source_frame.bottom.accumulated),
+            USABLE(entry.source_frame.windows.accumulated),
+            USABLE(entry.source_frame.top.backdrop),
+            USABLE(entry.destination_frame.bottom.accumulated),
+            USABLE(entry.destination_frame.windows.accumulated),
+            USABLE(entry.destination_frame.top.backdrop)};
+        return facts;
+    };
+    const auto PLAN = hyprimate::workspace::capture_buffer_plan(FACTS(), capture_features());
+    if (PLAN == hyprimate::workspace::CaptureBufferAction::Reject) {
         return false;
     }
     g_pHyprRenderer->glBackend()->makeEGLCurrent();
-    const auto SIZE = monitor->m_transformedSize;
-    if (entry.source && (entry.logical_size != monitor->m_size ||
-        entry.scale != monitor->m_scale || entry.transform != monitor->m_transform ||
-        entry.output_format != monitor->m_drmFormat || entry.source->m_drmFormat != capture_format(monitor) ||
-        entry.source->imageDescription() != monitor->workBufferImageDescription())) return false;
-    const auto USABLE = [&](const SP<Render::IFramebuffer> &framebuffer) {
-        return framebuffer && framebuffer->isAllocated() && framebuffer->m_size == SIZE && framebuffer->getTexture();
-    };
-    if (!USABLE(entry.source) || !USABLE(entry.destination) || !USABLE(entry.presentation) ||
-        (m_uses_wallpaper && (!USABLE(entry.source_wallpaper) || !USABLE(entry.destination_wallpaper) ||
-            !USABLE(entry.opaque_backdrop)))) {
-        // Never replace a frozen pair during a turn. SDR retains native 8-bit
-        // precision; HDR/10-bit uses floating-point RGB with independent coverage.
-        if (const auto *active_turn = turn(monitor); active_turn != nullptr && active_turn->active()) {
-            return false;
-        }
+    if (PLAN == hyprimate::workspace::CaptureBufferAction::Allocate) {
         const auto ALLOCATE = [&] { return allocate_capture(entry, monitor); };
         entry.source = ALLOCATE();
         entry.destination = ALLOCATE();
@@ -1340,32 +1479,27 @@ bool CWorkspaceAnimation::Impl::ensure_buffers(MonitorState &entry, const PHLMON
         entry.scale = monitor->m_scale;
         entry.transform = monitor->m_transform;
         entry.output_format = monitor->m_drmFormat;
+        const auto LAYOUT = hyprimate::workspace::capture_plane_layout(capture_features());
         const auto PREPARE = [&](hyprimate::workspace::WorkspaceCapture &frame,
             const SP<Render::IFramebuffer> &composite, const SP<Render::IFramebuffer> &wallpaper) {
             frame.composite = composite;
             frame.wallpaper = wallpaper;
-            frame.layered = m_layered;
-            if (m_layered) {
+            frame.layered = LAYOUT.layered;
+            if (LAYOUT.layered) {
                 frame.bottom = {.accumulated = ALLOCATE(), .backdrop = wallpaper};
-                frame.windows = {.accumulated = m_individual_windows ? frame.bottom.accumulated : ALLOCATE(),
+                frame.windows = {
+                    .accumulated = LAYOUT.separate_windows ? ALLOCATE() : frame.bottom.accumulated,
                     .backdrop = frame.bottom.accumulated};
                 frame.top = {.accumulated = composite,
-                    .backdrop = m_individual_windows ? ALLOCATE() : frame.windows.accumulated};
+                    .backdrop =
+                        LAYOUT.separate_top_backdrop ? ALLOCATE() : frame.windows.accumulated};
             }
         };
         PREPARE(entry.source_frame, entry.source, entry.source_wallpaper);
         PREPARE(entry.destination_frame, entry.destination, entry.destination_wallpaper);
     }
-    if (!USABLE(entry.source) || !USABLE(entry.destination) || !USABLE(entry.presentation) ||
-        (m_uses_wallpaper && (!USABLE(entry.source_wallpaper) || !USABLE(entry.destination_wallpaper) ||
-            !USABLE(entry.opaque_backdrop)))) {
-        return false;
-    }
-    if (m_layered && (!USABLE(entry.source_frame.bottom.accumulated) ||
-        !USABLE(entry.source_frame.windows.accumulated) || !USABLE(entry.source_frame.top.backdrop) ||
-        !USABLE(entry.destination_frame.bottom.accumulated) ||
-        !USABLE(entry.destination_frame.windows.accumulated) ||
-        !USABLE(entry.destination_frame.top.backdrop))) {
+    if (hyprimate::workspace::capture_buffer_plan(FACTS(), capture_features()) !=
+        hyprimate::workspace::CaptureBufferAction::Reuse) {
         return false;
     }
     if (!entry.source_resources) {
@@ -1467,7 +1601,8 @@ bool CWorkspaceAnimation::Impl::capture(MonitorState &entry,
     if (!safe_scene() || !workspace || !ensure_buffers(entry, monitor)) {
         return false;
     }
-    if (m_individual_windows) for (const auto &fadeout : Desktop::fadingOutState()->fadeouts()) {
+    entry.capture_policy = hyprimate::workspace::CaptureSession{capture_features()};
+    for (const auto &fadeout : Desktop::fadingOutState()->fadeouts()) {
         if (fadeout->monitor().lock() != monitor || fadeout->done() || fadeout->alpha() <= 0.F) continue;
         const auto SOURCE = fadeout->source();
         if (SOURCE.type != Desktop::eFadeoutSource::WINDOW) continue;
@@ -1478,7 +1613,9 @@ bool CWorkspaceAnimation::Impl::capture(MonitorState &entry,
         // Native window fadeouts already contain output-global dim/blur and may
         // span several per-window planes. Only this affected individual scene
         // abstains; composite and aggregate layered scenes keep native ordering.
-        if (SELECTED) return false;
+        if (!entry.capture_policy.accepts_fadeout(SELECTED)) {
+            return false;
+        }
     }
     const auto RESOURCES = kind == hyprimate::workspace::CaptureKind::SourceIsolated
                                ? entry.source_resources
@@ -1510,8 +1647,7 @@ bool CWorkspaceAnimation::Impl::capture(MonitorState &entry,
     auto &frame = target == entry.source ? entry.source_frame : entry.destination_frame;
     auto &shell_identity = target == entry.source ? entry.source_shell_identity : entry.destination_shell_identity;
     capture_wallpaper_identity(entry, monitor, shell_identity, true);
-    entry.pre_windows_seen = entry.post_windows_seen = entry.capture_failed = entry.floating_started = false;
-    entry.wallpaper_seen = false;
+    entry.capture_failed = false;
     entry.floating_used = 0;
     entry.capturing_frame = &frame;
     entry.wallpaper_captured = false;
@@ -1536,9 +1672,8 @@ bool CWorkspaceAnimation::Impl::capture(MonitorState &entry,
         }
         frame.floating->resize(entry.floating_used);
     }
-    return CAPTURED && !entry.capture_failed && (!m_uses_wallpaper ||
-        (entry.wallpaper_seen && entry.wallpaper_captured)) &&
-        (!m_layered || (entry.pre_windows_seen && entry.post_windows_seen));
+    return entry.capture_policy.complete({.native_captured = CAPTURED && !entry.capture_failed,
+        .wallpaper_captured = entry.wallpaper_captured});
 }
 
 void CWorkspaceAnimation::Impl::release_blend(MonitorState &entry, MonitorState::CaptureBlend &blend) {
@@ -1559,16 +1694,10 @@ void CWorkspaceAnimation::Impl::release_blend(MonitorState &entry, MonitorState:
     }
     blend.presentation.reset();
     blend.stale.reset();
-    blend.old_order.clear();
-    blend.matched.clear();
-    blend.active = false;
-    blend.mix = 1.0;
 }
 
 bool CWorkspaceAnimation::Impl::begin_refresh(MonitorState &entry, const PHLMONITOR &monitor, TurnKind kind) {
     auto &blend = kind == TurnKind::SourceIsolated ? entry.source_blend : entry.destination_blend;
-    const auto *active_turn = turn(monitor);
-    if (!m_layered || !active_turn || !active_turn->presented_once() || !blend.cached || blend.active) return true;
     g_pHyprRenderer->glBackend()->makeEGLCurrent();
     const auto &live = kind == TurnKind::SourceIsolated ? entry.source_frame : entry.destination_frame;
     const auto CLONE = [&](const SP<Render::IFramebuffer> &input, SP<Render::IFramebuffer> &output) {
@@ -1593,9 +1722,7 @@ bool CWorkspaceAnimation::Impl::begin_refresh(MonitorState &entry, const PHLMONI
         if (live.floating) {
             old.floating = std::make_shared<std::vector<hyprimate::workspace::WorkspaceFloating>>();
             old.floating->reserve(live.floating->size());
-            blend.old_order.reserve(live.floating->size());
             for (const auto &window : *live.floating) {
-                blend.old_order.emplace_back(window.identity, old.floating->size());
                 old.floating->emplace_back();
                 auto &item = old.floating->back();
                 item.identity = window.identity;
@@ -1604,82 +1731,80 @@ bool CWorkspaceAnimation::Impl::begin_refresh(MonitorState &entry, const PHLMONI
                 if (!CLONE(window.layer.accumulated, item.layer.accumulated) ||
                     !CLONE(window.layer.backdrop, item.layer.backdrop)) return false;
             }
-            std::ranges::sort(blend.old_order, {}, [](const auto &item) { return item.first; });
-            blend.matched.resize(old.floating->size());
         }
     } catch (...) {
         return false;
     }
-    const double PROGRESS = active_turn->progress();
-    blend.start_distance = std::max(1e-6, std::min(PROGRESS, 1.0 - PROGRESS));
-    blend.started = Clock::now();
-    blend.mix = 0.0;
-    blend.active = true;
     return true;
 }
 
-bool CWorkspaceAnimation::Impl::finish_refresh(MonitorState &entry, TurnKind kind) {
-    (kind == TurnKind::SourceIsolated ? entry.source_blend : entry.destination_blend).cached = false;
-    return true;
-}
-
-bool CWorkspaceAnimation::Impl::prepare_frame(MonitorState &entry, TurnKind kind,
-    hyprimate::workspace::WorkspaceCapture &frame, double progress) {
+bool CWorkspaceAnimation::Impl::prepare_frame(
+    MonitorState &entry, TurnKind kind, hyprimate::workspace::WorkspaceCapture &frame, double mix) {
     auto &blend = kind == TurnKind::SourceIsolated ? entry.source_blend : entry.destination_blend;
-    if (!blend.active || !blend.stale) return true;
-    const double TIME = std::chrono::duration<double>(Clock::now() - blend.started).count() / .08;
-    const double DISTANCE = std::max(0.0, std::min(progress, 1.0 - progress));
-    // A monotonic content handoff, accelerated as either native endpoint approaches.
-    // Even a 100 ms journey with a narrow live boundary must arrive fully live.
-    blend.mix = std::clamp(std::max({blend.mix, TIME, 1.0 - DISTANCE / blend.start_distance}), 0.0, 1.0);
-    if (blend.mix >= 1.0) {
-        release_blend(entry, blend);
+    if (!blend.stale) {
         return true;
     }
-    frame.previous = blend.stale; // Clones never have a previous pointer: one bounded generation.
-    frame.live_mix = blend.mix;
-    const auto &old = *blend.stale;
-    const auto COUNT = [](const auto &capture) { return capture.floating ? capture.floating->size() : 0; };
-    if (COUNT(old) == 0 && COUNT(frame) == 0) return true;
-    try {
-        if (!blend.presentation) blend.presentation = std::make_shared<std::vector<hyprimate::workspace::WorkspaceFloating>>();
-        auto &view = *blend.presentation;
-        view.clear();
-        view.reserve(COUNT(old) + COUNT(frame));
-        std::ranges::fill(blend.matched, 0);
-        if (frame.floating) for (const auto &window : *frame.floating) {
-            const auto FOUND = std::ranges::lower_bound(blend.old_order, window.identity, {},
-                [](const auto &item) { return item.first; });
-            view.push_back(window);
-            auto &item = view.back();
-            if (FOUND == blend.old_order.end() || FOUND->first != window.identity) {
-                item.opacity *= static_cast<float>(blend.mix);
-            } else {
-                const auto INDEX = FOUND->second;
-                blend.matched[INDEX] = 1;
-                const auto &previous = (*old.floating)[INDEX];
-                item.previous_layer = previous.layer;
-                item.live_mix = static_cast<float>(blend.mix);
-                item.rect = {std::lerp(previous.rect.x, window.rect.x, blend.mix),
-                    std::lerp(previous.rect.y, window.rect.y, blend.mix),
-                    std::lerp(previous.rect.width, window.rect.width, blend.mix),
-                    std::lerp(previous.rect.height, window.rect.height, blend.mix)};
-                item.order = std::lerp(previous.order, window.order, blend.mix);
+    frame.previous = blend.stale;  // One bounded immutable generation.
+    frame.live_mix = mix;
+    struct PresentationPort {
+        using Floating = hyprimate::workspace::WorkspaceFloating;
+        using Facts = hyprimate::workspace::FloatingFacts;
+        MonitorState::CaptureBlend *blend;
+        hyprimate::workspace::WorkspaceCapture *frame;
+        const std::vector<Floating> *live;
+        [[nodiscard]] std::size_t old_count() const {
+            return blend->stale->floating ? blend->stale->floating->size() : 0;
+        }
+        [[nodiscard]] std::size_t live_count() const {
+            return live != nullptr ? live->size() : 0;
+        }
+        [[nodiscard]] static Facts facts(const Floating &window) {
+            return {.identity = window.identity,
+                .rect = {window.rect.x, window.rect.y, window.rect.width, window.rect.height},
+                .opacity = window.opacity,
+                .order = window.order};
+        }
+        [[nodiscard]] Facts old_window(std::size_t index) const {
+            return facts((*blend->stale->floating)[index]);
+        }
+        [[nodiscard]] Facts live_window(std::size_t index) const {
+            return facts((*live)[index]);
+        }
+        void begin(std::size_t count) {
+            if (count == 0) {
+                return;
+            }
+            if (!blend->presentation) {
+                blend->presentation = std::make_shared<std::vector<Floating>>();
+            }
+            blend->presentation->clear();
+            blend->presentation->reserve(count);
+            frame->floating = blend->presentation;
+        }
+        void emit(const hyprimate::workspace::FloatingPresentation &command) {
+            blend->presentation->push_back(
+                command.stale ? (*blend->stale->floating)[command.index] : (*live)[command.index]);
+            auto &item = blend->presentation->back();
+            item.opacity = command.facts.opacity;
+            const auto &rect = command.facts.rect;
+            item.rect = {rect[0], rect[1], rect[2], rect[3]};
+            item.order = command.facts.order;
+            if (command.previous.has_value()) {
+                item.previous_layer = (*blend->stale->floating)[*command.previous].layer;
+                item.live_mix = command.live_mix;
             }
         }
-        if (old.floating) for (std::size_t i = 0; i < old.floating->size(); ++i) {
-            if (blend.matched[i]) continue;
-            view.push_back((*old.floating)[i]);
-            view.back().opacity *= static_cast<float>(1.0 - blend.mix);
-        }
-        std::ranges::sort(view, {}, [](const auto &item) { return item.order; });
-        frame.floating = blend.presentation;
-    } catch (...) {
-        return false;
-    }
-    return true;
+    } port{.blend = &blend, .frame = &frame, .live = frame.floating.get()};
+    auto *active_turn = turn(entry.monitor.lock());
+    return active_turn != nullptr && active_turn->present_floating(kind, port, mix);
 }
 
+bool CWorkspaceAnimation::Impl::TurnPort::scene_safe() {
+    return hyprimate::workspace::capture_scene_safe(scene_facts());
+}
+bool CWorkspaceAnimation::Impl::TurnPort::hud_safe() const {
+    return native_hud_safe(entry->monitor.lock());
+}
 bool CWorkspaceAnimation::Impl::TurnPort::buffers(bool /*active*/) const {
     return owner->ensure_buffers(*entry, entry->monitor.lock());
 }
@@ -1687,12 +1812,10 @@ bool CWorkspaceAnimation::Impl::TurnPort::capture(
     TurnKind kind, const hyprimate::workspace::TurnComposition<Workspace> &composition) const {
     const auto MONITOR = entry->monitor.lock();
     const auto TARGET = kind == TurnKind::SourceIsolated ? entry->source : entry->destination;
-    if (!owner->begin_refresh(*entry, MONITOR, kind)) return false;
     auto &frame = kind == TurnKind::SourceIsolated ? entry->source_frame : entry->destination_frame;
     frame.identity = composition.identity;
     frame.endpoint = composition.endpoint();
-    return owner->capture(*entry, MONITOR, composition.workspace.lock(), kind, TARGET) &&
-        owner->finish_refresh(*entry, kind);
+    return owner->capture(*entry, MONITOR, composition.workspace.lock(), kind, TARGET);
 }
 double CWorkspaceAnimation::Impl::TurnPort::duration(
     const hyprimate::workspace::JourneyEndpoint &from,
@@ -1704,48 +1827,60 @@ double CWorkspaceAnimation::Impl::TurnPort::duration(
     return duration;
 }
 
-bool CWorkspaceAnimation::Impl::TurnPort::should_refresh(TurnKind kind, double progress) const {
+double CWorkspaceAnimation::Impl::TurnPort::live_boundary() const {
     double boundary = 1.0;
     owner->m_styles.for_each([&]<class Style>(auto &resources) {
         if (Style::KIND == owner->m_style_kind) boundary = Style::live_boundary(resources);
     });
-    boundary = std::clamp(boundary, 0.0, 1.0);
-    // Workspace-aware shell clients may repaint several frames after dispatch.
-    // Keep both endpoint captures current through takeoff, then cache during distance.
-    const bool REFRESH = progress <= boundary ||
-        (kind == TurnKind::DestinationLive && progress >= 1.0 - boundary);
-    if (!REFRESH) (kind == TurnKind::SourceIsolated ? entry->source_blend : entry->destination_blend).cached = true;
-    return REFRESH;
+    return boundary;
 }
 
-bool CWorkspaceAnimation::Impl::TurnPort::refresh_inactive_source(
+hyprimate::workspace::InactiveSourceFacts
+CWorkspaceAnimation::Impl::TurnPort::inactive_source_facts(
     const hyprimate::workspace::TurnComposition<Workspace> &composition) const {
-    if (!owner->m_layered) return true;
     const auto MONITOR = entry->monitor.lock();
-    const auto SOURCE = composition.workspace.lock();
-    if (!MONITOR || !safe_scene()) return false;
-    if (!SOURCE || composition.special || MONITOR->m_activeSpecialWorkspace) return true;
-    // Interactive shell popups have their own scene selection/lifecycle and are
-    // not children of the layer's tracked wl_surface commit tree.
-    if (!owner->m_native_hud) for (const auto &layer : Desktop::layerState()->layers()) {
-        if (layer->m_monitor.lock() != MONITOR) continue;
-        bool popup = false;
-        if (const auto head = layer->popupHead(); head) head->breadthfirst(
-            [&](WP<Desktop::View::CPopup> weak, void *) {
-                const auto item = weak.lock();
-                popup = popup || (item && item->mapped());
-            }, nullptr);
-        if (popup) return true;
+    hyprimate::workspace::InactiveSourceFacts facts{.monitor = MONITOR != nullptr,
+        .source = !composition.workspace.expired(),
+        .active_special = MONITOR && MONITOR->m_activeSpecialWorkspace != nullptr};
+    for (const auto &layer : Desktop::layerState()->layers()) {
+        if (layer->m_monitor.lock() != MONITOR) {
+            continue;
+        }
+        if (const auto HEAD = layer->popupHead(); HEAD) {
+            HEAD->breadthfirst(
+                [&](WP<Desktop::View::CPopup> weak, void *) {
+                    const auto ITEM = weak.lock();
+                    facts.popup = facts.popup || (ITEM && ITEM->mapped());
+                },
+                nullptr);
+        }
     }
-    auto &shell = entry->shell_probe_identity;
-    owner->capture_wallpaper_identity(*entry, MONITOR, shell, true);
-    // WORKSPACE_WITH_SHELL uses today's monitor shell. Never transplant a changed
-    // panel/wallpaper into the frozen departing endpoint.
-    if (!hyprimate::workspace::wallpaper_matches<SP<Render::ITexture>>(
-            shell, entry->source_shell_identity)) return true;
-    if (!owner->begin_refresh(*entry, MONITOR, TurnKind::SourceIsolated)) return false;
-    return owner->capture(*entry, MONITOR, SOURCE, TurnKind::SourceIsolated, entry->source, true) &&
-        owner->finish_refresh(*entry, TurnKind::SourceIsolated);
+    if (MONITOR) {
+        auto &shell = entry->shell_probe_identity;
+        owner->capture_wallpaper_identity(*entry, MONITOR, shell, true);
+        facts.shell_matches = hyprimate::workspace::wallpaper_matches<SP<Render::ITexture>>(
+            shell, entry->source_shell_identity);
+    }
+    return facts;
+}
+
+bool CWorkspaceAnimation::Impl::TurnPort::capture_inactive_source(
+    const hyprimate::workspace::TurnComposition<Workspace> &composition) const {
+    return owner->capture(*entry,
+        entry->monitor.lock(),
+        composition.workspace.lock(),
+        TurnKind::SourceIsolated,
+        entry->source,
+        true);
+}
+
+bool CWorkspaceAnimation::Impl::TurnPort::clone_capture(TurnKind kind) const {
+    return owner->begin_refresh(*entry, entry->monitor.lock(), kind);
+}
+
+void CWorkspaceAnimation::Impl::TurnPort::release_blend(TurnKind kind) const {
+    owner->release_blend(
+        *entry, kind == TurnKind::SourceIsolated ? entry->source_blend : entry->destination_blend);
 }
 
 void CWorkspaceAnimation::Impl::TurnPort::present_native() const {
@@ -1796,16 +1931,8 @@ void CWorkspaceAnimation::Impl::finish(std::vector<Snapshot> &snapshots) {
         if (entry == nullptr || active_turn == nullptr) {
             continue;
         }
-        auto before = item.composition;
-        auto after = composition(item.monitor, true);
-        // Removing/creating the previous workspace during the mutation can collapse
-        // two distinct numbered endpoints onto the same rank. Preserve one logical hop.
-        if (before.numbered && after.numbered && before.numbered != after.numbered &&
-            before.logicalOrder == after.logicalOrder) {
-            if (*before.numbered < *after.numbered) ++after.logicalOrder;
-            else ++before.logicalOrder;
-        }
-        active_turn->begin(before, after, m_turns.duration(), m_turns.curve());
+        active_turn->begin(
+            item.composition, composition(item.monitor, true), m_turns.duration(), m_turns.curve());
         entry->last = Clock::now();
         if (!active_turn->active()) {
             erase_state(item.monitor);
@@ -1815,7 +1942,10 @@ void CWorkspaceAnimation::Impl::finish(std::vector<Snapshot> &snapshots) {
 
 void CWorkspaceAnimation::Impl::mutate(
     const std::vector<PHLMONITOR> &monitors, const std::function<void()> &original) {
-    if (!m_turns.enabled() || m_capture_depth > 0 || m_mutation_depth > 0) {
+    if (!hyprimate::workspace::WorkspaceTurn<TurnPort>::intercept_mutation(
+            {.enabled = m_turns.enabled(),
+                .capture_depth = m_capture_depth,
+                .mutation_depth = m_mutation_depth})) {
         original();
         return;
     }
@@ -1896,16 +2026,13 @@ void CWorkspaceAnimation::Impl::pre_render(const PHLMONITOR &monitor) {
     if (entry == nullptr || active_turn == nullptr || !active_turn->active()) {
         return;
     }
-    if (!safe_scene() || (m_native_hud && !native_hud_safe(monitor))) {
-        erase_state(monitor);
-        return;
-    }
     const auto NOW = Clock::now();
     const auto ELAPSED = std::chrono::duration<double>(NOW - entry->last).count();
     entry->last = NOW;
     active_turn->frame(composition(monitor), ELAPSED);
-    if (m_uses_previews && active_turn->drawable()) {
-        prepare_previews(*entry, monitor, active_turn->source(), active_turn->destination());
+    if (m_uses_previews) {
+        InventoryPort port{.owner = this, .entry = entry, .monitor = monitor};
+        active_turn->prepare_inventory(port);
     }
     if (!active_turn->active()) {
         erase_state(monitor);
@@ -1914,17 +2041,17 @@ void CWorkspaceAnimation::Impl::pre_render(const PHLMONITOR &monitor) {
 
 bool CWorkspaceAnimation::Impl::queue(
     Render::CRenderContext &ctx, const PHLMONITOR &monitor, const Time::steady_tp &now) {
-    if (m_capture_depth > 0 || !monitor || ctx.m_renderingCapture || ctx.m_renderingSnapshot || ctx.readOnlyEffects()) {
+    if (!hyprimate::workspace::WorkspaceTurn<TurnPort>::queue_context(
+            {.monitor = monitor != nullptr,
+                .capture_depth = m_capture_depth,
+                .capture = ctx.m_renderingCapture,
+                .snapshot = ctx.m_renderingSnapshot,
+                .read_only = ctx.readOnlyEffects()})) {
         return false;
     }
     auto *entry = state(monitor);
-    const auto *active_turn = turn(monitor);
-    if (entry == nullptr || active_turn == nullptr || !active_turn->drawable() || !entry->source || !entry->destination ||
-        !entry->presentation) {
-        return false;
-    }
-    if (!safe_scene() || (m_native_hud && !native_hud_safe(monitor))) {
-        erase_state(monitor);
+    auto *active_turn = turn(monitor);
+    if (entry == nullptr || active_turn == nullptr) {
         return false;
     }
     entry->source_frame.endpoint = active_turn->source().endpoint();
@@ -1932,9 +2059,20 @@ bool CWorkspaceAnimation::Impl::queue(
     hyprimate::workspace::WorkspaceFrame frame{
         .source = entry->source_frame, .destination = entry->destination_frame,
         .presentation = entry->presentation, .neighbors = entry->neighbors, .native_hud = m_native_hud};
-    if (!prepare_frame(*entry, TurnKind::SourceIsolated, frame.source, active_turn->progress()) ||
-        !prepare_frame(*entry, TurnKind::DestinationLive, frame.destination, active_turn->progress())) {
-        erase_state(monitor);
+    const bool RESOURCES_READY = entry->source && entry->destination && entry->presentation;
+    if (!active_turn->queue(RESOURCES_READY, [&] {
+            return prepare_frame(*entry,
+                       TurnKind::SourceIsolated,
+                       frame.source,
+                       active_turn->blend_mix(TurnKind::SourceIsolated)) &&
+                   prepare_frame(*entry,
+                       TurnKind::DestinationLive,
+                       frame.destination,
+                       active_turn->blend_mix(TurnKind::DestinationLive));
+        })) {
+        if (!active_turn->active()) {
+            erase_state(monitor);
+        }
         return false;
     }
     Render::IHyprRenderer::addPassElement(ctx,
@@ -1949,25 +2087,35 @@ bool CWorkspaceAnimation::Impl::queue(
     data.a = 1.F;
     data.damage = CRegion{data.box};
     Render::IHyprRenderer::addPassElement(ctx, makeUnique<CTexPassElement>(std::move(data)));
-    if (m_native_hud) {
-        // Intentionally lift screen-aligned shell above the planetary scene.
-        // Preserve native body ordering (bottom/top/overlay), then native popup
-        // ordering across all layer lists. Background bodies remain in worlds.
-        const auto replay = [&](const PHLLSREF &weak, bool popup = false) {
-            if (const auto surface = weak.lock())
-                ((*g_pHyprRenderer).*PreviewDrawAccess::LAYER)(ctx, surface, monitor, now, popup, false, false);
+    active_turn->replay_hud([&](hyprimate::workspace::HudReplay step) {
+        using hyprimate::workspace::HudReplay;
+        const auto REPLAY = [&](const PHLLSREF &weak, bool popup) {
+            if (const auto SURFACE = weak.lock()) {
+                ((*g_pHyprRenderer).*PreviewDrawAccess::LAYER)(
+                    ctx, SURFACE, monitor, now, popup, false, false);
+            }
         };
-        for (const auto &weak : monitor->m_layerSurfaceLayers[ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM])
-            replay(weak);
-        Render::IHyprRenderer::addPassElement(ctx, makeUnique<CWorkspaceHudBlurPass>());
-        for (const auto layer : {ZWLR_LAYER_SHELL_V1_LAYER_TOP, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY})
-            for (const auto &weak : monitor->m_layerSurfaceLayers[layer])
-                replay(weak);
-        for (const auto &layers : monitor->m_layerSurfaceLayers)
-            for (const auto &weak : layers)
-                replay(weak, true);
-        Render::IHyprRenderer::addPassElement(ctx, makeUnique<CWorkspaceHudBlurPass>(true));
-    }
+        if (step == HudReplay::Blur || step == HudReplay::RestoreBlur) {
+            Render::IHyprRenderer::addPassElement(
+                ctx, makeUnique<CWorkspaceHudBlurPass>(step == HudReplay::RestoreBlur));
+        } else if (step == HudReplay::Popups) {
+            for (const auto &layers : monitor->m_layerSurfaceLayers) {
+                for (const auto &weak : layers) {
+                    REPLAY(weak, true);
+                }
+            }
+        } else {
+            auto layer = ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY;
+            if (step == HudReplay::Bottom) {
+                layer = ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM;
+            } else if (step == HudReplay::Top) {
+                layer = ZWLR_LAYER_SHELL_V1_LAYER_TOP;
+            }
+            for (const auto &weak : monitor->m_layerSurfaceLayers[layer]) {
+                REPLAY(weak, false);
+            }
+        }
+    });
     return true;
 }
 
@@ -1989,145 +2137,123 @@ void CWorkspaceAnimation::Impl::erase_state(const PHLMONITOR &monitor) {
 
 void CWorkspaceAnimation::Impl::remember_wallpaper(const PHLMONITOR &monitor, const PHLWORKSPACE &workspace,
     const SP<Render::IFramebuffer> &source) {
-    if (!workspace || !source) return;
-    std::erase_if(m_observed, [](const auto &item) { return item.workspace.expired() || item.monitor.expired(); });
-    auto found = std::ranges::find_if(m_observed, [&](const auto &item) { return item.workspace.lock() == workspace; });
-    // Keep a bounded LRU of actual wallpaper history, never private client pixels.
-    SP<Render::IFramebuffer> image;
-    if (found != m_observed.end()) {
-        if (found->size == monitor->m_transformedSize && found->image->m_drmFormat == source->m_drmFormat &&
-            found->image->imageDescription() == source->imageDescription()) image = std::move(found->image);
-        m_observed.erase(found);
-    } else if (m_observed.size() >= 64) m_observed.erase(m_observed.begin());
-    if (!image) image = preview_target(monitor, 256);
-    if (write_thumbnail(source, image))
-        m_observed.push_back({workspace, monitor, image, monitor->m_transformedSize, monitor->m_transform});
+    if (!workspace || !source) {
+        return;
+    }
+    using Observation = hyprimate::workspace::WallpaperObservation<
+        PHLWORKSPACEREF, PHLMONITORREF, WallpaperSignature>;
+    const Observation OBSERVATION{.workspace = workspace,
+        .monitor = monitor,
+        .signature = {.allocation = {.size = monitor->m_transformedSize,
+                          .format = source->m_drmFormat,
+                          .description = source->imageDescription()},
+            .transform = monitor->m_transform}};
+    const auto COPY = [&](SP<Render::IFramebuffer> image) {
+        if (!image) {
+            image = preview_target(monitor, 256);
+        }
+        return write_thumbnail(source, image) ? image : nullptr;
+    };
+    hyprimate::workspace::WorkspaceTurn<TurnPort>::observe_wallpaper(m_observed, OBSERVATION, COPY);
 }
 
-void CWorkspaceAnimation::Impl::prepare_previews(MonitorState &entry, const PHLMONITOR &monitor,
-    const Composition &source, const Composition &destination) {
-    if (!entry.neighbors || entry.preview_from != source.identity || entry.preview_to != destination.identity ||
-        entry.inventory_revision != m_inventory_revision)
-        index_previews(entry, monitor, source, destination);
-
-    const auto now = Clock::now();
-    // Keep work bounded even on cold starts. A newly captured client fades in
-    // over its own wallpaper, rather than popping in when the scheduler gets to it.
-    if (entry.preview_next < entry.preview_jobs.size()) {
-        auto &job = entry.preview_jobs[entry.preview_next++];
-        const auto ws = job.workspace.lock();
-        auto &preview = (*entry.neighbors)[job.index];
-        if (const auto image = ws ? capture_preview(entry, monitor, ws, job.paper) : nullptr) {
-            preview.previous_image = std::move(preview.image);
-            preview.image = image;
-            preview.live_mix = 0.F;
-            job.started = now;
+std::vector<CWorkspaceAnimation::Impl::InventoryPort::Fact>
+CWorkspaceAnimation::Impl::InventoryPort::workspaces() const {
+    std::vector<Fact> facts;
+    facts.reserve(workspace_count());
+    for (const auto &weak : State::Workspace::state()->workspaces()) {
+        const auto WORKSPACE = weak.lock();
+        if (!WORKSPACE) {
+            continue;
         }
-    }
-    for (auto i = entry.preview_blending; i < entry.preview_next; ++i) {
-        const auto &job = entry.preview_jobs[i];
-        auto &preview = (*entry.neighbors)[job.index];
-        const float x = std::clamp(std::chrono::duration<float>(now - job.started).count() / .08F, 0.F, 1.F);
-        preview.live_mix = x * x * (3.F - 2.F * x);
-        if (x == 1.F) {
-            preview.previous_image.reset();
-            if (entry.preview_blending == i) ++entry.preview_blending;
+        const auto MONITOR = WORKSPACE->m_monitor.lock();
+        const bool SPECIAL = WORKSPACE->type() == Workspace::eWorkspaceType::SPECIAL;
+        Fact fact{.workspace = WORKSPACE,
+            .endpoint = {.identity = SPECIAL ? owner->m_compositions.get({}, WORKSPACE)
+                                             : owner->m_compositions.get(WORKSPACE, {}),
+                .numbered = numbered(WORKSPACE),
+                .special = SPECIAL},
+            .name = WORKSPACE->addressableName(),
+            .wallpaper = {},
+            .owner_ready = owner->ready(MONITOR),
+            .local = MONITOR == monitor,
+            .has_windows = WORKSPACE->getWindowCount() != 0,
+            .has_retiring = !Desktop::fadingOutState()->fadeouts().empty()};
+        if (MONITOR) {
+            const WallpaperSignature SIGNATURE{
+                .allocation = {.size = MONITOR->m_transformedSize,
+                    .format = capture_format(MONITOR),
+                    .description = MONITOR->workBufferImageDescription()},
+                .transform = MONITOR->m_transform};
+            fact.wallpaper = owner->m_observed.find(
+                PHLWORKSPACEREF{WORKSPACE}, PHLMONITORREF{MONITOR}, SIGNATURE);
         }
+        facts.push_back(std::move(fact));
     }
+    return facts;
 }
 
-void CWorkspaceAnimation::Impl::index_previews(MonitorState &entry, const PHLMONITOR &monitor,
-    const Composition &source, const Composition &destination) {
-    auto inventory = State::Workspace::state()->workspaces();
-    const auto count = static_cast<std::size_t>(std::ranges::distance(inventory));
-    auto neighbors = std::make_shared<std::vector<hyprimate::workspace::WorkspacePreview>>();
-    neighbors->reserve(count);
-    entry.preview_jobs.clear();
-    entry.preview_jobs.reserve(count);
-    entry.preview_next = entry.preview_blending = 0;
-    // Bound all per-journey thumbnails together to 2M texels (16 MiB at FP16).
-    // Reserve room for mip levels (4/3 base size) and one local fallback wallpaper.
-    constexpr double BASE_TEXELS = 2'097'152 * .75 - 256 * 256;
-    entry.preview_side = std::clamp(static_cast<int>(std::sqrt(BASE_TEXELS / std::max<std::size_t>(1, count))), 1, 384);
-    SP<Render::IFramebuffer> shared_paper;
-    bool sampled_local_paper = false;
-    for (const auto &weak : inventory) {
-        const auto ws = weak.lock();
-        if (!ws) continue;
-        const auto owner = ws->m_monitor.lock();
-        const bool special = ws->type() == Workspace::eWorkspaceType::SPECIAL;
-        const auto number = numbered(ws);
-        const auto placement = number && !special ? m_placements.get(number, {}, std::nullopt) :
-            special ? m_placements.get(std::nullopt, {}, ws->addressableName()) :
-                      m_placements.get(std::nullopt, ws->addressableName(), std::nullopt);
-        if (placement == source.placement || placement == destination.placement) continue;
-        const auto identity = special ? m_compositions.get({}, ws) : m_compositions.get(ws, {});
-        auto &preview = neighbors->emplace_back(hyprimate::workspace::WorkspacePreview{
-            .endpoint = {.identity = identity, .numbered = number, .special = special, .placement = placement},
-            .image = {}, .previous_image = {}});
-        if (!ready(owner)) continue;
-        const auto remembered = std::ranges::find_if(m_observed, [&](const auto &item) {
-            return item.workspace.lock() == ws && item.monitor.lock() == owner && item.size == owner->m_transformedSize &&
-                item.transform == owner->m_transform && item.image->m_drmFormat == capture_format(owner) &&
-                item.image->imageDescription() == owner->workBufferImageDescription();
-        });
-        const auto paper = remembered == m_observed.end() ? SP<Render::IFramebuffer>{} : remembered->image;
-        if (!paper && owner == monitor && !sampled_local_paper) {
-            sampled_local_paper = true;
-            auto image = preview_target(monitor, 256);
-            if (write_thumbnail(entry.destination_frame.wallpaper, image)) shared_paper = std::move(image);
-        }
-        preview.image = paper ? paper : owner == monitor ? shared_paper : nullptr;
-        // WORKSPACE_WINDOWS selects only clients owned by this workspace.
-        // Without clients or retiring snapshots the wallpaper *is* its preview.
-        if (preview.image && ws->getWindowCount() == 0 && Desktop::fadingOutState()->fadeouts().empty()) continue;
-        // Prioritize numbered worlds along the route ahead of worlds beyond
-        // either end. Placement breaks ties independently of inventory order.
-        double priority = 1e12;
-        if (number && source.numbered && destination.numbered) {
-            const auto [lo, hi] = std::minmax(*source.numbered, *destination.numbered);
-            priority = std::abs(static_cast<double>(*number) - *source.numbered);
-            if (*number < lo || *number > hi) priority += 1e10;
-        }
-        entry.preview_jobs.push_back({ws, neighbors->size() - 1, priority, paper});
-    }
-    std::ranges::sort(entry.preview_jobs, [&](const auto &a, const auto &b) {
-        return a.priority != b.priority ? a.priority < b.priority :
-            (*neighbors)[a.index].endpoint.placement < (*neighbors)[b.index].endpoint.placement;
-    });
-    entry.neighbors = std::move(neighbors);
-    entry.preview_from = source.identity;
-    entry.preview_to = destination.identity;
-    entry.inventory_revision = m_inventory_revision;
+SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::InventoryPort::local_wallpaper(int side) const {
+    const auto IMAGE = preview_target(monitor, side);
+    return write_thumbnail(entry->destination_frame.wallpaper, IMAGE) ? IMAGE : nullptr;
 }
 
-SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::capture_preview(MonitorState &entry, const PHLMONITOR &monitor,
-    const PHLWORKSPACE &ws, const SP<Render::IFramebuffer> &paper) {
-    const auto owner = ws->m_monitor.lock();
-    if (!ready(owner)) return {};
+hyprimate::workspace::PreviewCaptureFacts CWorkspaceAnimation::Impl::InventoryPort::capture_facts(
+    const PHLWORKSPACEREF &workspace) const {
+    const auto WORKSPACE = workspace.lock();
+    const auto MONITOR = WORKSPACE ? WORKSPACE->m_monitor.lock() : nullptr;
+    return {.ready = owner->ready(MONITOR),
+        .local = MONITOR == monitor,
+        .pixels = MONITOR ? MONITOR->m_transformedSize.x * MONITOR->m_transformedSize.y : 0.0};
+}
+
+SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::InventoryPort::capture(
+    const PHLWORKSPACEREF &workspace,
+    const SP<Render::IFramebuffer> &wallpaper,
+    hyprimate::workspace::PreviewCapturePlan plan) const {
+    const auto WORKSPACE = workspace.lock();
+    return WORKSPACE ? owner->capture_preview(*entry, WORKSPACE, wallpaper, plan) : nullptr;
+}
+
+SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::capture_preview(MonitorState &entry,
+    const PHLWORKSPACE &workspace,
+    const SP<Render::IFramebuffer> &paper,
+    hyprimate::workspace::PreviewCapturePlan plan) {
+    const auto OWNER = workspace->m_monitor.lock();
+    if (!ready(OWNER)) {
+        return {};
+    }
     // The presentation target is scratch only before the ordinary output pass.
     auto scratch = entry.presentation;
     auto resources = entry.source_resources;
-    if (owner != monitor) {
-        const auto extent = owner->m_transformedSize;
-        if (extent.x * extent.y > 16777216.) return {};
-        scratch = preview_target(owner, static_cast<int>(std::max(extent.x, extent.y)));
-        if (!scratch) return {};
+    if (plan.remote) {
+        const auto EXTENT = OWNER->m_transformedSize;
+        scratch = preview_target(OWNER, static_cast<int>(std::max(EXTENT.x, EXTENT.y)));
+        if (!scratch) {
+            return {};
+        }
         resources = makeShared<Render::CSceneResources>(g_pHyprRenderer->createFB("hyprimate workspace preview blur"),
             Render::SSceneBufferDescription{.format = scratch->m_drmFormat, .imageDescription = scratch->imageDescription()});
     }
-    if (!scratch || !resources) return {};
+    if (!scratch || !resources) {
+        return {};
+    }
     struct DrawData {
         RenderFn original;
         PHLMONITOR monitor;
         PHLWORKSPACE workspace;
         SP<Render::IFramebuffer> wallpaper;
-    } data{render_original(), owner, ws, paper};
-    const auto draw = [](void *context, Render::CRenderContext &ctx) {
-        auto &args = *static_cast<DrawData *>(context);
+        bool native_background = false;
+    } data{.original = render_original(),
+        .monitor = OWNER,
+        .workspace = workspace,
+        .wallpaper = paper,
+        .native_background = plan.native_background};
+    const auto DRAW = [](void *context, Render::CRenderContext &ctx) {
+        const auto &args = *static_cast<DrawData *>(context);
         auto &renderer = *g_pHyprRenderer;
-        const auto now = Time::steadyNow();
-        if (args.wallpaper) {
+        const auto NOW = Time::steadyNow();
+        if (!args.native_background) {
             CTexPassElement::SRenderData layer;
             layer.tex = args.wallpaper->getTexture();
             layer.box = {0, 0, args.monitor->m_transformedSize.x, args.monitor->m_transformedSize.y};
@@ -2137,17 +2263,37 @@ SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::capture_preview(MonitorState
             // database of workspace-specific images. Use that real background
             // until the workspace has been observed, never another window image.
             (renderer.*PreviewDrawAccess::BACKGROUND)(ctx, args.monitor);
-            for (const auto &layer : args.monitor->m_layerSurfaceLayers[ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND])
-                if (const auto surface = layer.lock())
-                    (renderer.*PreviewDrawAccess::LAYER)(ctx, surface, args.monitor, now, false, false, true);
+            for (const auto &layer :
+                args.monitor->m_layerSurfaceLayers[ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND]) {
+                if (const auto SURFACE = layer.lock()) {
+                    (renderer.*PreviewDrawAccess::LAYER)(
+                        ctx, SURFACE, args.monitor, NOW, false, false, true);
+                }
+            }
         }
-        args.original(&renderer, ctx, args.monitor, args.workspace, now,
-            Render::eSceneMode::WORKSPACE_WINDOWS, {}, 1.F);
+        args.original(&renderer,
+            ctx,
+            args.monitor,
+            args.workspace,
+            NOW,
+            Render::eSceneMode::WORKSPACE_WINDOWS,
+            {},
+            1.F);
     };
-    auto image = preview_target(owner, entry.preview_side);
-    const ScopedCapture capture_scope{m_capture_depth};
-    return image && hyprimate::workspace::capture_workspace(*g_pHyprRenderer, m_begin_render, owner, scratch,
-        resources, TurnKind::SourceIsolated, draw, &data) && write_thumbnail(scratch, image) ? image : nullptr;
+    const auto IMAGE = preview_target(OWNER, plan.side);
+    const ScopedCapture CAPTURE_SCOPE{m_capture_depth};
+    return IMAGE &&
+                   hyprimate::workspace::capture_workspace(*g_pHyprRenderer,
+                       m_begin_render,
+                       OWNER,
+                       scratch,
+                       resources,
+                       TurnKind::SourceIsolated,
+                       DRAW,
+                       &data) &&
+                   write_thumbnail(scratch, IMAGE)
+               ? IMAGE
+               : nullptr;
 }
 
 void CWorkspaceAnimation::Impl::remove_monitor(const PHLMONITOR &monitor) {
@@ -2155,7 +2301,7 @@ void CWorkspaceAnimation::Impl::remove_monitor(const PHLMONITOR &monitor) {
         return;
     }
     std::erase_if(m_ready_monitors, [&](const auto &weak) { return weak.expired() || weak.lock() == monitor; });
-    std::erase_if(m_observed, [&](const auto &item) { return item.monitor.expired() || item.monitor.lock() == monitor; });
+    m_observed.remove_monitor(PHLMONITORREF{monitor});
     erase_state(monitor);
 }
 

@@ -41,7 +41,7 @@ template<class Strong, class Weak> class CompositionIdentities {
     std::int64_t m_next = 0;
 };
 
-// Durable planet slots outlive compositor objects. Numbered workspaces use even slots;
+// Durable composition slots outlive compositor objects. Numbered workspaces use even slots;
 // named/special composition pairs retain compact, collision-resolved odd slots for this
 // registry's entire plugin lifetime. Existing-key lookup neither copies nor allocates strings.
 class CompositionPlacements {
@@ -49,40 +49,25 @@ class CompositionPlacements {
         std::string_view normal;
         std::optional<std::string_view> special;
     };
-    struct Key {
+    struct Entry {
         std::string normal;
         std::optional<std::string> special;
+        std::uint64_t placement;
     };
-    static View view(const Key &key) {
-        return {key.normal, key.special ? std::optional<std::string_view>{*key.special} : std::nullopt};
-    }
-    struct Hash {
-        using is_transparent = void;
-        std::size_t operator()(View key) const {
-            std::uint64_t result = UINT64_C(14695981039346656037);
-            const auto append = [&result](std::string_view text) {
-                for (const unsigned char byte : text) {
-                    result = (result ^ byte) * UINT64_C(1099511628211);
-                }
-            };
-            append(key.normal);
-            result = (result ^ static_cast<unsigned>(key.special.has_value())) * UINT64_C(1099511628211);
-            if (key.special) {
-                append(*key.special);
+    static std::uint64_t hash(View key) {
+        std::uint64_t result = UINT64_C(14695981039346656037);
+        const auto APPEND = [&result](std::string_view text) {
+            for (const unsigned char BYTE : text) {
+                result = (result ^ BYTE) * UINT64_C(1099511628211);
             }
-            return static_cast<std::size_t>(result);
+        };
+        APPEND(key.normal);
+        result = (result ^ static_cast<unsigned>(key.special.has_value())) * UINT64_C(1099511628211);
+        if (key.special) {
+            APPEND(*key.special);
         }
-        std::size_t operator()(const Key &key) const { return (*this)(view(key)); }
-    };
-    struct Equal {
-        using is_transparent = void;
-        bool operator()(View first, View second) const {
-            return first.normal == second.normal && first.special == second.special;
-        }
-        bool operator()(const Key &first, const Key &second) const { return (*this)(view(first), view(second)); }
-        bool operator()(const Key &first, View second) const { return (*this)(view(first), second); }
-        bool operator()(View first, const Key &second) const { return (*this)(first, view(second)); }
-    };
+        return result;
+    }
     static std::string_view normalized(std::string_view name, std::string_view prefix) {
         return name.starts_with(prefix) ? name.substr(prefix.size()) : name;
     }
@@ -93,26 +78,30 @@ class CompositionPlacements {
         if (numbered && !special) {
             return static_cast<std::uint64_t>(*numbered) * 2;
         }
-        const View KEY{normalized(normal, "name:"),
-            special ? std::optional<std::string_view>{normalized(*special, "special:")} : std::nullopt};
-        if (const auto found = m_entries.find(KEY); found != m_entries.end()) {
-            return found->second;
+        const View KEY{.normal = normalized(normal, "name:"),
+            .special = special ? std::optional{normalized(*special, "special:")} : std::nullopt};
+        const auto HASH = hash(KEY);
+        const auto [FIRST, LAST] = m_entries.equal_range(HASH);
+        for (auto entry = FIRST; entry != LAST; ++entry) {
+            if (entry->second.normal == KEY.normal && entry->second.special == KEY.special) {
+                return entry->second.placement;
+            }
         }
-        // Small deterministic initial grid range; linear probing resolves actual collisions
-        // without moving prior planets. More names grow the range only as occupancy requires.
-        auto candidate = static_cast<std::uint64_t>(Hash{}(KEY) % 64);
+        // Probe from a small deterministic range so new names never renumber existing slots.
+        auto candidate = HASH % 64;
         while (m_occupied.contains(candidate)) {
             ++candidate;
         }
-        const auto PLACEMENT = candidate * 2 + 1;
+        const auto PLACEMENT = (candidate * 2) + 1;
         m_occupied.insert(candidate);
-        m_entries.emplace(Key{std::string(KEY.normal),
-            KEY.special ? std::optional<std::string>{std::string(*KEY.special)} : std::nullopt}, PLACEMENT);
+        m_entries.emplace(HASH, Entry{.normal = std::string(KEY.normal),
+            .special = KEY.special ? std::optional{std::string(*KEY.special)} : std::nullopt,
+            .placement = PLACEMENT});
         return PLACEMENT;
     }
 
   private:
-    std::unordered_map<Key, std::uint64_t, Hash, Equal> m_entries;
+    std::unordered_multimap<std::uint64_t, Entry> m_entries;
     std::unordered_set<std::uint64_t> m_occupied;
 };
 }

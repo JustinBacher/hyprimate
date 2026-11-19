@@ -1,7 +1,14 @@
 find_package(PNG REQUIRED)
 target_sources(hyprimate-core PRIVATE src/workspace/planet_hop/PlanetScene.cpp)
+add_library(planet-gl STATIC
+    src/workspace/planet_hop/PlanetGlRenderer.cpp
+    src/workspace/planet_hop/PlanetDepth.cpp)
+target_include_directories(planet-gl PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+# depth_source is a production setting, not evidence tooling: retain bounded PNG decoding.
+target_link_libraries(planet-gl PUBLIC hyprimate-core PRIVATE PNG::PNG)
+target_compile_options(planet-gl PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>:-fno-gnu-unique>)
 target_sources(hyprimate PRIVATE src/workspace/planet_hop/PlanetRenderer.cpp)
-target_link_libraries(hyprimate PRIVATE PNG::PNG)
+target_link_libraries(hyprimate PRIVATE planet-gl)
 
 if(BUILD_TESTING)
     add_executable(planet-scene-tests src/workspace/planet_hop/tests/PlanetSceneTests.cpp)
@@ -15,11 +22,13 @@ if(BUILD_TESTING)
     add_test(NAME planet-material-tests COMMAND planet-material-tests)
     set_tests_properties(planet-material-tests PROPERTIES ENVIRONMENT "EGL_PLATFORM=surfaceless" SKIP_RETURN_CODE 77)
 
-    add_executable(planet-renderer-tests src/workspace/planet_hop/tests/PlanetRendererTests.cpp
-        src/workspace/planet_hop/PlanetRenderer.cpp)
-    target_compile_definitions(planet-renderer-tests PRIVATE HYPRIMATE_PLANET_RAW_ONLY)
+    # Only the offscreen profiler needs the typed 64-bit GLES timer-query entry point.
+    # libGLESv2 exports no glGetQueryObjectui64vEXT; libGL supplies the same GL dispatch.
+    pkg_check_modules(TEST_PLANET_GL REQUIRED IMPORTED_TARGET gl)
+    add_executable(planet-renderer-tests src/workspace/planet_hop/tests/PlanetRendererTests.cpp)
     target_include_directories(planet-renderer-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
-    target_link_libraries(planet-renderer-tests PRIVATE hyprimate-core PkgConfig::TEST_EGL PNG::PNG)
+    target_compile_definitions(planet-renderer-tests PRIVATE GL_GLEXT_PROTOTYPES)
+    target_link_libraries(planet-renderer-tests PRIVATE planet-gl PkgConfig::TEST_EGL PkgConfig::TEST_PLANET_GL)
     add_test(NAME planet-renderer-tests COMMAND planet-renderer-tests)
     set_tests_properties(planet-renderer-tests PROPERTIES ENVIRONMENT "EGL_PLATFORM=surfaceless" SKIP_RETURN_CODE 77)
 endif()

@@ -1,11 +1,12 @@
-#include "Check.hpp"
-#include "GlHarness.hpp"
-#include "workspace/planet_hop/PlanetMaterial.hpp"
-
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+
+#include "Check.hpp"
+#include "GlHarness.hpp"
+#include "workspace/planet_hop/PlanetMaterial.hpp"
 
 namespace {
     namespace shader = hyprimate::workspace::planet_hop::shader;
@@ -13,13 +14,13 @@ namespace {
     constexpr std::array<float, 9> IDENTITY3{1, 0, 0, 0, 1, 0, 0, 0, 1};
     using Pixel = std::array<std::uint8_t, 4>;
 
-    void scalar(GLuint program, const char* name, float value) {
+    void scalar(GLuint program, const char *name, float value) {
         glUniform1f(glGetUniformLocation(program, name), value);
     }
-    void integer(GLuint program, const char* name, int value) {
+    void integer(GLuint program, const char *name, int value) {
         glUniform1i(glGetUniformLocation(program, name), value);
     }
-    GLuint texture(const Pixel& pixel, int unit) {
+    GLuint texture(const Pixel &pixel, int unit) {
         GLuint result = 0;
         glGenTextures(1, &result);
         glActiveTexture(GL_TEXTURE0 + static_cast<GLenum>(unit));
@@ -36,9 +37,10 @@ namespace {
         glReadPixels(16, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, result.data());
         return result;
     }
-    void near(const Pixel& actual, const Pixel& expected) {
-        for (std::size_t i = 0; i < actual.size(); ++i)
+    void near(const Pixel &actual, const Pixel &expected) {
+        for (std::size_t i = 0; i < actual.size(); ++i) {
             CHECK(std::abs(static_cast<int>(actual[i]) - static_cast<int>(expected[i])) <= 1);
+        }
     }
     void image_uniforms(GLuint program) {
         integer(program, "image", 0);
@@ -48,36 +50,16 @@ namespace {
         scalar(program, "liveMix", 1);
         scalar(program, "secondaryLiveMix", 1);
     }
-    void matrix(GLuint program, const char* name, const std::array<float, 16>& value) {
+    void matrix(GLuint program, const char *name, const std::array<float, 16> &value) {
         glUniformMatrix4fv(glGetUniformLocation(program, name), 1, GL_FALSE, value.data());
     }
 
-    void endpoint_and_reconstruction(GLuint mesh, GLuint quad) {
-        const GLuint image = texture({120, 80, 40, 128}, 0);
-        const GLuint backdrop = texture({20, 40, 60, 255}, 1);
-        const GLuint depth = texture({255, 255, 255, 255}, 2);
-        const GLuint secondary = texture({80, 100, 120, 64}, 3);
-        GLuint vao = 0, vbo = 0;
-        glGenVertexArrays(1, &vao);
-        glBindVertexArray(vao);
-        glGenBuffers(1, &vbo);
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        // Deliberately put the spherical chart on the unseen hemisphere. At
-        // native endpoints neither the visibility mask nor displacement applies.
-        constexpr std::array<float, 32> VERTICES{
-            -1,-1,0, -1,-1,-1, 0,1,
-             1,-1,0,  1,-1,-1, 1,1,
-            -1, 1,0, -1, 1,-1, 0,0,
-             1, 1,0,  1, 1,-1, 1,0};
-        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(sizeof(VERTICES)), VERTICES.data(), GL_STATIC_DRAW);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), nullptr);
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), reinterpret_cast<const void*>(3*sizeof(float)));
-        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8*sizeof(float), reinterpret_cast<const void*>(6*sizeof(float)));
-        for (GLuint i = 0; i < 3; ++i) glEnableVertexAttribArray(i);
+    void check_mesh_endpoints(GLuint mesh) {
         glUseProgram(mesh);
         image_uniforms(mesh);
         matrix(mesh, "viewProjection", IDENTITY4);
-        glUniformMatrix3fv(glGetUniformLocation(mesh, "planetRotation"), 1, GL_FALSE, IDENTITY3.data());
+        glUniformMatrix3fv(
+            glGetUniformLocation(mesh, "planetRotation"), 1, GL_FALSE, IDENTITY3.data());
         glUniform3f(glGetUniformLocation(mesh, "planetCenter"), 0, 0, 0);
         glUniform3f(glGetUniformLocation(mesh, "cameraPosition"), 0, 0, 4);
         glUniform3f(glGetUniformLocation(mesh, "lightDirection"), 0, 0, -1);
@@ -121,6 +103,8 @@ namespace {
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         near(read(), {65, 70, 75, 64});
         scalar(mesh, "liveMix", 1);
+    }
+    void check_mesh_silhouette(GLuint mesh) {
         // Attached layers have a genuinely empty unseen side, not a reflection.
         integer(mesh, "layer", 1);
         scalar(mesh, "endpointEnvelope", 1);
@@ -138,15 +122,17 @@ namespace {
         // is continuous with the exact endpoint. Curvature moves it inward.
         scalar(mesh, "endpointEnvelope", 1.0e-9F);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        Pixel edgePixel{};
-        glReadPixels(0, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, edgePixel.data());
-        near(edgePixel, {110, 60, 10, 128});
+        Pixel edge_pixel{};
+        glReadPixels(0, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, edge_pixel.data());
+        near(edge_pixel, {110, 60, 10, 128});
         near(read(), {110, 60, 10, 128});
         scalar(mesh, "endpointEnvelope", 0.4F);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        glReadPixels(0, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, edgePixel.data());
-        CHECK(edgePixel[0] < 60);
+        glReadPixels(0, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, edge_pixel.data());
+        CHECK(edge_pixel[0] < 60);
         scalar(mesh, "endpointEnvelope", 1);
+    }
+    void check_clouds_and_indirect_light(GLuint mesh) {
         // The independent elevated cloud shell also covers the dark unseen base.
         // Its view-ray intersection changes with height and its pattern moves
         // independently with time; it is not a surface-normal decal.
@@ -156,39 +142,40 @@ namespace {
         scalar(mesh, "cloudCoverage", 0.9F);
         scalar(mesh, "cloudOpacity", 1);
         scalar(mesh, "cloudSpeed", 0.25F);
-        auto frame = [&] {
-            std::array<std::uint8_t, 32U*32U*4U> pixels{};
+        auto const FRAME = [&] {
+            std::array<std::uint8_t, std::size_t{32} * 32 * 4> pixels{};
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
             glReadPixels(0, 0, 32, 32, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
             return pixels;
         };
-        const auto noClouds = frame();
+        const auto NO_CLOUDS = FRAME();
         integer(mesh, "cloudsEnabled", 1);
-        const auto lowClouds = frame();
-        CHECK(noClouds != lowClouds);
+        const auto LOW_CLOUDS = FRAME();
+        CHECK(NO_CLOUDS != LOW_CLOUDS);
         scalar(mesh, "cloudHeight", 0.25F);
-        CHECK(lowClouds != frame());
+        CHECK(LOW_CLOUDS != FRAME());
         scalar(mesh, "cloudHeight", 0.035F);
         scalar(mesh, "time", 12);
-        CHECK(lowClouds != frame());
+        CHECK(LOW_CLOUDS != FRAME());
         integer(mesh, "cloudsEnabled", 0);
-        CHECK(noClouds == frame());
+        CHECK(NO_CLOUDS == FRAME());
         // Indirect illumination must illuminate the dark unseen hemisphere,
         // and the independent lighting toggle must disable it again.
         integer(mesh, "lightingEnabled", 1);
         scalar(mesh, "nightBrightness", 0.45F);
         scalar(mesh, "indirectBrightness", 0);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        const auto unlitNight = read();
+        const auto UNLIT_NIGHT = read();
         scalar(mesh, "indirectBrightness", 1);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        const auto bouncedNight = read();
-        CHECK(bouncedNight[0] > unlitNight[0]);
-        CHECK(bouncedNight[1] > unlitNight[1]);
-        CHECK(bouncedNight[2] > unlitNight[2]);
+        const auto BOUNCED_NIGHT = read();
+        CHECK(BOUNCED_NIGHT[0] > UNLIT_NIGHT[0]);
+        CHECK(BOUNCED_NIGHT[1] > UNLIT_NIGHT[1]);
+        CHECK(BOUNCED_NIGHT[2] > UNLIT_NIGHT[2]);
         integer(mesh, "lightingEnabled", 0);
-        CHECK(noClouds == frame());
-
+        CHECK(NO_CLOUDS == FRAME());
+    }
+    void check_hud_reconstruction(GLuint quad) {
         glUseProgram(quad);
         image_uniforms(quad);
         matrix(quad, "viewProjection", IDENTITY4);
@@ -233,10 +220,82 @@ namespace {
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         near(read(), {120, 80, 40, 255});
         CHECK(glGetError() == GL_NO_ERROR);
+    }
+
+    void endpoint_and_reconstruction(GLuint mesh, GLuint quad) {
+        const GLuint IMAGE = texture({120, 80, 40, 128}, 0);
+        const GLuint BACKDROP = texture({20, 40, 60, 255}, 1);
+        const GLuint DEPTH = texture({255, 255, 255, 255}, 2);
+        const GLuint SECONDARY = texture({80, 100, 120, 64}, 3);
+        GLuint vao = 0;
+        GLuint vbo = 0;
+        glGenVertexArrays(1, &vao);
+        glBindVertexArray(vao);
+        glGenBuffers(1, &vbo);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        // Deliberately put the spherical chart on the unseen hemisphere. At
+        // native endpoints neither the visibility mask nor displacement applies.
+        constexpr std::array<float, 32> VERTICES{-1,
+            -1,
+            0,
+            -1,
+            -1,
+            -1,
+            0,
+            1,
+            1,
+            -1,
+            0,
+            1,
+            -1,
+            -1,
+            1,
+            1,
+            -1,
+            1,
+            0,
+            -1,
+            1,
+            -1,
+            0,
+            0,
+            1,
+            1,
+            0,
+            1,
+            1,
+            -1,
+            1,
+            0};
+        glBufferData(GL_ARRAY_BUFFER,
+            static_cast<GLsizeiptr>(sizeof(VERTICES)),
+            VERTICES.data(),
+            GL_STATIC_DRAW);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), nullptr);
+        glVertexAttribPointer(1,
+            3,
+            GL_FLOAT,
+            GL_FALSE,
+            8 * sizeof(float),
+            std::bit_cast<const void *>(std::uintptr_t{3 * sizeof(float)}));
+        glVertexAttribPointer(2,
+            2,
+            GL_FLOAT,
+            GL_FALSE,
+            8 * sizeof(float),
+            std::bit_cast<const void *>(std::uintptr_t{6 * sizeof(float)}));
+        for (GLuint i = 0; i < 3; ++i) {
+            glEnableVertexAttribArray(i);
+        }
+
+        check_mesh_endpoints(mesh);
+        check_mesh_silhouette(mesh);
+        check_clouds_and_indirect_light(mesh);
+        check_hud_reconstruction(quad);
         glDeleteBuffers(1, &vbo);
         glDeleteVertexArrays(1, &vao);
-        const std::array textures{image, backdrop, depth, secondary};
-        glDeleteTextures(static_cast<GLsizei>(textures.size()), textures.data());
+        const std::array TEXTURES{IMAGE, BACKDROP, DEPTH, SECONDARY};
+        glDeleteTextures(static_cast<GLsizei>(TEXTURES.size()), TEXTURES.data());
     }
 
     void stable_sky(GLuint sky) {
@@ -245,10 +304,12 @@ namespace {
         glBindVertexArray(vao);
         glUseProgram(sky);
         constexpr GLsizei SKY_SIZE = 256;
-        GLuint target = 0, framebuffer = 0;
+        GLuint target = 0;
+        GLuint framebuffer = 0;
         glGenTextures(1, &target);
         glBindTexture(GL_TEXTURE_2D, target);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, SKY_SIZE, SKY_SIZE, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexImage2D(
+            GL_TEXTURE_2D, 0, GL_RGBA8, SKY_SIZE, SKY_SIZE, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
         glGenFramebuffers(1, &framebuffer);
         glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, target, 0);
@@ -269,16 +330,17 @@ namespace {
         near(read(), {0, 0, 0, 255});
         scalar(sky, "endpointEnvelope", 1);
         glDrawArrays(GL_TRIANGLES, 0, 3);
-        std::array<std::uint8_t, 256U*256U*4U> first{}, second{};
+        std::array<std::uint8_t, std::size_t{256} * 256 * 4> first{};
+        std::array<std::uint8_t, std::size_t{256} * 256 * 4> second{};
         glReadPixels(0, 0, SKY_SIZE, SKY_SIZE, GL_RGBA, GL_UNSIGNED_BYTE, first.data());
         glDrawArrays(GL_TRIANGLES, 0, 3);
         glReadPixels(0, 0, SKY_SIZE, SKY_SIZE, GL_RGBA, GL_UNSIGNED_BYTE, second.data());
         CHECK(first == second);
-        bool visibleStars = false;
+        bool visible_stars = false;
         for (std::size_t i = 0; i < first.size(); i += 4) {
-            visibleStars = visibleStars || first[i] > 8 || first[i+1] > 8 || first[i+2] > 8;
+            visible_stars = visible_stars || first[i] > 8 || first[i + 1] > 8 || first[i + 2] > 8;
         }
-        CHECK(visibleStars);
+        CHECK(visible_stars);
         // Floating-origin rebasing changes both relative camera and inverse VP,
         // but does not change the bounded world-space star offsets or pixels.
         auto rebased = IDENTITY4;
@@ -296,29 +358,33 @@ namespace {
         glDeleteFramebuffers(1, &framebuffer);
         glDeleteTextures(1, &target);
     }
-}
+}  // namespace
 
 int main() {
-    gl_harness::CContext context(32, 32);
-    if (!context.valid()) {
+    gl_harness::CContext const CONTEXT(32, 32);
+    if (!CONTEXT.valid()) {
         (void)std::fprintf(stderr, "PlanetMaterialTests: GLES 3 context unavailable\n");
         return 77;
     }
-    const GLuint mesh = gl_harness::build_program(shader::VERTEX, shader::FRAGMENT);
-    const GLuint quad = gl_harness::build_program(shader::QUAD_VERTEX, shader::QUAD_FRAGMENT);
-    const GLuint sky = gl_harness::build_program(shader::SKY_VERTEX, shader::SKY_FRAGMENT);
-    CHECK(mesh != 0);
-    CHECK(quad != 0);
-    CHECK(sky != 0);
+    const GLuint MESH = gl_harness::build_program(shader::VERTEX, shader::FRAGMENT);
+    const GLuint QUAD = gl_harness::build_program(shader::QUAD_VERTEX, shader::QUAD_FRAGMENT);
+    const GLuint SKY = gl_harness::build_program(shader::SKY_VERTEX, shader::SKY_FRAGMENT);
+    CHECK(MESH != 0);
+    CHECK(QUAD != 0);
+    CHECK(SKY != 0);
     glViewport(0, 0, 32, 32);
     glDisable(GL_BLEND);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
     glDisable(GL_DITHER);
-    if (mesh != 0 && quad != 0) endpoint_and_reconstruction(mesh, quad);
-    if (sky != 0) stable_sky(sky);
-    glDeleteProgram(mesh);
-    glDeleteProgram(quad);
-    glDeleteProgram(sky);
+    if (MESH != 0 && QUAD != 0) {
+        endpoint_and_reconstruction(MESH, QUAD);
+    }
+    if (SKY != 0) {
+        stable_sky(SKY);
+    }
+    glDeleteProgram(MESH);
+    glDeleteProgram(QUAD);
+    glDeleteProgram(SKY);
     return g_failures == 0 ? 0 : 1;
 }

@@ -6,6 +6,7 @@
 
 #include "Check.hpp"
 #include "FakeWorkspacePort.hpp"
+#include "WorkspaceCapturePlanTests.hpp"
 
 using namespace hyprimate::workspace;
 using namespace hyprimate::workspace::test;
@@ -182,28 +183,28 @@ void destination_swap_and_stall() {
 }
 
 void adaptive_capture_and_queued_distance() {
-    Fixture f;
-    f.port.live_boundary = 0.22;
-    f.start();
-    f.present(); // Both slots are coherent even if the destination is too distant for live refresh.
-    const auto FIRST = f.port.captures.size();
-    f.frame(f.b, 0.12);
-    CHECK(f.port.inactive_source == f.a.identity);
-    f.frame(f.b, 0.2);
-    f.frame(f.b, 0.2);
-    CHECK(f.port.captures.size() == FIRST);
-    CHECK(f.turn.stage(f.b));
-    CHECK(f.port.captures.size() == FIRST); // An interruption in flight must not replace a frozen image.
-    f.frame(f.b, 0.2);
-    f.frame(f.b, 0.15);
-    CHECK(f.port.captures.size() == FIRST + 1);
-    f.turn.begin(f.b, f.c, 1.0, LINEAR);
-    f.turn.begin(f.c, f.d, 1.0, LINEAR);
-    CHECK(f.port.timed_pair.first == f.b.identity && f.port.timed_pair.second == f.d.identity);
-    CHECK(f.turn.source().identity == f.a.identity && f.turn.destination().identity == f.b.identity);
-    f.turn.begin(f.d, f.a, 1.0, LINEAR);
-    CHECK(f.port.timed_pair.first == f.a.identity && f.port.timed_pair.second == f.b.identity);
-    CHECK(f.turn.progress() > 0.8);
+    Fixture fixture;
+    fixture.port.boundary = 0.22;
+    fixture.start();
+    fixture.present(); // Both slots are coherent even if the destination is too distant for live refresh.
+    const auto FIRST = fixture.port.captures.size();
+    fixture.frame(fixture.b, 0.12);
+    CHECK(fixture.port.inactive_source == fixture.a.identity);
+    fixture.frame(fixture.b, 0.2);
+    fixture.frame(fixture.b, 0.2);
+    CHECK(fixture.port.captures.size() == FIRST + 1); // Destination remains live during takeoff too.
+    CHECK(fixture.turn.stage(fixture.b));
+    CHECK(fixture.port.captures.size() == FIRST + 1); // An interruption in flight must not replace a frozen image.
+    fixture.frame(fixture.b, 0.2);
+    fixture.frame(fixture.b, 0.15);
+    CHECK(fixture.port.captures.size() == FIRST + 2);
+    fixture.turn.begin(fixture.b, fixture.c, 1.0, LINEAR);
+    fixture.turn.begin(fixture.c, fixture.d, 1.0, LINEAR);
+    CHECK(fixture.port.timed_pair.first == fixture.b.identity && fixture.port.timed_pair.second == fixture.d.identity);
+    CHECK(fixture.turn.source().identity == fixture.a.identity && fixture.turn.destination().identity == fixture.b.identity);
+    fixture.turn.begin(fixture.d, fixture.a, 1.0, LINEAR);
+    CHECK(fixture.port.timed_pair.first == fixture.a.identity && fixture.port.timed_pair.second == fixture.b.identity);
+    CHECK(fixture.turn.progress() > 0.8);
 }
 
 void cancellation_and_monitors() {
@@ -364,10 +365,156 @@ void wallpaper_identity_matching() {
     CHECK(!wallpaper_matches<int>(SOURCE, destination));
     CHECK(!wallpaper_matches<int>(SOURCE, std::span<const Identity>(destination.data(), 1)));
 }
+
+void blend_handoff_and_failures() {
+    Fixture fixture;
+    fixture.port.boundary = .22;
+    fixture.start();
+    fixture.present();
+    fixture.frame(fixture.b, .2);
+    fixture.frame(fixture.b, .2);
+    fixture.frame(fixture.b, .2);
+    CHECK(fixture.port.clones.empty());
+    fixture.frame(fixture.b, .2);
+    CHECK(fixture.port.clones.size() == 1);
+    CHECK(fixture.port.clones.front() == CaptureKind::DestinationLive);
+    CHECK(fixture.turn.blend_mix(CaptureKind::DestinationLive) == 0.0);
+    fixture.port.advance(.02);
+    const double FIRST_MIX = fixture.turn.blend_mix(CaptureKind::DestinationLive);
+    CHECK(FIRST_MIX > .24 && FIRST_MIX < .26);
+    CHECK(fixture.turn.blend_mix(CaptureKind::DestinationLive) >= FIRST_MIX);
+    fixture.port.advance(.08);
+    CHECK(fixture.turn.blend_mix(CaptureKind::DestinationLive) == 1.0);
+    CHECK(fixture.port.releases.size() == 1);
+
+    Fixture failure;
+    failure.port.boundary = .22;
+    failure.start();
+    failure.present();
+    failure.frame(failure.b, .2);
+    failure.frame(failure.b, .2);
+    failure.frame(failure.b, .2);
+    failure.port.clone_succeeds = false;
+    failure.frame(failure.b, .2);
+    CHECK(!failure.turn.active());
+}
+
+void inactive_source_guards() {
+    Fixture fixture;
+    fixture.start();
+    fixture.present();
+    fixture.port.inactive_facts.popup = true;
+    fixture.frame(fixture.b, .01);
+    CHECK(fixture.port.inactive_source == 0);
+    fixture.port.hud_enabled = true;
+    fixture.frame(fixture.b, .01);
+    CHECK(fixture.port.inactive_source == fixture.a.identity);
+    fixture.port.inactive_source = 0;
+    fixture.port.inactive_facts.shell_matches = false;
+    fixture.frame(fixture.b, .01);
+    CHECK(fixture.port.inactive_source == 0);
+    fixture.port.inactive_facts.shell_matches = true;
+    fixture.port.inactive_capture_succeeds = false;
+    fixture.frame(fixture.b, .01);
+    CHECK(!fixture.turn.active());
+}
+
+void queue_and_hud_order() {
+    Fixture fixture;
+    fixture.start();
+    fixture.present();
+    bool prepared = false;
+    CHECK(!fixture.turn.queue(false, [&] { prepared = true; return true; }));
+    CHECK(!prepared);
+    CHECK(fixture.turn.queue(true, [&] { prepared = true; return true; }));
+    CHECK(prepared);
+    std::vector<HudReplay> replay;
+    fixture.turn.replay_hud([&](HudReplay step) { replay.push_back(step); });
+    CHECK(replay.empty());
+    fixture.port.hud_enabled = true;
+    fixture.turn.replay_hud([&](HudReplay step) { replay.push_back(step); });
+    const std::vector<HudReplay> EXPECTED{HudReplay::Bottom, HudReplay::Blur,
+        HudReplay::Top, HudReplay::Overlay, HudReplay::Popups, HudReplay::RestoreBlur};
+    CHECK(replay == EXPECTED);
+    CHECK(!fixture.turn.queue(true, [] { return false; }));
+    CHECK(!fixture.turn.active());
+}
+
+void context_and_safety_gates() {
+    using Turn = WorkspaceTurn<FakeWorkspacePort>;
+    CHECK(Turn::intercept_mutation({.enabled = true}));
+    CHECK(!Turn::intercept_mutation({.enabled = true, .capture_depth = 1}));
+    CHECK(!Turn::intercept_mutation({.enabled = true, .mutation_depth = 1}));
+    CHECK(!Turn::intercept_mutation({}));
+    CHECK(Turn::queue_context({.monitor = true}));
+    CHECK(!Turn::queue_context({.monitor = true, .capture_depth = 1}));
+    CHECK(!Turn::queue_context({.monitor = true, .capture = true}));
+    CHECK(!Turn::queue_context({.monitor = true, .snapshot = true}));
+    CHECK(!Turn::queue_context({.monitor = true, .read_only = true}));
+    CHECK(!Turn::queue_context({}));
+    Fixture fixture;
+    fixture.start();
+    fixture.present();
+    fixture.port.retiring_shell = true;
+    fixture.frame(fixture.b, .01);
+    CHECK(fixture.turn.active()); // Non-HUD styles retain native shell ordering.
+    fixture.port.hud_enabled = true;
+    bool prepared = false;
+    CHECK(!fixture.turn.queue(true, [&] { prepared = true; return true; }));
+    CHECK(!prepared);
+    CHECK(!fixture.turn.active());
+}
+
+void logical_rank_survives_mutation() {
+    Fixture fixture;
+    fixture.a.logical_order = 3;
+    fixture.b.logical_order = 3;
+    fixture.start();
+    CHECK(fixture.turn.source().logical_order == 3);
+    CHECK(fixture.turn.destination().logical_order == 4);
+}
+
+void floating_presentation_commands() {
+    Fixture fixture;
+    FakeWorkspacePort::PresentationPort presentation{
+        .old = {{.identity = 10, .rect = {0., 1., 2., 3.}, .order = 3.},
+            {.identity = 20, .opacity = .8F, .order = 0.}},
+        .live = {{.identity = 10, .rect = {4., 5., 6., 7.}, .opacity = .9F, .order = 1.},
+            {.identity = 30, .opacity = .5F, .order = 2.}},
+        .emitted = {}};
+    CHECK(fixture.turn.present_floating(CaptureKind::SourceIsolated, presentation, .25));
+    CHECK(presentation.emitted.size() == 3);
+    const auto &retired = presentation.emitted[0];
+    CHECK(retired.stale && retired.index == 1);
+    CHECK(std::abs(retired.facts.opacity - .6F) < .000001F);
+    const auto &added = presentation.emitted[1];
+    CHECK(!added.stale && added.index == 1);
+    CHECK(!added.previous.has_value());
+    CHECK(added.facts.opacity == .125F);
+    const auto &matched = presentation.emitted[2];
+    CHECK(!matched.stale && matched.index == 0 && matched.previous == 0);
+    CHECK(matched.live_mix == .25F);
+    CHECK(matched.facts.opacity == .9F);
+    CHECK(matched.facts.order == 2.5);
+    const std::array<double, 4> EXPECTED_RECT{1., 2., 3., 4.};
+    CHECK(matched.facts.rect == EXPECTED_RECT);
+    CHECK(presentation.old[0].rect[0] == 0.);
+    CHECK(presentation.live[0].rect[0] == 4.);
+    CHECK(fixture.turn.present_floating(CaptureKind::SourceIsolated, presentation, .75));
+    CHECK(presentation.emitted[1].facts.identity == 10); // Re-sort crossing stack positions.
+    CHECK(presentation.emitted[2].facts.identity == 30);
+    presentation.allocation_succeeds = false;
+    CHECK(!fixture.turn.present_floating(CaptureKind::SourceIsolated, presentation, .75));
+
+    FakeWorkspacePort::PresentationPort empty;
+    CHECK(fixture.turn.present_floating(CaptureKind::DestinationLive, empty, .5));
+    CHECK(empty.emitted.empty());
+}
 } // namespace
 
 int main() {
     identity_and_direction();
+    capture_plan_tests::run();
     returning_to_destination_discards_pending();
     staging_and_capture_failures();
     gate_and_unpresented_retarget();
@@ -379,5 +526,11 @@ int main() {
     registry_settings_and_reload();
     wallpaper_identity_matching();
     drawing_and_fallback();
+    blend_handoff_and_failures();
+    inactive_source_guards();
+    queue_and_hud_order();
+    context_and_safety_gates();
+    logical_rank_survives_mutation();
+    floating_presentation_commands();
     return g_failures == 0 ? 0 : 1;
 }
