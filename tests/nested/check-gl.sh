@@ -15,7 +15,7 @@ cleanup() {
 }
 trap cleanup EXIT
 workspace_checked=0
-for style in ${CHECK_STYLES:-liquid paper cloth swarm bubble smoke}; do
+for style in ${CHECK_STYLES:-liquid paper cloth swarm bubble smoke burn}; do
     : >"$log"
     HYPRIMATE_NESTED_LOG="$nested_log" "$root/tests/nested/run.sh" --style "$style" --no-build --no-window >"$log" 2>&1 &
     runner=$!

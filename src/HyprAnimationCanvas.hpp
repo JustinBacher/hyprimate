@@ -26,6 +26,7 @@ class CHyprAnimationCanvas {
         const hyprimate::animation::Draw<CHyprAnimationCanvas> &draw);
     static hyprimate::Vec2 image_size(const Image &image);
     void composite(const hyprimate::Box &box, float alpha = 1.F);
+    [[nodiscard]] Backdrop capture_wallpaper(const CBox &source, const CBox &bounds);
 
     [[nodiscard]] Render::CRenderContext &context() const { return *m_context; }
     [[nodiscard]] Image &layer() { return m_layer; }

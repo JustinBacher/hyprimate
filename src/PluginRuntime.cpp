@@ -222,7 +222,10 @@ void CPluginRuntime::Impl::render_stage(const Event::SRenderStageEvent &event) {
         return;
     }
     const auto MONITOR = m_port.monitor_identity(event.monitor);
-    if (event.stage == RENDER_PRE_WINDOW && event.context) {
+    if (event.stage == RENDER_POST_WALLPAPER && event.context) {
+        CHyprAnimationCanvas canvas{event.context->get(), m_port.canvas_resources()};
+        m_animations.before_windows(MONITOR, canvas);
+    } else if (event.stage == RENDER_PRE_WINDOW && event.context) {
         auto &ctx = event.context->get();
         if (const auto WINDOW = ctx.m_data.currentWindow.lock()) {
             CHyprAnimationCanvas canvas{ctx, m_port.canvas_resources()};

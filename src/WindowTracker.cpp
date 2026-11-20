@@ -41,6 +41,7 @@ std::optional<Motion> observe_motion(const Observation &previous, const Observat
     return Motion{.from_body = OLD_BODY, .from_capture = OLD_CAPTURE, .body = NEW_BODY,
         .capture = NEW_CAPTURE, .translated = MOVED, .resized = RESIZED,
         .capture_changed = CAPTURE_CHANGED, .layout_animated = current.layout_animated,
-        .workspace_moving = workspace_movement && current.workspace_moving};
+        .workspace_moving = workspace_movement && current.workspace_moving,
+        .workspace_shifted = OLD_OFFSET.x != NEW_OFFSET.x || OLD_OFFSET.y != NEW_OFFSET.y};
 }
 } // namespace hyprimate::animation

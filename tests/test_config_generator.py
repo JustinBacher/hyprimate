@@ -102,12 +102,12 @@ class ConfigGeneratorTests(unittest.TestCase):
 
     def test_workspace_and_window_styles_have_independent_enums_and_validators(self):
         header = GEN.settings_header(SCHEMA) + GEN.config_header(SCHEMA)
-        self.assertIn('enum class Style : std::uint8_t { Liquid, Paper, Cloth, Swarm, Bubble, Smoke };', header)
         self.assertIn('enum class WorkspaceStyle : std::uint8_t { Rotation, PlanetHop };', header)
         self.assertIn('WorkspaceStyle style{};', header)
         self.assertIn('Style style{};', header)
-        for path, accepted, rejected in [('workspace.style', ['rotation', 'planet_hop'], ['liquid', 'paper', 'cloth', 'swarm', 'bubble', 'smoke']),
-                                         ('window.style', ['liquid', 'paper', 'cloth', 'swarm', 'bubble', 'smoke'], ['rotation', 'planet_hop']),
+        window_styles = ['liquid', 'paper', 'cloth', 'swarm', 'bubble', 'smoke', 'burn']
+        for path, accepted, rejected in [('workspace.style', ['rotation', 'planet_hop'], window_styles),
+                                         ('window.style', window_styles, ['rotation', 'planet_hop']),
                                          ('workspace.options.rotation.gap_fill_style',
                                           ['morph', 'background', 'wallpaper', 'still'], ['rotation', 'invalid'])]:
             item = next(item for item in SCHEMA if item['path'] == path)

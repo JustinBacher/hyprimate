@@ -79,7 +79,8 @@ Place CWindowAnimations<Port, StyleList<Styles...>>::place(const Observation &ob
     }
     return {.body = observation.body, .capture = observation.capture, .goal_body = observation.goal_body,
         .rest_capture = detail::rest_capture(observation), .screen = observation.screen,
-        .work_area = observation.work_area, .near = near, .seed = seed, .opening_edge = std::nullopt};
+        .work_area = observation.work_area, .near = near, .seed = seed, .opening_edge = std::nullopt,
+        .monitor = observation.monitor, .workspace = observation.workspace, .pinned = observation.pinned};
 }
 template<class Port, class... Styles>
 void CWindowAnimations<Port, StyleList<Styles...>>::track(Port::WindowRef window) {
@@ -521,7 +522,8 @@ void CWindowAnimations<Port, StyleList<Styles...>>::frame_mapped(Tracked &window
         .rest_capture = detail::rest_capture(*observation), .screen = observation->screen,
         .work_area = observation->work_area, .motion = motion, .movement_enabled = m_policy.movement,
         .open_enabled = m_policy.opening, .held = observation->held,
-        .workspace_visible = observation->workspace_visible, .workspace_moving = observation->workspace_moving};
+        .workspace_visible = observation->workspace_visible, .workspace_moving = observation->workspace_moving,
+        .monitor = observation->monitor, .workspace = observation->workspace, .pinned = observation->pinned};
     Effects effects;
     const bool HAD_TAIL = entry->current.tail;
     if (is_usable(entry->footprint)) { m_port.damage(entry->footprint); }
@@ -565,7 +567,8 @@ void CWindowAnimations<Port, StyleList<Styles...>>::frame_dying(Record &entry, c
     const auto &place = entry.close_place;
     const Step STEP{.elapsed = *ELAPSED, .stalled = *ELAPSED > STALL_SECONDS, .body = place.body, .capture = place.capture,
         .goal_body = place.goal_body, .rest_capture = place.rest_capture, .screen = place.screen,
-        .work_area = place.work_area, .motion = std::nullopt, .dying = true};
+        .work_area = place.work_area, .motion = std::nullopt, .dying = true,
+        .monitor = entry.monitor, .workspace = place.workspace, .pinned = place.pinned};
     if (is_usable(entry.footprint)) { m_port.damage(entry.footprint); }
     Effects effects;
     visit(CURRENT_HANDLE, [&]<class Style>(auto &slot, auto &resources) {
@@ -704,6 +707,20 @@ void CWindowAnimations<Port, StyleList<Styles...>>::before_window(WindowId windo
     }(), ...);
 }
 template<class Port, class... Styles>
+void CWindowAnimations<Port, StyleList<Styles...>>::before_windows(MonitorId monitor, Canvas &canvas) {
+    if (canvas.pass() != PassKind::Live) { return; }
+    auto facts = m_port.monitor_facts(monitor);
+    if (!facts) { return; }
+    ([&] {
+        if constexpr (requires(Styles::Resources &resources, const ScreenDraw<Canvas> &draw_info) {
+            Styles::Screen::before_windows(resources, draw_info);
+        }) {
+            const ScreenDraw<Canvas> INFO{&canvas, *facts, 0, true};
+            Styles::Screen::before_windows(m_resources.template get<Styles>(), INFO);
+        }
+    }(), ...);
+}
+template<class Port, class... Styles>
 void CWindowAnimations<Port, StyleList<Styles...>>::after_windows(MonitorId monitor, Canvas &canvas) {
     auto facts = m_port.monitor_facts(monitor);
     if (!facts) { return; }
@@ -750,6 +767,10 @@ bool CWindowAnimations<Port, StyleList<Styles...>>::needs_frame(MonitorId monito
 }
 template<class Port, class... Styles>
 void CWindowAnimations<Port, StyleList<Styles...>>::monitor_changed(MonitorId monitor) {
+    if (needs_frame(monitor)) {
+        if (const auto facts = m_port.monitor_facts(monitor)) { m_port.damage(facts->screen); }
+        m_port.schedule(monitor);
+    }
     for (std::size_t index = m_entries.size(); index > 0; --index) {
         const auto &entry = m_entries[index - 1];
         if (entry.monitor == monitor && entry.life != Life::Mapped) { end(entry.handle, End::Interrupted); }
@@ -768,6 +789,11 @@ void CWindowAnimations<Port, StyleList<Styles...>>::detach_transformers() {
 }
 template<class Port, class... Styles>
 void CWindowAnimations<Port, StyleList<Styles...>>::end_all() {
+    for (const auto &[monitor, frame] : m_screen_frames) {
+        if (!needs_frame(monitor)) { continue; }
+        if (const auto facts = m_port.monitor_facts(monitor)) { m_port.damage(facts->screen); }
+        m_port.schedule(monitor);
+    }
     while (!m_entries.empty()) { end(m_entries.back().handle, End::Interrupted); }
     for (const auto FADEOUT : m_tombstones) { m_port.suppress_native(FADEOUT, false); }
     m_tombstones.clear();

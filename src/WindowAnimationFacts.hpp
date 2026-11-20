@@ -33,11 +33,15 @@ struct Place {
     Neighbourhood near;
     std::uint64_t seed = 0;
     std::optional<Edge> opening_edge;
+    MonitorId monitor = 0;
+    WorkspaceId workspace = 0;
+    bool pinned = false;
 };
 struct Motion {
     Box from_body, from_capture, body, capture;
     bool translated = false, resized = false, capture_changed = false;
     bool layout_animated = false, workspace_moving = false;
+    bool workspace_shifted = false; // presentation moved relative to the wallpaper
 };
 struct Step {
     double elapsed = 0;
@@ -47,6 +51,9 @@ struct Step {
     bool movement_enabled = false, open_enabled = false;
     bool held = false, dying = false;
     bool workspace_visible = true, workspace_moving = false;
+    MonitorId monitor = 0;
+    WorkspaceId workspace = 0;
+    bool pinned = false;
 };
 struct Effects {
     std::optional<Box> drive_body;
@@ -108,6 +115,7 @@ struct ScreenFacts {
     Box screen, work_area;
     double scale = 1;
     bool enabled = false;
+    WorkspaceId workspace = 0, special_workspace = 0;
 };
 template<class Canvas> struct ScreenDraw {
     // Non-null borrow; the canvas outlives this synchronous screen draw.

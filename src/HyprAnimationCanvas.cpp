@@ -20,6 +20,13 @@ PassKind CHyprAnimationCanvas::pass() const {
     }
     return PassKind::Live;
 }
+CHyprAnimationCanvas::Backdrop CHyprAnimationCanvas::capture_wallpaper(const CBox &source, const CBox &bounds) {
+    if (pass() != PassKind::Live || context().readOnlyEffects() ||
+        context().m_renderingCapture || context().m_renderingSnapshot) { return {}; }
+    auto backdrop = makeShared<SBubbleWallpaper>();
+    queue_bubble_wallpaper(context(), backdrop, source, true, bounds, PassKind::Live);
+    return backdrop;
+}
 
 hyprimate::Vec2 CHyprAnimationCanvas::image_size(const Image &image) {
     if (!image || !image->getTexture()) {

@@ -424,6 +424,8 @@ std::optional<ScreenFacts> CHyprWindowPort::monitor_facts(MonitorId monitor_id) 
     facts.screen = box_of(MONITOR->logicalBox());
     facts.work_area = box_of(MONITOR->logicalBoxMinusReserved());
     facts.scale = MONITOR->m_scale;
+    facts.workspace = workspace_identity(MONITOR->m_activeWorkspace);
+    facts.special_workspace = workspace_identity(MONITOR->m_activeSpecialWorkspace);
     return facts;
 }
 std::span<const MonitorId> CHyprWindowPort::monitors_overlapping(const hyprimate::Box &box) {

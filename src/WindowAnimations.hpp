@@ -46,6 +46,7 @@ class CWindowAnimations<Port, StyleList<Styles...>> {
     void bind_fadeout(WindowId window_id, const FadeoutFacts &fadeout, Port::RetainedImage image);
     void frame(const FrameStamp &stamp);
     void before_window(WindowId window_id, Canvas &canvas);
+    void before_windows(MonitorId monitor, Canvas &canvas);
     void after_windows(MonitorId monitor, Canvas &canvas);
     bool needs_frame(MonitorId monitor) const;
     void monitor_changed(MonitorId monitor);

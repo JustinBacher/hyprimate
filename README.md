@@ -61,6 +61,17 @@ hl.config({
         ["hyprimate"] = {
             window = {
                 options = {
+                    burn = {
+                        -- duration = 1,
+                        variation = 0.7,
+                        fragment_density = 0.55,
+                        ember_density = 0.65,
+                        wind_direction = 0,
+                        wind_strength = 100,
+                        gravity_strength = 300,
+                        scorch_lifetime = 1.4,
+                        healing_duration = 1.8,
+                    },
                     liquid = {
                         strength = 0.65,
                         viscosity = 0.75,
@@ -136,6 +147,16 @@ hl.config({
                 },
                 enabled = true,
                 style = "liquid",
+                close = {
+                    options = {
+                        burn = {
+                            closing_style = "curl",
+                            debris_direction = "natural",
+                            curl_intensity = 0.8,
+                        },
+                    },
+                    enabled = true,
+                },
                 movement = {
                     enabled = true,
                     workspace_movement = true,
@@ -166,9 +187,6 @@ hl.config({
                             linger = 0.5,
                         },
                     },
-                },
-                close = {
-                    enabled = true,
                 },
             },
             workspace = {
@@ -234,6 +252,7 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 
 | Setting | Type / default | Numeric range | Meaning |
 |---|---|---|---|
+| `window:options:burn:duration` | float / animation defaults: open `1`, close `1.5` | 0.15–5 | Open: Combustion time in seconds for the hole to reveal the window. Shorter is faster. Close: Combustion time in seconds for the closing sheet. Detached material cools on its own clock. |
 | `window:options:liquid:strength` | float / animation defaults: `0.65` | 0–1.5 | Movement: Liquid movement deformation strength. Zero moves windows without deformation. Open: Liquid pop-out size and deformation strength when opening. Zero removes the pop-out. Close: Liquid drain deformation strength when closing. Zero closes the window natively. |
 | `window:options:liquid:viscosity` | float / animation defaults: `0.75` | 0–1 | Liquid resistance to flow during movement. Higher values make it thicker and more cohesive. |
 | `window:options:liquid:elasticity` | float / animation defaults: `0.5` | 0–1 | Movement: Liquid stiffness and recovery speed during movement. Higher values snap back faster. Open: Liquid pop-out stiffness and recovery speed. Higher values snap back faster. Close: Liquid drain stiffness and recovery speed. Higher values snap back faster. |
@@ -325,7 +344,18 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `workspace:options:planet_hop:depth_strength` | float / `0.018` | 0–0.5 | Surface relief strength in planet-radius units. |
 | `workspace:options:planet_hop:depth_source` | string / `""` | — | Optional PNG depth image path; empty uses procedural depth. PNG images are limited to 4096 pixels per dimension and 16 MiB encoded. |
 | `window:enabled` | boolean / `true` | — | Enable window movement, opening and closing effects. When false, none of these effects run. |
-| `window:style` | string / `"liquid"` | — | Choose the material for movement, opening and closing. Liquid deforms the edges; paper crumples into a ball and moves without deformation; cloth drapes and flutters; swarm breaks the window into creature-shaped pieces; bubble inflates a soap film, sloshes while moving and bursts on close; smoke gathers, unravels into flowing content-coloured volumes while moving, reforms at rest and dissipates on close. Invalid names are rejected. Allowed: `liquid`, `paper`, `cloth`, `swarm`, `bubble`, `smoke`. |
+| `window:style` | string / `"liquid"` | — | Choose the material for movement, opening and closing. Liquid deforms the edges; paper crumples into a ball and moves without deformation; cloth drapes and flutters; swarm breaks the window into creature-shaped pieces; bubble inflates a soap film, sloshes while moving and bursts on close; smoke gathers, unravels into flowing content-coloured volumes while moving, reforms at rest and dissipates on close; burn opens through the wallpaper, scorches it during movement and consumes the printed window on close. Invalid names are rejected. Allowed: `liquid`, `paper`, `cloth`, `swarm`, `bubble`, `smoke`, `burn`. |
+| `window:options:burn:variation` | float / `0.7` | 0–1 | Irregularity of the combustion front, from even propagation to strongly uneven burning. |
+| `window:options:burn:fragment_density` | float / `0.55` | 0–1 | Relative emission of detached printed fragments. Zero disables them. |
+| `window:options:burn:ember_density` | float / `0.65` | 0–1 | Relative emission of luminous embers. Zero disables them. |
+| `window:options:burn:wind_direction` | float / `0` | 0–360 | Environmental airflow heading in degrees clockwise from screen right (90 is down, 270 is up). Does not steer the combustion front. |
+| `window:options:burn:wind_strength` | float / `100` | 0–1000 | Wind speed in logical pixels per second. Light ash follows airflow more readily than paper. |
+| `window:options:burn:gravity_strength` | float / `300` | 0–1800 | Downward gravitational acceleration in logical pixels per second squared. |
+| `window:options:burn:scorch_lifetime` | float / `1.4` | 0–10 | Seconds a fresh movement or closing scorch cools on the wallpaper before regeneration. |
+| `window:options:burn:healing_duration` | float / `1.8` | 0.1–10 | Seconds of local wallpaper recovery after the scorch lifetime. No wallpaper file is changed. |
+| `window:close:options:burn:closing_style` | string / `"curl"` | — | Consume burns the printed sheet in place; curl also bends the brittle edges and exposed paper. Allowed: `consume`, `curl`. |
+| `window:close:options:burn:debris_direction` | string / `"natural"` | — | Motion of close debris: material-dependent natural forces, falling debris, rising debris or directional wind. Fire propagation is independent. Allowed: `natural`, `fall`, `rise`, `wind`. |
+| `window:close:options:burn:curl_intensity` | float / `0.8` | 0–1 | Strength of local bending at the combustion front in the curl closing style. |
 | `window:options:swarm:sprite` | string / `"spider"` | — | Swarm sprite name in the sprites directory, with or without .png, or an explicit PNG path. The sheet has four columns and two rows of frames; transparency defines the silhouette. |
 | `window:options:swarm:count` | int / `250` | 1–400 | Number of swarm creatures per window. Each carries a piece of the window, so fewer creatures mean larger pieces. |
 | `window:options:swarm:speed` | float / `1400` | 100–6000 | Swarm creature travel speed in logical pixels per second. |

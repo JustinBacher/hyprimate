@@ -99,6 +99,16 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                 enabled = true,
 --                 style = "liquid",
 --                 options = {
+--                     burn = {
+--                         variation = 0.7,
+--                         fragment_density = 0.55,
+--                         ember_density = 0.65,
+--                         wind_direction = 0,
+--                         wind_strength = 100,
+--                         gravity_strength = 300,
+--                         scorch_lifetime = 1.4,
+--                         healing_duration = 1.8,
+--                     },
 --                     swarm = {
 --                         sprite = "spider",
 --                         count = 250,
@@ -115,6 +125,16 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                         density = 1,
 --                         variation = 0.5,
 --                     },
+--                 },
+--                 close = {
+--                     options = {
+--                         burn = {
+--                             closing_style = "curl",
+--                             debris_direction = "natural",
+--                             curl_intensity = 0.8,
+--                         },
+--                     },
+--                     enabled = true,
 --                 },
 --                 movement = {
 --                     enabled = true,
@@ -146,9 +166,6 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                             linger = 0.5,
 --                         },
 --                     },
---                 },
---                 close = {
---                     enabled = true,
 --                 },
 --             },
 --         },
