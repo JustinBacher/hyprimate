@@ -113,6 +113,18 @@ def validate(settings):
         if kind == 'color' and not (isinstance(default, str) and COLOR.match(default)):
             raise ValueError(f'{path}: color default must be 0x followed by eight hex digits')
         members.add(member)
+    by_path = {item['path']: item for item in settings}
+    for item in settings:
+        if 'fallback' not in item:
+            continue
+        parts = item['path'].split('.')
+        fallback = by_path.get(item['fallback'])
+        if (len(parts) != 5 or parts[:1] != ['window'] or parts[1] not in TRANSITIONS
+                or parts[2] != 'options' or not item.get('inherit', True)
+                or fallback is None or fallback['type'] != item['type']
+                or not fallback['path'].startswith(f'window.options.{parts[3]}.')
+                or 'fallback' in fallback):
+            raise ValueError(f'{item["path"]}: fallback must name a same-type shared style setting on an inherited transition option')
     for path in paths:
         parts = path.split('.')
         for depth in range(1, len(parts)):
@@ -135,6 +147,7 @@ def expanded_settings(settings):
         if path not in globals_by_path:
             shared = dict(item, path=path, member='m_global' + pascal(parts[3]) + pascal(parts[4]),
                           optional=True, description=f'Shared {parts[3]} {parts[4].replace("_", " ")} setting.')
+            shared.pop('fallback', None)
             globals_by_path[path] = shared
             generated_globals.append(shared)
         shared = globals_by_path[path]
@@ -216,6 +229,8 @@ def enum_name(item):
         return 'WorkspaceStyle'
     if len(parts) >= 4 and parts[:2] == ['workspace', 'options']:
         return pascal(parts[2]) + pascal(parts[-1])
+    if len(parts) >= 5 and parts[:2] == ['window', 'options']:
+        return ''.join(pascal(part) for part in parts[2:])
     return pascal(parts[-1])
 
 
@@ -247,7 +262,8 @@ def type_name(segments):
     if len(segments) == 1:
         return style + 'Settings'
     # Open and close share one shape per Style.
-    return style + ('Transition' if segments[1] in TRANSITIONS else pascal(segments[1]))
+    return style + ('Transition' if segments[1] in TRANSITIONS else
+                    ''.join(pascal(part) for part in segments[1:]))
 
 
 def struct_types(settings):
@@ -317,6 +333,7 @@ def config_header(settings):
            '#include <algorithm>', '#include <cmath>', '#include <expected>',
            '#include <optional>', '#include <stdexcept>', '',
            '#include "config_settings_generated.hpp"', '', 'namespace hyprimate::config {', '']
+    fallback_paths = {item['fallback'] for item in settings if 'fallback' in item}
     enum_items = enums(settings)
     out.append('namespace detail {')
     out.append('// Non-finite values read as the schema minimum, which turns a strength or drain off.')
@@ -371,7 +388,7 @@ def config_header(settings):
     out.append('struct SConfigValues {')
     for item in settings:
         out.append(f'    SP<Config::Values::{KINDS[item["type"]]}> {item["member"]};')
-        if item.get('optional'):
+        if item.get('optional') or item['path'] in fallback_paths:
             storage = {'boolean': 'BOOL', 'int': 'INTEGER', 'float': 'FLOAT',
                        'string': 'STRING', 'set': 'STRING', 'color': 'INTEGER'}[item['type']]
             out.append(f'    CConfigValue<Config::{storage}> {item["member"]}Set;')
@@ -415,7 +432,7 @@ def config_header(settings):
     out.append('        throw std::runtime_error("[hyprimate] failed to register configuration values");')
     out.append('    }')
     for item in settings:
-        if item.get('optional'):
+        if item.get('optional') or item['path'] in fallback_paths:
             out.append(f'    values.{item["member"]}Set.bind({literal(key(item))});')
     out.append('}')
     out.append('')
@@ -435,6 +452,14 @@ def config_header(settings):
                           f'!values.{shared["member"]}Set.setByUser() ? {source} : {shared_source})')
             else:
                 source = f'(values.{item["member"]}Set.setByUser() ? {source} : {shared_source})'
+            if 'fallback' in item:
+                fallback = by_path[item['fallback']]
+                # Explicit legacy animation/shared values retain priority. An unset
+                # new material key must not change the historical transition default.
+                source = (f'(!values.{item["member"]}Set.setByUser() && '
+                          f'!values.{shared["member"]}Set.setByUser() && '
+                          f'values.{fallback["member"]}Set.setByUser() ? '
+                          f'values.{fallback["member"]}->value() : {source})')
         if item['type'] == 'int':
             value = f'detail::clamp_int({source}, {item["min"]}, {item["max"]})'
         elif item['type'] == 'set':
@@ -485,7 +510,9 @@ def documentation(settings):
             else:
                 value = child['default'] if child['type'] == 'color' else literal(child['default'])
                 values = overrides.get(child['path'], [])
-                comment = '-- ' if child.get('optional') and len({v['default'] for _, v in values}) > 1 else ''
+                comment = '-- ' if child.get('optional') and (
+                    len({v['default'] for _, v in values}) > 1
+                    or any('fallback' in v for _, v in values)) else ''
                 result.append(f'{pad}{comment}{name} = {value},')
         return result
 
@@ -497,6 +524,7 @@ def documentation(settings):
              example_lua, '```', '',
              'Use `hyprimate` under `plugin` in `hl.config`; the matching `hyprctl` keys begin with `plugin:hyprimate:`. Each nested Lua table maps to colon-separated key segments.', '',
              'Style settings under `window.options.<style>` are shared; set `window.<animation>.options.<style>` to override one animation. When a shared setting is unset, each animation uses its own default. Shared values are clamped to the receiving animation’s range. Example lines with differing animation defaults are commented out to preserve them.', '',
+             'Paper live movement and resizing use `window.options.paper.stiffness`, `inertia` and `settle_damping`; movement behavior is selected by `window.options.paper.move.style`, with separate `move.flutter`, `move.glide` and `resize` tables. These live controls do not create per-animation overrides. Opening and closing retain their historical defaults when the new material keys are unset. For stiffness and damping the precedence is an explicitly set legacy per-animation `paper_stiffness` / `settling`, then an explicitly set legacy shared key, then an explicitly set new `stiffness` / `settle_damping`, then the historical transition default. Shared inertia has no legacy override.', '',
              'Formation controls listed under `window.open.options.bubble` apply only to opening and have no global or closing counterpart. They use the same options table; shared settings such as `duration` still inherit normally.', '',
              '| Setting | Type / default | Numeric range | Meaning |', '|---|---|---|---|']
     for item in settings:

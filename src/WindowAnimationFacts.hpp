@@ -42,6 +42,7 @@ struct Motion {
     bool translated = false, resized = false, capture_changed = false;
     bool layout_animated = false, workspace_moving = false;
     bool workspace_shifted = false; // presentation moved relative to the wallpaper
+    double sample_seconds = 0; // Observation interval, including the frame that acquired the style.
 };
 struct Step {
     double elapsed = 0;

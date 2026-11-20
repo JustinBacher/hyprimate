@@ -506,7 +506,11 @@ void CWindowAnimations<Port, StyleList<Styles...>>::frame_mapped(Tracked &window
     const bool WORKSPACE_MOVEMENT = m_policy.workspace_movement && !observation->pinned;
     if (window.previous) {
         motion = observe_motion(*window.previous, *observation, window.workspace_movement, WORKSPACE_MOVEMENT);
+        if (motion && window.previous_sample != Clock::time_point{}) {
+            motion->sample_seconds = std::chrono::duration<double>(stamp.now - window.previous_sample).count();
+        }
     }
+    window.previous_sample = stamp.now;
     window.workspace_movement = WORKSPACE_MOVEMENT;
     if (begin_mapped(window, *observation, motion)) { observation = m_port.observe(window.window); }
     if (!observation) { return; }
@@ -810,6 +814,7 @@ void CWindowAnimations<Port, StyleList<Styles...>>::reload() {
     end_all();
     for (auto &window : m_tracked) {
         window.previous = m_port.observe(window.window);
+        window.previous_sample = {};
         window.opening_seen = window.previous && window.previous->animating_in;
         window.workspace_movement = m_policy.workspace_movement && window.previous && !window.previous->pinned;
     }

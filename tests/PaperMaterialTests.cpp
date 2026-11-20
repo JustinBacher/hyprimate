@@ -371,6 +371,89 @@ namespace {
         CHECK(cast);
         glDeleteTextures(1, &TEXTURE);
     }
+    void desktop_shadow(CPaperMaterial &material, const Target &output) {
+        const Image WHITE(WIDTH * HEIGHT, Pixel{255, 255, 255, 255});
+        const auto TEXTURE = upload(WHITE);
+        auto surface = sheet();
+        for (auto &point : surface.points) {
+            point.position.x *= .4;
+            point.position.y *= .4;
+        }
+        CHECK(material.draw(surface, placement(), TEXTURE, output.framebuffer));
+        const auto RECONSTRUCTED = read(output.framebuffer);
+        surface.interaction_mesh = true;
+        CHECK(material.draw(surface, placement(), TEXTURE, output.framebuffer));
+        const auto FLAT = read(output.framebuffer);
+        CHECK(FLAT == RECONSTRUCTED);
+        CHECK(material.vertices().size() == surface.faces.size() * 3);
+        surface.shadow_strength = 1;
+        CHECK(material.draw(surface, placement(), TEXTURE, output.framebuffer));
+        CHECK(FLAT == read(output.framebuffer));  // no desktop darkening at z=0
+        for (auto &point : surface.points) point.position.z = .35;
+        surface.shadow_strength = 0;
+        CHECK(material.draw(surface, placement(), TEXTURE, output.framebuffer));
+        const auto BASELINE = read(output.framebuffer);
+        surface.shadow_strength = 1;
+        glBlendEquationSeparate(GL_FUNC_REVERSE_SUBTRACT, GL_FUNC_SUBTRACT);
+        glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE, GL_ZERO, GL_ONE);
+        CHECK(material.draw(surface, placement(), TEXTURE, output.framebuffer));
+        const auto SHADOW = read(output.framebuffer);
+        GLint state = 0;
+        glGetIntegerv(GL_BLEND_EQUATION_RGB, &state);
+        CHECK(state == GL_FUNC_REVERSE_SUBTRACT);
+        glGetIntegerv(GL_BLEND_EQUATION_ALPHA, &state);
+        CHECK(state == GL_FUNC_SUBTRACT);
+        glGetIntegerv(GL_BLEND_SRC_RGB, &state);
+        CHECK(state == GL_SRC_ALPHA);
+        glGetIntegerv(GL_BLEND_DST_RGB, &state);
+        CHECK(state == GL_ONE);
+        glGetIntegerv(GL_BLEND_SRC_ALPHA, &state);
+        CHECK(state == GL_ZERO);
+        glGetIntegerv(GL_BLEND_DST_ALPHA, &state);
+        CHECK(state == GL_ONE);
+        int outside = 0;
+        for (std::size_t pixel = 0; pixel < SHADOW.size(); ++pixel) {
+            if (BASELINE[pixel][3] != 0 || SHADOW[pixel][3] == 0) continue;
+            ++outside;
+            CHECK(SHADOW[pixel][0] == 0 && SHADOW[pixel][1] == 0 && SHADOW[pixel][2] == 0);
+            CHECK(SHADOW[pixel][3] < 46);
+        }
+        CHECK(outside > 20);
+        near(top(SHADOW, 5, 5), {0, 0, 0, 0});
+        near(top(SHADOW, 120, 88), {0, 0, 0, 0});
+        const auto OPAQUE_ALPHA = top(SHADOW, 93, 78)[3];
+        CHECK(OPAQUE_ALPHA > 0);
+        auto holes = WHITE;
+        for (int y = 0; y < HEIGHT; ++y)
+            for (int x = 45; x <= 82; ++x) holes[y * WIDTH + x] = {0, 0, 0, 0};
+        const auto HOLES = upload(holes);
+        CHECK(material.draw(surface, placement(), HOLES, output.framebuffer));
+        const auto CUTOUT = read(output.framebuffer);
+        near(top(CUTOUT, 76, 78), {0, 0, 0, 0});
+        CHECK(top(CUTOUT, 93, 78)[3] == OPAQUE_ALPHA);
+        const Image TRANSLUCENT(WIDTH * HEIGHT, Pixel{128, 128, 128, 128});
+        const auto HALF = upload(TRANSLUCENT);
+        CHECK(material.draw(surface, placement(), HALF, output.framebuffer));
+        const auto HALF_ALPHA = top(read(output.framebuffer), 93, 78)[3];
+        CHECK(HALF_ALPHA > 0 && HALF_ALPHA < OPAQUE_ALPHA);
+        surface.shadow_strength = .5;
+        CHECK(material.draw(surface, placement(), TEXTURE, output.framebuffer));
+        const auto HALF_STRENGTH = top(read(output.framebuffer), 93, 78)[3];
+        CHECK(HALF_STRENGTH > 0 && HALF_STRENGTH < OPAQUE_ALPHA);
+        // Different caster heights must move the footprint, not fade a static rectangle.
+        for (auto &point : surface.points) point.position.z = .08;
+        CHECK(material.draw(surface, placement(), TEXTURE, output.framebuffer));
+        near(top(read(output.framebuffer), 93, 78), {0, 0, 0, 0});
+        surface.shadow_strength = 0;
+        for (auto &point : surface.points) point.position.z = .35;
+        CHECK(material.draw(surface, placement(), TEXTURE, output.framebuffer));
+        CHECK(BASELINE == read(output.framebuffer));  // exact zero bypass after active shadow
+        CHECK(glGetError() == GL_NO_ERROR);
+        glBlendEquation(GL_FUNC_ADD);
+        glDeleteTextures(1, &HALF);
+        glDeleteTextures(1, &HOLES);
+        glDeleteTextures(1, &TEXTURE);
+    }
     void isolation_and_resize(
         GLuint program, CPaperMaterial &material, GLuint texture, const Target &output) {
         CPaperMaterial scratch;
@@ -591,6 +674,7 @@ int main(int argc, char **argv) {
         composite_orientation(material, TEXTURE, OUTPUT);
         thickness_and_matte(material, OUTPUT);
         fold_shadow(material, OUTPUT);
+        desktop_shadow(material, OUTPUT);
         isolation_and_resize(PROGRAM, material, TEXTURE, OUTPUT);
     }
     material.release();

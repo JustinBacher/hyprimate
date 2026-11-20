@@ -109,6 +109,32 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                         scorch_lifetime = 1.4,
 --                         healing_duration = 1.8,
 --                     },
+--                     paper = {
+--                         stiffness = 0.75,
+--                         inertia = 0.45,
+--                         settle_damping = 0.8,
+--                         move = {
+--                             style = "flutter",
+--                             flutter = {
+--                                 air_resistance = 0.65,
+--                                 intensity = 0.5,
+--                                 frequency = 1.2,
+--                                 lift = 0.3,
+--                                 torsion = 0.4,
+--                             },
+--                             glide = {
+--                                 friction = 0.6,
+--                                 corner_lift = 0.25,
+--                                 edge_curl = 0.3,
+--                                 shadow_separation = 0.2,
+--                             },
+--                         },
+--                         resize = {
+--                             fold_intensity = 0.6,
+--                             curl_intensity = 0.45,
+--                             crease_density = 0.5,
+--                         },
+--                     },
 --                     swarm = {
 --                         sprite = "spider",
 --                         count = 250,

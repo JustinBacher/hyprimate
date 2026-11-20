@@ -21,7 +21,14 @@ out vec3 surfaceNormal;
 out vec3 surfacePosition;
 void main() {
     vec3 p=vec3(position.xy*shapeScale,position.z);
-    if(depthPass!=0) {
+    if(depthPass==2) {
+        // Parallel light projected onto the desktop, not a window-sized backdrop.
+        float height=max(p.z,0.0);
+        vec2 projected=p.xy+vec2(0.32,0.42)*height;
+        vec2 pixel=center+projected*pixelsPerUnit;
+        gl_Position=vec4(2.0*pixel.x/canvasSize.x-1.0,
+            1.0-2.0*pixel.y/canvasSize.y,-p.z/3.0,1.0);
+    } else if(depthPass!=0) {
         vec2 lightXY=vec2(dot(lightBasis[0],p),dot(lightBasis[1],p));
         float depth=(lightRange.y-dot(lightBasis[2],p))/(lightRange.y-lightRange.x);
         gl_Position=vec4((lightXY-lightBounds.xy)/lightBounds.zw,2.0*depth-1.0,1.0);
@@ -51,6 +58,7 @@ uniform vec4 uvTransform, uvBounds, lightBounds;
 uniform vec2 shadowSize, lightRange;
 uniform mat3 lightBasis;
 uniform float opacity, shading, thickness;
+uniform float shadowStrength;
 uniform int depthPass;
 out vec4 color;
 float shadow(vec3 p,vec3 n) {
@@ -86,6 +94,25 @@ void main() {
     // Holes neither occlude nor cast. Translucent material retains its own RGBA,
     // but cannot reveal a second copy of the window through the folded paper.
     if(texel.a<=0.001) discard;
+    if(depthPass==2) {
+        float height=max(surfacePosition.z,0.0);
+        // Contact is compact and stronger; air shadows spread and fade with height.
+        vec2 footprint=max(fwidth(materialUV),vec2(0.000001));
+        vec2 edge=min(materialUV,1.0-materialUV)/footprint;
+        float rim=smoothstep(0.0,1.0,min(edge.x,edge.y));
+        // Derivative-sized alpha filtering follows texture holes, not a rectangular decal.
+        vec2 duv=fwidth(uv)*0.5;
+        float coverage=(texel.a*4.0+
+            texture(image,clamp(uv+vec2(duv.x,0.0),uvBounds.xy,uvBounds.zw)).a+
+            texture(image,clamp(uv-vec2(duv.x,0.0),uvBounds.xy,uvBounds.zw)).a+
+            texture(image,clamp(uv+vec2(0.0,duv.y),uvBounds.xy,uvBounds.zw)).a+
+            texture(image,clamp(uv-vec2(0.0,duv.y),uvBounds.xy,uvBounds.zw)).a)/8.0;
+        float alpha=coverage*rim*opacity*shadowStrength*
+            smoothstep(0.0,0.025,height)*exp(-1.5*height);
+        if(alpha<=0.00001) discard;
+        color=vec4(0.0,0.0,0.0,alpha);
+        return;
+    }
     if(depthPass!=0) { color=vec4(0.0); return; }
     if(shading<=0.0) { color=texel*opacity; return; }
     vec3 n=normalize(surfaceNormal);

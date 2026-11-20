@@ -154,6 +154,23 @@ int main() try {
     // Unset globals must retain each transition's historical default.
     assert(near(config.paper.open.duration, 0.6));
     assert(near(config.paper.close.duration, 0.5));
+    assert(near(config.paper.open.paperStiffness, .72) &&
+           near(config.paper.close.paperStiffness, .72));
+    assert(near(config.paper.open.settling, .45) && near(config.paper.close.settling, .45));
+    assert(near(config.paper.shared.stiffness, .75) && near(config.paper.shared.inertia, .45));
+    assert(near(config.paper.shared.settleDamping, .8));
+    assert(config.paper.move.style == PaperMoveStyle::Flutter);
+    assert(near(config.paper.move.flutter.airResistance, .65));
+    assert(near(config.paper.move.flutter.intensity, .5) &&
+           near(config.paper.move.flutter.frequency, 1.2));
+    assert(near(config.paper.move.flutter.lift, .3) && near(config.paper.move.flutter.torsion, .4));
+    assert(near(config.paper.move.glide.friction, .6) &&
+           near(config.paper.move.glide.cornerLift, .25));
+    assert(near(config.paper.move.glide.edgeCurl, .3) &&
+           near(config.paper.move.glide.shadowSeparation, .2));
+    assert(near(config.paper.resize.foldIntensity, .6) &&
+           near(config.paper.resize.curlIntensity, .45));
+    assert(near(config.paper.resize.creaseDensity, .5));
     assert(near(config.cloth.open.duration, 1.0));
     assert(near(config.cloth.close.duration, 0.9));
     assert(near(config.bubble.open.duration, 1.0));
@@ -285,6 +302,66 @@ int main() try {
     assert(config.swarm.movement.sprite == "/tmp/custom sprite.png");
     assert(near(config.swarm.open.agility, 0.8) && near(config.swarm.close.agility, 0.8));
     assert(near(config.swarm.movement.agility, 0.5));
+
+    set("window:options:paper:stiffness", .91F);
+    set("window:options:paper:settle_damping", .87F);
+    set("window:options:paper:inertia", .63F);
+    config = readConfig(values);
+    assert(near(config.paper.open.paperStiffness, .91) &&
+           near(config.paper.close.paperStiffness, .91));
+    assert(near(config.paper.open.settling, .87) && near(config.paper.close.settling, .87));
+    assert(near(config.paper.shared.inertia, .63));
+    set("window:options:paper:paper_stiffness", .72F);
+    set("window:options:paper:settling", .45F);
+    config = readConfig(values);
+    assert(near(config.paper.open.paperStiffness, .72) &&
+           near(config.paper.close.paperStiffness, .72));
+    assert(near(config.paper.open.settling, .45) && near(config.paper.close.settling, .45));
+    set("window:open:options:paper:paper_stiffness", .33F);
+    set("window:close:options:paper:settling", .22F);
+    config = readConfig(values);
+    assert(near(config.paper.open.paperStiffness, .33) &&
+           near(config.paper.close.paperStiffness, .72));
+    assert(near(config.paper.open.settling, .45) && near(config.paper.close.settling, .22));
+    assert(
+        near(config.paper.shared.stiffness, .91) && near(config.paper.shared.settleDamping, .87));
+    // Explicit phase defaults still outrank the new material without a legacy shared value.
+    Config::Values::entries()
+        .at("plugin:hyprimate:window:options:paper:paper_stiffness")
+        ->specified = false;
+    Config::Values::entries().at("plugin:hyprimate:window:options:paper:settling")->specified =
+        false;
+    set("window:open:options:paper:paper_stiffness", .72F);
+    set("window:close:options:paper:settling", .45F);
+    config = readConfig(values);
+    assert(near(config.paper.open.paperStiffness, .72) &&
+           near(config.paper.close.paperStiffness, .91));
+    assert(near(config.paper.open.settling, .87) && near(config.paper.close.settling, .45));
+
+    set("window:options:paper:move:style", std::string("glide"));
+    set("window:options:paper:move:flutter:air_resistance", .13F);
+    set("window:options:paper:move:glide:edge_curl", .74F);
+    set("window:options:paper:resize:fold_intensity", .29F);
+    config = readConfig(values);
+    assert(config.paper.move.style == PaperMoveStyle::Glide);
+    assert(near(config.paper.move.flutter.airResistance, .13));
+    assert(near(config.paper.move.glide.edgeCurl, .74));
+    assert(near(config.paper.resize.foldIntensity, .29));
+    set("window:options:paper:move:style", std::string("invalid"));
+    assert(readConfig(values).paper.move.style == PaperMoveStyle::Flutter);
+    set("window:options:paper:stiffness", -1.0F);
+    set("window:options:paper:inertia", 2.0F);
+    set("window:options:paper:settle_damping", std::numeric_limits<float>::infinity());
+    set("window:options:paper:move:flutter:frequency", std::numeric_limits<float>::quiet_NaN());
+    set("window:options:paper:move:glide:corner_lift", 2.0F);
+    set("window:options:paper:resize:crease_density", -1.0F);
+    config = readConfig(values);
+    assert(near(config.paper.shared.stiffness, 0) && near(config.paper.shared.inertia, 1));
+    assert(near(config.paper.shared.settleDamping, 0));
+    assert(near(config.paper.close.paperStiffness, 0) && near(config.paper.open.settling, 0));
+    assert(near(config.paper.move.flutter.frequency, .1));
+    assert(
+        near(config.paper.move.glide.cornerLift, 1) && near(config.paper.resize.creaseDensity, 0));
 }
 catch (const std::exception &) {
     return 1;

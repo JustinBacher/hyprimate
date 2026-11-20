@@ -1,10 +1,11 @@
 #include <algorithm>
 #include <cmath>
-#include <limits>
 #include <cstdlib>
+#include <limits>
 #include <numbers>
 
 #include "animations/paper/PaperCrumple.hpp"
+#include "animations/paper/PaperInteraction.hpp"
 
 namespace hyprimate {
     namespace {
@@ -66,6 +67,7 @@ namespace hyprimate {
                      &p.paper_stiffness,
                      &p.rotation_intensity,
                      &p.unfold_tension,
+                     &p.inertia,
                      &p.settling,
                      &p.crease_persistence}) {
                 if (!std::isfinite(*value)) return false;
@@ -158,7 +160,8 @@ namespace hyprimate {
         std::uint64_t seed,
         Vec2 size,
         Vec2 cursor_uv,
-        std::stop_token stop) {
+        std::stop_token stop,
+        const PaperSurface *interaction) {
         if (stop.stop_requested()) {
             reset();
             return;
@@ -195,6 +198,15 @@ namespace hyprimate {
             m_fraction = m_previous_fraction = m_accumulator = 0;
             m_tick = 0;
             flatten();
+            m_initial_shadow = 0;
+            if (transition == Transition::Close && interaction && interaction->interaction_mesh) {
+                // Keep the worker's bounded contact topology, but start the grips on
+                // the displayed, bent sheet instead of flashing a flat capture.
+                for (auto &node : m_topology.nodes) {
+                    node.x = node.prev = PaperInteraction::sample(*interaction, node.uv);
+                }
+                m_initial_shadow = interaction->shadow_strength;
+            }
         }
         choose_forces(seed, cursor_uv);
         if (!continuing && transition == Transition::Open) {
@@ -402,8 +414,10 @@ namespace hyprimate {
         m_previous_angles.assign(
             m_topology.hinges.size(), std::numeric_limits<double>::quiet_NaN());
         const double time_scale = 1 / m_params.duration;
-        const double damping =
-            closing ? std::exp(-m_step * time_scale * (3 + 12 * m_params.settling)) : 0;
+        const double damping = closing
+                                   ? std::exp(-m_step * time_scale * (3 + 12 * m_params.settling) /
+                                              (1 + (m_params.inertia - 0.45)))
+                                   : 0;
         const unsigned iterations = m_params.simulation_quality == PaperQuality::Low    ? 8
                                     : m_params.simulation_quality == PaperQuality::High ? 16
                                                                                         : 12;
@@ -729,6 +743,9 @@ namespace hyprimate {
         out.opacity = static_cast<float>(opacity());
         out.shading = static_cast<float>(m_params.shading);
         out.thickness = static_cast<float>(thickness(m_params));
+        out.interaction_mesh = false;
+        out.shadow_strength =
+            m_initial_shadow * static_cast<float>(1 - smoothstep(0, 0.35, m_fraction));
         out.points.resize(m_topology.nodes.size());
         const double alpha = active() ? std::clamp(m_accumulator / m_step, 0.0, 1.0) : 1;
         for (std::size_t i = 0; i < out.points.size(); ++i) {

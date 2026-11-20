@@ -19,6 +19,7 @@ namespace hyprimate {
         PaperOrigin crumple_origin = PaperOrigin::Center;
         PaperForce force_direction = PaperForce::Inward;
         PaperQuality simulation_quality = PaperQuality::Adaptive;
+        double inertia = 0.45;
     };
     // Positions relative to capture centre, x right, y down, z towards the viewer;
     // one unit is sqrt(rest width * rest height). UV is immutable material space, top-left (0,0).
@@ -41,5 +42,9 @@ namespace hyprimate {
         float thickness =
             0.00516F;  // separation used by the contact solver, in material-space units
         float opacity = 1, shading = 0.7F;
+        // Desktop-plane shadow opacity; zero preserves the baseline material exactly.
+        double shadow_strength = 0;
+        // Fine, smooth live grid: use its triangles directly, without crumple reconstruction.
+        bool interaction_mesh = false;
     };
 }  // namespace hyprimate

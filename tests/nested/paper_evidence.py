@@ -50,6 +50,7 @@ def main():
     parser.add_argument('--close-only', action='store_true', help='Map natively, then exercise production closing only')
     parser.add_argument('--replay-seed', type=_replay_seed, help='Private uint64 first-begin seed; never inherited from host environment')
     parser.add_argument('--directional-left', action='store_true', help='Only first-job 620x620 mixed .55/left/directional open+close, no reversal')
+    parser.add_argument('--interactions', action='store_true', help='Exercise live geometry and compare settled frames against native rendering before the lifecycle cases')
     parser.add_argument('--unfolding', action='store_true', help='Record short, standard and long openings for a paired release comparison')
     parser.add_argument('--settle', type=float, default=3.0, help='Minimum seconds from map request to settled capture')
     args = parser.parse_args()
@@ -216,6 +217,10 @@ def main():
             '-p', 'crf=0', '-p', 'preset=ultrafast', *encoder_threads, '-f', out / 'capture.mkv'])
         event('capture-start')
         time.sleep(.8)
+        if args.interactions:
+            from paper_interactions import exercise
+            exercise(hc, send, event, env, out)
+            options()
         index = 0
         cases = [('concurrent-dense', 560, 280, False, 4, ''),
                  ('native-text', 620, 620, False, 1, ''),

@@ -84,7 +84,13 @@ namespace {
         GLfloat depth_clear = 1;
         std::array<GLfloat, 4> color_clear{};
         std::array<GLboolean, 4> color_mask{};
-        LocalState() {
+        bool blend_changed = false;
+        GLint blend_equation_rgb = 0, blend_equation_alpha = 0;
+        explicit LocalState(bool blend) : blend_changed(blend) {
+            if (blend_changed) {
+                glGetIntegerv(GL_BLEND_EQUATION_RGB, &blend_equation_rgb);
+                glGetIntegerv(GL_BLEND_EQUATION_ALPHA, &blend_equation_alpha);
+            }
             glGetIntegerv(GL_DEPTH_FUNC, &depth_function);
             glGetIntegerv(GL_RENDERBUFFER_BINDING, &renderbuffer);
             glGetBooleanv(GL_DEPTH_WRITEMASK, &depth_mask);
@@ -93,6 +99,10 @@ namespace {
             glGetBooleanv(GL_COLOR_WRITEMASK, color_mask.data());
         }
         ~LocalState() {
+            if (blend_changed) {
+                glBlendEquationSeparate(static_cast<GLenum>(blend_equation_rgb),
+                    static_cast<GLenum>(blend_equation_alpha));
+            }
             glDepthFunc(static_cast<GLenum>(depth_function));
             glDepthMask(depth_mask);
             glClearDepthf(depth_clear);
@@ -134,6 +144,7 @@ bool CPaperMaterial::initialize(GLuint program) {
     m_light_range = glGetUniformLocation(program, "lightRange");
     m_shadow_size = glGetUniformLocation(program, "shadowSize");
     m_thickness = glGetUniformLocation(program, "thickness");
+    m_shadow_strength = glGetUniformLocation(program, "shadowStrength");
     glGenVertexArrays(1, &m_vao);
     glGenBuffers(1, &m_buffer);
     glGenFramebuffers(1, &m_framebuffer);
@@ -261,9 +272,13 @@ bool CPaperMaterial::mesh(const hyprimate::PaperSurface &surface) {
     if (changed) topology(surface);
     const auto COUNT = surface.faces.size() * 3;
     m_normals.resize(surface.faces.size());
-    m_weights.resize(COUNT);
-    m_visited.resize(COUNT);
-    m_corners.resize(COUNT);
+    if (surface.interaction_mesh) {
+        m_vertices.resize(COUNT);
+    } else {
+        m_weights.resize(COUNT);
+        m_visited.resize(COUNT);
+        m_corners.resize(COUNT);
+    }
     for (std::size_t face = 0; face < surface.faces.size(); ++face) {
         const auto &VERTICES = surface.faces[face].vertex;
         m_normals[face] = cross(
@@ -274,6 +289,22 @@ bool CPaperMaterial::mesh(const hyprimate::PaperSurface &surface) {
         m_fan.clear();
         for (auto corner = m_heads[vertex]; corner != SIZE_MAX; corner = m_next[corner])
             m_fan.push_back(corner);
+        if (surface.interaction_mesh) {
+            Vec3 accumulated{};
+            for (const auto corner : m_fan) accumulated = add(accumulated, m_normals[corner / 3]);
+            const auto NORMAL = normalized(accumulated);
+            const auto &POINT = surface.points[vertex];
+            for (const auto corner : m_fan)
+                m_vertices[corner] = {static_cast<float>(POINT.position.x),
+                    static_cast<float>(POINT.position.y),
+                    static_cast<float>(POINT.position.z),
+                    static_cast<float>(POINT.uv.x),
+                    static_cast<float>(POINT.uv.y),
+                    static_cast<float>(NORMAL.x),
+                    static_cast<float>(NORMAL.y),
+                    static_cast<float>(NORMAL.z)};
+            continue;
+        }
         for (const auto source : m_fan) {
             for (const auto corner : m_fan) {
                 m_weights[corner] = 0;
@@ -313,7 +344,7 @@ bool CPaperMaterial::mesh(const hyprimate::PaperSurface &surface) {
                 static_cast<float>(NORMAL.z)};
         }
     }
-    reconstruct(surface);
+    if (!surface.interaction_mesh) reconstruct(surface);
     glBindVertexArray(m_vao);
     glBindBuffer(GL_ARRAY_BUFFER, m_buffer);
     const auto BYTES = m_vertices.size() * sizeof(SPaperVertex);
@@ -395,11 +426,9 @@ double CPaperMaterial::clearance(const hyprimate::PaperSurface &surface,
 }
 
 void CPaperMaterial::reconstruct(const hyprimate::PaperSurface &surface) {
-    m_order.resize(surface.faces.size());
-    std::iota(m_order.begin(), m_order.end(), std::size_t{0});
-    m_bounds.clear();
-    m_bounds.reserve(surface.faces.size() * 2);
-    (void)build_bounds(surface, 0, surface.faces.size());
+    // Most interaction patches are nearly planar. Build the clearance hierarchy only
+    // when a genuinely curved edge needs it, not for every flat frame.
+    bool bounds_ready = false;
     m_midpoints.resize(surface.faces.size() * 3);
     for (std::size_t begin = 0; begin < m_edges.size();) {
         auto end = begin + 1;
@@ -445,6 +474,14 @@ void CPaperMaterial::reconstruct(const hyprimate::PaperSurface &surface) {
                 .125);
             const double DISPLACEMENT = std::sqrt(dot(offset, offset));
             if (DISPLACEMENT > 1e-12) {
+                if (!bounds_ready) {
+                    m_order.resize(surface.faces.size());
+                    std::iota(m_order.begin(), m_order.end(), std::size_t{0});
+                    m_bounds.clear();
+                    m_bounds.reserve(surface.faces.size() * 2);
+                    (void)build_bounds(surface, 0, surface.faces.size());
+                    bounds_ready = true;
+                }
                 radius = std::min(radius, DISPLACEMENT);
                 const double GAP_SQUARED =
                     clearance(surface, MIDDLE, EDGE.a, EDGE.b, radius * radius * 25);
@@ -542,9 +579,13 @@ bool CPaperMaterial::draw(const hyprimate::PaperSurface &surface,
         target.texture_size.x < 1 || target.texture_size.y < 1 || !finite(surface.size) ||
         surface.size.x <= 0 || surface.size.y <= 0 || !std::isfinite(surface.opacity) ||
         !std::isfinite(surface.shading) || !std::isfinite(surface.thickness) ||
-        !std::isfinite(target.alpha))
+        !std::isfinite(surface.shadow_strength) || !std::isfinite(target.alpha))
         return false;
-    const LocalState STATE;
+    const bool CASTS_SHADOW =
+        surface.shadow_strength > 0 && std::any_of(surface.points.begin(),
+                                           surface.points.end(),
+                                           [](const auto &point) { return point.position.z > 0; });
+    const LocalState STATE(CASTS_SHADOW);
     const auto WIDTH = static_cast<GLsizei>(std::ceil(target.canvas.x));
     const auto HEIGHT = static_cast<GLsizei>(std::ceil(target.canvas.y));
     if (!resize(WIDTH, HEIGHT, surface.shading > 0) || !mesh(surface)) return false;
@@ -650,6 +691,20 @@ bool CPaperMaterial::draw(const hyprimate::PaperSurface &surface,
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glClearColor(0, 0, 0, 0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    if (CASTS_SHADOW) {
+        glEnable(GL_BLEND);
+        // Max coverage is order-independent across overlapping folds and shared patches.
+        glBlendEquation(GL_MAX);
+        glDisable(GL_DEPTH_TEST);
+        glUniform1i(m_depth_pass, 2);
+        glUniform1f(m_shadow_strength,
+            static_cast<float>(std::clamp(surface.shadow_strength, 0.0, 1.0)) * .18F);
+        glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(m_vertices.size()));
+        // Only the nearest sheet fragment owns a texel. Blending translucent
+        // folds here would bring back the hidden copy when draw order changes.
+        glDisable(GL_BLEND);
+        glEnable(GL_DEPTH_TEST);
+    }
     glUniform1i(m_depth_pass, 0);
     glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(m_vertices.size()));
     glBindFramebuffer(GL_READ_FRAMEBUFFER, m_framebuffer);

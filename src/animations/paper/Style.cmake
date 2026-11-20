@@ -1,5 +1,6 @@
 target_sources(hyprimate-core PRIVATE
     src/animations/paper/PaperCrumple.cpp
+    src/animations/paper/PaperInteraction.cpp
     src/animations/paper/PaperTopology.cpp
     src/animations/paper/PaperContact.cpp
     src/animations/paper/PaperWorkers.cpp
@@ -18,7 +19,7 @@ if(BUILD_TESTING)
     target_include_directories(paper-crumple-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME paper-crumple-tests COMMAND paper-crumple-tests)
 
-    foreach(kind IN ITEMS Topology Contact)
+    foreach(kind IN ITEMS Topology Contact Interaction)
         string(TOLOWER "${kind}" target)
         add_executable(paper-${target}-tests src/animations/paper/tests/Paper${kind}Tests.cpp)
         target_link_libraries(paper-${target}-tests PRIVATE hyprimate-core)

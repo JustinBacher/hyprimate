@@ -123,13 +123,37 @@ hl.config({
                         shading = 0.7,
                         variation = 0.5,
                         fold_density = 0.55,
-                        paper_stiffness = 0.72,
+                        -- paper_stiffness = 0.72,
                         crumple_size = 0.18,
                         crumple_origin = "center",
                         force_direction = "inward",
                         rotation_intensity = 0.22,
-                        settling = 0.45,
+                        -- settling = 0.45,
                         simulation_quality = "adaptive",
+                        stiffness = 0.75,
+                        inertia = 0.45,
+                        settle_damping = 0.8,
+                        move = {
+                            style = "flutter",
+                            flutter = {
+                                air_resistance = 0.65,
+                                intensity = 0.5,
+                                frequency = 1.2,
+                                lift = 0.3,
+                                torsion = 0.4,
+                            },
+                            glide = {
+                                friction = 0.6,
+                                corner_lift = 0.25,
+                                edge_curl = 0.3,
+                                shadow_separation = 0.2,
+                            },
+                        },
+                        resize = {
+                            fold_intensity = 0.6,
+                            curl_intensity = 0.45,
+                            crease_density = 0.5,
+                        },
                     },
                     swarm = {
                         lone_window_sides = "all",
@@ -248,6 +272,8 @@ Use `hyprimate` under `plugin` in `hl.config`; the matching `hyprctl` keys begin
 
 Style settings under `window.options.<style>` are shared; set `window.<animation>.options.<style>` to override one animation. When a shared setting is unset, each animation uses its own default. Shared values are clamped to the receiving animation’s range. Example lines with differing animation defaults are commented out to preserve them.
 
+Paper live movement and resizing use `window.options.paper.stiffness`, `inertia` and `settle_damping`; movement behavior is selected by `window.options.paper.move.style`, with separate `move.flutter`, `move.glide` and `resize` tables. These live controls do not create per-animation overrides. Opening and closing retain their historical defaults when the new material keys are unset. For stiffness and damping the precedence is an explicitly set legacy per-animation `paper_stiffness` / `settling`, then an explicitly set legacy shared key, then an explicitly set new `stiffness` / `settle_damping`, then the historical transition default. Shared inertia has no legacy override.
+
 Formation controls listed under `window.open.options.bubble` apply only to opening and have no global or closing counterpart. They use the same options table; shared settings such as `duration` still inherit normally.
 
 | Setting | Type / default | Numeric range | Meaning |
@@ -284,12 +310,12 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `window:options:paper:shading` | float / animation defaults: `0.7` | 0–1 | Strength of lighting and fold shadows; zero leaves the geometry unlit. |
 | `window:options:paper:variation` | float / animation defaults: `0.5` | 0–1 | Variation in grip locations, loads and timing. Zero retains subtle differences between events. |
 | `window:options:paper:fold_density` | float / animation defaults: `0.55` | 0–1 | Frequency of folds: low gives broad flaps, high gives more closely spaced creases. |
-| `window:options:paper:paper_stiffness` | float / animation defaults: `0.72` | 0–1 | Elastic resistance to bending before the sheet takes a crease. |
+| `window:options:paper:paper_stiffness` | float / animation defaults: `0.72` | 0–1 | Elastic resistance to bending before the sheet takes a crease. Overrides shared stiffness when explicitly set. |
 | `window:options:paper:crumple_size` | float / animation defaults: `0.18` | 0.1–0.45 | Target extent of the packed paper relative to the window material length scale. |
 | `window:options:paper:crumple_origin` | string / animation defaults: `"center"` | — | Where the packed sheet converges. Cursor samples the nearest point on the capture at event time. Allowed: `center`, `random`, `cursor`, `left`, `right`, `top`, `bottom`. |
 | `window:options:paper:force_direction` | string / animation defaults: `"inward"` | — | Gather around the origin, press along a preferred axis, or twist the grips. Allowed: `inward`, `directional`, `rotational`. |
 | `window:options:paper:rotation_intensity` | float / animation defaults: `0.22` | 0–1 | Rotational impulse applied by the grips. |
-| `window:options:paper:settling` | float / animation defaults: `0.45` | 0–1 | Higher values damp residual motion and increase friction between folded layers. |
+| `window:options:paper:settling` | float / animation defaults: `0.45` | 0–1 | Higher values damp residual motion and increase friction between folded layers. Overrides shared settle_damping when explicitly set. |
 | `window:options:paper:simulation_quality` | string / animation defaults: `"adaptive"` | — | Physical mesh detail. Adaptive selects detail from capture size and active workload. Allowed: `adaptive`, `low`, `medium`, `high`. |
 | `window:options:cloth:duration` | float / animation defaults: open `1.0`, close `0.9` | 0.1–4 | Open: Time in seconds for the gathered curtain to spread from its top edge and settle flat. Close: Time in seconds for the top rod to carry the curtain beyond the selected screen edge. |
 | `window:options:cloth:default_animation_edge` | string / animation defaults: `"bottom"` | — | Open: Opening origin for the first cloth window on a workspace, used when the closing side is origin. Later windows use their placement. Cloth still opens in place. Close: Preferred cloth closing edge for the last window on a workspace when side is auto. Invalid edges fall back to a valid edge. Allowed: `bottom`, `top`, `left`, `right`. |
@@ -344,7 +370,7 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `workspace:options:planet_hop:depth_strength` | float / `0.018` | 0–0.5 | Surface relief strength in planet-radius units. |
 | `workspace:options:planet_hop:depth_source` | string / `""` | — | Optional PNG depth image path; empty uses procedural depth. PNG images are limited to 4096 pixels per dimension and 16 MiB encoded. |
 | `window:enabled` | boolean / `true` | — | Enable window movement, opening and closing effects. When false, none of these effects run. |
-| `window:style` | string / `"liquid"` | — | Choose the material for movement, opening and closing. Liquid deforms the edges; paper crumples into a ball and moves without deformation; cloth drapes and flutters; swarm breaks the window into creature-shaped pieces; bubble inflates a soap film, sloshes while moving and bursts on close; smoke gathers, unravels into flowing content-coloured volumes while moving, reforms at rest and dissipates on close; burn opens through the wallpaper, scorches it during movement and consumes the printed window on close. Invalid names are rejected. Allowed: `liquid`, `paper`, `cloth`, `swarm`, `bubble`, `smoke`, `burn`. |
+| `window:style` | string / `"liquid"` | — | Choose the material for movement, opening and closing. Liquid deforms the edges; paper crumples into a ball, flutters or glides while moving and folds while resizing; cloth drapes and flutters; swarm breaks the window into creature-shaped pieces; bubble inflates a soap film, sloshes while moving and bursts on close; smoke gathers, unravels into flowing content-coloured volumes while moving, reforms at rest and dissipates on close; burn opens through the wallpaper, scorches it during movement and consumes the printed window on close. Invalid names are rejected. Allowed: `liquid`, `paper`, `cloth`, `swarm`, `bubble`, `smoke`, `burn`. |
 | `window:options:burn:variation` | float / `0.7` | 0–1 | Irregularity of the combustion front, from even propagation to strongly uneven burning. |
 | `window:options:burn:fragment_density` | float / `0.55` | 0–1 | Relative emission of detached printed fragments. Zero disables them. |
 | `window:options:burn:ember_density` | float / `0.65` | 0–1 | Relative emission of luminous embers. Zero disables them. |
@@ -356,6 +382,22 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `window:close:options:burn:closing_style` | string / `"curl"` | — | Consume burns the printed sheet in place; curl also bends the brittle edges and exposed paper. Allowed: `consume`, `curl`. |
 | `window:close:options:burn:debris_direction` | string / `"natural"` | — | Motion of close debris: material-dependent natural forces, falling debris, rising debris or directional wind. Fire propagation is independent. Allowed: `natural`, `fall`, `rise`, `wind`. |
 | `window:close:options:burn:curl_intensity` | float / `0.8` | 0–1 | Strength of local bending at the combustion front in the curl closing style. |
+| `window:options:paper:stiffness` | float / `0.75` | 0–1 | Shared resistance to bending; higher values keep the sheet more rigid. Explicit values also supply opening and closing paper_stiffness unless a legacy shared or per-animation override is set. |
+| `window:options:paper:inertia` | float / `0.45` | 0–1 | Shared retention of bending momentum across paper movement, resizing and transitions. Zero minimizes residual motion; higher values prolong directional lag without stretching the sheet. |
+| `window:options:paper:settle_damping` | float / `0.8` | 0–1 | Shared dissipation of residual bending motion; higher values settle more quickly. Explicit values also supply opening and closing settling unless a legacy shared or per-animation override is set. |
+| `window:options:paper:move:style` | string / `"flutter"` | — | Movement behavior: flutter lifts the sheet into airflow; glide keeps it close to the desktop. Inactive movement styles do not simulate. Allowed: `flutter`, `glide`. |
+| `window:options:paper:move:flutter:air_resistance` | float / `0.65` | 0–1 | Flutter-only airflow coupling to movement velocity and acceleration. Zero removes airflow-driven bending. |
+| `window:options:paper:move:flutter:intensity` | float / `0.5` | 0–1 | Flutter-only strength of movement-induced bends and ripples. Zero disables these bends, not pickup lift. |
+| `window:options:paper:move:flutter:frequency` | float / `1.2` | 0.1–4 | Flutter-only ripple frequency multiplier; higher values produce faster, more closely spaced transient ripples. |
+| `window:options:paper:move:flutter:lift` | float / `0.3` | 0–1 | Flutter-only apparent pickup height and shadow separation. Zero keeps the body at the desktop surface. |
+| `window:options:paper:move:flutter:torsion` | float / `0.4` | 0–1 | Flutter-only twisting from acceleration and direction changes. Zero disables the torsional response. |
+| `window:options:paper:move:glide:friction` | float / `0.6` | 0–1 | Glide-only surface friction damping local bends; higher values flatten residual curls sooner. |
+| `window:options:paper:move:glide:corner_lift` | float / `0.25` | 0–1 | Glide-only corner lifting in response to acceleration. Zero keeps the corners grounded. |
+| `window:options:paper:move:glide:edge_curl` | float / `0.3` | 0–1 | Glide-only localized leading-edge curling from movement speed. Zero removes edge curling. |
+| `window:options:paper:move:glide:shadow_separation` | float / `0.2` | 0–1 | Glide-only apparent contact-shadow separation under locally lifted edges and corners. Zero removes separation. |
+| `window:options:paper:resize:fold_intensity` | float / `0.6` | 0–1 | Resize-only strength of localized compression buckles and folds. Zero disables compression folding. |
+| `window:options:paper:resize:curl_intensity` | float / `0.45` | 0–1 | Resize-only strength of edge curls released during expansion. Zero disables expansion curling. |
+| `window:options:paper:resize:crease_density` | float / `0.5` | 0–1 | Resize-only spacing of compression creases: lower values make broad folds, higher values make finer pleats. |
 | `window:options:swarm:sprite` | string / `"spider"` | — | Swarm sprite name in the sprites directory, with or without .png, or an explicit PNG path. The sheet has four columns and two rows of frames; transparency defines the silhouette. |
 | `window:options:swarm:count` | int / `250` | 1–400 | Number of swarm creatures per window. Each carries a piece of the window, so fewer creatures mean larger pieces. |
 | `window:options:swarm:speed` | float / `1400` | 100–6000 | Swarm creature travel speed in logical pixels per second. |

@@ -66,6 +66,7 @@ class CWindowAnimations<Port, StyleList<Styles...>> {
         Port::WindowRef window;
         WindowId id = 0;
         std::optional<Observation> previous;
+        Clock::time_point previous_sample{};
         std::optional<Handle> handle;
         std::optional<Edge> opening_edge;
         bool opening_seen = false;

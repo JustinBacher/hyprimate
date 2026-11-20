@@ -18,6 +18,7 @@ namespace hyprimate {
             PaperParams params;
             std::uint64_t seed;
             Vec2 size, cursor;
+            std::shared_ptr<const PaperSurface> initial;
         };
         constexpr double MAX_BACKLOG = 0.05;
         // Publish between physical ticks. Waiting for a 60 Hz batch hides several completed
@@ -71,7 +72,8 @@ namespace hyprimate {
         PaperParams params,
         std::uint64_t seed,
         Vec2 size,
-        Vec2 cursor) {
+        Vec2 cursor,
+        std::shared_ptr<const PaperSurface> initial) {
         // Only the event thread adds/removes queue entries. Start one worker per actual
         // simultaneous window, leaving CPU headroom for Hyprland and other clients.
         static const auto LIMIT = std::clamp(std::thread::hardware_concurrency() / 3U, 1U, 4U);
@@ -104,7 +106,7 @@ namespace hyprimate {
         if (m_replay_seed) {
             seed = (*m_replay_seed)++;
         }
-        run->load = {kind, params, seed, size, cursor};
+        run->load = {kind, params, seed, size, cursor, std::move(initial)};
         ++run->revision;
         run->remaining = 0;
         run->published = run->done = run->failed = false;
@@ -177,7 +179,7 @@ namespace hyprimate {
             run->busy = true;
             const auto REVISION = run->revision;
             const auto BEGIN = std::exchange(run->begin, false);
-            const auto LOAD = BEGIN ? std::optional{run->load} : std::nullopt;
+            const auto LOAD = BEGIN ? std::optional{std::move(run->load)} : std::nullopt;
             const double DELTA = BEGIN ? 0.0 : std::min(run->remaining, PUBLICATION_SLICE);
             run->remaining -= DELTA;
             lock.unlock();
@@ -190,7 +192,8 @@ namespace hyprimate {
                         LOAD->seed,
                         LOAD->size,
                         LOAD->cursor,
-                        run->cancellation.get_token());
+                        run->cancellation.get_token(),
+                        LOAD->initial.get());
                     active = run->model.active();
                     failed = !active;
                 } else {

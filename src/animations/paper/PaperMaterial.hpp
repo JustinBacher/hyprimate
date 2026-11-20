@@ -43,7 +43,8 @@ class CPaperMaterial {
 
     // Changes framebuffer bindings, viewport, program, VAO, ARRAY_BUFFER, texture/sampler units
     // 0-1, and blend/cull/depth/scissor/stencil enables. The compositor wrapper brackets these.
-    // Depth parameters, clear values, renderbuffer binding, and colour mask are restored here.
+    // Depth/blend parameters, clear values, renderbuffer binding, and colour mask are restored
+    // here.
   private:
     struct Edge {
         std::uint32_t a, b;
@@ -92,4 +93,5 @@ class CPaperMaterial {
     GLint m_image = -1, m_scene_depth = -1, m_opacity = -1, m_shading = -1, m_depth_pass = -1;
     GLint m_light_basis = -1, m_light_bounds = -1, m_light_range = -1;
     GLint m_shadow_size = -1, m_thickness = -1;
+    GLint m_shadow_strength = -1;
 };

@@ -12,7 +12,8 @@ void SPaperModule::warm(Resources &resources) {
 bool SPaperModule::draw(State &state,
     const hyprimate::animation::Draw<CHyprAnimationCanvas> &draw,
     Resources &resources) {
-    if (state.display.faces.empty()) {
+    const auto &surface = state.surface();
+    if (surface.faces.empty()) {
         return true;
     }  // no surface until the first compact pose
     auto &renderer = draw.canvas->pass() == hyprimate::animation::PassKind::Live
@@ -21,5 +22,5 @@ bool SPaperModule::draw(State &state,
     if (!renderer) {
         renderer = std::make_shared<CPaperRenderer>();
     }
-    return renderer->draw(state.display, draw);
+    return renderer->draw(surface, draw);
 }

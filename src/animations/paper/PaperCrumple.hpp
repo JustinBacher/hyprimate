@@ -25,7 +25,8 @@ namespace hyprimate {
             std::uint64_t seed,
             Vec2 size,
             Vec2 cursor_uv = {0.5, 0.5},
-            std::stop_token stop = {});
+            std::stop_token stop = {},
+            const PaperSurface *interaction = nullptr);
         bool advance(double seconds);
         bool active() const noexcept;
         bool closed() const noexcept;
@@ -75,6 +76,7 @@ namespace hyprimate {
         double m_step = 1.0 / 240.0;
         // Opening platen starts at the packet's height plus flap headroom.
         double m_press_height = 0;
+        float m_initial_shadow = 0;
         std::uint64_t m_tick = 0;
         // Capacity-retained per-tick loads; no grip/transcendental work in solver sweeps.
         std::vector<OpeningLoad> m_opening_loads;

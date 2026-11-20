@@ -192,6 +192,70 @@ class ConfigGeneratorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'inherit must be boolean'):
             GEN.validate([dict(extra, inherit=True)])
 
+    def test_paper_live_configuration_contract(self):
+        prefix = 'window.options.paper.'
+        items = {item['path'][len(prefix):]: item for item in SCHEMA
+                 if item['path'].startswith(prefix)}
+        defaults = {
+            'stiffness': .75, 'inertia': .45, 'settle_damping': .8,
+            'move.flutter.air_resistance': .65, 'move.flutter.intensity': .5,
+            'move.flutter.frequency': 1.2, 'move.flutter.lift': .3, 'move.flutter.torsion': .4,
+            'move.glide.friction': .6, 'move.glide.corner_lift': .25,
+            'move.glide.edge_curl': .3, 'move.glide.shadow_separation': .2,
+            'resize.fold_intensity': .6, 'resize.curl_intensity': .45, 'resize.crease_density': .5,
+        }
+        for name, default in defaults.items():
+            with self.subTest(name=name):
+                item = items[name]
+                self.assertEqual(item['type'], 'float')
+                self.assertEqual(item['default'], default)
+                self.assertEqual((item['min'], item['max']),
+                                 (.1, 4) if name == 'move.flutter.frequency' else (0, 1))
+                self.assertFalse(item.get('optional') or item.get('inherited'))
+                self.assertTrue(item['description'])
+        self.assertEqual(items['move.style']['default'], 'flutter')
+        self.assertEqual(items['move.style']['choices'], ['flutter', 'glide'])
+        self.assertEqual({name for name in items if name.startswith('move.')},
+                         {'move.style'} | {name for name in defaults if name.startswith('move.')})
+        for direction in ('open', 'close', 'movement'):
+            for name in defaults.keys() | {'move.style'}:
+                self.assertFalse(any(item['path'] == f'window.{direction}.options.paper.{name}'
+                                     for item in SCHEMA))
+        header = GEN.settings_header(SCHEMA)
+        self.assertIn('enum class PaperMoveStyle : std::uint8_t { Flutter, Glide };', header)
+        for declaration in ('SPaperMoveFlutter flutter{};', 'SPaperMoveGlide glide{};',
+                            'SPaperMove move{};', 'SPaperResize resize{};',
+                            'PaperMoveStyle style{};', 'double airResistance{};',
+                            'double cornerLift{};', 'double edgeCurl{};',
+                            'double shadowSeparation{};', 'double creaseDensity{};'):
+            self.assertIn(declaration, header)
+        generated = GEN.config_header(SCHEMA)
+        self.assertIn('config.paper.move.flutter.airResistance = detail::clamp_float', generated)
+        self.assertIn('config.paper.move.glide.shadowSeparation = detail::clamp_float', generated)
+        self.assertIn('config.paper.resize.foldIntensity = detail::clamp_float', generated)
+        self.assertIn('config.paper.shared.settleDamping = detail::clamp_float', generated)
+
+    def test_paper_legacy_material_fallbacks(self):
+        for direction in ('open', 'close'):
+            for legacy, shared in [('paper_stiffness', 'stiffness'), ('settling', 'settle_damping')]:
+                item = next(item for item in SCHEMA
+                            if item['path'] == f'window.{direction}.options.paper.{legacy}')
+                self.assertEqual(item['fallback'], f'window.options.paper.{shared}')
+                self.assertTrue(item['inherited'])
+        self.assertFalse(any('fallback' in item for item in SCHEMA
+                             if item['path'].startswith('window.options.')))
+        GEN.validate(SCHEMA)
+
+    def test_invalid_material_fallbacks_are_rejected(self):
+        items = json.loads(SCHEMA_PATH.read_text())
+        original = next(item for item in items if item['path'] == 'window.open.options.paper.paper_stiffness')
+        for fallback in ('window.options.paper.missing', 'window.options.paper.move.style',
+                         'window.open.options.paper.settling'):
+            with self.subTest(fallback=fallback):
+                invalid = [dict(item, fallback=fallback) if item is original else item for item in items]
+                with self.assertRaisesRegex(ValueError, 'fallback must name'):
+                    GEN.validate(invalid)
+
     def test_close_options_are_side_and_splash(self):
         paths = {item['path'] for item in SCHEMA}
         self.assertIn('window.close.options.liquid.side', paths)
@@ -272,10 +336,12 @@ class ConfigGeneratorTests(unittest.TestCase):
             if not item['path'].startswith('window.options.') or not item.get('optional'):
                 continue
             suffix = item['path'].removeprefix('window.options.')
-            values = {other['default'] for other in SCHEMA if other.get('inherited')
-                      and other['path'].split('.options.', 1)[1] == suffix}
+            overrides = [other for other in SCHEMA if other.get('inherited')
+                         and other['path'].split('.options.', 1)[1] == suffix]
+            values = {other['default'] for other in overrides}
             with self.subTest(path=item['path']):
-                self.assertEqual(item['path'] in active, len(values) <= 1)
+                self.assertEqual(item['path'] in active,
+                                 len(values) <= 1 and not any('fallback' in other for other in overrides))
 
     def test_readme_describes_differing_animation_defaults_and_meanings(self):
         block = GEN.documentation(SCHEMA)

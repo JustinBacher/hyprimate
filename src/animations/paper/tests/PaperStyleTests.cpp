@@ -22,9 +22,9 @@ int main() {
     place.goal_body = place.rest_capture = place.capture;
     Effects effects;
     CHECK(SPaperModule::open(state, place, resources, effects));
-    Motion motion{};
-    motion.translated = true;
-    CHECK(!SPaperModule::moves(motion, resources));
+    CHECK(SPaperModule::moves(Motion{.translated = true}, resources));
+    CHECK(SPaperModule::moves(Motion{.resized = true}, resources));
+    CHECK(!SPaperModule::moves(Motion{.capture_changed = true}, resources));
     Step step{};
     step.elapsed = 1.0 / 120.0;
     step.capture = place.capture;
@@ -49,6 +49,44 @@ int main() {
     CHECK(SPaperModule::advance(state, step, resources, effects).running);
     SPaperModule::end(state, resources, End::Interrupted);
     CHECK(!state.run);
+
+    // Movement is independent of map animation. A close during flight must
+    // publish the bent starting pose before advancing its own solver.
+    auto moving = SPaperModule::start(resources, 0);
+    Step drag{};
+    drag.capture = drag.body = place.capture;
+    drag.movement_enabled = true;
+    drag.motion = Motion{.from_body = place.capture,
+        .body = place.capture,
+        .translated = true,
+        .sample_seconds = 1.0 / 60};
+    drag.motion->from_body.x -= 28;
+    for (int i = 0; i < 12; ++i) {
+        CHECK(SPaperModule::advance(moving, drag, resources, effects).running);
+        drag.elapsed = 1.0 / 60;
+        drag.motion->from_body = drag.body;
+        drag.capture.x = drag.body.x += 28;
+        drag.motion->body = drag.body;
+    }
+    CHECK(moving.display.interaction_mesh && moving.display.shadow_strength > 0);
+    place.capture = drag.capture;
+    CHECK(SPaperModule::close(moving, place, resources) == CloseStart::Owned);
+    const auto HANDOFF = moving.closing_from;
+    CHECK(HANDOFF && moving.surface().interaction_mesh);
+    const auto CLOSE_DEADLINE = Clock::now() + std::chrono::seconds(2);
+    const Step FIRST_CLOSE{.capture = place.capture, .dying = true};
+    while (moving.closing_from && Clock::now() < CLOSE_DEADLINE) {
+        CHECK(SPaperModule::advance(moving, FIRST_CLOSE, resources, effects).running);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    CHECK(!moving.closing_from && !moving.display.points.empty());
+    if (HANDOFF) {
+        for (const auto &point : moving.display.points) {
+            const auto source = PaperInteraction::sample(*HANDOFF, point.uv);
+            CHECK(std::abs(source.z - point.position.z) < 1e-7);
+        }
+    }
+    SPaperModule::end(moving, resources, End::Interrupted);
 
     auto fresh = SPaperModule::start(resources, 0);
     CHECK(SPaperModule::close(fresh, place, resources) == CloseStart::Owned);

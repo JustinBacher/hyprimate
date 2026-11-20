@@ -28,7 +28,8 @@ namespace hyprimate {
             PaperParams params,
             std::uint64_t seed,
             Vec2 size,
-            Vec2 cursor);
+            Vec2 cursor,
+            std::shared_ptr<const PaperSurface> initial = {});
         PaperPlayback present(
             const std::shared_ptr<PaperRun> &run, double elapsed, PaperSurface &display);
         void cancel(std::shared_ptr<PaperRun> &run) noexcept;

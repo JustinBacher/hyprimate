@@ -14,6 +14,8 @@ class CPaperRenderer;
 struct SPaperPrepared {
     hyprimate::PaperParams open;
     hyprimate::PaperParams close;
+    hyprimate::PaperInteractionParams interaction;
+    float shading = 0.7F;
 };
 struct SPaperResources : hyprimate::animation::ResourcesBase<SPaperStyle,
                              hyprimate::config::SPaperSettings,
@@ -50,9 +52,8 @@ struct SPaperModule {
     static hyprimate::animation::CloseStart close(
         State &state, const hyprimate::animation::Place &place, Resources &resources);
     static void end(State &state, Resources &resources, hyprimate::animation::End why) noexcept;
-    static bool moves([[maybe_unused]] const hyprimate::animation::Motion &motion,
-        [[maybe_unused]] const Resources &resources) noexcept {
-        return false;
+    static bool moves(const hyprimate::animation::Motion &motion, const Resources &) noexcept {
+        return motion.translated || motion.resized;
     }
 
     static void warm(Resources &resources);

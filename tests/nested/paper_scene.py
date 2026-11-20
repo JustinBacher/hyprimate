@@ -33,6 +33,12 @@ def draw(widget, context, spec):
             context.arc(width * (.5 + .35 * math.sin(i * 2.4)), height * (.5 + .25 * math.cos(i)), 20 + i % 20, 0, math.tau)
             context.fill()
         context.restore()
+    if 'new_column' in spec and width > spec['new_column']:
+        # These texels don't exist in the original buffer. A scaled snapshot
+        # cannot pass the live-resize colour check in paper_interactions.
+        context.set_source_rgb(0, 1, 0)
+        context.rectangle(spec['new_column'], height * .4, min(24, width - spec['new_column']), 32)
+        context.fill()
     return True
 
 def command(spec):
