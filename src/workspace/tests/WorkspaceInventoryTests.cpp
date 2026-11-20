@@ -33,6 +33,12 @@ namespace {
         bool thumbnail_succeeds = true;
         bool fallback_succeeds = true;
         Image fallback = std::make_shared<int>(-1);
+        bool monitor_scope = false;
+        bool includes(const JourneyEndpoint &candidate, const JourneyEndpoint &source,
+            const JourneyEndpoint &destination) const {
+            return !monitor_scope || candidate.owner == source.owner ||
+                   candidate.owner == destination.owner;
+        }
 
         [[nodiscard]] std::uint64_t revision() const {
             return inventory_revision;
@@ -180,6 +186,43 @@ namespace {
         CHECK(fixture.port.index_reads == 2);
         CHECK(fixture.port.previews == RETAINED);
         CHECK(fixture.port.previews->size() == 2);
+    }
+
+    void scene_scope_precedes_capture_eligibility() {
+        Fixture fixture;
+        fixture.port.monitor_scope = true;
+        fixture.source.owner = 10;
+        fixture.destination.owner = 20;
+        fixture.add(2);
+        fixture.port.facts.back().endpoint.owner = 10;
+        fixture.add(3);
+        fixture.port.facts.back().endpoint.owner = 20;
+        fixture.port.facts.back().owner_ready = false;
+        fixture.add(4);
+        fixture.port.facts.back().endpoint.owner = 30;
+        fixture.start();
+        fixture.prepare();
+        CHECK(fixture.port.previews->size() == 2);
+        CHECK(fixture.port.commands.size() == 1);
+        CHECK(fixture.port.commands.front().workspace == 2);
+        CHECK(!fixture.preview(3).image);
+        fixture.prepare();
+        CHECK(fixture.port.commands.size() == 1);
+        const auto OLD = fixture.port.previews;
+        // Moving an actual workspace onto an involved monitor changes membership;
+        // no synthetic planet is inserted for an absent numbered workspace.
+        fixture.port.facts.back().endpoint.owner = 20;
+        fixture.port.facts.back().endpoint.monitor_x = 1920;
+        ++fixture.port.inventory_revision;
+        fixture.prepare();
+        CHECK(fixture.port.previews != OLD);
+        CHECK(fixture.port.previews->size() == 3);
+        CHECK(fixture.preview(4).endpoint.owner == 20);
+        CHECK(fixture.preview(4).endpoint.monitor_x == 1920);
+        const auto REBUILT = fixture.port.previews;
+        fixture.prepare();
+        CHECK(fixture.port.previews == REBUILT);
+        CHECK(fixture.port.index_reads == 2);
     }
 
     void fallbacks_and_capture_failures() {
@@ -364,6 +407,7 @@ namespace {
 int main() {
     scheduling_and_crossfade();
     invalidation_and_placement();
+    scene_scope_precedes_capture_eligibility();
     fallbacks_and_capture_failures();
     remote_commands_and_budget();
     live_owner_and_fallback_failure();

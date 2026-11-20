@@ -165,9 +165,9 @@ namespace hyprimate::workspace {
     }
     void PlanetRenderer::prepare_neighbors(const WorkspaceFrame &frame,
         const planet_hop::Journey &journey,
-        const planet_hop::Frame &scene) {
+        const planet_hop::Frame &scene, double radius) {
         m_neighbors.clear();
-        if (journey.options.planet_layout != planet_hop::Layout::SolarSystem || !frame.neighbors) {
+        if (journey.options.planet_layout == planet_hop::Layout::Focused || !frame.neighbors) {
             return;
         }
         const auto &positions = neighbor_positions(frame, journey, scene);
@@ -175,17 +175,27 @@ namespace hyprimate::workspace {
         m_neighbors.reserve(frame.neighbors->size());
         for (std::size_t index = 0; index < frame.neighbors->size(); ++index) {
             const auto &preview = (*frame.neighbors)[index];
-            if (preview.endpoint.identity == journey.from.identity ||
+            if (!planet_hop::scene_member(preview.endpoint, journey.from, journey.to,
+                    journey.options.planet_layout) ||
+                preview.endpoint.identity == journey.from.identity ||
                 preview.endpoint.identity == journey.to.identity) {
                 continue;
             }
             const auto &position = positions[index];
+            const planet_hop::Vec3 CENTER{.x = position.x - scene.world_origin.x,
+                .y = position.y - scene.world_origin.y,
+                .z = position.z - scene.world_origin.z};
+            const double OWNER_ASPECT = preview.endpoint.monitor_height > 0 ?
+                preview.endpoint.monitor_width / preview.endpoint.monitor_height : 1;
+            const double BOUND = radius * std::max(1.0, OWNER_ASPECT) /
+                std::max(1.0, scene.aspect);
+            if (!planet_hop::neighbor_visible(scene, CENTER, BOUND)) {
+                continue;
+            }
             const GLuint IMAGE = VIEW.texture(preview.image, true);
             const GLuint PREVIOUS = VIEW.texture(preview.previous_image, true);
             m_neighbors.push_back({.endpoint = preview.endpoint,
-                .center = {.x = position.x - scene.world_origin.x,
-                    .y = position.y - scene.world_origin.y,
-                    .z = position.z - scene.world_origin.z},
+                .center = CENTER,
                 .image = IMAGE,
                 .shared_wallpaper = IMAGE == 0,
                 .previous_image = PREVIOUS,
@@ -226,7 +236,8 @@ namespace hyprimate::workspace {
         }
         const auto SCENE =
             planet_hop::evaluate(journey, progress, static_cast<double>(SIZE.x) / SIZE.y);
-        prepare_neighbors(frame, journey, SCENE);
+        prepare_neighbors(frame, journey, SCENE,
+            SCENE.radius * std::max(0.F, settings.solar_background_scale));
         auto render_settings = settings;
         render_settings.rotation_enabled = journey.options.rotation_enabled;
         render_settings.rotation_limit = static_cast<float>(journey.options.rotation_limit);

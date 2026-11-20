@@ -3,22 +3,36 @@
 Load Hyprimate before setting plugin options. In a Hyprland Lua config:
 
 ```lua
+local planet_hop = hl.plugin.planet_hop
+planet_hop.curve("orbit", { type = "spring", mass = 1, stiffness = 70, damping = 10 })
+
 hl.config({ plugin = { hyprimate = { workspace = {
     enabled = true,
     style = "planet_hop",
     options = { planet_hop = {
-        duration = 0.8,
+        duration = 800,
+        curve = "orbit",
         window_mode = "surface",
         overlay_mode = "fade",
-        planet_layout = "linear",
-        skip_duration_mode = "adaptive",
+        planet_layout = "focused",
     } },
 } } } })
 ```
 
-`linear`, `solar_system`, and `dynamic` change where the worlds are, not how the camera travels. Numbered skips use the order of existing numbered workspaces; visiting a named or special composition counts as one hop for timing. `constant` uses `duration`. `distance_scaled` adds `duration × distance_scale` per additional step. `adaptive` grows logarithmically only beyond `adaptive_boundary`. Both scaled modes respect `max_duration` without shortening the base hop.
+`duration` is the total time in **milliseconds** from the first planetary presentation to the native landing. Skipping workspaces does not add time. The camera, surface curvature, windows and shell all sample the same curved timeline. A reversal preserves position and outgoing velocity; a request for a third workspace queues the next leg rather than cutting away from the current pair.
 
-In `solar_system`, every workspace in Hyprland's inventory has a position. Numbered workspaces follow their numbers, with deterministic variation in spacing, depth and height. Gaps leave space, not invented planets. Named and special workspaces use stable positions of their own. The camera still flies directly between endpoints. `planet_separation` sets the shared spacing; `solar_vertical_spread` (default `0.65`) adjusts its aspect-aware height distribution, and `solar_background_scale` (default `0.75`) sets the inactive planet radius before perspective.
+`curve` accepts a native `hl.curve` Bézier or spring name. A spring declared with `hl.plugin.planet_hop.curve` is private to Planet Hop and takes precedence for a bare name. Use `spring:name` to explicitly select a native spring. Planet Hop uses Hyprutils' mass, stiffness, damping and step response. Unlike a native property that can overshoot and settle on its own schedule, the camera has two endpoints and a deadline: Planet Hop fits the spring's rising response to the duration, ending at its first peak or its settling tolerance rather than replaying rebounds or a stationary tail.
+
+| `planet_layout` | Worlds and placement |
+|---|---|
+| `focused` | Only the source and destination; a direct flight framed around that pair. |
+| `monitor` | Workspaces belonging to the transitioning monitor, including inactive workspaces. |
+| `all` | Workspaces across outputs; placement follows the logical monitor layout with separation in depth. |
+| `solar_system` | The same coverage as `all`, on a deterministic three-dimensional spiral with a curved camera flight. |
+
+The scene uses real workspaces, never placeholders for missing workspace numbers. Hidden special workspaces do not populate ordinary journeys. `solar_vertical_spread` stretches the orbits vertically; zero retains the base orbit. Window, overlay, atmosphere and surface controls are independent of workspace coverage.
+
+**Migrating an existing configuration:** multiply Planet Hop `duration` by 1000 (`0.8` → `800`); Rotation still uses seconds. Replace `linear` or `dynamic` **layout** with `focused` to retain the old two-world scope. `linear` remains a valid **curve**. Remove `skip_duration_mode`, `distance_scale`, `max_duration` and `adaptive_boundary`: there is no implicit distance multiplier or second clock. Old layout names are not aliases.
 
 Use `window_mode = "floating"` and adjust `elevation` for rectangular, separately anchored windows. Use `overlay_mode = "hud"` to keep panels screen-aligned. Set `sampling_quality = 0` to reduce tessellation and material sampling without turning off lighting, depth, clouds, stars or atmosphere. These effects and rotation each have their own switch. `depth_source` accepts a grayscale PNG depth map in wallpaper/screen coordinates (top row first); with no usable map, the renderer uses subtle procedural relief, not wallpaper luminance. See the [generated settings table](../README.md) for all ranges, defaults and switches.
 
@@ -30,7 +44,7 @@ The style uses Hyprland's normal monitor-scene render order. A background-layer 
 
 Inactive worlds use GPU thumbnails, not live application rendering every animation frame. Hyprimate renders at most one inactive workspace per output frame, prioritizing worlds along the route. Each capture uses its owning monitor's current windows, without a workspace switch, panels or client presentation feedback. Its last observed wallpaper is preferred. If a wallpaper client has never shown that workspace, Hyprland exposes only that output's current wallpaper, not the daemon's private per-workspace assignment. A newly captured image fades in over the available wallpaper. Preview detail falls with apparent size; thumbnails are limited to two million texels per journey and released when it ends.
 
-The wallpaper has one angular chart from departure to landing. The globe starts as a flat tangent plane, bends along longitude and latitude, and retains a shadowed unmapped surface beyond the chart. A floating window uses the same bend to locate its tangent plane. Quality affects sampling, not the camera path or the native endpoints.
+The desktop covers the planet's front hemisphere. Its four edges meet the back hemisphere along the limb; they are not the border of an inset preview. During landing those same vertices flatten into the monitor rectangle. Wallpaper and surface windows keep their desktop UV coordinates, and floating windows use the same surface to locate their tangent planes.
 
 As the surface flattens, the renderer keeps the wallpaper a few depth-buffer steps behind windows and world overlays. This prevents triangles of wallpaper showing through them in the last animated frames without changing their screen position, opacity, or the native handoff.
 

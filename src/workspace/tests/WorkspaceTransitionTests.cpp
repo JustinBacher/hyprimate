@@ -88,9 +88,8 @@ int main() {
     CHECK(!first.active());
     CHECK(first.progress() == 1.0);
     CHECK(first.begin(Direction::Forward, 1.0));
-    first.retarget(false, 1.0);
-    first.advance(hyprimate::STALL_SECONDS + 0.01);
-    CHECK(!first.active());
-    CHECK(first.progress() == 0.0);
+    first.advance(0.32);
+    CHECK(first.active());
+    CHECK(first.progress() > 0 && first.progress() < 1);
     return g_failures == 0 ? 0 : 1;
 }

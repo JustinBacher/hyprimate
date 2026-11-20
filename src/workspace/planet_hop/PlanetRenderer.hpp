@@ -44,7 +44,7 @@ namespace hyprimate::workspace {
             const planet_hop::Frame & /*scene*/);
         void prepare_neighbors(const WorkspaceFrame & /*frame*/,
             const planet_hop::Journey & /*journey*/,
-            const planet_hop::Frame & /*scene*/);
+            const planet_hop::Frame & /*scene*/, double radius);
         PlanetGlRenderer m_core;
         std::array<std::unique_ptr<CShader>, 3> m_shaders;
         std::vector<PlanetFloatingTextures> m_source_floating;
@@ -52,7 +52,7 @@ namespace hyprimate::workspace {
         struct PositionCache {
             // Owner identity only: never keep preview framebuffers alive.
             std::weak_ptr<const void> inventory;
-            planet_hop::Layout layout = planet_hop::Layout::Linear;
+            planet_hop::Layout layout = planet_hop::Layout::Focused;
             // Size, separation, elevation, solar spread, effective monitor aspect.
             std::array<double, 5> key{};
             std::vector<planet_hop::Vec3> positions;

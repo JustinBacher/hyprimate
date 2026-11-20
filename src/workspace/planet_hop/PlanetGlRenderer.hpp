@@ -155,6 +155,8 @@ namespace hyprimate::workspace {
             float radius = 0;
             int quality = -1;
             std::array<float, 3> tint{};
+            // Capture-owner chart aspect; zero uses the primary scene aspect.
+            float aspect = 0;
         };
         struct EndpointDraw {
             std::reference_wrapper<const PlanetCaptureTextures> capture;

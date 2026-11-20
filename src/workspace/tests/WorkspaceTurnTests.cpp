@@ -157,12 +157,37 @@ void returning_to_destination_discards_pending() {
     CHECK(fixture.port.swaps == 0);
 }
 
+void returning_to_current_target_preserves_timeline() {
+    Fixture fixture;
+    Fixture uninterrupted;
+    fixture.start();
+    uninterrupted.start();
+    fixture.present();
+    uninterrupted.present();
+    fixture.frame(fixture.b, .2);
+    uninterrupted.frame(uninterrupted.b, .2);
+    fixture.turn.begin(fixture.b, fixture.c, 1.0, LINEAR);
+    fixture.turn.begin(fixture.c, fixture.b, 1.0, LINEAR);
+    for (int i = 0; i < 20 && uninterrupted.turn.active(); ++i) {
+        fixture.frame(fixture.b, .05);
+        uninterrupted.frame(uninterrupted.b, .05);
+        CHECK(std::abs(fixture.turn.progress() - uninterrupted.turn.progress()) < 1e-9);
+        CHECK(fixture.turn.active() == uninterrupted.turn.active());
+    }
+    CHECK(!fixture.turn.active());
+    CHECK(fixture.port.swaps == 0);
+}
+
 void destination_swap_and_stall() {
     Fixture fixture;
     fixture.port.next_wallpaper = {.texture = 10, .generation = 1};
+    fixture.port.frame_gap = 1.0;
     fixture.start();
     fixture.port.next_wallpaper = {.texture = 20, .generation = 2};
     fixture.present();
+    fixture.frame(fixture.b, 0.32);  // A slow refresh inside a one-second flight.
+    CHECK(fixture.turn.active());
+    CHECK(std::abs(fixture.turn.progress() - 0.32) < 1e-6);
     fixture.port.next_wallpaper = {.texture = 30, .generation = 3};
     fixture.turn.begin(fixture.b, fixture.c, 1.0, LINEAR);
     for (int i = 0; i < 30 && fixture.port.swaps == 0; ++i) {
@@ -424,8 +449,13 @@ void queue_and_hud_order() {
     fixture.start();
     fixture.present();
     bool prepared = false;
-    CHECK(!fixture.turn.queue(false, [&] { prepared = true; return true; }));
+    Fixture missing;
+    missing.start();
+    missing.present();
+    CHECK(!missing.turn.queue(false, [&] { prepared = true; return true; }));
     CHECK(!prepared);
+    CHECK(!missing.turn.active());
+    CHECK(missing.port.diagnostics.back() == "queue-resources");
     CHECK(fixture.turn.queue(true, [&] { prepared = true; return true; }));
     CHECK(prepared);
     std::vector<HudReplay> replay;
@@ -442,6 +472,10 @@ void queue_and_hud_order() {
 
 void context_and_safety_gates() {
     using Turn = WorkspaceTurn<FakeWorkspacePort>;
+    CHECK(Turn::prime_native({.enabled = true, .output_configured = true}));
+    CHECK(!Turn::prime_native({.output_configured = true}));
+    CHECK(!Turn::prime_native({.enabled = true}));
+    CHECK(!Turn::prime_native({.enabled = true, .output_configured = true, .presented = true}));
     CHECK(Turn::intercept_mutation({.enabled = true}));
     CHECK(!Turn::intercept_mutation({.enabled = true, .capture_depth = 1}));
     CHECK(!Turn::intercept_mutation({.enabled = true, .mutation_depth = 1}));
@@ -452,6 +486,10 @@ void context_and_safety_gates() {
     CHECK(!Turn::queue_context({.monitor = true, .snapshot = true}));
     CHECK(!Turn::queue_context({.monitor = true, .read_only = true}));
     CHECK(!Turn::queue_context({}));
+    CHECK(Turn::prime_native({.enabled = true, .output_configured = true}));
+    CHECK(!Turn::prime_native({.enabled = true, .output_configured = true, .presented = true}));
+    CHECK(!Turn::prime_native({.enabled = false, .output_configured = true}));
+    CHECK(!Turn::prime_native({.enabled = true, .output_configured = false}));
     Fixture fixture;
     fixture.start();
     fixture.present();
@@ -463,6 +501,105 @@ void context_and_safety_gates() {
     CHECK(!fixture.turn.queue(true, [&] { prepared = true; return true; }));
     CHECK(!prepared);
     CHECK(!fixture.turn.active());
+}
+
+void blend_state_does_not_escape_its_leg() {
+    Fixture fixture;
+    fixture.port.boundary = .22;
+    fixture.start();
+    fixture.present();
+    for (int i = 0; i < 4; ++i) {
+        fixture.frame(fixture.b, .2);
+    }
+    CHECK(fixture.turn.blend_mix(CaptureKind::DestinationLive) == 0.0);
+    fixture.turn.begin(fixture.b, fixture.c, 1.0, LINEAR);
+    fixture.frame(fixture.c, .21);
+    CHECK(fixture.turn.active());
+    CHECK(fixture.port.swaps == 1);
+    CHECK(fixture.port.source.identity == fixture.b.identity);
+    CHECK(fixture.port.destination.identity == fixture.c.identity);
+    CHECK(fixture.turn.blend_mix(CaptureKind::SourceIsolated) == 1.0);
+    CHECK(fixture.turn.blend_mix(CaptureKind::DestinationLive) == 1.0);
+    fixture.turn.presented(true);
+    fixture.frame(fixture.c, .1);
+    fixture.turn.cancel();
+    const auto CLONES = fixture.port.clones.size();
+    fixture.start();
+    fixture.present();
+    fixture.frame(fixture.b, .1);
+    CHECK(fixture.port.clones.size() == CLONES);
+    CHECK(fixture.turn.blend_mix(CaptureKind::SourceIsolated) == 1.0);
+    CHECK(fixture.turn.blend_mix(CaptureKind::DestinationLive) == 1.0);
+}
+
+void failure_diagnostics_and_recovery() {
+    Fixture fixture;
+    fixture.port.buffers_ready = false;
+    CHECK(!fixture.turn.stage(fixture.a));
+    CHECK(fixture.port.diagnostics.back() == "stage-buffers");
+    fixture.port.buffers_ready = true;
+    fixture.port.capture_succeeds = false;
+    CHECK(!fixture.turn.stage(fixture.a));
+    CHECK(fixture.port.diagnostics.back() == "capture-source");
+    fixture.port.capture_succeeds = true;
+    fixture.start();
+    fixture.port.capture_succeeds = false;
+    fixture.frame(fixture.b, .01);
+    CHECK(!fixture.turn.active());
+    CHECK(fixture.port.diagnostics[fixture.port.diagnostics.size() - 2] == "capture-destination");
+    CHECK(fixture.port.diagnostics.back() == "frame-capture");
+    fixture.port.capture_succeeds = true;
+    fixture.start();
+    fixture.present();
+    fixture.port.safety_facts.locked = true;
+    fixture.frame(fixture.b, .01);
+    CHECK(!fixture.turn.active());
+    CHECK(fixture.port.diagnostics.back() == "scene-unsafe");
+    fixture.port.safety_facts.locked = false;
+    fixture.start();
+    fixture.present();
+    CHECK(fixture.turn.active());
+}
+
+void composite_style_request_lifecycle() {
+    Fixture fixture;
+    fixture.port.layered_capture = false; // Rotation uses only the two composite slots.
+    fixture.start();
+    CHECK(fixture.turn.stage(fixture.b));
+    fixture.turn.begin(fixture.b, fixture.b, 1.0, LINEAR); // Native early repeat.
+    CHECK(fixture.turn.active());
+    CHECK(fixture.turn.stage(fixture.b));
+    fixture.turn.begin(fixture.b, fixture.c, 1.0, LINEAR); // Coalesce before first draw.
+    CHECK(fixture.turn.source().identity == fixture.a.identity);
+    CHECK(fixture.turn.destination().identity == fixture.c.identity);
+    fixture.frame(fixture.c, .2);
+    CHECK(fixture.turn.progress() == 0.0);
+    RecordingWorkspaceStyle style;
+    const auto DRAW = [&](double progress, Direction direction, bool matching) {
+        return style.draw(progress, direction, matching);
+    };
+    CHECK(fixture.turn.draw(DRAW, true));
+    fixture.frame(fixture.c, .1);
+    const auto PROGRESS = fixture.turn.progress();
+    fixture.turn.begin(fixture.c, fixture.c, 1.0, LINEAR);
+    CHECK(fixture.turn.progress() == PROGRESS);
+    CHECK(fixture.turn.stage(fixture.c));
+    fixture.turn.begin(fixture.c, fixture.d, 1.0, LINEAR); // Queue after presentation.
+    CHECK(fixture.turn.destination().identity == fixture.c.identity);
+    CHECK(fixture.turn.stage(fixture.d));
+    fixture.turn.begin(fixture.d, fixture.a, 1.0, LINEAR); // Reverse and discard queue.
+    CHECK(fixture.turn.progress() == PROGRESS);
+    for (int i = 0; i < 40 && fixture.turn.active(); ++i) {
+        fixture.frame(fixture.a, .05);
+        if (fixture.turn.drawable()) {
+            CHECK(fixture.turn.draw(DRAW, true));
+        }
+    }
+    CHECK(!fixture.turn.active());
+    CHECK(fixture.port.swaps == 0);
+    CHECK(fixture.port.clones.empty());
+    CHECK(fixture.port.native_presentations == 0);
+    CHECK(fixture.port.diagnostics.empty());
 }
 
 void logical_rank_survives_mutation() {
@@ -510,12 +647,36 @@ void floating_presentation_commands() {
     CHECK(fixture.turn.present_floating(CaptureKind::DestinationLive, empty, .5));
     CHECK(empty.emitted.empty());
 }
+void repeated_endpoint_keeps_the_visual_timeline() {
+    Fixture repeated;
+    Fixture uninterrupted;
+    repeated.start();
+    uninterrupted.start();
+    repeated.present();
+    uninterrupted.present();
+    repeated.frame(repeated.b, .2);
+    uninterrupted.frame(uninterrupted.b, .2);
+    repeated.turn.begin(repeated.b, repeated.c, 1.0, LINEAR);
+    repeated.turn.begin(repeated.c, repeated.b, 1.0, LINEAR);
+    for (int i = 0; i < 20 && uninterrupted.turn.active(); ++i) {
+        repeated.frame(repeated.b, .05);
+        uninterrupted.frame(uninterrupted.b, .05);
+        CHECK(repeated.turn.active() == uninterrupted.turn.active());
+        CHECK(std::abs(repeated.turn.progress() - uninterrupted.turn.progress()) < 1e-9);
+    }
+    CHECK(!repeated.turn.active());
+    CHECK(repeated.port.swaps == 0);
+    CHECK(repeated.port.landings == 1);
+    CHECK(repeated.port.diagnostics.empty());
+}
+
 } // namespace
 
 int main() {
     identity_and_direction();
     capture_plan_tests::run();
     returning_to_destination_discards_pending();
+    repeated_endpoint_keeps_the_visual_timeline();
     staging_and_capture_failures();
     gate_and_unpresented_retarget();
     reversal_and_coalescing();
@@ -530,6 +691,10 @@ int main() {
     inactive_source_guards();
     queue_and_hud_order();
     context_and_safety_gates();
+    blend_state_does_not_escape_its_leg();
+    failure_diagnostics_and_recovery();
+    composite_style_request_lifecycle();
+    returning_to_current_target_preserves_timeline();
     logical_rank_survives_mutation();
     floating_presentation_commands();
     return g_failures == 0 ? 0 : 1;

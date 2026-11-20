@@ -154,8 +154,7 @@ class ConfigGeneratorTests(unittest.TestCase):
         modes = {
             'window_mode': (['surface', 'floating', 'fade'], 'surface'),
             'overlay_mode': (['world', 'hud', 'fade'], 'fade'),
-            'planet_layout': (['linear', 'solar_system', 'dynamic'], 'linear'),
-            'skip_duration_mode': (['constant', 'distance_scaled', 'adaptive'], 'adaptive'),
+            'planet_layout': (['focused', 'monitor', 'all', 'solar_system'], 'focused'),
         }
         for name, (choices, default) in modes.items():
             with self.subTest(name=name):
@@ -164,7 +163,7 @@ class ConfigGeneratorTests(unittest.TestCase):
         for name in ('stars_enabled', 'atmosphere_enabled', 'lighting_enabled', 'clouds_enabled',
                      'depth_enabled', 'rotation_enabled'):
             self.assertIs(items[name]['default'], True)
-        self.assertEqual(items['duration']['default'], 0.8)
+        self.assertEqual(items['duration']['default'], 800)
         self.assertEqual(items['curve']['default'], 'linear')
         self.assertEqual(items['depth_source']['default'], '')
         self.assertEqual((items['live_boundary']['min'], items['live_boundary']['default'],

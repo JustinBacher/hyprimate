@@ -188,6 +188,13 @@ namespace hyprimate::workspace {
                 endpoint.placement =
                     endpoint.special ? placements.get(std::nullopt, {}, fact.name)
                                      : placements.get(endpoint.numbered, fact.name, std::nullopt);
+                // Membership is independent of capture readiness; scope filters run
+                // before scheduling expensive remote captures.
+                if constexpr (requires { port.includes(endpoint, source, destination); }) {
+                    if (!port.includes(endpoint, source, destination)) {
+                        continue;
+                    }
+                }
                 if (endpoint.placement == source.placement ||
                     endpoint.placement == destination.placement) {
                     continue;

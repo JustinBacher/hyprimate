@@ -263,30 +263,36 @@ namespace hyprimate::workspace {
             return false;
         }
         m_mesh_vao = mesh.vao;
-        const int COLUMNS = std::array{48, 80, 128}[static_cast<std::size_t>(quality)];
-        const int ROWS = COLUMNS / 2;
-        std::vector<std::array<float, 2>> vertices;
-        vertices.reserve(
-            static_cast<std::size_t>(COLUMNS + 1) * static_cast<std::size_t>(ROWS + 1));
-        for (int row = 0; row <= ROWS; ++row) {
-            for (int column = 0; column <= COLUMNS; ++column) {
-                vertices.push_back({static_cast<float>(column) / static_cast<float>(COLUMNS),
-                    static_cast<float>(row) / static_cast<float>(ROWS)});
-            }
-        }
+        const int COLUMNS = std::array{24, 40, 64}[static_cast<std::size_t>(quality)];
+        const int ROWS = COLUMNS;
+        const auto VERTICES_PER_SIDE =
+            static_cast<std::size_t>(COLUMNS + 1) * static_cast<std::size_t>(ROWS + 1);
+        // Independent front/back vertices share their perimeter positions.
+        // Keeping the same total cell count as the previous latitude mesh
+        // closes the body without introducing a second high-detail surface.
+        std::vector<std::array<float, 3>> vertices;
+        vertices.reserve(2 * VERTICES_PER_SIDE);
         std::vector<GLuint> indices;
-        indices.reserve(static_cast<std::size_t>(COLUMNS) * static_cast<std::size_t>(ROWS) * 6U);
-        for (int row = 0; row < ROWS; ++row) {
-            for (int column = 0; column < COLUMNS; ++column) {
-                const auto FIRST_INDEX = static_cast<GLuint>((row * (COLUMNS + 1)) + column);
-                const GLuint NEXT_INDEX = FIRST_INDEX + static_cast<GLuint>(COLUMNS + 1);
-                indices.insert(indices.end(),
-                    {FIRST_INDEX,
-                        NEXT_INDEX,
-                        FIRST_INDEX + 1,
-                        FIRST_INDEX + 1,
-                        NEXT_INDEX,
-                        NEXT_INDEX + 1});
+        indices.reserve(static_cast<std::size_t>(COLUMNS) * static_cast<std::size_t>(ROWS) * 12U);
+        for (std::size_t side = 0; side < 2; ++side) {
+            const auto OFFSET = static_cast<GLuint>(side * VERTICES_PER_SIDE);
+            for (int row = 0; row <= ROWS; ++row) {
+                for (int column = 0; column <= COLUMNS; ++column) {
+                    vertices.push_back({static_cast<float>(column) / static_cast<float>(COLUMNS),
+                        static_cast<float>(row) / static_cast<float>(ROWS),
+                        side == 0 ? 1.F : -1.F});
+                }
+            }
+            for (int row = 0; row < ROWS; ++row) {
+                for (int column = 0; column < COLUMNS; ++column) {
+                    const auto FIRST = OFFSET + static_cast<GLuint>((row * (COLUMNS + 1)) + column);
+                    const auto NEXT = FIRST + static_cast<GLuint>(COLUMNS + 1);
+                    if (side == 0) {
+                        indices.insert(indices.end(), {FIRST,NEXT,FIRST+1,FIRST+1,NEXT,NEXT+1});
+                    } else {
+                        indices.insert(indices.end(), {FIRST,FIRST+1,NEXT,FIRST+1,NEXT+1,NEXT});
+                    }
+                }
             }
         }
         glBindVertexArray(m_mesh_vao);
@@ -302,6 +308,9 @@ namespace hyprimate::workspace {
             GL_STATIC_DRAW);
         glEnableVertexAttribArray(2);
         glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(vertices[0]), nullptr);
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, sizeof(vertices[0]),
+            reinterpret_cast<const void *>(2 * sizeof(float)));
         m_index_count = static_cast<GLsizei>(indices.size());
         mesh.count = m_index_count;
         return true;
@@ -598,7 +607,8 @@ namespace hyprimate::workspace {
         glUniform1i(uniforms[27], static_cast<GLint>(settings.depth_enabled));
         glUniform1f(uniforms[28], RADIUS > 0 ? RADIUS : static_cast<float>(frame.radius));
         glUniform1f(uniforms[29], static_cast<float>(frame.coverage));
-        glUniform1f(uniforms[30], static_cast<float>(frame.aspect));
+        glUniform1f(uniforms[30], std::isfinite(surface.aspect) && surface.aspect > 0 ?
+            surface.aspect : static_cast<float>(frame.aspect));
         glUniform1f(uniforms[33], RADIUS > 0 ? RADIUS : static_cast<float>(frame.radius));
         glUniform1f(uniforms[34], 0.035F);
         glUniform1i(uniforms[35], GL_TRUE);
@@ -752,6 +762,11 @@ namespace hyprimate::workspace {
             glBindSampler(3, PREVIOUS_MIPPED ? m_mip_sampler : m_sampler);
             sampling.previous = PREVIOUS_MIPPED;
         }
+        const double OWNER_ASPECT =
+            std::isfinite(neighbor.endpoint.monitor_width) &&
+            std::isfinite(neighbor.endpoint.monitor_height) &&
+            neighbor.endpoint.monitor_width > 0 && neighbor.endpoint.monitor_height > 0 ?
+                neighbor.endpoint.monitor_width / neighbor.endpoint.monitor_height : 0;
         draw_surface(context,
             {.capture = context.textures.get().source,
                 .center = neighbor.center,
@@ -767,7 +782,8 @@ namespace hyprimate::workspace {
                 .opacity = 1,
                 .radius = view.radius,
                 .quality = quality,
-                .tint = tint});
+                .tint = tint,
+                .aspect = static_cast<float>(OWNER_ASPECT)});
         return true;
     }
     bool PlanetGlRenderer::draw_neighbors(

@@ -4,6 +4,7 @@
 #include "StyleSettingsCache.hpp"
 #include "config_settings_generated.hpp"
 #include "workspace/WorkspaceFrame.hpp"
+#include "workspace/planet_hop/PlanetCurves.hpp"
 #include "workspace/planet_hop/PlanetRenderer.hpp"
 #include "workspace/planet_hop/PlanetScene.hpp"
 
@@ -21,6 +22,7 @@ namespace hyprimate::workspace {
         };
         struct Resources {
             PlanetRenderer renderer;
+            planet_hop::PlanetCurves curves;
             SStyleSettingsCache<config::SWorkspacePlanetHop, Prepared> settings;
             bool ready = false;
             std::optional<planet_hop::Journey> journey;
@@ -28,14 +30,14 @@ namespace hyprimate::workspace {
         static void prepare(Resources &resources, const config::SWorkspaceSettings &settings) {
             if (!resources.settings.update(settings.planetHop, [](const auto &value) {
                 Prepared result;
-                result.duration = value.duration;
+                result.duration = value.duration / 1000.0;
                 result.curve = value.curve;
                 result.live_boundary = value.liveBoundary;
                 auto &render = result.render;
                 render.quality = value.samplingQuality;
                 render.fade = static_cast<float>(value.fade);
                 render.elevation = static_cast<float>(value.elevation);
-                render.duration = static_cast<float>(value.duration);
+                render.duration = static_cast<float>(result.duration);
                 render.depth_enabled = value.depthEnabled;
                 render.depth_strength = static_cast<float>(value.depthStrength);
                 render.lighting = value.lightingEnabled;
@@ -64,18 +66,13 @@ namespace hyprimate::workspace {
                     render.overlay_mode = 2;
                 }
                 auto &scene = result.scene;
-                scene.planet_layout = planet_hop::Layout::Linear;
+                scene.planet_layout = planet_hop::Layout::Focused;
                 if (value.planetLayout == config::PlanetHopPlanetLayout::SolarSystem) {
                     scene.planet_layout = planet_hop::Layout::SolarSystem;
-                } else if (value.planetLayout == config::PlanetHopPlanetLayout::Dynamic) {
-                    scene.planet_layout = planet_hop::Layout::Dynamic;
-                }
-                scene.skip_duration_mode = planet_hop::DurationMode::Adaptive;
-                if (value.skipDurationMode == config::PlanetHopSkipDurationMode::Constant) {
-                    scene.skip_duration_mode = planet_hop::DurationMode::Constant;
-                } else if (value.skipDurationMode ==
-                           config::PlanetHopSkipDurationMode::DistanceScaled) {
-                    scene.skip_duration_mode = planet_hop::DurationMode::DistanceScaled;
+                } else if (value.planetLayout == config::PlanetHopPlanetLayout::Monitor) {
+                    scene.planet_layout = planet_hop::Layout::Monitor;
+                } else if (value.planetLayout == config::PlanetHopPlanetLayout::All) {
+                    scene.planet_layout = planet_hop::Layout::All;
                 }
                 scene.planet_size = value.planetSize;
                 scene.solar_vertical_spread = value.solarVerticalSpread;
@@ -85,10 +82,6 @@ namespace hyprimate::workspace {
                 scene.elevation = value.elevation;
                 scene.rotation_enabled = value.rotationEnabled;
                 scene.rotation_limit = value.rotationLimit;
-                scene.duration = value.duration;
-                scene.distance_scale = value.distanceScale;
-                scene.max_duration = value.maxDuration;
-                scene.adaptive_boundary = static_cast<std::uint32_t>(value.adaptiveBoundary);
                 return result;
             })) { return; }
             resources.journey.reset();
@@ -96,13 +89,7 @@ namespace hyprimate::workspace {
         }
         static bool draw(Resources &resources, Render::CRenderContext &ctx, const WorkspaceFrame &frame,
             double progress, Direction direction, bool matching) {
-            auto &prepared = resources.settings.prepared;
-            const auto SAME = [](const JourneyEndpoint &first, const JourneyEndpoint &second) {
-                return first.identity == second.identity && first.numbered == second.numbered &&
-                       first.special == second.special &&
-                       first.logical_order == second.logical_order &&
-                       first.placement == second.placement;
-            };
+            const auto &prepared = resources.settings.prepared;
             if (!frame.presentation) {
                 return false;
             }
@@ -111,27 +98,32 @@ namespace hyprimate::workspace {
                 return false;
             }
             const double ASPECT = SIZE.x / SIZE.y;
-            if (!resources.journey || !SAME(resources.journey->from, frame.source.endpoint) ||
-                !SAME(resources.journey->to, frame.destination.endpoint) ||
+            if (!resources.journey || resources.journey->from != frame.source.endpoint ||
+                resources.journey->to != frame.destination.endpoint ||
                 resources.journey->aspect != ASPECT) {
                 resources.journey = planet_hop::make_journey(
                     frame.source.endpoint, frame.destination.endpoint, prepared.scene, ASPECT);
-                prepared.render.duration = static_cast<float>(planet_hop::duration_seconds(
-                    frame.source.endpoint, frame.destination.endpoint, prepared.scene));
             }
             return resources.renderer.draw(ctx, frame, *resources.journey, progress, direction, matching, prepared.render);
         }
         static double duration(const Resources &resources,
-            const JourneyEndpoint &from,
-            const JourneyEndpoint &destination) {
-            return planet_hop::duration_seconds(
-                from, destination, resources.settings.prepared.scene);
+            const JourneyEndpoint & /*from*/, const JourneyEndpoint & /*destination*/) {
+            return resources.settings.prepared.duration;
         }
+        // A missed refresh samples the same wall-clock journey, not a reason
+        // to hand a long flight back to native 250 ms into its duration.
+        static double max_frame_gap(const Resources &resources) { return resources.settings.prepared.duration; }
         static double live_boundary(const Resources &resources) { return resources.settings.prepared.live_boundary; }
         static bool uses_native_hud(const Resources &resources) { return resources.settings.prepared.render.overlay_mode == 1; }
         static bool uses_workspace_previews(const Resources &resources) {
-            return resources.settings.prepared.scene.planet_layout ==
-                   planet_hop::Layout::SolarSystem;
+            return resources.settings.prepared.scene.planet_layout !=
+                   planet_hop::Layout::Focused;
+        }
+        static bool includes_workspace(const Resources &resources,
+            const JourneyEndpoint &candidate, const JourneyEndpoint &source,
+            const JourneyEndpoint &destination) {
+            return planet_hop::scene_member(candidate, source, destination,
+                resources.settings.prepared.scene.planet_layout);
         }
         static bool needs_individual_windows(const Resources &resources) {
             return resources.settings.prepared.render.window_mode == 1;

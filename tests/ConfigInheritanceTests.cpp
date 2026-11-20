@@ -96,12 +96,11 @@ int main() try {
     assert(near(config.workspace.rotation.duration, 0.6));
     assert(config.workspace.planetHop.windowMode == PlanetHopWindowMode::Surface);
     assert(config.workspace.planetHop.overlayMode == PlanetHopOverlayMode::Fade);
-    assert(config.workspace.planetHop.planetLayout == PlanetHopPlanetLayout::Linear);
-    assert(config.workspace.planetHop.skipDurationMode == PlanetHopSkipDurationMode::Adaptive);
+    assert(config.workspace.planetHop.planetLayout == PlanetHopPlanetLayout::Focused);
     assert(config.workspace.planetHop.starsEnabled && config.workspace.planetHop.atmosphereEnabled);
     assert(config.workspace.planetHop.lightingEnabled && config.workspace.planetHop.cloudsEnabled);
     assert(config.workspace.planetHop.depthEnabled && config.workspace.planetHop.rotationEnabled);
-    assert(near(config.workspace.planetHop.duration, 0.8));
+    assert(near(config.workspace.planetHop.duration, 800));
     assert(near(config.workspace.planetHop.solarVerticalSpread, .65));
     assert(near(config.workspace.planetHop.solarBackgroundScale, .75));
     assert(near(config.workspace.planetHop.liveBoundary, 0.22));
@@ -112,7 +111,7 @@ int main() try {
     set("workspace:options:planet_hop:window_mode", std::string("floating"));
     set("workspace:options:planet_hop:overlay_mode", std::string("hud"));
     set("workspace:options:planet_hop:planet_layout", std::string("solar_system"));
-    set("workspace:options:planet_hop:skip_duration_mode", std::string("distance_scaled"));
+    set("workspace:options:planet_hop:duration", 1250.0F);
     set("workspace:options:planet_hop:clouds_enabled", false);
     set("workspace:options:planet_hop:depth_strength", 9.0F);
     set("workspace:options:planet_hop:solar_vertical_spread", 12.0F);
@@ -125,7 +124,7 @@ int main() try {
     assert(config.workspace.planetHop.windowMode == PlanetHopWindowMode::Floating);
     assert(config.workspace.planetHop.overlayMode == PlanetHopOverlayMode::Hud);
     assert(config.workspace.planetHop.planetLayout == PlanetHopPlanetLayout::SolarSystem);
-    assert(config.workspace.planetHop.skipDurationMode == PlanetHopSkipDurationMode::DistanceScaled);
+    assert(near(config.workspace.planetHop.duration, 1250));
     assert(!config.workspace.planetHop.cloudsEnabled && config.workspace.planetHop.starsEnabled);
     assert(near(config.workspace.planetHop.depthStrength, 0.5));
     assert(near(config.workspace.planetHop.solarVerticalSpread, 2.0));

@@ -5,7 +5,8 @@
 namespace hyprimate::workspace::planet_hop::shader {
 
 // GLES 3.0, premultiplied output throughout. Compile once per GL context.
-// Surface attributes: 0=flatPosition.xyz, 1=spherePosition.xyz, 2=texcoord.xy.
+// Attributes: 0=flatPosition.xyz, 1=spherePosition.xyz, 2=texcoord.xy,
+// 3=hemisphere (+1 front, -1 back; parametric fullSphere meshes only).
 // Positions are planet-local (+x right, +y up, +z towards the viewer); UVs are
 // top-left-origin. Matrices are column-major. No shader changes GL state.
 //
@@ -14,10 +15,10 @@ namespace hyprimate::workspace::planet_hop::shader {
 // uDepthEnabled(bool), depthSource(int: 0 procedural, 1 depthImage),
 // samplingQuality(int: 0..2), depthImage(sampler2D, top-down decoded PNG rows).
 // parametricMesh(bool, default false), aspect/radius/coverage(float) optionally
-// derive positions from UV, matching Scene::make_surface_vertex. fullSphere(bool)
-// expands the chart to a full globe and inversely maps UV into that same chart.
-// Use it for every mesh layer to share exact tessellation/deformation. Its flat
-// geometry extends beyond the viewport; no duplicate backing surface is needed.
+// derive positions from UV. fullSphere(bool) selects the production closed-body
+// chart: a square-to-disk front hemisphere and matched back hemisphere flatten
+// into the native rectangle. Its front matches Scene::project_surface exactly.
+// All layers share that chart; no exterior viewport/backing rectangle is drawn.
 // FRAGMENT: image/backdrop(sampler2D), reconstructLayer(bool), uvTransform(vec4),
 // Both image programs accept previousImage/previousBackdrop(sampler2D),
 // previousReconstruct(bool), liveMix(float). ALWAYS bind liveMix=1 for ordinary
@@ -30,12 +31,14 @@ namespace hyprimate::workspace::planet_hop::shader {
 // cloudsEnabled, atmosphereEnabled(bool), samplingQuality(int: 0..2).
 // Shared planetRotation(mat3)/planetCenter(vec3), planetRadius(float world units),
 // cloudHeight(float fraction of radius, recommended .035) define the independent
-// analytic cloud shell. Height and optical opacity vanish at native endpoints.
+// analytic cloud shell, an oblate local approximation while unrolling and
+// exactly spherical on the globe. Height/optical opacity vanish at endpoints.
 // uvTransform is offset.xy/scale.zw; FBO bottom-left images use (0,1,1,-1).
 // Set endpointEnvelope to zero at BOTH native endpoints. At zero the image path
 // is exact and no lighting, relief, cloud, atmosphere or visibility mask remains.
-// Samplers use CLAMP_TO_EDGE, never mirrored repeat. Base layer 0 shades its own
-// unseen/outside-chart geometry dark; foreground layers are empty there.
+// Samplers use CLAMP_TO_EDGE, never mirrored repeat. Production front UVs remain
+// inside the captured desktop; its material perimeter IS the body's perimeter.
+// No wallpaper-edge extension or independently masked interior chart is drawn.
 // All elevations are local scene units; Renderer/Scene own depth and ordering.
 inline constexpr std::string_view VERTEX = R"GLSL(#version 300 es
 precision highp float;
@@ -43,6 +46,7 @@ precision highp int;
 layout(location=0) in vec3 flatPosition;
 layout(location=1) in vec3 spherePosition;
 layout(location=2) in vec2 texcoord;
+layout(location=3) in float hemisphere;
 uniform mat4 viewProjection;
 uniform mat3 planetRotation;
 uniform vec3 planetCenter;
@@ -64,6 +68,7 @@ out vec2 vUV;
 out vec3 vNormal;
 out vec3 vLocalNormal;
 out vec3 vWorld;
+flat out float vHemisphere;
 float hash31(vec3 p) {
     p = fract(p * 0.1031);
     p += dot(p, p.yzx + 33.33);
@@ -99,22 +104,17 @@ void main() {
         float a = max(aspect,0.001);
         float r = max(radius,0.001);
         float c = clamp(coverage,0.001,1.0);
+        if (!fullSphere) {
         float longitudeLimit = 3.141592653589793*c*min(1.0,a/2.0);
         float latitudeLimit = 1.570796326794897*c*min(1.0,2.0/a);
         float longitude = (2.0*uv.x-1.0)*longitudeLimit;
         float latitude = (1.0-2.0*uv.y)*latitudeLimit;
-        if (fullSphere) {
-            longitude = (2.0*uv.x-1.0)*3.141592653589793;
-            latitude = (0.5-uv.y)*3.141592653589793;
-            chartUV = vec2(0.5+longitude/(2.0*longitudeLimit),
-                           0.5-latitude/(2.0*latitudeLimit));
-        }
+        chartUV = uv;
         desktopPoint = vec3((2.0*chartUV.x-1.0)*a,1.0-2.0*chartUV.y,r);
-        sphere = r*vec3(cos(latitude)*sin(longitude),sin(latitude),
-                        cos(latitude)*cos(longitude));
-        // Convex angular bending avoids the extended flat corners folding into
-        // collapsed spherical poles. At zero this is the exact desktop plane;
-        // at one it is the original sphere with its full scene rotation.
+        // The chart is an ellipsoid patch with axes scaleX/bend,
+        // scaleY/bend,r/bend and frontmost point z=r. Its back recedes
+        // continuously to infinity as the front becomes the native plane.
+        // Stable central arithmetic avoids cancellation in that planar limit.
         float lonAngle = bend*longitude, latAngle = bend*latitude;
         float scaleX = mix(a/longitudeLimit,r,bend);
         float scaleY = mix(1.0/latitudeLimit,r,bend);
@@ -133,6 +133,37 @@ void main() {
         angularNormal = normalize(vec3((r/scaleX)*sin(lonAngle)*cos(latAngle),
                                        (r/scaleY)*sin(latAngle),
                                        cos(lonAngle)*cos(latAngle)));
+        sphere = r*vec3(cos(latAngle)*sin(lonAngle),
+                        sin(latAngle),cos(latAngle)*cos(lonAngle));
+        } else {
+            // A square-to-disk chart maps the entire desktop to the FRONT
+            // hemisphere. Its perimeter is the body's silhouette, never an
+            // internal rectangle painted against a second dark surface.
+            vec2 native = vec2(2.0*uv.x-1.0,1.0-2.0*uv.y);
+            vec2 density = c*vec2(min(1.0,a),min(1.0,1.0/a));
+            vec2 square = native*(density+(1.0-density)*native*native);
+            vec2 root = sqrt(max(vec2(0),1.0-0.5*square.yx*square.yx));
+            vec3 disk = vec3(square*root,
+                sqrt(max(0.0,(1.0-square.x*square.x)*(1.0-square.y*square.y))));
+            float side = hemisphere<0.0 ? -1.0 : 1.0;
+            angularPoint = vec3(mix(a*native.x,r*disk.x,bend),
+                                mix(native.y,r*disk.y,bend),
+                                r*(1.0-bend+side*bend*disk.z));
+            // Differentiate the geometric chart, scaling the cross product by
+            // disk.z to avoid 1/sqrt singularities at the hemisphere perimeter.
+            vec2 derivative = density+3.0*(1.0-density)*native*native;
+            float xx = (1.0-bend)*a+bend*r*derivative.x*root.x;
+            float xy = -bend*r*square.x*square.y*derivative.y/(2.0*max(root.x,0.000001));
+            float yx = -bend*r*square.y*square.x*derivative.x/(2.0*max(root.y,0.000001));
+            float yy = 1.0-bend+bend*r*derivative.y*root.y;
+            float zx = -side*bend*r*square.x*(1.0-square.y*square.y)*derivative.x;
+            float zy = -side*bend*r*square.y*(1.0-square.x*square.x)*derivative.y;
+            vec3 crossed = side*vec3(yx*zy-zx*yy,zx*xy-xx*zy,(xx*yy-yx*xy)*disk.z);
+            angularNormal = length(crossed)>0.000001 ? normalize(crossed) :
+                normalize(vec3(disk.xy,side*disk.z));
+            if (bend == 0.0) angularNormal = vec3(0,0,side);
+            sphere = r*vec3(disk.xy,side*disk.z);
+        }
     }
     vec3 localNormal = normalize(sphere);
     vec3 normal;
@@ -176,6 +207,7 @@ void main() {
     vNormal = normal;
     vLocalNormal = localNormal;
     vUV = chartUV;
+    vHemisphere = fullSphere ? hemisphere : 0.0;
     gl_Position = viewProjection * vec4(world, 1.0);
     // Foregrounds flatten onto the wallpaper. Separately rasterized triangles
     // can round to opposite sides of a D24 depth value even with LEQUAL.
@@ -192,6 +224,7 @@ in vec2 vUV;
 in vec3 vNormal;
 in vec3 vLocalNormal;
 in vec3 vWorld;
+flat in float vHemisphere;
 uniform sampler2D image;
 uniform sampler2D backdrop;
 uniform bool reconstructLayer;
@@ -224,6 +257,10 @@ uniform int samplingQuality;
 // Zero preserves the captured image; renderer applies only modest shared-paper identity variation.
 uniform vec3 identityTint;
 uniform bool opaqueCapture;
+uniform bool parametricMesh;
+uniform bool fullSphere;
+uniform float aspect;
+uniform float coverage;
 out vec4 fragColor;
 vec4 recoverCapture(sampler2D captured, sampler2D background, bool reconstruct, vec2 uv) {
     vec4 color = texture(captured,uv);
@@ -264,11 +301,17 @@ float clouds(vec3 n) {
     return smoothstep(threshold-0.07,threshold+0.07,f);
 }
 void main() {
+    // Cull the body's inward faces in shader so a numerically coincident back
+    // plane cannot overwrite native pixels when curvature tends to zero.
+    if (parametricMesh && fullSphere && vHemisphere<0.0 &&
+        dot(vNormal,cameraPosition-vWorld)<=0.0) discard;
+    if (parametricMesh && vHemisphere<0.0 && layer!=0) discard;
     vec2 uv = clamp(uvTransform.xy + vUV*uvTransform.zw,0.0,1.0);
     vec4 c = blendCapture(image,backdrop,reconstructLayer,
                          previousImage,previousBackdrop,previousReconstruct,liveMix,uv);
     float envelope = clamp(endpointEnvelope,0.0,1.0);
     if (opaqueCapture) c.a = 1.0;
+    if (parametricMesh && vHemisphere<0.0) c = vec4(vec3(0.008,0.012,0.023),1);
     if (envelope == 0.0) {
         fragColor = c*opacity;
         return;
@@ -282,24 +325,28 @@ void main() {
         if (dot(facet,n)<0.0) facet = -facet;
         n = normalize(mix(n,facet,0.35*envelope));
     }
-    // Evolve feather bounds, not attenuation strength. Near the native plane
-    // the antialiasing footprint sits outside the chart, preserving every
-    // interior pixel; spherical curvature progressively moves it inward.
-    float edge = max(fwidth(vLocalNormal.z)*1.5,0.025);
-    // Let the chart's corners round well before the full globe is revealed;
-    // only spatial support changes, not the image's central opacity or mapping.
-    float chartShape = min(1.0,3.0*sqrt(envelope));
-    float horizon = mix(-1.05,0.0,chartShape);
-    float visible = smoothstep(horizon-edge,horizon+edge,vLocalNormal.z);
     vec2 chartDistance = min(vUV,1.0-vUV);
-    vec2 chartLower = -max(fwidth(vUV)*1.5,vec2(0.000001))*(1.0-chartShape);
-    vec2 chartUpper = vec2(0.16*chartShape);
-    vec2 chartMask = smoothstep(chartLower,chartUpper,chartDistance);
-    float radialMask = 1.0-smoothstep(mix(1.5,0.62,chartShape),mix(1.75,1.05,chartShape),
-                                     length((vUV-0.5)*2.0));
-    float imageMask = visible*chartMask.x*chartMask.y*radialMask;
+    float imageMask;
+    if (parametricMesh) {
+        // Every front vertex has an actual desktop UV. There is no exterior
+        // wallpaper continuation or hidden chart-shaped support boundary.
+        imageMask = 1.0;
+    } else {
+        // Explicit-attribute material clients keep their legacy chart support.
+        float edge = max(fwidth(vLocalNormal.z)*1.5,0.025);
+        float chartShape = min(1.0,3.0*sqrt(envelope));
+        float horizon = mix(-1.05,0.0,chartShape);
+        float visible = smoothstep(horizon-edge,horizon+edge,vLocalNormal.z);
+        vec2 chartLower = -max(fwidth(vUV)*1.5,vec2(0.000001))*(1.0-chartShape);
+        vec2 chartUpper = vec2(0.16*chartShape);
+        vec2 chartMask = smoothstep(chartLower,chartUpper,chartDistance);
+        float radialMask = 1.0-smoothstep(mix(1.5,0.62,chartShape),
+            mix(1.75,1.05,chartShape),length((vUV-0.5)*2.0));
+        imageMask = visible*chartMask.x*chartMask.y*radialMask;
+    }
     if (layer == 0) {
-        c.rgb = mix(vec3(0.008,0.012,0.023)*c.a,c.rgb,imageMask);
+        if (!parametricMesh)
+            c.rgb = mix(vec3(0.008,0.012,0.023)*c.a,c.rgb,imageMask);
         c.rgb *= vec3(1.0) + identityTint;
     } else {
         // Foregrounds retain premultiplied alpha and never receive terrain/clouds.
@@ -325,17 +372,41 @@ void main() {
             float surfaceDistance = length(cameraToSurface);
             vec3 ray = cameraToSurface/max(surfaceDistance,0.000001);
             vec3 origin = cameraPosition-planetCenter;
-            float radius = planetRadius*(1.0+max(cloudHeight,0.0)*envelope);
-            float b = dot(origin,ray);
-            float discriminant = b*b-dot(origin,origin)+radius*radius;
+            vec3 shellAxes = vec3(planetRadius*(1.0+max(cloudHeight,0.0)*envelope));
+            mat3 shellRotation = planetRotation;
+            vec3 shellCenter = vec3(0);
+            if (parametricMesh) {
+                float spin = atan(planetRotation[2][0],planetRotation[0][0])*envelope;
+                float co = cos(spin), si = sin(spin);
+                shellRotation = mat3(co,0,-si,0,1,0,si,0,co);
+                // Local oblate-shell approximation to the rounded-rectangle
+                // morph. It is exact on the globe, shares the front pole and
+                // flattens with the body; no separate undeformed sphere remains.
+                shellCenter.z = planetRadius*(1.0-envelope);
+                shellAxes = vec3(mix(max(aspect,0.001),planetRadius,envelope),
+                                 mix(1.0,planetRadius,envelope),planetRadius*envelope);
+                shellAxes += max(cloudHeight,0.0)*planetRadius*envelope;
+            }
+            vec3 localOrigin = transpose(shellRotation)*origin-shellCenter;
+            vec3 localRay = transpose(shellRotation)*ray;
+            vec3 q = localOrigin/shellAxes;
+            vec3 d = localRay/shellAxes;
+            float aa = dot(d,d), b = dot(q,d);
+            float cc = dot(q,q)-1.0;
+            float discriminant = b*b-aa*cc;
             if (discriminant > 0.0) {
                 float root = sqrt(discriminant);
-                float hit = -b-root;
-                if (hit < 0.0) hit = -b+root;
+                // Stable near root; the naive -b-root cancels near landing.
+                float farRoot = -b+(b<0.0 ? root : -root);
+                float t0 = farRoot/aa;
+                float t1 = abs(farRoot)>0.000001 ? cc/farRoot : t0;
+                float t = min(t0,t1);
+                if (t < 0.0) t = max(t0,t1);
+                float hit = t;
                 // A shell behind the surface cannot paint over that surface.
                 if (hit > 0.0 && hit <= surfaceDistance+planetRadius*0.001) {
-                    vec3 shellNormal = normalize(origin+ray*hit);
-                    vec3 localCloudNormal = transpose(planetRotation)*shellNormal;
+                    vec3 localCloudNormal = normalize(q+d*t);
+                    vec3 shellNormal = shellRotation*normalize(localCloudNormal/shellAxes);
                     float density = clouds(localCloudNormal);
                     float viewFacing = max(abs(dot(shellNormal,-ray)),0.2);
                     float opticalDepth = cloudOpacity*density/viewFacing;

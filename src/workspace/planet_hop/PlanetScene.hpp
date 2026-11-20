@@ -11,12 +11,11 @@ namespace hyprimate::workspace::planet_hop {
         double y = 0;
         double z = 0;
     };
-    enum class Layout { Linear, SolarSystem, Dynamic };
-    enum class DurationMode { Constant, DistanceScaled, Adaptive };
+    enum class Layout { Focused, Monitor, All, SolarSystem };
 
     // All distances are in desktop half-height units; angles are radians, time seconds.
     struct SceneOptions {
-        Layout planet_layout = Layout::Linear;
+        Layout planet_layout = Layout::Focused;
         double planet_size = 1.0;
         double planet_separation = 4.0;
         double planet_coverage = 0.7;
@@ -24,11 +23,6 @@ namespace hyprimate::workspace::planet_hop {
         double solar_vertical_spread = 0.65;
         bool rotation_enabled = true;
         double rotation_limit = 0.35;
-        double duration = 0.8;
-        DurationMode skip_duration_mode = DurationMode::Adaptive;
-        double distance_scale = 0.25;
-        double max_duration = 2.2;
-        std::uint32_t adaptive_boundary = 3;
     };
 
     struct Journey {
@@ -37,7 +31,16 @@ namespace hyprimate::workspace::planet_hop {
         SceneOptions options;
         Vec3 source_center;
         Vec3 destination_center;
-        double aspect = 1; // Effective render aspect used to place these cached anchors.
+        double aspect = 1; // Effective render aspect; anchors use their owner's geometry.
+        double neighborhood_width = 0;
+        struct SolarPath {
+            double from_angle = 0;
+            double angle_delta = 0;
+            double from_radius = 0;
+            double to_radius = 0;
+            double from_aspect = 1;
+            double to_aspect = 1;
+        } solar_path{};
     };
 
     struct Frame {
@@ -78,22 +81,23 @@ namespace hyprimate::workspace::planet_hop {
         Vec3 normal;
     };
 
-    // Aspect is the effective render width/height (not a rounded logical monitor size).
+    // World anchors use captured owner geometry, never the viewer's render aspect.
     // Subtract Frame::worldOrigin before drawing any returned absolute world anchor.
     [[nodiscard]] Vec3 layout_position(
         const JourneyEndpoint &endpoint, const SceneOptions &options = {}, double aspect = 1);
-    // Dynamic placement is chosen once here; solar anchors use the same aspect as evaluate.
+    // Focused placement is chosen once here; other anchors remain topology-stable.
     [[nodiscard]] Journey make_journey(JourneyEndpoint from,
         JourneyEndpoint destination,
         SceneOptions options = {},
         double aspect = 1);
-    [[nodiscard]] std::uint32_t logical_distance(
-        const JourneyEndpoint &from, const JourneyEndpoint &destination);
-    [[nodiscard]] double duration_seconds(const JourneyEndpoint &from,
-        const JourneyEndpoint &destination,
-        const SceneOptions &options = {});
+    // Membership is separate from whether a workspace currently has capturable pixels.
+    [[nodiscard]] bool scene_member(const JourneyEndpoint &candidate,
+        const JourneyEndpoint &from, const JourneyEndpoint &destination, Layout layout);
     // Pure/reversible: generic WorkspaceTurn owns time, velocity, reversal and queueing.
     [[nodiscard]] Frame evaluate(const Journey &journey, double progress, double aspect);
+    // Scene members may not cover a desktop while it bends back to native.
+    // Center is already relative to the frame's floating origin.
+    [[nodiscard]] bool neighbor_visible(const Frame &frame, Vec3 center, double radius);
     [[nodiscard]] SurfaceVertex make_surface_vertex(
         double coord_u, double coord_v, double aspect, double radius, double coverage = 0.7);
     struct SurfaceProjection {

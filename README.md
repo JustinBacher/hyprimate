@@ -185,13 +185,9 @@ hl.config({
                     planet_hop = {
                         window_mode = "surface",
                         overlay_mode = "fade",
-                        planet_layout = "linear",
-                        skip_duration_mode = "adaptive",
-                        duration = 0.8,
+                        planet_layout = "focused",
+                        duration = 800,
                         curve = "linear",
-                        distance_scale = 0.25,
-                        max_duration = 2.2,
-                        adaptive_boundary = 3,
                         live_boundary = 0.22,
                         sampling_quality = 2,
                         planet_size = 1,
@@ -295,20 +291,16 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `workspace:options:rotation:gap_fill_blur` | float / `0` | 0–64 | Blur radius in physical pixels for the duplicated background imagery in wallpaper mode only; zero disables blur. Original wallpapers, windows and rotation geometry are unaffected. |
 | `workspace:options:planet_hop:window_mode` | string / `"surface"` | — | Place windows on the planet surface, float them above it, or fade them during the hop. Allowed: `surface`, `floating`, `fade`. |
 | `workspace:options:planet_hop:overlay_mode` | string / `"fade"` | — | Render overlays in the world, as a HUD, or fade them during the hop. Allowed: `world`, `hud`, `fade`. |
-| `workspace:options:planet_hop:planet_layout` | string / `"linear"` | — | Arrange workspace planets linearly, as a solar system, or dynamically. Allowed: `linear`, `solar_system`, `dynamic`. |
-| `workspace:options:planet_hop:skip_duration_mode` | string / `"adaptive"` | — | Choose constant, distance-scaled, or adaptive timing for hops across multiple workspaces. Allowed: `constant`, `distance_scaled`, `adaptive`. |
-| `workspace:options:planet_hop:duration` | float / `0.8` | 0.1–3 | Base hop duration in seconds. |
-| `workspace:options:planet_hop:curve` | string / `"linear"` | — | Hyprland Bezier curve used for hop progress. |
-| `workspace:options:planet_hop:distance_scale` | float / `0.25` | 0–3 | Extra duration scale per workspace crossed in distance-scaled timing. |
-| `workspace:options:planet_hop:max_duration` | float / `2.2` | 0.1–10 | Maximum hop duration in seconds for distance-scaled and adaptive timing. The effective maximum is never below the base duration: if duration exceeds max_duration, the base duration wins. |
-| `workspace:options:planet_hop:adaptive_boundary` | int / `3` | 1–100 | Workspace distance at which adaptive timing changes its scaling. |
+| `workspace:options:planet_hop:planet_layout` | string / `"focused"` | — | Show the two journey endpoints, this monitor's workspaces, every monitor's workspaces, or every monitor's workspaces in a spatial solar system, respectively. Replaces linear and dynamic; use focused for endpoint-only travel. Allowed: `focused`, `monitor`, `all`, `solar_system`. |
+| `workspace:options:planet_hop:duration` | float / `800` | 100–10000 | Total departure-to-landing time in milliseconds, including skipped workspaces. Multiply old seconds values by 1000. |
+| `workspace:options:planet_hop:curve` | string / `"linear"` | — | Named Hyprland Bezier or spring for the complete journey. Planet Hop also accepts style-local spring definitions. |
 | `workspace:options:planet_hop:live_boundary` | float / `0.22` | 0.08–0.35 | Fraction adjoining each endpoint during which live workspace imagery is refreshed. |
 | `workspace:options:planet_hop:sampling_quality` | int / `2` | 0–2 | Material sampling quality: 0 low, 1 medium, 2 high. |
 | `workspace:options:planet_hop:planet_size` | float / `1` | 0.1–4 | Relative planet size. |
 | `workspace:options:planet_hop:planet_separation` | float / `4` | 1–20 | Separation between planets in planet-radius units. |
 | `workspace:options:planet_hop:solar_vertical_spread` | float / `0.65` | 0–2 | Vertical spread of solar-system workspace positions, relative to planet spacing and the output aspect. |
-| `workspace:options:planet_hop:solar_background_scale` | float / `0.75` | 0.25–1 | Radius of inactive solar-system planets relative to a primary planet, before perspective projection. |
-| `workspace:options:planet_hop:planet_coverage` | float / `0.7` | 0.1–1 | Angular extent of the workspace wallpaper mapped onto the planet surface. |
+| `workspace:options:planet_hop:solar_background_scale` | float / `0.75` | 0.25–1 | Radius of inactive workspace planets relative to the source and destination, before perspective projection. Applies to monitor, all and solar_system. |
+| `workspace:options:planet_hop:planet_coverage` | float / `0.7` | 0.1–1 | Spread of central desktop imagery on the front hemisphere. Larger values give the centre more surface area; the desktop edges always reach the limb. |
 | `workspace:options:planet_hop:indirect_brightness` | float / `0.18` | 0–1 | Indirect illumination of the planet. |
 | `workspace:options:planet_hop:elevation` | float / `0.2` | 0–1 | Elevation of floating windows above the planet surface in scene units; world overlays use the same elevation. |
 | `workspace:options:planet_hop:fade` | float / `0.2` | 0–1 | Fraction of the hop used for fading windows and overlays. |

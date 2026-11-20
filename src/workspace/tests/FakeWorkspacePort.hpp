@@ -89,6 +89,8 @@ struct FakeWorkspacePort {
         return base;
     }
     [[nodiscard]] double live_boundary() const { return boundary; }
+    double frame_gap = STALL_SECONDS;
+    [[nodiscard]] double max_frame_gap() const { return frame_gap; }
     [[nodiscard]] bool layered() const { return layered_capture; }
     [[nodiscard]] bool native_hud() const { return hud_enabled; }
     [[nodiscard]] double now() const { return time; }
@@ -120,6 +122,8 @@ struct FakeWorkspacePort {
     }
     void damage() { ++damages; }
     void present_native() { ++native_presentations; }
+    void diagnostic(std::string_view reason) { diagnostics.push_back(reason); }
+    void landed() { ++landings; }
     void advance(double seconds) { time += seconds; }
 
     CompositionIdentities<std::shared_ptr<FakeWorkspace>, Workspace> identities;
@@ -151,6 +155,8 @@ struct FakeWorkspacePort {
     int swaps = 0;
     int damages = 0;
     int native_presentations = 0;
+    std::vector<std::string_view> diagnostics;
+    int landings = 0;
     double time = 0.0;
 };
 

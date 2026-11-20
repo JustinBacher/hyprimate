@@ -2,7 +2,6 @@
 #include <cmath>
 #include <utility>
 
-#include "animations/shared/Core.hpp"
 #include "workspace/WorkspaceTransition.hpp"
 
 namespace hyprimate::workspace {
@@ -41,8 +40,7 @@ namespace hyprimate::workspace {
         if (!m_active) {
             return;
         }
-        if (!std::isfinite(elapsed_seconds) || elapsed_seconds < 0.0 ||
-            elapsed_seconds > STALL_SECONDS) {
+        if (!std::isfinite(elapsed_seconds) || elapsed_seconds < 0.0) {
             m_position = m_target;
             m_velocity = 0.0;
             m_active = false;

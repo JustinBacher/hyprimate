@@ -82,45 +82,26 @@ namespace hyprimate::workspace::planet_hop {
             value ^= value >> 31U;
             return (static_cast<double>(value >> 11U) * 0x1p-52) - 1;
         }
-        Vec3 solar_position(const JourneyEndpoint &endpoint, const SceneOptions &options, double aspect) {
-            // X cell boundaries guarantee separation regardless of local Y/Z variation.
-            // Number gaps are genuine empty space, not compressed inventory ranks.
-            const double CELL = spacing(options) * 1.25;
-            const double WIDTH = std::max(1.0, positive(aspect, 1));
-            if (endpoint.numbered && !endpoint.special) {
-                const auto NUMBER = *endpoint.numbered;
-                return {.x = CELL * WIDTH *
-                             (NUMBER + (.1 * variation(static_cast<std::uint64_t>(NUMBER) +
-                                                       0x200000000ULL))),
-                    .y = CELL * options.solar_vertical_spread * variation(NUMBER),
-                    .z = CELL * .35 *
-                         variation(static_cast<std::uint64_t>(NUMBER) + 0x100000000ULL)};
-            }
-            // Named/special slots occupy disjoint XY cells beside the numbered corridor.
-            // Keep depth bounded so cruise clearance does not depend on population. Y
-            // spread stretches cells rather than collapsing them when configured to zero.
-            const auto SLOT = endpoint.placement / 2;
-            std::array<std::uint64_t, 2> cell{};
-            for (unsigned bit = 0; bit < 64; ++bit) {
-                cell[bit % 2] |= ((SLOT >> bit) & 1ULL) << (bit / 2);
-            }
-            return {
-                .x = -CELL * WIDTH * (1 + static_cast<double>(cell[0]) + (.1 * variation(SLOT))),
-                .y = CELL * ((static_cast<double>(cell[1]) * (1 + options.solar_vertical_spread)) +
-                                (.1 * options.solar_vertical_spread * variation(SLOT + 1))),
-                .z = CELL * .35 * variation(SLOT + 2)};
+        Vec3 solar_position(const JourneyEndpoint &endpoint, const SceneOptions &options) {
+            // Fermat spiral: durable slots, not inventory rank/population, choose orbits.
+            // The radial scale leaves clearance between adjacent golden-angle samples.
+            const auto SLOT = static_cast<double>(endpoint.placement);
+            const double ANGLE = std::fmod(SLOT * 2.399963229728653, 2 * CIRCLE_PI);
+            const double CELL = spacing(options) * .8;
+            const double RADIUS = CELL * std::sqrt(SLOT + 1);
+            const double HEIGHT = positive(endpoint.monitor_height, 1);
+            const double OWNER_DEPTH = std::tanh(finite(endpoint.monitor_x, 0) / HEIGHT) -
+                                       std::tanh(finite(endpoint.monitor_y, 0) / HEIGHT);
+            return {.x = RADIUS * std::cos(ANGLE) *
+                             std::max(1.0, positive(endpoint.monitor_width, 1) / HEIGHT),
+                .y = RADIUS * std::sin(ANGLE) * (1 + options.solar_vertical_spread),
+                .z = CELL * ((.7 * variation(endpoint.placement)) +
+                                (.3 * OWNER_DEPTH))};
         }
         std::array<float, 9> rotation(double angle) {
             const auto COSINE = static_cast<float>(std::cos(angle));
             const auto SINE = static_cast<float>(std::sin(angle));
             return {COSINE, 0, -SINE, 0, 1, 0, SINE, 0, COSINE};
-        }
-        double sinc(double angle) {
-            if (std::abs(angle) < .01) {
-                const double SQUARED = angle * angle;
-                return 1 - (SQUARED / 6) + (SQUARED * SQUARED / 120);
-            }
-            return std::sin(angle) / angle;
         }
         SceneOptions sanitized(SceneOptions options) {
             options.planet_size = positive(options.planet_size, 1);
@@ -135,51 +116,74 @@ namespace hyprimate::workspace::planet_hop {
         }
     }
 
-    std::uint32_t logical_distance(
-        const JourneyEndpoint &from, const JourneyEndpoint &destination) {
-        if (from.identity == destination.identity) {
-            return 0;
-        }
-        if (!from.numbered || !destination.numbered || from.special || destination.special) {
-            return 1;
-        }
-        return std::max<std::uint32_t>(1,
-            from.logical_order > destination.logical_order
-                ? from.logical_order - destination.logical_order
-                : destination.logical_order - from.logical_order);
-    }
 
-    double duration_seconds(const JourneyEndpoint &from,
-        const JourneyEndpoint &destination,
-        const SceneOptions &options) {
-        const double BASE = positive(options.duration, .8);
-        const double STEPS = std::max<std::uint32_t>(logical_distance(from, destination), 1);
-        const double SCALE = std::max(0.0, finite(options.distance_scale, .25));
-        // A configured maximum may cap skip growth, never shorten the base transition.
-        const double MAXIMUM = std::max(BASE, finite(options.max_duration, 2.2));
-        switch (options.skip_duration_mode) {
-            case DurationMode::Constant: return BASE;
-            case DurationMode::DistanceScaled:
-                return std::min(BASE * (1 + (SCALE * (STEPS - 1))), MAXIMUM);
-            case DurationMode::Adaptive: {
-                const double EXCESS =
-                    std::max(0.0, STEPS - std::max<std::uint32_t>(1, options.adaptive_boundary));
-                return std::min(BASE * (1 + (SCALE * std::log2(1 + EXCESS))), MAXIMUM);
-            }
-        }
-        return BASE;
-    }
-
-    Vec3 layout_position(const JourneyEndpoint &endpoint, const SceneOptions &raw_options, double aspect) {
+    Vec3 layout_position(const JourneyEndpoint &endpoint, const SceneOptions &raw_options, double /*aspect*/) {
         const auto OPTIONS = sanitized(raw_options);
         const double SPACING = spacing(OPTIONS);
         if (OPTIONS.planet_layout == Layout::SolarSystem) {
-            return solar_position(endpoint, OPTIONS, aspect);
+            return solar_position(endpoint, OPTIONS);
         }
-        if (endpoint.numbered && !endpoint.special) {
-            return {.x = SPACING * endpoint.logical_order, .y = 0, .z = 0};
+        auto position = hex_position(endpoint.placement, SPACING);
+        const double OWNER_ASPECT =
+            positive(endpoint.monitor_width, 1) / positive(endpoint.monitor_height, 1);
+        position.x *= std::max(1.0, OWNER_ASPECT);
+        // Bounded owner offsets preserve physical orientation without allowing a
+        // monitor translation to alias another durable workspace's hex cell.
+        position.x += SPACING * .1 * std::max(1.0, OWNER_ASPECT) *
+            std::tanh(finite(endpoint.monitor_x, 0) / 1080);
+        position.y -= SPACING * .1 * std::tanh(finite(endpoint.monitor_y, 0) / 1080);
+        if (OPTIONS.planet_layout == Layout::All) {
+            // Compact tilted constellations retain identity in the image plane.
+            // Never put an owner's entire inventory on the camera's landing ray.
+            position.x += SPACING * .05 * std::max(1.0, OWNER_ASPECT) *
+                std::tanh(positive(endpoint.monitor_width, 1) / 1080);
+            position.y -= SPACING * .05 *
+                std::tanh(positive(endpoint.monitor_height, 1) / 1080);
+            position.z = SPACING * .5 * variation(endpoint.placement);
+        } else {
+            position.z = SPACING * .25 * variation(endpoint.placement);
         }
-        return hex_position(endpoint.placement, SPACING);
+        return position;
+    }
+
+    bool scene_member(const JourneyEndpoint &candidate, const JourneyEndpoint &from,
+        const JourneyEndpoint &destination, Layout layout) {
+        if (candidate.identity == from.identity || candidate.identity == destination.identity) {
+            return true;
+        }
+        if (layout == Layout::Focused || (candidate.special && !from.special && !destination.special)) {
+            return false;
+        }
+        return layout != Layout::Monitor || candidate.owner == from.owner ||
+               candidate.owner == destination.owner;
+    }
+
+    bool neighbor_visible(const Frame &frame, Vec3 center, double radius) {
+        const auto &matrix = frame.view_projection;
+        const auto PROJECT = [&](Vec3 point, std::size_t row) {
+            return matrix[row] * point.x + matrix[4 + row] * point.y +
+                   matrix[8 + row] * point.z + matrix[12 + row];
+        };
+        // In flight, depth testing determines occlusion. During native handoff,
+        // protect the viewport from inventory in front of the endpoint desktop.
+        const Vec3 *native = frame.source_curvature < 1 || frame.travel_progress == 0 ? &frame.source_center :
+            frame.destination_curvature < 1 || frame.travel_progress == 1 ? &frame.destination_center : nullptr;
+        if (!native) {
+            return true;
+        }
+        const double BOUND = std::max(0.0, finite(radius, 0)) * std::max(1.0, frame.aspect);
+        const double W = PROJECT(center, 3);
+        if (W - BOUND >= PROJECT(*native, 3)) {
+            return true;
+        }
+        for (std::size_t row = 0; row < 2; ++row) {
+            const double EXTENT = BOUND *
+                std::hypot(matrix[row], matrix[4 + row], matrix[8 + row]);
+            if (std::abs(PROJECT(center, row)) > W + BOUND + EXTENT) {
+                return true;
+            }
+        }
+        return false;
     }
 
     Journey make_journey(
@@ -192,11 +196,8 @@ namespace hyprimate::workspace::planet_hop {
             .source_center = layout_position(from, options, aspect),
             .destination_center = layout_position(destination, options, aspect),
             .aspect = aspect};
-        const bool NUMBERED =
-            from.numbered && destination.numbered && !from.special && !destination.special;
-        if (options.planet_layout == Layout::Dynamic ||
-            (options.planet_layout == Layout::Linear && !NUMBERED)) {
-            // Named/special fallback follows the same navigation semantics as WorkspaceTurn.
+        if (options.planet_layout == Layout::Focused) {
+            // Endpoint-only flight follows the same navigation semantics as WorkspaceTurn.
             const double SIGN =
                 direction_between(
                     from.numbered, destination.numbered, from.special, destination.special) ==
@@ -210,6 +211,30 @@ namespace hyprimate::workspace::planet_hop {
         }
         if (from.identity == destination.identity) {
             result.destination_center = result.source_center;
+        }
+        if (options.planet_layout == Layout::SolarSystem) {
+            auto &path = result.solar_path;
+            path.from_aspect = std::max(1.0,
+                positive(from.monitor_width, 1) / positive(from.monitor_height, 1));
+            path.to_aspect = std::max(1.0,
+                positive(destination.monitor_width, 1) / positive(destination.monitor_height, 1));
+            const Vec3 FIRST{result.source_center.x / path.from_aspect,
+                result.source_center.y / (1 + options.solar_vertical_spread), 0};
+            const Vec3 LAST{result.destination_center.x / path.to_aspect,
+                result.destination_center.y / (1 + options.solar_vertical_spread), 0};
+            path.from_angle = std::atan2(FIRST.y, FIRST.x);
+            path.angle_delta = std::remainder(std::atan2(LAST.y, LAST.x) - path.from_angle,
+                2 * CIRCLE_PI);
+            path.from_radius = length(FIRST);
+            path.to_radius = length(LAST);
+        }
+        if (options.planet_layout == Layout::Monitor || options.planet_layout == Layout::All) {
+            // A vertical leg still needs its neighboring horizontal hex column
+            // in view, particularly on portrait outputs.
+            result.neighborhood_width = FOCAL * spacing(options) * 1.65 *
+                std::max({1.0,
+                    positive(from.monitor_width, 1) / positive(from.monitor_height, 1),
+                    positive(destination.monitor_width, 1) / positive(destination.monitor_height, 1)});
         }
         return result;
     }
@@ -229,26 +254,53 @@ namespace hyprimate::workspace::planet_hop {
         const double ENVELOPE = 16 * POSITION * POSITION * (1 - POSITION) * (1 - POSITION);
         const double ASPECT = positive(aspect, 1);
         const double RADIUS = options.planet_size;
-        const Vec3 CENTER = mix(journey.source_center, journey.destination_center, TRAVEL);
+        auto center = mix(journey.source_center, journey.destination_center, TRAVEL);
+        if (SOLAR && TRAVEL > 0 && TRAVEL < 1) {
+            const auto &path = journey.solar_path;
+            const double ANGLE = path.from_angle + path.angle_delta * TRAVEL;
+            const double RADIAL = std::lerp(path.from_radius, path.to_radius, TRAVEL);
+            center.x = RADIAL * std::cos(ANGLE) *
+                std::lerp(path.from_aspect, path.to_aspect, TRAVEL);
+            center.y = RADIAL * std::sin(ANGLE) * (1 + options.solar_vertical_spread);
+        }
+        const Vec3 CENTER = center;
         const Vec3 DELTA = add(journey.destination_center, scale(journey.source_center, -1));
-        const double SOURCE_CURVATURE = smooth(unit(POSITION / .22));
-        const double DESTINATION_CURVATURE = smooth(unit((1 - POSITION) / .22));
-        const double REVEAL = smooth(unit((POSITION - .12) / .20));
+        const double REVEAL = smooth(unit((POSITION - .09) / .23));
         // Evaluate from the landing endpoint rather than subtracting a nearly-one
         // polynomial: tiny cancellation errors become visible on very long world legs.
-        const double APPROACH = smooth(unit((1 - POSITION) / .32));
+        const double APPROACH = smooth(unit((1 - POSITION - .09) / .23));
         // Hold flight altitude while crossing the direct leg (.32-.68), so the outgoing
         // sphere recedes while the incoming sphere grows. Only then descend onto the endpoint.
-        const double FIT = FOCAL * .65 * std::max(std::abs(DELTA.x) / ASPECT, std::abs(DELTA.y));
-        // Cruise frames the local neighborhood, never an entire sparse/long skip.
-        // Bounded world depth plus its full range ensures clearance over every body.
-        // A default .75-radius background body is roughly 50 pixels across at 720p.
+        const double FIT = std::max(journey.neighborhood_width / ASPECT,
+            FOCAL * .65 *
+                std::max({std::abs(DELTA.x) / ASPECT, std::abs(DELTA.y), std::abs(DELTA.z)}));
+        // Cruise clearance is local and translation-invariant, never proportional
+        // to an absolute orbital radius or a distant workspace number.
         const double LOCAL_ALTITUDE =
-            (18 * RADIUS) + (2 * std::abs(options.elevation)) + (.7 * spacing(options) * 1.25);
+            ((6 * RADIUS) + (2 * std::abs(options.elevation)) + (3 * spacing(options))) *
+            std::max(1.0, 1 / ASPECT);
         const double PULLBACK = REVEAL * APPROACH * (SOLAR ? LOCAL_ALTITUDE : (2 * RADIUS) + FIT);
-        const Vec3 CAMERA{.x = 0, .y = 0, .z = RADIUS + FOCAL + PULLBACK};
+        // A bounded sideways orbital arc makes small solar hops genuinely spatial,
+        // while preserving exact native endpoint projection and reversible evaluation.
+        const Vec3 LATERAL = normalized({.x = -DELTA.y, .y = DELTA.x, .z = 0});
+        const double ARC = SOLAR ? spacing(options) * .65 * REVEAL * APPROACH : 0;
+        const Vec3 CAMERA{.x = LATERAL.x * ARC,
+            .y = LATERAL.y * ARC,
+            .z = RADIUS + FOCAL + PULLBACK};
+        // The near-camera phase reserves real time for bending/unbending, while
+        // the coverage floor prevents any small distant body becoming a plate.
+        // Both motions overlap and both endpoint ages use the same quintic law.
+        const auto CURVATURE = [&](Vec3 anchor, double age) {
+            const Vec3 RELATIVE = add(anchor, scale(CENTER, -1));
+            const double DISTANCE = length(add(CAMERA, scale(RELATIVE, -1)));
+            const double COVERAGE = FOCAL / std::max(.001, DISTANCE - RADIUS);
+            return std::max(smooth(unit((1 - COVERAGE) / .18)),
+                smooth(unit(age / .15)));
+        };
+        const double SOURCE_CURVATURE = CURVATURE(journey.source_center, POSITION);
+        const double DESTINATION_CURVATURE = CURVATURE(journey.destination_center, 1 - POSITION);
         const double AIM = .30 + (.70 * smooth(unit((POSITION - .32) / .36)));
-        const Vec3 REMAINING = scale(DELTA, 1 - TRAVEL);
+        const Vec3 REMAINING = add(journey.destination_center, scale(CENTER, -1));
         const double LEAD = SOLAR ? std::min(1.0,
                                         .4 * spacing(options) * std::min(1.0, ASPECT) /
                                             std::max(length(REMAINING), .001))
@@ -333,17 +385,15 @@ namespace hyprimate::workspace::planet_hop {
         aspect = positive(aspect, 1);
         radius = positive(radius, 1);
         coverage = std::clamp(finite(coverage, .7), .001, 1.0);
-        // Limit both chart angles to a sphere while preserving the desktop's center aspect.
-        const double LONGITUDE =
-            ((2 * coord_u) - 1) * CIRCLE_PI * coverage * std::min(1.0, aspect / 2);
-        const double LATITUDE = (.5 - coord_v) * CIRCLE_PI * coverage * std::min(1.0, 2 / aspect);
+        const auto SPHERE = project_surface({.u = coord_u, .v = coord_v, .aspect = aspect,
+            .radius = radius, .coverage = coverage, .curvature = 1,
+            .rotation = {1,0,0,0,1,0,0,0,1}});
         return {.flat_position = {static_cast<float>(((2 * coord_u) - 1) * aspect),
                     static_cast<float>(1 - (2 * coord_v)),
                     static_cast<float>(radius)},
-            .sphere_position = {static_cast<float>(
-                                    radius * std::cos(LATITUDE) * std::sin(LONGITUDE)),
-                static_cast<float>(radius * std::sin(LATITUDE)),
-                static_cast<float>(radius * std::cos(LATITUDE) * std::cos(LONGITUDE))},
+            .sphere_position = {static_cast<float>(SPHERE.position.x),
+                static_cast<float>(SPHERE.position.y),
+                static_cast<float>(SPHERE.position.z)},
             .uv = {static_cast<float>(coord_u), static_cast<float>(coord_v)}};
     }
 
@@ -355,32 +405,34 @@ namespace hyprimate::workspace::planet_hop {
         const double COVERAGE = std::clamp(finite(projection.coverage, .7), .001, 1.0);
         const auto &rotation_matrix = projection.rotation;
         const double CURVATURE = unit(projection.curvature);
-        const double LON_LIMIT = CIRCLE_PI * COVERAGE * std::min(1.0, ASPECT / 2);
-        const double LAT_LIMIT = CIRCLE_PI * .5 * COVERAGE * std::min(1.0, 2 / ASPECT);
-        const double LONGITUDE = ((2 * COORD_U) - 1) * LON_LIMIT;
-        const double LATITUDE = (1 - (2 * COORD_V)) * LAT_LIMIT;
-        const double BENT_LON = CURVATURE * LONGITUDE;
-        const double BENT_LAT = CURVATURE * LATITUDE;
-        const double COS_LON = std::cos(BENT_LON);
-        const double COS_LAT = std::cos(BENT_LAT);
-        const double SINC_HALF_LON = sinc(BENT_LON / 2);
-        const double SINC_HALF_LAT = sinc(BENT_LAT / 2);
-        const double DEPTH_LON = LONGITUDE * LONGITUDE * SINC_HALF_LON * SINC_HALF_LON;
-        const double DEPTH_LAT = LATITUDE * LATITUDE * SINC_HALF_LAT * SINC_HALF_LAT;
-        // Stable (1-cos(kL)cos(kB))/k, including k=0 without division or cancellation.
-        const double DEPTH = CURVATURE * ((.5 * DEPTH_LON) + (.5 * DEPTH_LAT) -
-                                             (.25 * CURVATURE * CURVATURE * DEPTH_LON * DEPTH_LAT));
-        // Factor the flat coordinates so k=0 preserves the exact native arithmetic.
-        const double SCALE_X = (1 - CURVATURE) + (CURVATURE * RADIUS * LON_LIMIT / ASPECT);
-        const double SCALE_Y = (1 - CURVATURE) + (CURVATURE * RADIUS * LAT_LIMIT);
-        const Vec3 SURFACE{.x = ((2 * COORD_U) - 1) * ASPECT * COS_LAT * sinc(BENT_LON) * SCALE_X,
-            .y = (1 - (2 * COORD_V)) * sinc(BENT_LAT) * SCALE_Y,
-            .z = RADIUS - (RADIUS * DEPTH)};
-        const double AXIS_X = ((1 - CURVATURE) * ASPECT / LON_LIMIT) + (CURVATURE * RADIUS);
-        const double AXIS_Y = ((1 - CURVATURE) / LAT_LIMIT) + (CURVATURE * RADIUS);
-        const Vec3 NORMAL = normalized({.x = RADIUS / AXIS_X * std::sin(BENT_LON) * COS_LAT,
-            .y = RADIUS / AXIS_Y * std::sin(BENT_LAT),
-            .z = COS_LON * COS_LAT});
+        const double NATIVE_X = (2 * COORD_U) - 1;
+        const double NATIVE_Y = 1 - (2 * COORD_V);
+        // Monotone cubic redistribution preserves coverage and the desktop's
+        // centre aspect without introducing an interior material boundary.
+        const double CX = COVERAGE * std::min(1.0, ASPECT);
+        const double CY = COVERAGE * std::min(1.0, 1 / ASPECT);
+        const double X = NATIVE_X * (CX + (1 - CX) * NATIVE_X * NATIVE_X);
+        const double Y = NATIVE_Y * (CY + (1 - CY) * NATIVE_Y * NATIVE_Y);
+        const double ROOT_X = std::sqrt(std::max(0.0, 1 - (.5 * Y * Y)));
+        const double ROOT_Y = std::sqrt(std::max(0.0, 1 - (.5 * X * X)));
+        const double Z = std::sqrt(std::max(0.0, (1 - X * X) * (1 - Y * Y)));
+        const Vec3 SPHERE{.x = RADIUS * X * ROOT_X, .y = RADIUS * Y * ROOT_Y,
+            .z = RADIUS * Z};
+        const Vec3 SURFACE{.x = ((1 - CURVATURE) * ASPECT * NATIVE_X) + CURVATURE * SPHERE.x,
+            .y = ((1 - CURVATURE) * NATIVE_Y) + CURVATURE * SPHERE.y,
+            .z = RADIUS * (1 - CURVATURE + CURVATURE * Z)};
+        const double DX = CX + (3 * (1 - CX) * NATIVE_X * NATIVE_X);
+        const double DY = CY + (3 * (1 - CY) * NATIVE_Y * NATIVE_Y);
+        const double XX = ((1 - CURVATURE) * ASPECT) + (CURVATURE * RADIUS * DX * ROOT_X);
+        const double XY = -CURVATURE * RADIUS * X * Y * DY / (2 * ROOT_X);
+        const double YX = -CURVATURE * RADIUS * Y * X * DX / (2 * ROOT_Y);
+        const double YY = (1 - CURVATURE) + (CURVATURE * RADIUS * DY * ROOT_Y);
+        const double ZX = -CURVATURE * RADIUS * X * (1 - Y * Y) * DX;
+        const double ZY = -CURVATURE * RADIUS * Y * (1 - X * X) * DY;
+        const Vec3 CROSSED{.x = (YX * ZY) - (ZX * YY),
+            .y = (ZX * XY) - (XX * ZY), .z = ((XX * YY) - (YX * XY)) * Z};
+        const Vec3 NORMAL = CURVATURE == 0 ? Vec3{.z = 1} :
+            (length(CROSSED) > 1e-6 ? normalized(CROSSED) : normalized(SPHERE));
         // The material's orientation is a Y rotation; bend and orientation share one amount.
         const double ANGLE = std::atan2(rotation_matrix[6], rotation_matrix[0]) * CURVATURE;
         const double COSINE = std::cos(ANGLE);
