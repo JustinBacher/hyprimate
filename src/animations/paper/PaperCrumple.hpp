@@ -1,49 +1,87 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
+#include <stop_token>
+#include <utility>
+#include <vector>
 
-#include "animations/shared/EdgeTransition.hpp"
-#include "animations/shared/SheetFrame.hpp"
+#include "animations/paper/PaperContact.hpp"
+#include "animations/paper/PaperSurface.hpp"
+#include "animations/paper/PaperTopology.hpp"
 
 namespace hyprimate {
 
-    struct PaperParams {
-        double duration = 0.5, crumpliness = 0.6, shading = 0.7, variation = 0.5;
-        bool operator==(const PaperParams &) const = default;
-    };
-
-    // Logical-pixel crumple state; no compositor or graphics dependency.
+    // Worker-owned, graphics-independent thin sheet. Material coordinates and signed plastic
+    // hinge memory survive direction changes; event entropy affects applied forces only.
     class PaperCrumple {
       public:
-        void begin(Transition kind, const PaperParams &params, std::uint64_t seed) noexcept;
-        bool advance(double elapsed_seconds) noexcept;  // returns active()
-        void reset() noexcept;  // -> Idle, s = 0
-        bool active() const noexcept;  // Opening or Closing
-        bool closed() const noexcept;  // Closed
-        double opacity() const noexcept;
-        bool shaded() const noexcept;  // params.shading > 0
-        void frame(Vec2 size, SheetFrame &out) const noexcept;  // back-to-front order in out.order
+        // Fresh windows use reset/new state. Active reversals retain the material
+        // metric even if capture size changes. Cancellation is checked per preparation
+        // tick; a cancelled caller must suppress publication of this inactive state.
+        void begin(Transition,
+            const PaperParams &,
+            std::uint64_t seed,
+            Vec2 size,
+            Vec2 cursor_uv = {0.5, 0.5},
+            std::stop_token stop = {});
+        bool advance(double seconds);
+        bool active() const noexcept;
+        bool closed() const noexcept;
+        void frame(PaperSurface &) const;
+        void reset();
 
       private:
-        enum class Phase : std::uint8_t { Idle, Opening, Closing, Closed };
+        enum class Phase : std::uint8_t { Flat, Opening, Closing, Closed };
+        struct Grip {
+            Vec2 uv;
+            double start, angle, lift, strength;
+        };
+        struct Jaw {
+            Vec3 normal;
+            double start, scale;
+        };
+        struct OpeningLoad {
+            Vec3 target;
+            // Per-iteration share of this region's remaining unfolding removed this tick.
+            double rim, gain;
+        };
 
-        // Draws the seed-dependent choices (take and mirroring) from the current params.
-        void roll_shape(std::uint64_t seed) noexcept;
-        // Picks the take for this window's aspect on first use; later calls keep it so playback
-        // never switches takes.
-        void choose_take(double aspect) const noexcept;
+        void choose_forces(std::uint64_t seed, Vec2 cursor);
+        bool pack(std::stop_token stop);
+        void step(bool closing, bool adapt = true);
+        void project_strain();
+        void project_enclosure();
+        void project_bends(double support_gap);
+        double previous_hinge_angle(std::size_t index);
+        void flatten();
+        bool flat_projection_safe(bool previous = false) const;
+        double flat_error_pixels(bool previous = false) const;
+        bool flat_and_quiet() const;
+        Vec3 rest(Vec2 uv) const noexcept;
+        Vec3 force(const paper::Node &) const noexcept;
+        double opacity() const noexcept;
 
-        Phase m_phase = Phase::Idle;
-        double m_s = 0;  // 0 = flat window, 1 = gone
-        double m_rate = 0;  // 1 / duration
+        paper::Topology m_topology;
+        paper::ContactSolver m_contacts;
         PaperParams m_params{};
-        double m_take_pick = 0;  // [0,1) chooses among the takes baked for the window's aspect
-        bool m_mirror_x = false;
-        bool m_mirror_y = false;
-
-        mutable int m_take = -1;  // chosen take, -1 until the first frame() call
-        mutable bool m_transpose =
-            false;  // portrait window: the landscape take is played with its axes swapped
+        Vec2 m_size{1, 1}, m_material{1, 1}, m_origin{0.5, 0.5};
+        Vec2 m_output_size{1, 1};
+        std::array<Grip, 6> m_grips{};
+        std::array<Jaw, 16> m_jaws{};
+        Phase m_phase = Phase::Flat;
+        double m_fraction = 0, m_previous_fraction = 0, m_accumulator = 0;
+        double m_step = 1.0 / 240.0;
+        // Opening platen starts at the packet's height plus flap headroom.
+        double m_press_height = 0;
+        std::uint64_t m_tick = 0;
+        // Capacity-retained per-tick loads; no grip/transcendental work in solver sweeps.
+        std::vector<OpeningLoad> m_opening_loads;
+        // Closing hand compliance is driven by material strain.
+        std::vector<double> m_grip_compliance;
+        std::vector<double> m_previous_angles;
+        mutable std::vector<std::pair<std::uint64_t, float>> m_crease_scratch;
     };
 
 }  // namespace hyprimate

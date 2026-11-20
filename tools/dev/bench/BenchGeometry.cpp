@@ -6,7 +6,6 @@
 #include "animations/liquid/LiquidMesh.hpp"
 #include "animations/paper/PaperCrumple.hpp"
 #include "animations/shared/EdgeTransition.hpp"
-#include "animations/shared/SheetFrame.hpp"
 
 namespace {
     using namespace hyprimate;
@@ -85,13 +84,13 @@ namespace {
 
     double paper_close() {
         PaperCrumple paper;
-        paper.begin(Transition::Close, {}, 5);
-        SheetFrame out;
+        paper.begin(Transition::Close, {}, 5, {.x = 940, .y = 640});
+        PaperSurface out;
         double sum = 0;
-        for (int i = 0; i < 40; ++i) {
+        for (int i = 0; i < 30; ++i) {
             paper.advance(FRAME);
-            paper.frame({.x = 940, .y = 640}, out);
-            sum += out.position[100].x + static_cast<double>(out.order[0]);
+            paper.frame(out);
+            if (!out.points.empty()) { sum += out.points[out.points.size() / 2].position.z; }
         }
         return sum;
     }
@@ -102,6 +101,6 @@ namespace bench {
         registry.push_back({"geometry.edge_resolve", "resolve_edge_frame, 1000 layouts", 1000, edge_resolve});
         registry.push_back({"edge.open_close", "EdgeTransition open+close, 33x33 map per frame", 120, edge_transition});
         registry.push_back({"liquid.move_settle", "LiquidMesh drag 1 s then settle, 33x33 samples", 180, liquid_movement});
-        registry.push_back({"paper.close", "PaperCrumple close + sheet projection", 40, paper_close});
+        registry.push_back({"paper.close", "Procedural Paper close and pose publication", 30, paper_close});
     }
 }  // namespace bench

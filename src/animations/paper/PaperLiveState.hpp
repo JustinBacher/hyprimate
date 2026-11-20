@@ -2,10 +2,9 @@
 
 #include <memory>
 
-#include "animations/paper/PaperCrumple.hpp"
+#include "animations/paper/PaperWorkers.hpp"
 
 struct SPaperStyle {
-    hyprimate::PaperCrumple crumple{};
-    std::unique_ptr<hyprimate::SheetFrame> frame = std::make_unique<hyprimate::SheetFrame>();
-    hyprimate::Vec2 capture_size{};
+    std::shared_ptr<hyprimate::PaperRun> run;
+    hyprimate::PaperSurface display;
 };

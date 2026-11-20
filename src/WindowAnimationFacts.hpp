@@ -26,6 +26,7 @@ struct Policy {
 struct Neighbourhood {
     std::span<const Box> tiled_goals, obstacles;
     bool alone = false;
+    std::optional<Vec2> cursor{};
 };
 struct Place {
     Box body, capture, goal_body, rest_capture, screen, work_area;
@@ -56,6 +57,7 @@ struct Frame {
     bool running = false;
     Box bounds{};
     bool backdrop = false, tail = false;
+    bool interrupted = false; // terminal failure: an owned native fade must be released, not tombstoned
 };
 enum class CloseStart : std::uint8_t { Owned, Native, Declined };
 enum class PassKind : std::uint8_t { Live, WorkspaceSource, Inert };

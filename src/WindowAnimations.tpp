@@ -73,6 +73,10 @@ auto CWindowAnimations<Port, StyleList<Styles...>>::record(Handle handle) const 
 }
 template<class Port, class... Styles>
 Place CWindowAnimations<Port, StyleList<Styles...>>::place(const Observation &observation, Neighbourhood near, std::uint64_t seed) {
+    if (near.cursor) {
+        near.cursor->x -= observation.workspace_offset.x + observation.floating_offset.x;
+        near.cursor->y -= observation.workspace_offset.y + observation.floating_offset.y;
+    }
     return {.body = observation.body, .capture = observation.capture, .goal_body = observation.goal_body,
         .rest_capture = detail::rest_capture(observation), .screen = observation.screen,
         .work_area = observation.work_area, .near = near, .seed = seed, .opening_edge = std::nullopt};
@@ -436,7 +440,7 @@ bool CWindowAnimations<Port, StyleList<Styles...>>::begin_mapped(
         const auto CURRENT_HANDLE = *window.handle;
         Effects effects;
         bool accepted = false;
-        const auto INITIAL = place(observation, m_port.neighbourhood(window.window), m_seed);
+        const auto INITIAL = place(observation, m_port.neighbourhood(window.window), acquired ? m_seed : ++m_seed);
         visit(CURRENT_HANDLE, [&]<class Style>(auto &slot, auto &resources) {
             accepted = Style::open(slot.state, INITIAL, resources, effects);
         });
@@ -486,7 +490,7 @@ void CWindowAnimations<Port, StyleList<Styles...>>::present_mapped(
     }
     entry.footprint = detail::translated(entry.current.bounds, {CAPTURE.x, CAPTURE.y});
     if (is_usable(entry.footprint)) { m_port.damage(entry.footprint); }
-    if (!entry.current.running) { end(entry.handle, End::Completed); return; }
+    if (!entry.current.running) { end(entry.handle, entry.current.interrupted ? End::Interrupted : End::Completed); return; }
     m_port.ensure_transformer(window.window, entry.handle);
     m_port.damage_window(window.window);
     for (const auto MONITOR : m_port.monitors_overlapping(entry.footprint)) {
@@ -572,7 +576,7 @@ void CWindowAnimations<Port, StyleList<Styles...>>::frame_dying(Record &entry, c
         place.screen.y + (BOUNDS.y / entry.captured_scale),
         BOUNDS.w / entry.captured_scale, BOUNDS.h / entry.captured_scale};
     if (is_usable(entry.footprint)) { m_port.damage(entry.footprint); }
-    if (!entry.current.running) { end(CURRENT_HANDLE, End::Completed); return; }
+    if (!entry.current.running) { end(CURRENT_HANDLE, entry.current.interrupted ? End::Interrupted : End::Completed); return; }
     m_port.schedule(stamp.monitor);
 }
 template<class Port, class... Styles>
@@ -669,6 +673,9 @@ bool CWindowAnimations<Port, StyleList<Styles...>>::draw(Handle handle, const Dr
             drawn = draw_info.canvas->submit_mesh(MESH, isolated_draw);
         }
     });
+    if (!drawn && REAL_PASS && entry->life == Life::DyingOwned) {
+        end(handle, End::Interrupted);
+    }
     return drawn;
 }
 template<class Port, class... Styles>

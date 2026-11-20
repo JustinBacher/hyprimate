@@ -135,6 +135,10 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                 open = {
 --                     enabled = true,
 --                     options = {
+--                         paper = {
+--                             unfold_tension = 0.62,
+--                             crease_persistence = 0.62,
+--                         },
 --                         bubble = {
 --                             count = 140,
 --                             birth_rate = 1,

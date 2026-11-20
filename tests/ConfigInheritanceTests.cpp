@@ -200,6 +200,19 @@ int main() try {
     assert(near(config.cloth.movement.flutter, 0.8));
     assert(near(config.bubble.open.duration, 1.4) && near(config.bubble.close.duration, 1.4));
 
+    set("window:options:paper:crumple_origin", std::string("cursor"));
+    set("window:close:options:paper:crumple_origin", std::string("left"));
+    set("window:options:paper:force_direction", std::string("rotational"));
+    set("window:open:options:paper:simulation_quality", std::string("high"));
+    set("window:open:options:paper:unfold_tension", 0.81F);
+    config = readConfig(values);
+    assert(config.paper.open.crumpleOrigin == CrumpleOrigin::Cursor);
+    assert(config.paper.close.crumpleOrigin == CrumpleOrigin::Left);
+    assert(config.paper.close.forceDirection == ForceDirection::Rotational);
+    assert(config.paper.open.simulationQuality == SimulationQuality::High);
+    assert(config.paper.close.simulationQuality == SimulationQuality::Adaptive);
+    assert(near(config.paper.open.unfoldTension, 0.81));
+
     // Non-numeric styles and direction-specific options inherit too.
     set("window:options:bubble:shape", std::string("circle"));
     set("window:options:liquid:color", 0xff123456U);

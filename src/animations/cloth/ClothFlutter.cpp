@@ -1922,7 +1922,6 @@ namespace hyprimate {
         project_sheet(world,
             {.x = WIDTH, .y = HEIGHT},
             m_params.shading,
-            SheetLighting::ClothSmooth,
             out,
             m_params.shine);
     }

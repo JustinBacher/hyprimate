@@ -175,7 +175,8 @@ Neighbourhood CHyprWindowPort::neighbourhood(const WindowRef &ref) {
                 box_of(other->geometricBox(Desktop::View::IGeometric::GEOMETRIC_GOAL)));
         }
     }
-    return {.tiled_goals = m_neighbours, .obstacles = m_obstacles, .alone = alone};
+    return {.tiled_goals = m_neighbours, .obstacles = m_obstacles, .alone = alone,
+        .cursor = vec_of(g_pInputManager->getMouseCoordsInternal())};
 }
 void CHyprWindowPort::warp_body(const WindowRef &ref, const hyprimate::Box &box) {
     if (const auto WINDOW = ref.lock()) {

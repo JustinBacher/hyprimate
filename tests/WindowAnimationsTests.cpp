@@ -47,6 +47,7 @@ struct Log {
     std::optional<Edge> reported_opening_edge;
     std::optional<Edge> closed_opening_edge;
     bool accept_open = true;
+    bool draw_succeeds = true;
     bool release = false, snap = false, alpha = false, running = true, tail = false, backdrop = false;
     CloseStart close_result = CloseStart::Owned;
 };
@@ -100,7 +101,7 @@ template<config::Style Kind> struct TestStyle {
         resources.log.draw_frame = draw.frame;
         resources.log.draw_backdrop = draw.backdrop != nullptr ? draw.backdrop->id : 0;
         draw.canvas->draws.push_back(draw.image->id);
-        return true;
+        return resources.log.draw_succeeds;
     }
     struct Screen {
         static void tick(Resources &resources, const ScreenFacts &facts) {
@@ -686,6 +687,30 @@ void close_placement_and_invalid_fadeouts() {
         CHECK(VIEWS[0].source_device.w == 220); CHECK(VIEWS[0].source_device.h == 180);
     }
 }
+void owned_close_draw_failure_restores_native() {
+    Fixture fixture;
+    fixture.window(1);
+    fixture.frame(1);
+    const auto HANDLE = fixture.handle();
+    fixture.module.close(1, fixture.port.now);
+    fixture.module.bind_fadeout(1, fixture.fade(800), {.id = 80});
+    fixture.frame(1);
+    CHECK(fixture.module.suppresses(800));
+    FakeCanvas canvas;
+    const FakeCanvas::Image IMAGE{.id = 80};
+    const Draw<FakeCanvas> draw{.canvas = &canvas, .image = &IMAGE, .source = {}, .output = {},
+        .canvas_box = {}, .image_origin = {}, .image_size = IMAGE.size, .real_pass = true};
+    fixture.log().draw_succeeds = false;
+    canvas.pass_kind = PassKind::WorkspaceSource;
+    CHECK(!fixture.module.draw(HANDLE, draw));
+    CHECK(fixture.module.suppresses(800));
+    canvas.pass_kind = PassKind::Live;
+    CHECK(!fixture.module.draw(HANDLE, draw));
+    CHECK(!fixture.module.suppresses(800));
+    CHECK(!fixture.module.active(HANDLE));
+    CHECK(fixture.log().last_end == End::Interrupted);
+}
+
 void dying_draw_adapter_lifecycle() {
     for (const auto MODE : {CloseStart::Owned, CloseStart::Native}) {
         Fixture fixture;
@@ -828,6 +853,7 @@ int main() try {
     independent_fadeouts_reversed(); workspace_motion_and_teleport(); capture_failure_releases_entry();
     isolated_mesh_buffers();
     dying_draw_adapter_lifecycle(); dying_damage_follows_native_placement();
+    owned_close_draw_failure_restores_native();
     return g_failures == 0 ? 0 : 1;
 }
 catch (const std::exception &error) {

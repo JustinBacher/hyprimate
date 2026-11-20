@@ -31,7 +31,7 @@ fill style.
 
 **Drain**: a liquid close; the window sinks into a screen edge, optionally ending in a **splash**.
 
-**Take**: one baked paper crumple, a flat sheet crumpling into a ball. A paper transition plays a take forward (close) or backward (open).
+**Crease memory**: a bend that stays in a sheet after the load that made it is released; during opening it relaxes as the paper is pulled flat.
 
 **Bubble**: a window's soap-film surface. Opening grows the window bubble out of a raft of small bubbles; closing ruptures the window's film where it is.
 
@@ -92,4 +92,4 @@ _Avoid_: residue, leftovers.
 
 **Blob**: the outline of the tiles merged so far: free corners rounded off, the notches between merged tiles filled in. It squares up into the window only when every tile is in.
 
-Cloth fold lighting has independent shading and shine controls; shine defaults to zero. Paper lighting is unchanged.
+Cloth fold lighting has independent shading and shine controls; shine defaults to zero. Paper uses matte two-sided lighting and casts shadows between its folds. Its `shading` control does not change the material geometry or layer order.

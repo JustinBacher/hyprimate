@@ -8,9 +8,7 @@
 
 namespace hyprimate {
 
-    // A sheet is the window drawn as a (SHEET_CELLS + 1)^2 vertex grid of lit triangles. Paper and
-    // cloth both animate the grid in 3D and project it through project_sheet; the sheet renderer
-    // draws the result.
+    // The cloth simulation projects its regular material grid into lit triangles.
     inline constexpr int SHEET_CELLS = 56;
     inline constexpr std::size_t SHEET_TRIANGLES =
         static_cast<std::size_t>(SHEET_CELLS) * SHEET_CELLS * 2;  // 6272
@@ -21,8 +19,6 @@ namespace hyprimate {
     // window's top edge). Logical pixels relative to the rest capture centre: x right, y down, z
     // towards the viewer.
     using SheetGrid = std::array<Vec3, SHEET_GRID_VERTICES>;
-
-    enum class SheetLighting : std::uint8_t { PaperCreases, ClothSmooth };
 
     // The projected sheet, reused across frames. Triangle t has grid corners sheet_triangle(t), uv
     // sheet_uv(corner).
@@ -55,7 +51,6 @@ namespace hyprimate {
     void project_sheet(const SheetGrid &world,
         Vec2 size,
         double shading,
-        SheetLighting lighting,
         SheetFrame &out,
         double shine = 1.0) noexcept;
 

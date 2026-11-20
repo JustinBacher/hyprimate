@@ -111,6 +111,14 @@ hl.config({
                         crumpliness = 0.6,
                         shading = 0.7,
                         variation = 0.5,
+                        fold_density = 0.55,
+                        paper_stiffness = 0.72,
+                        crumple_size = 0.18,
+                        crumple_origin = "center",
+                        force_direction = "inward",
+                        rotation_intensity = 0.22,
+                        settling = 0.45,
+                        simulation_quality = "adaptive",
                     },
                     swarm = {
                         lone_window_sides = "all",
@@ -143,6 +151,10 @@ hl.config({
                 open = {
                     enabled = true,
                     options = {
+                        paper = {
+                            unfold_tension = 0.62,
+                            crease_persistence = 0.62,
+                        },
                         bubble = {
                             count = 140,
                             birth_rate = 1,
@@ -253,9 +265,17 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `window:options:liquid:edge_bounds` | string / animation defaults: `"screen"` | — | Open: Choose monitor edges (screen) or edges inside reserved areas (work_area) for the liquid pop-out. Close: Choose monitor edges (screen) or edges inside reserved areas (work_area) for the liquid exit. Allowed: `screen`, `work_area`. |
 | `window:options:liquid:emerge_drag` | float / animation defaults: `0.5` | 0–1 | Share of liquid pop-out travel applied as drag to the movement field. Zero makes the pop rigid. |
 | `window:options:paper:duration` | float / animation defaults: open `0.6`, close `0.5` | 0.1–3 | Open: Time in seconds for the paper ball to uncrumple into the window. Close: Time in seconds for the window to crumple into a paper ball and vanish. |
-| `window:options:paper:crumpliness` | float / animation defaults: `0.6` | 0–1 | Open: Paper crumple tightness when opening. Higher values make a smaller, more creased ball. Close: Paper crumple tightness when closing. Higher values make a smaller, more creased ball. |
-| `window:options:paper:shading` | float / animation defaults: `0.7` | 0–1 | Open: Light and shadow on paper creases when opening. Zero draws the folds unlit. Close: Light and shadow on paper creases when closing. Zero draws the folds unlit. |
-| `window:options:paper:variation` | float / animation defaults: `0.5` | 0–1 | Open: Random choice and mirroring of the opening paper crumple for each window. Zero uses the same crumple for every window. Close: Random choice and mirroring of the closing paper crumple for each window. Zero uses the same crumple for every window. |
+| `window:options:paper:crumpliness` | float / animation defaults: `0.6` | 0–1 | Strength of the distributed pressure that gathers and creases the sheet. |
+| `window:options:paper:shading` | float / animation defaults: `0.7` | 0–1 | Strength of lighting and fold shadows; zero leaves the geometry unlit. |
+| `window:options:paper:variation` | float / animation defaults: `0.5` | 0–1 | Variation in grip locations, loads and timing. Zero retains subtle differences between events. |
+| `window:options:paper:fold_density` | float / animation defaults: `0.55` | 0–1 | Frequency of folds: low gives broad flaps, high gives more closely spaced creases. |
+| `window:options:paper:paper_stiffness` | float / animation defaults: `0.72` | 0–1 | Elastic resistance to bending before the sheet takes a crease. |
+| `window:options:paper:crumple_size` | float / animation defaults: `0.18` | 0.1–0.45 | Target extent of the packed paper relative to the window material length scale. |
+| `window:options:paper:crumple_origin` | string / animation defaults: `"center"` | — | Where the packed sheet converges. Cursor samples the nearest point on the capture at event time. Allowed: `center`, `random`, `cursor`, `left`, `right`, `top`, `bottom`. |
+| `window:options:paper:force_direction` | string / animation defaults: `"inward"` | — | Gather around the origin, press along a preferred axis, or twist the grips. Allowed: `inward`, `directional`, `rotational`. |
+| `window:options:paper:rotation_intensity` | float / animation defaults: `0.22` | 0–1 | Rotational impulse applied by the grips. |
+| `window:options:paper:settling` | float / animation defaults: `0.45` | 0–1 | Higher values damp residual motion and increase friction between folded layers. |
+| `window:options:paper:simulation_quality` | string / animation defaults: `"adaptive"` | — | Physical mesh detail. Adaptive selects detail from capture size and active workload. Allowed: `adaptive`, `low`, `medium`, `high`. |
 | `window:options:cloth:duration` | float / animation defaults: open `1.0`, close `0.9` | 0.1–4 | Open: Time in seconds for the gathered curtain to spread from its top edge and settle flat. Close: Time in seconds for the top rod to carry the curtain beyond the selected screen edge. |
 | `window:options:cloth:default_animation_edge` | string / animation defaults: `"bottom"` | — | Open: Opening origin for the first cloth window on a workspace, used when the closing side is origin. Later windows use their placement. Cloth still opens in place. Close: Preferred cloth closing edge for the last window on a workspace when side is auto. Invalid edges fall back to a valid edge. Allowed: `bottom`, `top`, `left`, `right`. |
 | `window:options:cloth:edge_bounds` | string / animation defaults: `"screen"` | — | Open: Choose monitor edges (screen) or edges inside reserved areas (work_area) for the cloth opening origin. Close: Choose monitor edges (screen) or edges inside reserved areas (work_area) for cloth edge selection. Cloth travels beyond the actual screen before disappearing. Allowed: `screen`, `work_area`. |
@@ -333,6 +353,8 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `window:movement:options:smoke:mass` | float / `0.45` | 0.15–1 | Size of the moving smoke body as a fraction of the window's width and height. One keeps roughly the window's footprint; smaller values contract a moving window into a denser mass that expands back when it stops. |
 | `window:movement:options:smoke:roundness` | float / `0.7` | 0–1 | Shape of the moving smoke body, independent of its size. Zero keeps the window's rectangular proportions; higher values round its corners and even out its proportions toward a turbulent, roughly circular mass. |
 | `window:open:enabled` | boolean / `true` | — | Animate windows as they open using the selected style. When false, windows open without this effect; movement is unaffected. |
+| `window:open:options:paper:unfold_tension` | float / `0.62` | 0–1 | Strength of pulling forces as folded sections emerge. |
+| `window:open:options:paper:crease_persistence` | float / `0.62` | 0–1 | How long released bends retain their preferred angle before flattening. |
 | `window:open:options:bubble:count` | int / `140` | 0–160 | Opening-only budget for simultaneously living small bubbles, not a fixed population. Slots are reused as bubbles merge and burst. Zero disables them and the window bubble forms on its own. |
 | `window:open:options:bubble:birth_rate` | float / `1` | 0.25–2 | Opening-only multiplier for how often bubbles surface. Higher values produce a busier raft within the count budget. |
 | `window:open:options:bubble:size_variation` | float / `0.75` | 0–1 | Opening-only spread of surfacing bubble sizes. Coalescence still grows larger bubbles at zero. |
