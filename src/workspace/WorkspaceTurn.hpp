@@ -113,6 +113,7 @@ template<class Port> class WorkspaceTurn {
     }
 
     bool stage(const Composition &current) {
+        m_queued = 0;
         if (!m_port->buffers(m_active)) {
             cancel("stage-buffers");
             return false;
@@ -151,6 +152,7 @@ template<class Port> class WorkspaceTurn {
 
     void begin(
         Composition before, Composition after, double base_duration, Transition::Curve curve) {
+        m_queued = 0;
         preserve_logical_hop(before, after);
         if (before.identity == after.identity) {
             if (!m_active) {
@@ -212,6 +214,7 @@ template<class Port> class WorkspaceTurn {
     }
 
     void frame(const Composition &current, double elapsed) {
+        m_queued = 0;
         if (!m_active) {
             return;
         }
@@ -274,14 +277,46 @@ template<class Port> class WorkspaceTurn {
         m_port->damage();
     }
 
-    template<class Draw> bool draw(Draw &&draw_style, bool matching_wallpaper) {
-        if (!drawable()) {
-            m_port->present_native();
-            return false;
+    enum class Presentation { Skipped, Cancelled, Displayed, FirstDisplay };
+    // The style writes offscreen. Only the final display callback may expose those pixels.
+    // Renderer calls can synchronously replace the turn; don't keep a turn reference across one.
+    template<class Resolve, class Render, class Display>
+    static Presentation draw_queued(std::uint64_t ticket, Resolve resolve, Render render, Display display) {
+        auto result = Presentation::Skipped;
+        const auto CURRENT = [&]() -> WorkspaceTurn * {
+            auto *turn = resolve();
+            return ticket && turn && turn->m_queued == ticket && turn->drawable() ? turn : nullptr;
+        };
+        const auto ALLOWED = [&]() -> WorkspaceTurn * {
+            auto *turn = CURRENT();
+            if (turn && (!turn->m_port->scene_safe() ||
+                            (turn->m_port->native_hud() && !turn->m_port->hud_safe()))) {
+                turn->cancel("draw-unsafe");
+                result = Presentation::Cancelled;
+                return nullptr;
+            }
+            return turn;
+        };
+        auto *turn = ALLOWED();
+        if (!turn) {
+            return result;
         }
-        const bool SUCCESS = std::forward<Draw>(draw_style)(progress(), direction(), matching_wallpaper);
-        presented(SUCCESS);
-        return SUCCESS;
+        const bool RENDERED = render(turn->progress(), turn->direction());
+        turn = ALLOWED();
+        if (!turn) {
+            return result;
+        }
+        if (!RENDERED) {
+            turn->presented(false);
+            return Presentation::Cancelled;
+        }
+        display();
+        if ((turn = CURRENT())) {
+            turn->m_queued = 0;
+            result = turn->presented_once() ? Presentation::Displayed : Presentation::FirstDisplay;
+            turn->presented(true);
+        }
+        return result;
     }
     template <class History, class Observation, class Copy>
     static void observe_wallpaper(History &history, const Observation &observation, Copy &&copy) {
@@ -303,7 +338,6 @@ template<class Port> class WorkspaceTurn {
             return;
         }
         if (!success) {
-            m_port->present_native();
             cancel("style-draw");
             return;
         }
@@ -311,6 +345,7 @@ template<class Port> class WorkspaceTurn {
         m_port->damage();
     }
     void cancel(std::string_view reason = {}) {
+        m_queued = 0;
         if (!reason.empty()) {
             m_port->diagnostic(reason);
         }
@@ -326,27 +361,30 @@ template<class Port> class WorkspaceTurn {
     }
 
     template <class Prepare>
-    bool queue(bool resources_ready, Prepare &&prepare) {
+    std::uint64_t queue(bool resources_ready, Prepare &&prepare) {
+        m_queued = 0;
         if (!drawable()) {
-            return false;
+            return 0;
         }
         if (!resources_ready) {
             cancel("queue-resources");
-            return false;
+            return 0;
         }
         if (!m_port->scene_safe()) {
             cancel("queue-scene-unsafe");
-            return false;
+            return 0;
         }
         if (m_port->native_hud() && !m_port->hud_safe()) {
             cancel("queue-hud-unsafe");
-            return false;
+            return 0;
         }
         if (!std::forward<Prepare>(prepare)()) {
             cancel("queue-prepare");
-            return false;
+            return 0;
         }
-        return true;
+        // Issued on the compositor thread; a removed/recreated turn cannot reuse a live ticket.
+        m_queued = ++s_next_ticket;
+        return m_queued;
     }
     template <class Replay>
     void replay_hud(const Replay &replay) const {
@@ -546,6 +584,8 @@ template<class Port> class WorkspaceTurn {
     Blend m_source_blend;
     Blend m_destination_blend;
     Port *m_port;
+    inline static std::uint64_t s_next_ticket = 0;
+    std::uint64_t m_queued = 0;
     Composition m_source{};
     Composition m_destination{};
     std::optional<Composition> m_pending;

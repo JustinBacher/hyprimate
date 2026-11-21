@@ -121,7 +121,6 @@ struct FakeWorkspacePort {
         ++swaps;
     }
     void damage() { ++damages; }
-    void present_native() { ++native_presentations; }
     void diagnostic(std::string_view reason) { diagnostics.push_back(reason); }
     void landed() { ++landings; }
     void advance(double seconds) { time += seconds; }
@@ -154,7 +153,6 @@ struct FakeWorkspacePort {
     bool capture_succeeds = true;
     int swaps = 0;
     int damages = 0;
-    int native_presentations = 0;
     std::vector<std::string_view> diagnostics;
     int landings = 0;
     double time = 0.0;

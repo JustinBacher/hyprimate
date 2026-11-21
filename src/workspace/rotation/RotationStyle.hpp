@@ -17,6 +17,7 @@
 namespace hyprimate::workspace {
 struct RotationStyle {
     static constexpr config::WorkspaceStyle KIND = config::WorkspaceStyle::Rotation;
+    static constexpr std::string_view NAME = "rotation";
     static constexpr bool USES_WALLPAPER = true;
     static constexpr bool LAYERED = false;
     struct Prepared {

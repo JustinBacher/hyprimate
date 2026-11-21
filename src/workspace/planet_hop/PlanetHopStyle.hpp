@@ -11,6 +11,7 @@
 namespace hyprimate::workspace {
     struct PlanetHopStyle {
         static constexpr config::WorkspaceStyle KIND = config::WorkspaceStyle::PlanetHop;
+        static constexpr std::string_view NAME = "planet_hop";
         static constexpr bool USES_WALLPAPER = true;
         static constexpr bool LAYERED = true;
         struct Prepared {

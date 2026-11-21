@@ -42,6 +42,7 @@
 #include <hyprland/src/render/SceneResources.hpp>
 #include <hyprland/src/render/decorations/IHyprWindowDecoration.hpp>
 #include <hyprland/src/render/gl/GLFramebuffer.hpp>
+#include <hyprland/src/render/pass/ClearPassElement.hpp>
 #include <hyprland/src/render/pass/PassElement.hpp>
 #include <hyprland/src/render/pass/TexPassElement.hpp>
 #include <hyprland/src/render/scene/SceneSelection.hpp>
@@ -344,7 +345,6 @@ class CWorkspaceAnimation::Impl {
             const hyprimate::workspace::TurnComposition<Workspace> &composition) const;
         [[nodiscard]] bool capture_inactive_source(
             const hyprimate::workspace::TurnComposition<Workspace> &composition) const;
-        void present_native() const;
         void swap_slots() const;
         void damage() const;
         void diagnostic(std::string_view reason) const;
@@ -1166,37 +1166,55 @@ namespace {
 
     class CWorkspacePresentationPass final : public IPassElement {
       public:
-        CWorkspacePresentationPass(CWorkspaceAnimation::Impl *owner, PHLMONITOR monitor,
+        CWorkspacePresentationPass(std::uint64_t ticket, PHLMONITOR monitor,
             hyprimate::workspace::WorkspaceFrame frame, bool matching_wallpaper)
-            : m_owner(owner), m_monitor(std::move(monitor)), m_frame(std::move(frame)),
+            : m_ticket(ticket), m_monitor(std::move(monitor)), m_frame(std::move(frame)),
               m_matching_wallpaper(matching_wallpaper) {
         }
 
         std::vector<UP<IPassElement>> draw(Render::CRenderContext &ctx) override {
-            auto *turn = m_owner != nullptr ? m_owner->turn(m_monitor) : nullptr;
-            if (turn == nullptr) {
-                copy_opaque(m_frame.destination.composite, m_frame.presentation);
-                return {};
-            }
-            const bool FIRST_PRESENTATION = !turn->presented_once();
-            turn->draw([&](double progress, Direction direction, bool matching) {
+            using Turn = hyprimate::workspace::WorkspaceTurn<CWorkspaceAnimation::Impl::TurnPort>;
+            const auto CURRENT = [&]() -> Turn * {
+                auto *owner = active();
+                if (!owner || !Turn::queue_context({.monitor = ctx.m_data.pMonitor.lock() == m_monitor,
+                        .capture_depth = owner->m_capture_depth, .capture = ctx.m_renderingCapture,
+                        .snapshot = ctx.m_renderingSnapshot, .read_only = ctx.readOnlyEffects()})) {
+                    return nullptr;
+                }
+                return owner->turn(m_monitor);
+            };
+            std::string_view style_name;
+            const auto RENDER = [&](double progress, Direction direction) {
+                auto *owner = active();
                 bool drawn = false;
-                m_owner->m_styles.for_each([&]<class Style>(auto &resources) {
-                    if (Style::KIND == m_owner->m_style_kind && resources.ready) {
-                        drawn = Style::draw(resources, ctx, m_frame, progress, direction, matching);
+                owner->m_styles.for_each([&]<class Style>(auto &resources) {
+                    if (Style::KIND == owner->m_style_kind && resources.ready) {
+                        style_name = Style::NAME;
+                        drawn = Style::draw(resources, ctx, m_frame, progress, direction, m_matching_wallpaper);
                     }
                 });
                 return drawn;
-            }, m_matching_wallpaper);
-            if (FIRST_PRESENTATION && turn->presented_once()) {
-                LOG(Log::DEBUG, "[hyprimate] workspace presented monitor={} source={} destination={}",
-                    m_monitor->m_name, turn->source().identity, turn->destination().identity);
-                if (auto *entry = m_owner->state(m_monitor)) {
-                    entry->last = Clock::now();
+            };
+            const auto DISPLAY = [&] {
+                CTexPassElement::SRenderData data;
+                data.tex = m_frame.presentation->getTexture();
+                data.box = {0, 0, m_monitor->m_transformedSize.x, m_monitor->m_transformedSize.y};
+                g_pHyprRenderer->draw(ctx, data, ctx.m_data.damage);
+            };
+            const auto result = Turn::draw_queued(m_ticket, CURRENT, RENDER, DISPLAY);
+            if (result == Turn::Presentation::FirstDisplay) {
+                LOG(Log::DEBUG, "[hyprimate] workspace presented monitor={} source={} destination={} style={}",
+                    m_monitor->m_name, m_frame.source.identity, m_frame.destination.identity, style_name);
+                if (auto *owner = active(); owner && owner->state(m_monitor)) {
+                    owner->state(m_monitor)->last = Clock::now();
                 }
-            }
-            if (!turn->active()) {
-                m_owner->erase_state(m_monitor);
+            } else if (result == Turn::Presentation::Cancelled) {
+                // The native workspace wasn't queued for this frame. Don't leave pixels from
+                // an earlier swapchain image underneath the HUD while waiting for native repaint.
+                g_pHyprRenderer->draw(ctx, CClearPassElement::SClearData{CHyprColor(0, 0, 0, 1)}, ctx.m_data.damage);
+                if (auto *owner = active(); owner && owner->turn(m_monitor) && !owner->turn(m_monitor)->active()) {
+                    owner->erase_state(m_monitor);
+                }
             }
             return {};
         }
@@ -1217,7 +1235,7 @@ namespace {
         }
 
       private:
-        CWorkspaceAnimation::Impl *m_owner;
+        std::uint64_t m_ticket;
         PHLMONITOR m_monitor;
         hyprimate::workspace::WorkspaceFrame m_frame;
         bool m_matching_wallpaper;
@@ -2081,11 +2099,6 @@ void CWorkspaceAnimation::Impl::TurnPort::release_blend(TurnKind kind) const {
         *entry, kind == TurnKind::SourceIsolated ? entry->source_blend : entry->destination_blend);
 }
 
-void CWorkspaceAnimation::Impl::TurnPort::present_native() const {
-    const auto MONITOR = entry->monitor.lock();
-    const bool AT_SOURCE = MONITOR && owner->composition_id(MONITOR) == entry->source_frame.identity;
-    copy_opaque(AT_SOURCE ? entry->source : entry->destination, entry->presentation);
-}
 void CWorkspaceAnimation::Impl::TurnPort::swap_slots() const {
     std::swap(entry->source, entry->destination);
     std::swap(entry->source_wallpaper, entry->destination_wallpaper);
@@ -2361,7 +2374,7 @@ bool CWorkspaceAnimation::Impl::queue(
         .source = entry->source_frame, .destination = entry->destination_frame,
         .presentation = entry->presentation, .neighbors = entry->neighbors, .native_hud = m_native_hud};
     const bool RESOURCES_READY = entry->source && entry->destination && entry->presentation;
-    if (!active_turn->queue(RESOURCES_READY, [&] {
+    const auto ticket = active_turn->queue(RESOURCES_READY, [&] {
             return prepare_frame(*entry,
                        TurnKind::SourceIsolated,
                        frame.source,
@@ -2370,24 +2383,19 @@ bool CWorkspaceAnimation::Impl::queue(
                        TurnKind::DestinationLive,
                        frame.destination,
                        active_turn->blend_mix(TurnKind::DestinationLive));
-        })) {
+    });
+    if (!ticket) {
         if (!active_turn->active()) {
             erase_state(monitor);
         }
         return false;
     }
     Render::IHyprRenderer::addPassElement(ctx,
-        makeUnique<CWorkspacePresentationPass>(this,
+        makeUnique<CWorkspacePresentationPass>(ticket,
             monitor,
             std::move(frame),
             hyprimate::workspace::wallpaper_matches<SP<Render::ITexture>>(
                 entry->source_wallpaper_identity, entry->destination_wallpaper_identity)));
-    CTexPassElement::SRenderData data;
-    data.tex = entry->presentation->getTexture();
-    data.box = {0, 0, monitor->m_transformedSize.x, monitor->m_transformedSize.y};
-    data.a = 1.F;
-    data.damage = CRegion{data.box};
-    Render::IHyprRenderer::addPassElement(ctx, makeUnique<CTexPassElement>(std::move(data)));
     active_turn->replay_hud([&](hyprimate::workspace::HudReplay step) {
         using hyprimate::workspace::HudReplay;
         const auto REPLAY = [&](const PHLLSREF &weak, bool popup) {

@@ -36,6 +36,14 @@ struct Fixture {
         port.advance(elapsed);
         turn.frame(current, elapsed);
     }
+    int displays = 0;
+    bool draw(RecordingWorkspaceStyle &style, bool matching) {
+        const auto ticket = turn.queue(true, [] { return true; });
+        const auto result = turn.draw_queued(ticket, [&] { return &turn; },
+            [&](double p, Direction d) { return style.draw(p, d, matching); }, [&] { ++displays; });
+        using Presentation = decltype(turn)::Presentation;
+        return result == Presentation::FirstDisplay || result == Presentation::Displayed;
+    }
     void present() {
         frame(b, 0.0);
         CHECK(turn.drawable());
@@ -251,8 +259,9 @@ void cancellation_and_monitors() {
     CHECK(!first.turn.active());
     second.start();
     second.frame(second.b, 0.0);
+    const int damage_before = second.port.damages;
     second.turn.presented(false);
-    CHECK(second.port.native_presentations == 1);
+    CHECK(second.port.damages > damage_before);
     CHECK(!second.turn.active());
 }
 
@@ -284,30 +293,90 @@ void lifetime_and_curve_latching() {
 void drawing_and_fallback() {
     Fixture fixture;
     RecordingWorkspaceStyle style;
-    const auto DRAW = [&](double progress, Direction direction, bool matching) {
-        return style.draw(progress, direction, matching);
-    };
-    CHECK(!fixture.turn.draw(DRAW, true));
+    CHECK(!fixture.draw(style, true));
     CHECK(style.draws.empty());
     fixture.start();
-    CHECK(!fixture.turn.draw(DRAW, true));
+    CHECK(!fixture.draw(style, true));
     fixture.frame(fixture.b, 0.0);
     style.live_value = 0.25;
-    CHECK(fixture.turn.draw(DRAW, true));
+    CHECK(fixture.draw(style, true));
     CHECK(style.draws.size() == 1);
+    if (style.draws.empty()) { return; }
     CHECK(style.draws.back().matching_wallpaper);
     CHECK(style.draws.back().live_value == 0.25);
     fixture.frame(fixture.b, 0.1);
     style.live_value = 0.75;
-    CHECK(fixture.turn.draw(DRAW, false));
+    CHECK(fixture.draw(style, false));
     CHECK(style.draws.back().progress > 0.0);
     CHECK(!style.draws.back().matching_wallpaper);
     CHECK(style.draws.back().live_value == 0.75);
-    const int NATIVE_BEFORE_FAILURE = fixture.port.native_presentations;
+    CHECK(fixture.displays == 2);
     style.succeeds = false;
-    CHECK(!fixture.turn.draw(DRAW, false));
-    CHECK(fixture.port.native_presentations == NATIVE_BEFORE_FAILURE + 1);
+    CHECK(!fixture.draw(style, false));
+    CHECK(fixture.displays == 2);
     CHECK(!fixture.turn.active());
+}
+
+void queued_presentation_obeys_current_policy() {
+    Fixture fixture;
+    fixture.start();
+    fixture.frame(fixture.b, 0.0);
+    const auto ticket = fixture.turn.queue(true, [] { return true; });
+    CHECK(ticket);
+    fixture.port.safety_facts.protected_content = true;
+    const auto current = [&] { return &fixture.turn; };
+    using Turn = decltype(fixture.turn);
+    int renders = 0;
+    const auto render = [&](double, Direction) { ++renders; return true; };
+    const auto display = [&] { ++fixture.displays; };
+    CHECK(Turn::draw_queued(ticket, current, render, display) == Turn::Presentation::Cancelled);
+    CHECK(renders == 0 && fixture.displays == 0);
+    CHECK(!fixture.turn.presented_once());
+
+    fixture.port.safety_facts.protected_content = false;
+    fixture.start();
+    fixture.frame(fixture.b, 0.0);
+    const auto replacement = fixture.turn.queue(true, [] { return true; });
+    CHECK(Turn::draw_queued(ticket, current, render, display) == Turn::Presentation::Skipped);
+    CHECK(renders == 0 && fixture.displays == 0);
+    CHECK(Turn::draw_queued(replacement, current, render, display) == Turn::Presentation::FirstDisplay);
+    CHECK(renders == 1 && fixture.displays == 1);
+
+    const auto next = fixture.turn.queue(true, [] { return true; });
+    const auto change_policy = [&](double, Direction) {
+        fixture.port.safety_facts.locked = true;
+        return true;
+    };
+    CHECK(Turn::draw_queued(next, current, change_policy, display) == Turn::Presentation::Cancelled);
+    CHECK(fixture.displays == 1);
+}
+
+void replacement_during_style_draw_cannot_present_the_old_frame() {
+    Fixture fixture;
+    WorkspaceTurns<int, FakeWorkspacePort> turns;
+    const auto queue = [&] {
+        auto &turn = turns.get(1, fixture.port);
+        CHECK(turn.stage(fixture.a));
+        turn.begin(fixture.a, fixture.b, 1.0, LINEAR);
+        turn.frame(fixture.b, 0.0);
+        return turn.queue(true, [] { return true; });
+    };
+    const auto ticket = queue();
+    CHECK(ticket);
+    std::uint64_t replacement = 0;
+    const auto replace = [&](double, Direction) {
+        turns.remove(1);
+        replacement = queue(); // Same monitor and endpoints, different turn.
+        return true;
+    };
+    using Turn = decltype(fixture.turn);
+    const auto current = [&] { return turns.find(1); };
+    const auto display = [&] { ++fixture.displays; };
+    CHECK(Turn::draw_queued(ticket, current, replace, display) == Turn::Presentation::Skipped);
+    CHECK(fixture.displays == 0);
+    CHECK(Turn::draw_queued(replacement, current, [](double, Direction) { return true; }, display) ==
+        Turn::Presentation::FirstDisplay);
+    CHECK(fixture.displays == 1);
 }
 
 void registry_settings_and_reload() {
@@ -575,10 +644,7 @@ void composite_style_request_lifecycle() {
     fixture.frame(fixture.c, .2);
     CHECK(fixture.turn.progress() == 0.0);
     RecordingWorkspaceStyle style;
-    const auto DRAW = [&](double progress, Direction direction, bool matching) {
-        return style.draw(progress, direction, matching);
-    };
-    CHECK(fixture.turn.draw(DRAW, true));
+    CHECK(fixture.draw(style, true));
     fixture.frame(fixture.c, .1);
     const auto PROGRESS = fixture.turn.progress();
     fixture.turn.begin(fixture.c, fixture.c, 1.0, LINEAR);
@@ -592,13 +658,12 @@ void composite_style_request_lifecycle() {
     for (int i = 0; i < 40 && fixture.turn.active(); ++i) {
         fixture.frame(fixture.a, .05);
         if (fixture.turn.drawable()) {
-            CHECK(fixture.turn.draw(DRAW, true));
+            CHECK(fixture.draw(style, true));
         }
     }
     CHECK(!fixture.turn.active());
     CHECK(fixture.port.swaps == 0);
     CHECK(fixture.port.clones.empty());
-    CHECK(fixture.port.native_presentations == 0);
     CHECK(fixture.port.diagnostics.empty());
 }
 
@@ -687,6 +752,8 @@ int main() {
     registry_settings_and_reload();
     wallpaper_identity_matching();
     drawing_and_fallback();
+    queued_presentation_obeys_current_policy();
+    replacement_during_style_draw_cannot_present_the_old_frame();
     blend_handoff_and_failures();
     inactive_source_guards();
     queue_and_hud_order();
