@@ -4,6 +4,9 @@
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/managers/SessionLockManager.hpp>
 
+#include "gl/CompositorContext.hpp"
+#include "gl/NativeResource.hpp"
+#include "gl/FramebufferAllocationState.hpp"
 #include "workspace/WorkspaceCapture.hpp"
 #include "workspace/WorkspaceCapturePlan.hpp"
 
@@ -32,17 +35,28 @@ namespace hyprimate::workspace {
         if (renderer.type() != Render::IHyprRenderer::RT_GL || !BACKEND) {
             return false;
         }
-        // Mutation hooks can run outside a rendering session.
-        BACKEND->makeEGLCurrent();
+        // Mutation hooks can run outside a rendering session. Restore the caller's
+        // exact EGL display, context and read/draw surfaces after the native pass.
+        const gl::ScopedCompositorContext CONTEXT{};
+        if (!CONTEXT) {
+            return false;
+        }
+        if (!gl::native_current(target) ||
+            (resources->isolated() && !gl::native_current(resources->blurFramebuffer()))) {
+            return false;
+        }
 
         CRegion damage{0, 0, monitor->m_transformedSize.x, monitor->m_transformedSize.y};
         Render::SRenderOptions options;
         options.sceneResources = resources;
         // Hyprland rolls back a partial begin itself. On refusal there is no
         // session to abort: a reentrant caller may already own the context.
-        if (!begin(&renderer, monitor, damage, Render::RENDER_MODE_FULL_FAKE, {}, target,
-                true, options, nullptr)) {
-            return false;
+        {
+            const gl::FramebufferAllocationState ALLOCATION;
+            if (!begin(&renderer, monitor, damage, Render::RENDER_MODE_FULL_FAKE, {}, target,
+                    true, options, nullptr)) {
+                return false;
+            }
         }
 
         auto &context = renderer.context();

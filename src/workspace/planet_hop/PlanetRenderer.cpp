@@ -10,6 +10,7 @@
 #include <hyprland/src/render/gl/GLFramebuffer.hpp>
 
 #include "gl/RawGlBracket.hpp"
+#include "gl/NativeResource.hpp"
 #include "workspace/WorkspaceFrame.hpp"
 #include "workspace/planet_hop/PlanetMaterial.hpp"
 #include "workspace/planet_hop/PlanetRenderer.hpp"
@@ -19,7 +20,8 @@ namespace hyprimate::workspace {
         struct CaptureView {
             Vector2D size;
             [[nodiscard]] GLuint texture(const auto &buffer, bool cropped = false) const {
-                return buffer && (cropped || buffer->m_size == size) && buffer->getTexture()
+                return buffer && gl::native_current(buffer) &&
+                           (cropped || buffer->m_size == size) && buffer->getTexture()
                            ? buffer->getTexture()->m_texID
                            : 0;
             }
@@ -74,8 +76,12 @@ namespace hyprimate::workspace {
         };
     }  // namespace
     PlanetRenderer::PlanetRenderer() = default;
-    PlanetRenderer::~PlanetRenderer() = default;
+    PlanetRenderer::~PlanetRenderer() { release(); }
     bool PlanetRenderer::initialize() {
+        const gl::ScopedCompositorContext CONTEXT{};
+        if (!CONTEXT || !m_context.ensure_current()) {
+            return false;
+        }
         if (m_shaders[0]) {
             return true;
         }
@@ -116,12 +122,19 @@ namespace hyprimate::workspace {
     void PlanetRenderer::release() {
         m_position_caches = {};
         m_next_position_cache = 0;
-        if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL) {
-            // Like other native renderers, do not destroy CShader after its backend is gone.
+        if (!m_shaders[0] && !m_shaders[1] && !m_shaders[2]) {
+            m_core.abandon_raw();
+            m_context.reset();
+            return;
+        }
+        const gl::ScopedCompositorContext CONTEXT{m_context};
+        if (!CONTEXT) {
+            // CShader has no detach API; never run its destructor in another context.
             for (auto &shader : m_shaders) {
                 [[maybe_unused]] const auto *const ABANDONED = shader.release();
             }
             m_core.abandon_raw();
+            m_context.reset();
             return;
         }
         const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
@@ -130,6 +143,7 @@ namespace hyprimate::workspace {
         for (auto &shader : m_shaders) {
             shader.reset();
         }
+        m_context.reset();
     }
     const std::vector<planet_hop::Vec3> &PlanetRenderer::neighbor_positions(
         const WorkspaceFrame &frame,
@@ -218,9 +232,10 @@ namespace hyprimate::workspace {
         (void)ctx;
         (void)direction;
         (void)matching;
+        if (!m_context.ensure_current()) { return false; }
         if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL ||
             g_pHyprRenderer->type() != Render::IHyprRenderer::RT_GL || !frame.presentation ||
-            !frame.presentation->getTexture() || !frame.source.layered ||
+            !gl::native_current(frame.presentation) || !frame.presentation->getTexture() || !frame.source.layered ||
             !frame.destination.layered) {
             return false;
         }

@@ -3,6 +3,9 @@
 #include <GLES3/gl32.h>
 #include <array>
 #include <memory>
+#ifndef HYPRIMATE_ROTATION_RAW_ONLY
+#include "gl/CompositorContext.hpp"
+#endif
 namespace Hyprutils::Memory { template <typename T> class CSharedPointer; } // NOLINT(readability-identifier-naming) Hyprland namespace.
 class CShader;
 namespace Render { class CRenderContext; class IFramebuffer; } // NOLINT(readability-identifier-naming) Hyprland namespace.
@@ -109,6 +112,9 @@ void main() {
         RotationRenderer(RotationRenderer &&) = delete;
         RotationRenderer &operator=(RotationRenderer &&) = delete;
       private:
+#ifndef HYPRIMATE_ROTATION_RAW_ONLY
+        gl::CompositorContextOwner m_context;
+#endif
         std::unique_ptr<CShader> m_shader;
         GLuint m_program = 0;
         GLuint m_vao = 0;

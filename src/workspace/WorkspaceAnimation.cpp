@@ -55,6 +55,9 @@
 #include <hyprutils/math/Vector2D.hpp>
 #include <hyprutils/memory/UniquePtr.hpp>
 
+#include "gl/CompositorContext.hpp"
+#include "gl/NativeResource.hpp"
+#include "gl/FramebufferAllocationState.hpp"
 #include "gl/RawGlBracket.hpp"
 #include "workspace/WorkspaceAnimation.hpp"
 #include "workspace/WorkspaceCapture.hpp"
@@ -605,9 +608,9 @@ class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
     std::optional<hyprimate::config::SWorkspaceSettings> m_deferred_settings;
     void release_styles() {
         m_styles.for_each([]<class Style>(auto &resources) {
-            if (resources.ready && Render::GL::g_pHyprOpenGL) {
-                resources.renderer.release();
-            }
+            // Failed initialization and backend loss still need an idempotent
+            // release; each renderer verifies its own context before deleting names.
+            resources.renderer.release();
             resources.ready = false;
         });
     }
@@ -686,14 +689,22 @@ namespace {
         return reinterpret_cast<Fn>(hook != nullptr ? hook->m_original : nullptr);
     }
     enum class Coverage { Preserve, OpaqueTarget, ResetSource };
+    enum class CopySource { Retained, BorrowedNative };
 
     bool copy_capture(const SP<Render::IFramebuffer> &source,
         const SP<Render::IFramebuffer> &target,
         Coverage coverage,
         bool downsample,
-        const std::optional<CBox> &crop = std::nullopt) {
+        const std::optional<CBox> &crop = std::nullopt,
+        CopySource ownership = CopySource::Retained) {
         if (!source || !target || source == target || !source->isAllocated() ||
             !target->isAllocated() || (!crop && !downsample && source->m_size != target->m_size)) {
+            return false;
+        }
+        const hyprimate::gl::ScopedCompositorContext CONTEXT{};
+        if (!CONTEXT) { return false; }
+        if ((ownership == CopySource::Retained && !hyprimate::gl::native_current(source)) ||
+            !hyprimate::gl::native_current(target)) {
             return false;
         }
         auto *src = dynamic_cast<Render::GL::CGLFramebuffer *>(source.get());
@@ -753,15 +764,17 @@ namespace {
     };
 
     SP<Render::IFramebuffer> preview_target(const PHLMONITOR &monitor, int longest_side) {
-        g_pHyprRenderer->glBackend()->makeEGLCurrent();
+        const hyprimate::gl::ScopedCompositorContext CONTEXT{};
+        if (!CONTEXT) { return {}; }
         const auto SIZE = monitor->m_transformedSize;
         const double SCALE = std::min(1.0, longest_side / std::max(SIZE.x, SIZE.y));
-        auto image = g_pHyprRenderer->createFB("hyprimate workspace preview");
+        auto image = hyprimate::gl::retain_native(
+            g_pHyprRenderer->createFB("hyprimate workspace preview"));
         if (!image) {
             return {};
         }
         const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
-        const hyprimate::gl::CRawGlBracket<1> STATE{{}};
+        const hyprimate::gl::FramebufferAllocationState STATE;
         if (!image->alloc(std::max(1, static_cast<int>(std::lround(SIZE.x * SCALE))),
                 std::max(1, static_cast<int>(std::lround(SIZE.y * SCALE))),
                 capture_format(monitor))) {
@@ -774,9 +787,12 @@ namespace {
     template<class Allowed>
     bool write_thumbnail(const SP<Render::IFramebuffer> &source,
         const SP<Render::IFramebuffer> &thumbnail, const Allowed &allowed) {
+        const hyprimate::gl::ScopedCompositorContext CONTEXT{};
+        if (!CONTEXT) { return false; }
         if (!allowed() || !copy_opaque(source, thumbnail, true, true) || !allowed()) {
             return false;
         }
+        if (!hyprimate::gl::native_current(thumbnail)) { return false; }
         // Only plugin-owned thumbnails receive mip levels; never modify a native client texture.
         const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
         const hyprimate::gl::CRawGlBracket<1> STATE{{}};
@@ -804,7 +820,8 @@ namespace {
         if (manager != nullptr && manager->m_capturing != nullptr && manager->m_capturing->wallpaper_captured &&
             source && source->m_size == manager->m_capturing->source->m_size) {
             const auto BACKDROP = manager->m_capturing->opaque_backdrop;
-            if (!copy_opaque(source, BACKDROP)) {
+            if (!copy_capture(source, BACKDROP, Coverage::OpaqueTarget, false,
+                    std::nullopt, CopySource::BorrowedNative)) {
                 manager->m_capturing->wallpaper_captured = false;
                 manager->m_capturing->capture_failed = true;
                 return nullptr;
@@ -1022,7 +1039,7 @@ namespace {
                 m_target,
                 m_reset ? Coverage::ResetSource : Coverage::Preserve,
                 false,
-                m_crop);
+                m_crop, CopySource::BorrowedNative);
             if (!*m_captured && m_failed != nullptr) {
                 *m_failed = true;
             }
@@ -1294,6 +1311,7 @@ namespace {
                 return drawn && previews_current();
             };
             const auto DISPLAY = [&] {
+                if (!hyprimate::gl::native_current(m_frame.presentation)) { return; }
                 CTexPassElement::SRenderData data;
                 data.tex = m_frame.presentation->getTexture();
                 data.box = {0, 0, m_monitor->m_transformedSize.x, m_monitor->m_transformedSize.y};
@@ -1523,9 +1541,6 @@ void CWorkspaceAnimation::Impl::shutdown() {
     m_blur_hook = m_window_hook = m_layer_hook = nullptr;
     clear();
     m_style_warm_pending = false;
-    if (Render::GL::g_pHyprOpenGL) {
-        Render::GL::g_pHyprOpenGL->makeEGLCurrent();
-    }
     if (m_style_draw_depth) {
         m_release_pending = true;
     } else {
@@ -1663,6 +1678,8 @@ SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::allocate_capture(
     if (!g_pHyprRenderer || !ready(monitor)) {
         return nullptr;
     }
+    const hyprimate::gl::ScopedCompositorContext CONTEXT{};
+    if (!CONTEXT) { return nullptr; }
     const auto SIZE = size.value_or(monitor->m_transformedSize);
     const auto FORMAT = capture_format(monitor);
     const auto BYTES = static_cast<std::uint64_t>(SIZE.x) * static_cast<std::uint64_t>(SIZE.y) *
@@ -1679,7 +1696,10 @@ SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::allocate_capture(
             monitor->m_name, BYTES, entry.allocated_bytes, total);
         return nullptr;
     }
-    auto framebuffer = g_pHyprRenderer->createFB("hyprimate workspace capture");
+    const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
+    const hyprimate::gl::FramebufferAllocationState STATE;
+    auto framebuffer = hyprimate::gl::retain_native(
+        g_pHyprRenderer->createFB("hyprimate workspace capture"));
     if (!framebuffer || !framebuffer->alloc(static_cast<int>(SIZE.x), static_cast<int>(SIZE.y), FORMAT)) {
         entry.port.diagnostic("capture-allocation");
         return nullptr;
@@ -1714,7 +1734,8 @@ hyprimate::workspace::CaptureBufferFacts CWorkspaceAnimation::Impl::buffer_facts
     const auto *const ACTIVE_TURN = turn(monitor);
     facts.active = ACTIVE_TURN != nullptr && ACTIVE_TURN->active();
     const auto USABLE = [&](const SP<Render::IFramebuffer> &framebuffer) {
-        return framebuffer != nullptr && framebuffer->isAllocated() &&
+        return framebuffer != nullptr && hyprimate::gl::native_current(framebuffer) &&
+               framebuffer->isAllocated() &&
                framebuffer->m_size == monitor->m_transformedSize &&
                framebuffer->getTexture() != nullptr;
     };
@@ -1739,6 +1760,8 @@ bool CWorkspaceAnimation::Impl::ensure_buffers(MonitorState &entry, const PHLMON
     if (g_pHyprRenderer == nullptr || !ready(monitor)) {
         return false;
     }
+    const hyprimate::gl::ScopedCompositorContext CONTEXT{};
+    if (!CONTEXT) { return false; }
     const auto FACTS = buffer_facts(entry, monitor);
     const auto PLAN = hyprimate::workspace::capture_buffer_plan(FACTS, capture_features());
     if (PLAN == hyprimate::workspace::CaptureBufferAction::Reject) {
@@ -1746,7 +1769,6 @@ bool CWorkspaceAnimation::Impl::ensure_buffers(MonitorState &entry, const PHLMON
             monitor->m_name, FACTS.native_ready, FACTS.compatible, FACTS.scene_safe, FACTS.hud_safe, FACTS.active);
         return false;
     }
-    g_pHyprRenderer->glBackend()->makeEGLCurrent();
     if (PLAN == hyprimate::workspace::CaptureBufferAction::Allocate) {
         const auto ALLOCATE = [&] { return allocate_capture(entry, monitor); };
         entry.source = ALLOCATE();
@@ -1785,11 +1807,19 @@ bool CWorkspaceAnimation::Impl::ensure_buffers(MonitorState &entry, const PHLMON
         hyprimate::workspace::CaptureBufferAction::Reuse) {
         return false;
     }
+    if (entry.source_resources &&
+        !hyprimate::gl::native_current(entry.source_resources->blurFramebuffer())) {
+        entry.source_resources.reset();
+    }
     if (!entry.source_resources) {
-        const auto BLUR = g_pHyprRenderer->createFB("hyprimate workspace source blur");
-        entry.source_resources = makeShared<Render::CSceneResources>(BLUR,
-            Render::SSceneBufferDescription{.format = entry.source->m_drmFormat,
-                .imageDescription = entry.source->imageDescription()});
+        const auto BLUR = hyprimate::gl::retain_native(
+            g_pHyprRenderer->createFB("hyprimate workspace source blur"));
+        if (!BLUR) { return false; }
+        entry.source_resources = hyprimate::gl::retain_native(
+            makeShared<Render::CSceneResources>(BLUR,
+                Render::SSceneBufferDescription{.format = entry.source->m_drmFormat,
+                    .imageDescription = entry.source->imageDescription()}));
+        if (!entry.source_resources) { return false; }
     }
     const bool READY = initialize_selected_style();
     if (!READY) {
@@ -1808,11 +1838,8 @@ bool CWorkspaceAnimation::Impl::initialize_selected_style() {
             return;
         }
         if (!resources.ready) {
-            const auto BACKEND = g_pHyprRenderer->glBackend();
-            if (!BACKEND) {
-                return;
-            }
-            BACKEND->makeEGLCurrent();
+            const hyprimate::gl::ScopedCompositorContext CONTEXT{};
+            if (!CONTEXT) { return; }
             resources.ready = resources.renderer.initialize();
         }
         ready = resources.ready;
@@ -2035,7 +2062,8 @@ void CWorkspaceAnimation::Impl::release_blend(MonitorState &entry, MonitorState:
 
 bool CWorkspaceAnimation::Impl::begin_refresh(MonitorState &entry, const PHLMONITOR &monitor, TurnKind kind) {
     auto &blend = kind == TurnKind::SourceIsolated ? entry.source_blend : entry.destination_blend;
-    g_pHyprRenderer->glBackend()->makeEGLCurrent();
+    const hyprimate::gl::ScopedCompositorContext CONTEXT{};
+    if (!CONTEXT) { return false; }
     const auto &live = kind == TurnKind::SourceIsolated ? entry.source_frame : entry.destination_frame;
     const auto CLONE = [&](const SP<Render::IFramebuffer> &input, SP<Render::IFramebuffer> &output) {
         output = input ? allocate_capture(entry, monitor, input->m_size) : nullptr;
@@ -2742,6 +2770,9 @@ SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::capture_preview(const Invent
     const PHLWORKSPACE &workspace,
     const SP<Render::IFramebuffer> &paper,
     hyprimate::workspace::PreviewCapturePlan plan) {
+    // Local isolated scene resources can switch EGL when destroyed.
+    const hyprimate::gl::ScopedCompositorContext CONTEXT{};
+    if (!CONTEXT) { return {}; }
     struct DrawData {
         RenderFn original;
         PHLMONITOR monitor;
@@ -2752,7 +2783,8 @@ SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::capture_preview(const Invent
         bool remote = false;
         [[nodiscard]] bool allowed() const {
             if (!port->allowed() || workspace->m_monitor.lock() != monitor ||
-                !port->owner->ready(monitor) || remote != (monitor != port->monitor)) {
+                !port->owner->ready(monitor) || remote != (monitor != port->monitor) ||
+                (wallpaper && !hyprimate::gl::native_current(wallpaper))) {
                 port->revoked = true;
                 return false;
             }
@@ -2780,10 +2812,15 @@ SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::capture_preview(const Invent
         if (!scratch) {
             return {};
         }
-        resources = makeShared<Render::CSceneResources>(g_pHyprRenderer->createFB("hyprimate workspace preview blur"),
-            Render::SSceneBufferDescription{.format = scratch->m_drmFormat, .imageDescription = scratch->imageDescription()});
+        const auto BLUR = hyprimate::gl::retain_native(
+            g_pHyprRenderer->createFB("hyprimate workspace preview blur"));
+        if (!BLUR) { return {}; }
+        resources = hyprimate::gl::retain_native(makeShared<Render::CSceneResources>(BLUR,
+            Render::SSceneBufferDescription{.format = scratch->m_drmFormat,
+                .imageDescription = scratch->imageDescription()}));
     }
-    if (!scratch || !resources) {
+    if (!scratch || !hyprimate::gl::native_current(scratch) || !resources ||
+        !hyprimate::gl::native_current(resources->blurFramebuffer())) {
         return {};
     }
     const auto DRAW = [](void *context, Render::CRenderContext &ctx) {
@@ -2795,7 +2832,13 @@ SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::capture_preview(const Invent
         const auto NOW = Time::steadyNow();
         if (!args.native_background) {
             CTexPassElement::SRenderData layer;
-            layer.tex = args.wallpaper->getTexture();
+            // The queued pass retains the attachment independently of its FB.
+            layer.tex = args.wallpaper
+                ? hyprimate::gl::retain_native(args.wallpaper->getTexture()) : nullptr;
+            if (!layer.tex) {
+                args.port->revoked = true;
+                return;
+            }
             layer.box = {0, 0, args.monitor->m_transformedSize.x, args.monitor->m_transformedSize.y};
             Render::IHyprRenderer::addPassElement(ctx, makeUnique<CTexPassElement>(std::move(layer)));
         } else {

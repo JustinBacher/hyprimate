@@ -6,6 +6,7 @@
 #include "workspace/rotation/RotationGeometry.hpp"
 #ifndef HYPRIMATE_ROTATION_RAW_ONLY
 #include "gl/RawGlBracket.hpp"
+#include "gl/NativeResource.hpp"
 #include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/Framebuffer.hpp>
 #include <hyprland/src/render/Shader.hpp>
@@ -64,10 +65,11 @@ namespace hyprimate::workspace {
 
 #ifndef HYPRIMATE_ROTATION_RAW_ONLY
     RotationRenderer::RotationRenderer() = default;
-    RotationRenderer::~RotationRenderer() = default;
+    RotationRenderer::~RotationRenderer() { release(); }
     bool RotationRenderer::initialize() {
+        const gl::ScopedCompositorContext CONTEXT{};
+        if (!CONTEXT || !m_context.ensure_current()) { return false; }
         if (m_program != 0) { return true; }
-        if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL) { return false; }
         const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
         const gl::CRawGlBracket<4> BRACKET{{}};
         m_shader = std::make_unique<CShader>();
@@ -82,11 +84,17 @@ namespace hyprimate::workspace {
         return true;
     }
     void RotationRenderer::release() {
-        if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL) {
-            // The GL context is gone, so destroying the shader would call into an unavailable backend.
+        if (!m_shader && m_vao == 0) {
+            m_context.reset();
+            return;
+        }
+        const gl::ScopedCompositorContext CONTEXT{m_context};
+        if (!CONTEXT) {
+            // CShader has no detach API; its destructor must not delete in another context.
             [[maybe_unused]] const auto *const LEAKED_SHADER = m_shader.release();
             m_vao = 0;
             m_program = 0;
+            m_context.reset();
             return;
         }
         const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
@@ -95,11 +103,13 @@ namespace hyprimate::workspace {
         m_shader.reset();
         m_vao = 0;
         m_program = 0;
+        m_context.reset();
     }
     bool RotationRenderer::draw(Render::CRenderContext &ctx, const SP<Render::IFramebuffer> &source,
         const SP<Render::IFramebuffer> &destination, const SP<Render::IFramebuffer> &presentation,
         const SP<Render::IFramebuffer> &source_wallpaper, const SP<Render::IFramebuffer> &destination_wallpaper,
         double position, Direction direction, const GapFill &gap, bool matching_wallpaper) {
+        if (!m_context.ensure_current()) { return false; }
         if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL ||
             g_pHyprRenderer->type() != Render::IHyprRenderer::RT_GL || !source || !destination ||
             !presentation || !source_wallpaper || !destination_wallpaper || !source->getTexture() ||
@@ -107,6 +117,9 @@ namespace hyprimate::workspace {
             !destination_wallpaper->getTexture() || source->m_size != destination->m_size ||
             source->m_size != presentation->m_size || source->m_size != source_wallpaper->m_size ||
             source->m_size != destination_wallpaper->m_size) { return false; }
+        if (!gl::native_current(source) || !gl::native_current(destination) ||
+            !gl::native_current(presentation) || !gl::native_current(source_wallpaper) ||
+            !gl::native_current(destination_wallpaper)) { return false; }
         const GLuint SRC = source->getTexture()->m_texID;
         const GLuint DST = destination->getTexture()->m_texID;
         const GLuint OUT = presentation->getTexture()->m_texID;
