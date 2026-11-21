@@ -1,4 +1,6 @@
+#include <cmath>
 #include <memory>
+#include <new>
 #include <utility>
 
 #include <EGL/egl.h>
@@ -52,17 +54,19 @@ namespace {
 struct CPaperRenderer::Impl {
     std::unique_ptr<CShader> shader;
     CPaperMaterial material;
-    bool attempted = false, ready = false;
-    bool initialize() {
-        if (attempted) return ready;
-        attempted = true;
-        shader = std::make_unique<CShader>();
-        if (!shader->createProgram(
+    bool ready = false;
+    bool initialize() try {
+        if (ready) return true;
+        auto candidate = std::make_unique<CShader>();
+        if (!candidate->createProgram(
                 paper_shader::VERTEX.data(), paper_shader::FRAGMENT.data(), true, true) ||
-            shader->program() == 0)
+            candidate->program() == 0 || !material.initialize(candidate->program()))
             return false;
-        ready = material.initialize(shader->program());
-        return ready;
+        shader = std::move(candidate);
+        ready = true;
+        return true;
+    } catch (const std::bad_alloc &) {
+        return false;
     }
 };
 
@@ -78,13 +82,12 @@ CPaperRenderer::~CPaperRenderer() {
 }
 
 bool CPaperRenderer::warm_up() {
-    if (m_impl->attempted) return true;
+    if (m_impl->ready) return true;
     if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL) return false;
     const ContextGuard CONTEXT;
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     const hyprimate::gl::CRawGlBracket<2> BRACKET{{}};
-    (void)m_impl->initialize();
-    return m_impl->attempted;
+    return m_impl->initialize();
 }
 
 bool CPaperRenderer::draw(const hyprimate::PaperSurface &surface,
@@ -92,8 +95,10 @@ bool CPaperRenderer::draw(const hyprimate::PaperSurface &surface,
     if (!draw.canvas) return false;
     draw.canvas->layer().reset();
     if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL || !draw.image || !*draw.image ||
-        !(draw.scale > 0) || !hyprimate::is_usable(draw.source) ||
-        !hyprimate::is_usable(draw.canvas_box))
+        !std::isfinite(draw.scale) || !(draw.scale > 0) || !hyprimate::is_usable(draw.source) ||
+        !hyprimate::is_usable(draw.canvas_box) || !std::isfinite(draw.canvas_box.w) ||
+        !std::isfinite(draw.canvas_box.h) || draw.canvas_box.w < 1 || draw.canvas_box.h < 1 ||
+        draw.canvas_box.w > 32768 || draw.canvas_box.h > 32768)
         return false;
     const auto IMAGE = (*draw.image)->getTexture();
     if (!IMAGE || IMAGE->m_texID == 0 ||

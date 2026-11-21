@@ -2,10 +2,13 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <new>
 #include <numeric>
+#include <stdexcept>
 #include <tuple>
 
 #include "animations/paper/PaperMaterial.hpp"
+#include "gl/Storage.hpp"
 
 namespace {
     using hyprimate::Vec3;
@@ -113,21 +116,22 @@ namespace {
         LocalState(const LocalState &) = delete;
         LocalState &operator=(const LocalState &) = delete;
     };
-    void texture_storage(
-        GLuint texture, GLint internal, GLenum format, GLenum type, GLsizei width, GLsizei height) {
+    bool texture_storage(GLuint texture, GLenum internal, GLsizei width, GLsizei height) {
         glBindTexture(GL_TEXTURE_2D, texture);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexImage2D(GL_TEXTURE_2D, 0, internal, width, height, 0, format, type, nullptr);
+        return hyprimate::gl::allocate_texture_2d(internal, width, height);
     }
 }  // namespace
 
 bool CPaperMaterial::initialize(GLuint program) {
     if (m_program != 0) return m_program == program;
     if (program == 0) return false;
-    m_program = program;
+    GLint linked = GL_FALSE;
+    glGetProgramiv(program, GL_LINK_STATUS, &linked);
+    if (linked != GL_TRUE) return false;
     m_canvas = glGetUniformLocation(program, "canvasSize");
     m_center = glGetUniformLocation(program, "center");
     m_unit = glGetUniformLocation(program, "pixelsPerUnit");
@@ -146,32 +150,28 @@ bool CPaperMaterial::initialize(GLuint program) {
     m_thickness = glGetUniformLocation(program, "thickness");
     m_shadow_strength = glGetUniformLocation(program, "shadowStrength");
     glGenVertexArrays(1, &m_vao);
-    glGenBuffers(1, &m_buffer);
-    glGenFramebuffers(1, &m_framebuffer);
-    glGenFramebuffers(1, &m_shadow_framebuffer);
-    glGenTextures(1, &m_color);
-    glGenTextures(1, &m_depth);
-    glGenRenderbuffers(1, &m_depth_buffer);
+    if (m_vao == 0) {
+        release();
+        return false;
+    }
     glBindVertexArray(m_vao);
-    glBindBuffer(GL_ARRAY_BUFFER, m_buffer);
     glEnableVertexAttribArray(0);
     glEnableVertexAttribArray(1);
     glEnableVertexAttribArray(2);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(SPaperVertex), nullptr);
-    glVertexAttribPointer(1,
-        2,
-        GL_FLOAT,
-        GL_FALSE,
-        sizeof(SPaperVertex),
-        reinterpret_cast<const void *>(offsetof(SPaperVertex, u)));
-    glVertexAttribPointer(2,
-        3,
-        GL_FLOAT,
-        GL_FALSE,
-        sizeof(SPaperVertex),
-        reinterpret_cast<const void *>(offsetof(SPaperVertex, nx)));
-    return m_vao != 0 && m_buffer != 0 && m_framebuffer != 0 && m_shadow_framebuffer != 0 &&
-           m_color != 0 && m_depth != 0 && m_depth_buffer != 0;
+    GLint vao = 0;
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
+    bool configured = static_cast<GLuint>(vao) == m_vao;
+    for (GLuint attribute = 0; attribute < 3; ++attribute) {
+        GLint enabled = GL_FALSE;
+        glGetVertexAttribiv(attribute, GL_VERTEX_ATTRIB_ARRAY_ENABLED, &enabled);
+        configured &= enabled == GL_TRUE;
+    }
+    if (!configured) {
+        release();
+        return false;
+    }
+    m_program = program;
+    return true;
 }
 
 void CPaperMaterial::release() {
@@ -201,6 +201,9 @@ namespace {
 }  // namespace
 
 void CPaperMaterial::topology(const hyprimate::PaperSurface &surface) {
+    // Invalidate before any allocating mutation: a failed rebuild must never hit
+    // the previous key with partially replaced adjacency on the next frame.
+    m_faces.clear();
     const auto COUNT = surface.faces.size() * 3;
     m_neighbors.assign(COUNT, std::array<Neighbor, 2>{});
     m_heads.assign(surface.points.size(), SIZE_MAX);
@@ -253,7 +256,7 @@ void CPaperMaterial::topology(const hyprimate::PaperSurface &surface) {
     m_faces = surface.faces;
 }
 
-bool CPaperMaterial::mesh(const hyprimate::PaperSurface &surface) {
+bool CPaperMaterial::mesh(const hyprimate::PaperSurface &surface) try {
     if (surface.faces.empty() ||
         surface.faces.size() > static_cast<std::size_t>(std::numeric_limits<GLsizei>::max()) / 12)
         return false;
@@ -348,12 +351,36 @@ bool CPaperMaterial::mesh(const hyprimate::PaperSurface &surface) {
     glBindVertexArray(m_vao);
     glBindBuffer(GL_ARRAY_BUFFER, m_buffer);
     const auto BYTES = m_vertices.size() * sizeof(SPaperVertex);
+    if (BYTES > static_cast<std::size_t>(std::numeric_limits<GLsizeiptr>::max())) return false;
     if (BYTES > m_capacity) {
-        m_capacity = BYTES + BYTES / 2;
-        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(m_capacity), nullptr, GL_STREAM_DRAW);
+        const auto LIMIT = static_cast<std::size_t>(std::numeric_limits<GLsizeiptr>::max());
+        const auto CAPACITY = BYTES + std::min(BYTES / 2, LIMIT - BYTES);
+        GLuint buffer = 0;
+        glGenBuffers(1, &buffer);
+        if (buffer == 0) return false;
+        glBindBuffer(GL_ARRAY_BUFFER, buffer);
+        if (!hyprimate::gl::allocate_buffer(
+                GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(CAPACITY), nullptr, GL_STREAM_DRAW)) {
+            glDeleteBuffers(1, &buffer);
+            return false;
+        }
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(SPaperVertex), nullptr);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(SPaperVertex),
+            reinterpret_cast<const void *>(offsetof(SPaperVertex, u)));
+        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(SPaperVertex),
+            reinterpret_cast<const void *>(offsetof(SPaperVertex, nx)));
+        glDeleteBuffers(1, &m_buffer);
+        m_buffer = buffer;
+        m_capacity = CAPACITY;
     }
     glBufferSubData(GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(BYTES), m_vertices.data());
     return true;
+} catch (const std::bad_alloc &) {
+    m_faces.clear();
+    return false;
+} catch (const std::length_error &) {
+    m_faces.clear();
+    return false;
 }
 
 std::size_t CPaperMaterial::build_bounds(
@@ -524,44 +551,85 @@ void CPaperMaterial::reconstruct(const hyprimate::PaperSurface &surface) {
 }
 
 bool CPaperMaterial::resize(GLsizei width, GLsizei height, bool shaded) {
-    const auto SHADOW_WIDTH = shaded ? std::min(1024, ((width + 63) / 64) * 64) : 0;
-    const auto SHADOW_HEIGHT = shaded ? std::min(1024, ((height + 63) / 64) * 64) : 0;
+    // Round in a wider type before narrowing or asking the driver.
+    const auto rounded = [](GLsizei value) -> GLsizei {
+        if (value <= 0) return 0;
+        const auto result = ((static_cast<std::int64_t>(value) + 63) / 64) * 64;
+        return result <= std::numeric_limits<GLsizei>::max() ? static_cast<GLsizei>(result) : 0;
+    };
+    width = rounded(width);
+    height = rounded(height);
+    if (width == 0 || height == 0) return false;
+    const auto SHADOW_WIDTH = shaded ? std::min(1024, width) : 0;
+    const auto SHADOW_HEIGHT = shaded ? std::min(1024, height) : 0;
     if (width <= m_width && height <= m_height && SHADOW_WIDTH <= m_shadow_width &&
         SHADOW_HEIGHT <= m_shadow_height)
         return true;
-    width = std::max(m_width, ((width + 63) / 64) * 64);
-    height = std::max(m_height, ((height + 63) / 64) * 64);
-    GLint limit = 0;
-    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &limit);
-    if (width > limit || height > limit) return false;
+    width = std::max(m_width, width);
+    height = std::max(m_height, height);
+    GLint texture_limit = 0, renderbuffer_limit = 0;
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &texture_limit);
+    glGetIntegerv(GL_MAX_RENDERBUFFER_SIZE, &renderbuffer_limit);
+    if (width > std::min(texture_limit, renderbuffer_limit) ||
+        height > std::min(texture_limit, renderbuffer_limit))
+        return false;
+    struct Pending {
+        GLuint framebuffer = 0, shadow_framebuffer = 0, color = 0, depth = 0, depth_buffer = 0;
+        ~Pending() {
+            glDeleteFramebuffers(1, &framebuffer);
+            glDeleteFramebuffers(1, &shadow_framebuffer);
+            glDeleteTextures(1, &color);
+            glDeleteTextures(1, &depth);
+            glDeleteRenderbuffers(1, &depth_buffer);
+        }
+    } pending;
+    const bool SHADOW = SHADOW_WIDTH > m_shadow_width || SHADOW_HEIGHT > m_shadow_height;
+    const bool COLOR = width > m_width || height > m_height;
+    const auto BACKING_WIDTH = std::max(m_shadow_width, SHADOW_WIDTH);
+    const auto BACKING_HEIGHT = std::max(m_shadow_height, SHADOW_HEIGHT);
     glActiveTexture(GL_TEXTURE1);
-    if (SHADOW_WIDTH > m_shadow_width || SHADOW_HEIGHT > m_shadow_height) {
-        const auto BACKING_WIDTH = std::max(m_shadow_width, SHADOW_WIDTH);
-        const auto BACKING_HEIGHT = std::max(m_shadow_height, SHADOW_HEIGHT);
-        texture_storage(m_depth,
-            GL_DEPTH_COMPONENT24,
-            GL_DEPTH_COMPONENT,
-            GL_UNSIGNED_INT,
-            BACKING_WIDTH,
-            BACKING_HEIGHT);
-        glBindFramebuffer(GL_FRAMEBUFFER, m_shadow_framebuffer);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, m_depth, 0);
+    if (SHADOW) {
+        glGenTextures(1, &pending.depth);
+        glGenFramebuffers(1, &pending.shadow_framebuffer);
+        if (pending.depth == 0 || pending.shadow_framebuffer == 0 ||
+            !texture_storage(pending.depth, GL_DEPTH_COMPONENT24, BACKING_WIDTH, BACKING_HEIGHT))
+            return false;
+        glBindFramebuffer(GL_FRAMEBUFFER, pending.shadow_framebuffer);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, pending.depth, 0);
         constexpr GLenum NONE = GL_NONE;
         glDrawBuffers(1, &NONE);
         glReadBuffer(GL_NONE);
         if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) return false;
+    }
+    if (COLOR) {
+        glGenTextures(1, &pending.color);
+        glGenRenderbuffers(1, &pending.depth_buffer);
+        glGenFramebuffers(1, &pending.framebuffer);
+        if (pending.color == 0 || pending.depth_buffer == 0 || pending.framebuffer == 0 ||
+            !texture_storage(pending.color, GL_RGBA8, width, height))
+            return false;
+        glBindRenderbuffer(GL_RENDERBUFFER, pending.depth_buffer);
+        if (!hyprimate::gl::allocate_renderbuffer(GL_DEPTH_COMPONENT24, width, height)) return false;
+        glBindFramebuffer(GL_FRAMEBUFFER, pending.framebuffer);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, pending.color, 0);
+        glFramebufferRenderbuffer(
+            GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, pending.depth_buffer);
+        if (!hyprimate::gl::framebuffer_attachment_is(GL_COLOR_ATTACHMENT0, pending.color) ||
+            !hyprimate::gl::framebuffer_attachment_is(GL_DEPTH_ATTACHMENT, pending.depth_buffer) ||
+            glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+            return false;
+    }
+    // Publish both targets together; pending then destroys only the replaced objects.
+    if (SHADOW) {
+        std::swap(m_depth, pending.depth);
+        std::swap(m_shadow_framebuffer, pending.shadow_framebuffer);
         m_shadow_width = BACKING_WIDTH;
         m_shadow_height = BACKING_HEIGHT;
     }
-    if (width > m_width || height > m_height) {
-        texture_storage(m_color, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, width, height);
-        glBindRenderbuffer(GL_RENDERBUFFER, m_depth_buffer);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
-        glBindFramebuffer(GL_FRAMEBUFFER, m_framebuffer);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_color, 0);
-        glFramebufferRenderbuffer(
-            GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_depth_buffer);
-        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) return false;
+    if (COLOR) {
+        std::swap(m_color, pending.color);
+        std::swap(m_depth_buffer, pending.depth_buffer);
+        std::swap(m_framebuffer, pending.framebuffer);
         m_width = width;
         m_height = height;
     }

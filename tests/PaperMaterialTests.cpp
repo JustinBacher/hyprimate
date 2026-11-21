@@ -5,6 +5,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
+#include <utility>
 #include <vector>
 
 #include <EGL/egl.h>
@@ -14,9 +16,20 @@
 
 #include "Check.hpp"
 #include "GlHarness.hpp"
+#include "GlAllocationFault.hpp"
 #include "PaperPoseBank.hpp"
 #include "animations/paper/PaperMaterial.hpp"
 #include "animations/paper/PaperShaders.hpp"
+
+// Allocation/readback prerequisites must stop the test rather than let later
+// comparisons pass on empty or unrelated framebuffer contents.
+#define REQUIRE(expr) \
+    do { \
+        if (!(expr)) { \
+            report(false, #expr, __FILE__, __LINE__); \
+            std::exit(EXIT_FAILURE); \
+        } \
+    } while (false)
 
 namespace {
     constexpr int WIDTH = 128, HEIGHT = 96;
@@ -32,7 +45,7 @@ namespace {
             glGenFramebuffers(1, &framebuffer);
             glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
-            CHECK(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+            REQUIRE(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
         }
         ~Target() {
             glDeleteFramebuffers(1, &framebuffer);
@@ -457,7 +470,7 @@ namespace {
     void isolation_and_resize(
         GLuint program, CPaperMaterial &material, GLuint texture, const Target &output) {
         CPaperMaterial scratch;
-        CHECK(scratch.initialize(program));
+        REQUIRE(scratch.initialize(program));
         auto surface = sheet();
         CHECK(material.draw(surface, placement(), texture, output.framebuffer));
         const auto BEFORE = read(output.framebuffer);
@@ -502,6 +515,87 @@ namespace {
         CHECK(BEFORE == read(output.framebuffer));
         CHECK(glGetError() == GL_NO_ERROR);
         scratch.release();
+    }
+
+    void allocation_retry(GLuint program, GLuint texture, const Target &output) {
+        using gl_harness::Allocation;
+        auto surface = sheet();
+        surface.shading = 1;
+        const auto TARGET = placement();
+        auto grown = TARGET;
+        grown.canvas = {192, 160};
+        for (const auto [allocation, occurrence] :
+            std::array{std::pair{Allocation::texture_2d, 1U},
+                std::pair{Allocation::texture_2d, 2U},
+                std::pair{Allocation::renderbuffer, 1U},
+                std::pair{Allocation::buffer, 1U}}) {
+            CPaperMaterial material;
+            REQUIRE(material.initialize(program));
+            {
+                gl_harness::FailAllocation fail(allocation, occurrence);
+                CHECK(!material.draw(surface, TARGET, texture, output.framebuffer));
+            }
+            REQUIRE(material.draw(surface, TARGET, texture, output.framebuffer));
+            GLint old_framebuffer = 0;
+            glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &old_framebuffer);
+            const auto BEFORE = read(output.framebuffer);
+            REQUIRE(std::any_of(BEFORE.begin(), BEFORE.end(),
+                [](const Pixel &pixel) { return pixel[3] != 0; }));
+            GLint old_shadow = 0, old_buffer = 0;
+            glGetIntegerv(GL_TEXTURE_BINDING_2D, &old_shadow);
+            glGetVertexAttribiv(0, GL_VERTEX_ATTRIB_ARRAY_BUFFER_BINDING, &old_buffer);
+            auto larger_mesh = surface;
+            // Coplanar duplicate triangles increase VBO demand without changing
+            // the visible sheet or introducing solver/model dependencies.
+            larger_mesh.faces.insert(larger_mesh.faces.end(), surface.faces.begin(), surface.faces.end());
+            larger_mesh.faces.insert(larger_mesh.faces.end(), surface.faces.begin(), surface.faces.end());
+            const bool BUFFER = allocation == Allocation::buffer;
+            {
+                gl_harness::FailAllocation fail(allocation, occurrence);
+                CHECK(!material.draw(BUFFER ? larger_mesh : surface,
+                    BUFFER ? TARGET : grown, texture, output.framebuffer));
+            }
+            REQUIRE(material.draw(surface, TARGET, texture, output.framebuffer));
+            GLint framebuffer = 0;
+            glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &framebuffer);
+            CHECK(framebuffer == old_framebuffer);
+            CHECK(BEFORE == read(output.framebuffer));
+            GLint shadow = 0, buffer = 0;
+            glGetIntegerv(GL_TEXTURE_BINDING_2D, &shadow);
+            glGetVertexAttribiv(0, GL_VERTEX_ATTRIB_ARRAY_BUFFER_BINDING, &buffer);
+            CHECK(shadow == old_shadow);
+            CHECK(buffer == old_buffer);
+            REQUIRE(material.draw(BUFFER ? larger_mesh : surface,
+                BUFFER ? TARGET : grown, texture, output.framebuffer));
+            const auto RETRIED = read(output.framebuffer);
+            REQUIRE(std::any_of(RETRIED.begin(), RETRIED.end(),
+                [](const Pixel &pixel) { return pixel[3] != 0; }));
+            REQUIRE(material.draw(BUFFER ? larger_mesh : surface,
+                BUFFER ? TARGET : grown, texture, output.framebuffer));
+            CHECK(RETRIED == read(output.framebuffer));
+            REQUIRE(material.draw(surface, TARGET, texture, output.framebuffer));
+            CHECK(BEFORE == read(output.framebuffer));
+            CHECK(glGetError() == GL_NO_ERROR);
+            material.release();
+        }
+        CPaperMaterial material;
+        CHECK(!material.initialize(0));
+        const auto UNLINKED = glCreateProgram();
+        REQUIRE(UNLINKED != 0);
+        CHECK(!material.initialize(UNLINKED));
+        CHECK(!material.initialize(UNLINKED));
+        glDeleteProgram(UNLINKED);
+        REQUIRE(material.initialize(program));
+        auto invalid = TARGET;
+        for (const double dimension : {std::numeric_limits<double>::infinity(),
+                 std::numeric_limits<double>::quiet_NaN(),
+                 static_cast<double>(std::numeric_limits<GLsizei>::max())}) {
+            invalid.canvas.x = dimension;
+            CHECK(!material.draw(surface, invalid, texture, output.framebuffer));
+        }
+        REQUIRE(material.draw(surface, TARGET, texture, output.framebuffer));
+        CHECK(glGetError() == GL_NO_ERROR);
+        material.release();
     }
 
     void benchmark(GLuint program,
@@ -649,7 +743,7 @@ int main(int argc, char **argv) {
     const auto SOURCE = printed_text();
     const auto TEXTURE = upload(SOURCE);
     CPaperMaterial material;
-    CHECK(material.initialize(PROGRAM));
+    REQUIRE(material.initialize(PROGRAM));
     if (argc > 1 &&
         (std::strcmp(argv[1], "--benchmark") == 0 || std::strcmp(argv[1], "--crumpled") == 0)) {
         const int FRAMES = argc > 2 ? std::clamp(std::atoi(argv[2]), 1, 100000) : 240;
@@ -676,6 +770,7 @@ int main(int argc, char **argv) {
         fold_shadow(material, OUTPUT);
         desktop_shadow(material, OUTPUT);
         isolation_and_resize(PROGRAM, material, TEXTURE, OUTPUT);
+        allocation_retry(PROGRAM, TEXTURE, OUTPUT);
     }
     material.release();
     glDeleteTextures(1, &TEXTURE);
