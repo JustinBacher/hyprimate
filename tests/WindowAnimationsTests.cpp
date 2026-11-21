@@ -29,6 +29,7 @@ struct State {
     std::uint64_t seed = 0;
     double progress = 0;
     bool closing = false;
+    std::shared_ptr<int> lifetime = std::make_shared<int>(1);
 };
 struct Log {
     int opens = 0, closes = 0, ends = 0, prepares = 0;
@@ -97,14 +98,18 @@ template<config::Style Kind> struct TestStyle {
         resources.log.last_end = why;
         resources.log.events.push_back(7);
     }
-    static bool draw(State & /*state*/, const Draw<FakeCanvas> &draw, Resources &resources) {
+    static bool draw(State &state, const Draw<FakeCanvas> &draw, Resources &resources) {
         if (draw.real_pass) { ++resources.log.real_draws; }
         resources.log.draw_monitor = draw.monitor;
         resources.log.draw_window = draw.window;
         resources.log.draw_frame = draw.frame;
         resources.log.draw_backdrop = draw.backdrop != nullptr ? draw.backdrop->id : 0;
         draw.canvas->draws.push_back(draw.image->id);
+        const auto SEED = state.seed;
+        const std::weak_ptr<int> LIFETIME = state.lifetime;
         if (resources.log.during_draw) { resources.log.during_draw(); }
+        CHECK(!LIFETIME.expired());
+        if (!LIFETIME.expired()) { CHECK(state.seed == SEED); }
         return resources.log.draw_succeeds;
     }
     struct Screen {
@@ -1062,6 +1067,126 @@ void close_batch_capacity_fallback_and_reentry() {
     } catch (const std::bad_alloc &) { threw = true; }
     CHECK(threw); CHECK(submissions == 1); // A partial submit never restarts collection.
 }
+void close_draw_rechecks_callback_invalidation() {
+    for (const bool succeeded : {false, true}) {
+        Fixture fixture;
+        fixture.window(1); fixture.frame(1);
+        const auto HANDLE = fixture.handle();
+        fixture.module.close(1, fixture.port.now);
+        fixture.module.bind_fadeout(1, fixture.fade(704), {.id = 4});
+        FakeCanvas canvas;
+        const FakeCanvas::Image IMAGE{.id = 4};
+        const Draw<FakeCanvas> DRAW{.canvas = &canvas, .image = &IMAGE, .source = {},
+            .output = {}, .canvas_box = {}, .image_origin = {}, .image_size = {}, .real_pass = true};
+        fixture.log().draw_succeeds = succeeded;
+        const std::weak_ptr<int> STATE = fixture.state(HANDLE)->lifetime;
+        fixture.log().during_draw = [&] {
+            fixture.module.end_all();
+            CHECK(!STATE.expired());
+            CHECK(fixture.port.find_visuals(HANDLE) != nullptr);
+            // Reuse the pool and grow model storage before the outer callback returns.
+            for (WindowId id = 2; id < 40; ++id) { fixture.window(id); }
+            fixture.frame(1);
+            CHECK(!STATE.expired());
+        };
+        CHECK(!fixture.module.draw(HANDLE, DRAW));
+        CHECK(!fixture.module.active(HANDLE));
+        CHECK(fixture.module.active(fixture.handle(2)));
+        CHECK(STATE.expired());
+        CHECK(fixture.port.find_visuals(HANDLE) == nullptr);
+    }
+}
+void nested_close_draw_keeps_outer_state_and_visuals() {
+    Fixture fixture;
+    fixture.window(1); fixture.frame(1);
+    const auto HANDLE = fixture.handle();
+    fixture.module.close(1, fixture.port.now);
+    fixture.module.bind_fadeout(1, fixture.fade(705), {.id = 5});
+    const std::weak_ptr<int> STATE = fixture.state(HANDLE)->lifetime;
+    FakeCanvas canvas;
+    const FakeCanvas::Image IMAGE{.id = 5};
+    const Draw<FakeCanvas> DRAW{.canvas = &canvas, .image = &IMAGE, .source = {},
+        .output = {}, .canvas_box = {}, .image_origin = {}, .image_size = {}, .real_pass = true};
+    bool inner = false;
+    fixture.log().during_draw = [&] {
+        if (!inner) {
+            inner = true;
+            CHECK(!fixture.module.draw(HANDLE, DRAW));
+            CHECK(!STATE.expired());
+            CHECK(fixture.port.find_visuals(HANDLE) != nullptr);
+        } else {
+            fixture.module.end_all();
+        }
+    };
+    CHECK(!fixture.module.draw(HANDLE, DRAW));
+    CHECK(STATE.expired());
+    CHECK(fixture.port.find_visuals(HANDLE) == nullptr);
+    CHECK(fixture.log().ends == 1);
+}
+void close_submission_callback_contract() {
+    CallbackLifetime owner;
+    const auto TICKET = owner.ticket();
+    std::vector<int> submitted;
+    bool associated = true;
+    CHECK(!submit_close([&] { return TICKET.valid() && associated; },
+        [&] { associated = false; },
+        [&] { submitted.push_back(1); }));
+    // A stale association skips only that item; valid siblings still submit exactly once.
+    CHECK(submit_close([&] { return TICKET.valid(); }, [] {},
+        [&] { submitted.push_back(2); }));
+    CHECK(submitted == std::vector<int>{2});
+    bool queued = false;
+    CHECK(submit_close([&] { return TICKET.valid(); }, [] {}, [&] { queued = true; }));
+    CHECK(queued);
+    owner.invalidate();
+    CHECK(!submit_close([&] { return TICKET.valid(); }, [] {},
+        [&] { submitted.push_back(3); }));
+    CHECK(submitted == std::vector<int>{2});
+    CHECK(owner.ticket().valid());
+    CallbackLifetime::Ticket destroyed;
+    {
+        CallbackLifetime temporary;
+        destroyed = temporary.ticket();
+        CHECK(destroyed.valid());
+    }
+    CHECK(!destroyed.valid());
+    CHECK(!destroyed.alive());
+    // Exceptions after a submission must propagate without replaying either stage.
+    int backdrops = 0, contents = 0;
+    bool threw = false;
+    try {
+        submit_close([] { return true; }, [&] { ++backdrops; },
+            [&] { ++contents; throw std::bad_alloc{}; });
+    } catch (const std::bad_alloc &) { threw = true; }
+    CHECK(threw); CHECK(backdrops == 1); CHECK(contents == 1);
+}
+void close_submission_rechecks_model_suppression() {
+    Fixture fixture;
+    fixture.window(1); fixture.frame(1);
+    const auto HANDLE = fixture.handle();
+    fixture.module.close(1, fixture.port.now);
+    const auto TICKET = fixture.module.callback_ticket();
+    int native = 0, owned = 0;
+    // A native item can acquire an owned association while its backdrop submits.
+    CHECK(!submit_close(
+        [&] { return TICKET.valid() && !fixture.module.suppresses(706); },
+        [&] { fixture.module.bind_fadeout(1, fixture.fade(706), {.id = 6}); },
+        [&] { ++native; }));
+    CHECK(fixture.module.suppresses(706));
+    CHECK(submit_close(
+        [&] { return TICKET.valid() && !fixture.module.suppresses(707); },
+        [] {}, [&] { ++native; }));
+    CHECK(native == 1);
+    // An owned association removed by a callback cannot display its copied source.
+    CHECK(!submit_close([&] {
+        const auto view = fixture.module.dying_view_for(706);
+        return TICKET.valid() && view && view->handle == HANDLE;
+    }, [&] { fixture.module.monitor_changed(1); }, [&] { ++owned; }));
+    CHECK(owned == 0);
+    CHECK(!fixture.module.active(HANDLE));
+    fixture.module.end_all();
+    CHECK(!TICKET.valid());
+}
 void close_lookup_survives_view_scratch_rebuild() {
     Fixture fixture; fixture.window(1); fixture.frame(1);
     fixture.module.close(1, fixture.port.now);
@@ -1100,6 +1225,10 @@ int main() try {
     dying_draw_adapter_lifecycle(); dying_damage_follows_native_placement();
     owned_close_draw_failure_restores_native();
     close_batch_capacity_fallback_and_reentry(); close_lookup_survives_view_scratch_rebuild();
+    close_draw_rechecks_callback_invalidation();
+    close_submission_callback_contract();
+    nested_close_draw_keeps_outer_state_and_visuals();
+    close_submission_rechecks_model_suppression();
     return g_failures == 0 ? 0 : 1;
 }
 catch (const std::exception &error) {

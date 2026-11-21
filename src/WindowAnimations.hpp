@@ -5,6 +5,7 @@
 #include <span>
 #include <vector>
 
+#include "CloseBatch.hpp"
 #include "WindowAnimationPort.hpp"
 #include "WindowStyle.hpp"
 #include "WindowStyleList.hpp"
@@ -67,6 +68,7 @@ class CWindowAnimations<Port, StyleList<Styles...>> {
     bool display_tail(Handle handle, const Draw<Canvas> &draw, bool retained_no_screen_share, Display &&display);
     void detach_transformers();
     void end_all();
+    [[nodiscard]] CallbackLifetime::Ticket callback_ticket() const { return m_callbacks.ticket(); }
   private:
     struct Tracked {
         Port::WindowRef window;
@@ -114,6 +116,21 @@ class CWindowAnimations<Port, StyleList<Styles...>> {
     Record *record(Handle handle);
     const Record *record(Handle handle) const;
     DyingView dying_view(const Record &entry) const;
+    struct InFlightDraw {
+        InFlightDraw(CWindowAnimations &module, Handle draw_handle)
+            : owner(module), handle(draw_handle), previous(module.m_draws), ticket(module.callback_ticket()) {
+            module.m_draws = this;
+        }
+        ~InFlightDraw() { if (ticket.alive()) { owner.finish_draw(*this); } }
+        InFlightDraw(const InFlightDraw &) = delete;
+        InFlightDraw &operator=(const InFlightDraw &) = delete;
+        CWindowAnimations &owner;
+        Handle handle;
+        InFlightDraw *previous;
+        CallbackLifetime::Ticket ticket;
+        std::optional<End> deferred;
+    };
+    void finish_draw(InFlightDraw &flight);
     std::optional<Handle> acquire(Tracked &tracked, const Observation &observation, std::uint64_t seed);
     void end(Handle handle, End why);
     void release_drive(Tracked &tracked);
@@ -140,6 +157,8 @@ class CWindowAnimations<Port, StyleList<Styles...>> {
     std::vector<std::pair<MonitorId, FrameId>> m_screen_frames;
     mutable std::vector<DyingView> m_views;
     std::uint64_t m_seed = 0;
+    CallbackLifetime m_callbacks;
+    InFlightDraw *m_draws = nullptr;
 };
 } // namespace hyprimate::animation
 

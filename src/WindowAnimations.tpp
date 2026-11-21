@@ -161,18 +161,36 @@ void CWindowAnimations<Port, StyleList<Styles...>>::end(Handle handle, End why) 
         m_port.detach_transformer(window->window);
         window->handle.reset();
     }
-    visit(handle, [&]<class Style>(auto &slot, auto &resources) {
-        Style::end(slot.state, resources, why);
-        resources.animations.erase({handle.index, handle.generation});
-    });
+    InFlightDraw *deferred = nullptr;
+    for (auto *flight = m_draws; flight != nullptr; flight = flight->previous) {
+        if (flight->handle == handle) { deferred = flight; }
+    }
+    if (deferred != nullptr) {
+        deferred->deferred = why;
+    } else {
+        visit(handle, [&]<class Style>(auto &slot, auto &resources) {
+            Style::end(slot.state, resources, why);
+            resources.animations.erase({handle.index, handle.generation});
+        });
+    }
     if (LIFE == Life::DyingOwned && why == End::Completed && FADEOUT != 0 && OWNERSHIP == CloseStart::Owned) {
         auto facts = m_port.fadeout_facts(FADEOUT);
         if (facts && facts->alive) { m_tombstones.push_back(FADEOUT); }
         else { m_port.suppress_native(FADEOUT, false); }
     } else if (FADEOUT != 0 && OWNERSHIP == CloseStart::Owned) { m_port.suppress_native(FADEOUT, false); }
-    m_port.release_visuals(handle);
+    if (deferred == nullptr) { m_port.release_visuals(handle); }
     m_port.recheck_scanout(MONITOR);
     std::erase_if(m_entries, [handle](const auto &item) { return item.handle == handle; });
+}
+template<class Port, class... Styles>
+void CWindowAnimations<Port, StyleList<Styles...>>::finish_draw(InFlightDraw &flight) {
+    m_draws = flight.previous;
+    if (!flight.deferred) { return; }
+    visit(flight.handle, [&]<class Style>(auto &slot, auto &resources) {
+        Style::end(slot.state, resources, *flight.deferred);
+        resources.animations.erase({flight.handle.index, flight.handle.generation});
+    });
+    m_port.release_visuals(flight.handle);
 }
 template<class Port, class... Styles>
 void CWindowAnimations<Port, StyleList<Styles...>>::configure(const Policy &policy) {
@@ -682,6 +700,7 @@ template<class Port, class... Styles>
 bool CWindowAnimations<Port, StyleList<Styles...>>::draw(Handle handle, const Draw<Canvas> &draw_info) {
     auto *entry = record(handle);
     if (entry == nullptr || !entry->current.running) { return false; }
+    const auto CALLBACK = callback_ticket();
     auto isolated_draw = draw_info;
     if (isolated_draw.monitor == 0) { isolated_draw.monitor = entry->monitor; }
     isolated_draw.window = entry->origin;
@@ -710,8 +729,10 @@ bool CWindowAnimations<Port, StyleList<Styles...>>::draw(Handle handle, const Dr
     if (!is_usable(entry->current.bounds)) { return true; }
     isolated_draw.real_pass = REAL_PASS;
     bool drawn = false;
+    InFlightDraw flight{*this, handle};
     visit(handle, [&]<class Style>(auto &slot, auto &resources) {
         if constexpr (requires { Style::warm(resources); }) { Style::warm(resources); }
+        if (!CALLBACK.valid() || record(handle) == nullptr) { return; }
         if constexpr (SelfDrawn<Style, Canvas>) {
             drawn = Style::draw(slot.state, isolated_draw, resources);
         } else {
@@ -723,7 +744,12 @@ bool CWindowAnimations<Port, StyleList<Styles...>>::draw(Handle handle, const Dr
             drawn = draw_info.canvas->submit_mesh(MESH, isolated_draw);
         }
     });
-    if (!drawn && REAL_PASS && entry->life == Life::DyingOwned) {
+    // Style/canvas callbacks can erase or grow m_entries, including ending this handle.
+    // Never consult the borrowed pre-draw entry after returning from them.
+    if (!CALLBACK.valid()) { return false; }
+    const auto *current = record(handle);
+    if (current == nullptr) { return false; }
+    if (!drawn && REAL_PASS && current->life == Life::DyingOwned) {
         end(handle, End::Interrupted);
     }
     return drawn;
@@ -836,6 +862,7 @@ void CWindowAnimations<Port, StyleList<Styles...>>::detach_transformers() {
 }
 template<class Port, class... Styles>
 void CWindowAnimations<Port, StyleList<Styles...>>::end_all() {
+    m_callbacks.invalidate();
     for (const auto &[monitor, frame] : m_screen_frames) {
         if (!needs_frame(monitor)) { continue; }
         if (const auto facts = m_port.monitor_facts(monitor)) { m_port.damage(facts->screen); }

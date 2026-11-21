@@ -6,6 +6,7 @@
 #include "HyprAnimationCanvas.hpp"
 #include "HyprWindowAnimations.hpp"
 #include "WindowAnimationEntry.hpp"
+#include "AnimationCloseRenderer.hpp"
 
 class CWindowAnimationPass final : public IPassElement {
   public:
@@ -23,6 +24,7 @@ class CWindowAnimationPass final : public IPassElement {
         CRegion damage;
         bool retained_tail = false;
         bool no_screen_share = false;
+        std::optional<CloseRenderGuard> close_guard;
     };
     explicit CWindowAnimationPass(SData data);
     std::vector<UP<IPassElement>> draw(Render::CRenderContext &ctx) override;

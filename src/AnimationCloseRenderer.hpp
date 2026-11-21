@@ -17,6 +17,22 @@
 
 class CHyprWindowPort;
 
+// Shared by the submission boundary and the queued pass. Raw model/port pointers are
+// consulted only while both owner tickets remain valid.
+struct CloseRenderGuard {
+    hyprimate::animation::CallbackLifetime::Ticket renderer, model;
+    HyprWindowAnimations *animations = nullptr;
+    CHyprWindowPort *port = nullptr;
+    SP<Desktop::IFadeout> native;
+    PHLMONITOR monitor;
+    PHLWORKSPACE workspace;
+    Desktop::eFadeoutPlane plane = Desktop::FADEOUT_PLANE_WINDOW_TILED;
+    std::uint64_t fadeout = 0;
+    std::optional<hyprimate::animation::Handle> handle;
+    bool no_screen_share = false;
+    [[nodiscard]] bool valid(Render::CRenderContext &ctx, bool require_native = false) const;
+};
+
 // Associates native fadeouts with module-owned animations and preserves native batch ordering.
 class CAnimationCloseRenderer {
   public:
@@ -32,7 +48,9 @@ class CAnimationCloseRenderer {
     // Removes only hooks; entry destruction belongs to the module's explicit unload phase.
     void unhook();
 
-    void on_fadeout_created(const PHLWINDOW &window, const SP<Desktop::CWindowFadeout> &created);
+    [[nodiscard]] std::optional<hyprimate::animation::Handle> pending_for(const PHLWINDOW &window) const;
+    void on_fadeout_created(const PHLWINDOW &window, const SP<Desktop::CWindowFadeout> &created,
+        hyprimate::animation::Handle pending);
     [[nodiscard]] bool has_record_for(const PHLMONITOR &monitor,
         Desktop::eFadeoutPlane plane, const PHLWORKSPACE &workspace) const;
     bool render_batch(Render::CRenderContext &ctx, const PHLMONITOR &monitor,
@@ -44,6 +62,9 @@ class CAnimationCloseRenderer {
     }
     [[nodiscard]] void *render_original() const {
         return m_render_hook != nullptr ? m_render_hook->m_original : nullptr;
+    }
+    [[nodiscard]] hyprimate::animation::CallbackLifetime::Ticket callback_ticket() const {
+        return m_callbacks.ticket();
     }
 
   private:
@@ -62,6 +83,8 @@ class CAnimationCloseRenderer {
         std::uint64_t fadeout_id = 0;
         std::optional<hyprimate::animation::DyingView> view;
         bool suppressed = false;
+        PHLWORKSPACE workspace;
+        Desktop::eFadeoutPlane plane = Desktop::FADEOUT_PLANE_WINDOW_TILED;
         hyprimate::animation::CloseBatchKey key;
     };
     void prune_records();
@@ -76,4 +99,5 @@ class CAnimationCloseRenderer {
     CFunctionHook *m_create_hook = nullptr;
     CFunctionHook *m_render_hook = nullptr;
     std::vector<Record> m_records;
+    hyprimate::animation::CallbackLifetime m_callbacks;
 };

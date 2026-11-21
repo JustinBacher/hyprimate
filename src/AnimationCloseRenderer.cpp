@@ -84,9 +84,12 @@ namespace {
         SP<Render::IFramebuffer> snapshot,
         float source_alpha,
         SP<Render::IFramebuffer> workspace_snapshot) {
+        auto *self = active_renderer();
+        if (self == nullptr) { return nullptr; }
+        const auto CALLBACK = self->callback_ticket();
+        const auto PENDING = self->pending_for(window);
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): Hook SDK stores the original function as void*.
-        auto *original = reinterpret_cast<CreateFn>(
-            (active_renderer() != nullptr) ? active_renderer()->create_original() : nullptr);
+        auto *original = reinterpret_cast<CreateFn>(self->create_original());
         if (original == nullptr) {
             return nullptr;
         }
@@ -96,9 +99,9 @@ namespace {
         // ignoring a moved-from slot.
         // NOLINTNEXTLINE(performance-unnecessary-value-param): Pinned host releases both by-value snapshot slots after the call.
         auto created = original(window, snapshot, source_alpha, workspace_snapshot);
-        if (auto *self = active_renderer()) {
+        if (CALLBACK.valid() && PENDING && self == active_renderer()) {
             try {
-                self->on_fadeout_created(window, created);
+                self->on_fadeout_created(window, created, *PENDING);
             } catch (...) {
                 // Association is best effort; return the already-created native fadeout intact.
                 return created;
@@ -116,6 +119,9 @@ namespace {
         PHLWORKSPACE workspace,
         Render::eSceneMode mode) {
         auto *active = active_renderer();
+        const auto ORIGINAL =
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): Hook SDK stores the original function as void*.
+            reinterpret_cast<RenderFn>(active ? active->render_original() : nullptr);
         if ((active != nullptr) && mode == Render::eSceneMode::MONITOR &&
             active->has_record_for(monitor, plane, workspace)) {
             try {
@@ -128,16 +134,44 @@ namespace {
             }
         }
 
-        auto *original =
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): Hook SDK stores the original function as void*.
-            reinterpret_cast<RenderFn>((active != nullptr) ? active->render_original() : nullptr);
-        if (original != nullptr) {
-            original(self, ctx, monitor, plane, workspace, mode);
+        if (ORIGINAL != nullptr) {
+            ORIGINAL(self, ctx, monitor, plane, workspace, mode);
         }
     }
 }  // namespace
 
 
+bool CloseRenderGuard::valid(Render::CRenderContext &ctx, bool require_native) const {
+    if (!renderer.valid() || !model.valid()) { return false; }
+    const bool CAPTURE = ctx.readOnlyEffects() || ctx.m_renderingCapture || ctx.m_renderingSnapshot ||
+        WorkspaceCaptureScope::for_context(ctx) != nullptr ||
+        WorkspaceCaptureScope::is_destination_live(ctx);
+    const auto ALLOWED = [&](bool private_content) {
+        return ctx.shouldRenderContent(private_content) && (!CAPTURE || !private_content);
+    };
+    if (!ALLOWED(no_screen_share)) { return false; }
+    const auto ID = native ? port->fadeout_identity(native) : fadeout;
+    if (native) {
+        const auto SOURCE = native->source();
+        const auto WORKSPACE = native->workspace().lock();
+        if (!ALLOWED(SOURCE.noScreenShare) || native->monitor().lock() != monitor ||
+            (WORKSPACE && WORKSPACE != workspace) ||
+            Render::sceneFadeoutPlane(Render::eSceneMode::MONITOR, native->plane(), SOURCE.pinned) != plane) {
+            return false;
+        }
+    }
+    const bool NATIVE_LIVE = native && !native->done() &&
+        std::ranges::any_of(Desktop::fadingOutState()->fadeouts(),
+            [&](const auto &value) { return value.get() == native.get(); });
+    if (require_native && !NATIVE_LIVE) { return false; }
+    if (handle) {
+        const auto VIEW = animations->dying_view_for(fadeout);
+        return ID == fadeout && VIEW && VIEW->handle == *handle &&
+            (VIEW->ownership == hyprimate::animation::CloseStart::Owned || NATIVE_LIVE) &&
+            VIEW->monitor == port->monitor_identity(monitor) && ALLOWED(VIEW->no_screen_share);
+    }
+    return NATIVE_LIVE && !animations->suppresses(ID);
+}
 CAnimationCloseRenderer *CAnimationCloseRenderer::s_active = nullptr;
 
 CAnimationCloseRenderer::CAnimationCloseRenderer(
@@ -188,6 +222,8 @@ bool CAnimationCloseRenderer::install(std::string &error) {
 }
 
 void CAnimationCloseRenderer::unhook() {
+    m_callbacks.invalidate();
+    if (s_active == this) { s_active = nullptr; }
     // Hooks come down first so no new trampoline call can reach this object.
     // removeFunctionHook unhooks (if active) and releases the host-owned hook.
     if (m_render_hook != nullptr) {
@@ -198,42 +234,59 @@ void CAnimationCloseRenderer::unhook() {
     }
     m_render_hook = nullptr;
     m_create_hook = nullptr;
-    if (s_active == this) {
-        s_active = nullptr;
-    }
 }
 
 void CAnimationCloseRenderer::prune_records() {
-    std::erase_if(m_records, [&](const Record &record) {
-        const bool ACTIVE = m_animations.dying_view_for(record.fadeout).has_value();
-        const auto NATIVE = record.native.lock();
-        if (!NATIVE || NATIVE->done()) {
-            m_animations.native_finished(record.fadeout);
-            return !ACTIVE;
+    const auto CALLBACK = callback_ticket();
+    const auto MODEL = m_animations.callback_ticket();
+    // Copy before native_finished: it can end an animation and synchronously reenter us.
+    // Newly appended records belong to a later prune, not this invocation.
+    std::optional<std::uint64_t> before;
+    for (;;) {
+        std::optional<Record> selected;
+        for (const auto &record : m_records) {
+            if ((!before || record.fadeout < *before) &&
+                (!selected || record.fadeout > selected->fadeout)) { selected = record; }
         }
-        return !ACTIVE && !m_animations.suppresses(record.fadeout);
-    });
+        if (!selected) { return; }
+        const auto RECORD = *selected;
+        before = RECORD.fadeout; // Port IDs are monotonic; growth cannot enter this prune.
+        const auto NATIVE = RECORD.native.lock();
+        if (!NATIVE || NATIVE->done()) {
+            m_animations.native_finished(RECORD.fadeout);
+            if (!CALLBACK.valid() || !MODEL.valid()) { return; }
+        }
+        if (!m_animations.dying_view_for(RECORD.fadeout) &&
+            !m_animations.suppresses(RECORD.fadeout)) {
+            std::erase_if(m_records, [&](const Record &value) { return value.fadeout == RECORD.fadeout; });
+        }
+    }
+}
+
+std::optional<hyprimate::animation::Handle> CAnimationCloseRenderer::pending_for(
+    const PHLWINDOW &window) const {
+    return window ? m_animations.pending_for(m_port.identity(PHLWINDOWREF{window})) : std::nullopt;
 }
 
 void CAnimationCloseRenderer::on_fadeout_created(
-    const PHLWINDOW &window, const SP<Desktop::CWindowFadeout> &created) {
+    const PHLWINDOW &window, const SP<Desktop::CWindowFadeout> &created,
+    hyprimate::animation::Handle pending) {
     using namespace hyprimate::animation;
-    if (!window) {
-        return;
-    }
+    if (!window || pending_for(window) != pending) { return; }
+    const auto CALLBACK = callback_ticket();
+    const auto MODEL = m_animations.callback_ticket();
     const auto WINDOW_ID = m_port.identity(PHLWINDOWREF{window});
-    const auto PENDING = m_animations.pending_for(WINDOW_ID);
-    if (!PENDING) {
-        return;
-    }
     m_records.reserve(m_records.size() + 1);
     prune_records();
+    if (!CALLBACK.valid() || !MODEL.valid() || pending_for(window) != pending) { return; }
     const auto FADEOUT = created ? m_port.register_fadeout(created) : 0;
     auto facts = FADEOUT != 0 ? m_port.fadeout_facts(FADEOUT).value_or(FadeoutFacts{}) : FadeoutFacts{};
     facts.now = Clock::now();
     const auto IMAGE = created ? created->framebuffer(Render::eSceneMode::MONITOR) : nullptr;
     m_animations.bind_fadeout(WINDOW_ID, facts, IMAGE);
-    if (!m_animations.active(*PENDING) || !created) {
+    if (!CALLBACK.valid() || !MODEL.valid()) { return; }
+    const auto VIEW = m_animations.dying_view_for(FADEOUT);
+    if (!VIEW || VIEW->handle != pending || !created) {
         return;
     }
     const SP<Desktop::IFadeout> BASE = created;
@@ -267,11 +320,18 @@ bool CAnimationCloseRenderer::render_batch(Render::CRenderContext &ctx,
         return true;
     }
     if (WorkspaceCaptureScope::for_context(ctx) == nullptr) {
+        const auto CALLBACK = callback_ticket();
         prune_records();
+        if (!CALLBACK.valid()) { return true; }
     }
+    const auto CALLBACK = callback_ticket();
+    const auto MODEL = m_animations.callback_ticket();
     draw_close_batch<BatchItem>(
-        [&](auto &&emit) { collect_batch(ctx, monitor, plane, workspace, emit); },
+        [&](auto &&emit) {
+            if (CALLBACK.valid() && MODEL.valid()) { collect_batch(ctx, monitor, plane, workspace, emit); }
+        },
         [&](const BatchItem &item) {
+            if (!CALLBACK.valid() || !MODEL.valid()) { return; }
             try {
                 draw_item(ctx, monitor, item);
             } catch (const std::bad_alloc &) {
@@ -313,7 +373,7 @@ void CAnimationCloseRenderer::collect_batch(Render::CRenderContext &ctx, const P
         }
         emit(BatchItem{.fadeout = fadeout, .fadeout_id = ASSOCIATED ? FADEOUT_ID : 0,
             .view = ASSOCIATED ? m_animations.dying_view_for(FADEOUT_ID) : std::nullopt,
-            .suppressed = SUPPRESSED,
+            .suppressed = SUPPRESSED, .workspace = workspace, .plane = plane,
             .key = {.z_index = fadeout->zIndex(), .retained = false,
                 .identity = reinterpret_cast<std::uintptr_t>(fadeout.get())}});
     }
@@ -328,7 +388,7 @@ void CAnimationCloseRenderer::collect_batch(Render::CRenderContext &ctx, const P
             continue;
         }
         emit(BatchItem{.fadeout = nullptr, .fadeout_id = record.fadeout, .view = VIEW,
-            .suppressed = m_animations.suppresses(record.fadeout),
+            .suppressed = m_animations.suppresses(record.fadeout), .workspace = workspace, .plane = plane,
             .key = {.z_index = record.z_index, .retained = true, .identity = record.fadeout}});
     }
 }
@@ -337,15 +397,18 @@ void CAnimationCloseRenderer::draw_item(Render::CRenderContext &ctx, const PHLMO
     const BatchItem &item) {
     using namespace hyprimate::animation;
     CNativeFadeoutPass native{ctx, monitor};
-    // This value belongs to the invocation, not m_records or the module's shared scratch.
-    const auto &FOUND = item.view;
-    const bool SUPPRESSED = item.suppressed || m_animations.suppresses(item.fadeout_id);
+    // Re-query by identity: a preceding sibling may have removed this association.
+    const auto FOUND = m_animations.dying_view_for(item.fadeout_id);
+    CloseRenderGuard guard{.renderer = callback_ticket(), .model = m_animations.callback_ticket(),
+        .animations = &m_animations, .port = &m_port, .native = item.fadeout,
+        .monitor = monitor, .workspace = item.workspace, .plane = item.plane,
+        .fadeout = item.fadeout_id, .handle = FOUND ? std::optional{FOUND->handle} : std::nullopt,
+        .no_screen_share = FOUND && FOUND->no_screen_share};
+    // Do not turn a stale owned item into native content after association removal.
+    if (item.view && (!FOUND || FOUND->handle != item.view->handle)) { return; }
     if (FOUND) {
         const auto IMAGE = m_port.fadeout_image(FOUND->handle);
         if (IMAGE && IMAGE->getTexture()) {
-            if (item.fadeout) {
-                native.draw_backdrop(item.fadeout->effects());
-            }
             const auto &bounds = FOUND->bounds_device;
             CWindowAnimationPass::SData data{
                 .resources = &m_port.canvas_resources(),
@@ -362,12 +425,18 @@ void CAnimationCloseRenderer::draw_item(Render::CRenderContext &ctx, const PHLMO
                 .scale = FOUND->scale,
                 .alpha = FOUND->alpha,
                 .monitor = FOUND->monitor,
-                .damage = native.damage()};
-            Render::IHyprRenderer::addPassElement(ctx, makeUnique<CWindowAnimationPass>(std::move(data)));
+                .damage = native.damage(),
+                .close_guard = guard};
+            // Everything borrowed from the renderer is captured before the first submit.
+            const auto EFFECTS = item.fadeout ? item.fadeout->effects() : Desktop::SFadeoutRenderEffects{};
+            submit_close([&] { return guard.valid(ctx); },
+                [&] { native.draw_backdrop(EFFECTS, guard); },
+                [&] { Render::IHyprRenderer::addPassElement(ctx,
+                    makeUnique<CWindowAnimationPass>(std::move(data))); });
             return;
         }
     }
-    if (SUPPRESSED || !item.fadeout) {
+    if (item.suppressed || m_animations.suppresses(item.fadeout_id) || !item.fadeout) {
         return;
     }
     const auto FRAMEBUFFER = item.fadeout->framebuffer(Render::eSceneMode::MONITOR);
@@ -375,8 +444,8 @@ void CAnimationCloseRenderer::draw_item(Render::CRenderContext &ctx, const PHLMO
         return;
     }
     const auto EFFECTS = item.fadeout->effects();
-    native.draw_backdrop(EFFECTS);
-    if (!m_animations.suppresses(item.fadeout_id)) {
-        native.draw_texture(*item.fadeout, FRAMEBUFFER->getTexture(), EFFECTS);
-    }
+    guard.handle.reset();
+    submit_close([&] { return guard.valid(ctx); },
+        [&] { native.draw_backdrop(EFFECTS, guard); },
+        [&] { native.draw_texture(*item.fadeout, FRAMEBUFFER->getTexture(), EFFECTS, guard); });
 }

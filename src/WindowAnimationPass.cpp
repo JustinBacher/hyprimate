@@ -14,6 +14,7 @@ using namespace hyprimate::animation;
 CWindowAnimationPass::CWindowAnimationPass(SData data) : m_data(std::move(data)) {}
 
 std::vector<UP<IPassElement>> CWindowAnimationPass::draw(Render::CRenderContext &ctx) {
+    if (m_data.close_guard && !m_data.close_guard->valid(ctx)) { return {}; }
     if (m_data.animations == nullptr || m_data.resources == nullptr || !m_data.image ||
         !m_data.animations->active(m_data.handle)) {
         return {};
@@ -25,6 +26,7 @@ std::vector<UP<IPassElement>> CWindowAnimationPass::draw(Render::CRenderContext 
         .scale = m_data.scale, .alpha = m_data.alpha, .real_pass = true, .monitor = m_data.monitor,
         .frame = m_data.frame};
     const auto DISPLAY = [&] {
+        if (m_data.close_guard && !m_data.close_guard->valid(ctx)) { return; }
         if (!canvas.layer()) { return; }
         Render::GL::CHyprOpenGLImpl::STextureRenderData texture_data{};
         texture_data.damage = &m_data.damage;

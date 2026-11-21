@@ -5,6 +5,7 @@
 #include <compare>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <new>
 #include <optional>
 #include <utility>
@@ -19,6 +20,49 @@ struct CloseBatchKey {
     std::uintptr_t identity = 0;
     auto operator<=>(const CloseBatchKey &) const = default;
 };
+
+// A ticket does not keep its owner alive. Invalidation also rejects work queued before a
+// teardown/reinstall of the same object, without allocating on the callback path.
+class CallbackLifetime {
+  public:
+    CallbackLifetime() = default;
+    CallbackLifetime(const CallbackLifetime &) = delete;
+    CallbackLifetime &operator=(const CallbackLifetime &) = delete;
+    CallbackLifetime(CallbackLifetime &&) = delete;
+    CallbackLifetime &operator=(CallbackLifetime &&) = delete;
+    class Ticket {
+      public:
+        [[nodiscard]] bool valid() const {
+            const auto state = m_state.lock();
+            return state && *state == m_generation;
+        }
+        [[nodiscard]] bool alive() const { return !m_state.expired(); }
+      private:
+        friend class CallbackLifetime;
+        std::weak_ptr<std::uint64_t> m_state;
+        std::uint64_t m_generation = 0;
+    };
+    [[nodiscard]] Ticket ticket() const {
+        Ticket result;
+        result.m_state = m_state;
+        result.m_generation = *m_state;
+        return result;
+    }
+    void invalidate() { ++*m_state; }
+  private:
+    std::shared_ptr<std::uint64_t> m_state = std::make_shared<std::uint64_t>(0);
+};
+
+// Backdrop submission may synchronously invalidate the content it precedes. The same
+// predicate must also guard deferred execution; successful queueing is not permission.
+template<class Valid, class Backdrop, class Content>
+bool submit_close(Valid &&valid, Backdrop &&backdrop, Content &&content) {
+    if (!valid()) { return false; }
+    std::forward<Backdrop>(backdrop)();
+    if (!valid()) { return false; }
+    std::forward<Content>(content)();
+    return true;
+}
 
 // Enumerate emits values, never borrowed records. It must be repeatable without allocating.
 // Only collection can fall back: once drawing begins, an exception must never replay a batch.
