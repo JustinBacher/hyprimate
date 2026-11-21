@@ -1682,18 +1682,21 @@ SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::allocate_capture(
     if (!CONTEXT) { return nullptr; }
     const auto SIZE = size.value_or(monitor->m_transformedSize);
     const auto FORMAT = capture_format(monitor);
-    const auto BYTES = static_cast<std::uint64_t>(SIZE.x) * static_cast<std::uint64_t>(SIZE.y) *
-        (FORMAT == DRM_FORMAT_ABGR8888 ? 4 : 8);
+    const auto BYTES = hyprimate::workspace::capture_extent_bytes(
+        SIZE.x, SIZE.y, FORMAT != DRM_FORMAT_ABGR8888);
+    if (!BYTES) {
+        return nullptr;
+    }
     std::uint64_t total = 0;
     for (const auto &state : m_states) {
         total += state->allocated_bytes;
     }
-    if (!hyprimate::workspace::capture_allocation_allowed({.bytes = BYTES,
+    if (!hyprimate::workspace::capture_allocation_allowed({.bytes = *BYTES,
             .monitor_bytes = entry.allocated_bytes,
             .total_bytes = total,
             .wide_color = FORMAT != DRM_FORMAT_ABGR8888})) {
         LOG(Log::DEBUG, "[hyprimate] workspace fallback reason=capture-budget monitor={} requested={} monitor_bytes={} total_bytes={}",
-            monitor->m_name, BYTES, entry.allocated_bytes, total);
+            monitor->m_name, *BYTES, entry.allocated_bytes, total);
         return nullptr;
     }
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
@@ -1705,7 +1708,7 @@ SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::allocate_capture(
         return nullptr;
     }
     framebuffer->setImageDescription(monitor->workBufferImageDescription());
-    entry.allocated_bytes += BYTES;
+    entry.allocated_bytes += *BYTES;
     return framebuffer;
 }
 

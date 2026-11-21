@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <span>
 
@@ -93,6 +94,22 @@ namespace hyprimate::workspace {
         }
         return CaptureBufferAction::Reuse;
     }
+    inline std::optional<std::uint64_t> capture_extent_bytes(
+        double width, double height, bool wide_color) {
+        constexpr double MAX_SIZE = std::numeric_limits<int>::max();
+        if (!std::isfinite(width) || !std::isfinite(height) || width <= 0 || height <= 0 ||
+            width > MAX_SIZE || height > MAX_SIZE || std::trunc(width) != width ||
+            std::trunc(height) != height) {
+            return std::nullopt;
+        }
+        const auto PIXELS = static_cast<std::uint64_t>(width) * static_cast<std::uint64_t>(height);
+        const std::uint64_t BYTES_PER_PIXEL = wide_color ? 8 : 4;
+        if (PIXELS > std::numeric_limits<std::uint64_t>::max() / BYTES_PER_PIXEL) {
+            return std::nullopt;
+        }
+        return PIXELS * BYTES_PER_PIXEL;
+    }
+
     struct CaptureAllocationFacts {
         std::uint64_t bytes = 0;
         std::uint64_t monitor_bytes = 0;
@@ -225,6 +242,20 @@ namespace hyprimate::workspace {
                 m_failed = true;
                 return result;
             }
+            const auto &bounds = facts.bounds;
+            // Integral output dimensions bound both GL coordinates and their sums.
+            if (!capture_extent_bytes(facts.output_width, facts.output_height, false) ||
+                !std::isfinite(bounds.left) || !std::isfinite(bounds.top) ||
+                !std::isfinite(bounds.right) || !std::isfinite(bounds.bottom) ||
+                bounds.right < bounds.left || bounds.bottom < bounds.top) {
+                m_failed = true;
+                return result;
+            }
+            // Check the source before rounding: a fractional empty rectangle must
+            // not turn into a one-pixel capture.
+            if (bounds.right == bounds.left || bounds.bottom == bounds.top) {
+                return result;
+            }
             const double LEFT = std::clamp(std::floor(facts.bounds.left), 0.0, facts.output_width);
             const double TOP = std::clamp(std::floor(facts.bounds.top), 0.0, facts.output_height);
             const double RIGHT = std::clamp(std::ceil(facts.bounds.right), 0.0, facts.output_width);
@@ -233,8 +264,14 @@ namespace hyprimate::workspace {
             if (RIGHT <= LEFT || BOTTOM <= TOP) {
                 return result;
             }
+            const double WIDTH = RIGHT - LEFT;
+            const double HEIGHT = BOTTOM - TOP;
+            if (!capture_extent_bytes(WIDTH, HEIGHT, true)) {
+                m_failed = true;
+                return result;
+            }
             result.crop =
-                CaptureRect{.x = LEFT, .y = TOP, .width = RIGHT - LEFT, .height = BOTTOM - TOP};
+                CaptureRect{.x = LEFT, .y = TOP, .width = WIDTH, .height = HEIGHT};
             return result;
         }
         [[nodiscard]] bool complete(CaptureCompletionFacts facts) const {
