@@ -26,6 +26,7 @@
 #include "WindowAnimationPass.hpp"
 #include "WindowAnimations.hpp"
 #include "animations/bubble/BubbleWallpaper.hpp"
+#include "gl/NativeResource.hpp"
 
 using namespace hyprimate::animation;
 namespace {
@@ -276,7 +277,7 @@ const CHyprWindowPort::Backdrop *CHyprWindowPort::backdrop(Handle handle, PassKi
     }
     const auto &slot =
         pass == PassKind::WorkspaceSource ? cache->scratch_backdrop : cache->backdrop;
-    return slot ? &slot : nullptr;
+    return slot && slot->owner.ensure_current() ? &slot : nullptr;
 }
 void CHyprWindowPort::capture_backdrop(Handle handle, const WindowRef &window, Canvas &canvas) {
     if (canvas.pass() == PassKind::Inert) {
@@ -321,7 +322,7 @@ void CHyprWindowPort::retain_mapped_image(Handle handle,
     hyprimate::Box capture,
     FrameId frame) {
     auto &cache = visual_cache(handle);
-    if (!cache.image && image) {
+    if (!cache.image && image && cache.image_owner.ensure_current()) {
         cache.image = image;
         cache.image_origin = origin;
         cache.capture = capture;
@@ -330,7 +331,8 @@ void CHyprWindowPort::retain_mapped_image(Handle handle,
 }
 void CHyprWindowPort::release_mapped_image(Handle handle) {
     auto &cache = visual_cache(handle);
-    cache.image.reset();
+    hyprimate::gl::release_native(cache.image, cache.image_owner);
+    cache.image_owner.reset();
     cache.image_origin = {};
     cache.capture = {};
     cache.frame = 0;
@@ -345,6 +347,7 @@ void CHyprWindowPort::queue_tail(
     data.resources = &m_canvas_resources;
     data.handle = handle;
     data.image = image;
+    data.image_owner = visual_cache(handle).image_owner;
     data.retained_tail = true;
     data.no_screen_share = draw.no_screen_share;
     data.source = draw.source;
@@ -363,7 +366,7 @@ void CHyprWindowPort::queue_tail(
 std::optional<RetainedFrame<CHyprWindowPort::Canvas>> CHyprWindowPort::retained_mapped_image(
     Handle handle) const {
     const auto *cache = find_visuals(handle);
-    if (cache == nullptr || !cache->image) {
+    if (cache == nullptr || !cache->image || !cache->image_owner.ensure_current()) {
         return std::nullopt;
     }
     const auto TEXTURE = cache->image->getTexture();
@@ -375,11 +378,19 @@ std::optional<RetainedFrame<CHyprWindowPort::Canvas>> CHyprWindowPort::retained_
         .frame = cache->frame};
 }
 void CHyprWindowPort::bind_fadeout(Handle handle, [[maybe_unused]] std::uint64_t fadeout, RetainedImage image) {
-    visual_cache(handle).fadeout_image = std::move(image);
+    auto &cache = visual_cache(handle);
+    // Fadeout creation can finish outside a render frame. Its framebuffer is a
+    // Hyprland snapshot, so verify that compositor context before retaining it.
+    const hyprimate::gl::ScopedCompositorContext CONTEXT{};
+    if (!CONTEXT) return;
+    if (!image || !cache.fadeout_owner.ensure_current()) return;
+    hyprimate::gl::release_native(cache.fadeout_image, cache.fadeout_owner);
+    cache.fadeout_image = std::move(image);
 }
 CHyprWindowPort::RetainedImage CHyprWindowPort::fadeout_image(Handle handle) const {
     const auto *cache = find_visuals(handle);
-    return cache != nullptr ? cache->fadeout_image : RetainedImage{};
+    return cache != nullptr && cache->fadeout_image && cache->fadeout_owner.ensure_current()
+        ? cache->fadeout_image : RetainedImage{};
 }
 std::optional<FadeoutFacts> CHyprWindowPort::fadeout_facts(std::uint64_t fadeout_id) const {
     for (const auto &item : m_fadeouts) {

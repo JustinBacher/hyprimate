@@ -21,6 +21,9 @@
 #include <hyprutils/math/Box.hpp>
 
 #include "animations/shared/SheetRenderer.hpp"
+#include "gl/CompositorContext.hpp"
+#include "gl/NativeResource.hpp"
+#include "gl/NativeFramebuffer.hpp"
 #include "gl/Storage.hpp"
 
 namespace {
@@ -37,9 +40,8 @@ namespace {
 }  // namespace
 
 SP<Render::ITexture> CSheetShade::texture() {
-    if (m_texture || !g_pHyprRenderer) {
-        return m_texture;
-    }
+    if (m_texture) return m_owner.ensure_current() ? m_texture : nullptr;
+    if (!g_pHyprRenderer) return nullptr;
 
     // Premultiplied; memory order is B, G, R, A for DRM_FORMAT_ARGB8888.
     static_assert(sizeof(std::array<uint8_t, 4>) == 4);
@@ -63,6 +65,10 @@ SP<Render::ITexture> CSheetShade::texture() {
         ++pixel_index;
     }
 
+    const hyprimate::gl::ScopedCompositorContext CONTEXT{};
+    if (!CONTEXT || !m_owner.ensure_current()) { return nullptr; }
+    const hyprimate::gl::TextureUploadBinding BINDING;
+    const hyprimate::gl::ClientPixelUnpack UNPACK;
     auto candidate = g_pHyprRenderer->createTexture(DRM_FORMAT_ARGB8888,
         pixels.front().data(),
         RAMP_SIZE * 4,
@@ -70,7 +76,7 @@ SP<Render::ITexture> CSheetShade::texture() {
         false,
         false);
     if (!candidate || !hyprimate::gl::has_color_storage(candidate->m_texID)) { return nullptr; }
-    m_texture = std::move(candidate);
+    m_texture = hyprimate::gl::retain_native(std::move(candidate));
     return m_texture;
 }
 
@@ -92,21 +98,25 @@ SP<Render::IFramebuffer> render_sheet(Render::CRenderContext &ctx, const SSheetD
         (!(draw.canvas.x > 0.0) || !(draw.canvas.y > 0.0))) {
         return nullptr;
     }
+    hyprimate::gl::CompositorContextOwner current;
+    if (!current.ensure_current()) return nullptr;
 
-    // Entry blend state, restored on exit. The wrapper does not expose the blend function, so GL is
-    // queried for it. Hyprland sets blend factors only through its wrapper, which never separates
-    // RGB from alpha.
+    // Preserve split alpha factors as well as the RGB factors shadowed by Hyprland.
     const bool ENTRY_BLEND = Render::GL::g_pHyprOpenGL->blendEnabled();
     GLint entry_src = 0;
     GLint entry_dst = 0;
+    GLint entry_src_alpha = 0;
+    GLint entry_dst_alpha = 0;
     glGetIntegerv(GL_BLEND_SRC_RGB, &entry_src);
     glGetIntegerv(GL_BLEND_DST_RGB, &entry_dst);
+    glGetIntegerv(GL_BLEND_SRC_ALPHA, &entry_src_alpha);
+    glGetIntegerv(GL_BLEND_DST_ALPHA, &entry_dst_alpha);
 
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     const auto STATE = ctx.saveDrawState();
     auto &data = ctx.m_data;
 
-    auto paper_layer = g_pHyprRenderer->getWorkBuffer(ctx, draw.canvas);
+    auto paper_layer = hyprimate::gl::get_work_buffer(ctx, draw.canvas);
     if (!paper_layer) {
         return nullptr;
     }
@@ -115,7 +125,7 @@ SP<Render::IFramebuffer> render_sheet(Render::CRenderContext &ctx, const SSheetD
     const bool LIT =
         draw.shade && (draw.shade_vertices != nullptr) && !draw.shade_vertices->empty();
     const auto SHADE_LAYER =
-        LIT ? g_pHyprRenderer->getWorkBuffer(ctx, draw.canvas) : SP<Render::IFramebuffer>{};
+        LIT ? hyprimate::gl::get_work_buffer(ctx, draw.canvas) : SP<Render::IFramebuffer>{};
 
     // Binds the framebuffer as the target and clears it under the canvas damage.
     const auto BEGIN_TARGET = [&](const SP<Render::IFramebuffer> &framebuffer) {
@@ -129,6 +139,7 @@ SP<Render::IFramebuffer> render_sheet(Render::CRenderContext &ctx, const SSheetD
     Render::GL::CHyprOpenGLImpl::STextureRenderData texture_data{};
     texture_data.damage = &data.damage;
     texture_data.allowCustomUV = true;
+    const hyprimate::gl::NativeMeshSamplers SAMPLERS;
 
     // Shade layer: no blending, so the frontmost triangle's shade wins each pixel and hidden
     // triangles never tint visible ones.
@@ -157,6 +168,7 @@ SP<Render::IFramebuffer> render_sheet(Render::CRenderContext &ctx, const SSheetD
     // and alpha is preserved.
     if (SHADE_LAYER) {
         Render::GL::g_pHyprOpenGL->blendFunc(GL_DST_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glBlendFunc(GL_DST_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         texture_data.a = 1.F;
         Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx,
             SHADE_LAYER->getTexture(),
@@ -169,6 +181,8 @@ SP<Render::IFramebuffer> render_sheet(Render::CRenderContext &ctx, const SSheetD
     Render::GL::g_pHyprOpenGL->blend(ENTRY_BLEND);
     Render::GL::g_pHyprOpenGL->blendFunc(
         static_cast<GLenum>(entry_src), static_cast<GLenum>(entry_dst));
+    glBlendFuncSeparate(static_cast<GLenum>(entry_src), static_cast<GLenum>(entry_dst),
+        static_cast<GLenum>(entry_src_alpha), static_cast<GLenum>(entry_dst_alpha));
 
     return paper_layer;
 }

@@ -9,6 +9,7 @@
 
 #include <hyprland/src/render/Shader.hpp>
 #include "animations/smoke/SmokeMaterial.hpp"
+#include "gl/CompositorContext.hpp"
 
 // One window's smoke fluid, released in the compositor's context when the window's smoke
 // ends or its style is destroyed.
@@ -19,6 +20,10 @@ class CSmokeFieldHandle {
     CSmokeFieldHandle(const CSmokeFieldHandle &) = delete;
     CSmokeFieldHandle &operator=(const CSmokeFieldHandle &) = delete;
     CSmokeField field;
+
+  private:
+    friend class CSmokeRenderer;
+    hyprimate::gl::CompositorContextOwner m_owner;
 };
 struct SSmokeDraw {
     SP<Render::ITexture> window;
@@ -40,6 +45,7 @@ class CSmokeRenderer {
 
   private:
     bool initialize();
+    hyprimate::gl::CompositorContextOwner m_owner;
     std::array<std::unique_ptr<CShader>, SSmokePrograms::ProgramCount> m_shaders;
     SSmokePrograms m_programs;
     bool m_ready = false;

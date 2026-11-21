@@ -2,7 +2,6 @@
 #include <exception>
 #include <memory>
 
-#include <EGL/egl.h>
 #include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/Framebuffer.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
@@ -14,41 +13,12 @@
 #include "animations/burn/BurnMaterial.hpp"
 #include "animations/burn/BurnRenderer.hpp"
 #include "animations/burn/BurnShaders.hpp"
+#include "gl/CompositorContext.hpp"
+#include "gl/NativeFramebuffer.hpp"
 #include "gl/RawGlBracket.hpp"
 
-namespace {
-    class ContextGuard {
-      public:
-        ContextGuard()
-            : m_display(eglGetCurrentDisplay()),
-              m_context(eglGetCurrentContext()),
-              m_draw(eglGetCurrentSurface(EGL_DRAW)),
-              m_read(eglGetCurrentSurface(EGL_READ)) {
-            Render::GL::g_pHyprOpenGL->makeEGLCurrent();
-        }
-        ~ContextGuard() {
-            if (m_display != EGL_NO_DISPLAY && m_context != EGL_NO_CONTEXT) {
-                eglMakeCurrent(m_display, m_draw, m_read, m_context);
-            } else {
-                eglMakeCurrent(Render::GL::g_pHyprOpenGL->m_eglDisplay,
-                    EGL_NO_SURFACE,
-                    EGL_NO_SURFACE,
-                    EGL_NO_CONTEXT);
-            }
-        }
-        ContextGuard(const ContextGuard &) = delete;
-        ContextGuard &operator=(const ContextGuard &) = delete;
-        ContextGuard(ContextGuard &&) = delete;
-        ContextGuard &operator=(ContextGuard &&) = delete;
-
-      private:
-        EGLDisplay m_display;
-        EGLContext m_context;
-        EGLSurface m_draw, m_read;
-    };
-}  // namespace
-
 struct CBurnRenderer::Impl {
+    hyprimate::gl::CompositorContextOwner owner;
     std::unique_ptr<CShader> shader;
     CBurnMaterial material;
     bool ready = false;
@@ -65,6 +35,7 @@ struct CBurnRenderer::Impl {
                size.x * size.y <= CBurnMaterial::MAX_TARGET_PIXELS;
     }
     bool initialize() {
+        if (!owner.ensure_current()) return false;
         if (ready) return true;
         try {
             shader = std::make_unique<CShader>();
@@ -86,17 +57,22 @@ struct CBurnRenderer::Impl {
 CBurnRenderer::CBurnRenderer() : m_impl(std::make_unique<Impl>()) {
 }
 CBurnRenderer::~CBurnRenderer() {
-    if (Render::GL::g_pHyprOpenGL) {
-        const ContextGuard CONTEXT;
-        const hyprimate::gl::CRawGlBracket<1> BRACKET{{}};
-        m_impl->material.release();
-        m_impl->shader.reset();
+    const hyprimate::gl::ScopedCompositorContext CONTEXT{m_impl->owner};
+    if (!CONTEXT) {
+        // CShader cannot detach its GL name. Context teardown reclaims the objects;
+        // abandon the wrapper rather than run its destructor in a foreign context.
+        [[maybe_unused]] const auto *abandoned = m_impl->shader.release();
+        return;
     }
+    const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
+    const hyprimate::gl::CRawGlBracket<1> BRACKET{{}};
+    m_impl->material.release();
+    m_impl->shader.reset();
 }
 bool CBurnRenderer::warm_up() {
+    const hyprimate::gl::ScopedCompositorContext CONTEXT{};
+    if (!CONTEXT || !m_impl->owner.ensure_current()) return false;
     if (m_impl->ready) return true;
-    if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL) return false;
-    const ContextGuard CONTEXT;
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     const hyprimate::gl::CRawGlBracket<1> BRACKET{{}};
     return m_impl->initialize();
@@ -105,6 +81,7 @@ bool CBurnRenderer::warm_up() {
 bool CBurnRenderer::draw(const hyprimate::BurnSimulation &simulation,
     const hyprimate::animation::Draw<CHyprAnimationCanvas> &draw) {
     if (!draw.canvas) return false;
+    if (!m_impl->owner.ensure_current()) return false;
     draw.canvas->layer().reset();
     if (!simulation.initialized() || !g_pHyprRenderer || !Render::GL::g_pHyprOpenGL ||
         !draw.image || !*draw.image || !(draw.scale > 0) || !hyprimate::is_usable(draw.source) ||
@@ -116,7 +93,6 @@ bool CBurnRenderer::draw(const hyprimate::BurnSimulation &simulation,
     if (!IMAGE || IMAGE->m_texID == 0 ||
         (IMAGE->m_type != Render::TEXTURE_RGBA && IMAGE->m_type != Render::TEXTURE_RGBX))
         return false;
-    const ContextGuard CONTEXT;
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     auto &ctx = draw.canvas->context();
     const auto STATE = ctx.saveDrawState();
@@ -124,7 +100,7 @@ bool CBurnRenderer::draw(const hyprimate::BurnSimulation &simulation,
     // or any dimension is converted to the backend's integer representation.
     if (!m_impl->supports({draw.canvas_box.w, draw.canvas_box.h})) return false;
     const auto LAYER =
-        g_pHyprRenderer->getWorkBuffer(ctx, Vector2D{draw.canvas_box.w, draw.canvas_box.h});
+        hyprimate::gl::get_work_buffer(ctx, Vector2D{draw.canvas_box.w, draw.canvas_box.h});
     if (!LAYER || !LAYER->getTexture() || LAYER->getTexture()->m_texID == IMAGE->m_texID)
         return false;
     // Work buffers are allocated by Hyprland's GL backend.

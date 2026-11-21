@@ -452,6 +452,7 @@ void CAnimationCloseRenderer::draw_item(Render::CRenderContext &ctx, const PHLMO
                     .animations = &m_animations,
                     .handle = FOUND->handle,
                     .image = IMAGE,
+                    .image_owner = m_port.visual_cache(FOUND->handle).fadeout_owner,
                     .source = FOUND->render_box,
                     .output = bounds,
                     .canvas_box = {.x = std::floor(bounds.x), .y = std::floor(bounds.y),

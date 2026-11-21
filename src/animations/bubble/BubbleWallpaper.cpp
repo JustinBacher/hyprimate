@@ -16,6 +16,8 @@
 
 #include "BubbleWallpaper.hpp"
 #include "gl/RawGlBracket.hpp"
+#include "gl/NativeResource.hpp"
+#include "gl/NativeFramebuffer.hpp"
 
 namespace {
     class CBubbleWallpaperPass final : public IPassElement {
@@ -44,6 +46,7 @@ namespace {
                 g_pHyprRenderer->type() != Render::IHyprRenderer::RT_GL) {
                 return {};
             }
+            if (!m_wallpaper->owner.ensure_current()) return {};
             const auto SOURCE = ctx.m_data.currentFB;
             if (!SOURCE || !SOURCE->getTexture() || (SOURCE->getTexture()->m_texID == 0U) ||
                 m_source.empty()) {
@@ -108,7 +111,8 @@ namespace {
             SP<Render::IFramebuffer> destination;
             if (m_workspace_source) {
                 destination = g_pHyprRenderer->createFB("hyprimate workspace bubble underlay");
-                if (destination && !destination->alloc(static_cast<int>(EXTENT.x),
+                if (destination && !hyprimate::gl::allocate_framebuffer(*destination,
+                                       static_cast<int>(EXTENT.x),
                                        static_cast<int>(EXTENT.y), SOURCE->m_drmFormat)) {
                     destination.reset();
                 }
@@ -116,12 +120,18 @@ namespace {
                     destination->setImageDescription(SOURCE->imageDescription());
                 }
             } else {
-                destination = g_pHyprRenderer->getWorkBuffer(ctx, EXTENT);
+                destination = hyprimate::gl::get_work_buffer(ctx, EXTENT);
             }
             const auto DESTINATION = destination;
             if (!DESTINATION || !DESTINATION->getTexture() ||
                 DESTINATION->getTexture()->m_texID == SOURCE->getTexture()->m_texID) {
                 return {};
+            }
+            // Finish anchoring a plugin-created capture before replacing any old capture
+            // or publishing coordinates. Borrowed live workbuffers must not be pinned.
+            if (m_workspace_source) {
+                destination = hyprimate::gl::retain_native(std::move(destination));
+                if (!destination) return {};
             }
 
             glBindFramebuffer(GL_READ_FRAMEBUFFER, SOURCE_ID);
@@ -141,7 +151,8 @@ namespace {
             m_wallpaper->origin = (ORIGIN - Vector2D{LEFT, CLIP_TOP}) / EXTENT;
             m_wallpaper->axis_x = (AXIS_X - ORIGIN) / EXTENT;
             m_wallpaper->axis_y = (AXIS_Y - ORIGIN) / EXTENT;
-            m_wallpaper->framebuffer = DESTINATION;
+            hyprimate::gl::release_native(m_wallpaper->framebuffer, m_wallpaper->owner);
+            m_wallpaper->framebuffer = std::move(destination);
             return {};
         }
 
@@ -184,6 +195,7 @@ void queue_bubble_wallpaper(Render::CRenderContext &ctx,
         ctx.m_renderingCapture || ctx.m_renderingSnapshot) {
         return;
     }
+    if (!wallpaper->owner.ensure_current()) return;
     // A completed opening snapshot keeps queued set; a live request replaces it. A live pass
     // waiting in this frame has no framebuffer yet and must not be queued a second time.
     if (live && wallpaper->queued && wallpaper->framebuffer) {
@@ -193,7 +205,7 @@ void queue_bubble_wallpaper(Render::CRenderContext &ctx,
         return;
     }
     if (live) {
-        wallpaper->framebuffer.reset();
+        hyprimate::gl::release_native(wallpaper->framebuffer, wallpaper->owner);
     }
     if (!ctx.m_data.pMonitor ||
         bounds.copy().intersection(CBox{{}, ctx.m_data.pMonitor->m_transformedSize}).empty()) {

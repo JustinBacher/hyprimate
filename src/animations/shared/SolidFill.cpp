@@ -13,6 +13,8 @@
 #include <hyprland/src/render/Texture.hpp>
 
 #include "animations/shared/SolidFill.hpp"
+#include "gl/CompositorContext.hpp"
+#include "gl/NativeResource.hpp"
 #include "gl/Storage.hpp"
 
 namespace {
@@ -33,6 +35,7 @@ SP<Render::ITexture> CSolidFill::texture() {
     if (ALPHA == 0 || !g_pHyprRenderer) {
         return nullptr;
     }
+    if (m_texture && !m_owner.ensure_current()) return nullptr;
     if (m_texture && same_color(m_built, m_color)) {
         return m_texture;
     }
@@ -54,6 +57,10 @@ SP<Render::ITexture> CSolidFill::texture() {
         ++pixel;
     }
 
+    const hyprimate::gl::ScopedCompositorContext CONTEXT{};
+    if (!CONTEXT || !m_owner.ensure_current()) { return nullptr; }
+    const hyprimate::gl::TextureUploadBinding BINDING;
+    const hyprimate::gl::ClientPixelUnpack UNPACK;
     auto candidate = g_pHyprRenderer->createTexture(DRM_FORMAT_ARGB8888,
         pixels.data(),
         SOLID_SIZE * 4,
@@ -61,6 +68,8 @@ SP<Render::ITexture> CSolidFill::texture() {
         false,
         ALPHA == 255);
     if (!candidate || !hyprimate::gl::has_color_storage(candidate->m_texID)) { return nullptr; }
+    candidate = hyprimate::gl::retain_native(std::move(candidate));
+    if (!candidate) return nullptr;
     m_texture = std::move(candidate);
     m_built = m_color;
     return m_texture;

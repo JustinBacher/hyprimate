@@ -12,6 +12,8 @@
 #include "HyprWindowAnimations.hpp"
 #include "HyprAnimationCanvas.hpp"
 #include "WindowAnimationPort.hpp"
+#include "gl/CompositorContext.hpp"
+#include "gl/NativeResource.hpp"
 
 class CHyprWindowPort {
   public:
@@ -21,9 +23,16 @@ class CHyprWindowPort {
     using RetainedImage = Canvas::Image;
     Canvas::Resources &canvas_resources() { return m_canvas_resources; }
     struct VisualCache {
+        ~VisualCache() {
+            hyprimate::gl::release_native(image, image_owner);
+            hyprimate::gl::release_native(fadeout_image, fadeout_owner);
+        }
         hyprimate::animation::MeshBuffers<Canvas::Vertex> buffers, scratch_buffers;
         Backdrop backdrop, scratch_backdrop;
         RetainedImage image, fadeout_image;
+        // Drop borrowed native leases without extending host pool lifetime; exposure
+        // still verifies the creating backend so replacement cannot use stale names.
+        mutable hyprimate::gl::CompositorContextOwner image_owner, fadeout_owner;
         hyprimate::Vec2 image_origin{};
         hyprimate::Box capture{};
         hyprimate::animation::FrameId frame = 0;

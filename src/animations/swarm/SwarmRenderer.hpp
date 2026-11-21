@@ -12,6 +12,7 @@
 
 #include "animations/swarm/SwarmLiveState.hpp"
 #include "animations/swarm/SwarmSurface.hpp"
+#include "gl/CompositorContext.hpp"
 
 // Creature sheets resampled into an atlas of walking frames, a solid tile and a disc for
 // detached-piece rounding. Only alpha is used. Each sheet is decoded and measured once.
@@ -26,8 +27,8 @@ class CSwarmSprites {
 
     // The creature's measurements; null when its sheet cannot be decoded. Touches no GL state.
     const SSheet *sheet(const std::string &creature);
-    // The creature's atlas; null when unavailable. Creates GL objects on first use, so call it only
-    // while rendering.
+    // The creature's atlas; null when unavailable or outside its creating context.
+    // Creates GL objects on first use, so call it only while rendering.
     SP<Render::ITexture> texture(const std::string &creature);
     CSwarmSurface &surface() {
         return m_surface;
@@ -35,6 +36,7 @@ class CSwarmSprites {
 
   private:
     struct SEntry {
+        hyprimate::gl::CompositorContextOwner owner;
         bool tried = false;
         SSheet sheet;
         std::vector<std::uint8_t> pixels;  // premultiplied BGRA until uploaded

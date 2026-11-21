@@ -6,7 +6,6 @@
 #include <utility>
 #include <vector>
 
-#include <EGL/egl.h>
 #include <GLES3/gl32.h>
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Renderer.hpp>
@@ -18,6 +17,8 @@
 #include "BurnShaders.hpp"
 #include "HyprAnimationCanvas.hpp"
 #include "animations/shared/SheetRenderer.hpp"
+#include "gl/CompositorContext.hpp"
+#include "gl/NativeFramebuffer.hpp"
 #include "gl/RawGlBracket.hpp"
 #include "gl/Storage.hpp"
 
@@ -103,6 +104,7 @@ void main() {
 }  // namespace
 
 struct CBurnGroundDraw::Impl {
+    hyprimate::gl::CompositorContextOwner owner;
     std::unique_ptr<CShader> shader;
     GLuint field = 0, vao = 0;
     GLint wallpaper_uniform = -1, field_uniform = -1, origin_uniform = -1, axis_x_uniform = -1,
@@ -111,32 +113,21 @@ struct CBurnGroundDraw::Impl {
     GLint logical_screen_uniform = -1;
     bool ready = false;
     ~Impl() {
-        if (!Render::GL::g_pHyprOpenGL) {
-            // Compositor teardown has already destroyed the context and its objects.
-            shader.reset();
+        const hyprimate::gl::ScopedCompositorContext CONTEXT{owner};
+        if (!CONTEXT) {
+            // CShader cannot detach its name. Let context teardown reclaim the
+            // objects rather than destroy the host wrapper in a foreign context.
+            [[maybe_unused]] const auto *abandoned = shader.release();
             return;
         }
-        const auto DISPLAY = eglGetCurrentDisplay();
-        const auto CONTEXT = eglGetCurrentContext();
-        const auto DRAW = eglGetCurrentSurface(EGL_DRAW);
-        const auto READ = eglGetCurrentSurface(EGL_READ);
-        Render::GL::g_pHyprOpenGL->makeEGLCurrent();
-        {
-            const hyprimate::gl::CRawGlBracket<2> BRACKET{{}};
-            if (field != 0) glDeleteTextures(1, &field);
-            if (vao != 0) glDeleteVertexArrays(1, &vao);
-            shader.reset();
-        }
-        if (DISPLAY != EGL_NO_DISPLAY && CONTEXT != EGL_NO_CONTEXT) {
-            eglMakeCurrent(DISPLAY, DRAW, READ, CONTEXT);
-        } else {
-            eglMakeCurrent(Render::GL::g_pHyprOpenGL->m_eglDisplay,
-                EGL_NO_SURFACE,
-                EGL_NO_SURFACE,
-                EGL_NO_CONTEXT);
-        }
+        const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
+        const hyprimate::gl::CRawGlBracket<2> BRACKET{{}};
+        if (field != 0) glDeleteTextures(1, &field);
+        if (vao != 0) glDeleteVertexArrays(1, &vao);
+        shader.reset();
     }
     bool initialize() {
+        if (!owner.ensure_current()) return false;
         if (ready) return true;
         const auto DISCARD = [&] {
             glDeleteTextures(1, &field);
@@ -198,6 +189,7 @@ struct CBurnGroundDraw::Impl {
                 !Render::GL::g_pHyprOpenGL || ctx.readOnlyEffects() || ctx.m_renderingCapture ||
                 ctx.m_renderingSnapshot || g_pHyprRenderer->type() != Render::IHyprRenderer::RT_GL)
                 return {};
+            if (!renderer->owner.ensure_current() || !wallpaper->owner.ensure_current()) return {};
             const auto IMAGE = wallpaper->framebuffer->getTexture();
             if (!IMAGE || IMAGE->m_texID == 0) return {};
             const Vector2D SIZE{screen.screen.w * screen.scale, screen.screen.h * screen.scale};
@@ -205,7 +197,7 @@ struct CBurnGroundDraw::Impl {
             {
                 const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
                 const auto STATE = ctx.saveDrawState();
-                layer = g_pHyprRenderer->getWorkBuffer(ctx, SIZE);
+                layer = hyprimate::gl::get_work_buffer(ctx, SIZE);
                 if (!layer || !layer->getTexture() ||
                     layer->getTexture()->m_texID == IMAGE->m_texID)
                     return {};
@@ -235,22 +227,18 @@ struct CBurnGroundDraw::Impl {
                 glActiveTexture(GL_TEXTURE1);
                 glBindTexture(GL_TEXTURE_2D, renderer->field);
                 glBindSampler(1, 0);
-                GLint unpack_buffer = 0, unpack_alignment = 0;
-                glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &unpack_buffer);
-                glGetIntegerv(GL_UNPACK_ALIGNMENT, &unpack_alignment);
-                glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-                glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-                glTexSubImage2D(GL_TEXTURE_2D,
-                    0,
-                    0,
-                    0,
-                    CBurnGround::WIDTH,
-                    CBurnGround::HEIGHT,
-                    GL_RGBA,
-                    GL_UNSIGNED_BYTE,
-                    pixels.data());
-                glBindBuffer(GL_PIXEL_UNPACK_BUFFER, static_cast<GLuint>(unpack_buffer));
-                glPixelStorei(GL_UNPACK_ALIGNMENT, unpack_alignment);
+                {
+                    const hyprimate::gl::ClientPixelUnpack UNPACK;
+                    glTexSubImage2D(GL_TEXTURE_2D,
+                        0,
+                        0,
+                        0,
+                        CBurnGround::WIDTH,
+                        CBurnGround::HEIGHT,
+                        GL_RGBA,
+                        GL_UNSIGNED_BYTE,
+                        pixels.data());
+                }
                 glUniform1i(renderer->opening_count_uniform, static_cast<GLint>(opening_count));
                 glUniform4fv(renderer->opening_rect_uniform,
                     static_cast<GLsizei>(opening_count),
@@ -280,8 +268,11 @@ struct CBurnGroundDraw::Impl {
             Render::GL::CHyprOpenGLImpl::STextureRenderData data{};
             data.damage = &ctx.m_data.damage;
             data.allowCustomUV = true;
-            Render::GL::g_pHyprOpenGL->renderTextureMesh(
-                ctx, layer->getTexture(), CBox{0, 0, SIZE.x, SIZE.y}, sheet_canvas_quad(), data);
+            {
+                const hyprimate::gl::NativeMeshSamplers SAMPLERS;
+                Render::GL::g_pHyprOpenGL->renderTextureMesh(
+                    ctx, layer->getTexture(), CBox{0, 0, SIZE.x, SIZE.y}, sheet_canvas_quad(), data);
+            }
             for (std::size_t index = 0; index < particle_count; ++index) {
                 const auto &particle = particles[index];
                 const double PHASE =
@@ -392,6 +383,7 @@ void CBurnGroundDraw::queue(CHyprAnimationCanvas &canvas,
         }
     }
     if (!visible) return;
+    if (!m_impl->owner.ensure_current()) return;
     const CBox BOX{0, 0, screen.screen.w * screen.scale, screen.screen.h * screen.scale};
     pass->wallpaper = canvas.capture_wallpaper(BOX, BOX);
     if (!pass->wallpaper) return;

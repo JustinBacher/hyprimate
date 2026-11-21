@@ -2,7 +2,6 @@
 #include <utility>
 #include <new>
 
-#include <EGL/egl.h>
 #include <GLES3/gl32.h>
 #include <hyprland/src/helpers/DeformableMesh.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
@@ -12,51 +11,35 @@
 #include "HyprAnimationCanvas.hpp"
 #include "animations/smoke/SmokeStyle.hpp"
 #include "gl/RawGlBracket.hpp"
+#include "gl/NativeFramebuffer.hpp"
 #include "smoke_shaders_generated.hpp"
 
-namespace {
-    template <class F>
-    void with_context(F &&work) {
-        const EGLDisplay display = eglGetCurrentDisplay();
-        const EGLContext context = eglGetCurrentContext();
-        const EGLSurface draw = eglGetCurrentSurface(EGL_DRAW),
-                         read = eglGetCurrentSurface(EGL_READ);
-        Render::GL::g_pHyprOpenGL->makeEGLCurrent();
-        std::forward<F>(work)();
-        if (display != EGL_NO_DISPLAY && context != EGL_NO_CONTEXT)
-            eglMakeCurrent(display, draw, read, context);
-        else if (context == EGL_NO_CONTEXT)
-            eglMakeCurrent(Render::GL::g_pHyprOpenGL->m_eglDisplay,
-                EGL_NO_SURFACE,
-                EGL_NO_SURFACE,
-                EGL_NO_CONTEXT);
-    }
-}  // namespace
 CSmokeFieldHandle::~CSmokeFieldHandle() {
-    if (Render::GL::g_pHyprOpenGL && g_pHyprRenderer) with_context([&] {
-        auto &renderer = *Render::GL::g_pHyprOpenGL;
-        if (field.framebuffer() != 0) renderer.onFramebufferDeleted(field.framebuffer());
-        const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
-        const hyprimate::gl::CRawGlBracket<7> BRACKET{{}};
-        field.release();
-    });
+    const hyprimate::gl::ScopedCompositorContext CONTEXT{m_owner};
+    if (!CONTEXT) return;
+    const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
+    const hyprimate::gl::CRawGlBracket<7> BRACKET{{}};
+    if (field.framebuffer() != 0)
+        Render::GL::g_pHyprOpenGL->onFramebufferDeleted(field.framebuffer());
+    field.release();
 }
 CSmokeRenderer::~CSmokeRenderer() {
-    if (!Render::GL::g_pHyprOpenGL || !g_pHyprRenderer) {
-        // Context teardown reclaims GL resources when the renderer is already gone.
+    const hyprimate::gl::ScopedCompositorContext CONTEXT{m_owner};
+    if (!CONTEXT) {
+        // CShader cannot detach its name. Context teardown reclaims the GL
+        // objects; do not run the host wrapper destructor in a foreign context.
         for (auto &shader : m_shaders) {
             [[maybe_unused]] const auto *released = shader.release();
         }
         return;
     }
-    with_context([&] {
-        const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
-        const hyprimate::gl::CRawGlBracket<7> BRACKET{{}};
-        m_material.release();
-        for (auto &shader : m_shaders) shader.reset();
-    });
+    const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
+    const hyprimate::gl::CRawGlBracket<7> BRACKET{{}};
+    m_material.release();
+    for (auto &shader : m_shaders) shader.reset();
 }
 bool CSmokeRenderer::initialize() {
+    if (!m_owner.ensure_current()) return false;
     if (m_ready) return true;
     const std::array<const char *, SSmokePrograms::ProgramCount> SOURCES{smoke_shader::VELOCITY.data(),
         smoke_shader::DIVERGENCE.data(), smoke_shader::PRESSURE.data(), smoke_shader::PROJECT.data(),
@@ -82,13 +65,12 @@ bool CSmokeRenderer::initialize() {
     }
 }
 bool CSmokeRenderer::warm_up() {
+    const hyprimate::gl::ScopedCompositorContext CONTEXT{};
+    if (!CONTEXT || !m_owner.ensure_current()) return false;
     if (m_warmed) return true;
-    if (!Render::GL::g_pHyprOpenGL || !g_pHyprRenderer) return false;
-    with_context([&] {
-        const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
-        const hyprimate::gl::CRawGlBracket<7> BRACKET{{}};
-        m_warmed = initialize();
-    });
+    const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
+    const hyprimate::gl::CRawGlBracket<7> BRACKET{{}};
+    m_warmed = initialize();
     return m_warmed;
 }
 SP<Render::IFramebuffer> CSmokeRenderer::render(
@@ -100,11 +82,12 @@ SP<Render::IFramebuffer> CSmokeRenderer::render(
         !(draw.canvas.x > 0 && draw.canvas.y > 0 && draw.source.w > 0 && draw.source.h > 0 &&
             draw.texture_size.x > 0 && draw.texture_size.y > 0))
         return nullptr;
+    if (!m_owner.ensure_current() || !draw.field->m_owner.ensure_current()) return nullptr;
     if (!draw.simulate && draw.field->field.framebuffer() == 0)
         return nullptr;
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     const auto state = ctx.saveDrawState();
-    const auto layer = g_pHyprRenderer->getWorkBuffer(ctx, draw.canvas);
+    const auto layer = hyprimate::gl::get_work_buffer(ctx, draw.canvas);
     if (!layer || !layer->getTexture() || layer->getTexture()->m_texID == draw.window->m_texID)
         return nullptr;
     auto *gl_layer = dynamic_cast<Render::GL::CGLFramebuffer *>(layer.get());

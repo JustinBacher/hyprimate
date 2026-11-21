@@ -12,6 +12,7 @@
 #include "HyprWindowPort.hpp"
 #include "StyleTypes.hpp"
 #include "WindowAnimations.hpp"
+#include "gl/NativeFramebuffer.hpp"
 
 using namespace Render;
 using namespace hyprimate::animation;
@@ -62,7 +63,7 @@ SWindowTransformBuffer CAnimationTransformer::transform(CRenderContext &ctx,
         return {.framebuffer = input.framebuffer, .box = input.box, .success = false};
     }
     if (!canvas.layer()) {
-        canvas.layer() = g_pHyprRenderer->getWorkBuffer(ctx, CANVAS.size());
+        canvas.layer() = hyprimate::gl::get_work_buffer(ctx, CANVAS.size());
         if (!canvas.layer()) {
             return {.framebuffer = input.framebuffer, .box = input.box, .success = false};
         }

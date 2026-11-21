@@ -7,6 +7,7 @@
 #include "HyprWindowAnimations.hpp"
 #include "WindowAnimationEntry.hpp"
 #include "AnimationCloseRenderer.hpp"
+#include "gl/CompositorContext.hpp"
 
 class CWindowAnimationPass final : public IPassElement {
   public:
@@ -15,6 +16,9 @@ class CWindowAnimationPass final : public IPassElement {
         HyprWindowAnimations *animations = nullptr;
         hyprimate::animation::Handle handle{};
         CHyprAnimationCanvas::Image image;
+        // Copied from the snapshot's verified producer/retention boundary, not
+        // inferred from whichever context happens to queue or destroy this pass.
+        hyprimate::gl::CompositorContextOwner image_owner;
         hyprimate::Box source, output, canvas_box;
         hyprimate::Vec2 image_origin, image_size;
         double scale = 1;
@@ -27,6 +31,7 @@ class CWindowAnimationPass final : public IPassElement {
         std::optional<CloseRenderGuard> close_guard;
     };
     explicit CWindowAnimationPass(SData data);
+    ~CWindowAnimationPass() override;
     std::vector<UP<IPassElement>> draw(Render::CRenderContext &ctx) override;
     bool needsLiveBlur(Render::CRenderContext &ctx) override;
     bool needsPrecomputeBlur(Render::CRenderContext &ctx) override;

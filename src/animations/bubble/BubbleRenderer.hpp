@@ -13,6 +13,7 @@
 #include "animations/bubble/Bubble.hpp"
 #include "animations/bubble/BubbleMaterial.hpp"
 #include "animations/bubble/BubbleWallpaper.hpp"
+#include "gl/CompositorContext.hpp"
 
 struct SBubbleDraw {
     SP<Render::ITexture> window;
@@ -46,6 +47,7 @@ class CBubbleRenderer {
 
   private:
     bool initialize();
+    hyprimate::gl::CompositorContextOwner m_owner;
     std::array<std::unique_ptr<CShader>, 5> m_shaders;
     CBubbleMaterial m_material;
     std::array<hyprimate::BubbleParticle, 2 * hyprimate::K_BUBBLE_MAX_PARTICLES> m_particles{};

@@ -9,6 +9,7 @@
 #include <hyprland/src/render/Shader.hpp>
 
 #include "animations/swarm/SwarmSurfaceBody.hpp"
+#include "gl/CompositorContext.hpp"
 
 class CSwarmSurface {
   public:
@@ -32,6 +33,7 @@ class CSwarmSurface {
   private:
     bool initialize();
     bool bind_field(GLsizei width, GLsizei height);
+    hyprimate::gl::CompositorContextOwner m_context;
     bool m_ready = false;
     std::unique_ptr<CShader> m_surface_shader, m_field_shader;
     GLuint m_program = 0, m_field_program = 0, m_vao = 0, m_quad = 0, m_instances = 0;

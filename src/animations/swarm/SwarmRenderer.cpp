@@ -34,6 +34,9 @@
 #include "animations/swarm/SwarmSprite.hpp"
 #include "animations/swarm/SwarmSurface.hpp"
 #include "animations/swarm/SwarmSurfaceBody.hpp"
+#include "gl/CompositorContext.hpp"
+#include "gl/NativeResource.hpp"
+#include "gl/NativeFramebuffer.hpp"
 #include "gl/Storage.hpp"
 
 using hyprimate::Vec2;
@@ -268,10 +271,14 @@ const CSwarmSprites::SSheet *CSwarmSprites::sheet(const std::string &creature) {
 
 SP<Render::ITexture> CSwarmSprites::texture(const std::string &creature) {
     SEntry &sprite_entry = entry(creature);
-    if (sprite_entry.texture || sprite_entry.pixels.empty() || !g_pHyprRenderer) {
-        return sprite_entry.texture;
-    }
+    if (sprite_entry.texture)
+        return sprite_entry.owner.ensure_current() ? sprite_entry.texture : nullptr;
+    if (sprite_entry.pixels.empty() || !g_pHyprRenderer) return nullptr;
     const int WIDTH = (static_cast<int>(sprite_entry.sheet.frames.size()) + SHAPE_CELLS) * CELL_PX;
+    const hyprimate::gl::ScopedCompositorContext CONTEXT{};
+    if (!CONTEXT || !sprite_entry.owner.ensure_current()) { return nullptr; }
+    const hyprimate::gl::TextureUploadBinding BINDING;
+    const hyprimate::gl::ClientPixelUnpack UNPACK;
     auto candidate = g_pHyprRenderer->createTexture(DRM_FORMAT_ARGB8888,
         sprite_entry.pixels.data(),
         WIDTH * 4,
@@ -279,6 +286,8 @@ SP<Render::ITexture> CSwarmSprites::texture(const std::string &creature) {
         false,
         false);
     if (!candidate || !hyprimate::gl::has_color_storage(candidate->m_texID)) { return nullptr; }
+    candidate = hyprimate::gl::retain_native(std::move(candidate));
+    if (!candidate) return nullptr;
     sprite_entry.texture = std::move(candidate);
     sprite_entry.pixels = {};
     return sprite_entry.texture;
@@ -559,25 +568,33 @@ SP<Render::IFramebuffer> render_swarm_layer(Render::CRenderContext &ctx,
     if (!window || !atlas || meshes.content.empty() || !(size.x > 0.0) || !(size.y > 0.0)) {
         return nullptr;
     }
+    hyprimate::gl::CompositorContextOwner current;
+    if (!current.ensure_current()) return nullptr;
 
     // Entry blend state, restored on exit; the wrapper does not expose the blend function, so GL is
     // queried for it.
     const bool ENTRY_BLEND = Render::GL::g_pHyprOpenGL->blendEnabled();
     GLint entry_src = 0;
     GLint entry_dst = 0;
+    GLint entry_src_alpha = 0;
+    GLint entry_dst_alpha = 0;
     glGetIntegerv(GL_BLEND_SRC_RGB, &entry_src);
     glGetIntegerv(GL_BLEND_DST_RGB, &entry_dst);
+    glGetIntegerv(GL_BLEND_SRC_ALPHA, &entry_src_alpha);
+    glGetIntegerv(GL_BLEND_DST_ALPHA, &entry_dst_alpha);
     const auto RESTORE_BLEND = [&] {
         Render::GL::g_pHyprOpenGL->blend(ENTRY_BLEND);
         Render::GL::g_pHyprOpenGL->blendFunc(
             static_cast<GLenum>(entry_src), static_cast<GLenum>(entry_dst));
+        glBlendFuncSeparate(static_cast<GLenum>(entry_src), static_cast<GLenum>(entry_dst),
+            static_cast<GLenum>(entry_src_alpha), static_cast<GLenum>(entry_dst_alpha));
     };
 
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     const auto STATE = ctx.saveDrawState();
     auto &data = ctx.m_data;
 
-    const auto LAYER = g_pHyprRenderer->getWorkBuffer(ctx, size);
+    const auto LAYER = hyprimate::gl::get_work_buffer(ctx, size);
     if (!LAYER) {
         return nullptr;
     }
@@ -592,6 +609,7 @@ SP<Render::IFramebuffer> render_swarm_layer(Render::CRenderContext &ctx,
     texture_data.damage = &data.damage;
     texture_data.allowCustomUV = true;
     const CBox BOX{0.0, 0.0, size.x, size.y};
+    const hyprimate::gl::NativeMeshSamplers SAMPLERS;
 
     // Silhouettes, unblended: tiles never overlap in the layer, and only the alpha they leave is
     // used.
@@ -603,6 +621,7 @@ SP<Render::IFramebuffer> render_swarm_layer(Render::CRenderContext &ctx,
     if (!meshes.walking_cut.empty()) {
         Render::GL::g_pHyprOpenGL->blend(true);
         Render::GL::g_pHyprOpenGL->blendFunc(GL_ZERO, GL_SRC_ALPHA);
+        glBlendFunc(GL_ZERO, GL_SRC_ALPHA);
         Render::GL::g_pHyprOpenGL->renderTextureMesh(
             ctx, atlas, BOX, meshes.walking_cut, texture_data);
     }
@@ -621,6 +640,7 @@ SP<Render::IFramebuffer> render_swarm_layer(Render::CRenderContext &ctx,
     g_pHyprRenderer->bindFB(ctx, smooth);
     Render::GL::g_pHyprOpenGL->blend(true);
     Render::GL::g_pHyprOpenGL->blendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     if (!meshes.creatures.empty()) {
         Render::GL::g_pHyprOpenGL->renderTextureMesh(
             ctx, atlas, BOX, meshes.creatures, texture_data);
@@ -630,6 +650,7 @@ SP<Render::IFramebuffer> render_swarm_layer(Render::CRenderContext &ctx,
     texture_data.allowDim = true;
     Render::GL::g_pHyprOpenGL->blend(true);
     Render::GL::g_pHyprOpenGL->blendFunc(GL_DST_ALPHA, GL_ZERO);
+    glBlendFunc(GL_DST_ALPHA, GL_ZERO);
     Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, window, BOX, meshes.content, texture_data);
 
     // Restore the entry blend state through the wrapper so its cached factors stay in sync with GL.

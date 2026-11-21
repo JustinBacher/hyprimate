@@ -3,7 +3,6 @@
 #include <new>
 #include <utility>
 
-#include <EGL/egl.h>
 #include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/Framebuffer.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
@@ -16,42 +15,12 @@
 #include "animations/paper/PaperMaterial.hpp"
 #include "animations/paper/PaperRenderer.hpp"
 #include "animations/paper/PaperShaders.hpp"
+#include "gl/CompositorContext.hpp"
+#include "gl/NativeFramebuffer.hpp"
 #include "gl/RawGlBracket.hpp"
 
-namespace {
-    // Scope order matters: GL objects and brackets are destroyed before restoring EGL.
-    class ContextGuard {
-      public:
-        ContextGuard()
-            : m_display(eglGetCurrentDisplay()),
-              m_context(eglGetCurrentContext()),
-              m_draw(eglGetCurrentSurface(EGL_DRAW)),
-              m_read(eglGetCurrentSurface(EGL_READ)) {
-            Render::GL::g_pHyprOpenGL->makeEGLCurrent();
-        }
-        ~ContextGuard() {
-            if (m_display != EGL_NO_DISPLAY && m_context != EGL_NO_CONTEXT) {
-                eglMakeCurrent(m_display, m_draw, m_read, m_context);
-            } else {
-                eglMakeCurrent(Render::GL::g_pHyprOpenGL->m_eglDisplay,
-                    EGL_NO_SURFACE,
-                    EGL_NO_SURFACE,
-                    EGL_NO_CONTEXT);
-            }
-        }
-        ContextGuard(const ContextGuard &) = delete;
-        ContextGuard &operator=(const ContextGuard &) = delete;
-        ContextGuard(ContextGuard &&) = delete;
-        ContextGuard &operator=(ContextGuard &&) = delete;
-
-      private:
-        EGLDisplay m_display;
-        EGLContext m_context;
-        EGLSurface m_draw, m_read;
-    };
-}  // namespace
-
 struct CPaperRenderer::Impl {
+    hyprimate::gl::CompositorContextOwner context;
     std::unique_ptr<CShader> shader;
     CPaperMaterial material;
     bool ready = false;
@@ -73,18 +42,24 @@ struct CPaperRenderer::Impl {
 CPaperRenderer::CPaperRenderer() : m_impl(std::make_unique<Impl>()) {
 }
 CPaperRenderer::~CPaperRenderer() {
-    if (Render::GL::g_pHyprOpenGL) {
-        const ContextGuard CONTEXT;
-        const hyprimate::gl::CRawGlBracket<2> BRACKET{{}};
-        m_impl->material.release();
-        m_impl->shader.reset();
+    const hyprimate::gl::ScopedCompositorContext CONTEXT{m_impl->context};
+    if (!CONTEXT) {
+        // CShader deletes its program in its destructor, which is unsafe on another context.
+        [[maybe_unused]] const auto *shader = m_impl->shader.release();
+        return;
     }
+    const hyprimate::gl::CRawGlBracket<2> BRACKET{{}};
+    // Material framebuffer names never leave the material. Every operation that binds them
+    // runs inside this adapter's raw bracket, so no host binding guard can have saved one.
+    // The bracket also restores ambient bindings around deletion and CShader destruction.
+    m_impl->material.release();
+    m_impl->shader.reset();
 }
 
 bool CPaperRenderer::warm_up() {
+    const hyprimate::gl::ScopedCompositorContext CONTEXT{};
+    if (!CONTEXT || !m_impl->context.ensure_current()) return false;
     if (m_impl->ready) return true;
-    if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL) return false;
-    const ContextGuard CONTEXT;
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     const hyprimate::gl::CRawGlBracket<2> BRACKET{{}};
     return m_impl->initialize();
@@ -104,12 +79,12 @@ bool CPaperRenderer::draw(const hyprimate::PaperSurface &surface,
     if (!IMAGE || IMAGE->m_texID == 0 ||
         (IMAGE->m_type != Render::TEXTURE_RGBA && IMAGE->m_type != Render::TEXTURE_RGBX))
         return false;
-    const ContextGuard CONTEXT;
+    if (!m_impl->context.ensure_current()) return false;
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     auto &ctx = draw.canvas->context();
     const auto STATE = ctx.saveDrawState();
     const auto LAYER =
-        g_pHyprRenderer->getWorkBuffer(ctx, Vector2D{draw.canvas_box.w, draw.canvas_box.h});
+        hyprimate::gl::get_work_buffer(ctx, Vector2D{draw.canvas_box.w, draw.canvas_box.h});
     if (!LAYER || !LAYER->getTexture() || LAYER->getTexture()->m_texID == IMAGE->m_texID)
         return false;
     // Work buffers belong to Hyprland's GL backend.

@@ -4,6 +4,8 @@
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/render/pass/ClearPassElement.hpp>
 
+#include "gl/Storage.hpp"
+#include "gl/NativeFramebuffer.hpp"
 #include "workspace/WorkspaceCaptureScope.hpp"
 
 using namespace hyprimate::animation;
@@ -51,6 +53,7 @@ void CHyprAnimationCanvas::composite(const hyprimate::Box &box, float alpha) {
     data.damage = &context().m_data.damage;
     data.a = alpha;
     data.allowCustomUV = true;
+    const hyprimate::gl::NativeMeshSamplers SAMPLERS;
     Render::GL::g_pHyprOpenGL->renderTextureMesh(context(), m_layer->getTexture(),
         CBox{box.x, box.y, box.w, box.h}, sheet_canvas_quad(), data);
 }
@@ -79,7 +82,7 @@ bool CHyprAnimationCanvas::submit_mesh(const Mesh<Vertex> &mesh, const Draw<CHyp
     if (!solid && !mesh.clip) {
         return true;
     }
-    const auto COMPOSED = g_pHyprRenderer->getWorkBuffer(context(), SIZE);
+    const auto COMPOSED = hyprimate::gl::get_work_buffer(context(), SIZE);
     if (!COMPOSED) {
         return false;
     }
@@ -99,6 +102,7 @@ bool CHyprAnimationCanvas::submit_mesh(const Mesh<Vertex> &mesh, const Draw<CHyp
     Render::GL::CHyprOpenGLImpl::STextureRenderData texture_data{};
     texture_data.damage = &data.damage;
     texture_data.allowCustomUV = true;
+    const hyprimate::gl::NativeMeshSamplers SAMPLERS;
     if (solid) {
         texture_data.a = mesh.opacity;
         const CBox UNDER{mesh.under_output.x - draw.canvas_box.x, mesh.under_output.y - draw.canvas_box.y,

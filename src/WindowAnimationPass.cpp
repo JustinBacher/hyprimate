@@ -8,12 +8,19 @@
 #include "StyleTypes.hpp"
 #include "WindowAnimations.hpp"
 #include "animations/shared/SheetRenderer.hpp"
+#include "gl/Storage.hpp"
+#include "gl/NativeResource.hpp"
 
 using namespace hyprimate::animation;
 
 CWindowAnimationPass::CWindowAnimationPass(SData data) : m_data(std::move(data)) {}
 
+CWindowAnimationPass::~CWindowAnimationPass() {
+    hyprimate::gl::release_native(m_data.image, m_data.image_owner);
+}
+
 std::vector<UP<IPassElement>> CWindowAnimationPass::draw(Render::CRenderContext &ctx) {
+    if (!m_data.image_owner.ensure_current()) return {};
     if (m_data.close_guard && !m_data.close_guard->valid(ctx)) { return {}; }
     if (m_data.animations == nullptr || m_data.resources == nullptr || !m_data.image ||
         !m_data.animations->active(m_data.handle)) {
@@ -33,6 +40,7 @@ std::vector<UP<IPassElement>> CWindowAnimationPass::draw(Render::CRenderContext 
         texture_data.a = m_data.alpha;
         texture_data.allowCustomUV = true;
         const auto &box = m_data.canvas_box;
+        const hyprimate::gl::NativeMeshSamplers SAMPLERS;
         Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, canvas.layer()->getTexture(),
             CBox{box.x, box.y, box.w, box.h}, sheet_canvas_quad(), texture_data);
     };

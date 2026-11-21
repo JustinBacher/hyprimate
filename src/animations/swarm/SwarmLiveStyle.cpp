@@ -7,6 +7,8 @@
 #include "HyprAnimationCanvas.hpp"
 
 #include "animations/swarm/SwarmConfig.hpp"
+#include "gl/Storage.hpp"
+#include "gl/NativeFramebuffer.hpp"
 
 using namespace hyprimate;
 using namespace hyprimate::animation;
@@ -130,7 +132,7 @@ bool SSwarmModule::draw_canvas(State &state, CHyprAnimationCanvas &canvas,
     if (!LAYER) {
         return false;
     }
-    const auto OUT = g_pHyprRenderer->getWorkBuffer(ctx, CANVAS.size());
+    const auto OUT = hyprimate::gl::get_work_buffer(ctx, CANVAS.size());
     if (!OUT) {
         return false;
     }
@@ -148,6 +150,7 @@ bool SSwarmModule::draw_canvas(State &state, CHyprAnimationCanvas &canvas,
         texture_data.allowCustomUV = true;
         texture_data.allowDim = false;
         const CBox LOCAL{output.x - canvas_box.x, output.y - canvas_box.y, output.w, output.h};
+        const hyprimate::gl::NativeMeshSamplers SAMPLERS;
         Render::GL::g_pHyprOpenGL->renderTextureMesh(
             ctx, LAYER->getTexture(), LOCAL, meshes.pieces, texture_data);
     }

@@ -6,7 +6,6 @@
 #include <utility>
 #include <vector>
 
-#include <EGL/egl.h>
 #include <GLES3/gl32.h>
 #include <hyprland/src/helpers/DeformableMesh.hpp>
 #include <hyprland/src/helpers/memory/Memory.hpp>
@@ -24,43 +23,28 @@
 #include "animations/bubble/BubbleRenderer.hpp"
 #include "bubble_shaders_generated.hpp"
 #include "gl/RawGlBracket.hpp"
+#include "gl/NativeFramebuffer.hpp"
+#include "gl/Storage.hpp"
 #include "animations/shared/SheetRenderer.hpp"
 
-namespace {
-    // Runs work with the compositor's EGL context current, then restores whatever was current
-    // before.
-    template <class F>
-    void with_compositor_context(F &&work) {
-        const EGLDisplay DISPLAY = eglGetCurrentDisplay();
-        const EGLContext CONTEXT = eglGetCurrentContext();
-        const EGLSurface DRAW = eglGetCurrentSurface(EGL_DRAW);
-        const EGLSurface READ = eglGetCurrentSurface(EGL_READ);
-        Render::GL::g_pHyprOpenGL->makeEGLCurrent();
-        std::forward<F>(work)();
-        if (DISPLAY != EGL_NO_DISPLAY && CONTEXT != EGL_NO_CONTEXT) {
-            eglMakeCurrent(DISPLAY, DRAW, READ, CONTEXT);
-        } else if (CONTEXT == EGL_NO_CONTEXT) {
-            eglMakeCurrent(Render::GL::g_pHyprOpenGL->m_eglDisplay,
-                EGL_NO_SURFACE,
-                EGL_NO_SURFACE,
-                EGL_NO_CONTEXT);
-        }
-    }
-}  // namespace
-
 CBubbleRenderer::~CBubbleRenderer() {
-    if (Render::GL::g_pHyprOpenGL) {
-        with_compositor_context([&] {
-            Render::GL::g_pHyprOpenGL->bindArrayBuffer(0);
-            m_material.release();
-            for (auto &shader : m_shaders) {
-                shader.reset();
-            }
-        });
+    const hyprimate::gl::ScopedCompositorContext CONTEXT{m_owner};
+    if (!CONTEXT) {
+        // The host shader wrapper cannot detach its name; only context teardown
+        // can reclaim these objects when their owner is unavailable.
+        for (auto &shader : m_shaders) {
+            [[maybe_unused]] const auto *abandoned = shader.release();
+        }
+        return;
     }
+    const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
+    const hyprimate::gl::CRawGlBracket<4> BRACKET{{}};
+    m_material.release();
+    for (auto &shader : m_shaders) shader.reset();
 }
 
 bool CBubbleRenderer::initialize() {
+    if (!m_owner.ensure_current()) return false;
     if (m_ready) {
         return true;
     }
@@ -94,14 +78,12 @@ bool CBubbleRenderer::initialize() {
 }
 
 bool CBubbleRenderer::warm_up() {
+    const hyprimate::gl::ScopedCompositorContext CONTEXT{};
+    if (!CONTEXT || !m_owner.ensure_current()) return false;
     if (m_ready) return true;
-    if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL) return false;
-    with_compositor_context([&] {
-        const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
-        const hyprimate::gl::CRawGlBracket<4> BRACKET{{}};
-        (void)initialize();
-    });
-    return m_ready;
+    const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
+    const hyprimate::gl::CRawGlBracket<4> BRACKET{{}};
+    return initialize();
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity): GL capture, drawing and restoration
@@ -117,14 +99,16 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
             !(draw.source.h > 0) || !(draw.frame.size.x > 0) || !(draw.frame.size.y > 0))) {
         return nullptr;
     }
+    if (!m_owner.ensure_current()) return nullptr;
     const auto WALLPAPER =
         draw.wallpaper && draw.wallpaper->framebuffer &&
-                draw.pass != hyprimate::animation::PassKind::Inert
+                draw.pass != hyprimate::animation::PassKind::Inert &&
+                draw.wallpaper->owner.ensure_current()
             ? draw.wallpaper->framebuffer->getTexture()
             : SP<Render::ITexture>{};
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     const auto STATE = ctx.saveDrawState();
-    const auto LAYER = g_pHyprRenderer->getWorkBuffer(ctx, draw.canvas);
+    const auto LAYER = hyprimate::gl::get_work_buffer(ctx, draw.canvas);
     const GLuint IMAGE = draw.window ? draw.window->m_texID : 0;
     if (!LAYER || !LAYER->getTexture() || LAYER->getTexture()->m_texID == IMAGE ||
         (WALLPAPER && LAYER->getTexture()->m_texID == WALLPAPER->m_texID)) {
@@ -205,6 +189,7 @@ std::vector<UP<IPassElement>> CBubblePassElement::draw(Render::CRenderContext &c
     texture_data.allowCustomUV = true;
     texture_data.allowDim = false;
     if (LAYER) {
+        const hyprimate::gl::NativeMeshSamplers SAMPLERS;
         Render::GL::g_pHyprOpenGL->renderTextureMesh(
             ctx, LAYER->getTexture(), m_data.box, sheet_canvas_quad(), texture_data);
     }

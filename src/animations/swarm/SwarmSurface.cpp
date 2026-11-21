@@ -8,7 +8,6 @@
 #include <span>
 #include <utility>
 
-#include <EGL/egl.h>
 #include <GLES3/gl32.h>
 #include <hyprland/src/helpers/memory/Memory.hpp>
 #include <hyprland/src/render/Context.hpp>
@@ -20,30 +19,23 @@
 #include "animations/swarm/SwarmSurface.hpp"
 #include "animations/swarm/SwarmSurfaceBody.hpp"
 #include "gl/RawGlBracket.hpp"
+#include "gl/NativeFramebuffer.hpp"
 #include "gl/Storage.hpp"
 #include "swarm_shaders_generated.hpp"
 
 CSwarmSurface::~CSwarmSurface() {
-    if (!Render::GL::g_pHyprOpenGL) {
-        // During compositor shutdown there is no backend/context in which CShader can delete GL
-        // resources; deliberately release the wrappers and let context teardown reclaim them.
+    const hyprimate::gl::ScopedCompositorContext CONTEXT{m_context};
+    if (!CONTEXT) {
+        // CShader cannot delete its program without the creating context.
         [[maybe_unused]] const auto *surface = m_surface_shader.release();
         [[maybe_unused]] const auto *field = m_field_shader.release();
         return;
     }
-    if ((m_program == 0U) && (m_field_program == 0U) && (m_vao == 0U) && (m_quad == 0U) &&
-        (m_instances == 0U) && (m_field_framebuffer == 0U) && (m_field_texture == 0U)) {
-        return;
-    }
-    const EGLDisplay DISPLAY = eglGetCurrentDisplay();
-    const EGLContext CONTEXT = eglGetCurrentContext();
-    const EGLSurface DRAW = eglGetCurrentSurface(EGL_DRAW);
-    const EGLSurface READ = eglGetCurrentSurface(EGL_READ);
+    const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
+    const hyprimate::gl::CRawGlBracket<2> BRACKET{{}};
     auto &renderer = *Render::GL::g_pHyprOpenGL;
-    renderer.makeEGLCurrent();
     m_surface_shader.reset();
     m_field_shader.reset();
-    renderer.bindArrayBuffer(0);
     if (m_vao != 0U) {
         glDeleteVertexArrays(1, &m_vao);
     }
@@ -59,11 +51,6 @@ CSwarmSurface::~CSwarmSurface() {
     }
     if (m_field_texture != 0U) {
         glDeleteTextures(1, &m_field_texture);
-    }
-    if (DISPLAY != EGL_NO_DISPLAY && CONTEXT != EGL_NO_CONTEXT) {
-        eglMakeCurrent(DISPLAY, DRAW, READ, CONTEXT);
-    } else if (CONTEXT == EGL_NO_CONTEXT) {
-        eglMakeCurrent(renderer.m_eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     }
 }
 
@@ -201,9 +188,12 @@ SP<Render::IFramebuffer> CSwarmSurface::filter(Render::CRenderContext &ctx,
     if (WIDTH == 0) {
         return input;
     }
+    if (!m_context.ensure_current()) {
+        return nullptr;
+    }
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     const auto DRAW_STATE = ctx.saveDrawState();
-    const auto OUTPUT = g_pHyprRenderer->getWorkBuffer(ctx, size);
+    const auto OUTPUT = hyprimate::gl::get_work_buffer(ctx, size);
     if (!OUTPUT || !OUTPUT->getTexture() || (OUTPUT->getTexture()->m_texID == 0U) ||
         OUTPUT->getTexture()->m_texID == input->getTexture()->m_texID) {
         (void)std::fprintf(stderr, "swarm surface: unable to allocate distinct work buffer\n");
