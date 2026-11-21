@@ -69,8 +69,8 @@ namespace hyprimate {
         constexpr int MAX_OBSTACLES = 32;
         constexpr float CLOTH_INV_MASS = 4.0F, STRETCH_COMPLIANCE = 4e-6F, BEND_COMPLIANCE = 1.2F;
         constexpr std::uint64_t BASE_SEED = 0xC1074F1A77E2ULL;
-        // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables): Lifecycle and workers share these atomic flags.
-        std::atomic<bool> s_live{false}, s_pause{false};
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables): Workers share this test pause flag.
+        std::atomic<bool> s_pause{false};
         // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables): Worker pause threshold is shared with the test seam.
         std::atomic<int> s_pause_after{0};
 
@@ -425,8 +425,10 @@ namespace hyprimate {
 
             std::shared_ptr<Run> run;
             ~Lease() {
-                run->stop.request_stop();
-                run->released.store(true, std::memory_order_release);
+                if (run) {
+                    run->stop.request_stop();
+                    run->released.store(true, std::memory_order_release);
+                }
             }
         };
         class Registry {
@@ -452,9 +454,25 @@ namespace hyprimate {
                 }
                 runs.clear();
             }
-            void add(const std::shared_ptr<Run> &run) {
+            template <typename Work>
+            void launch(const std::shared_ptr<Run> &run, Work &&work) {
                 const std::scoped_lock LOCK(mutex);
                 runs.push_back(run);
+                try {
+                    // Finished can be published before the thread constructor returns.
+                    // Serialize member publication with the reaper's inspection.
+                    run->worker = std::thread([run, work = std::forward<Work>(work)] {
+                        try {
+                            work(*run);
+                        } catch (...) {
+                            // A failed solver publishes the same terminal state as cancellation.
+                        }
+                        run->finished.store(true, std::memory_order_release);
+                    });
+                } catch (...) {
+                    runs.pop_back();
+                    throw;
+                }
                 changed.notify_one();
             }
 
@@ -490,6 +508,10 @@ namespace hyprimate {
         };
         // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables): Physics lifetime owns the shared worker reaper.
         std::unique_ptr<Registry> s_registry;
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables): Serializes Jolt ownership and worker admission.
+        std::mutex s_lifecycle_mutex;
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables): Protected by s_lifecycle_mutex.
+        unsigned s_physics_owners = 0;
 
         bool outside(const Run &run, const JPH::Array<JPH::SoftBodyVertex> &vertices) noexcept {
             const double WIDTH = run.window.w;
@@ -1279,16 +1301,33 @@ namespace hyprimate {
     }  // namespace
 
     ClothPhysics::ClothPhysics() {
+        const std::scoped_lock LOCK(s_lifecycle_mutex);
+        if (s_physics_owners != 0) {
+            ++s_physics_owners;
+            return;
+        }
+        auto registry = std::make_unique<Registry>();
         JPH::RegisterDefaultAllocator();
         JPH::Trace = silent_trace;
-        // NOLINTNEXTLINE(cppcoreguidelines-owning-memory): Jolt Factory::sInstance is an owning raw singleton.
-        JPH::Factory::sInstance = new JPH::Factory();
-        JPH::RegisterTypes();
-        s_registry = std::make_unique<Registry>();
-        s_live.store(true, std::memory_order_release);
+        auto factory = std::make_unique<JPH::Factory>();
+        JPH::Factory::sInstance = factory.get();
+        try {
+            JPH::RegisterTypes();
+        } catch (...) {
+            JPH::UnregisterTypes();
+            JPH::Factory::sInstance = nullptr;
+            throw;
+        }
+        // NOLINTNEXTLINE(cppcoreguidelines-owning-memory): Jolt's singleton survives until the last owner shuts down.
+        (void)factory.release();
+        s_registry = std::move(registry);
+        s_physics_owners = 1;
     }
     ClothPhysics::~ClothPhysics() {
-        s_live.store(false, std::memory_order_release);
+        const std::scoped_lock LOCK(s_lifecycle_mutex);
+        if (--s_physics_owners != 0) {
+            return;
+        }
         s_registry.reset();
         s_pause.store(false, std::memory_order_release);
         JPH::UnregisterTypes();
@@ -1302,10 +1341,10 @@ namespace hyprimate {
     }
 
     void ClothFlutter::begin_movement(
-        const ClothMovementParams &params, std::uint64_t seed, const Box &capture) {
+        const ClothMovementParams &params, std::uint64_t seed, const Box &capture) noexcept try {
+        const std::scoped_lock LOCK(s_lifecycle_mutex);
         auto movement = params;
-        if (!valid_box(capture) || !s_live.load(std::memory_order_acquire) ||
-            !sanitize(movement) || movement.strength <= 0) {
+        if (!s_registry || !valid_box(capture) || !sanitize(movement) || movement.strength <= 0) {
             reset();
             return;
         }
@@ -1349,29 +1388,10 @@ namespace hyprimate {
         const double PHASE = 2 * std::numbers::pi *
                              ((unit_draw(fixed) * (1 - RUN->movement.variation)) +
                                  (unit_draw(random) * RUN->movement.variation));
-        try {
-            const auto LEASE = std::make_shared<Lease>();
-            LEASE->run = RUN;
-            s_registry->add(RUN);
-            try {
-                RUN->worker = std::thread([RUN, PHASE] {
-                    try {
-                        simulate_movement(*RUN, PHASE);
-                    } catch (...) {
-                        RUN->finished.store(true, std::memory_order_release);
-                        return;
-                    }
-                    RUN->finished.store(true, std::memory_order_release);
-                });
-            } catch (...) {
-                RUN->finished.store(true, std::memory_order_release);
-                throw;
-            }
-            m_run = std::shared_ptr<Run>(LEASE, RUN.get());
-        } catch (...) {
-            reset();
-            return;
-        }
+        const auto LEASE = std::make_shared<Lease>();
+        LEASE->run = RUN;
+        s_registry->launch(RUN, [PHASE](Run &run) { simulate_movement(run, PHASE); });
+        m_run = std::shared_ptr<Run>(LEASE, RUN.get());
         m_movement = std::move(playback);
         m_params = {
             .duration = 1,
@@ -1386,6 +1406,8 @@ namespace hyprimate {
         m_startup_wait = m_fallback_time = 0;
         m_fallback.reset();
         m_phase = Phase::Movement;
+    } catch (...) {
+        reset();
     }
 
     void ClothFlutter::set_movement_params(const ClothMovementParams &params) noexcept {
@@ -1431,11 +1453,11 @@ namespace hyprimate {
         std::uint64_t seed,
         const Box &window,
         std::span<const Box> obstacles,
-        std::optional<ClothCloseGeometry> geometry) {
+        std::optional<ClothCloseGeometry> geometry) noexcept try {
+        const std::scoped_lock LOCK(s_lifecycle_mutex);
         ClothParams cloth_params = params;
-        if ((kind != Transition::Open && kind != Transition::Close) || !sanitize(cloth_params) ||
-            !s_live.load(std::memory_order_acquire) || !valid_box(window) ||
-            !valid_close_geometry(geometry)) {
+        if (!s_registry || (kind != Transition::Open && kind != Transition::Close) ||
+            !sanitize(cloth_params) || !valid_box(window) || !valid_close_geometry(geometry)) {
             reset();
             return;
         }
@@ -1501,29 +1523,11 @@ namespace hyprimate {
         input.freq_a = 9 + (4 * DRAW());
         collect_obstacles(input.obstacles, obstacles, window, kind, RUN->edge);
         RUN->outside_frame.store(RUN->frames, std::memory_order_relaxed);
-        try {
-            const auto LEASE = std::make_shared<Lease>();
-            LEASE->run = RUN;
-            s_registry->add(RUN);
-            try {
-                RUN->worker = std::thread([RUN, input = std::move(input)] {
-                    try {
-                        simulate(*RUN, input);
-                    } catch (...) {
-                        RUN->finished.store(true, std::memory_order_release);
-                        return;
-                    }
-                    RUN->finished.store(true, std::memory_order_release);
-                });
-            } catch (...) {
-                RUN->finished.store(true, std::memory_order_release);
-                throw;
-            }
-            m_run = std::shared_ptr<Run>(LEASE, RUN.get());
-        } catch (...) {
-            reset();
-            return;
-        }
+        const auto LEASE = std::make_shared<Lease>();
+        LEASE->run = RUN;
+        s_registry->launch(
+            RUN, [input = std::move(input)](Run &run) { simulate(run, input); });
+        m_run = std::shared_ptr<Run>(LEASE, RUN.get());
         m_params = cloth_params;
         m_movement.reset();
         m_rate = RATE;
@@ -1535,6 +1539,8 @@ namespace hyprimate {
         m_fallback.reset();
         m_initial_opacity = kind == Transition::Close ? OLD_OPACITY : 1;
         m_phase = kind == Transition::Open ? Phase::Opening : Phase::Closing;
+    } catch (...) {
+        reset();
     }
 
     void ClothFlutter::start_fallback() noexcept {

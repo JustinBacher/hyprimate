@@ -1,4 +1,6 @@
 #include <array>
+#include <bit>
+#include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -6,6 +8,9 @@
 #include <ctime>
 #include <new>
 
+#include <dlfcn.h>
+#include <memory>
+#include <system_error>
 #include <pthread.h>
 #include <stdlib.h>
 #include <time.h>
@@ -14,6 +19,44 @@
 #include "animations/shared/Core.hpp"
 
 namespace {
+    struct SpawnGate {
+        pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+        pthread_cond_t changed = PTHREAD_COND_INITIALIZER;
+        bool fail = false, entered = false, release = false, timed_out = false,
+             contended = false;
+    };
+
+    // Only the launching thread is intercepted, never unrelated reaper/helper threads.
+    thread_local SpawnGate *s_spawn_gate = nullptr;
+    thread_local SpawnGate *s_shutdown_gate = nullptr;
+
+    timespec deadline() {
+        timespec value{};
+        clock_gettime(CLOCK_REALTIME, &value);
+        value.tv_sec += 10;
+        return value;
+    }
+
+    bool wait_for_flag(SpawnGate &gate, const bool &flag) {
+        const auto LIMIT = deadline();
+        pthread_mutex_lock(&gate.mutex);
+        while (!flag) {
+            if (pthread_cond_timedwait(&gate.changed, &gate.mutex, &LIMIT) != 0) {
+                pthread_mutex_unlock(&gate.mutex);
+                return false;
+            }
+        }
+        pthread_mutex_unlock(&gate.mutex);
+        return true;
+    }
+
+    void release_gate(SpawnGate &gate) {
+        pthread_mutex_lock(&gate.mutex);
+        gate.release = true;
+        pthread_cond_broadcast(&gate.changed);
+        pthread_mutex_unlock(&gate.mutex);
+    }
+
     struct Attempt {
         unsigned allocations = 0;
         unsigned fail_at = 0;
@@ -148,6 +191,56 @@ namespace {
     }
 }  // namespace
 
+// Interpose rather than --wrap: std::thread calls pthread_create from libstdc++.so.
+extern "C" int pthread_create(pthread_t *thread, const pthread_attr_t *attributes,
+    void *(*entry)(void *), void *argument) noexcept {
+    using Create = int (*)(pthread_t *, const pthread_attr_t *, void *(*)(void *), void *);
+    static const auto CREATE = std::bit_cast<Create>(dlsym(RTLD_NEXT, "pthread_create"));
+    if (CREATE == nullptr) {
+        return EAGAIN;
+    }
+    auto *gate = s_spawn_gate;
+    if (gate != nullptr && gate->fail) {
+        gate->entered = true;
+        return EAGAIN;
+    }
+    const int RESULT = CREATE(thread, attributes, entry, argument);
+    if (gate != nullptr && RESULT == 0) {
+        const auto LIMIT = deadline();
+        pthread_mutex_lock(&gate->mutex);
+        gate->entered = true;
+        pthread_cond_broadcast(&gate->changed);
+        while (!gate->release) {
+            if (pthread_cond_timedwait(&gate->changed, &gate->mutex, &LIMIT) != 0) {
+                gate->timed_out = true;
+                break;
+            }
+        }
+        pthread_mutex_unlock(&gate->mutex);
+    }
+    return RESULT;
+}
+
+extern "C" int __real_pthread_mutex_lock(pthread_mutex_t *mutex) noexcept;
+extern "C" int __wrap_pthread_mutex_lock(pthread_mutex_t *mutex) noexcept {
+    auto *gate = s_shutdown_gate;
+    if (gate != nullptr) {
+        s_shutdown_gate = nullptr;
+        // The destructor's first lock is the lifecycle mutex. A failed trylock proves
+        // shutdown actually contends with the paused launch, rather than merely being queued.
+        const int RESULT = pthread_mutex_trylock(mutex);
+        if (RESULT == 0) {
+            pthread_mutex_unlock(mutex);
+        }
+        __real_pthread_mutex_lock(&gate->mutex);
+        gate->contended = RESULT == EBUSY;
+        gate->entered = true;
+        pthread_cond_broadcast(&gate->changed);
+        pthread_mutex_unlock(&gate->mutex);
+    }
+    return __real_pthread_mutex_lock(mutex);
+}
+
 void *operator new(std::size_t size) {
     return allocate(size);
 }
@@ -241,7 +334,9 @@ namespace {
         if (startup == Startup::Movement) {
             cloth.begin_movement((ClothMovementParams{}), 123, WINDOW);
         } else {
-            cloth.begin(Transition::Open, (ClothParams{}), 123, WINDOW, {});
+            constexpr std::array OBSTACLES{Box{.x = 700, .y = 0, .w = 80, .h = 200},
+                Box{.x = -100, .y = 0, .w = 80, .h = 200}};
+            cloth.begin(Transition::Open, (ClothParams{}), 123, WINDOW, OBSTACLES);
         }
     }
 
@@ -249,6 +344,7 @@ namespace {
         bool active;
         bool real_simulation;
         bool threw;
+        bool retried;
         unsigned remaining;
         unsigned allocations;
     };
@@ -276,13 +372,141 @@ namespace {
             active = cloth.active();
             cloth.reset();
         }
+        const unsigned REMAINING = wait_for_reclamation(attempt);
+        ClothFlutter retry;
+        start(retry, startup);
+        const bool RETRIED = startup == Startup::Movement ? retry.wait_for_snapshots(2)
+                                                        : retry.wait_for_recording();
         return {
             .active = active,
             .real_simulation = real_simulation,
             .threw = threw,
-            .remaining = wait_for_reclamation(attempt),
+            .retried = RETRIED,
+            .remaining = REMAINING,
             .allocations = allocations,
         };
+    }
+
+    bool restart_allocation_failure() {
+        ClothFlutter cloth;
+        cloth.begin_movement({}, 1, WINDOW);
+        bool ready = cloth.wait_for_snapshots(2);
+        for (int step = 1; step <= 64 && ready; ++step) {
+            // At step 64 the sheet has reached the settling fallback, before it expires.
+            cloth.advance(1.0 / 120);
+            if (step < 60) {
+                ready = cloth.wait_for_snapshots(step + 2);
+            }
+        }
+        Attempt attempt;
+        attempt.fail_at = 1;
+        current_attempt() = &attempt;
+        cloth.update_movement(Box{.x = 10, .y = 0, .w = 640, .h = 480}, 1.0 / 120);
+        current_attempt() = nullptr;
+        const bool FAILED_SAFELY = ready && attempt.injected && !cloth.active() &&
+                                   wait_for_reclamation(attempt) == 0;
+        cloth.begin_movement({}, 2, WINDOW);
+        return FAILED_SAFELY && cloth.wait_for_snapshots(2);
+    }
+
+    struct Launch {
+        ClothFlutter cloth;
+        Startup startup = Startup::Movement;
+        SpawnGate gate;
+    };
+
+    void *launch_thread(void *argument) {
+        auto &launch = *static_cast<Launch *>(argument);
+        s_spawn_gate = &launch.gate;
+        start(launch.cloth, launch.startup);
+        s_spawn_gate = nullptr;
+        return nullptr;
+    }
+
+    struct Shutdown {
+        std::unique_ptr<ClothPhysics> physics;
+        SpawnGate gate;
+    };
+
+    void *shutdown_thread(void *argument) {
+        auto &shutdown = *static_cast<Shutdown *>(argument);
+        s_shutdown_gate = &shutdown.gate;
+        shutdown.physics.reset();
+        s_shutdown_gate = nullptr;
+        release_gate(shutdown.gate);  // completed
+        return nullptr;
+    }
+
+    bool shutdown_during_launch(Startup startup) {
+        Shutdown shutdown{.physics = std::make_unique<ClothPhysics>(), .gate = {}};
+        Launch launch;
+        launch.startup = startup;
+        pthread_t launcher{};
+        if (pthread_create(&launcher, nullptr, launch_thread, &launch) != 0) {
+            return false;
+        }
+        const bool LAUNCH_ENTERED = wait_for_flag(launch.gate, launch.gate.entered);
+        pthread_t closer{};
+        const bool CLOSER_STARTED =
+            pthread_create(&closer, nullptr, shutdown_thread, &shutdown) == 0;
+        const bool SHUTDOWN_ENTERED =
+            CLOSER_STARTED && wait_for_flag(shutdown.gate, shutdown.gate.entered);
+        pthread_mutex_lock(&shutdown.gate.mutex);
+        const bool SHUTDOWN_BLOCKED = shutdown.gate.contended && !shutdown.gate.release;
+        pthread_mutex_unlock(&shutdown.gate.mutex);
+        release_gate(launch.gate);
+        pthread_join(launcher, nullptr);
+        if (CLOSER_STARTED) {
+            pthread_join(closer, nullptr);
+        }
+        launch.cloth.reset();
+        start(launch.cloth, startup);
+        const bool NO_RUNTIME_IDLE = !launch.cloth.active();
+        const ClothPhysics RETRY;
+        start(launch.cloth, startup);
+        const bool READY = startup == Startup::Movement ? launch.cloth.wait_for_snapshots(2)
+                                                       : launch.cloth.wait_for_recording();
+        return LAUNCH_ENTERED && SHUTDOWN_ENTERED && SHUTDOWN_BLOCKED &&
+               !launch.gate.timed_out && NO_RUNTIME_IDLE && READY;
+    }
+
+    // First-owner allocation failures must also leave the runtime retryable.
+    bool owner_lifetimes() {
+        for (unsigned fail_at = 1; fail_at <= 2; ++fail_at) {
+            Attempt attempt;
+            attempt.fail_at = fail_at;
+            bool allocation_failed = false;
+            current_attempt() = &attempt;
+            try {
+                const ClothPhysics FAIL;
+            } catch (const std::bad_alloc &) {
+                allocation_failed = true;
+            }
+            current_attempt() = nullptr;
+            if (!allocation_failed || !attempt.injected || wait_for_reclamation(attempt) != 0) {
+                return false;
+            }
+        }
+        // Reaper construction failure must not poison the next first owner.
+        SpawnGate failure;
+        failure.fail = true;
+        bool threw = false;
+        s_spawn_gate = &failure;
+        try {
+            const ClothPhysics FAIL;
+        } catch (const std::system_error &) {
+            threw = true;
+        }
+        s_spawn_gate = nullptr;
+        if (!threw || !failure.entered) {
+            return false;
+        }
+        auto first = std::make_unique<ClothPhysics>();
+        const ClothPhysics SECOND;
+        ClothFlutter cloth;
+        start(cloth, Startup::Movement);
+        first.reset();
+        return cloth.wait_for_snapshots(2);
     }
 }  // namespace
 
@@ -290,6 +514,9 @@ int main() {
     // Attempts outlive physics shutdown, including any timed-out worker cleanup.
     std::array<std::array<Attempt, MAX_ALLOCATIONS + 1>, 2> attempts{};
     Attempt warm_attempt;
+    bool passed = owner_lifetimes();
+    passed = shutdown_during_launch(Startup::Transition) && passed;
+    passed = shutdown_during_launch(Startup::Movement) && passed;
     const ClothPhysics PHYSICS;
     // Filling 16 slots establishes capacity; reaping the first run leaves one free slot.
     // The warm attempt can own retained registry storage and must outlive physics.
@@ -319,7 +546,7 @@ int main() {
         }
     }
 
-    bool passed = true;
+    passed = restart_allocation_failure() && passed;
     {
         ClothFlutter cloth;
         cloth.begin_movement({}, 123, WINDOW);
@@ -333,6 +560,22 @@ int main() {
         if (!READY || !cloth.moving() || retune_attempt.allocations != 0 ||
             retune_attempt.injected) {
             (void)std::fprintf(stderr, "movement retune allocated or lost its lease\n");
+            passed = false;
+        }
+    }
+    for (const auto STARTUP : {Startup::Transition, Startup::Movement}) {
+        SpawnGate failure;
+        failure.fail = true;
+        ClothFlutter cloth;
+        s_spawn_gate = &failure;
+        start(cloth, STARTUP);
+        s_spawn_gate = nullptr;
+        const bool FAILED_SAFELY = failure.entered && !cloth.active();
+        start(cloth, STARTUP);
+        const bool RETRIED = STARTUP == Startup::Movement ? cloth.wait_for_snapshots(2)
+                                                        : cloth.wait_for_recording();
+        if (!FAILED_SAFELY || !RETRIED) {
+            (void)std::fprintf(stderr, "thread spawn failure/retry failed\n");
             passed = false;
         }
     }
@@ -362,7 +605,8 @@ int main() {
         for (unsigned index = 1; index <= LIMIT; ++index) {
             Attempt &attempt = cases.at(index);
             const Result RESULT = run_attempt(attempt, STARTUP, index);
-            if (!attempt.injected || attempt.tracker_exhausted || RESULT.remaining != 0) {
+            if (!attempt.injected || attempt.tracker_exhausted || RESULT.remaining != 0 ||
+                RESULT.threw || !RESULT.retried) {
                 (void)std::fprintf(stderr,
                     "%s allocation %u failed: injected=%d remaining=%u tracker_exhausted=%d\n",
                     NAME,
@@ -373,6 +617,9 @@ int main() {
                 passed = false;
             }
         }
+    }
+    if (!passed) {
+        (void)std::fprintf(stderr, "cloth runtime lifetime/failure regression failed\n");
     }
     return passed ? 0 : 1;
 }

@@ -8,13 +8,16 @@ target_sources(hyprimate PRIVATE
 
 set_source_files_properties(src/animations/cloth/ClothFlutter.cpp PROPERTIES COMPILE_OPTIONS "-fvisibility=hidden;-fvisibility-inlines-hidden")
 
+find_package(Threads REQUIRED)
+target_link_libraries(hyprimate-core PRIVATE Threads::Threads)
 if(BUILD_TESTING)
     add_executable(cloth-flutter-tests src/animations/cloth/tests/ClothFlutterTests.cpp)
-    target_link_libraries(cloth-flutter-tests PRIVATE hyprimate-core Jolt)
+    target_link_libraries(cloth-flutter-tests PRIVATE hyprimate-core Jolt Threads::Threads)
     target_include_directories(cloth-flutter-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME cloth-flutter-tests COMMAND cloth-flutter-tests)
 
     add_executable(cloth-lease-failure-tests src/animations/cloth/tests/ClothLeaseFailureTests.cpp)
-    target_link_libraries(cloth-lease-failure-tests PRIVATE hyprimate-core Jolt)
+    target_link_libraries(cloth-lease-failure-tests PRIVATE hyprimate-core Jolt Threads::Threads ${CMAKE_DL_LIBS})
+    target_link_options(cloth-lease-failure-tests PRIVATE "-Wl,--wrap=pthread_mutex_lock")
     add_test(NAME cloth-lease-failure-tests COMMAND cloth-lease-failure-tests)
 endif()

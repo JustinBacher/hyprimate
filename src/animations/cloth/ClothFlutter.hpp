@@ -26,9 +26,9 @@ namespace hyprimate {
         Box screen;  // physical monitor boundary, including reserved areas, in logical pixels
     };
 
-    // Owns Jolt's process-wide state and a worker reaper. Shutdown stops and joins every simulation
-    // before destroying Jolt. Releasing/cancelling a cloth only requests stop; joining and
-    // recording destruction happen on the reaper.
+    // Shared owners of Jolt's process-wide state and worker reaper. The last owner's shutdown
+    // stops and joins every admitted simulation before destroying Jolt. Releasing/cancelling a
+    // cloth only requests stop; joining and recording destruction happen on the reaper.
     class ClothPhysics {
       public:
         ClothPhysics();
@@ -58,17 +58,17 @@ namespace hyprimate {
         // Coordinates are logical pixels. Overlapping obstacles are ignored. Close inherits an
         // active opening's displayed shape, opacity and real-time velocity. Missing close geometry
         // defaults to a downward exit just below the window; provided invalid geometry, invalid
-        // params or no live ClothPhysics leave the model idle.
+        // params, startup allocation/launch failure or no live ClothPhysics leave the model idle.
         void begin(Transition kind,
             const ClothParams &params,
             std::uint64_t seed,
             const Box &window,
             std::span<const Box> obstacles,
-            std::optional<ClothCloseGeometry> geometry = std::nullopt);
+            std::optional<ClothCloseGeometry> geometry = std::nullopt) noexcept;
         // Geometry updates only set a target; advance() sends one timestamped target per rendered
         // frame, including stationary frames while the sheet settles.
         void begin_movement(
-            const ClothMovementParams &params, std::uint64_t seed, const Box &capture);
+            const ClothMovementParams &params, std::uint64_t seed, const Box &capture) noexcept;
         // Applied to the next published Movement target without restarting the worker.
         void set_movement_params(const ClothMovementParams &params) noexcept;
         void update_movement(const Box &capture, double elapsed_seconds) noexcept;
