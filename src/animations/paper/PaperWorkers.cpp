@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <new>
 #include <optional>
 #include <stop_token>
 #include <system_error>
@@ -80,23 +81,28 @@ namespace hyprimate {
         const auto LOAD_COUNT = m_runs.size() + (run ? 0U : 1U);
         const auto WANTED = std::min<std::size_t>(LOAD_COUNT, LIMIT);
         if (m_threads.size() < WANTED) {
-            m_threads.reserve(LIMIT);
             try {
+                m_threads.reserve(LIMIT);
                 while (m_threads.size() < WANTED) {
                     m_threads.emplace_back([this](const std::stop_token &stop) { work(stop); });
                 }
+            } catch (const std::bad_alloc &) {
+                // Existing workers remain available even if the pool cannot grow.
+                if (m_threads.empty()) return false;
             } catch (const std::system_error &) {
                 // A process/thread limit must not escape through Hyprland's map callback.
-                // Use any threads already started, otherwise retain the native animation.
-                if (m_threads.empty()) {
-                    return false;
-                }
+                if (m_threads.empty()) return false;
             }
         }
         const std::scoped_lock LOCK(m_mutex);
         if (!run) {
-            run = std::make_shared<PaperRun>();
-            m_runs.push_back(run);
+            try {
+                auto next = std::make_shared<PaperRun>();
+                m_runs.push_back(next);
+                run = std::move(next);
+            } catch (const std::bad_alloc &) {
+                return false;
+            }
         }
         if (params.simulation_quality == PaperQuality::Adaptive &&
             (size.x * size.y < 160000.0 ||

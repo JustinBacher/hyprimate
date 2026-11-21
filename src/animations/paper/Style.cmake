@@ -19,6 +19,12 @@ if(BUILD_TESTING)
     target_include_directories(paper-crumple-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME paper-crumple-tests COMMAND paper-crumple-tests)
 
+    add_executable(paper-workers-tests src/animations/paper/tests/PaperWorkersTests.cpp)
+    target_link_libraries(paper-workers-tests PRIVATE hyprimate-core ${CMAKE_DL_LIBS})
+    target_include_directories(paper-workers-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    add_test(NAME paper-workers-tests COMMAND paper-workers-tests)
+    set_tests_properties(paper-workers-tests PROPERTIES TIMEOUT 45)
+
     foreach(kind IN ITEMS Topology Contact Interaction)
         string(TOLOWER "${kind}" target)
         add_executable(paper-${target}-tests src/animations/paper/tests/Paper${kind}Tests.cpp)
