@@ -837,6 +837,11 @@ namespace {
         CHECK(walk_frame((80.0 * 12) + 15.0, 80.0, 8) == 1);
         CHECK(walk_frame(100.0, 0.0, 8) == 0);
         CHECK(walk_frame(100.0, 80.0, 1) == 0);
+        // 2^60 leaves one pixel after complete three-pixel strides.
+        CHECK(walk_frame(0x1p60, 3.0, 8) == 2);
+        CHECK(walk_frame(-0x1p60, 3.0, 8) == 5);
+        // Same remainder, but this quotient cannot even fit in a double.
+        CHECK(walk_frame(1.0, 3.0 * std::numeric_limits<double>::denorm_min(), 8) == 2);
         // Facing up in the sheet and heading right is a quarter turn clockwise; half-turned is half
         // of it; the long way round is never taken.
         const double UP_ANGLE = -std::numbers::pi / 2;

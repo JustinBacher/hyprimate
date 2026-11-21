@@ -175,8 +175,13 @@ namespace hyprimate {
         if (frames <= 1 || !(stride > 0.0) || !std::isfinite(travel)) {
             return 0;
         }
-        const double CYCLES = travel / stride;
-        return std::clamp(static_cast<int>((CYCLES - std::floor(CYCLES)) * frames), 0, frames - 1);
+        double cycles = travel / stride;
+        // Beyond 2^52 a double cannot retain a fractional cycle. Reduce the distance
+        // before division in this rare case, including when the quotient overflowed.
+        if (std::abs(cycles) >= 0x1p52) {
+            cycles = std::fmod(travel, stride) / stride;
+        }
+        return std::clamp(static_cast<int>((cycles - std::floor(cycles)) * frames), 0, frames - 1);
     }
 
     double sprite_rotation(double heading, double from, double turn) noexcept {
