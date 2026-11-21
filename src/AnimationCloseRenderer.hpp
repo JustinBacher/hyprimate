@@ -77,6 +77,8 @@ class CAnimationCloseRenderer {
         Desktop::eFadeoutPlane plane = Desktop::FADEOUT_PLANE_WINDOW_TILED;
         int z_index = 0;
         bool no_screen_share = false;
+        // Keep a prepublished association through reentrant pruning, but not past either owner.
+        hyprimate::animation::CallbackLifetime::Ticket binding_renderer, binding_model;
     };
     struct BatchItem {
         SP<Desktop::IFadeout> fadeout;

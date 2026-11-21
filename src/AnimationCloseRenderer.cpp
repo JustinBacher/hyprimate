@@ -252,6 +252,7 @@ void CAnimationCloseRenderer::prune_records() {
         const auto RECORD = *selected;
         before = RECORD.fadeout; // Port IDs are monotonic; growth cannot enter this prune.
         const auto NATIVE = RECORD.native.lock();
+        if (RECORD.binding_renderer.valid() && RECORD.binding_model.valid()) { continue; }
         if (!NATIVE || NATIVE->done()) {
             m_animations.native_finished(RECORD.fadeout);
             if (!CALLBACK.valid() || !MODEL.valid()) { return; }
@@ -276,40 +277,70 @@ void CAnimationCloseRenderer::on_fadeout_created(
     const auto CALLBACK = callback_ticket();
     const auto MODEL = m_animations.callback_ticket();
     const auto WINDOW_ID = m_port.identity(PHLWINDOWREF{window});
-    m_records.reserve(m_records.size() + 1);
     prune_records();
     if (!CALLBACK.valid() || !MODEL.valid() || pending_for(window) != pending) { return; }
     const auto FADEOUT = created ? m_port.register_fadeout(created) : 0;
     auto facts = FADEOUT != 0 ? m_port.fadeout_facts(FADEOUT).value_or(FadeoutFacts{}) : FadeoutFacts{};
     facts.now = Clock::now();
     const auto IMAGE = created ? created->framebuffer(Render::eSceneMode::MONITOR) : nullptr;
-    m_animations.bind_fadeout(WINDOW_ID, facts, IMAGE);
-    if (!CALLBACK.valid() || !MODEL.valid()) { return; }
-    const auto VIEW = m_animations.dying_view_for(FADEOUT);
-    if (!VIEW || VIEW->handle != pending || !created) {
-        return;
+    // Publish before binding can suppress native drawing or call back into this renderer.
+    // No vector reference or iterator survives bind_fadeout; nested creation may grow it.
+    const bool INSERTED = created && FADEOUT != 0 &&
+        std::ranges::none_of(m_records, [&](const Record &record) { return record.fadeout == FADEOUT; });
+    if (INSERTED) {
+        const SP<Desktop::IFadeout> BASE = created;
+        const auto WORKSPACE = created->workspace();
+        m_records.push_back(Record{.fadeout = FADEOUT,
+            .monitor = created->monitor(),
+            .native = WP<Desktop::IFadeout>{BASE},
+            .workspace = WORKSPACE,
+            .workspace_bound = static_cast<bool>(WORKSPACE.lock()),
+            .plane = Render::sceneFadeoutPlane(
+                Render::eSceneMode::MONITOR, created->plane(), created->source().pinned),
+            .z_index = created->zIndex(),
+            .no_screen_share = created->source().noScreenShare,
+            .binding_renderer = CALLBACK, .binding_model = MODEL});
     }
-    const SP<Desktop::IFadeout> BASE = created;
-    const auto WORKSPACE = created->workspace();
-    m_records.push_back(Record{.fadeout = FADEOUT,
-        .monitor = created->monitor(),
-        .native = WP<Desktop::IFadeout>{BASE},
-        .workspace = WORKSPACE,
-        .workspace_bound = static_cast<bool>(WORKSPACE.lock()),
-        .plane = Render::sceneFadeoutPlane(
-            Render::eSceneMode::MONITOR, created->plane(), created->source().pinned),
-        .z_index = created->zIndex(),
-        .no_screen_share = created->source().noScreenShare});
+    const auto FINISH_BINDING = [&] {
+        if (!INSERTED || !CALLBACK.valid() || !MODEL.valid()) { return; }
+        const auto FOUND = std::ranges::find(m_records, FADEOUT, &Record::fadeout);
+        if (FOUND == m_records.end()) { return; }
+        FOUND->binding_renderer = {};
+        FOUND->binding_model = {};
+        // A failed association must not make this plane eligible or leak its provisional record.
+        if (!m_animations.dying_view_for(FADEOUT) && !m_animations.suppresses(FADEOUT)) {
+            m_records.erase(FOUND);
+        }
+    };
+    try {
+        m_animations.bind_fadeout(WINDOW_ID, facts, IMAGE);
+    } catch (...) {
+        FINISH_BINDING();
+        throw;
+    }
+    FINISH_BINDING();
 }
 
 bool CAnimationCloseRenderer::has_record_for(
     const PHLMONITOR &monitor, Desktop::eFadeoutPlane plane, const PHLWORKSPACE &workspace) const {
     // Lookup returns a value without touching shared view scratch or allocating.
     return std::ranges::any_of(m_records, [&](const Record &record) {
-        return record.monitor.lock() == monitor && record.plane == plane &&
-            (!record.workspace_bound || (record.workspace.lock() && record.workspace.lock() == workspace)) &&
-            (m_animations.dying_view_for(record.fadeout).has_value() ||
-                m_animations.suppresses(record.fadeout));
+        const auto VIEW = m_animations.dying_view_for(record.fadeout);
+        if (!VIEW && !m_animations.suppresses(record.fadeout)) { return false; }
+        // Native weak workspaces that expire are global in the host's current scene scope.
+        const auto NATIVE = record.native.lock();
+        if (NATIVE && !NATIVE->done()) {
+            const auto WORKSPACE = NATIVE->workspace().lock();
+            return NATIVE->monitor().lock() == monitor &&
+                Render::sceneFadeoutPlane(
+                    Render::eSceneMode::MONITOR, NATIVE->plane(), NATIVE->source().pinned) == plane &&
+                (!WORKSPACE || WORKSPACE == workspace);
+        }
+        // Retained pixels keep their original workspace authorization; expiration is not global.
+        const auto WORKSPACE = record.workspace.lock();
+        return VIEW && VIEW->ownership == hyprimate::animation::CloseStart::Owned &&
+            record.monitor.lock() == monitor && record.plane == plane &&
+            (!record.workspace_bound || (WORKSPACE && WORKSPACE == workspace));
     });
 }
 
