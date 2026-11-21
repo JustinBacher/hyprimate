@@ -153,6 +153,57 @@ namespace {
         }
     }
 
+    void foam_rejects_invalid_slots() {
+        BubbleFoam foam;
+        foam.reset(3, {}, 2);
+        const int MISSING = foam.nearest({}, 1);
+        CHECK(MISSING == -1);
+        const int FIRST = foam.spawn({}, {}, .05, 600, 1, 10);
+        CHECK(FIRST == 0);
+        const int SECOND = foam.spawn({.x = 1, .y = 0}, {}, .03, 600, 1, 10);
+        CHECK(SECOND == 1);
+        const int FULL = foam.spawn({}, {}, .05, 600, 1, 10);
+        CHECK(FULL == -1);
+
+        const BubbleFoam &view = foam;
+        for (const int slot : {MISSING, FULL, -3, 2, static_cast<int>(BUBBLE_FOAM_CAPACITY)}) {
+            bool mutable_threw = false;
+            bool const_threw = false;
+            try {
+                (void)foam.film(slot);
+            } catch (const std::out_of_range &) {
+                mutable_threw = true;
+            }
+            try {
+                (void)view.film(slot);
+            } catch (const std::out_of_range &) {
+                const_threw = true;
+            }
+            CHECK(mutable_threw && const_threw);
+        }
+        foam.film(FIRST).fed = true;
+        CHECK(view.film(FIRST).live && view.film(FIRST).fed);
+        CHECK(view.film(SECOND).live);
+
+        // The mutable film API also permits an invalid recipient; it must not index outside the budget.
+        for (const int recipient : {-3, 2, static_cast<int>(BUBBLE_FOAM_CAPACITY)}) {
+            foam.film(FIRST).into = recipient;
+            foam.step(.001, {}, nullptr);
+            CHECK(view.film(FIRST).live && view.film(FIRST).into == -1);
+            CHECK(view.film(SECOND).live);
+        }
+        foam.take(SECOND);
+        CHECK(!view.film(SECOND).live);
+        foam.reset(4, {}, 1);
+        bool stale_threw = false;
+        try {
+            (void)view.film(SECOND);
+        } catch (const std::out_of_range &) {
+            stale_threw = true;
+        }
+        CHECK(stale_threw);
+    }
+
     // Two pressed films coalesce through a neck: the smaller empties into the larger and their
     // air, a volume, is conserved; nothing is merged that never touched.
     void foam_coalescence_conserves_volume() {
@@ -1021,6 +1072,7 @@ int main() {
     formation_during_opening();
     formation_movement_depends_on_seed();
     foam_coalescence_conserves_volume();
+    foam_rejects_invalid_slots();
     foam_films_rupture_independently();
     pressure_changes_inflation_and_settles();
     formation_controls_keep_the_endpoint();

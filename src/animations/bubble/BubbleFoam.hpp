@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <stdexcept>
 
 #include "animations/shared/Core.hpp"
 
@@ -114,8 +115,9 @@ namespace hyprimate {
         // The intact, unfed film whose outline is nearest the point, or -1.
         [[nodiscard]] int nearest(Vec2 point, double reach) const;
         [[nodiscard]] int largest() const;
-        [[nodiscard]] const Film &film(int slot) const { return films[static_cast<std::size_t>(slot)]; }
-        Film &film(int slot) { return films[static_cast<std::size_t>(slot)]; }
+        // A missing (-1) or out-of-budget slot throws; an in-budget slot may be dead.
+        [[nodiscard]] const Film &film(int slot) const { return films[checked_slot(slot)]; }
+        Film &film(int slot) { return films[checked_slot(slot)]; }
         [[nodiscard]] std::size_t live_count() const;
         [[nodiscard]] std::size_t capacity() const { return budget; }
 
@@ -124,6 +126,13 @@ namespace hyprimate {
         [[nodiscard]] std::size_t write(std::span<BubbleMicro> out, double unit, Vec2 axis, double flow_phase) const;
 
       private:
+        [[nodiscard]] std::size_t checked_slot(int slot) const {
+            const auto index = static_cast<std::size_t>(slot);
+            if (index >= budget) {
+                throw std::out_of_range("BubbleFoam::film slot");
+            }
+            return index;
+        }
         void interact(double elapsed);
         void meet(double elapsed, BubbleFoamBody &body);
         void coalesce(double elapsed, BubbleFoamBody *body);

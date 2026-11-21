@@ -345,6 +345,10 @@ namespace hyprimate {
                 const Vec2 PULL = sub(body->centre, film.position);
                 film.velocity = add(film.velocity, mul(PULL, 14 * elapsed));
             } else {
+                if (film.into < 0 || static_cast<std::size_t>(film.into) >= budget) {
+                    film.into = -1;
+                    continue;
+                }
                 auto &recipient = films[static_cast<std::size_t>(film.into)];
                 if (!recipient.live || recipient.burst > 0) {
                     film.into = -1;
