@@ -109,23 +109,54 @@ namespace hyprimate::workspace {
             Image wallpaper;
             double started = 0.0;
         };
+        struct Ownership {
+            Workspace workspace;
+            std::uint64_t owner = 0;
+        };
 
       public:
         template <class Port>
         void prepare(
             Port &port, const JourneyEndpoint &source, const JourneyEndpoint &destination) {
+            const auto ALLOWED = [&]() {
+                const bool OWNERS_MATCH = owners_current(
+                    [&](const auto &workspace, auto owner) { return port.owns(workspace, owner); });
+                if (port.allowed() && OWNERS_MATCH) {
+                    return true;
+                }
+                // Published vectors may still be retained by a style. Revoke every
+                // image, including wallpaper fallbacks and crossfade predecessors.
+                if (m_previews) {
+                    m_previews->clear();
+                }
+                m_previews.reset();
+                m_jobs.clear();
+                m_owners.clear();
+                m_next = m_blending = 0;
+                return false;
+            };
+            if (!ALLOWED()) {
+                return;
+            }
             const auto REVISION = port.revision();
             if (!m_previews || m_source != source.identity ||
                 m_destination != destination.identity || m_revision != REVISION) {
                 index(port, source, destination);
+                if (!ALLOWED()) {
+                    return;
+                }
                 m_source = source.identity;
                 m_destination = destination.identity;
                 m_revision = REVISION;
             }
             const double NOW = port.now();
             if (m_next < m_jobs.size()) {
-                auto &job = m_jobs[m_next++];
+                const auto SELECTED = m_next++;
+                const auto &job = m_jobs[SELECTED];
                 const auto FACTS = port.capture_facts(job.workspace);
+                if (!ALLOWED()) {
+                    return;
+                }
                 // Remote full-size scratch allocations have the same hard ceiling as before.
                 if (FACTS.ready && (FACTS.local || FACTS.pixels <= 16'777'216.0)) {
                     const auto IMAGE = port.capture(job.workspace,
@@ -133,23 +164,36 @@ namespace hyprimate::workspace {
                         PreviewCapturePlan{.side = m_side,
                             .remote = !FACTS.local,
                             .native_background = !job.wallpaper});
+                    if (!ALLOWED()) {
+                        return;
+                    }
                     if (IMAGE) {
                         auto &preview = (*m_previews)[job.index];
                         preview.previous_image = std::move(preview.image);
                         preview.image = IMAGE;
                         preview.live_mix = 0.F;
-                        job.started = NOW;
+                        m_jobs[SELECTED].started = NOW;
                     }
                 }
             }
             blend(NOW);
             port.publish(m_previews);
         }
+        template<class Owns>
+        [[nodiscard]] bool current(std::uint64_t revision, const Owns &owns) const {
+            return m_previews && m_revision == revision && owners_current(owns);
+        }
         [[nodiscard]] int thumbnail_side() const {
             return m_side;
         }
 
       private:
+        template<class Owns>
+        [[nodiscard]] bool owners_current(const Owns &owns) const {
+            return std::ranges::all_of(m_owners, [&](const auto &value) {
+                return owns(value.workspace, value.owner);
+            });
+        }
         static double priority(const JourneyEndpoint &candidate,
             const JourneyEndpoint &source,
             const JourneyEndpoint &destination) {
@@ -166,10 +210,16 @@ namespace hyprimate::workspace {
         }
         template <class Port>
         void index(Port &port, const JourneyEndpoint &source, const JourneyEndpoint &destination) {
+            // Retire the published images before any callback can interrupt their replacement.
+            if (m_previews) {
+                m_previews->clear();
+            }
             const auto &facts = port.workspaces();
             m_previews = std::make_shared<std::vector<Preview>>();
             m_previews->reserve(facts.size());
             m_jobs.clear();
+            m_owners.clear();
+            m_owners.reserve(facts.size());
             m_jobs.reserve(facts.size());
             m_next = 0;
             m_blending = 0;
@@ -204,9 +254,13 @@ namespace hyprimate::workspace {
                 if (!fact.owner_ready) {
                     continue;
                 }
+                m_owners.push_back({.workspace = fact.workspace, .owner = endpoint.owner});
                 if (!fact.wallpaper && fact.local && !sampled_local) {
                     sampled_local = true;
                     shared_wallpaper = port.local_wallpaper(256);
+                    if (!port.allowed()) {
+                        return;
+                    }
                 }
                 preview.image = fact.wallpaper;
                 if (!preview.image && fact.local) {
@@ -243,6 +297,7 @@ namespace hyprimate::workspace {
         }
         std::shared_ptr<std::vector<Preview>> m_previews;
         std::vector<Job> m_jobs;
+        std::vector<Ownership> m_owners;
         std::size_t m_next = 0;
         std::size_t m_blending = 0;
         int m_side = 0;

@@ -4,6 +4,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -113,7 +114,7 @@ template<class Port> class WorkspaceTurn {
     }
 
     bool stage(const Composition &current) {
-        m_queued = 0;
+        invalidate_frame();
         if (!m_port->buffers(m_active)) {
             cancel("stage-buffers");
             return false;
@@ -152,7 +153,7 @@ template<class Port> class WorkspaceTurn {
 
     void begin(
         Composition before, Composition after, double base_duration, Transition::Curve curve) {
-        m_queued = 0;
+        invalidate_frame();
         preserve_logical_hop(before, after);
         if (before.identity == after.identity) {
             if (!m_active) {
@@ -214,7 +215,7 @@ template<class Port> class WorkspaceTurn {
     }
 
     void frame(const Composition &current, double elapsed) {
-        m_queued = 0;
+        invalidate_frame();
         if (!m_active) {
             return;
         }
@@ -345,7 +346,7 @@ template<class Port> class WorkspaceTurn {
         m_port->damage();
     }
     void cancel(std::string_view reason = {}) {
-        m_queued = 0;
+        invalidate_frame();
         if (!reason.empty()) {
             m_port->diagnostic(reason);
         }
@@ -459,7 +460,12 @@ template<class Port> class WorkspaceTurn {
         return true;
     }
     [[nodiscard]] bool active() const { return m_active; }
+    [[nodiscard]] std::uint64_t revision() const { return m_revision; }
     [[nodiscard]] bool drawable() const { return m_active && m_destination_ready && m_transition.active(); }
+    template<class Owns>
+    [[nodiscard]] bool previews_current(std::uint64_t revision, const Owns &owns) const {
+        return m_inventory.current(revision, owns);
+    }
     [[nodiscard]] double progress() const { return m_transition.progress(); }
     [[nodiscard]] Direction direction() const { return m_transition.direction(); }
     [[nodiscard]] const Composition &source() const { return m_source; }
@@ -467,6 +473,10 @@ template<class Port> class WorkspaceTurn {
     [[nodiscard]] bool presented_once() const { return m_presented; }
 
   private:
+    void invalidate_frame() {
+        ++m_revision;
+        m_queued = 0;
+    }
     template <class PresentationPort>
     static void index_floating(auto &blend, const PresentationPort &port) {
         if (blend.indexed) {
@@ -586,6 +596,7 @@ template<class Port> class WorkspaceTurn {
     Port *m_port;
     inline static std::uint64_t s_next_ticket = 0;
     std::uint64_t m_queued = 0;
+    std::uint64_t m_revision = 0;
     Composition m_source{};
     Composition m_destination{};
     std::optional<Composition> m_pending;
@@ -603,12 +614,20 @@ template<class Port> class WorkspaceTurn {
 template<class Monitor, class Port> class WorkspaceTurns {
   public:
     using Turn = WorkspaceTurn<Port>;
-    Turn &get(Monitor monitor, Port &port) {
-        return m_turns.try_emplace(monitor, port).first->second;
+    std::shared_ptr<Turn> get(Monitor monitor, Port &port) {
+        if (auto existing = pin(monitor)) {
+            return existing;
+        }
+        return m_turns.emplace(monitor, std::make_shared<Turn>(port)).first->second;
     }
     Turn *find(Monitor monitor) {
         const auto FOUND = m_turns.find(monitor);
-        return FOUND == m_turns.end() ? nullptr : &FOUND->second;
+        return FOUND == m_turns.end() ? nullptr : FOUND->second.get();
+    }
+    // A renderer callback may remove the registry entry while a capture is on the stack.
+    [[nodiscard]] std::shared_ptr<Turn> pin(Monitor monitor) const {
+        const auto found = m_turns.find(monitor);
+        return found == m_turns.end() ? nullptr : found->second;
     }
     void remove(Monitor monitor) {
         if (auto *turn = find(monitor)) {
@@ -618,7 +637,7 @@ template<class Monitor, class Port> class WorkspaceTurns {
     }
     void clear() {
         for (auto &item : m_turns) {
-            item.second.cancel();
+            item.second->cancel();
         }
         m_turns.clear();
     }
@@ -656,7 +675,7 @@ template<class Monitor, class Port> class WorkspaceTurns {
     [[nodiscard]] const Transition::Curve &curve() const { return m_curve; }
 
   private:
-    std::unordered_map<Monitor, Turn> m_turns;
+    std::unordered_map<Monitor, std::shared_ptr<Turn>> m_turns;
     std::uint64_t m_style = 0;
     double m_duration = 0.0;
     std::string m_curve_name;

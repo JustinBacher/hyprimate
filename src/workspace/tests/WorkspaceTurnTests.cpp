@@ -355,7 +355,7 @@ void replacement_during_style_draw_cannot_present_the_old_frame() {
     Fixture fixture;
     WorkspaceTurns<int, FakeWorkspacePort> turns;
     const auto queue = [&] {
-        auto &turn = turns.get(1, fixture.port);
+        auto &turn = *turns.get(1, fixture.port);
         CHECK(turn.stage(fixture.a));
         turn.begin(fixture.a, fixture.b, 1.0, LINEAR);
         turn.frame(fixture.b, 0.0);
@@ -392,8 +392,8 @@ void registry_settings_and_reload() {
     turns.configure(true, 1, 1.0, "curve", true, RESOLVE);
     CHECK(turns.enabled());
     CHECK(resolutions == 1);
-    auto &turn = turns.get(1, first);
-    auto &other = turns.get(2, second);
+    auto &turn = *turns.get(1, first);
+    auto &other = *turns.get(2, second);
     const auto ONE = std::make_shared<FakeWorkspace>(1);
     const auto TWO = std::make_shared<FakeWorkspace>(2);
     const auto SOURCE = first.composition(ONE);

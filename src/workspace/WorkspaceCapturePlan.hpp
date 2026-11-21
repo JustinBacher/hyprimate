@@ -34,6 +34,13 @@ namespace hyprimate::workspace {
                !facts.protected_content && !facts.invalid_fadeout;
     }
 
+    // Pass construction can reenter policy/state mutation. Never execute the
+    // accumulated native pass until the capture owner authorizes submission.
+    template<class Allowed, class Submit>
+    bool submit_capture(const Allowed &allowed, const Submit &submit) {
+        return allowed() && submit();
+    }
+
     constexpr bool capture_hud_safe(bool retiring_shell) {
         return !retiring_shell;
     }

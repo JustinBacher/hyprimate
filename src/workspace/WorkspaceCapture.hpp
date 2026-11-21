@@ -23,6 +23,7 @@ namespace hyprimate::workspace {
         const Render::SRenderOptions &,
         std::optional<Monitor::CDamageRing::CTransaction> *);
     using CaptureDraw = void (*)(void *, Render::CRenderContext &);
+    using CaptureAuthorize = bool (*)(void *);
 
     bool capture_workspace(Render::IHyprRenderer &renderer,
         BeginRender begin,
@@ -31,6 +32,7 @@ namespace hyprimate::workspace {
         const SP<Render::CSceneResources> &resources,
         CaptureKind kind,
         CaptureDraw draw,
-        void *userdata);
+        void *userdata,
+        CaptureAuthorize authorize = nullptr);
 
 }  // namespace hyprimate::workspace

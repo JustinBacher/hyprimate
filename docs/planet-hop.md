@@ -54,6 +54,8 @@ The compositor changes workspace once. The departing native image is captured be
 
 When transforming the scene would invalidate native protection (for example a locked session or `no_screen_share` content), the plugin leaves the compositor in control. A monitor must have rendered a normal frame before a capture can start. Output changes, unsupported capture stages, and framebuffer allocation failures return to native presentation rather than showing a partial capture. Capture memory scales with physical pixels; `floating` additionally needs room for visible window crops.
 
+If the session locks, sharing rules change to protect a window, or a preview workspace changes owners during capture, Hyprimate discards the affected preview set, including cached wallpaper and both sides of a thumbnail crossfade. A retained window tail may still animate on the unlocked local monitor, but it is omitted from captures if its original pixels or its current source window are protected.
+
 A queued frame belongs to one turn on one monitor. Hyprimate checks that turn and the current capture policy again before displaying the texture. A stale pass draws nothing. If the current turn loses authorization or the style fails to draw, the workspace plane clears to black until the native repaint; it never substitutes a saved destination image.
 
 ## Renderer profiling

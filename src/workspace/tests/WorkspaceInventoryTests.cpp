@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -34,6 +35,18 @@ namespace {
         bool fallback_succeeds = true;
         Image fallback = std::make_shared<int>(-1);
         bool monitor_scope = false;
+        bool inventory_current = true;
+        std::function<void()> during_capture;
+        std::function<void()> during_fallback;
+        [[nodiscard]] bool allowed() const {
+            return inventory_current && scene_safe();
+        }
+        [[nodiscard]] bool owns(const Workspace &workspace, std::uint64_t owner) const {
+            const auto FOUND = std::ranges::find_if(
+                facts, [&](const auto &fact) { return fact.workspace.lock() == workspace.lock(); });
+            return FOUND != facts.end() && !workspace.expired() &&
+                   FOUND->endpoint.owner != UINT64_MAX && FOUND->endpoint.owner == owner;
+        }
         bool includes(const JourneyEndpoint &candidate, const JourneyEndpoint &source,
             const JourneyEndpoint &destination) const {
             return !monitor_scope || candidate.owner == source.owner ||
@@ -63,6 +76,9 @@ namespace {
         }
         Image local_wallpaper(int side) {
             wallpaper_sides.push_back(side);
+            if (during_fallback) {
+                during_fallback();
+            }
             return fallback_succeeds ? fallback : Image{};
         }
         Image capture(const Workspace &workspace, const Image &wallpaper, PreviewCapturePlan plan) {
@@ -72,6 +88,9 @@ namespace {
             }
             commands.push_back(
                 {.workspace = WORKSPACE->number, .wallpaper = wallpaper, .plan = plan});
+            if (during_capture) {
+                during_capture();
+            }
             return thumbnail_succeeds ? std::make_shared<int>(WORKSPACE->number) : Image{};
         }
         void publish(const std::shared_ptr<std::vector<Preview>> &value) {
@@ -125,6 +144,7 @@ namespace {
 
     void scheduling_and_crossfade() {
         Fixture fixture;
+        fixture.port.advance(12'345.0);
         fixture.add(8);
         fixture.add(4);
         fixture.add(2);
@@ -235,6 +255,7 @@ namespace {
         fixture.port.facts.back().has_windows = false;
         fixture.add(4);
         fixture.port.facts.back().owner_ready = false;
+        fixture.port.facts.back().endpoint.owner = UINT64_MAX;
         fixture.add(6);
         fixture.port.facts.back().local = false;
         fixture.port.remote_pixels = 16'777'217.0;
@@ -321,6 +342,129 @@ namespace {
         ++fixture.port.inventory_revision;
         fixture.prepare();
         CHECK(fixture.port.commands.back().workspace == FIRST);
+    }
+
+    void privacy_denial_revokes_all_inventory_pixels() {
+        for (const bool REMOTE : {false, true}) {
+            Fixture fixture;
+            fixture.add(2);
+            fixture.add(3);
+            fixture.port.facts.back().local = !REMOTE;
+            fixture.port.facts.back().wallpaper = std::make_shared<int>(303);
+            fixture.start();
+            fixture.prepare();
+            const auto RETAINED = fixture.port.previews;
+            CHECK(fixture.preview(2).image);
+            CHECK(fixture.preview(2).previous_image);
+            fixture.port.during_capture = [&] {
+                fixture.port.safety_facts.protected_content = true;
+            };
+            fixture.prepare();
+            CHECK(RETAINED->empty());
+            CHECK(fixture.port.commands.size() == 2);
+            fixture.port.safety_facts.protected_content = false;
+            fixture.port.during_capture = {};
+            fixture.prepare();
+            CHECK(!fixture.port.previews->empty());
+            CHECK(fixture.port.index_reads == 2);
+        }
+    }
+
+    void privacy_denial_during_fallback_and_cached_prepare() {
+        Fixture fixture;
+        fixture.add(2);
+        fixture.start();
+        fixture.port.during_fallback = [&] { fixture.port.inventory_current = false; };
+        fixture.prepare();
+        CHECK(!fixture.port.previews);
+        CHECK(fixture.port.commands.empty());
+        fixture.port.inventory_current = true;
+        fixture.port.during_fallback = {};
+        fixture.prepare();
+        const auto RETAINED = fixture.port.previews;
+        CHECK(!RETAINED->empty());
+        fixture.port.inventory_current = false;
+        fixture.prepare();
+        CHECK(RETAINED->empty());
+        CHECK(fixture.port.commands.size() == 1);
+
+        fixture.port.inventory_current = true;
+        fixture.prepare();
+        const auto old_publication = fixture.port.previews;
+        ++fixture.port.inventory_revision;
+        fixture.port.during_fallback = [&] { fixture.port.inventory_current = false; };
+        fixture.prepare();
+        CHECK(old_publication && old_publication->empty());
+    }
+
+    void ownership_changes_revoke_cached_inventory_without_events() {
+        Fixture fixture;
+        fixture.add(2);
+        fixture.add(3);
+        fixture.port.facts.back().wallpaper = std::make_shared<int>(33);
+        fixture.port.facts.back().has_windows = false;
+        fixture.start();
+        fixture.prepare();
+        const auto RETAINED = fixture.port.previews;
+        CHECK(fixture.preview(2).image);
+        CHECK(fixture.preview(3).image);
+        ++fixture.port.facts.back().endpoint.owner;
+        fixture.prepare();
+        CHECK(RETAINED->empty());
+        CHECK(fixture.port.commands.size() == 1);
+        fixture.prepare();
+        CHECK(fixture.port.index_reads == 2);
+        CHECK(fixture.preview(3).endpoint.owner == fixture.port.facts.back().endpoint.owner);
+    }
+
+    void capture_reentry_rejects_replaced_turn_and_owner() {
+        for (const bool OWNER_CHANGED : {false, true}) {
+            Fixture fixture;
+            fixture.add(2);
+            fixture.port.facts.back().local = false;
+            fixture.port.facts.back().wallpaper = std::make_shared<int>(22);
+            fixture.start();
+            fixture.port.during_capture = [&] {
+                if (OWNER_CHANGED) {
+                    ++fixture.port.facts.back().endpoint.owner;
+                } else {
+                    fixture.port.inventory_current = false;
+                }
+            };
+            fixture.prepare();
+            CHECK(fixture.port.commands.size() == 1);
+            CHECK(!fixture.port.previews);
+        }
+    }
+
+    void denied_capture_pass_is_not_submitted() {
+        for (const bool ALLOWED : {false, true}) {
+            std::size_t submissions = 0;
+            const bool SUBMITTED = submit_capture([&] { return ALLOWED; }, [&] {
+                ++submissions;
+                return true;
+            });
+            CHECK(SUBMITTED == ALLOWED);
+            CHECK(submissions == (ALLOWED ? 1U : 0U));
+        }
+    }
+
+    void retained_inventory_validation_precedes_reprepare() {
+        Fixture fixture;
+        fixture.add(2);
+        WorkspaceInventory<InventoryFakePort::Workspace, InventoryFakePort::Preview> inventory;
+        const auto OWNS = [&](const auto &workspace, auto owner) {
+            return fixture.port.owns(workspace, owner);
+        };
+        CHECK(!inventory.current(fixture.port.revision(), OWNS));
+        inventory.prepare(fixture.port, fixture.source.endpoint(), fixture.destination.endpoint());
+        CHECK(inventory.current(fixture.port.revision(), OWNS));
+        ++fixture.port.facts.back().endpoint.owner;
+        CHECK(!inventory.current(fixture.port.revision(), OWNS));
+        --fixture.port.facts.back().endpoint.owner;
+        CHECK(inventory.current(fixture.port.revision(), OWNS));
+        ++fixture.port.inventory_revision;
+        CHECK(!inventory.current(fixture.port.revision(), OWNS));
     }
 
     struct HistorySignature {
@@ -411,6 +555,12 @@ int main() {
     fallbacks_and_capture_failures();
     remote_commands_and_budget();
     live_owner_and_fallback_failure();
+    privacy_denial_revokes_all_inventory_pixels();
+    privacy_denial_during_fallback_and_cached_prepare();
+    ownership_changes_revoke_cached_inventory_without_events();
+    capture_reentry_rejects_replaced_turn_and_owner();
+    denied_capture_pass_is_not_submitted();
+    retained_inventory_validation_precedes_reprepare();
     placement_tie_order();
     wallpaper_history();
     return g_failures == 0 ? 0 : 1;

@@ -394,6 +394,18 @@ class CWorkspaceAnimation::Impl {
         Impl *owner;
         MonitorState *entry;
         PHLMONITOR monitor;
+        hyprimate::workspace::WorkspaceTurn<TurnPort> *turn_identity = nullptr;
+        std::uint64_t turn_revision = 0;
+        std::uint64_t inventory_revision = 0;
+        std::int64_t composition_identity = 0;
+        mutable bool revoked = false;
+        [[nodiscard]] static bool owns(const PHLWORKSPACEREF &workspace, std::uint64_t identity) {
+            const auto WORKSPACE = workspace.lock();
+            const auto MONITOR = WORKSPACE ? WORKSPACE->m_monitor.lock() : nullptr;
+            return MONITOR && MONITOR->m_enabled && MONITOR->m_output &&
+                   static_cast<std::uint64_t>(MONITOR->m_id) == identity;
+        }
+        [[nodiscard]] bool allowed() const;
         [[nodiscard]] std::uint64_t revision() const {
             return owner->m_inventory_revision;
         }
@@ -434,6 +446,7 @@ class CWorkspaceAnimation::Impl {
         void publish(
             const std::shared_ptr<std::vector<hyprimate::workspace::WorkspacePreview>> &previews)
             const {
+            // prepare() has authorized the retained vector after its last callback.
             entry->neighbors = previews;
         }
     };
@@ -536,8 +549,12 @@ class CWorkspaceAnimation::Impl {
     hyprimate::workspace::WorkspaceTurn<TurnPort> *turn(const PHLMONITOR &monitor) {
         return monitor ? m_turns.find(monitor_key(monitor)) : nullptr;
     }
-    MonitorState *state(const PHLMONITOR &monitor);
-    MonitorState &ensure_state(const PHLMONITOR &monitor);
+    const std::shared_ptr<MonitorState> *state_slot(const PHLMONITOR &monitor) const;
+    MonitorState *state(const PHLMONITOR &monitor) const {
+        const auto *slot = state_slot(monitor);
+        return slot ? slot->get() : nullptr;
+    }
+    std::shared_ptr<MonitorState> ensure_state(const PHLMONITOR &monitor);
     bool ensure_buffers(MonitorState &entry, const PHLMONITOR &monitor);
     hyprimate::workspace::CaptureBufferFacts buffer_facts(const MonitorState &entry, const PHLMONITOR &monitor);
     static void release_floating_tail(MonitorState &entry, hyprimate::workspace::WorkspaceCapture &frame);
@@ -567,7 +584,7 @@ class CWorkspaceAnimation::Impl {
     void remember_wallpaper(const PHLMONITOR &monitor,
         const PHLWORKSPACE &workspace,
         const SP<Render::IFramebuffer> &source);
-    SP<Render::IFramebuffer> capture_preview(MonitorState &entry,
+    SP<Render::IFramebuffer> capture_preview(const InventoryPort &port,
         const PHLWORKSPACE &workspace,
         const SP<Render::IFramebuffer> &paper,
         hyprimate::workspace::PreviewCapturePlan plan);
@@ -610,7 +627,7 @@ class CWorkspaceAnimation::Impl {
     int m_mutation_depth = 0;
     std::vector<PHLMONITORREF> m_suppressed;
     PHLMONITORREF m_gesture_monitor;
-    std::vector<std::unique_ptr<MonitorState>> m_states;
+    std::vector<std::shared_ptr<MonitorState>> m_states;
     std::vector<PHLMONITORREF> m_ready_monitors;
     std::vector<PHLMONITORREF> m_scanout_inhibited;
     hyprimate::workspace::WorkspaceTurns<std::uintptr_t, TurnPort> m_turns;
@@ -735,8 +752,10 @@ namespace {
         return image;
     }
 
-    bool write_thumbnail(const SP<Render::IFramebuffer> &source, const SP<Render::IFramebuffer> &thumbnail) {
-        if (!copy_opaque(source, thumbnail, true, true)) {
+    template<class Allowed>
+    bool write_thumbnail(const SP<Render::IFramebuffer> &source,
+        const SP<Render::IFramebuffer> &thumbnail, const Allowed &allowed) {
+        if (!allowed() || !copy_opaque(source, thumbnail, true, true) || !allowed()) {
             return false;
         }
         // Only plugin-owned thumbnails receive mip levels; never modify a native client texture.
@@ -744,7 +763,12 @@ namespace {
         const hyprimate::gl::CRawGlBracket<1> STATE{{}};
         glBindTexture(GL_TEXTURE_2D, thumbnail->getTexture()->m_texID);
         glGenerateMipmap(GL_TEXTURE_2D);
-        return true;
+        return allowed();
+    }
+
+    bool write_thumbnail(const SP<Render::IFramebuffer> &source,
+        const SP<Render::IFramebuffer> &thumbnail) {
+        return write_thumbnail(source, thumbnail, safe_scene);
     }
 
     // Hook trampolines below must match Hyprland's original signatures exactly (ABI), so their
@@ -1185,6 +1209,20 @@ namespace {
             };
             std::string_view style_name;
             const auto RENDER = [&](double progress, Direction direction) {
+                // A preview owner can move or disappear after prepare_inventory(), even
+                // if the two endpoints of this turn and the global sharing rules still match.
+                const bool has_previews = m_frame.neighbors && !m_frame.neighbors->empty();
+                const auto previews_current = [&] {
+                    if (!has_previews) {
+                        return true;
+                    }
+                    const auto *current = CURRENT();
+                    return current && current->previews_current(active()->m_inventory_revision,
+                        CWorkspaceAnimation::Impl::InventoryPort::owns);
+                };
+                if (!previews_current()) {
+                    return false;
+                }
                 auto *owner = active();
                 bool drawn = false;
                 owner->m_styles.for_each([&]<class Style>(auto &resources) {
@@ -1193,7 +1231,7 @@ namespace {
                         drawn = Style::draw(resources, ctx, m_frame, progress, direction, m_matching_wallpaper);
                     }
                 });
-                return drawn;
+                return drawn && previews_current();
             };
             const auto DISPLAY = [&] {
                 CTexPassElement::SRenderData data;
@@ -1523,22 +1561,21 @@ void CWorkspaceAnimation::Impl::configure_style(bool enabled, Style::Resources &
     m_settings_changed = false;
 }
 
-CWorkspaceAnimation::Impl::MonitorState *CWorkspaceAnimation::Impl::state(
-    const PHLMONITOR &monitor) {
+const std::shared_ptr<CWorkspaceAnimation::Impl::MonitorState> *CWorkspaceAnimation::Impl::state_slot(
+    const PHLMONITOR &monitor) const {
     const auto FOUND = std::ranges::find_if(
         m_states, [&](const auto &entry) { return entry->monitor.lock() == monitor; });
-    return FOUND == m_states.end() ? nullptr : FOUND->get();
+    return FOUND == m_states.end() ? nullptr : &*FOUND;
 }
 
-CWorkspaceAnimation::Impl::MonitorState &CWorkspaceAnimation::Impl::ensure_state(
+std::shared_ptr<CWorkspaceAnimation::Impl::MonitorState> CWorkspaceAnimation::Impl::ensure_state(
     const PHLMONITOR &monitor) {
-    if (auto *existing = state(monitor); existing != nullptr) {
+    if (const auto *existing = state_slot(monitor)) {
         return *existing;
     }
-    auto created = std::make_unique<MonitorState>(this);
+    auto created = std::make_shared<MonitorState>(this);
     created->monitor = monitor;
-    m_states.push_back(std::move(created));
-    return *m_states.back();
+    return m_states.emplace_back(std::move(created));
 }
 
 SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::allocate_capture(
@@ -2143,14 +2180,19 @@ std::vector<CWorkspaceAnimation::Impl::Snapshot> CWorkspaceAnimation::Impl::snap
             }
             continue;
         }
-        auto &entry = ensure_state(monitor);
+        const auto entry = ensure_state(monitor);
+        const auto staged = m_turns.get(monitor_key(monitor), entry->port);
         Snapshot item{.monitor = monitor, .composition = composition(monitor, true)};
-        item.ready = m_turns.get(monitor_key(monitor), entry.port).stage(item.composition);
+        item.ready = staged->stage(item.composition);
+        if (turn(monitor) != staged.get()) {
+            continue;
+        }
+        item.ready = item.ready && composition_id(monitor) == item.composition.identity;
         if (!item.ready) {
             erase_state(monitor);
-        } else if (m_uses_previews && !turn(monitor)->active()) {
+        } else if (m_uses_previews && !staged->active() && safe_scene()) {
             remember_wallpaper(monitor, monitor->m_activeSpecialWorkspace ? monitor->m_activeSpecialWorkspace :
-                monitor->m_activeWorkspace, entry.source_wallpaper);
+                monitor->m_activeWorkspace, entry->source_wallpaper);
         }
         result.push_back(std::move(item));
     }
@@ -2250,7 +2292,7 @@ bool CWorkspaceAnimation::Impl::suppresses(const PHLMONITOR &monitor) const {
 }
 
 void CWorkspaceAnimation::Impl::capture_gesture(const PHLMONITOR &monitor) {
-    if (!m_turns.enabled() || !monitor) {
+    if (m_capture_depth != 0 || !m_turns.enabled() || !monitor) {
         return;
     }
     auto captured = snapshot({monitor});
@@ -2332,21 +2374,39 @@ void CWorkspaceAnimation::Impl::pre_checks(const PHLMONITOR &monitor) {
 }
 
 void CWorkspaceAnimation::Impl::pre_render(const PHLMONITOR &monitor) {
-    if (!monitor) {
+    if (!monitor || m_capture_depth != 0) {
         return;
     }
-    auto *entry = state(monitor);
-    auto *active_turn = turn(monitor);
-    if (entry == nullptr || active_turn == nullptr || !active_turn->active()) {
+    const auto *slot = state_slot(monitor);
+    if (!slot) {
+        return;
+    }
+    // Native capture can synchronously remove the monitor or replace its turn. Keep
+    // their storage alive, but do not grant the old frame authority over a replacement.
+    const auto entry = *slot;
+    const auto active_turn = m_turns.pin(monitor_key(monitor));
+    if (!active_turn || !active_turn->active()) {
         return;
     }
     const auto NOW = Clock::now();
     const auto ELAPSED = std::chrono::duration<double>(NOW - entry->last).count();
     entry->last = NOW;
-    active_turn->frame(composition(monitor), ELAPSED);
-    if (m_uses_previews) {
-        InventoryPort port{.owner = this, .entry = entry, .monitor = monitor};
+    const auto current = composition(monitor);
+    active_turn->frame(current, ELAPSED);
+    if (turn(monitor) != active_turn.get()) {
+        return;
+    }
+    if (m_uses_previews && active_turn->drawable()) {
+        InventoryPort port{.owner = this, .entry = entry.get(), .monitor = monitor,
+            .turn_identity = active_turn.get(), .turn_revision = active_turn->revision(),
+            .inventory_revision = m_inventory_revision, .composition_identity = current.identity};
         active_turn->prepare_inventory(port);
+        if (turn(monitor) != active_turn.get() || active_turn->revision() != port.turn_revision) {
+            return;
+        }
+        if (composition_id(monitor) != current.identity) {
+            active_turn->cancel("preview-composition-changed");
+        }
     }
     if (!active_turn->active()) {
         erase_state(monitor);
@@ -2508,9 +2568,28 @@ CWorkspaceAnimation::Impl::InventoryPort::workspaces() const {
     return facts;
 }
 
+bool CWorkspaceAnimation::Impl::InventoryPort::allowed() const {
+    if (revoked || Impl::s_active != owner || !safe_scene() || !owner->ready(monitor) ||
+        owner->state(monitor) != entry || owner->m_inventory_revision != inventory_revision) {
+        revoked = true;
+        return false;
+    }
+    const auto *current = owner->turn(monitor);
+    const bool ALLOWED = current && current == turn_identity && current->drawable() &&
+                         current->revision() == turn_revision &&
+                         owner->composition_id(monitor) == composition_identity;
+    revoked = !ALLOWED;
+    return ALLOWED;
+}
+
 SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::InventoryPort::local_wallpaper(int side) const {
+    if (!allowed()) {
+        return {};
+    }
+    const ScopedCapture CAPTURE_SCOPE{owner->m_capture_depth};
+    const auto WALLPAPER = entry->destination_frame.wallpaper;
     const auto IMAGE = preview_target(monitor, side);
-    return write_thumbnail(entry->destination_frame.wallpaper, IMAGE) ? IMAGE : nullptr;
+    return write_thumbnail(WALLPAPER, IMAGE, [&] { return allowed(); }) ? IMAGE : nullptr;
 }
 
 hyprimate::workspace::PreviewCaptureFacts CWorkspaceAnimation::Impl::InventoryPort::capture_facts(
@@ -2527,20 +2606,45 @@ SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::InventoryPort::capture(
     const SP<Render::IFramebuffer> &wallpaper,
     hyprimate::workspace::PreviewCapturePlan plan) const {
     const auto WORKSPACE = workspace.lock();
-    return WORKSPACE ? owner->capture_preview(*entry, WORKSPACE, wallpaper, plan) : nullptr;
+    return WORKSPACE ? owner->capture_preview(*this, WORKSPACE, wallpaper, plan) : nullptr;
 }
 
-SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::capture_preview(MonitorState &entry,
+SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::capture_preview(const InventoryPort &port,
     const PHLWORKSPACE &workspace,
     const SP<Render::IFramebuffer> &paper,
     hyprimate::workspace::PreviewCapturePlan plan) {
-    const auto OWNER = workspace->m_monitor.lock();
-    if (!ready(OWNER)) {
+    struct DrawData {
+        RenderFn original;
+        PHLMONITOR monitor;
+        PHLWORKSPACE workspace;
+        SP<Render::IFramebuffer> wallpaper;
+        bool native_background = false;
+        const InventoryPort *port = nullptr;
+        bool remote = false;
+        [[nodiscard]] bool allowed() const {
+            if (!port->allowed() || workspace->m_monitor.lock() != monitor ||
+                !port->owner->ready(monitor) || remote != (monitor != port->monitor)) {
+                port->revoked = true;
+                return false;
+            }
+            return true;
+        }
+    } data{.original = render_original(),
+        .monitor = workspace->m_monitor.lock(),
+        .workspace = workspace,
+        .wallpaper = paper,
+        .native_background = plan.native_background,
+        .port = &port,
+        .remote = plan.remote};
+    const auto ALLOWED = [&] { return data.allowed(); };
+    if (!ALLOWED()) {
         return {};
     }
+    const auto OWNER = data.monitor;
+    const ScopedCapture CAPTURE_SCOPE{m_capture_depth};
     // The presentation target is scratch only before the ordinary output pass.
-    auto scratch = entry.presentation;
-    auto resources = entry.source_resources;
+    auto scratch = port.entry->presentation;
+    auto resources = port.entry->source_resources;
     if (plan.remote) {
         const auto EXTENT = OWNER->m_transformedSize;
         scratch = preview_target(OWNER, static_cast<int>(std::max(EXTENT.x, EXTENT.y)));
@@ -2553,19 +2657,11 @@ SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::capture_preview(MonitorState
     if (!scratch || !resources) {
         return {};
     }
-    struct DrawData {
-        RenderFn original;
-        PHLMONITOR monitor;
-        PHLWORKSPACE workspace;
-        SP<Render::IFramebuffer> wallpaper;
-        bool native_background = false;
-    } data{.original = render_original(),
-        .monitor = OWNER,
-        .workspace = workspace,
-        .wallpaper = paper,
-        .native_background = plan.native_background};
     const auto DRAW = [](void *context, Render::CRenderContext &ctx) {
         const auto &args = *static_cast<DrawData *>(context);
+        if (!args.allowed()) {
+            return;
+        }
         auto &renderer = *g_pHyprRenderer;
         const auto NOW = Time::steadyNow();
         if (!args.native_background) {
@@ -2574,15 +2670,21 @@ SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::capture_preview(MonitorState
             layer.box = {0, 0, args.monitor->m_transformedSize.x, args.monitor->m_transformedSize.y};
             Render::IHyprRenderer::addPassElement(ctx, makeUnique<CTexPassElement>(std::move(layer)));
         } else {
-            // A wallpaper client exposes its current surface per monitor, not a
-            // database of workspace-specific images. Use that real background
-            // until the workspace has been observed, never another window image.
+            // Wallpaper clients expose a current background, not workspace-specific images.
             (renderer.*PreviewDrawAccess::BACKGROUND)(ctx, args.monitor);
-            for (const auto &layer :
-                args.monitor->m_layerSurfaceLayers[ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND]) {
+            if (!args.allowed()) {
+                return;
+            }
+            // Native render callbacks may remove layers while building the pass.
+            const auto LAYERS =
+                args.monitor->m_layerSurfaceLayers[ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND];
+            for (const auto &layer : LAYERS) {
                 if (const auto SURFACE = layer.lock()) {
                     (renderer.*PreviewDrawAccess::LAYER)(
                         ctx, SURFACE, args.monitor, NOW, false, false, true);
+                    if (!args.allowed()) {
+                        return;
+                    }
                 }
             }
         }
@@ -2596,8 +2698,7 @@ SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::capture_preview(MonitorState
             1.F);
     };
     const auto IMAGE = preview_target(OWNER, plan.side);
-    const ScopedCapture CAPTURE_SCOPE{m_capture_depth};
-    return IMAGE &&
+    return IMAGE && data.original && ALLOWED() &&
                    hyprimate::workspace::capture_workspace(*g_pHyprRenderer,
                        m_begin_render,
                        OWNER,
@@ -2605,8 +2706,9 @@ SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::capture_preview(MonitorState
                        resources,
                        TurnKind::SourceIsolated,
                        DRAW,
-                       &data) &&
-                   write_thumbnail(scratch, IMAGE)
+                       &data,
+                       [](void *context) { return static_cast<DrawData *>(context)->allowed(); }) &&
+                   write_thumbnail(scratch, IMAGE, ALLOWED)
                ? IMAGE
                : nullptr;
 }
@@ -2615,6 +2717,7 @@ void CWorkspaceAnimation::Impl::remove_monitor(const PHLMONITOR &monitor) {
     if (!monitor) {
         return;
     }
+    ++m_inventory_revision; // Other monitors can hold previews from this output.
     std::erase_if(m_ready_monitors, [&](const auto &weak) { return weak.expired() || weak.lock() == monitor; });
     m_observed.remove_monitor(PHLMONITORREF{monitor});
     erase_state(monitor);

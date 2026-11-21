@@ -3,6 +3,7 @@
 #include <hyprland/src/managers/SessionLockManager.hpp>
 
 #include "workspace/WorkspaceCapture.hpp"
+#include "workspace/WorkspaceCapturePlan.hpp"
 
 namespace hyprimate::workspace {
 
@@ -14,7 +15,8 @@ namespace hyprimate::workspace {
         const SP<Render::CSceneResources> &resources,
         CaptureKind kind,
         CaptureDraw draw,
-        void *userdata) {
+        void *userdata,
+        CaptureAuthorize authorize) {
         if (!g_pSessionLockManager || g_pSessionLockManager->isSessionLocked() ||
             begin == nullptr || draw == nullptr || !monitor || !target || !target->isAllocated() || !resources ||
             !monitor->m_enabled || !monitor->m_output || monitor->m_drmFormat == DRM_FORMAT_INVALID ||
@@ -83,8 +85,12 @@ namespace hyprimate::workspace {
             renderer.draw(context, CClearPassElement::SClearData{CHyprColor(0, 0, 0, 0)});
             renderer.startRenderPass(context);
             draw(userdata, context);
-            renderer.endRender();
-            return !renderer.context().active();
+            return submit_capture(
+                [&] { return authorize == nullptr || authorize(userdata); },
+                [&] {
+                    renderer.endRender();
+                    return !renderer.context().active();
+                });
         } catch (...) {
             // A failure before the guard is constructed may still have opened a session.
             if (renderer.context().active()) {
