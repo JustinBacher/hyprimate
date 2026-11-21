@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <new>
 
 #include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
@@ -90,24 +91,26 @@ namespace hyprimate::workspace {
         const std::array FRAGMENTS{planet_hop::shader::FRAGMENT,
             planet_hop::shader::QUAD_FRAGMENT,
             planet_hop::shader::SKY_FRAGMENT};
-        for (std::size_t index = 0; index < m_shaders.size(); ++index) {
-            m_shaders[index] = std::make_unique<CShader>();
-            if (!m_shaders[index]->createProgram(
-                    std::string(VERTICES[index]), std::string(FRAGMENTS[index]), true, true)) {
-                for (auto &shader : m_shaders) {
-                    shader.reset();
+        // A shader pointer is the readiness marker; publish the complete set only
+        // after CPU construction, linking and raw GL initialization all succeed.
+        std::array<std::unique_ptr<CShader>, 3> shaders;
+        try {
+            for (std::size_t index = 0; index < shaders.size(); ++index) {
+                shaders[index] = std::make_unique<CShader>();
+                if (!shaders[index]->createProgram(
+                        std::string(VERTICES[index]), std::string(FRAGMENTS[index]), true, true)) {
+                    return false;
                 }
-                return false;
             }
-        }
-        if (!m_core.initialize_raw({.planet = m_shaders[0]->program(),
-                .quad = m_shaders[1]->program(),
-                .sky = m_shaders[2]->program()})) {
-            for (auto &shader : m_shaders) {
-                shader.reset();
-            }
+        } catch (const std::bad_alloc &) {
             return false;
         }
+        if (!m_core.initialize_raw({.planet = shaders[0]->program(),
+                .quad = shaders[1]->program(),
+                .sky = shaders[2]->program()})) {
+            return false;
+        }
+        m_shaders = std::move(shaders);
         return true;
     }
     void PlanetRenderer::release() {
@@ -151,15 +154,16 @@ namespace hyprimate::workspace {
                     m_position_caches.begin() + static_cast<std::ptrdiff_t>(m_next_position_cache);
                 m_next_position_cache = (m_next_position_cache + 1) % m_position_caches.size();
             }
+            std::vector<planet_hop::Vec3> positions;
+            positions.reserve(frame.neighbors->size());
+            for (const auto &preview : *frame.neighbors) {
+                positions.push_back(
+                    planet_hop::layout_position(preview.endpoint, options, scene.aspect));
+            }
+            cached->positions = std::move(positions);
             cached->inventory = frame.neighbors;
             cached->layout = options.planet_layout;
             cached->key = KEY;
-            cached->positions.clear();
-            cached->positions.reserve(frame.neighbors->size());
-            for (const auto &preview : *frame.neighbors) {
-                cached->positions.push_back(
-                    planet_hop::layout_position(preview.endpoint, options, scene.aspect));
-            }
         }
         return cached->positions;
     }

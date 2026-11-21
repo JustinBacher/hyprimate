@@ -121,7 +121,7 @@ namespace hyprimate::workspace {
             std::array<GLint, 48> uniforms{};
         };
         bool prepare_mesh(int quality);
-        void upload_depth();
+        bool upload_depth();
         bool prepare_neutral();
         struct DrawContext {
             std::reference_wrapper<const PlanetFrameTextures> textures;
@@ -219,6 +219,8 @@ namespace hyprimate::workspace {
         std::array<Mesh, 3> m_meshes{};
         GLuint m_mesh_vao = 0;
         GLuint m_framebuffer = 0;
+        GLuint m_output_texture = 0;
+        GLuint m_output_depth = 0;
         struct DepthBuffer {
             GLuint id = 0;
             int width = 0;

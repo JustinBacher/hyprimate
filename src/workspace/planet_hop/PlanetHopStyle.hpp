@@ -29,7 +29,7 @@ namespace hyprimate::workspace {
             std::optional<planet_hop::Journey> journey;
         };
         static void prepare(Resources &resources, const config::SWorkspaceSettings &settings) {
-            if (!resources.settings.update(settings.planetHop, [](const auto &value) {
+            const bool CHANGED = resources.settings.update(settings.planetHop, [](const auto &value) {
                 Prepared result;
                 result.duration = value.duration / 1000.0;
                 result.curve = value.curve;
@@ -84,8 +84,12 @@ namespace hyprimate::workspace {
                 scene.rotation_enabled = value.rotationEnabled;
                 scene.rotation_limit = value.rotationLimit;
                 return result;
-            })) { return; }
-            resources.journey.reset();
+            });
+            if (CHANGED) {
+                resources.journey.reset();
+            }
+            // Cached successful/invalid paths are cheap; transient CPU allocation
+            // failure must get another attempt even when settings are unchanged.
             (void)resources.renderer.prepare_depth(settings.planetHop.depthSource);
         }
         static bool draw(Resources &resources, Render::CRenderContext &ctx, const WorkspaceFrame &frame,
