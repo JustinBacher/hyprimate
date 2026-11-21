@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <ranges>
 
 #include "WindowAnimationFacts.hpp"
 #include "animations/shared/SheetFrame.hpp"
@@ -20,30 +19,40 @@ animation::Mesh<V> fill_sheet_mesh(const SheetFrame &frame,
     if (window.size() != SHEET_VERTEX_COUNT) {
         window.resize(SHEET_VERTEX_COUNT);
     }
-    if (shade.size() != SHEET_VERTEX_COUNT) {
+    if (shaded && shade.size() != SHEET_VERTEX_COUNT) {
         shade.resize(SHEET_VERTEX_COUNT);
     }
     const auto &source = target.source;
     const auto &output = target.output;
     const double CENTRE_X = source.x + (0.5 * source.w);
     const double CENTRE_Y = source.y + (0.5 * source.h);
-    auto window_vertex = window.begin();
-    auto shade_vertex = shade.begin();
-    for (const std::size_t TRI : frame.order) {
-        const auto &corners = sheet_triangle(TRI);
-        for (auto &&[vertex_index, corner_shade] : std::views::zip(corners, frame.shade[TRI])) {
-            const auto &point = frame.position[vertex_index];
-            const auto TEX_COORD = sheet_uv(vertex_index);
-            const auto POS_X = static_cast<float>((CENTRE_X + (point.x * source.w) - output.x) / output.w);
-            const auto POS_Y = static_cast<float>((CENTRE_Y + (point.y * source.h) - output.y) / output.h);
-            *window_vertex++ = {
-                .x = POS_X, .y = POS_Y,
-                .u = static_cast<float>((source.x + (source.w * TEX_COORD.x) - target.image_origin.x) / target.image_size.x),
-                .v = static_cast<float>((source.y + (source.h * TEX_COORD.y) - target.image_origin.y) / target.image_size.y),
-            };
-            const double TEXEL = 128 + (std::clamp(static_cast<double>(corner_shade), -1.0, 1.0) * 127.0);
-            *shade_vertex++ = {.x = POS_X, .y = POS_Y, .u = static_cast<float>((TEXEL + 0.5) / 256), .v = 0.5F};
+    const auto fill = [&]<bool SHADED>() {
+        auto window_vertex = window.begin();
+        auto shade_vertex = shade.begin();
+        for (const std::size_t TRI : frame.order) {
+            const auto &corners = sheet_triangle(TRI);
+            for (std::size_t corner = 0; corner < corners.size(); ++corner) {
+                const auto vertex_index = corners[corner];
+                const auto &point = frame.position[vertex_index];
+                const auto TEX_COORD = sheet_uv(vertex_index);
+                const auto POS_X = static_cast<float>((CENTRE_X + (point.x * source.w) - output.x) / output.w);
+                const auto POS_Y = static_cast<float>((CENTRE_Y + (point.y * source.h) - output.y) / output.h);
+                *window_vertex++ = {
+                    .x = POS_X, .y = POS_Y,
+                    .u = static_cast<float>((source.x + (source.w * TEX_COORD.x) - target.image_origin.x) / target.image_size.x),
+                    .v = static_cast<float>((source.y + (source.h * TEX_COORD.y) - target.image_origin.y) / target.image_size.y),
+                };
+                if constexpr (SHADED) {
+                    const double TEXEL = 128 + (std::clamp(static_cast<double>(frame.shade[TRI][corner]), -1.0, 1.0) * 127.0);
+                    *shade_vertex++ = {.x = POS_X, .y = POS_Y, .u = static_cast<float>((TEXEL + 0.5) / 256), .v = 0.5F};
+                }
+            }
         }
+    };
+    if (shaded) {
+        fill.template operator()<true>();
+    } else {
+        fill.template operator()<false>();
     }
     animation::Mesh<V> result{};
     result.window = &window;

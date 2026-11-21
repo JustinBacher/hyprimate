@@ -30,6 +30,10 @@ int main() {
         .scale = 1, .buffers = &buffers};
     SheetFrame frame;
     flat_sheet(frame);
+    const auto FIRST_UNSHADED = fill_sheet_mesh(frame, TARGET, false, 1.F);
+    CHECK(FIRST_UNSHADED.shade == nullptr);
+    CHECK(buffers.shade.empty());
+    CHECK(buffers.shade.capacity() == 0);
     std::swap(frame.order[0], frame.order[1]);
     frame.shade[1] = {-1.F, 0.F, 1.F};
     const auto SHEET = fill_sheet_mesh(frame, TARGET, true, 0.75F);
@@ -48,10 +52,34 @@ int main() {
     CHECK(near(buffers.shade[2].u, 255.5 / 256));
     const auto *window_data = buffers.window.data();
     const auto *shade_data = buffers.shade.data();
+    const auto SHADE_BEFORE = buffers.shade[0];
+    frame.shade[1][0] = 1.F;
     const auto UNSHADED = fill_sheet_mesh(frame, TARGET, false, 1.F);
     CHECK(UNSHADED.shade == nullptr);
     CHECK(buffers.window.data() == window_data);
     CHECK(buffers.shade.data() == shade_data);
+    check_vertex(buffers.shade[0], SHADE_BEFORE.x, SHADE_BEFORE.y, SHADE_BEFORE.u, SHADE_BEFORE.v);
+
+    SheetGrid world{};
+    for (std::size_t vertex = 0; vertex < world.size(); ++vertex) {
+        world[vertex].z = static_cast<double>(static_cast<int>((vertex * 17) % 11) - 5);
+    }
+    auto expected = frame.order;
+    std::sort(expected.begin(), expected.end(), [&](auto first, auto second) {
+        const auto depth = [&](auto triangle) {
+            const auto &corners = sheet_triangle(triangle);
+            return (world[corners[0]].z + world[corners[1]].z + world[corners[2]].z) / 3.0;
+        };
+        const double a = depth(first), b = depth(second);
+        return a < b || (!(b < a) && first < second);
+    });
+    std::reverse(frame.order.begin(), frame.order.end());
+    project_sheet(world, {112, 56}, 0, frame);
+    CHECK(frame.order == expected);
+    CHECK(!frame.lit);
+    CHECK(std::all_of(frame.shade.begin(), frame.shade.end(), [](const auto &shade) {
+        return shade[0] == 0 && shade[1] == 0 && shade[2] == 0;
+    }));
 
     const LiquidMesh LIQUID_MESH;
     const EdgeTransition TRANSITION;

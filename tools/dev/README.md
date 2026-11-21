@@ -100,7 +100,7 @@ new violations fail while existing ones are listed.
 
 `bench run` builds `hyprimate-bench` (links `hyprimate-core` unchanged; the counting `operator new` exists only in that
 executable) and times complete scripted workloads: `geometry.edge_resolve`, `edge.open_close`, `liquid.move_settle`,
-`paper.close`, `bubble.open/close/move_settle`, `smoke.open/close/move_settle`, `cloth.record_open/playback`,
+`paper.close`, `bubble.open/close/move_settle`, `smoke.open/close/move_settle`, `cloth.record_open/playback/unshaded_mesh`,
 `swarm.open/move_settle`. Inputs are fixed seeds and fixed 60/144 Hz steps; each scenario returns a checksum, so a
 nondeterministic scenario fails the run and a baseline/candidate **output** difference is reported as `behavior-changed`
 rather than as a speed result. Reported: median/p90/p99/max per frame, allocation count and bytes per run, all samples
@@ -110,6 +110,7 @@ What they are not: these are CPU-side model costs of the Hyprland-independent co
 They are not frame times, not compositor performance, and say nothing about GPU work. `cloth.record_open` measures a
 worker-thread simulation as wall time and is always reported `inconclusive` in comparisons. Allocation counts cover C++
 `operator new` only (Jolt's allocator and `malloc` callers need heaptrack).
+`cloth.unshaded_mesh` isolates construction of the unlit vertex buffer from a fixed projected sheet. It does not include recording, depth sorting or GPU submission.
 
 Comparing: `bench run --name before`, change code, `bench run --name after`, then
 `bench compare build/dev/bench/before.json build/dev/bench/after.json`. Verdicts per scenario: `improvement` /

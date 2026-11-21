@@ -82,15 +82,16 @@ namespace hyprimate {
         void sort_back_to_front(
             const SheetGrid &world, std::array<std::uint16_t, SHEET_TRIANGLES> &order) noexcept {
             const Topology &mesh = topology();
-            const auto MEAN_Z = [&](std::uint16_t triangle) {
+            std::array<double, SHEET_TRIANGLES> depths;
+            for (std::size_t triangle = 0; triangle < SHEET_TRIANGLES; ++triangle) {
                 const auto &corners = mesh.triangles[triangle];
-                return (world[std::get<0>(corners)].z + world[std::get<1>(corners)].z +
-                           world[std::get<2>(corners)].z) /
-                       3.0;
-            };
+                depths[triangle] = (world[std::get<0>(corners)].z + world[std::get<1>(corners)].z +
+                                       world[std::get<2>(corners)].z) /
+                                   3.0;
+            }
             std::ranges::sort(order, [&](std::uint16_t first, std::uint16_t second) {
-                const double DEPTH_A = MEAN_Z(first);
-                const double DEPTH_B = MEAN_Z(second);
+                const double DEPTH_A = depths[first];
+                const double DEPTH_B = depths[second];
                 return DEPTH_A < DEPTH_B || (!(DEPTH_B < DEPTH_A) && first < second);
             });
         }

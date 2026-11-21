@@ -4,6 +4,7 @@
 
 #include "Bench.hpp"
 #include "animations/cloth/ClothFlutter.hpp"
+#include "animations/shared/SheetMesh.hpp"
 #include "animations/swarm/Swarm.hpp"
 
 namespace {
@@ -41,6 +42,34 @@ namespace {
         for (int i = 0; i < 90 && cloth.advance(FRAME); ++i) {
             cloth.frame({.x = 940, .y = 640}, out);
             sum += out.position[200].x + static_cast<double>(out.order[1]);
+        }
+        return sum;
+    }
+
+    // Project once, then measure only construction into reused compositor-style buffers.
+    double cloth_unshaded_mesh() {
+        static const SheetFrame frame = [] {
+            SheetGrid world{};
+            for (std::size_t vertex = 0; vertex < world.size(); ++vertex) {
+                const auto uv = sheet_uv(vertex);
+                world[vertex] = {.x = (uv.x - 0.5) * WINDOW.w,
+                    .y = (uv.y - 0.5) * WINDOW.h,
+                    .z = (uv.x - 0.5) * (uv.y - 0.5) * 100};
+            }
+            SheetFrame projected;
+            project_sheet(world, {WINDOW.w, WINDOW.h}, 0, projected);
+            return projected;
+        }();
+        static animation::MeshBuffers<animation::MeshVertex> buffers;
+        const animation::MeshTarget<animation::MeshVertex> target{
+            .source = WINDOW, .output = SCREEN,
+            .image_origin = {WINDOW.x, WINDOW.y}, .image_size = {WINDOW.w, WINDOW.h},
+            .scale = 1, .buffers = &buffers};
+        double sum = 0;
+        for (int i = 0; i < 90; ++i) {
+            const auto mesh = fill_sheet_mesh(frame, target, false, 1.F);
+            bench::keep(mesh.window->data());
+            sum += (*mesh.window)[static_cast<std::size_t>(i)].x;
         }
         return sum;
     }
@@ -83,6 +112,7 @@ namespace bench {
     void register_sheets(Registry &registry) {
         registry.push_back({"cloth.record_open", "Jolt cloth open recording (worker thread, wall time)", 1, cloth_record, true});
         registry.push_back({"cloth.playback", "Cloth recording playback + frame()", 90, cloth_playback});
+        registry.push_back({"cloth.unshaded_mesh", "Unshaded mesh projection into reusable buffers", 90, cloth_unshaded_mesh});
         registry.push_back({"swarm.open", "Swarm 250 agents opening", 120, swarm_open});
         registry.push_back({"swarm.move_settle", "Swarm 250 agents drag then settle", 240, swarm_movement});
     }
