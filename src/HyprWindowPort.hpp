@@ -36,6 +36,9 @@ class CHyprWindowPort {
     [[nodiscard]] std::uint64_t register_fadeout(const SP<Desktop::CWindowFadeout> &fadeout);
     [[nodiscard]] std::uint64_t fadeout_identity(const SP<Desktop::IFadeout> &fadeout) const;
     [[nodiscard]] std::optional<hyprimate::animation::Observation> observe(const WindowRef &ref) const;
+    [[nodiscard]] static bool session_unlocked();
+    [[nodiscard]] bool tail_source_allowed(const WindowRef &window,
+        hyprimate::animation::WindowId expected, bool capture) const;
     hyprimate::animation::Neighbourhood neighbourhood(const WindowRef &ref);
     static void warp_body(const WindowRef &ref, const hyprimate::Box &box);
     static void settle_open_alpha(const WindowRef &ref);

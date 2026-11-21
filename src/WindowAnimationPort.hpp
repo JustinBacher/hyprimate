@@ -34,6 +34,7 @@ struct TailDraw {
     float alpha = 1;
     MonitorId monitor = 0;
     FrameId frame = 0;
+    bool no_screen_share = false;
 };
 struct FrameStamp { MonitorId monitor = 0; FrameId frame = 0; Clock::time_point now; };
 struct FadeoutFacts {
@@ -71,14 +72,18 @@ template<class P> concept WindowPort = requires(P &port, const P &constant,
     typename P::Backdrop;
     typename P::VisualCache;
     { std::as_const(canvas).pass() } -> std::same_as<PassKind>;
+    { std::as_const(canvas).captures_pixels() } -> std::same_as<bool>;
     { canvas.composite(box, 1.0F) } -> std::same_as<void>;
     { std::as_const(canvas).image_size(image) } -> std::same_as<Vec2>;
+    { P::Canvas::same_image(image, image) } -> std::same_as<bool>;
     { canvas.submit_mesh(mesh, draw) } -> std::same_as<bool>;
     requires std::same_as<decltype(port.visual_cache(handle).buffers), MeshBuffers<typename P::Canvas::Vertex>>;
     requires std::same_as<decltype(port.visual_cache(handle).scratch_buffers), MeshBuffers<typename P::Canvas::Vertex>>;
     { constant.identity(window) } -> std::same_as<WindowId>;
     { constant.window_alive(window) } -> std::same_as<bool>;
     { constant.observe(window) } -> std::same_as<std::optional<Observation>>;
+    { constant.session_unlocked() } -> std::same_as<bool>;
+    { constant.tail_source_allowed(window, window_id, true) } -> std::same_as<bool>;
     { port.neighbourhood(window) } -> std::same_as<Neighbourhood>;
     { port.warp_body(window, box) } -> std::same_as<void>;
     { port.settle_open_alpha(window) } -> std::same_as<void>;

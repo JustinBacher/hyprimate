@@ -20,6 +20,13 @@ PassKind CHyprAnimationCanvas::pass() const {
     }
     return PassKind::Live;
 }
+bool CHyprAnimationCanvas::captures_pixels() const {
+    // Both workspace scopes target retained framebuffers. DestinationLive still
+    // uses PassKind::Live for normal animation bookkeeping, not privacy authority.
+    return context().m_renderingCapture || context().m_renderingSnapshot ||
+        context().readOnlyEffects() || WorkspaceCaptureScope::for_context(context()) != nullptr ||
+        WorkspaceCaptureScope::is_destination_live(context());
+}
 CHyprAnimationCanvas::Backdrop CHyprAnimationCanvas::capture_wallpaper(const CBox &source, const CBox &bounds) {
     if (pass() != PassKind::Live || context().readOnlyEffects() ||
         context().m_renderingCapture || context().m_renderingSnapshot) { return {}; }

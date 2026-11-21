@@ -16,9 +16,15 @@ struct FakeCanvas {
     struct Backdrop { int id = 0; };
     PassKind pass_kind = PassKind::Live;
     [[nodiscard]] PassKind pass() const { return pass_kind; }
+    bool rendering_capture = false, rendering_snapshot = false;
+    bool destination_live = false;
+    [[nodiscard]] bool captures_pixels() const {
+        return destination_live || rendering_capture || rendering_snapshot || pass_kind != PassKind::Live;
+    }
     std::vector<int> draws;
     std::vector<Box> composites;
     static Vec2 image_size(const Image &image) { return image.size; }
+    [[nodiscard]] static bool same_image(const Image &left, const Image &right) { return left.id == right.id; }
     void composite(const Box &box, float /*alpha*/) { composites.push_back(box); }
     bool submit_mesh(const Mesh<Vertex> & /*mesh*/, const Draw<FakeCanvas> &draw) {
         draws.push_back(draw.image->id);
@@ -58,6 +64,13 @@ struct FakeWindowPort {
     Clock::time_point now;
     bool fail_acquire = false;
     bool fail_bind = false;
+    bool session_available = true, unlocked = true;
+    [[nodiscard]] bool session_unlocked() const { return session_available && unlocked; }
+    [[nodiscard]] bool tail_source_allowed(WindowRef window, WindowId expected, bool capture) const {
+        const auto observation = observe(window);
+        return session_unlocked() && observation && observation->window == expected &&
+            observation->mapped && (!capture || !observation->no_screen_share);
+    }
     std::vector<int> *lifecycle_events = nullptr;
 
     Clock::time_point advance(double seconds) {

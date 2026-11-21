@@ -21,6 +21,8 @@ class CWindowAnimationPass final : public IPassElement {
         hyprimate::animation::FrameId frame = 0;
         hyprimate::animation::MonitorId monitor = 0;
         CRegion damage;
+        bool retained_tail = false;
+        bool no_screen_share = false;
     };
     explicit CWindowAnimationPass(SData data);
     std::vector<UP<IPassElement>> draw(Render::CRenderContext &ctx) override;

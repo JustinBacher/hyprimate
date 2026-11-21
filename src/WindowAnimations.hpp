@@ -61,6 +61,10 @@ class CWindowAnimations<Port, StyleList<Styles...>> {
     void native_finished(std::uint64_t fadeout);
     Box extents(Handle handle, const Box &capture) const;
     bool draw(Handle handle, const Draw<Canvas> &draw);
+    bool tail_allowed(Handle handle, const Canvas &canvas, bool retained_no_screen_share) const;
+    bool draw_tail(Handle handle, const Draw<Canvas> &draw, bool retained_no_screen_share);
+    template<class Display>
+    bool display_tail(Handle handle, const Draw<Canvas> &draw, bool retained_no_screen_share, Display &&display);
     void detach_transformers();
     void end_all();
   private:
@@ -100,6 +104,7 @@ class CWindowAnimations<Port, StyleList<Styles...>> {
         bool stepped = false;
         CloseStart ownership = CloseStart::Declined;
         bool no_screen_share = false;
+        bool retained_no_screen_share = false;
     };
     template<class Function> bool visit(Handle handle, Function &&function);
     template<class Function> bool visit(Handle handle, Function &&function) const;

@@ -22,9 +22,11 @@ class CHyprAnimationCanvas {
     CHyprAnimationCanvas(Render::CRenderContext &ctx, Resources &resources)
         : m_context(&ctx), m_resources(&resources) {}
     [[nodiscard]] hyprimate::animation::PassKind pass() const;
+    [[nodiscard]] bool captures_pixels() const;
     bool submit_mesh(const hyprimate::animation::Mesh<Vertex> &mesh,
         const hyprimate::animation::Draw<CHyprAnimationCanvas> &draw);
     static hyprimate::Vec2 image_size(const Image &image);
+    [[nodiscard]] static bool same_image(const Image &left, const Image &right) { return left == right; }
     void composite(const hyprimate::Box &box, float alpha = 1.F);
     [[nodiscard]] Backdrop capture_wallpaper(const CBox &source, const CBox &bounds);
 

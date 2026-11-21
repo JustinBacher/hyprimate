@@ -1,5 +1,6 @@
 #include <cmath>
 #include <concepts>
+#include <functional>
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -51,6 +52,7 @@ struct Log {
     bool draw_succeeds = true;
     bool release = false, snap = false, alpha = false, running = true, tail = false, backdrop = false;
     CloseStart close_result = CloseStart::Owned;
+    std::function<void()> during_draw;
 };
 template<config::Style Kind> struct TestStyle {
     using State = ::State;
@@ -102,6 +104,7 @@ template<config::Style Kind> struct TestStyle {
         resources.log.draw_frame = draw.frame;
         resources.log.draw_backdrop = draw.backdrop != nullptr ? draw.backdrop->id : 0;
         draw.canvas->draws.push_back(draw.image->id);
+        if (resources.log.during_draw) { resources.log.during_draw(); }
         return resources.log.draw_succeeds;
     }
     struct Screen {
@@ -488,7 +491,7 @@ void tail_and_backdrop() {
         .source = QUEUED.draw.source, .output = QUEUED.draw.output, .canvas_box = QUEUED.draw.canvas_box,
         .image_origin = QUEUED.draw.image_origin, .image_size = QUEUED.draw.image_size, .scale = QUEUED.draw.scale,
         .alpha = QUEUED.draw.alpha, .real_pass = true, .monitor = QUEUED.draw.monitor, .window = 0, .frame = QUEUED.draw.frame};
-    CHECK(fixture.module.draw(QUEUED.handle, DEFERRED));
+    CHECK(fixture.module.draw_tail(QUEUED.handle, DEFERRED, QUEUED.draw.no_screen_share));
     CHECK(canvas.draws.back() == 1);
     fixture.port.windows.at(1).workspace_visible = true;
     fixture.log().tail = false; fixture.frame(1);
@@ -498,7 +501,162 @@ void tail_and_backdrop() {
     retained = fixture.port.retained_mapped_image(HANDLE);
     CHECK(retained && retained->image->id == 2);
     fixture.module.end_all(); CHECK(!fixture.port.retained_mapped_image(HANDLE));
-    CHECK(!fixture.module.draw(QUEUED.handle, DEFERRED));
+    CHECK(!fixture.module.draw_tail(QUEUED.handle, DEFERRED, QUEUED.draw.no_screen_share));
+}
+void retained_tail_final_draw_privacy() {
+    // All images are deterministic synthetic IDs. Queue locally, then change policy
+    // without a model tick: the final pass must not trust the cached observation.
+    for (int pass = 0; pass < 6; ++pass) {
+        for (int change = 0; change < 10; ++change) {
+            Fixture fixture; fixture.log().tail = true; fixture.window(1); fixture.frame(1);
+            const auto HANDLE = fixture.handle();
+            FakeCanvas canvas; const FakeCanvas::Image IMAGE{.id = 73};
+            const Draw<FakeCanvas> INITIAL{.canvas = &canvas, .image = &IMAGE, .source = {},
+                .output = {}, .canvas_box = {}, .image_origin = {}, .image_size = {}, .real_pass = true};
+            CHECK(fixture.module.draw(HANDLE, INITIAL));
+            fixture.port.windows.at(1).workspace_visible = false; fixture.frame(1);
+            fixture.module.after_windows(1, canvas);
+            CHECK(fixture.port.queued_tails.size() == 1);
+            if (fixture.port.queued_tails.empty()) { continue; }
+            const auto QUEUED = fixture.port.queued_tails.back();
+            if (pass == 1) { canvas.pass_kind = PassKind::WorkspaceSource; }
+            if (pass == 2) { canvas.pass_kind = PassKind::Inert; }
+            if (pass == 3) { canvas.rendering_capture = true; }
+            if (pass == 4) { canvas.rendering_snapshot = true; }
+            if (pass == 5) { canvas.destination_live = true; }
+            if (change == 1) { fixture.port.windows.at(1).no_screen_share = true; }
+            if (change == 2) { fixture.port.windows.erase(1); }
+            if (change == 3) { fixture.port.unobservable.insert(1); }
+            if (change == 4) { fixture.port.windows.at(1).window = 999; }
+            if (change == 5) { fixture.port.windows.at(1).mapped = false; }
+            if (change == 6) { fixture.port.unlocked = false; }
+            if (change == 7) { fixture.port.session_available = false; }
+            if (change == 8) { fixture.policy.enabled = false; fixture.module.configure(fixture.policy); }
+            if (change == 9) { fixture.policy.inert = true; fixture.module.configure(fixture.policy); }
+            const Draw<FakeCanvas> DEFERRED{.canvas = &canvas, .image = &QUEUED.image,
+                .source = QUEUED.draw.source, .output = QUEUED.draw.output,
+                .canvas_box = QUEUED.draw.canvas_box, .image_origin = QUEUED.draw.image_origin,
+                .image_size = QUEUED.draw.image_size, .real_pass = true};
+            const auto COUNT = canvas.draws.size();
+            const bool ALLOWED = change == 0 || (change == 1 && pass == 0);
+            CHECK(fixture.module.draw_tail(HANDLE, DEFERRED, QUEUED.draw.no_screen_share) == ALLOWED);
+            CHECK(canvas.draws.size() == COUNT + (ALLOWED ? 1U : 0U));
+            // Queue-time denial is independent of final-pass denial, including local
+            // source disappearance. A denied capture never destroys the local tail.
+            fixture.port.queued_tails.clear();
+            fixture.module.after_windows(1, canvas);
+            CHECK(fixture.port.queued_tails.size() == (ALLOWED ? 1U : 0U));
+            if (change == 1 && pass != 0) {
+                canvas.pass_kind = PassKind::Live;
+                canvas.rendering_capture = false; canvas.rendering_snapshot = false;
+                canvas.destination_live = false;
+                CHECK(fixture.module.draw_tail(HANDLE, DEFERRED, QUEUED.draw.no_screen_share));
+            }
+        }
+    }
+}
+void retained_tail_pixel_provenance() {
+    Fixture fixture; fixture.log().tail = true; fixture.window(1); fixture.frame(1);
+    const auto HANDLE = fixture.handle();
+    fixture.port.windows.at(1).no_screen_share = true;
+    FakeCanvas canvas; const FakeCanvas::Image PRIVATE{.id = 81}, PUBLIC{.id = 82};
+    const Draw<FakeCanvas> INITIAL{.canvas = &canvas, .image = &PRIVATE, .source = {},
+        .output = {}, .canvas_box = {}, .image_origin = {}, .image_size = {}, .real_pass = true};
+    CHECK(fixture.module.draw(HANDLE, INITIAL));
+    fixture.port.windows.at(1).workspace_visible = false; fixture.frame(1);
+    fixture.module.after_windows(1, canvas);
+    CHECK(fixture.port.queued_tails.size() == 1);
+    if (fixture.port.queued_tails.empty()) { return; }
+    const auto QUEUED = fixture.port.queued_tails.back();
+    CHECK(QUEUED.draw.no_screen_share);
+    fixture.port.windows.at(1).no_screen_share = false;
+    const Draw<FakeCanvas> DEFERRED{.canvas = &canvas, .image = &QUEUED.image, .source = {},
+        .output = {}, .canvas_box = {}, .image_origin = {}, .image_size = {}, .real_pass = true};
+    CHECK(fixture.module.draw_tail(HANDLE, DEFERRED, QUEUED.draw.no_screen_share));
+    canvas.pass_kind = PassKind::WorkspaceSource;
+    CHECK(!fixture.module.draw_tail(HANDLE, DEFERRED, QUEUED.draw.no_screen_share));
+    fixture.port.queued_tails.clear(); fixture.module.after_windows(1, canvas);
+    CHECK(fixture.port.queued_tails.empty());
+    // Replacing the retained cache with public pixels must not declassify a
+    // previously queued private image from the same live animation handle.
+    canvas.pass_kind = PassKind::Live;
+    fixture.port.windows.at(1).workspace_visible = true;
+    fixture.log().tail = false; fixture.frame(1);
+    fixture.log().tail = true; fixture.frame(1);
+    auto fresh = INITIAL; fresh.image = &PUBLIC;
+    CHECK(fixture.module.draw(HANDLE, fresh));
+    canvas.pass_kind = PassKind::WorkspaceSource;
+    CHECK(!fixture.module.draw_tail(HANDLE, DEFERRED, QUEUED.draw.no_screen_share));
+    CHECK(fixture.module.draw_tail(HANDLE, fresh, false));
+    fixture.port.windows.at(1).workspace_visible = false; fixture.frame(1);
+    fixture.module.after_windows(1, canvas);
+    CHECK(fixture.port.queued_tails.size() == 1);
+    CHECK(!fixture.port.queued_tails.empty() && !fixture.port.queued_tails.back().draw.no_screen_share);
+}
+void retained_tail_retention_denial() {
+    Fixture fixture; fixture.log().tail = true; fixture.window(1); fixture.frame(1);
+    const auto HANDLE = fixture.handle();
+    FakeCanvas canvas; const FakeCanvas::Image IMAGE{.id = 83};
+    const Draw<FakeCanvas> DRAW{.canvas = &canvas, .image = &IMAGE, .source = {},
+        .output = {}, .canvas_box = {}, .image_origin = {}, .image_size = {}, .real_pass = true};
+    fixture.port.unlocked = false;
+    CHECK(fixture.module.draw(HANDLE, DRAW));
+    CHECK(!fixture.port.retained_mapped_image(HANDLE));
+    fixture.port.unlocked = true; fixture.port.session_available = false;
+    CHECK(fixture.module.draw(HANDLE, DRAW));
+    CHECK(!fixture.port.retained_mapped_image(HANDLE));
+    fixture.port.session_available = true; canvas.rendering_capture = true;
+    CHECK(fixture.module.draw(HANDLE, DRAW));
+    CHECK(!fixture.port.retained_mapped_image(HANDLE));
+    canvas.rendering_capture = false; canvas.rendering_snapshot = true;
+    CHECK(fixture.module.draw(HANDLE, DRAW));
+    CHECK(!fixture.port.retained_mapped_image(HANDLE));
+    canvas.rendering_snapshot = false;
+    CHECK(fixture.module.draw(HANDLE, DRAW));
+    CHECK(fixture.port.retained_mapped_image(HANDLE).has_value());
+    // The same framebuffer can be rendered again while private, then become
+    // shareable. Its retained pixels stay private until the tail cache is released.
+    fixture.port.windows.at(1).no_screen_share = true;
+    CHECK(fixture.module.draw(HANDLE, DRAW));
+    fixture.port.windows.at(1).no_screen_share = false;
+    canvas.pass_kind = PassKind::WorkspaceSource;
+    CHECK(!fixture.module.draw_tail(HANDLE, DRAW, false));
+    canvas.pass_kind = PassKind::Live;
+    CHECK(fixture.module.draw_tail(HANDLE, DRAW, false));
+}
+void retained_tail_rechecks_final_submission() {
+    for (int change = 0; change < 9; ++change) {
+        Fixture fixture; fixture.log().tail = true; fixture.window(1); fixture.frame(1);
+        const auto HANDLE = fixture.handle();
+        FakeCanvas canvas; const FakeCanvas::Image IMAGE{.id = 90};
+        const Draw<FakeCanvas> DRAW{.canvas = &canvas, .image = &IMAGE, .source = {},
+            .output = {}, .canvas_box = {}, .image_origin = {}, .image_size = {}, .real_pass = true};
+        CHECK(fixture.module.draw(HANDLE, DRAW));
+        fixture.port.windows.at(1).workspace_visible = false; fixture.frame(1);
+        // DestinationLive remains Live for state advancement, but its target
+        // framebuffer is retained and must not receive protected window pixels.
+        canvas.destination_live = true;
+        fixture.module.after_windows(1, canvas);
+        CHECK(fixture.port.queued_tails.size() == 1);
+        if (fixture.port.queued_tails.empty()) { continue; }
+        const auto QUEUED = fixture.port.queued_tails.back();
+        fixture.log().during_draw = [&] {
+            if (change == 1) { fixture.port.windows.at(1).no_screen_share = true; }
+            if (change == 2) { fixture.port.windows.erase(1); }
+            if (change == 3) { fixture.port.unobservable.insert(1); }
+            if (change == 4) { fixture.port.windows.at(1).window = 999; }
+            if (change == 5) { fixture.port.unlocked = false; }
+            if (change == 6) { fixture.policy.inert = true; fixture.module.configure(fixture.policy); }
+            if (change == 7) { fixture.port.visual_cache(HANDLE).image = FakeCanvas::Image{.id = 91}; }
+            if (change == 8) { fixture.port.windows.at(1).mapped = false; }
+        };
+        const auto REAL_DRAWS = fixture.log().real_draws;
+        int submissions = 0;
+        CHECK(fixture.module.display_tail(HANDLE, DRAW, QUEUED.draw.no_screen_share,
+            [&] { ++submissions; }) == (change == 0));
+        CHECK(submissions == (change == 0 ? 1 : 0));
+        CHECK(fixture.log().real_draws == REAL_DRAWS + 1);
+    }
 }
 void capacity_and_fadeout_validation() {
     Fixture fixture;
@@ -929,6 +1087,9 @@ int main() try {
     settings_style_reload_monitor(); stall_bounds();
     effects_and_stale_draw(); close_modes_and_disable(); close_mid_movement();
     tail_and_backdrop();
+    retained_tail_final_draw_privacy(); retained_tail_pixel_provenance();
+    retained_tail_retention_denial();
+    retained_tail_rechecks_final_submission();
     capacity_and_fadeout_validation(); pending_invalidation(); screen_order_and_shutdown();
     screen_survives_window_and_allocation_failure(); screen_damages_its_final_frame();
     screen_policy_requires_an_enabled_feature();

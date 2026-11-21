@@ -11,6 +11,7 @@
 #include <hyprland/src/layout/LayoutManager.hpp>
 #include <hyprland/src/managers/fullscreen/FullscreenController.hpp>
 #include <hyprland/src/managers/input/InputManager.hpp>
+#include <hyprland/src/managers/SessionLockManager.hpp>
 #include <hyprland/src/output/Monitor.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/render/Texture.hpp>
@@ -154,6 +155,17 @@ std::optional<Observation> CHyprWindowPort::observe(const WindowRef &ref) const 
     result.pinned = static_cast<bool>(WINDOW->m_state & Desktop::View::WINDOW_STATE_PINNED);
     result.no_screen_share = WINDOW->m_ruleApplicator->noScreenShare().valueOrDefault();
     return result;
+}
+bool CHyprWindowPort::session_unlocked() {
+    return g_pSessionLockManager && !g_pSessionLockManager->isSessionLocked();
+}
+bool CHyprWindowPort::tail_source_allowed(const WindowRef &ref, WindowId expected, bool capture) const {
+    const auto WINDOW = ref.lock();
+    if (!session_unlocked() || !WINDOW || !WINDOW->mapped() ||
+        (capture && WINDOW->m_ruleApplicator->noScreenShare().valueOrDefault())) { return false; }
+    return std::any_of(m_windows.begin(), m_windows.end(), [&](const auto &item) {
+        return item.id == expected && item.object.lock() == WINDOW;
+    });
 }
 Neighbourhood CHyprWindowPort::neighbourhood(const WindowRef &ref) {
     m_neighbours.clear();
@@ -333,6 +345,8 @@ void CHyprWindowPort::queue_tail(
     data.resources = &m_canvas_resources;
     data.handle = handle;
     data.image = image;
+    data.retained_tail = true;
+    data.no_screen_share = draw.no_screen_share;
     data.source = draw.source;
     data.output = draw.output;
     data.canvas_box = draw.canvas_box;

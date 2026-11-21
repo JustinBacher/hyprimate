@@ -644,8 +644,43 @@ Box CWindowAnimations<Port, StyleList<Styles...>>::extents(Handle handle, const 
     return detail::translated(STATE->bounds, {capture.x, capture.y});
 }
 template<class Port, class... Styles>
-bool CWindowAnimations<Port, StyleList<Styles...>>::draw(Handle handle, const Draw<Canvas> &draw_info) {
+bool CWindowAnimations<Port, StyleList<Styles...>>::tail_allowed(
+    Handle handle, const Canvas &canvas, bool retained_no_screen_share) const {
     const auto *entry = record(handle);
+    if (!m_policy.enabled || m_policy.inert ||
+        entry == nullptr || entry->life != Life::Mapped ||
+        !entry->current.running || !entry->current.tail) { return false; }
+    const auto *window = tracked(entry->origin);
+    if (window == nullptr || window->handle != handle ||
+        !m_port.tail_source_allowed(window->window, entry->origin, canvas.captures_pixels())) { return false; }
+    return !canvas.captures_pixels() || (!entry->retained_no_screen_share && !retained_no_screen_share);
+}
+template<class Port, class... Styles>
+bool CWindowAnimations<Port, StyleList<Styles...>>::draw_tail(
+    Handle handle, const Draw<Canvas> &draw_info, bool retained_no_screen_share) {
+    if (draw_info.canvas == nullptr || !tail_allowed(handle, *draw_info.canvas, retained_no_screen_share)) {
+        return false;
+    }
+    const auto retained = m_port.retained_mapped_image(handle);
+    if (!retained || retained->image == nullptr || draw_info.image == nullptr ||
+        !Canvas::same_image(*retained->image, *draw_info.image)) { return false; }
+    return draw(handle, draw_info);
+}
+template<class Port, class... Styles>
+template<class Display>
+bool CWindowAnimations<Port, StyleList<Styles...>>::display_tail(
+    Handle handle, const Draw<Canvas> &draw_info, bool retained_no_screen_share, Display &&display) {
+    if (!draw_tail(handle, draw_info, retained_no_screen_share)) { return false; }
+    const auto retained = m_port.retained_mapped_image(handle);
+    if (!retained || retained->image == nullptr ||
+        !Canvas::same_image(*retained->image, *draw_info.image) ||
+        !tail_allowed(handle, *draw_info.canvas, retained_no_screen_share)) { return false; }
+    std::forward<Display>(display)();
+    return true;
+}
+template<class Port, class... Styles>
+bool CWindowAnimations<Port, StyleList<Styles...>>::draw(Handle handle, const Draw<Canvas> &draw_info) {
+    auto *entry = record(handle);
     if (entry == nullptr || !entry->current.running) { return false; }
     auto isolated_draw = draw_info;
     if (isolated_draw.monitor == 0) { isolated_draw.monitor = entry->monitor; }
@@ -654,14 +689,22 @@ bool CWindowAnimations<Port, StyleList<Styles...>>::draw(Handle handle, const Dr
     isolated_draw.backdrop = entry->current.backdrop
         ? m_port.backdrop(handle, draw_info.canvas->pass()) : nullptr;
     const bool REAL_PASS = draw_info.real_pass && draw_info.canvas->pass() == PassKind::Live;
-    if (entry->life == Life::Mapped && entry->current.tail && REAL_PASS) {
-        if (const auto *window = tracked(entry->origin); window != nullptr && window->previous &&
-            window->previous->workspace_visible) {
-            const auto &observation = *window->previous;
-            const Vec2 OFFSET{observation.workspace_offset.x + observation.floating_offset.x,
-                observation.workspace_offset.y + observation.floating_offset.y};
-            m_port.retain_mapped_image(handle, *draw_info.image, draw_info.image_origin,
-                detail::translated(observation.capture, OFFSET), isolated_draw.frame);
+    if (entry->life == Life::Mapped && entry->current.tail && REAL_PASS && !draw_info.canvas->captures_pixels()) {
+        if (const auto *window = tracked(entry->origin); window != nullptr && m_port.session_unlocked()) {
+            const auto observation = m_port.observe(window->window);
+            if (observation && observation->window == entry->origin && observation->workspace_visible &&
+                observation->mapped && m_port.identity(window->window) == entry->origin) {
+                const Vec2 OFFSET{observation->workspace_offset.x + observation->floating_offset.x,
+                    observation->workspace_offset.y + observation->floating_offset.y};
+                if (!m_port.retained_mapped_image(handle)) {
+                    entry->retained_no_screen_share = observation->no_screen_share;
+                }
+                // Retained framebuffers are shared, not immutable pixel copies.
+                // A later private draw can update storage retained by an earlier frame.
+                entry->retained_no_screen_share |= observation->no_screen_share;
+                m_port.retain_mapped_image(handle, *draw_info.image, draw_info.image_origin,
+                    detail::translated(observation->capture, OFFSET), isolated_draw.frame);
+            }
         }
     }
     if (!is_usable(entry->current.bounds)) { return true; }
@@ -732,7 +775,7 @@ void CWindowAnimations<Port, StyleList<Styles...>>::after_windows(MonitorId moni
         if (!window.handle || !window.previous || window.previous->monitor != monitor ||
             window.previous->workspace_visible) { continue; }
         const auto *entry = record(*window.handle);
-        if (entry == nullptr || !entry->current.tail) { continue; }
+        if (entry == nullptr || !tail_allowed(entry->handle, canvas, entry->retained_no_screen_share)) { continue; }
         auto retained = m_port.retained_mapped_image(entry->handle);
         if (!retained || retained->image == nullptr) { continue; }
         const auto &capture = window.tail_capture_valid ? window.tail_capture : retained->capture;
@@ -744,7 +787,7 @@ void CWindowAnimations<Port, StyleList<Styles...>>::after_windows(MonitorId moni
             (retained->capture.y - facts->screen.y) * facts->scale,
             retained->capture.w * facts->scale, retained->capture.h * facts->scale};
         const TailDraw INFO{SOURCE, OUTPUT, OUTPUT, retained->image_origin, retained->image_size,
-            facts->scale, 1, monitor, facts->frame};
+            facts->scale, 1, monitor, facts->frame, entry->retained_no_screen_share};
         if (is_usable(OUTPUT)) { m_port.queue_tail(entry->handle, canvas, *retained->image, INFO); }
     }
     ([&] {
