@@ -197,12 +197,33 @@ namespace hyprimate {
             return {};
         }
 
+        // Preserve the usual arithmetic; only reorder products/sums that overflow.
+        double partition(double extent, int part, int whole) noexcept {
+            const double PRODUCT = extent * part;
+            return std::isfinite(PRODUCT) ? PRODUCT / whole
+                                         : extent * (static_cast<double>(part) / whole);
+        }
+
+        double midpoint(double first, double last) noexcept {
+            const double SUM = first + last;
+            return std::isfinite(SUM) ? 0.5 * SUM : (0.5 * first) + (0.5 * last);
+        }
+
         std::uint32_t bucket(Vec2 position, double cell) noexcept {
-            const auto CELL_X = static_cast<std::uint64_t>(
-                                    static_cast<std::int64_t>(std::floor(position.x / cell))) &
+            if (!(cell > 0.0) || !std::isfinite(cell)) {
+                return NO_CELL;
+            }
+            const double X = std::floor(position.x / cell);
+            const double Y = std::floor(position.y / cell);
+            // int64_t's upper bound rounds to 2^63 in double: use an exclusive bound.
+            constexpr double LOW = static_cast<double>(std::numeric_limits<std::int64_t>::min());
+            constexpr double HIGH = -LOW;
+            if (!(X >= LOW && X < HIGH && Y >= LOW && Y < HIGH)) {
+                return NO_CELL;
+            }
+            const auto CELL_X = static_cast<std::uint64_t>(static_cast<std::int64_t>(X)) &
                                 static_cast<std::uint64_t>(HASH_SIDE - 1);
-            const auto CELL_Y = static_cast<std::uint64_t>(
-                                    static_cast<std::int64_t>(std::floor(position.y / cell))) &
+            const auto CELL_Y = static_cast<std::uint64_t>(static_cast<std::int64_t>(Y)) &
                                 static_cast<std::uint64_t>(HASH_SIDE - 1);
             return static_cast<std::uint32_t>((CELL_Y * HASH_SIDE) + CELL_X);
         }
@@ -238,8 +259,10 @@ namespace hyprimate {
 
         const auto COUNT = static_cast<int>(m_agents.size());
         if (m_rows == 0) {
-            m_rows = std::clamp(
-                static_cast<int>(std::lround(std::sqrt(COUNT * m_body.h / m_body.w))), 1, COUNT);
+            // Clamp in floating point, before lround/int conversion (also on 32-bit long).
+            const double ROWS = std::clamp(
+                std::sqrt(COUNT * m_body.h / m_body.w), 1.0, static_cast<double>(COUNT));
+            m_rows = static_cast<int>(std::lround(ROWS));
         }
         const int ROWS = m_rows;
         m_spacing = std::sqrt(m_body.w * m_body.h / COUNT);
@@ -251,11 +274,11 @@ namespace hyprimate {
         auto agent_it = m_agents.begin();
         for (int tile_row = 0; tile_row < ROWS; ++tile_row) {
             const int COLUMNS = COLUMNS_OF(tile_row);
-            const double TOP = m_body.y + (m_body.h * tile_row / ROWS);
-            const double BOTTOM = m_body.y + (m_body.h * (tile_row + 1) / ROWS);
+            const double TOP = m_body.y + partition(m_body.h, tile_row, ROWS);
+            const double BOTTOM = m_body.y + partition(m_body.h, tile_row + 1, ROWS);
             for (int col = 0; col < COLUMNS; ++col) {
-                const double LEFT = m_body.x + (m_body.w * col / COLUMNS);
-                const double RIGHT = m_body.x + (m_body.w * (col + 1) / COLUMNS);
+                const double LEFT = m_body.x + partition(m_body.w, col, COLUMNS);
+                const double RIGHT = m_body.x + partition(m_body.w, col + 1, COLUMNS);
                 SwarmAgent &agent = *agent_it++;
                 // Outermost tiles extend over the decoration margin to the capture's edge.
                 const double TX0 = col == 0 ? 0.0 : LEFT;
@@ -263,7 +286,7 @@ namespace hyprimate {
                 const double TY0 = tile_row == 0 ? 0.0 : TOP;
                 const double TY1 = tile_row == ROWS - 1 ? m_size.y : BOTTOM;
                 agent.tile = {.x = TX0, .y = TY0, .w = TX1 - TX0, .h = TY1 - TY0};
-                agent.home = {.x = 0.5 * (LEFT + RIGHT), .y = 0.5 * (TOP + BOTTOM)};
+                agent.home = {.x = midpoint(LEFT, RIGHT), .y = midpoint(TOP, BOTTOM)};
                 agent.fit = 0.5 * std::min(RIGHT - LEFT, BOTTOM - TOP);
                 agent.reach = std::hypot(std::max(agent.home.x - TX0, TX1 - agent.home.x),
                     std::max(agent.home.y - TY0, TY1 - agent.home.y));
@@ -474,6 +497,12 @@ namespace hyprimate {
     }
 
     Box Swarm::bounds() const noexcept {
+        const double SCREEN_RIGHT = m_screen.x + m_screen.w;
+        const double SCREEN_BOTTOM = m_screen.y + m_screen.h;
+        if (!is_usable(m_screen) || !std::isfinite(SCREEN_RIGHT) ||
+            !std::isfinite(SCREEN_BOTTOM)) {
+            return {};
+        }
         double min_x = std::numeric_limits<double>::infinity();
         double min_y = min_x;
         double max_x = -min_x;
@@ -482,19 +511,28 @@ namespace hyprimate {
             if (!agent.visible) {
                 continue;
             }
-            min_x = std::min(min_x, agent.position.x - agent.reach);
-            min_y = std::min(min_y, agent.position.y - agent.reach);
-            max_x = std::max(max_x, agent.position.x + agent.reach);
-            max_y = std::max(max_y, agent.position.y + agent.reach);
+            const double LEFT = agent.position.x - agent.reach;
+            const double TOP = agent.position.y - agent.reach;
+            const double RIGHT = agent.position.x + agent.reach;
+            const double BOTTOM = agent.position.y + agent.reach;
+            if (!std::isfinite(LEFT) || !std::isfinite(TOP) || !std::isfinite(RIGHT) ||
+                !std::isfinite(BOTTOM)) {
+                continue;
+            }
+            min_x = std::min(min_x, LEFT);
+            min_y = std::min(min_y, TOP);
+            max_x = std::max(max_x, RIGHT);
+            max_y = std::max(max_y, BOTTOM);
         }
         min_x = std::max(min_x, m_screen.x);
         min_y = std::max(min_y, m_screen.y);
-        max_x = std::min(max_x, m_screen.x + m_screen.w);
-        max_y = std::min(max_y, m_screen.y + m_screen.h);
+        max_x = std::min(max_x, SCREEN_RIGHT);
+        max_y = std::min(max_y, SCREEN_BOTTOM);
         if (!(max_x > min_x) || !(max_y > min_y)) {
             return {};
         }
-        return {.x = min_x, .y = min_y, .w = max_x - min_x, .h = max_y - min_y};
+        const Box RESULT{.x = min_x, .y = min_y, .w = max_x - min_x, .h = max_y - min_y};
+        return is_usable(RESULT) ? RESULT : Box{};
     }
 
     bool Swarm::advance(double elapsed_seconds, bool movement_held) {
@@ -577,7 +615,9 @@ namespace hyprimate {
                 continue;
             }
             agent_cell = bucket(agent.position, CELL);
-            ++m_cell_start[agent_cell + 1];
+            if (agent_cell != NO_CELL) {
+                ++m_cell_start[agent_cell + 1];
+            }
         }
         auto previous = m_cell_start.begin();
         auto current = std::next(previous);
@@ -606,6 +646,14 @@ namespace hyprimate {
     Swarm::Crowd Swarm::crowd(std::size_t index, Vec2 forward, double force) const {
         const SwarmAgent &subject_agent = m_agents[index];
         const double CELL = NEIGHBOUR_RADIUS * m_spacing;
+        // Most queries reuse hash()'s cell. Newly visible/undocked agents were not inserted,
+        // but still query their neighbours just as before.
+        const std::uint32_t CELL_INDEX = m_cell_of[index] != NO_CELL
+                                            ? m_cell_of[index]
+                                            : bucket(subject_agent.position, CELL);
+        if (CELL_INDEX == NO_CELL) {
+            return {};
+        }
         const double NEAR = SEPARATION_RADIUS * m_spacing;
         const double LOOK = AVOID_RADIUS * m_spacing;
         const double BODY = K_SWARM_BODY_SHARE * subject_agent.fit;
@@ -619,8 +667,8 @@ namespace hyprimate {
         };
         const double OWN = TRANSIT(subject_agent);
         const Vec2 RIGHT{.x = -forward.y, .y = forward.x};  // its right-hand side on screen
-        const auto CELL_X = static_cast<std::int64_t>(std::floor(subject_agent.position.x / CELL));
-        const auto CELL_Y = static_cast<std::int64_t>(std::floor(subject_agent.position.y / CELL));
+        const auto CELL_X = static_cast<int>(CELL_INDEX % HASH_SIDE);
+        const auto CELL_Y = static_cast<int>(CELL_INDEX / HASH_SIDE);
 
         Crowd out;
         Vec2 push{};
@@ -628,14 +676,12 @@ namespace hyprimate {
         Vec2 velocity{};
         Vec2 centre{};
         int neighbours = 0;
-        for (std::int64_t dy = -1; dy <= 1; ++dy) {
-            for (std::int64_t dx = -1; dx <= 1; ++dx) {
-                const auto BUCKET_INDEX =
-                    static_cast<std::size_t>(((static_cast<std::uint64_t>(CELL_Y + dy) &
-                                                  static_cast<std::uint64_t>(HASH_SIDE - 1)) *
-                                                 HASH_SIDE) +
-                                             (static_cast<std::uint64_t>(CELL_X + dx) &
-                                                 static_cast<std::uint64_t>(HASH_SIDE - 1)));
+        for (int dy = -1; dy <= 1; ++dy) {
+            for (int dx = -1; dx <= 1; ++dx) {
+                // Add offsets only to bounded wrapped coordinates, never int64_t endpoints.
+                const auto BUCKET_INDEX = static_cast<std::size_t>(
+                    (((CELL_Y + HASH_SIDE + dy) & (HASH_SIDE - 1)) * HASH_SIDE) +
+                    ((CELL_X + HASH_SIDE + dx) & (HASH_SIDE - 1)));
                 const std::uint32_t BEGIN = m_cell_start[BUCKET_INDEX];
                 const std::uint32_t END = m_cell_start[BUCKET_INDEX + 1];
                 for (const std::uint32_t NEIGHBOUR_INDEX :

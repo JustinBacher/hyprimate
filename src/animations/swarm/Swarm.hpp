@@ -95,6 +95,9 @@ namespace hyprimate {
     // no order; movement shakes loose those whose grip the window outruns, and they chase their
     // homes; closing lets them go in random order over `stagger` and runs each off a random point
     // of the screen edges. No compositor dependency; equal seeds and inputs give equal motion.
+    // Pathological derived geometry is not a spatial-hash coordinate: agents outside the int64_t
+    // cell range, or with non-finite cells/spacing, have no crowd interaction. This does not clamp
+    // ordinary positions or change their motion. Non-finite tile footprints are omitted from bounds.
     class Swarm {
       public:
         // Open: agents start beyond `sides` of the screen and travel into formation. Close: agents
@@ -149,7 +152,8 @@ namespace hyprimate {
             return m_size;
         }
         // Box around every visible agent's tile at any rotation, relative to the capture box's
-        // top-left corner and clipped to the screen. Zero-sized when nothing is visible.
+        // top-left corner and clipped to the screen. Zero-sized when nothing finite is visible or
+        // when screen-relative edges/the resulting extent cannot be represented as finite doubles.
         [[nodiscard]] Box bounds() const noexcept;
 
       private:

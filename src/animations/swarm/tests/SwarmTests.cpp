@@ -783,6 +783,108 @@ namespace {
         CHECK(!swarm.active() && swarm.agents().empty());
     }
 
+    void unrepresentable_cells_do_not_alias_neighbours() {
+        // The quotient, not the input position, must fit the hash's integer coordinate.
+        for (const double ORIGIN : {1e23, -1e23}) {
+            SwarmPlacement far = placement();
+            far.screen.x = ORIGIN;
+            SwarmParams params;
+            params.count = 2;
+            params.stagger = 0.0;
+            params.separation = 0.0;
+            params.cohesion = 0.0;
+            Swarm alone;
+            alone.begin(Transition::Open, params, 31, far, sides({Edge::Left}));
+            params.cohesion = 1.0;
+            Swarm together;
+            together.begin(Transition::Open, params, 31, far, sides({Edge::Left}));
+            for (int step = 0; step < 4; ++step) {
+                alone.advance(1.0 / 120.0);
+                together.advance(1.0 / 120.0);
+            }
+            auto expected = alone.agents().begin();
+            for (const SwarmAgent &agent : together.agents()) {
+                CHECK(std::isfinite(agent.position.x) && std::isfinite(agent.position.y));
+                CHECK(agent.position.x == expected->position.x &&
+                      agent.position.y == expected->position.y);
+                CHECK(agent.velocity.x == expected->velocity.x &&
+                      agent.velocity.y == expected->velocity.y);
+                ++expected;
+            }
+        }
+        // Exactly -2^63 is representable, but its left neighbour cannot be added in int64_t.
+        // Just below +2^63 is valid; +2^63 itself must be rejected before conversion.
+        const double END = std::ldexp(192.0, 63);
+        for (const double ORIGIN : {-END, std::nextafter(END, 0.0), END}) {
+            SwarmPlacement edge{
+                .capture = {.x = 0.0, .y = 0.0, .w = 64.0, .h = 64.0},
+                .body = {.x = 0.0, .y = 0.0, .w = 64.0, .h = 64.0},
+                .screen = {.x = ORIGIN, .y = 0.0, .w = 1.0, .h = 1.0},
+            };
+            SwarmParams params;
+            params.count = 1;
+            params.stagger = 0.0;
+            Swarm swarm;
+            swarm.begin(Transition::Open, params, 31, edge, sides({Edge::Left}));
+            for (int step = 0; step < 4; ++step) {
+                swarm.advance(1.0 / 120.0);
+            }
+            CHECK(std::isfinite(swarm.agents().front().position.x));
+            CHECK(std::isfinite(swarm.agents().front().position.y));
+        }
+    }
+
+    void extreme_geometry_keeps_rows_and_bounds_representable() {
+        const double MAX = std::numeric_limits<double>::max();
+        for (const double HEIGHT : {1e100, MAX}) {
+            SwarmPlacement tall{
+                .capture = {.x = 0.0, .y = 0.0, .w = 1.0, .h = HEIGHT},
+                .body = {.x = 0.0, .y = 0.0, .w = 1.0, .h = HEIGHT},
+                .screen = {.x = 0.0, .y = 0.0, .w = 1.0, .h = HEIGHT},
+            };
+            SwarmParams params;
+            params.count = SWARM_MAX_AGENTS;
+            Swarm swarm;
+            swarm.begin_movement(params, 1, tall);
+            CHECK(swarm.agents().size() == SWARM_MAX_AGENTS);
+            CHECK(swarm.agents().front().tile.w == 1.0);
+            CHECK(swarm.agents().front().tile.h == HEIGHT / SWARM_MAX_AGENTS);
+            const Box BOUNDS = swarm.bounds();
+            CHECK(std::isfinite(BOUNDS.x) && std::isfinite(BOUNDS.y) &&
+                  std::isfinite(BOUNDS.w) && std::isfinite(BOUNDS.h));
+        }
+        // Finite inputs can produce infinite screen-relative positions, then NaN motion.
+        SwarmPlacement overflow = placement();
+        overflow.capture.x = -MAX;
+        overflow.screen.x = MAX;
+        Swarm swarm;
+        SwarmParams params;
+        params.stagger = 0.0;
+        swarm.begin(Transition::Open, params, 1, overflow, sides({Edge::Left}));
+        for (int step = 0; step < 4; ++step) {
+            swarm.advance(1.0 / 120.0);
+            const Box BOUNDS = swarm.bounds();
+            CHECK(BOUNDS.w == 0.0 && BOUNDS.h == 0.0);
+            CHECK(std::isfinite(BOUNDS.x) && std::isfinite(BOUNDS.y));
+        }
+        // Overflow in spacing (infinity) or underflow to zero must not produce a cell.
+        for (const double SIZE : {MAX, std::numeric_limits<double>::denorm_min()}) {
+            SwarmPlacement square{
+                .capture = {.x = 0.0, .y = 0.0, .w = SIZE, .h = SIZE},
+                .body = {.x = 0.0, .y = 0.0, .w = SIZE, .h = SIZE},
+                .screen = {.x = 0.0, .y = 0.0, .w = SIZE, .h = SIZE},
+            };
+            swarm.reset();
+            swarm.begin(Transition::Open, params, 1, square, sides({Edge::Left}));
+            for (int step = 0; step < 4; ++step) {
+                swarm.advance(1.0 / 120.0);
+                const Box BOUNDS = swarm.bounds();
+                CHECK(std::isfinite(BOUNDS.x) && std::isfinite(BOUNDS.y) &&
+                      std::isfinite(BOUNDS.w) && std::isfinite(BOUNDS.h));
+            }
+        }
+    }
+
     void sprite_measures_body_and_legs() {
         // A disc of radius 20 at (40, 60) with a thin leg reaching right to x = 110, in a 128 px
         // frame.
@@ -1027,6 +1129,8 @@ int main() {
     resize_keeps_agents_assigned_to_nearby_tiles();
     movement_landings_are_randomly_staggered();
     invalid_input_leaves_the_model_alone();
+    unrepresentable_cells_do_not_alias_neighbours();
+    extreme_geometry_keeps_rows_and_bounds_representable();
     sprite_measures_body_and_legs();
     walk_cycle_follows_distance();
     moving_sprites_advance_at_a_visible_rate();
