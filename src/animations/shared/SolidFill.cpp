@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <utility>
 
 #include <drm_fourcc.h>
 #include <hyprland/src/helpers/Color.hpp>
@@ -12,6 +13,7 @@
 #include <hyprland/src/render/Texture.hpp>
 
 #include "animations/shared/SolidFill.hpp"
+#include "gl/Storage.hpp"
 
 namespace {
     constexpr int SOLID_SIZE = 4;
@@ -52,12 +54,14 @@ SP<Render::ITexture> CSolidFill::texture() {
         ++pixel;
     }
 
-    m_texture = g_pHyprRenderer->createTexture(DRM_FORMAT_ARGB8888,
+    auto candidate = g_pHyprRenderer->createTexture(DRM_FORMAT_ARGB8888,
         pixels.data(),
         SOLID_SIZE * 4,
         Vector2D{SOLID_SIZE, SOLID_SIZE},
         false,
         ALPHA == 255);
+    if (!candidate || !hyprimate::gl::has_color_storage(candidate->m_texID)) { return nullptr; }
+    m_texture = std::move(candidate);
     m_built = m_color;
     return m_texture;
 }

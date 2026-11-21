@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <ranges>
+#include <utility>
 #include <vector>
 
 #include <GLES3/gl32.h>
@@ -20,6 +21,7 @@
 #include <hyprutils/math/Box.hpp>
 
 #include "animations/shared/SheetRenderer.hpp"
+#include "gl/Storage.hpp"
 
 namespace {
     constexpr int RAMP_SIZE = 256;
@@ -61,12 +63,14 @@ SP<Render::ITexture> CSheetShade::texture() {
         ++pixel_index;
     }
 
-    m_texture = g_pHyprRenderer->createTexture(DRM_FORMAT_ARGB8888,
+    auto candidate = g_pHyprRenderer->createTexture(DRM_FORMAT_ARGB8888,
         pixels.front().data(),
         RAMP_SIZE * 4,
         Vector2D{RAMP_SIZE, 1},
         false,
         false);
+    if (!candidate || !hyprimate::gl::has_color_storage(candidate->m_texID)) { return nullptr; }
+    m_texture = std::move(candidate);
     return m_texture;
 }
 
