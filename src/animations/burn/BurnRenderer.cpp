@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <exception>
 #include <memory>
 
 #include <EGL/egl.h>
@@ -50,7 +51,7 @@ namespace {
 struct CBurnRenderer::Impl {
     std::unique_ptr<CShader> shader;
     CBurnMaterial material;
-    bool attempted = false, ready = false;
+    bool ready = false;
     GLint maximum_edge = 0;
     bool supports(hyprimate::Vec2 size) {
         if (maximum_edge == 0) {
@@ -64,14 +65,20 @@ struct CBurnRenderer::Impl {
                size.x * size.y <= CBurnMaterial::MAX_TARGET_PIXELS;
     }
     bool initialize() {
-        if (attempted) return ready;
-        attempted = true;
-        shader = std::make_unique<CShader>();
-        const auto VERTEX = burn_shader::vertex();
-        const auto FRAGMENT = burn_shader::fragment();
-        if (!shader->createProgram(VERTEX, FRAGMENT, true, true) || shader->program() == 0)
-            return false;
-        ready = material.initialize(shader->program());
+        if (ready) return true;
+        try {
+            shader = std::make_unique<CShader>();
+            const auto VERTEX = burn_shader::vertex();
+            const auto FRAGMENT = burn_shader::fragment();
+            if (shader->createProgram(VERTEX, FRAGMENT, true, true) && shader->program() != 0)
+                ready = material.initialize(shader->program());
+        } catch (const std::exception &) {
+            ready = false;
+        }
+        if (!ready) {
+            material.release();
+            shader.reset();
+        }
         return ready;
     }
 };
@@ -87,13 +94,12 @@ CBurnRenderer::~CBurnRenderer() {
     }
 }
 bool CBurnRenderer::warm_up() {
-    if (m_impl->attempted) return true;
+    if (m_impl->ready) return true;
     if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL) return false;
     const ContextGuard CONTEXT;
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     const hyprimate::gl::CRawGlBracket<1> BRACKET{{}};
-    (void)m_impl->initialize();
-    return m_impl->attempted;
+    return m_impl->initialize();
 }
 
 bool CBurnRenderer::draw(const hyprimate::BurnSimulation &simulation,

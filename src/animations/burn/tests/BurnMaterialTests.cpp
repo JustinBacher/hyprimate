@@ -7,6 +7,7 @@
 
 #include "Check.hpp"
 #include "GlHarness.hpp"
+#include "GlAllocationFault.hpp"
 #include "animations/burn/BurnMaterial.hpp"
 #include "animations/burn/BurnShaders.hpp"
 
@@ -18,15 +19,17 @@ namespace {
 
     struct Target {
         GLuint framebuffer = 0, texture = 0;
-        Target() {
+        bool valid = false;
+        explicit Target(int width = WIDTH, int height = HEIGHT) {
             glGenTextures(1, &texture);
             glBindTexture(GL_TEXTURE_2D, texture);
             glTexImage2D(
-                GL_TEXTURE_2D, 0, GL_RGBA8, WIDTH, HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+                GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
             glGenFramebuffers(1, &framebuffer);
             glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
-            CHECK(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+            valid = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+            CHECK(valid);
         }
         ~Target() {
             glDeleteFramebuffers(1, &framebuffer);
@@ -68,6 +71,77 @@ namespace {
     void near(Pixel actual, Pixel expected) {
         for (unsigned channel = 0; channel < 4; ++channel)
             CHECK(std::abs(static_cast<int>(actual[channel]) - expected[channel]) <= 2);
+    }
+    bool allocation_failure_retry(GLuint program, const Target &target, GLuint texture,
+        const Image &source) {
+        hyprimate::BurnParams params;
+        params.duration = 1;
+        params.ember_density = params.fragment_density = 0;
+        params.consume = true;
+        hyprimate::BurnSimulation simulation;
+        simulation.open(CAPTURE, params, 29);
+        advance(simulation, 150);
+        CHECK(simulation.front().progress == 1);
+        if (simulation.front().progress != 1) return false;
+        const auto DRAW = [&](CBurnMaterial &material, const SBurnTarget &placement,
+                              const Target &output) {
+            const bool OK = material.draw(simulation, placement, texture, output.framebuffer);
+            CHECK(OK);
+            if (!OK) return false;
+            const auto IMAGE = read(output);
+            for (std::size_t index = 0; index < source.size(); ++index)
+                near(IMAGE[index], source[index]);
+            return true;
+        };
+        for (unsigned occurrence : {1U, 2U}) {
+            CBurnMaterial material;
+            {
+                gl_harness::FailAllocation fail(gl_harness::Allocation::buffer, occurrence);
+                const bool INITIALIZED = material.initialize(program);
+                CHECK(!INITIALIZED);
+                if (INITIALIZED) {
+                    material.release();
+                    return false;
+                }
+            }
+            CHECK(!material.draw(simulation, placement(), texture, target.framebuffer));
+            const bool INITIALIZED = material.initialize(program);
+            CHECK(INITIALIZED);
+            if (!INITIALIZED) return false;
+            const bool DRAWN = DRAW(material, placement(), target);
+            material.release();
+            if (!DRAWN) return false;
+        }
+        const Target larger{384, HEIGHT};
+        if (!larger.valid) return false;
+        auto growth = placement();
+        growth.canvas.x = 384;
+        for (const auto allocation :
+            {gl_harness::Allocation::texture_2d, gl_harness::Allocation::renderbuffer}) {
+            CBurnMaterial material;
+            const bool INITIALIZED = material.initialize(program);
+            CHECK(INITIALIZED);
+            if (!INITIALIZED) return false;
+            {
+                gl_harness::FailAllocation fail(allocation);
+                CHECK(!material.draw(simulation, placement(), texture, target.framebuffer));
+            }
+            if (!DRAW(material, placement(), target)) {
+                material.release();
+                return false;
+            }
+            {
+                gl_harness::FailAllocation fail(allocation);
+                CHECK(!material.draw(simulation, growth, texture, larger.framebuffer));
+            }
+            // Failed growth must preserve both the old FBO and its capacity.
+            if (!DRAW(material, placement(), target) || !DRAW(material, growth, larger)) {
+                material.release();
+                return false;
+            }
+            material.release();
+        }
+        return true;
     }
     void opening_and_consume(
         CBurnMaterial &material, const Target &target, GLuint texture, const Image &source) {
@@ -175,6 +249,7 @@ void main() {
 )GLSL";
         const GLuint PROGRAM = gl_harness::build_program(VERTEX, FRAGMENT);
         CHECK(PROGRAM != 0);
+        if (!PROGRAM) return;
         GLuint vao = 0;
         glGenVertexArrays(1, &vao);
         glBindVertexArray(vao);
@@ -222,18 +297,32 @@ int main() {
         return 77;
     }
     const Target target;
+    if (!target.valid) return 1;
     const GLuint PROGRAM =
         gl_harness::build_program(burn_shader::vertex(), burn_shader::fragment());
     CHECK(PROGRAM != 0);
     if (!PROGRAM) return 1;
     CBurnMaterial material;
     CHECK(material.initialize(PROGRAM));
+    if (g_failures != 0) {
+        material.release();
+        glDeleteProgram(PROGRAM);
+        return 1;
+    }
     Image source(WIDTH * HEIGHT);
     for (int row = 0; row < HEIGHT; ++row)
         for (int column = 0; column < WIDTH; ++column)
             source[static_cast<std::size_t>(row * WIDTH + column)] =
                 row % 9 < 2 || column % 7 < 2 ? Pixel{15, 19, 23, 255} : Pixel{210, 225, 240, 255};
     const GLuint TEXTURE = upload(source);
+    CHECK(TEXTURE != 0);
+    if (!TEXTURE || glGetError() != GL_NO_ERROR ||
+        !allocation_failure_retry(PROGRAM, target, TEXTURE, source)) {
+        material.release();
+        glDeleteTextures(1, &TEXTURE);
+        glDeleteProgram(PROGRAM);
+        return 1;
+    }
     opening_and_consume(material, target, TEXTURE, source);
     common_front_and_cold_ink(target);
     CHECK(glGetError() == GL_NO_ERROR);

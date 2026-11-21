@@ -18,6 +18,8 @@ struct SBurnTarget {
 
 // Compositor-independent material. initialize/release/draw require the owning
 // GLES context. The program is borrowed; the caller brackets raw GL state.
+// Initialization failures leave a retryable empty material; failed target growth
+// retains the previous drawable target and capacity.
 class CBurnMaterial {
   public:
     static constexpr GLint MAX_TARGET_EDGE = 8192;

@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <exception>
 #include <string>
 #include <utility>
 #include <vector>
@@ -18,6 +19,7 @@
 #include "HyprAnimationCanvas.hpp"
 #include "animations/shared/SheetRenderer.hpp"
 #include "gl/RawGlBracket.hpp"
+#include "gl/Storage.hpp"
 
 namespace {
     constexpr std::size_t FIELD_BYTES = CBurnGround::WIDTH * CBurnGround::HEIGHT * 4;
@@ -107,7 +109,7 @@ struct CBurnGroundDraw::Impl {
           axis_y_uniform = -1;
     GLint opening_count_uniform = -1, opening_rect_uniform = -1, opening_state_uniform = -1;
     GLint logical_screen_uniform = -1;
-    bool attempted = false, ready = false;
+    bool ready = false;
     ~Impl() {
         if (!Render::GL::g_pHyprOpenGL) {
             // Compositor teardown has already destroyed the context and its objects.
@@ -135,11 +137,23 @@ struct CBurnGroundDraw::Impl {
         }
     }
     bool initialize() {
-        if (attempted) return ready;
-        attempted = true;
-        shader = std::make_unique<CShader>();
-        if (!shader->createProgram(VERTEX, fragment(), true, true) || shader->program() == 0)
+        if (ready) return true;
+        const auto DISCARD = [&] {
+            glDeleteTextures(1, &field);
+            glDeleteVertexArrays(1, &vao);
+            field = vao = 0;
+            shader.reset();
+        };
+        try {
+            shader = std::make_unique<CShader>();
+            if (!shader->createProgram(VERTEX, fragment(), true, true) || shader->program() == 0) {
+                DISCARD();
+                return false;
+            }
+        } catch (const std::exception &) {
+            DISCARD();
             return false;
+        }
         const auto PROGRAM = shader->program();
         wallpaper_uniform = glGetUniformLocation(PROGRAM, "wallpaper");
         field_uniform = glGetUniformLocation(PROGRAM, "field");
@@ -152,14 +166,22 @@ struct CBurnGroundDraw::Impl {
         logical_screen_uniform = glGetUniformLocation(PROGRAM, "logicalScreen");
         glGenVertexArrays(1, &vao);
         glGenTextures(1, &field);
+        if (!field || !vao) {
+            DISCARD();
+            return false;
+        }
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, field);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, CBurnGround::WIDTH, CBurnGround::HEIGHT);
-        ready = field != 0 && vao != 0;
+        if (!hyprimate::gl::allocate_texture_2d(
+                GL_RGBA8, CBurnGround::WIDTH, CBurnGround::HEIGHT)) {
+            DISCARD();
+            return false;
+        }
+        ready = true;
         return ready;
     }
     struct Pass final : IPassElement {

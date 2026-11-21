@@ -1,9 +1,11 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <exception>
 #include <vector>
 
 #include "animations/burn/BurnMaterial.hpp"
+#include "gl/Storage.hpp"
 
 namespace {
     using hyprimate::Vec3;
@@ -62,7 +64,6 @@ void CBurnMaterial::bind_vertices(GLuint vao, GLuint buffer) {
 bool CBurnMaterial::initialize(GLuint program) {
     if (m_program != 0) return m_program == program;
     if (program == 0) return false;
-    m_program = program;
     GLint texture_limit = 0, renderbuffer_limit = 0;
     glGetIntegerv(GL_MAX_TEXTURE_SIZE, &texture_limit);
     glGetIntegerv(GL_MAX_RENDERBUFFER_SIZE, &renderbuffer_limit);
@@ -82,42 +83,53 @@ bool CBurnMaterial::initialize(GLuint program) {
     m_uv_bounds = glGetUniformLocation(program, "uvBounds");
     glGenVertexArrays(2, m_vao.data());
     glGenBuffers(2, m_buffer.data());
-    glGenFramebuffers(1, &m_framebuffer);
-    glGenTextures(1, &m_color);
-    glGenRenderbuffers(1, &m_depth);
-    if (!m_vao[0] || !m_vao[1] || !m_buffer[0] || !m_buffer[1] || !m_framebuffer || !m_color ||
-        !m_depth) {
+    if (!m_vao[0] || !m_vao[1] || !m_buffer[0] || !m_buffer[1]) {
         release();
         return false;
     }
     // Immutable tessellation; no grid allocation or upload on animation frames.
     std::vector<Vertex> grid;
-    grid.reserve(6 + GRID * GRID * 6);
-    for (const auto &corner : CORNERS)
-        grid.push_back({0, 0, 0, corner[0], corner[1], corner[0], corner[1], 0, 0, 1, 0, 1, 1, 0});
-    for (std::size_t y = 0; y < GRID; ++y) {
-        for (std::size_t x = 0; x < GRID; ++x) {
-            for (const auto &corner : CORNERS) {
-                const float U = (static_cast<float>(x) + corner[0]) / static_cast<float>(GRID);
-                const float V = (static_cast<float>(y) + corner[1]) / static_cast<float>(GRID);
-                grid.push_back({0, 0, 0, U, V, U, V, 0, 0, 1, 0, 1, 1, 0});
+    try {
+        grid.reserve(6 + GRID * GRID * 6);
+        for (const auto &corner : CORNERS)
+            grid.push_back(
+                {0, 0, 0, corner[0], corner[1], corner[0], corner[1], 0, 0, 1, 0, 1, 1, 0});
+        for (std::size_t y = 0; y < GRID; ++y) {
+            for (std::size_t x = 0; x < GRID; ++x) {
+                for (const auto &corner : CORNERS) {
+                    const float U = (static_cast<float>(x) + corner[0]) / static_cast<float>(GRID);
+                    const float V = (static_cast<float>(y) + corner[1]) / static_cast<float>(GRID);
+                    grid.push_back({0, 0, 0, U, V, U, V, 0, 0, 1, 0, 1, 1, 0});
+                }
             }
         }
+    } catch (const std::exception &) {
+        release();
+        return false;
     }
     bind_vertices(m_vao[0], m_buffer[0]);
-    glBufferData(GL_ARRAY_BUFFER,
-        static_cast<GLsizeiptr>(grid.size() * sizeof(Vertex)),
-        grid.data(),
-        GL_STATIC_DRAW);
+    if (!hyprimate::gl::allocate_buffer(GL_ARRAY_BUFFER,
+            static_cast<GLsizeiptr>(grid.size() * sizeof(Vertex)),
+            grid.data(),
+            GL_STATIC_DRAW)) {
+        release();
+        return false;
+    }
     bind_vertices(m_vao[1], m_buffer[1]);
-    glBufferData(
-        GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(sizeof(m_debris)), nullptr, GL_DYNAMIC_DRAW);
+    if (!hyprimate::gl::allocate_buffer(
+            GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(sizeof(m_debris)), nullptr, GL_DYNAMIC_DRAW)) {
+        release();
+        return false;
+    }
+    m_program = program;
     return true;
 }
 
 bool CBurnMaterial::resize(GLsizei width, GLsizei height) {
-    glBindFramebuffer(GL_FRAMEBUFFER, m_framebuffer);
-    if (width <= m_target_width && height <= m_target_height) return true;
+    if (width <= m_target_width && height <= m_target_height) {
+        glBindFramebuffer(GL_FRAMEBUFFER, m_framebuffer);
+        return true;
+    }
     auto capacity_x =
         std::max(m_target_width, std::min(m_target_limit, ((width + 255) / 256) * 256));
     auto capacity_y =
@@ -128,19 +140,57 @@ bool CBurnMaterial::resize(GLsizei width, GLsizei height) {
         capacity_x = width;
         capacity_y = height;
     }
+    GLuint framebuffer = 0, color = 0, depth = 0;
+    glGenFramebuffers(1, &framebuffer);
+    glGenTextures(1, &color);
+    glGenRenderbuffers(1, &depth);
+    const auto DISCARD = [&] {
+        glDeleteFramebuffers(1, &framebuffer);
+        glDeleteTextures(1, &color);
+        glDeleteRenderbuffers(1, &depth);
+    };
+    if (!framebuffer || !color || !depth) {
+        DISCARD();
+        return false;
+    }
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, m_color);
+    glBindTexture(GL_TEXTURE_2D, color);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexImage2D(
-        GL_TEXTURE_2D, 0, GL_RGBA8, capacity_x, capacity_y, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_color, 0);
-    glBindRenderbuffer(GL_RENDERBUFFER, m_depth);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, capacity_x, capacity_y);
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_depth);
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) return false;
+    if (!hyprimate::gl::allocate_texture_2d(GL_RGBA8, capacity_x, capacity_y)) {
+        DISCARD();
+        return false;
+    }
+    glBindRenderbuffer(GL_RENDERBUFFER, depth);
+    if (!hyprimate::gl::allocate_renderbuffer(GL_DEPTH_COMPONENT24, capacity_x, capacity_y)) {
+        DISCARD();
+        return false;
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depth);
+    GLint attached_color = 0, attached_depth = 0;
+    glGetFramebufferAttachmentParameteriv(
+        GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &attached_color);
+    glGetFramebufferAttachmentParameteriv(
+        GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &attached_depth);
+    if (static_cast<GLuint>(attached_color) != color ||
+        static_cast<GLuint>(attached_depth) != depth) {
+        DISCARD();
+        return false;
+    }
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        DISCARD();
+        return false;
+    }
+    glDeleteFramebuffers(1, &m_framebuffer);
+    glDeleteTextures(1, &m_color);
+    glDeleteRenderbuffers(1, &m_depth);
+    m_framebuffer = framebuffer;
+    m_color = color;
+    m_depth = depth;
     m_target_width = capacity_x;
     m_target_height = capacity_y;
     return true;
