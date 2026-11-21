@@ -20,6 +20,7 @@
 #include "animations/swarm/SwarmSurface.hpp"
 #include "animations/swarm/SwarmSurfaceBody.hpp"
 #include "gl/RawGlBracket.hpp"
+#include "gl/Storage.hpp"
 #include "swarm_shaders_generated.hpp"
 
 CSwarmSurface::~CSwarmSurface() {
@@ -67,8 +68,7 @@ CSwarmSurface::~CSwarmSurface() {
 }
 
 bool CSwarmSurface::initialize() {
-    if ((m_program != 0U) && (m_field_program != 0U) && (m_vao != 0U) && (m_quad != 0U) &&
-        (m_instances != 0U) && (m_field_framebuffer != 0U) && (m_field_texture != 0U)) {
+    if (m_ready) {
         return true;
     }
     if (m_program == 0U) {
@@ -101,18 +101,17 @@ bool CSwarmSurface::initialize() {
     if (m_field_framebuffer == 0U) {
         glGenFramebuffers(1, &m_field_framebuffer);
     }
-    if (m_field_texture == 0U) {
-        glGenTextures(1, &m_field_texture);
-    }
     if ((m_program == 0U) || (m_field_program == 0U) || (m_vao == 0U) || (m_quad == 0U) ||
-        (m_instances == 0U) || (m_field_framebuffer == 0U) || (m_field_texture == 0U)) {
+        (m_instances == 0U) || (m_field_framebuffer == 0U)) {
         (void)std::fprintf(stderr, "swarm surface: cannot create GPU resources\n");
         return false;
     }
     constexpr std::array<float, 8> QUAD = {-1, -1, 1, -1, -1, 1, 1, 1};
     glBindVertexArray(m_vao);
     glBindBuffer(GL_ARRAY_BUFFER, m_quad);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(QUAD), QUAD.data(), GL_STATIC_DRAW);
+    if (!hyprimate::gl::allocate_buffer(GL_ARRAY_BUFFER, sizeof(QUAD), QUAD.data(), GL_STATIC_DRAW)) {
+        return false;
+    }
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
     glBindBuffer(GL_ARRAY_BUFFER, m_instances);
@@ -136,6 +135,38 @@ bool CSwarmSurface::initialize() {
     m_standing = glGetUniformLocation(m_program, "standingAt");
     m_k = glGetUniformLocation(m_program, "k");
     m_canvas_radius = glGetUniformLocation(m_program, "canvasRadius");
+    m_ready = true;
+    return true;
+}
+
+bool CSwarmSurface::bind_field(GLsizei width, GLsizei height) {
+    glBindFramebuffer(GL_FRAMEBUFFER, m_field_framebuffer);
+    if (width <= m_field_width && height <= m_field_height) { return true; }
+    width = std::max(width, m_field_width);
+    height = std::max(height, m_field_height);
+    GLuint candidate = 0;
+    glGenTextures(1, &candidate);
+    if (candidate == 0) { return false; }
+    glBindTexture(GL_TEXTURE_2D, candidate);
+    if (!hyprimate::gl::allocate_texture_2d(GL_RGBA16F, width, height)) {
+        glDeleteTextures(1, &candidate);
+        return false;
+    }
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, candidate, 0);
+    if (!hyprimate::gl::framebuffer_attachment_is(GL_COLOR_ATTACHMENT0, candidate) ||
+        glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_field_texture, 0);
+        glDeleteTextures(1, &candidate);
+        return false;
+    }
+    glDeleteTextures(1, &m_field_texture);
+    m_field_texture = candidate;
+    m_field_width = width;
+    m_field_height = height;
     return true;
 }
 
@@ -189,103 +220,61 @@ SP<Render::IFramebuffer> CSwarmSurface::filter(Render::CRenderContext &ctx,
     }};
     constexpr std::array<GLfloat, 4> CLEAR_COLOR{0.F, 0.F, 0.F, 0.F};
 
-    bool ready = initialize();
-    if (ready) {
-        glDisable(GL_SCISSOR_TEST);
-        glDisable(GL_STENCIL_TEST);
-        glDisable(GL_DEPTH_TEST);
-        glDisable(GL_CULL_FACE);
-        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, m_field_texture);
-        glBindFramebuffer(GL_FRAMEBUFFER, m_field_framebuffer);
-        // One surface serves differently sized windows in the same frame. Retain capacity,
-        // rather than reallocating its texture every time the next window is smaller.
-        if (WIDTH > m_field_width || HEIGHT > m_field_height) {
-            const GLsizei CAPACITY_W = std::max(WIDTH, m_field_width);
-            const GLsizei CAPACITY_H = std::max(HEIGHT, m_field_height);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-            // A failed resize must not leave a complete, incorrectly sized old texture.
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, 0, 0, 0, GL_RGBA, GL_HALF_FLOAT, nullptr);
-            glTexImage2D(GL_TEXTURE_2D,
-                0,
-                GL_RGBA16F,
-                CAPACITY_W,
-                CAPACITY_H,
-                0,
-                GL_RGBA,
-                GL_HALF_FLOAT,
-                nullptr);
-            m_field_width = m_field_height = 0;
-            glFramebufferTexture2D(
-                GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_field_texture, 0);
-            if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-                (void)std::fprintf(stderr, "swarm surface: half-float framebuffer unavailable\n");
-                ready = false;
-            } else {
-                m_field_width = CAPACITY_W;
-                m_field_height = CAPACITY_H;
-            }
+    if (!initialize()) { return nullptr; }
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_STENCIL_TEST);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glActiveTexture(GL_TEXTURE0);
+    if (!bind_field(WIDTH, HEIGHT)) { return nullptr; }
+    glBindVertexArray(m_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, m_instances);
+    const std::size_t BYTES = bodies.size_bytes();
+    if (BYTES > m_instance_capacity) {
+        // A power-of-two capacity can exceed GLsizeiptr even when BYTES itself fits.
+        constexpr auto MAX = static_cast<std::size_t>(std::numeric_limits<GLsizeiptr>::max());
+        const auto CAPACITY = BYTES > std::bit_floor(MAX) ? BYTES : std::bit_ceil(BYTES);
+        if (!hyprimate::gl::allocate_buffer(
+                GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(CAPACITY), nullptr, GL_STREAM_DRAW)) {
+            return nullptr;
         }
-        glBindVertexArray(m_vao);
-        glBindBuffer(GL_ARRAY_BUFFER, m_instances);
-        const std::size_t BYTES = bodies.size_bytes();
-        if (BYTES > m_instance_capacity) {
-            const auto CAPACITY = std::bit_ceil(BYTES);
-            glBufferData(
-                GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(CAPACITY), nullptr, GL_STREAM_DRAW);
-            GLint allocated = 0;
-            glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &allocated);
-            if (std::cmp_less(allocated, BYTES)) {
-                (void)std::fprintf(stderr, "swarm surface: cannot allocate instance buffer\n");
-                m_instance_capacity = 0;
-                ready = false;
-            } else {
-                m_instance_capacity = static_cast<std::size_t>(allocated);
-            }
-        }
-        if (ready && (BYTES != 0U)) {
-            glBufferSubData(GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(BYTES), bodies.data());
-        }
-        if (ready) {
-            const float SMOOTH_RADIUS = static_cast<float>(std::max(radius, 0.5));
-            glViewport(0, 0, WIDTH, HEIGHT);
-            glEnable(GL_SCISSOR_TEST);
-            glScissor(0, 0, WIDTH, HEIGHT);
-            glClearBufferfv(GL_COLOR, 0, CLEAR_COLOR.data());
-            glDisable(GL_SCISSOR_TEST);
-            glEnable(GL_BLEND);
-            glBlendFunc(GL_ONE, GL_ONE);
-            glBlendEquation(GL_FUNC_ADD);
-            glUseProgram(m_field_program);
-            glUniform2f(
-                m_field_size_uniform, static_cast<float>(WIDTH), static_cast<float>(HEIGHT));
-            glUniform1f(m_field_k, SMOOTH_RADIUS);
-            glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, static_cast<GLsizei>(bodies.size()));
-            glBindFramebuffer(GL_FRAMEBUFFER,
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): RT_GL owns this framebuffer.
-                static_cast<Render::GL::CGLFramebuffer *>(OUTPUT.get())->getFBID());
-            glViewport(0, 0, static_cast<GLsizei>(size.x), HEIGHT);
-            glDisable(GL_BLEND);
-            glUseProgram(m_program);
-            glUniform1i(m_tex, 0);
-            glUniform1i(m_field, 1);
-            glUniform2i(m_size, WIDTH, HEIGHT);
-            glUniform1i(m_standing, STANDING);
-            glUniform1f(m_k, SMOOTH_RADIUS);
-            glUniform1f(m_canvas_radius, static_cast<float>(corner_radius));
-            glBindSampler(0, 0);
-            glBindSampler(1, 0);
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, input->getTexture()->m_texID);
-            glActiveTexture(GL_TEXTURE1);
-            glBindTexture(GL_TEXTURE_2D, m_field_texture);
-            glDrawArrays(GL_TRIANGLES, 0, 3);
-        }
+        m_instance_capacity = CAPACITY;
     }
-
-    return ready ? OUTPUT : nullptr;
+    if (BYTES != 0U) {
+        glBufferSubData(GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(BYTES), bodies.data());
+    }
+    const float SMOOTH_RADIUS = static_cast<float>(std::max(radius, 0.5));
+    glViewport(0, 0, WIDTH, HEIGHT);
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(0, 0, WIDTH, HEIGHT);
+    glClearBufferfv(GL_COLOR, 0, CLEAR_COLOR.data());
+    glDisable(GL_SCISSOR_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);
+    glBlendEquation(GL_FUNC_ADD);
+    glUseProgram(m_field_program);
+    glUniform2f(m_field_size_uniform, static_cast<float>(WIDTH), static_cast<float>(HEIGHT));
+    glUniform1f(m_field_k, SMOOTH_RADIUS);
+    glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, static_cast<GLsizei>(bodies.size()));
+    glBindFramebuffer(GL_FRAMEBUFFER,
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): RT_GL owns this framebuffer.
+        static_cast<Render::GL::CGLFramebuffer *>(OUTPUT.get())->getFBID());
+    glViewport(0, 0, static_cast<GLsizei>(size.x), HEIGHT);
+    glDisable(GL_BLEND);
+    glUseProgram(m_program);
+    glUniform1i(m_tex, 0);
+    glUniform1i(m_field, 1);
+    glUniform2i(m_size, WIDTH, HEIGHT);
+    glUniform1i(m_standing, STANDING);
+    glUniform1f(m_k, SMOOTH_RADIUS);
+    glUniform1f(m_canvas_radius, static_cast<float>(corner_radius));
+    glBindSampler(0, 0);
+    glBindSampler(1, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, input->getTexture()->m_texID);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, m_field_texture);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    return OUTPUT;
 }

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstring>
 #include <iterator>
+#include <memory>
 #include <numbers>
 #include <optional>
 #include <span>
@@ -33,6 +34,7 @@
 #include "animations/swarm/SwarmSprite.hpp"
 #include "animations/swarm/SwarmSurface.hpp"
 #include "animations/swarm/SwarmSurfaceBody.hpp"
+#include "gl/Storage.hpp"
 
 using hyprimate::Vec2;
 
@@ -50,24 +52,26 @@ namespace {
     // Px between the two halves of the layer, so filtering one never reaches the other.
     constexpr double LAYER_GAP = 2.0;
 
-    // Decodes the sheet, resamples its frames into the atlas and measures them. False when the
-    // sheet cannot be decoded.
-    bool bake(const std::string &creature,
+    // Permanent decode errors are cached; transient atlas allocation failures are not.
+    cairo_status_t bake(const std::string &creature,
         CSwarmSprites::SSheet &sheet,
         std::vector<std::uint8_t> &pixels) {
         const auto PATH = hyprimate::sprite_path(
             hyprimate::SpriteName{creature}, hyprimate::SpriteDirectory{HYPRIMATE_SPRITE_DIR});
-        cairo_surface_t *image = cairo_image_surface_create_from_png(PATH.c_str());
+        using Surface = std::unique_ptr<cairo_surface_t, decltype(&cairo_surface_destroy)>;
+        const Surface source{cairo_image_surface_create_from_png(PATH.c_str()), cairo_surface_destroy};
+        auto *image = source.get();
         if (cairo_surface_status(image) != CAIRO_STATUS_SUCCESS) {
-            cairo_surface_destroy(image);
-            return false;
+            return cairo_surface_status(image);
         }
 
         constexpr int COLUMNS = 4;
         constexpr int ROWS = 2;
         constexpr int FRAMES = COLUMNS * ROWS;
         const int WIDTH = (FRAMES + SHAPE_CELLS) * CELL_PX;
-        cairo_surface_t *atlas = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, WIDTH, CELL_PX);
+        const Surface backing{cairo_image_surface_create(CAIRO_FORMAT_ARGB32, WIDTH, CELL_PX),
+            cairo_surface_destroy};
+        auto *atlas = backing.get();
         cairo_t *context = cairo_create(atlas);
         const double FRAME_W = static_cast<double>(cairo_image_surface_get_width(image)) / COLUMNS;
         const double FRAME_H = static_cast<double>(cairo_image_surface_get_height(image)) / ROWS;
@@ -96,11 +100,13 @@ namespace {
             0.0,
             2.0 * std::numbers::pi);
         cairo_fill(context);
+        const auto PAINT_STATUS = cairo_status(context);
         cairo_destroy(context);
         cairo_surface_flush(atlas);
-        const bool DRAWN = cairo_surface_status(atlas) == CAIRO_STATUS_SUCCESS;
+        const auto STATUS =
+            PAINT_STATUS == CAIRO_STATUS_SUCCESS ? cairo_surface_status(atlas) : PAINT_STATUS;
 
-        if (DRAWN) {
+        if (STATUS == CAIRO_STATUS_SUCCESS) {
             // Premultiplied ARGB32 in native byte order: B, G, R, A in memory, as
             // DRM_FORMAT_ARGB8888 wants.
             const unsigned char *data = cairo_image_surface_get_data(atlas);
@@ -141,9 +147,7 @@ namespace {
             sheet.forward = -0.5 * std::numbers::pi;
             sheet.stride = 1.0;
         }
-        cairo_surface_destroy(atlas);
-        cairo_surface_destroy(image);
-        return DRAWN;
+        return STATUS;
     }
 
     void push_quad(std::vector<SMeshRenderVertex> &out,
@@ -247,11 +251,12 @@ namespace {
 CSwarmSprites::SEntry &CSwarmSprites::entry(const std::string &creature) {
     SEntry &sprite_entry = m_entries[creature];
     if (!sprite_entry.tried) {
-        sprite_entry.tried = true;
-        if (!bake(creature, sprite_entry.sheet, sprite_entry.pixels)) {
+        const auto STATUS = bake(creature, sprite_entry.sheet, sprite_entry.pixels);
+        if (STATUS != CAIRO_STATUS_SUCCESS) {
             sprite_entry.sheet.frames.clear();
             sprite_entry.pixels.clear();
         }
+        sprite_entry.tried = STATUS != CAIRO_STATUS_NO_MEMORY;
     }
     return sprite_entry;
 }
@@ -267,15 +272,15 @@ SP<Render::ITexture> CSwarmSprites::texture(const std::string &creature) {
         return sprite_entry.texture;
     }
     const int WIDTH = (static_cast<int>(sprite_entry.sheet.frames.size()) + SHAPE_CELLS) * CELL_PX;
-    sprite_entry.texture = g_pHyprRenderer->createTexture(DRM_FORMAT_ARGB8888,
+    auto candidate = g_pHyprRenderer->createTexture(DRM_FORMAT_ARGB8888,
         sprite_entry.pixels.data(),
         WIDTH * 4,
         Vector2D{static_cast<double>(WIDTH), static_cast<double>(CELL_PX)},
         false,
         false);
-    if (sprite_entry.texture) {
-        sprite_entry.pixels = {};
-    }
+    if (!candidate || !hyprimate::gl::has_color_storage(candidate->m_texID)) { return nullptr; }
+    sprite_entry.texture = std::move(candidate);
+    sprite_entry.pixels = {};
     return sprite_entry.texture;
 }
 
