@@ -45,6 +45,17 @@ namespace hyprimate {
         }
     }  // namespace
 
+    Box BubbleImpact::bounds(Vec2 frame_centre, double lifetime) const {
+        if (!(radius > 0) || !(lifetime >= 0) || !std::isfinite(drift.x) || !std::isfinite(drift.y)) {
+            return {};
+        }
+        const double extent = radius * 1.3 + std::hypot(drift.x, drift.y) * lifetime + 2.0;
+        const Box box{.x = (frame_centre.x + position.x) - extent,
+            .y = (frame_centre.y + position.y) - extent, .w = extent * 2, .h = extent * 2};
+        return is_usable(box) && std::isfinite(box.x + box.w) && std::isfinite(box.y + box.h)
+                   ? box : Box{};
+    }
+
     double bubble_hole_azimuth(const BubbleHole &hole, Vec3 point, bool spherical) {
         if (!spherical) {
             return std::atan2(point.y - hole.centre.y, point.x - hole.centre.x);

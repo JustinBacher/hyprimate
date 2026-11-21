@@ -40,8 +40,8 @@ class CBubbleVestige {
   private:
     struct Deposit {
         MonitorId monitor = 0;
-        hyprimate::Vec2 position{};
-        double radius = 0, impact_radius = 0;
+        hyprimate::Box bounds{};
+        double impact_radius = 0;
         hyprimate::Vec2 drift{};
         double lifetime = 0;
         std::chrono::steady_clock::time_point last;

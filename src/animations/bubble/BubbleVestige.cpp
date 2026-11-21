@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <utility>
 
@@ -20,12 +21,16 @@
 #include "animations/shared/Core.hpp"
 
 namespace {
-    CBox footprint(Vector2D position, double radius) {
-        return {position.x - radius, position.y - radius, radius * 2.0, radius * 2.0};
-    }
-
     CBox on_screen(const CBubbleVestige::ScreenFacts &screen, const CBox &source) {
         const CBox SCREEN{0, 0, screen.screen.w * screen.scale, screen.screen.h * screen.scale};
+        // Damage regions have signed pixel coordinates. Scaling either logical box
+        // can invalidate its far edge even when its individual inputs were finite.
+        constexpr double MAX_PIXEL = std::numeric_limits<std::int32_t>::max();
+        if (!(SCREEN.w > 0 && SCREEN.w <= MAX_PIXEL && SCREEN.h > 0 && SCREEN.h <= MAX_PIXEL) ||
+            !hyprimate::is_usable({source.x, source.y, source.w, source.h}) ||
+            !std::isfinite(source.x + source.w) || !std::isfinite(source.y + source.h)) {
+            return {};
+        }
         const auto CLIPPED = source.copy().intersection(SCREEN);
         if (CLIPPED.empty()) {
             return {};
@@ -54,17 +59,12 @@ bool CBubbleVestige::deposit(MonitorId monitor,
     bool accepted = false;
     const auto NOW = std::chrono::steady_clock::now();
     for (const auto &impact : impacts) {
-        const hyprimate::Vec2 POSITION{.x = centre.x + impact.position.x, .y = centre.y + impact.position.y};
-        if (!std::isfinite(POSITION.x) || !std::isfinite(POSITION.y) ||
-            !std::isfinite(impact.radius) || !std::isfinite(impact.delay) ||
-            !std::isfinite(impact.drift.x) || !std::isfinite(impact.drift.y) ||
-            impact.radius <= 0) {
+        if (!std::isfinite(impact.delay)) {
             continue;
         }
         const double LIFETIME = std::clamp(0.35 + (impact.radius * 0.07), 0.35, 0.7);
-        const double EXTENT =
-            (impact.radius * 1.3) + (std::hypot(impact.drift.x, impact.drift.y) * LIFETIME) + 2.0;
-        if (impact.delay <= -LIFETIME) {
+        const auto bounds = impact.bounds(centre, LIFETIME);
+        if (bounds.w == 0 || impact.delay <= -LIFETIME) {
             continue;
         }
         // Delays are animation seconds on the source transition's clock; without one the bead keeps
@@ -72,8 +72,7 @@ bool CBubbleVestige::deposit(MonitorId monitor,
         const double CLOCK_NOW = clock ? clock->time : 0.0;
         m_deposits.push_back({
             .monitor = monitor,
-            .position = POSITION,
-            .radius = EXTENT,
+            .bounds = bounds,
             .impact_radius = impact.radius,
             .drift = {.x = impact.drift.x, .y = impact.drift.y},
             .lifetime = LIFETIME,
@@ -247,14 +246,15 @@ void CBubbleVestige::queue(
         if (deposit.monitor != screen.monitor || deposit.age < 0) {
             continue;
         }
-        const auto SOURCE = footprint({deposit.position.x, deposit.position.y}, deposit.radius).scale(screen.scale);
+        const auto &bounds = deposit.bounds;
+        const auto SOURCE = CBox{bounds.x, bounds.y, bounds.w, bounds.h}.scale(screen.scale);
         const auto CLIPPED = on_screen(screen, SOURCE);
         if (CLIPPED.empty()) {
             continue;
         }
         CBubblePassElement::SData data;
         data.renderer = renderer;
-        data.draw.frame.size = {.x = deposit.radius * 2.0, .y = deposit.radius * 2.0};
+        data.draw.frame.size = {.x = bounds.w, .y = bounds.h};
         data.draw.canvas = CLIPPED.size();
         data.draw.source = SOURCE;
         data.draw.output_origin = {.x = CLIPPED.x, .y = CLIPPED.y};

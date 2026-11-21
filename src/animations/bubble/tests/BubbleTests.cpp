@@ -671,6 +671,21 @@ namespace {
         }
     }
 
+    void impact_footprints_are_representable() {
+        BubbleImpact impact{.position = {5, -3}, .radius = 2, .drift = {3, 4}};
+        const auto bounds = impact.bounds({100, 50}, 0.5);
+        CHECK(std::abs(bounds.w - 14.2) < 1e-12 && bounds.h == bounds.w);
+        CHECK(std::abs(bounds.x + 0.5 * bounds.w - 105) < 1e-12);
+        CHECK(std::abs(bounds.y + 0.5 * bounds.h - 47) < 1e-12);
+        const double max = std::numeric_limits<double>::max();
+        // A finite radius can still overflow the diameter or the far corner.
+        impact.radius = max / 2;
+        CHECK(!is_usable(impact.bounds({}, 0.5)));
+        impact.radius = max / 8;
+        CHECK(!is_usable(impact.bounds({max, 0}, 0.5)));
+        CHECK(!is_usable(impact.bounds({0, -max}, 0.5)));
+    }
+
     void impacts_use_animation_time() {
         Bubble bubble;
         bubble.begin(Transition::Close, BubbleDuration{.42}, 19, SIZE);
@@ -1083,6 +1098,7 @@ int main() {
     wide_windows_keep_tight_vertical_bounds();
     deterministic_and_invalid_input();
     localized_rupture_and_coverage();
+    impact_footprints_are_representable();
     impacts_use_animation_time();
     impacts_follow_droplets();
     precursor_and_remnants();

@@ -100,6 +100,9 @@ namespace hyprimate {
         double delay = 0;  // animation seconds from the surface's current clock until impact;
                            // negative: already landed
         Vec2 drift{};  // px/s creep on the glass
+
+        // Screen-space footprint for the bead's lifetime; empty if not representable.
+        [[nodiscard]] Box bounds(Vec2 frame_centre, double lifetime) const;
     };
 
     // Azimuth of a point around a hole. Flat: atan2(p.y - c.y, p.x - c.x) in surface px. Spherical
