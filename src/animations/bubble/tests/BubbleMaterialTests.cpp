@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 #include <utility>
 #include <vector>
 
@@ -580,6 +581,98 @@ namespace {
             CHECK(companions_after_landing);
         }
     }
+    void test_wake_malformed_segments(Fixture &fixture) {
+        using hyprimate::BubbleWakeView;
+        constexpr std::size_t MAX = std::numeric_limits<std::size_t>::max();
+        const SBubbleTarget TARGET{
+            .canvas = {.x = WIDTH, .y = HEIGHT},
+            .origin = {.x = 0, .y = 0},
+            .source_pos = {.x = 0, .y = 0},
+            .source_size = {.x = WIDTH, .y = HEIGHT},
+        };
+        const auto RENDER = [&](const BubbleWakeView &wake) {
+            glViewport(0, 0, WIDTH, HEIGHT);
+            glDisable(GL_BLEND);
+            glClearColor(0, 0, 0, 0);
+            glClear(GL_COLOR_BUFFER_BIT);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+            fixture.material.draw_wake(wake, TARGET);
+            Image image(static_cast<std::size_t>(WIDTH) * HEIGHT);
+            glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, image.data());
+            CHECK(glGetError() == GL_NO_ERROR);
+            glDisable(GL_BLEND);
+            return image;
+        };
+
+        BubbleWakeView wake;
+        wake.size = {.x = WIDTH, .y = HEIGHT};
+        wake.nodes[0] = {.position = {.x = -60, .y = 0}, .direction = {.x = 1, .y = 0},
+            .half_width = 12, .arc = 0, .thickness = 500};
+        wake.nodes[1] = {.position = {.x = 60, .y = 0}, .direction = {.x = 1, .y = 0},
+            .half_width = 12, .arc = 120, .thickness = 500};
+        wake.node_count = 2;
+        wake.segments[0] = {.first = 0, .count = 2, .from = 0, .to = 120};
+        wake.segment_count = 1;
+        wake.bubbles[0] = {.centre = {.x = 0, .y = 50}, .radius = 14, .growth = 1,
+            .thickness = 500};
+        wake.bubble_count = 1;
+        const auto BOTH = RENDER(wake);
+        auto no_film = wake;
+        no_film.segment_count = 0;
+        const auto BUBBLE = RENDER(no_film);
+        auto no_bubble = wake;
+        no_bubble.bubble_count = 0;
+        const auto FILM = RENDER(no_bubble);
+        auto empty = no_film;
+        empty.bubble_count = 0;
+        const auto EMPTY = RENDER(empty);
+        CHECK(BOTH != BUBBLE);
+        CHECK(BOTH != FILM);
+        CHECK(FILM != EMPTY);
+        CHECK(BUBBLE != EMPTY);
+
+        // These nodes are physically readable and would draw a second, distinct strip.
+        // Neither an unpublished suffix nor an oversized shader upload may draw it.
+        for (std::size_t i = 0; i < 49; ++i) {
+            auto &node = wake.nodes[2 + i];
+            node = wake.nodes[0];
+            node.arc = 120.0 * static_cast<double>(i) / 48.0;
+            node.position = {.x = -60.0 + node.arc, .y = -45.0};
+        }
+        wake.segment_count = 2;
+        wake.node_count = 51;
+        wake.segments[1] = {.first = 2, .count = 48, .from = 0, .to = 120};
+        CHECK(RENDER(wake) != BOTH);
+        wake.segments[1].count = 49;
+        CHECK(RENDER(wake) == BOTH);
+        wake.node_count = 2;
+        wake.segments[1].count = 48;
+        CHECK(RENDER(wake) == BOTH);
+
+        // Keep a valid sibling and a microbubble even when other descriptors wrap, extend past
+        // the logical nodes, or appear valid only after shader-capacity truncation.
+        for (const BubbleWakeView::Segment BAD : {
+                 BubbleWakeView::Segment{.first = MAX, .count = 2},
+                 BubbleWakeView::Segment{.first = 1, .count = MAX},
+                 BubbleWakeView::Segment{.first = 0, .count = 49},
+                 BubbleWakeView::Segment{.first = 2, .count = 2}}) {
+            wake.segments[1] = BAD;
+            wake.segment_count = 2;
+            CHECK(RENDER(wake) == BOTH);
+        }
+        // A corrupt logical count must not extend the physical node array.
+        wake.node_count = MAX;
+        wake.segments[1] = {.first = wake.nodes.size() - 1, .count = 2};
+        CHECK(RENDER(wake) == BOTH);
+        wake.segments[1] = {.first = wake.nodes.size() - 48, .count = 49};
+        CHECK(RENDER(wake) == BOTH);
+        wake.segments[1] = {.first = MAX, .count = 2};
+        CHECK(RENDER(wake) == BOTH);
+        wake.segment_count = MAX;
+        wake.bubble_count = MAX;
+        CHECK(RENDER(wake) == BOTH);
+    }
 }  // namespace
 
 int main() {
@@ -592,6 +685,7 @@ int main() {
         Fixture fixture;
         test_allocation_retry(fixture);
         test_settled(fixture);
+        test_wake_malformed_segments(fixture);
         test_settling(fixture);
         test_transparency(fixture);
         test_formation(fixture);

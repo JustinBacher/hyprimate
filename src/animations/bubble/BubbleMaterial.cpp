@@ -742,14 +742,17 @@ void CBubbleMaterial::draw_wake(
         glActiveTexture(GL_TEXTURE2);
         glBindTexture(GL_TEXTURE_2D, m_lut);
         // The film program holds 48 nodes; a strand never has more.
-        static_assert(hyprimate::K_BUBBLE_WAKE_STRAND_NODES <= 48);
-        std::array<float, 4 * 48> nodes{}, state{};
+        constexpr std::size_t MAX_NODES = 48;
+        static_assert(hyprimate::K_BUBBLE_WAKE_STRAND_NODES <= MAX_NODES);
+        std::array<float, 4 * MAX_NODES> nodes{}, state{};
+        const auto NODE_COUNT = std::min(wake.node_count, wake.nodes.size());
         for (const auto &segment : std::span(wake.segments).first(std::min(wake.segment_count, wake.segments.size()))) {
-            if (segment.count < 2 || segment.first + segment.count > wake.node_count) {
+            const auto COUNT = segment.count;
+            if (COUNT < 2 || COUNT > MAX_NODES || segment.first > NODE_COUNT ||
+                COUNT > NODE_COUNT - segment.first) {
                 continue;
             }
-            const auto COUNT = std::min<std::size_t>(segment.count, 48);
-            using PackedNodes = std::mdspan<float, std::extents<std::size_t, 48, 4>>;
+            using PackedNodes = std::mdspan<float, std::extents<std::size_t, MAX_NODES, 4>>;
             const PackedNodes NODE_DATA{nodes.data()};
             const PackedNodes STATE_DATA{state.data()};
             std::size_t node_index = 0;
