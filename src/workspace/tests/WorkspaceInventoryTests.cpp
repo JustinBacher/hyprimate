@@ -437,15 +437,44 @@ namespace {
         }
     }
 
-    void denied_capture_pass_is_not_submitted() {
-        for (const bool ALLOWED : {false, true}) {
-            std::size_t submissions = 0;
-            const bool SUBMITTED = submit_capture([&] { return ALLOWED; }, [&] {
-                ++submissions;
-                return true;
-            });
-            CHECK(SUBMITTED == ALLOWED);
-            CHECK(submissions == (ALLOWED ? 1U : 0U));
+    void capture_callbacks_only_finish_the_session_they_started() {
+        enum class Event { Complete, Deny, Throw, Replace, ReplaceAndThrow, EndFails };
+        for (const auto event : {Event::Complete, Event::Deny, Event::Throw, Event::Replace,
+                 Event::ReplaceAndThrow, Event::EndFails}) {
+            enum class Session { Capture, Replacement, Idle };
+            auto session = Session::Capture;
+            int submissions = 0, aborts = 0;
+            bool completed = false, threw = false;
+            try {
+                completed = run_capture_pass([&] { return session == Session::Capture; },
+                    [&] {
+                        if (event == Event::Replace || event == Event::ReplaceAndThrow) {
+                            session = Session::Replacement;
+                        }
+                        if (event == Event::Throw || event == Event::ReplaceAndThrow) {
+                            throw event;
+                        }
+                        return event != Event::Deny;
+                    },
+                    [&] {
+                        ++submissions;
+                        if (event == Event::EndFails) { return false; }
+                        session = Session::Idle;
+                        return true;
+                    },
+                    [&] {
+                        ++aborts;
+                        session = Session::Idle;
+                    });
+            } catch (Event reason) {
+                threw = reason == event;
+            }
+            CHECK(completed == (event == Event::Complete));
+            CHECK(threw == (event == Event::Throw || event == Event::ReplaceAndThrow));
+            CHECK(submissions == (event == Event::Complete || event == Event::EndFails ? 1 : 0));
+            CHECK(aborts == (event == Event::Throw || event == Event::Deny || event == Event::EndFails ? 1 : 0));
+            CHECK(session == (event == Event::Replace || event == Event::ReplaceAndThrow
+                        ? Session::Replacement : Session::Idle));
         }
     }
 
@@ -559,7 +588,7 @@ int main() {
     privacy_denial_during_fallback_and_cached_prepare();
     ownership_changes_revoke_cached_inventory_without_events();
     capture_reentry_rejects_replaced_turn_and_owner();
-    denied_capture_pass_is_not_submitted();
+    capture_callbacks_only_finish_the_session_they_started();
     retained_inventory_validation_precedes_reprepare();
     placement_tie_order();
     wallpaper_history();

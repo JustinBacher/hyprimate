@@ -28,7 +28,7 @@ namespace hyprimate::workspace {
     bool capture_workspace(Render::IHyprRenderer &renderer,
         BeginRender begin,
         const PHLMONITOR &monitor,
-        const SP<Render::IFramebuffer> &target,
+        SP<Render::IFramebuffer> target,
         const SP<Render::CSceneResources> &resources,
         CaptureKind kind,
         CaptureDraw draw,
