@@ -16,6 +16,7 @@
 #include "animations/bubble/BubbleSheets.hpp"
 #include "animations/bubble/BubbleWake.hpp"
 #include "animations/shared/Core.hpp"
+#include "gl/Storage.hpp"
 
 namespace {
     template <typename... Args>
@@ -141,12 +142,20 @@ namespace {
 }  // namespace
 
 bool CBubbleMaterial::initialize(const SBubblePrograms &programs) {
-    if (m_tried) {
-        return (m_membrane != 0U) && (m_curl != 0U) && (m_particles != 0U) && (m_film != 0U) &&
-               (m_micro != 0U) && (m_vao != 0U) && (m_particle_vao != 0U) && (m_micro_vao != 0U) &&
-               (m_instance != 0U) && (m_micro_instance != 0U) && (m_lut != 0U);
+    if (m_membrane != 0U) {
+        return m_membrane == programs.membrane && m_curl == programs.curl &&
+               m_particles == programs.particles && m_film == programs.film &&
+               m_micro == programs.micro;
     }
-    m_tried = true;
+    struct Rollback {
+        CBubbleMaterial &material;
+        bool committed = false;
+        ~Rollback() {
+            if (!committed) {
+                material.release();
+            }
+        }
+    } rollback{*this};
     m_membrane = programs.membrane;
     m_curl = programs.curl;
     m_particles = programs.particles;
@@ -154,8 +163,6 @@ bool CBubbleMaterial::initialize(const SBubblePrograms &programs) {
     m_micro = programs.micro;
     if ((m_membrane == 0U) || (m_curl == 0U) || (m_particles == 0U) || (m_film == 0U) ||
         (m_micro == 0U)) {
-        release();
-        m_tried = true;
         return false;
     }
     constexpr std::array MEMBRANE_NAMES{
@@ -306,8 +313,6 @@ bool CBubbleMaterial::initialize(const SBubblePrograms &programs) {
         }
     }
     if (!valid_names) {
-        release();
-        m_tried = true;
         return false;
     }
     constexpr std::array FILM_NAMES{
@@ -341,8 +346,15 @@ bool CBubbleMaterial::initialize(const SBubblePrograms &programs) {
     glGenVertexArrays(1, &m_vao);
     glGenVertexArrays(1, &m_particle_vao);
     glGenBuffers(1, &m_instance);
+    if ((m_vao == 0U) || (m_particle_vao == 0U) || (m_instance == 0U)) {
+        return false;
+    }
     glBindVertexArray(m_particle_vao);
     glBindBuffer(GL_ARRAY_BUFFER, m_instance);
+    if (!hyprimate::gl::allocate_buffer(GL_ARRAY_BUFFER,
+            sizeof(Instance) * 2 * hyprimate::K_BUBBLE_MAX_PARTICLES, nullptr, GL_STREAM_DRAW)) {
+        return false;
+    }
     for (GLuint i = 0; i < 2; ++i) {
         glEnableVertexAttribArray(i);
         glVertexAttribPointer(i,
@@ -356,10 +368,15 @@ bool CBubbleMaterial::initialize(const SBubblePrograms &programs) {
     }
     glGenVertexArrays(1, &m_micro_vao);
     glGenBuffers(1, &m_micro_instance);
+    if ((m_micro_vao == 0U) || (m_micro_instance == 0U)) {
+        return false;
+    }
     glBindVertexArray(m_micro_vao);
     glBindBuffer(GL_ARRAY_BUFFER, m_micro_instance);
-    glBufferData(
-        GL_ARRAY_BUFFER, sizeof(MicroInstance) * K_MICRO_INSTANCES, nullptr, GL_STREAM_DRAW);
+    if (!hyprimate::gl::allocate_buffer(GL_ARRAY_BUFFER,
+            sizeof(MicroInstance) * K_MICRO_INSTANCES, nullptr, GL_STREAM_DRAW)) {
+        return false;
+    }
     for (GLuint i = 0; i < 4; ++i) {
         glEnableVertexAttribArray(i);
         glVertexAttribPointer(i,
@@ -383,22 +400,25 @@ bool CBubbleMaterial::initialize(const SBubblePrograms &programs) {
     }
     glActiveTexture(GL_TEXTURE2);
     glGenTextures(1, &m_lut);
+    if (m_lut == 0U) {
+        return false;
+    }
     glBindTexture(GL_TEXTURE_2D, m_lut);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexImage2D(GL_TEXTURE_2D,
-        0,
-        GL_RGBA16F,
-        TABLE.thickness_samples,
-        TABLE.cosine_samples,
-        0,
-        GL_RGBA,
-        GL_FLOAT,
-        rgba.data());
-    return (m_vao != 0U) && (m_particle_vao != 0U) && (m_micro_vao != 0U) && (m_instance != 0U) &&
-           (m_micro_instance != 0U) && (m_lut != 0U);
+    if (!hyprimate::gl::allocate_texture_2d(
+            GL_RGBA16F, TABLE.thickness_samples, TABLE.cosine_samples)) {
+        return false;
+    }
+    {
+        const hyprimate::gl::ClientPixelUnpack unpack;
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, TABLE.thickness_samples, TABLE.cosine_samples,
+            GL_RGBA, GL_FLOAT, rgba.data());
+    }
+    rollback.committed = true;
+    return true;
 }
 void CBubbleMaterial::release() {
     if (m_vao != 0U) {
@@ -421,7 +441,6 @@ void CBubbleMaterial::release() {
     }
     m_membrane = m_curl = m_particles = m_film = m_micro = m_vao = m_particle_vao = m_micro_vao =
         m_instance = m_micro_instance = m_lut = 0;
-    m_tried = false;
 }
 void CBubbleMaterial::draw_membranes(
     const hyprimate::BubbleFrame &frame, const SBubbleTarget &target, const SBubbleImages &images) {
@@ -657,7 +676,6 @@ void CBubbleMaterial::draw_particles(std::span<const hyprimate::BubbleParticle> 
     glUseProgram(m_particles);
     glBindVertexArray(m_particle_vao);
     glBindBuffer(GL_ARRAY_BUFFER, m_instance);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(data), nullptr, GL_STREAM_DRAW);
     glBufferSubData(
         GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(COUNT * sizeof(Instance)), data.data());
     const auto &uniforms = m_particle_uniforms;

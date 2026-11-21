@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <new>
 #include <optional>
 #include <span>
 #include <utility>
@@ -60,10 +61,9 @@ CBubbleRenderer::~CBubbleRenderer() {
 }
 
 bool CBubbleRenderer::initialize() {
-    if (m_warmed) {
-        return m_ready;
+    if (m_ready) {
+        return true;
     }
-    m_warmed = true;
     constexpr std::array SOURCES{
         std::pair{bubble_shader::VERTEX.data(), bubble_shader::FRAGMENT.data()},
         std::pair{bubble_shader::CURL_VERTEX.data(), bubble_shader::CURL_FRAGMENT.data()},
@@ -71,27 +71,37 @@ bool CBubbleRenderer::initialize() {
         std::pair{bubble_shader::FILM_VERTEX.data(), bubble_shader::FILM_FRAGMENT.data()},
         std::pair{bubble_shader::MICROBUBBLE_VERTEX.data(), bubble_shader::MICROBUBBLE_FRAGMENT.data()},
     };
-    for (std::size_t i = 0; i < m_shaders.size(); ++i) {
-        m_shaders[i] = std::make_unique<CShader>();
-        if (!m_shaders[i]->createProgram(SOURCES[i].first, SOURCES[i].second, true, true) ||
-            m_shaders[i]->program() == 0U) {
+    try {
+        std::array<std::unique_ptr<CShader>, 5> shaders;
+        for (std::size_t i = 0; i < shaders.size(); ++i) {
+            shaders[i] = std::make_unique<CShader>();
+            if (!shaders[i]->createProgram(SOURCES[i].first, SOURCES[i].second, true, true) ||
+                shaders[i]->program() == 0U) {
+                return false;
+            }
+        }
+        if (!m_material.initialize({.membrane = shaders[0]->program(), .curl = shaders[1]->program(),
+                .particles = shaders[2]->program(), .film = shaders[3]->program(),
+                .micro = shaders[4]->program()})) {
             return false;
         }
+        m_shaders = std::move(shaders);
+        m_ready = true;
+        return true;
+    } catch (const std::bad_alloc &) {
+        return false;
     }
-    m_ready = m_material.initialize({.membrane = m_shaders[0]->program(), .curl = m_shaders[1]->program(),
-        .particles = m_shaders[2]->program(), .film = m_shaders[3]->program(), .micro = m_shaders[4]->program()});
-    return m_ready;
 }
 
 bool CBubbleRenderer::warm_up() {
-    if (m_warmed) return true;
+    if (m_ready) return true;
     if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL) return false;
     with_compositor_context([&] {
         const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
         const hyprimate::gl::CRawGlBracket<4> BRACKET{{}};
         (void)initialize();
     });
-    return m_warmed;
+    return m_ready;
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity): GL capture, drawing and restoration

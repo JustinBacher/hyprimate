@@ -5,12 +5,14 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <utility>
 #include <vector>
 
 #include <GLES3/gl32.h>
 
 #include "Check.hpp"
 #include "GlHarness.hpp"
+#include "GlAllocationFault.hpp"
 #include "animations/bubble/Bubble.hpp"
 #include "animations/bubble/BubbleMaterial.hpp"
 #include "animations/bubble/BubbleMotion.hpp"
@@ -79,6 +81,10 @@ namespace {
             other_window = texture(alternative);
             scene = texture(background);
             black = texture(dark);
+            if (window == 0U || other_window == 0U || scene == 0U || black == 0U) {
+                std::fprintf(stderr, "Cannot create bubble material test textures\n");
+                std::abort();
+            }
             programs = {
                 .membrane = gl_harness::build_program(bubble_shader::VERTEX.data(), bubble_shader::FRAGMENT.data()),
                 .curl = gl_harness::build_program(bubble_shader::CURL_VERTEX.data(), bubble_shader::CURL_FRAGMENT.data()),
@@ -86,7 +92,11 @@ namespace {
                 .film = gl_harness::build_program(bubble_shader::FILM_VERTEX.data(), bubble_shader::FILM_FRAGMENT.data()),
                 .micro = gl_harness::build_program(bubble_shader::MICROBUBBLE_VERTEX.data(), bubble_shader::MICROBUBBLE_FRAGMENT.data()),
             };
-            CHECK(material.initialize(programs));
+            if (programs.membrane == 0U || programs.curl == 0U || programs.particles == 0U ||
+                programs.film == 0U || programs.micro == 0U || !material.initialize(programs)) {
+                std::fprintf(stderr, "Cannot initialize bubble material test fixture\n");
+                std::abort();
+            }
         }
         Fixture(const Fixture &) = delete;
         Fixture &operator=(const Fixture &) = delete;
@@ -140,6 +150,92 @@ namespace {
     }
     const Pixel &at(const Image &image, int column, int row) {
         return image[(row * WIDTH) + column];
+    }
+
+    void test_allocation_retry(Fixture &fixture) {
+        for (const auto [allocation, occurrence] :
+            std::array{std::pair{gl_harness::Allocation::buffer, 1U},
+                std::pair{gl_harness::Allocation::buffer, 2U},
+                std::pair{gl_harness::Allocation::texture_2d, 1U}}) {
+            CBubbleMaterial material;
+            {
+                const gl_harness::FailAllocation fail{allocation, occurrence};
+                CHECK(!material.initialize(fixture.programs));
+            }
+            for (const GLuint program : {fixture.programs.membrane, fixture.programs.curl,
+                     fixture.programs.particles, fixture.programs.film, fixture.programs.micro}) {
+                CHECK(glIsProgram(program) == GL_TRUE);
+            }
+            GLint previous_pbo = 0, previous_row_length = 0, previous_skip_pixels = 0,
+                  previous_skip_rows = 0;
+            glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &previous_pbo);
+            glGetIntegerv(GL_UNPACK_ROW_LENGTH, &previous_row_length);
+            glGetIntegerv(GL_UNPACK_SKIP_PIXELS, &previous_skip_pixels);
+            glGetIntegerv(GL_UNPACK_SKIP_ROWS, &previous_skip_rows);
+            GLuint pbo = 0;
+            glGenBuffers(1, &pbo);
+            if (pbo == 0U) {
+                std::fprintf(stderr, "Cannot create unpack test buffer\n");
+                std::abort();
+            }
+            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+            glBufferData(GL_PIXEL_UNPACK_BUFFER, 64, nullptr, GL_STATIC_DRAW);
+            glPixelStorei(GL_UNPACK_ROW_LENGTH, 9);
+            glPixelStorei(GL_UNPACK_SKIP_PIXELS, 2);
+            glPixelStorei(GL_UNPACK_SKIP_ROWS, 3);
+            if (!material.initialize(fixture.programs)) {
+                std::fprintf(stderr, "Bubble material retry failed\n");
+                std::abort();
+            }
+            GLint restored = 0;
+            glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &restored);
+            CHECK(restored == static_cast<GLint>(pbo));
+            glGetIntegerv(GL_UNPACK_ROW_LENGTH, &restored);
+            CHECK(restored == 9);
+            glGetIntegerv(GL_UNPACK_SKIP_PIXELS, &restored);
+            CHECK(restored == 2);
+            glGetIntegerv(GL_UNPACK_SKIP_ROWS, &restored);
+            CHECK(restored == 3);
+            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, static_cast<GLuint>(previous_pbo));
+            glPixelStorei(GL_UNPACK_ROW_LENGTH, previous_row_length);
+            glPixelStorei(GL_UNPACK_SKIP_PIXELS, previous_skip_pixels);
+            glPixelStorei(GL_UNPACK_SKIP_ROWS, previous_skip_rows);
+            glDeleteBuffers(1, &pbo);
+            CHECK(!material.initialize({}));
+            auto mismatch = fixture.programs;
+            mismatch.membrane = mismatch.curl;
+            CHECK(!material.initialize(mismatch));
+            CHECK(material.initialize(fixture.programs));
+            const SBubbleTarget target{.canvas = {.x = WIDTH, .y = HEIGHT},
+                .origin = {.x = 0, .y = 0}, .source_pos = {.x = 64, .y = 64},
+                .source_size = {.x = 128, .y = 128}};
+            const std::array particles{hyprimate::BubbleParticle{
+                .centre = {.x = 0, .y = 0}, .radius = 15, .tail = {.x = 0, .y = 0}}};
+            const std::array bubbles{hyprimate::BubbleMicro{
+                .centre = {.x = 25, .y = 0}, .radius = 12, .growth = 1, .thickness = 450}};
+            const auto render = [&](CBubbleMaterial &draw_material) {
+                glViewport(0, 0, WIDTH, HEIGHT);
+                glDisable(GL_BLEND);
+                glClearColor(0, 0, 0, 0);
+                glClear(GL_COLOR_BUFFER_BIT);
+                draw_material.draw_particles(particles, {.x = 128, .y = 128}, target, false);
+                draw_material.draw_microbubbles(bubbles, {.x = 128, .y = 128}, target);
+                Image image(static_cast<std::size_t>(WIDTH) * HEIGHT);
+                glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, image.data());
+                CHECK(glGetError() == GL_NO_ERROR);
+                return image;
+            };
+            const auto baseline = render(fixture.material);
+            CHECK(render(material) == baseline);
+            CHECK(std::ranges::any_of(baseline, [](const Pixel &pixel) { return pixel[3] != 0; }));
+            {
+                const gl_harness::FailAllocation fail{gl_harness::Allocation::buffer};
+                CHECK(material.initialize(fixture.programs));
+                CHECK(render(material) == baseline);
+            }
+            CHECK(render(material) == baseline);
+            material.release();
+        }
     }
 
     void test_settled(Fixture &fixture) {
@@ -494,6 +590,7 @@ int main() {
     }
     {
         Fixture fixture;
+        test_allocation_retry(fixture);
         test_settled(fixture);
         test_settling(fixture);
         test_transparency(fixture);

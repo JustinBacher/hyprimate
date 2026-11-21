@@ -41,7 +41,7 @@ class CBubbleRenderer {
     SP<Render::IFramebuffer> render(Render::CRenderContext &ctx, const SBubbleDraw &draw);
     // Compiles the material ahead of the first bubble. Compilation takes long enough to read as a
     // frame stall, which would otherwise cancel the opening that first needs it. Safe to call
-    // often; only the first call does work.
+    // often; only the first successful call does work.
     bool warm_up();
 
   private:
@@ -50,7 +50,6 @@ class CBubbleRenderer {
     CBubbleMaterial m_material;
     std::array<hyprimate::BubbleParticle, 2 * hyprimate::K_BUBBLE_MAX_PARTICLES> m_particles{};
     bool m_ready = false;
-    bool m_warmed = false;
 };
 
 // Deferred screen-only Vestige drawing; window animation draws use the generic pass.

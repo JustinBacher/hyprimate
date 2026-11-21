@@ -38,7 +38,8 @@ struct SBubblePrograms {
 
 class CBubbleMaterial {
   public:
-    // Builds lookup textures and instance buffers using borrowed programs; idempotent.
+    // Builds resources using borrowed programs. An initialized material accepts only the same
+    // handles; release it before changing programs.
     bool initialize(const SBubblePrograms &programs);
     // Deletes GL objects; the creating context must be current.
     void release();
@@ -81,5 +82,4 @@ class CBubbleMaterial {
     std::array<GLint, 6> m_particle_uniforms{};
     std::array<GLint, 10> m_film_uniforms{};
     std::array<GLint, 6> m_micro_uniforms{};
-    bool m_tried = false;
 };
