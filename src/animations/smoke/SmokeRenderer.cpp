@@ -1,5 +1,6 @@
 #include <array>
 #include <utility>
+#include <new>
 
 #include <EGL/egl.h>
 #include <GLES3/gl32.h>
@@ -56,26 +57,37 @@ CSmokeRenderer::~CSmokeRenderer() {
     });
 }
 bool CSmokeRenderer::initialize() {
-    if (m_tried) return m_programs.ids[SSmokePrograms::Composite] != 0;
-    m_tried = true;
+    if (m_ready) return true;
     const std::array<const char *, SSmokePrograms::ProgramCount> SOURCES{smoke_shader::VELOCITY.data(),
         smoke_shader::DIVERGENCE.data(), smoke_shader::PRESSURE.data(), smoke_shader::PROJECT.data(),
         smoke_shader::ADVECT.data(), smoke_shader::DYE.data(), smoke_shader::COMPOSITE.data()};
-    for (std::size_t i = 0; i < SOURCES.size(); ++i) {
-        m_shaders[i] = std::make_unique<CShader>();
-        if (!m_shaders[i]->createProgram(smoke_shader::VERTEX.data(), SOURCES[i], true, true)) return false;
-        m_programs.ids[i] = m_shaders[i]->program();
+    // Keep failed shader construction local so neither retries nor rendering can observe
+    // a partially compiled program set.
+    try {
+        decltype(m_shaders) shaders;
+        SSmokePrograms programs;
+        for (std::size_t i = 0; i < SOURCES.size(); ++i) {
+            shaders[i] = std::make_unique<CShader>();
+            if (!shaders[i]->createProgram(smoke_shader::VERTEX.data(), SOURCES[i], true, true))
+                return false;
+            programs.ids[i] = shaders[i]->program();
+        }
+        if (!m_material.initialize(programs)) return false;
+        m_shaders = std::move(shaders);
+        m_programs = programs;
+        m_ready = true;
+        return true;
+    } catch (const std::bad_alloc &) {
+        return false;
     }
-    return m_material.initialize(m_programs);
 }
 bool CSmokeRenderer::warm_up() {
     if (m_warmed) return true;
     if (!Render::GL::g_pHyprOpenGL || !g_pHyprRenderer) return false;
-    m_warmed = true;
     with_context([&] {
         const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
         const hyprimate::gl::CRawGlBracket<7> BRACKET{{}};
-        initialize();
+        m_warmed = initialize();
     });
     return m_warmed;
 }
@@ -87,6 +99,8 @@ SP<Render::IFramebuffer> CSmokeRenderer::render(
             draw.window->m_type != Render::TEXTURE_RGBX) ||
         !(draw.canvas.x > 0 && draw.canvas.y > 0 && draw.source.w > 0 && draw.source.h > 0 &&
             draw.texture_size.x > 0 && draw.texture_size.y > 0))
+        return nullptr;
+    if (!draw.simulate && draw.field->field.framebuffer() == 0)
         return nullptr;
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     const auto state = ctx.saveDrawState();
@@ -112,8 +126,9 @@ SP<Render::IFramebuffer> CSmokeRenderer::render(
             .texture_origin = draw.texture_origin,
             .texture_size = draw.texture_size};
         // The simulation is keyed by model time, not the number of draw calls.
-        if (draw.simulate)
-            m_material.simulate(draw.field->field, draw.frame, target, images);
+        if (draw.simulate &&
+            !m_material.simulate(draw.field->field, draw.frame, target, images))
+            return nullptr;
         glBindFramebuffer(GL_FRAMEBUFFER, KNOWN.framebuffer);
         glViewport(0, 0, KNOWN.viewport_width, KNOWN.viewport_height);
         m_material.draw(draw.field->field, draw.frame, target, images);
@@ -128,8 +143,13 @@ bool draw_smoke(SSmokeStyle &state, CHyprAnimationCanvas &canvas,
     using hyprimate::animation::PassKind;
     const auto PASS = canvas.pass();
     auto &field = PASS == PassKind::WorkspaceSource ? state.capture_field : state.field;
-    if (!field && PASS != PassKind::Inert)
-        field = std::make_shared<CSmokeFieldHandle>();
+    if (!field && PASS != PassKind::Inert) {
+        try {
+            field = std::make_shared<CSmokeFieldHandle>();
+        } catch (const std::bad_alloc &) {
+            return false;
+        }
+    }
     if (!field || !image || !(scale > 0)) {
         return false;
     }

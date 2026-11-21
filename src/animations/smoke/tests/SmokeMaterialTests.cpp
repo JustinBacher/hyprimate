@@ -14,6 +14,7 @@
 
 #include "Check.hpp"
 #include "GlHarness.hpp"
+#include "GlAllocationFault.hpp"
 #include "animations/smoke/SmokeMaterial.hpp"
 #include "smoke_shaders_generated.hpp"
 
@@ -21,6 +22,11 @@ namespace {
     constexpr int W = 512, H = 256, TW = 160, TH = 120;
     using Pixel = std::array<unsigned char, 4>;
     using Image = std::vector<Pixel>;
+
+    void require(bool passed) {
+        CHECK(passed);
+        if (!passed) std::exit(EXIT_FAILURE);
+    }
 
     void save(const std::filesystem::path &path, const Image &image, int width = W, int height = H) {
         FILE *file = std::fopen(path.string().c_str(), "wb");
@@ -61,7 +67,7 @@ namespace {
             const auto HEIGHT = static_cast<GLsizei>(target.canvas.y);
             glViewport(0, 0, WIDTH, HEIGHT);
             glDisable(GL_BLEND);
-            CHECK(material.simulate(field, frame, target, images()));
+            require(material.simulate(field, frame, target, images()));
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             glViewport(0, 0, WIDTH, HEIGHT);
             material.draw(field, frame, target, images());
@@ -93,6 +99,72 @@ namespace {
         }
         return sum;
     }
+    void test_initialization_failures(CSmokeMaterial &material, const SSmokePrograms &programs) {
+        auto incomplete = programs;
+        incomplete.ids[SSmokePrograms::Pressure] = 0;
+        CHECK(!material.initialize(incomplete));
+        {
+            gl_harness::FailAllocation fail(gl_harness::Allocation::texture_3d);
+            CHECK(!material.initialize(programs));
+            CHECK(!material.initialize(incomplete));
+        }
+        {
+            gl_harness::FailAllocation fail(gl_harness::Allocation::texture_2d);
+            CHECK(!material.initialize(programs));
+            CSmokeField field;
+            CHECK(!material.simulate(field, {}, {}, {}));
+            CHECK(field.framebuffer() == 0);
+        }
+        require(material.initialize(programs));
+        require(material.initialize(programs));
+        CHECK(!material.initialize(incomplete));
+        auto different = programs;
+        std::swap(different.ids[SSmokePrograms::Pressure], different.ids[SSmokePrograms::Dye]);
+        CHECK(!material.initialize(different));
+        require(material.initialize(programs));
+        material.release();
+        require(material.initialize(programs));
+        material.release();
+        CHECK(glGetError() == GL_NO_ERROR);
+    }
+
+    void test_field_failures(Harness &harness) {
+        CSmokeField survivor;
+        harness.frame = {};
+        harness.frame.size = {TW, TH};
+        harness.frame.seed = .37;
+        harness.convert(survivor);
+        const GLuint SURVIVOR = survivor.framebuffer();
+        require(SURVIVOR != 0);
+        // Fail early, halfway through, and at the last texture of a new field. A live
+        // field resizes its world domain without allocating or losing its fluid history.
+        for (const unsigned OCCURRENCE : {1U, 6U, 11U}) {
+            CSmokeField pending;
+            Image before;
+            {
+                gl_harness::FailAllocation fail(gl_harness::Allocation::texture_2d, OCCURRENCE);
+                harness.frame.size.x += 32;
+                harness.frame.time += 1.0 / 60;
+                before = harness.render(survivor);
+                CHECK(survivor.framebuffer() == SURVIVOR);
+                CHECK(!harness.material.simulate(pending, harness.frame, harness.target, harness.images()));
+                CHECK(pending.framebuffer() == 0);
+                CHECK(harness.render(survivor) == before);
+            }
+            // The same failed field must be usable without release or reconstruction.
+            require(harness.material.simulate(pending, harness.frame, harness.target, harness.images()));
+            require(pending.framebuffer() != 0);
+            CHECK(harness.render(survivor) == before);
+            pending.release();
+            CHECK(glGetError() == GL_NO_ERROR);
+        }
+        CHECK(alpha_sum(harness.render(survivor), 0, W) > 0);
+        survivor.release();
+        harness.frame = {};
+        harness.frame.size = {TW, TH};
+        harness.frame.seed = .37;
+    }
+
     void test_wake(Harness &harness) {
         // Wake smoke lives briefly: passing back and forth over the same area does not pile it
         // up, and once the window stops the trail away from it clears promptly.
@@ -361,9 +433,10 @@ int main(int argc, char **argv) {
             smoke_shader::ADVECT.data(), smoke_shader::DYE.data(), smoke_shader::COMPOSITE.data()};
         for (std::size_t i = 0; i < SOURCES.size(); ++i) {
             programs.ids[i] = gl_harness::build_program(smoke_shader::VERTEX.data(), SOURCES[i]);
-            CHECK(programs.ids[i] != 0);
+            require(programs.ids[i] != 0);
         }
-        CHECK(h.material.initialize(programs));
+        test_initialization_failures(h.material, programs);
+        require(h.material.initialize(programs));
         glGenTextures(1, &h.texture);
         glBindTexture(GL_TEXTURE_2D, h.texture);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -373,6 +446,7 @@ int main(int argc, char **argv) {
         h.upload(pixels);
         h.frame.size = {TW, TH};
         h.frame.seed = 0.37;
+        test_field_failures(h);
 
         // At rest the window is drawn exactly and nothing surrounds it.
         {

@@ -2,9 +2,9 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
-#include <cstdio>
 
 #include "animations/smoke/SmokeMaterial.hpp"
+#include "gl/Storage.hpp"
 
 namespace {
     // Cells along the domain's longer side: fine enough for curling filaments, small enough
@@ -33,10 +33,9 @@ void CSmokeField::release() {
 }
 
 bool CSmokeMaterial::initialize(const SSmokePrograms &programs) {
-    if (m_tried) {
-        return m_programs[Composite] != 0;
+    if (m_ready) {
+        return m_programs == programs.ids;
     }
-    m_tried = true;
     if (std::ranges::any_of(programs.ids, [](GLuint program) { return program == 0; })) {
         return false;
     }
@@ -115,37 +114,31 @@ bool CSmokeMaterial::initialize(const SSmokePrograms &programs) {
     glGenVertexArrays(1, &m_vao);
     glGenTextures(1, &m_noise);
     glGenTextures(1, &m_empty);
-    GLint unpack_buffer = 0;
-    glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &unpack_buffer);
-    constexpr std::array<GLenum, 6> UNPACK_FIELDS{GL_UNPACK_ALIGNMENT,
-        GL_UNPACK_ROW_LENGTH,
-        GL_UNPACK_IMAGE_HEIGHT,
-        GL_UNPACK_SKIP_PIXELS,
-        GL_UNPACK_SKIP_ROWS,
-        GL_UNPACK_SKIP_IMAGES};
-    std::array<GLint, 6> unpack{};
-    for (std::size_t i = 0; i < UNPACK_FIELDS.size(); ++i) {
-        glGetIntegerv(UNPACK_FIELDS[i], &unpack[i]);
-        glPixelStorei(UNPACK_FIELDS[i], i == 0 ? 1 : 0);
-    }
-    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+    const hyprimate::gl::ClientPixelUnpack UNPACK;
     bind(GL_TEXTURE1, GL_TEXTURE_3D, m_noise);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_REPEAT);
-    glTexImage3D(GL_TEXTURE_3D, 0, GL_R8, 32, 32, 32, 0, GL_RED, GL_UNSIGNED_BYTE, noise.data());
+    const bool NOISE_READY = m_noise != 0 &&
+        hyprimate::gl::allocate_texture_3d(GL_R8, 32, 32, 32);
+    if (NOISE_READY)
+        glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, 32, 32, 32, GL_RED, GL_UNSIGNED_BYTE, noise.data());
     // Stands in for the density of a field that has not simulated yet.
     constexpr std::array<std::uint8_t, 4> EMPTY{};
     bind(GL_TEXTURE2, GL_TEXTURE_2D, m_empty);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, EMPTY.data());
-    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, static_cast<GLuint>(unpack_buffer));
-    for (std::size_t i = 0; i < UNPACK_FIELDS.size(); ++i) {
-        glPixelStorei(UNPACK_FIELDS[i], unpack[i]);
+    const bool EMPTY_READY = m_empty != 0 &&
+        hyprimate::gl::allocate_texture_2d(GL_RGBA8, 1, 1);
+    if (EMPTY_READY)
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, EMPTY.data());
+    if (m_vao == 0 || !NOISE_READY || !EMPTY_READY) {
+        release();
+        return false;
     }
+    m_ready = true;
     return true;
 }
 
@@ -161,7 +154,7 @@ void CSmokeMaterial::release() {
         glDeleteVertexArrays(1, &m_vao);
     }
     m_noise = m_empty = m_vao = 0;
-    m_tried = false;
+    m_ready = false;
 }
 
 void CSmokeMaterial::use(Program program) const {
@@ -228,38 +221,64 @@ void CSmokeMaterial::pass(GLuint target, GLuint age) {
 }
 
 bool CSmokeMaterial::allocate(CSmokeField &field, GLsizei width, GLsizei height) const {
-    field.release();
-    glGenFramebuffers(1, &field.m_framebuffer);
-    glGenTextures(static_cast<GLsizei>(field.m_textures.size()), field.m_textures.data());
-    glBindFramebuffer(GL_FRAMEBUFFER, field.m_framebuffer);
+    // Publish only a fully initialized set; a failed attempt never changes a survivor.
+    CSmokeField pending;
+    const auto FAIL = [&] {
+        pending.release();
+        return false;
+    };
+    glGenFramebuffers(1, &pending.m_framebuffer);
+    glGenTextures(static_cast<GLsizei>(pending.m_textures.size()), pending.m_textures.data());
+    if (pending.m_framebuffer == 0 ||
+        std::ranges::any_of(pending.m_textures, [](GLuint texture) { return texture == 0; }))
+        return FAIL();
+    glBindFramebuffer(GL_FRAMEBUFFER, pending.m_framebuffer);
     glViewport(0, 0, width, height);
     glClearColor(0, 0, 0, 0);
-    bool complete = true;
-    for (std::size_t i = 0; i < field.m_textures.size(); ++i) {
+    for (std::size_t i = 0; i < pending.m_textures.size(); ++i) {
         const bool VELOCITY = i == CSmokeField::VelocityA || i == CSmokeField::VelocityB;
         const bool DYE = i == CSmokeField::DyeA || i == CSmokeField::DyeB ||
             i == CSmokeField::Predicted;
         const GLenum INTERNAL = DYE ? GL_RGBA16F : (VELOCITY ? GL_RG16F : GL_R16F);
-        const GLenum FORMAT = DYE ? GL_RGBA : (VELOCITY ? GL_RG : GL_RED);
-        bind(GL_TEXTURE0, GL_TEXTURE_2D, field.m_textures[i]);
+        bind(GL_TEXTURE0, GL_TEXTURE_2D, pending.m_textures[i]);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexImage2D(GL_TEXTURE_2D, 0, static_cast<GLint>(INTERNAL), width, height, 0, FORMAT,
-            GL_HALF_FLOAT, nullptr);
+        if (!hyprimate::gl::allocate_texture_2d(INTERNAL, width, height))
+            return FAIL();
         glFramebufferTexture2D(
-            GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, field.m_textures[i], 0);
-        complete = complete && glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+            GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, pending.m_textures[i], 0);
+        if (!hyprimate::gl::framebuffer_attachment_is(GL_COLOR_ATTACHMENT0, pending.m_textures[i]) ||
+            glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+            return FAIL();
         glClear(GL_COLOR_BUFFER_BIT);
     }
-    if (!complete) {
-        (void)std::fprintf(stderr, "smoke: half-float fluid framebuffers unavailable\n");
-        field.release();
-        return false;
+    // The two density/age passes need simultaneous attachments, not just individually
+    // renderable textures. Validate every pairing before any simulation can mutate it.
+    constexpr std::array<GLenum, 2> BOTH{GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
+    constexpr std::array<std::array<std::size_t, 2>, 3> PAIRS{{
+        {CSmokeField::Predicted, CSmokeField::PredictedAge},
+        {CSmokeField::DyeA, CSmokeField::AgeA},
+        {CSmokeField::DyeB, CSmokeField::AgeB}}};
+    glDrawBuffers(2, BOTH.data());
+    for (const auto &pair : PAIRS) {
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+            pending.m_textures[pair[0]], 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D,
+            pending.m_textures[pair[1]], 0);
+        if (!hyprimate::gl::framebuffer_attachment_is(GL_COLOR_ATTACHMENT0, pending.m_textures[pair[0]]) ||
+            !hyprimate::gl::framebuffer_attachment_is(GL_COLOR_ATTACHMENT1, pending.m_textures[pair[1]]) ||
+            glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+            return FAIL();
     }
-    field.m_width = width;
-    field.m_height = height;
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, 0, 0);
+    glDrawBuffers(1, BOTH.data());
+    pending.m_width = width;
+    pending.m_height = height;
+    field.release();
+    field = pending;
     return true;
 }
 
@@ -267,7 +286,7 @@ bool CSmokeMaterial::simulate(CSmokeField &field,
     const hyprimate::SmokeFrame &frame,
     const SSmokeTarget &target,
     const SSmokeImages &images) {
-    if (m_programs[Composite] == 0) {
+    if (!m_ready) {
         return false;
     }
     const double DT = field.m_primed ? std::min(frame.time - field.m_time, MAX_STEP) : 0.0;
@@ -411,7 +430,7 @@ void CSmokeMaterial::draw(const CSmokeField &field,
     const hyprimate::SmokeFrame &frame,
     const SSmokeTarget &target,
     const SSmokeImages &images) {
-    if (m_programs[Composite] == 0) {
+    if (!m_ready) {
         return;
     }
     const auto F = [](double value) { return static_cast<GLfloat>(value); };

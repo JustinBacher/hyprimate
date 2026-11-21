@@ -60,9 +60,12 @@ class CSmokeField {
 // restores texture units 0-6 (2D and 3D), program and VAO afterwards.
 class CSmokeMaterial {
   public:
+    // Readiness is published only after all shared textures exist. Failure cleans partial
+    // resources and the same instance can initialize again with a complete program set.
     bool initialize(const SSmokePrograms &programs);
     void release();
     // Advances the field to frame.time; later calls for the same time do nothing.
+    // Initial storage is transactional; later window resizes reuse it and remap the fluid.
     // Uses its own framebuffer and viewport; the caller must restore them afterwards.
     bool simulate(CSmokeField &field,
         const hyprimate::SmokeFrame &frame,
@@ -147,5 +150,5 @@ class CSmokeMaterial {
     std::array<GLuint, ProgramCount> m_programs{};
     std::array<std::array<GLint, UniformCount>, ProgramCount> m_uniforms{};
     GLuint m_vao = 0, m_noise = 0, m_empty = 0;
-    bool m_tried = false;
+    bool m_ready = false;
 };
