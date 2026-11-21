@@ -18,9 +18,7 @@ bool same_box(const Box &first, const Box &second) noexcept {
 std::optional<Motion> observe_motion(const Observation &previous, const Observation &current,
     bool previous_workspace_movement, bool workspace_movement) noexcept {
     if (previous.monitor != current.monitor || previous.workspace != current.workspace ||
-        previous_workspace_movement != workspace_movement ||
-        !is_usable(previous.body) || !is_usable(previous.capture) ||
-        !is_usable(current.body) || !is_usable(current.capture)) {
+        previous_workspace_movement != workspace_movement) {
         return std::nullopt;
     }
     const auto OLD_OFFSET = workspace_movement ? previous.workspace_offset : Vec2{};
@@ -29,6 +27,10 @@ std::optional<Motion> observe_motion(const Observation &previous, const Observat
     const auto NEW_BODY = translated(current.body, NEW_OFFSET);
     const auto OLD_CAPTURE = translated(previous.capture, OLD_OFFSET);
     const auto NEW_CAPTURE = translated(current.capture, NEW_OFFSET);
+    if (!is_usable(OLD_BODY) || !is_usable(NEW_BODY) ||
+        !is_usable(OLD_CAPTURE) || !is_usable(NEW_CAPTURE)) {
+        return std::nullopt;
+    }
     const bool MOVED = OLD_BODY.x != NEW_BODY.x || OLD_BODY.y != NEW_BODY.y;
     const bool RESIZED = OLD_BODY.w != NEW_BODY.w || OLD_BODY.h != NEW_BODY.h;
     const bool CAPTURE_CHANGED = !same_box(OLD_CAPTURE, NEW_CAPTURE);

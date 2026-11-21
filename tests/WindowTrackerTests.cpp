@@ -1,3 +1,5 @@
+#include <limits>
+
 #include "Check.hpp"
 #include "WindowTracker.hpp"
 
@@ -66,6 +68,19 @@ int main() {
     after.workspace_offset = {};
     motion = observe_motion(baseline, after, true, true);
     CHECK(motion && motion->body.x - motion->from_body.x == -3000);
+
+    after = before;
+    after.body.x += 20;
+    after.workspace_offset.y = std::numeric_limits<double>::quiet_NaN();
+    CHECK(!observe_motion(before, after, true, true));
+    CHECK(!observe_motion(after, before, true, true));
+    CHECK(observe_motion(before, after, false, false));
+
+    // The source box and offset are finite individually, but the translated
+    // capture is not. It must not reach a style as an ordinary movement.
+    after.capture.x = std::numeric_limits<double>::max();
+    after.workspace_offset = {.x = std::numeric_limits<double>::max(), .y = 0};
+    CHECK(!observe_motion(before, after, true, true));
 
     return g_failures == 0 ? 0 : 1;
 }
