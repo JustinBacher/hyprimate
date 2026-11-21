@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <exception>
 #include <functional>
 #include <optional>
 #include <string_view>
@@ -62,6 +63,7 @@
 #include "workspace/WorkspaceIdentity.hpp"
 #include "workspace/WorkspaceStyleList.hpp"
 #include "workspace/WorkspaceTurn.hpp"
+#include "workspace/WorkspaceCallbackScope.hpp"
 
 namespace {
     using Clock = std::chrono::steady_clock;
@@ -280,7 +282,7 @@ namespace {
 
 }  // namespace
 
-class CWorkspaceAnimation::Impl {
+class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
   public:
     explicit Impl(HANDLE handle) : m_handle(handle) {
         m_styles.for_each([this]<class Style>(auto &resources) {
@@ -462,6 +464,10 @@ class CWorkspaceAnimation::Impl {
         PHLMONITOR monitor;
         Composition composition;
         bool ready = false;
+        std::shared_ptr<MonitorState> state;
+        std::shared_ptr<hyprimate::workspace::WorkspaceTurn<TurnPort>> turn;
+        std::uint64_t revision = 0;
+        std::uint64_t lifecycle = 0;
     };
     Composition composition(const PHLMONITOR &monitor, bool ordered = false) {
         const auto NUMBER = numbered(monitor->m_activeWorkspace);
@@ -592,6 +598,19 @@ class CWorkspaceAnimation::Impl {
     static void damage(const PHLMONITOR &monitor);
 
     HANDLE m_handle = nullptr;
+    std::uint64_t m_lifecycle = 0;
+    std::uint64_t m_gesture_revision = 0;
+    int m_style_draw_depth = 0;
+    bool m_release_pending = false;
+    std::optional<hyprimate::config::SWorkspaceSettings> m_deferred_settings;
+    void release_styles() {
+        m_styles.for_each([]<class Style>(auto &resources) {
+            if (resources.ready && Render::GL::g_pHyprOpenGL) {
+                resources.renderer.release();
+            }
+            resources.ready = false;
+        });
+    }
     bool m_uses_wallpaper = false;
     bool m_layered = false;
     bool m_individual_windows = false;
@@ -951,14 +970,16 @@ namespace {
     bool hook_gesture_begin(CUnifiedWorkspaceSwipeGesture *gesture, PHLMONITOR monitor) {
         auto *manager = active();
         auto function = original<GestureBeginFn>(manager != nullptr ? manager->m_gesture_begin_hook : nullptr);
+        const auto owner_pin = manager ? manager->shared_from_this() : nullptr;
         if (function == nullptr) {
             return false;
         }
         if (manager != nullptr && manager->m_turns.enabled()) {
             manager->capture_gesture(monitor);
         }
+        const auto gesture_revision = manager ? manager->m_gesture_revision : 0;
         const bool BEGUN = function(gesture, monitor);
-        if (!BEGUN && manager != nullptr) {
+        if (!BEGUN && manager != nullptr && manager->m_gesture_revision == gesture_revision) {
             manager->clear_gesture();
         }
         return BEGUN;
@@ -968,22 +989,23 @@ namespace {
     void hook_gesture_end(CUnifiedWorkspaceSwipeGesture *gesture) {
         auto *manager = active();
         auto function = original<GestureVoidFn>(manager != nullptr ? manager->m_gesture_end_hook : nullptr);
-        if (function != nullptr) {
-            function(gesture);
-        }
+        // Detach the outgoing gesture before native code can begin another one.
         if (manager != nullptr) {
             manager->clear_gesture();
+        }
+        if (function != nullptr) {
+            function(gesture);
         }
     }
 
     void hook_gesture_cancel(CUnifiedWorkspaceSwipeGesture *gesture) {
         auto *manager = active();
         auto function = original<GestureVoidFn>(manager != nullptr ? manager->m_gesture_cancel_hook : nullptr);
-        if (function != nullptr) {
-            function(gesture);
-        }
         if (manager != nullptr) {
             manager->clear_gesture();
+        }
+        if (function != nullptr) {
+            function(gesture);
         }
     }
 
@@ -1103,7 +1125,7 @@ namespace {
             return;
         }
         read_window_capture_details(facts, window, monitor, decorate);
-        hyprimate::workspace::WorkspaceFloating *floating = nullptr;
+        SP<Render::IFramebuffer> accumulated;
         std::optional<CBox> crop;
         const auto BOUNDARY = [&](const SP<Render::IFramebuffer> &target, std::optional<CBox> region = std::nullopt) {
             Render::IHyprRenderer::addPassElement(ctx, makeUnique<CWorkspaceWallpaperPass>(
@@ -1128,22 +1150,22 @@ namespace {
             if (item.layer.accumulated == nullptr || item.layer.backdrop == nullptr) {
                 entry->capture_failed = true;
             } else {
-                floating = &item;
-                // Body and popup plates share a window, never temporal pixels.
-                floating->identity = (manager->m_window_identities.get(window, PHLWINDOW{}) * 4) +
+                accumulated = item.layer.accumulated;
+                // Retain the framebuffer, not a vector element across native callbacks.
+                item.identity = (manager->m_window_identities.get(window, PHLWINDOW{}) * 4) +
                                      static_cast<std::int64_t>(pass);
-                floating->rect = {crop->x / SIZE.x,
+                item.rect = {crop->x / SIZE.x,
                     crop->y / SIZE.y,
                     crop->width / SIZE.x,
                     crop->height / SIZE.y};
-                floating->order = static_cast<double>(entry->floating_used - 1);
-                BOUNDARY(floating->layer.backdrop, crop);
+                item.order = static_cast<double>(entry->floating_used - 1);
+                BOUNDARY(item.layer.backdrop, crop);
             }
         }
         ORIGINAL(renderer, ctx, window, monitor, presentation, now,
             decorate, pass, ignore_position, standalone);
-        if (floating != nullptr) {
-            BOUNDARY(floating->layer.accumulated, crop);
+        if (accumulated != nullptr) {
+            BOUNDARY(accumulated, crop);
         }
     }
     // NOLINTEND(performance-unnecessary-value-param)
@@ -1153,8 +1175,13 @@ namespace {
     // texture and never from the preceding frame's wallpaper/HUD.
     class CWorkspaceHudBlurPass final : public IPassElement {
       public:
-        explicit CWorkspaceHudBlurPass(bool invalidate = false) : m_invalidate(invalidate) {}
+        using Turn = hyprimate::workspace::WorkspaceTurn<CWorkspaceAnimation::Impl::TurnPort>;
+        CWorkspaceHudBlurPass(const std::shared_ptr<Turn> &turn, PHLMONITOR monitor, bool invalidate)
+            : m_turn(turn), m_monitor(std::move(monitor)), m_revision(turn->revision()),
+              m_invalidate(invalidate) {}
         std::vector<UP<IPassElement>> draw(Render::CRenderContext &ctx) override {
+            // Metadata restoration may still run after cancellation, but never after shutdown.
+            if (!active() || ctx.m_data.pMonitor.lock() != m_monitor) { return {}; }
             const auto RESOURCES = ctx.sceneResources();
             if (m_invalidate) {
                 // completePreBlur clears dirty/queued. Invalidate after every
@@ -1169,6 +1196,14 @@ namespace {
                 }
                 return {};
             }
+            const auto turn = m_turn.lock();
+            auto *owner = active();
+            if (!owner || !turn || owner->turn(m_monitor) != turn.get() ||
+                turn->revision() != m_revision || !turn->active() || !safe_scene() ||
+                !native_hud_safe(m_monitor) || ctx.m_data.pMonitor.lock() != m_monitor ||
+                !Turn::queue_context({.monitor = true, .capture_depth = owner->m_capture_depth,
+                    .capture = ctx.m_renderingCapture, .snapshot = ctx.m_renderingSnapshot,
+                    .read_only = ctx.readOnlyEffects()})) { return {}; }
             const bool QUEUED = RESOURCES ? RESOURCES->blurQueued() : ctx.m_data.pMonitor->m_blurFBShouldRender;
             if (QUEUED) {
                 const CRegion DAMAGE{CBox{{}, ctx.m_data.pMonitor->m_transformedSize}};
@@ -1185,6 +1220,9 @@ namespace {
         ePassElementType type() override { return EK_CUSTOM; }
 
       private:
+        std::weak_ptr<Turn> m_turn;
+        PHLMONITOR m_monitor;
+        std::uint64_t m_revision;
         bool m_invalidate;
     };
 
@@ -1197,10 +1235,11 @@ namespace {
         }
 
         std::vector<UP<IPassElement>> draw(Render::CRenderContext &ctx) override {
+            const auto owner_pin = active() ? active()->shared_from_this() : nullptr;
             using Turn = hyprimate::workspace::WorkspaceTurn<CWorkspaceAnimation::Impl::TurnPort>;
             const auto CURRENT = [&]() -> Turn * {
                 auto *owner = active();
-                if (!owner || !Turn::queue_context({.monitor = ctx.m_data.pMonitor.lock() == m_monitor,
+                if (!owner || owner->m_style_draw_depth != 0 || !Turn::queue_context({.monitor = ctx.m_data.pMonitor.lock() == m_monitor,
                         .capture_depth = owner->m_capture_depth, .capture = ctx.m_renderingCapture,
                         .snapshot = ctx.m_renderingSnapshot, .read_only = ctx.readOnlyEffects()})) {
                     return nullptr;
@@ -1224,13 +1263,34 @@ namespace {
                     return false;
                 }
                 auto *owner = active();
+                if (!owner || owner != owner_pin.get()) { return false; }
+                ++owner->m_style_draw_depth;
                 bool drawn = false;
-                owner->m_styles.for_each([&]<class Style>(auto &resources) {
-                    if (Style::KIND == owner->m_style_kind && resources.ready) {
-                        style_name = Style::NAME;
-                        drawn = Style::draw(resources, ctx, m_frame, progress, direction, m_matching_wallpaper);
+                {
+                    const hyprimate::workspace::CallbackExit unwind{[&]() noexcept {
+                        --owner->m_style_draw_depth;
+                    }};
+                    try {
+                        owner->m_styles.for_each([&]<class Style>(auto &resources) {
+                            if (Style::KIND == owner->m_style_kind && resources.ready) {
+                                style_name = Style::NAME;
+                                drawn = Style::draw(resources, ctx, m_frame, progress, direction, m_matching_wallpaper);
+                            }
+                        });
+                    } catch (const std::exception &error) {
+                        LOG(Log::ERR, "[hyprimate] workspace style draw failed monitor={} style={}: {}",
+                            m_monitor->m_name, style_name, error.what());
+                    } catch (...) {
+                        LOG(Log::ERR, "[hyprimate] workspace style draw failed monitor={} style={}: unknown exception",
+                            m_monitor->m_name, style_name);
                     }
-                });
+                }
+                if (owner->m_style_draw_depth == 0) {
+                    if (std::exchange(owner->m_release_pending, false)) { owner->release_styles(); }
+                    if (auto settings = std::exchange(owner->m_deferred_settings, std::nullopt)) {
+                        if (active() == owner) { owner->configure(*settings); }
+                    }
+                }
                 return drawn && previews_current();
             };
             const auto DISPLAY = [&] {
@@ -1431,6 +1491,10 @@ void CWorkspaceAnimation::Impl::on_render_stage(const Event::SRenderStageEvent &
 }
 
 void CWorkspaceAnimation::Impl::shutdown() {
+    if (s_active == this) { s_active = nullptr; }
+    ++m_lifecycle;
+    m_turns.clear();
+    m_deferred_settings.reset();
     m_wallpaper_listener.reset();
     m_inventory_listeners = {};
     m_observed.clear();
@@ -1457,22 +1521,29 @@ void CWorkspaceAnimation::Impl::shutdown() {
     m_render_hook = m_drag_hook = m_gesture_begin_hook = m_gesture_end_hook = m_gesture_cancel_hook =
         nullptr;
     m_blur_hook = m_window_hook = m_layer_hook = nullptr;
-    s_active = nullptr;
     clear();
     m_style_warm_pending = false;
     if (Render::GL::g_pHyprOpenGL) {
         Render::GL::g_pHyprOpenGL->makeEGLCurrent();
     }
-    m_styles.for_each([]<class Style>(auto &resources) {
-        if (resources.ready && Render::GL::g_pHyprOpenGL) {
-            resources.renderer.release();
-        }
-        resources.ready = false;
-    });
+    if (m_style_draw_depth) {
+        m_release_pending = true;
+    } else {
+        release_styles();
+    }
     m_begin_render = nullptr;
 }
 
-void CWorkspaceAnimation::Impl::configure(const hyprimate::config::SWorkspaceSettings &settings) {
+void CWorkspaceAnimation::Impl::configure(const hyprimate::config::SWorkspaceSettings &requested) {
+    const auto keep_alive = shared_from_this();
+    const auto settings = requested;
+    auto lifecycle = ++m_lifecycle;
+    if (m_style_draw_depth) {
+        m_turns.clear();
+        m_deferred_settings = settings;
+        return;
+    }
+    if (m_capture_depth) { m_turns.clear(); }
     if (!m_last_settings || *m_last_settings != settings) {
         m_settings_changed = true;
         m_last_settings = settings;
@@ -1483,8 +1554,11 @@ void CWorkspaceAnimation::Impl::configure(const hyprimate::config::SWorkspaceSet
         }
         const auto PREVIOUS = resources.settings.last;
         Style::prepare(resources, settings);
+        if (m_lifecycle != lifecycle) { return; }
         if (PREVIOUS != resources.settings.last || m_style_kind != Style::KIND || !settings.enabled) {
             clear();
+            if (m_lifecycle != lifecycle + 1) { return; }
+            lifecycle = m_lifecycle;
         }
         m_layered = Style::LAYERED;
         m_max_frame_gap = hyprimate::STALL_SECONDS;
@@ -1502,16 +1576,19 @@ void CWorkspaceAnimation::Impl::configure(const hyprimate::config::SWorkspaceSet
             HyprlandAPI::addNotification(m_handle, "[hyprimate] Selected workspace options require an unavailable native capture hook",
                 CHyprColor(1.F, 0.35F, 0.2F, 1.F), 10000.F);
         }
+        if (m_lifecycle != lifecycle) { return; }
         configure_style<Style>(settings.enabled && SUPPORTED, resources);
+        if (m_lifecycle != lifecycle) { return; }
         m_style_warm_pending = settings.enabled && SUPPORTED && !resources.ready;
     });
-    if (settings.enabled) {
+    if (m_lifecycle == lifecycle && settings.enabled) {
         prime_outputs();
     }
 }
 
 template<class Style>
 void CWorkspaceAnimation::Impl::configure_style(bool enabled, Style::Resources &resources) {
+    const auto lifecycle = m_lifecycle;
     if (m_style_kind != Style::KIND) {
         m_invalid_curve.reset();
     }
@@ -1526,6 +1603,7 @@ void CWorkspaceAnimation::Impl::configure_style(bool enabled, Style::Resources &
         const std::string NAME(requested_curve);
         if constexpr (requires { resources.curves.resolve(NAME, resources.settings.prepared.duration); }) {
             if (auto curve = resources.curves.resolve(NAME, resources.settings.prepared.duration)) {
+                if (m_lifecycle != lifecycle) { return {}; }
                 m_invalid_curve.reset();
                 return curve;
             }
@@ -1536,6 +1614,7 @@ void CWorkspaceAnimation::Impl::configure_style(bool enabled, Style::Resources &
                 "[hyprimate] Unknown workspace curve '" + NAME +
                     (m_turns.curve() ? "'; retaining the last valid curve." : "'; using the native default curve."),
                 CHyprColor(1.F, 0.35F, 0.2F, 1.F), 10000.F);
+            if (m_lifecycle != lifecycle) { return {}; }
             m_invalid_curve = NAME;
         }
         if (!KNOWN && m_turns.curve()) {
@@ -1558,6 +1637,7 @@ void CWorkspaceAnimation::Impl::configure_style(bool enabled, Style::Resources &
     };
     m_turns.configure(enabled, static_cast<std::uint64_t>(Style::KIND), prepared.duration, prepared.curve,
         m_settings_changed, RESOLVE);
+    if (m_lifecycle != lifecycle) { return; }
     m_settings_changed = false;
 }
 
@@ -1860,11 +1940,27 @@ bool CWorkspaceAnimation::Impl::capture(MonitorState &entry,
         PHLMONITOR monitor;
         PHLWORKSPACE workspace;
         bool inactive;
-    } data{.owner = this, .monitor = monitor, .workspace = workspace, .inactive = inactive};
+        std::uint64_t lifecycle;
+        std::uint64_t gesture_revision;
+        hyprimate::workspace::WorkspaceTurn<TurnPort> *turn;
+        std::uint64_t revision;
+        std::int64_t composition;
+        [[nodiscard]] bool allowed() const {
+            auto *current = owner->turn(monitor);
+            return active() == owner && owner->m_lifecycle == lifecycle && current == turn &&
+                owner->m_gesture_revision == gesture_revision &&
+                current && current->revision() == revision && safe_scene() &&
+                (!owner->m_native_hud || native_hud_safe(monitor)) &&
+                owner->composition_id(monitor) == composition;
+        }
+    } data{.owner = this, .monitor = monitor, .workspace = workspace, .inactive = inactive,
+        .lifecycle = m_lifecycle, .gesture_revision = m_gesture_revision, .turn = turn(monitor),
+        .revision = turn(monitor) ? turn(monitor)->revision() : 0,
+        .composition = composition_id(monitor)};
     const auto DRAW = [](void *opaque, Render::CRenderContext &ctx) {
         const auto &args = *static_cast<DrawData *>(opaque);
         const auto ORIGINAL = args.owner->render_original();
-        if (ORIGINAL == nullptr || !g_pHyprRenderer) {
+        if (!args.allowed() || ORIGINAL == nullptr || !g_pHyprRenderer) {
             return;
         }
         ORIGINAL(g_pHyprRenderer.get(),
@@ -1882,6 +1978,9 @@ bool CWorkspaceAnimation::Impl::capture(MonitorState &entry,
     auto &frame = target == entry.source ? entry.source_frame : entry.destination_frame;
     auto &shell_identity = target == entry.source ? entry.source_shell_identity : entry.destination_shell_identity;
     capture_wallpaper_identity(entry, monitor, shell_identity, true);
+    const hyprimate::workspace::ScopedRestore capturing_scope{m_capturing};
+    const hyprimate::workspace::ScopedRestore wallpaper_scope{m_capture_wallpaper};
+    const hyprimate::workspace::ScopedRestore frame_scope{entry.capturing_frame};
     entry.capture_failed = false;
     entry.floating_used = 0;
     entry.capturing_frame = &frame;
@@ -1893,10 +1992,9 @@ bool CWorkspaceAnimation::Impl::capture(MonitorState &entry,
     }
     const ScopedCapture CAPTURE_SCOPE{m_capture_depth};
     const bool CAPTURED = hyprimate::workspace::capture_workspace(
-        *g_pHyprRenderer, m_begin_render, monitor, target, RESOURCES, kind, DRAW, &data);
-    m_capturing = nullptr;
-    m_capture_wallpaper.reset();
-    entry.capturing_frame = nullptr;
+        *g_pHyprRenderer, m_begin_render, monitor, target, RESOURCES, kind, DRAW, &data,
+        [](void *opaque) { return static_cast<DrawData *>(opaque)->allowed(); });
+    // Capture markers are restored by scope guards, also on exceptions.
     release_floating_tail(entry, frame);
     const bool COMPLETE = entry.capture_policy.complete({.native_captured = CAPTURED && !entry.capture_failed,
         .wallpaper_captured = entry.wallpaper_captured});
@@ -2168,6 +2266,8 @@ void CWorkspaceAnimation::Impl::TurnPort::diagnostic(std::string_view reason) co
 
 std::vector<CWorkspaceAnimation::Impl::Snapshot> CWorkspaceAnimation::Impl::snapshot(
     std::initializer_list<PHLMONITOR> monitors) {
+    const auto keep_alive = shared_from_this();
+    const auto lifecycle = m_lifecycle;
     std::vector<Snapshot> result;
     result.reserve(monitors.size());
     for (const auto &monitor : monitors) {
@@ -2182,9 +2282,12 @@ std::vector<CWorkspaceAnimation::Impl::Snapshot> CWorkspaceAnimation::Impl::snap
         }
         const auto entry = ensure_state(monitor);
         const auto staged = m_turns.get(monitor_key(monitor), entry->port);
-        Snapshot item{.monitor = monitor, .composition = composition(monitor, true)};
+        Snapshot item{.monitor = monitor, .composition = composition(monitor, true), .ready = false,
+            .state = entry, .turn = staged, .revision = staged->revision() + 1,
+            .lifecycle = lifecycle};
         item.ready = staged->stage(item.composition);
-        if (turn(monitor) != staged.get()) {
+        if (m_lifecycle != lifecycle || turn(monitor) != staged.get() ||
+            staged->revision() != item.revision) {
             continue;
         }
         item.ready = item.ready && composition_id(monitor) == item.composition.identity;
@@ -2200,13 +2303,18 @@ std::vector<CWorkspaceAnimation::Impl::Snapshot> CWorkspaceAnimation::Impl::snap
 }
 
 void CWorkspaceAnimation::Impl::finish(std::vector<Snapshot> &snapshots) {
+    const auto keep_alive = shared_from_this();
     for (const auto &item : snapshots) {
         if (!item.ready || !item.monitor) {
             continue;
         }
-        const auto *entry = state(item.monitor);
-        auto *active_turn = turn(item.monitor);
-        if (entry == nullptr || active_turn == nullptr) {
+        const auto entry = item.state;
+        const auto active_turn = item.turn;
+        const auto current = [&] {
+            return item.lifecycle == m_lifecycle && turn(item.monitor) == active_turn.get() &&
+                active_turn && active_turn->revision() == item.revision;
+        };
+        if (!entry || !current()) {
             continue;
         }
         const auto AFTER = composition(item.monitor, true);
@@ -2225,10 +2333,14 @@ void CWorkspaceAnimation::Impl::finish(std::vector<Snapshot> &snapshots) {
                     animate(workspace, Animation::Workspace::ANIMATION_TYPE_IN, true, true, std::nullopt);
                 };
                 NORMALIZE(item.monitor->m_activeWorkspace);
+                if (!current() || composition_id(item.monitor) != AFTER.identity) { continue; }
                 NORMALIZE(item.monitor->m_activeSpecialWorkspace);
+                if (!current() || composition_id(item.monitor) != AFTER.identity) { continue; }
             }
         }
         active_turn->begin(item.composition, AFTER, m_turns.duration(), m_turns.curve());
+        if (turn(item.monitor) != active_turn.get() || item.lifecycle != m_lifecycle ||
+            active_turn->revision() != item.revision + 1) { continue; }
         if (item.composition.identity != AFTER.identity) {
             LOG(Log::DEBUG, "[hyprimate] workspace request monitor={} before={} after={} accepted={} presented={}",
                 item.monitor->m_name, item.composition.identity, AFTER.identity,
@@ -2242,6 +2354,7 @@ void CWorkspaceAnimation::Impl::finish(std::vector<Snapshot> &snapshots) {
 
 void CWorkspaceAnimation::Impl::mutate(
     const std::vector<PHLMONITOR> &monitors, const std::function<void()> &original) {
+    const auto keep_alive = shared_from_this();
     if (!hyprimate::workspace::WorkspaceTurn<TurnPort>::intercept_mutation(
             {.enabled = m_turns.enabled(),
                 .capture_depth = m_capture_depth,
@@ -2292,16 +2405,19 @@ bool CWorkspaceAnimation::Impl::suppresses(const PHLMONITOR &monitor) const {
 }
 
 void CWorkspaceAnimation::Impl::capture_gesture(const PHLMONITOR &monitor) {
+    const auto keep_alive = shared_from_this();
+    const auto gesture_revision = ++m_gesture_revision;
     if (m_capture_depth != 0 || !m_turns.enabled() || !monitor) {
         return;
     }
     auto captured = snapshot({monitor});
-    if (!captured.empty() && captured.front().ready) {
+    if (gesture_revision == m_gesture_revision && !captured.empty() && captured.front().ready) {
         m_gesture_monitor = monitor;
     }
 }
 
 void CWorkspaceAnimation::Impl::clear_gesture() {
+    ++m_gesture_revision;
     const auto MONITOR = m_gesture_monitor.lock();
     m_gesture_monitor.reset();
     if (!MONITOR) {
@@ -2348,17 +2464,16 @@ void CWorkspaceAnimation::Impl::inhibit_scanout(const PHLMONITOR &monitor) {
 }
 
 void CWorkspaceAnimation::Impl::restore_scanout(const PHLMONITOR &monitor) {
-    std::erase_if(m_scanout_inhibited, [&](const auto &weak) {
-        const auto CANDIDATE = weak.lock();
-        if (!CANDIDATE) {
-            return true;
+    auto inhibited = std::exchange(m_scanout_inhibited, {});
+    for (const auto &weak : inhibited) {
+        const auto candidate = weak.lock();
+        if (!candidate) { continue; }
+        if (monitor && candidate != monitor) {
+            m_scanout_inhibited.push_back(weak);
+        } else {
+            candidate->recheckSolitary();
         }
-        if (monitor && CANDIDATE != monitor) {
-            return false;
-        }
-        CANDIDATE->recheckSolitary();
-        return true;
-    });
+    }
 }
 
 void CWorkspaceAnimation::Impl::pre_checks(const PHLMONITOR &monitor) {
@@ -2374,6 +2489,7 @@ void CWorkspaceAnimation::Impl::pre_checks(const PHLMONITOR &monitor) {
 }
 
 void CWorkspaceAnimation::Impl::pre_render(const PHLMONITOR &monitor) {
+    const auto keep_alive = shared_from_this();
     if (!monitor || m_capture_depth != 0) {
         return;
     }
@@ -2392,8 +2508,9 @@ void CWorkspaceAnimation::Impl::pre_render(const PHLMONITOR &monitor) {
     const auto ELAPSED = std::chrono::duration<double>(NOW - entry->last).count();
     entry->last = NOW;
     const auto current = composition(monitor);
+    const auto revision = active_turn->revision() + 1;
     active_turn->frame(current, ELAPSED);
-    if (turn(monitor) != active_turn.get()) {
+    if (turn(monitor) != active_turn.get() || active_turn->revision() != revision) {
         return;
     }
     if (m_uses_previews && active_turn->drawable()) {
@@ -2415,7 +2532,7 @@ void CWorkspaceAnimation::Impl::pre_render(const PHLMONITOR &monitor) {
 
 bool CWorkspaceAnimation::Impl::queue(
     Render::CRenderContext &ctx, const PHLMONITOR &monitor, const Time::steady_tp &now) {
-    if (!hyprimate::workspace::WorkspaceTurn<TurnPort>::queue_context(
+    if (m_style_draw_depth != 0 || !hyprimate::workspace::WorkspaceTurn<TurnPort>::queue_context(
             {.monitor = monitor != nullptr,
                 .capture_depth = m_capture_depth,
                 .capture = ctx.m_renderingCapture,
@@ -2423,8 +2540,10 @@ bool CWorkspaceAnimation::Impl::queue(
                 .read_only = ctx.readOnlyEffects()})) {
         return false;
     }
-    auto *entry = state(monitor);
-    auto *active_turn = turn(monitor);
+    const auto keep_alive = shared_from_this();
+    const auto *slot = state_slot(monitor);
+    const auto entry = slot ? *slot : nullptr;
+    const auto active_turn = m_turns.pin(monitor_key(monitor));
     if (entry == nullptr || active_turn == nullptr) {
         return false;
     }
@@ -2434,6 +2553,7 @@ bool CWorkspaceAnimation::Impl::queue(
         .source = entry->source_frame, .destination = entry->destination_frame,
         .presentation = entry->presentation, .neighbors = entry->neighbors, .native_hud = m_native_hud};
     const bool RESOURCES_READY = entry->source && entry->destination && entry->presentation;
+    const auto revision = active_turn->revision() + 1;
     const auto ticket = active_turn->queue(RESOURCES_READY, [&] {
             return prepare_frame(*entry,
                        TurnKind::SourceIsolated,
@@ -2444,6 +2564,7 @@ bool CWorkspaceAnimation::Impl::queue(
                        frame.destination,
                        active_turn->blend_mix(TurnKind::DestinationLive));
     });
+    if (turn(monitor) != active_turn.get() || active_turn->revision() != revision) { return false; }
     if (!ticket) {
         if (!active_turn->active()) {
             erase_state(monitor);
@@ -2458,7 +2579,10 @@ bool CWorkspaceAnimation::Impl::queue(
                 entry->source_wallpaper_identity, entry->destination_wallpaper_identity)));
     active_turn->replay_hud([&](hyprimate::workspace::HudReplay step) {
         using hyprimate::workspace::HudReplay;
+        const auto revision = active_turn->revision();
         const auto REPLAY = [&](const PHLLSREF &weak, bool popup) {
+            if (turn(monitor) != active_turn.get() || active_turn->revision() != revision ||
+                !safe_scene() || (m_native_hud && !native_hud_safe(monitor))) { return; }
             if (const auto SURFACE = weak.lock()) {
                 ((*g_pHyprRenderer).*PreviewDrawAccess::LAYER)(
                     ctx, SURFACE, monitor, now, popup, false, false);
@@ -2466,9 +2590,10 @@ bool CWorkspaceAnimation::Impl::queue(
         };
         if (step == HudReplay::Blur || step == HudReplay::RestoreBlur) {
             Render::IHyprRenderer::addPassElement(
-                ctx, makeUnique<CWorkspaceHudBlurPass>(step == HudReplay::RestoreBlur));
+                ctx, makeUnique<CWorkspaceHudBlurPass>(active_turn, monitor, step == HudReplay::RestoreBlur));
         } else if (step == HudReplay::Popups) {
-            for (const auto &layers : monitor->m_layerSurfaceLayers) {
+            const auto layers_snapshot = monitor->m_layerSurfaceLayers;
+            for (const auto &layers : layers_snapshot) {
                 for (const auto &weak : layers) {
                     REPLAY(weak, true);
                 }
@@ -2480,12 +2605,14 @@ bool CWorkspaceAnimation::Impl::queue(
             } else if (step == HudReplay::Top) {
                 layer = ZWLR_LAYER_SHELL_V1_LAYER_TOP;
             }
-            for (const auto &weak : monitor->m_layerSurfaceLayers[layer]) {
+            const auto layers_snapshot = monitor->m_layerSurfaceLayers[layer];
+            for (const auto &weak : layers_snapshot) {
                 REPLAY(weak, false);
             }
         }
     });
-    return true;
+    return turn(monitor) == active_turn.get() && active_turn->revision() == revision &&
+        active_turn->active() && safe_scene() && (!m_native_hud || native_hud_safe(monitor));
 }
 
 
@@ -2498,10 +2625,12 @@ void CWorkspaceAnimation::Impl::damage(const PHLMONITOR &monitor) {
 }
 
 void CWorkspaceAnimation::Impl::erase_state(const PHLMONITOR &monitor) {
+    const auto *slot = state_slot(monitor);
+    const auto entry = slot ? *slot : nullptr;
+    std::erase_if(m_states, [&](const auto &candidate) { return candidate == entry; });
     if (monitor) {
         m_turns.remove(monitor_key(monitor));
     }
-    std::erase_if(m_states, [&](const auto &entry) { return entry->monitor.lock() == monitor; });
     restore_scanout(monitor);
 }
 
@@ -2725,39 +2854,51 @@ void CWorkspaceAnimation::Impl::remove_monitor(const PHLMONITOR &monitor) {
 
 void CWorkspaceAnimation::Impl::clear() {
     m_turns.reload();
+    ++m_lifecycle;
+    ++m_gesture_revision;
+    const auto states = std::exchange(m_states, {});
+    m_suppressed.clear();
+    m_gesture_monitor.reset();
     m_turns.clear();
-    for (const auto &entry : m_states) {
+    for (const auto &entry : states) {
         if (const auto MONITOR = entry->monitor.lock()) {
             damage(MONITOR);
         }
     }
-    m_states.clear();
     restore_scanout();
-    m_suppressed.clear();
-    m_gesture_monitor.reset();
 }
 
-CWorkspaceAnimation::CWorkspaceAnimation(HANDLE handle) : m_impl(std::make_unique<Impl>(handle)) {
+CWorkspaceAnimation::CWorkspaceAnimation(HANDLE handle) : m_impl(std::make_shared<Impl>(handle)) {
 }
-CWorkspaceAnimation::~CWorkspaceAnimation() = default;
+CWorkspaceAnimation::~CWorkspaceAnimation() { m_impl->shutdown(); }
 bool CWorkspaceAnimation::install(std::string &error) {
-    return m_impl->install(error);
+    const auto impl = m_impl;
+    return impl->install(error);
 }
 void CWorkspaceAnimation::shutdown() {
-    m_impl->shutdown();
+    const auto impl = m_impl;
+    impl->shutdown();
 }
 void CWorkspaceAnimation::configure(const hyprimate::config::SWorkspaceSettings &settings) {
-    m_impl->configure(settings);
+    const auto impl = m_impl;
+    impl->configure(settings);
 }
 void CWorkspaceAnimation::on_render_pre_checks(const PHLMONITOR &monitor) {
-    m_impl->pre_checks(monitor);
+    const auto impl = m_impl;
+    const auto output = monitor;
+    impl->pre_checks(output);
 }
 void CWorkspaceAnimation::on_render_pre(const PHLMONITOR &monitor) {
-    m_impl->pre_render(monitor);
+    const auto impl = m_impl;
+    const auto output = monitor;
+    impl->pre_render(output);
 }
 void CWorkspaceAnimation::remove_monitor(const PHLMONITOR &monitor) {
-    m_impl->remove_monitor(monitor);
+    const auto impl = m_impl;
+    const auto output = monitor;
+    impl->remove_monitor(output);
 }
 void CWorkspaceAnimation::clear() {
-    m_impl->clear();
+    const auto impl = m_impl;
+    impl->clear();
 }

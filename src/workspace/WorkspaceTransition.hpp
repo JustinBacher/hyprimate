@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 
 namespace hyprimate::workspace {
 
@@ -31,7 +32,9 @@ namespace hyprimate::workspace {
         double m_target = 1.0;
         double m_position = 0.0;
         double m_velocity = 0.0;
-        Curve m_curve;
+        // A speculative sample may outlive the turn that selected this curve.
+        // Copying the timeline must not copy/allocate a callable every frame.
+        std::shared_ptr<const Curve> m_curve;
         bool m_active = false;
     };
 

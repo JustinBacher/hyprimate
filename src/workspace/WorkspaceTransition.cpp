@@ -7,14 +7,16 @@
 namespace hyprimate::workspace {
 
     bool Transition::begin(Direction direction, double duration_seconds, Curve curve) {
+        auto selected = std::isfinite(duration_seconds) && duration_seconds > 0.0 && curve
+            ? std::make_shared<const Curve>(std::move(curve)) : nullptr;
         m_direction = direction;
         m_position = m_start = 0.0;
         m_velocity = m_velocity_correction = 0.0;
         m_target = 1.0;
         m_elapsed = 0.0;
         m_duration = duration_seconds;
-        m_curve = std::move(curve);
-        m_active = std::isfinite(duration_seconds) && duration_seconds > 0.0 && static_cast<bool>(m_curve);
+        m_curve = std::move(selected);
+        m_active = static_cast<bool>(m_curve);
         if (!m_active) {
             m_position = 1.0;
         }
@@ -32,7 +34,7 @@ namespace hyprimate::workspace {
         // The correction has zero displacement at both ends and matches the incoming
         // physical velocity at the interruption. It vanishes for a fresh transition.
         constexpr double STEP = 0.0001;
-        const double SLOPE = (m_curve(STEP) - m_curve(0.0)) / STEP;
+        const double SLOPE = ((*m_curve)(STEP) - (*m_curve)(0.0)) / STEP;
         m_velocity_correction = (m_velocity * m_duration) - ((m_target - m_start) * SLOPE);
     }
 
@@ -51,8 +53,8 @@ namespace hyprimate::workspace {
         constexpr double STEP = 0.0001;
         const double LOWER = std::max(0.0, TIME - STEP);
         const double UPPER = std::min(1.0, TIME + STEP);
-        const double VALUE = m_curve(TIME);
-        const double SLOPE = UPPER > LOWER ? (m_curve(UPPER) - m_curve(LOWER)) / (UPPER - LOWER) : 0.0;
+        const double VALUE = (*m_curve)(TIME);
+        const double SLOPE = UPPER > LOWER ? ((*m_curve)(UPPER) - (*m_curve)(LOWER)) / (UPPER - LOWER) : 0.0;
         const double REMAINING = 1.0 - TIME;
         const double RAW = m_start + ((m_target - m_start) * VALUE) +
                            (m_velocity_correction * TIME * REMAINING * REMAINING);

@@ -115,7 +115,12 @@ template<class Port> class WorkspaceTurn {
 
     bool stage(const Composition &current) {
         invalidate_frame();
-        if (!m_port->buffers(m_active)) {
+        const auto revision = m_revision;
+        const bool buffered = m_port->buffers(m_active);
+        if (m_revision != revision) {
+            return false;
+        }
+        if (!buffered) {
             cancel("stage-buffers");
             return false;
         }
@@ -127,9 +132,11 @@ template<class Port> class WorkspaceTurn {
             if (current.identity == m_source.identity &&
                 should_refresh(CaptureKind::SourceIsolated)) {
                 captured = capture(CaptureKind::SourceIsolated, current);
+                if (m_revision != revision) { return false; }
             } else if (current.identity == m_destination.identity &&
                        should_refresh(CaptureKind::DestinationLive)) {
                 captured = capture(CaptureKind::DestinationLive, current);
+                if (m_revision != revision) { return false; }
                 m_destination_ready = captured;
             }
             if (!captured) {
@@ -140,12 +147,15 @@ template<class Port> class WorkspaceTurn {
         if (m_staged && m_staged_identity == current.identity) {
             return true;
         }
-        m_staged = capture(CaptureKind::SourceIsolated, current);
+        const bool captured = capture(CaptureKind::SourceIsolated, current);
+        if (m_revision != revision) { return false; }
+        m_staged = captured;
         m_staged_identity = current.identity;
         return m_staged;
     }
 
     void release_gesture() {
+        invalidate_frame();
         if (!m_active) {
             m_staged = false;
         }
@@ -154,6 +164,7 @@ template<class Port> class WorkspaceTurn {
     void begin(
         Composition before, Composition after, double base_duration, Transition::Curve curve) {
         invalidate_frame();
+        const auto revision = m_revision;
         preserve_logical_hop(before, after);
         if (before.identity == after.identity) {
             if (!m_active) {
@@ -179,6 +190,7 @@ template<class Port> class WorkspaceTurn {
             RETARGET
                 ? m_port->duration(m_source.endpoint(), m_destination.endpoint(), base_duration)
                 : m_port->duration(from->endpoint(), after.endpoint(), base_duration);
+        if (m_revision != revision) { return; }
         if (!std::isfinite(DURATION) || DURATION <= 0.0) {
             cancel("invalid-duration");
             return;
@@ -204,7 +216,9 @@ template<class Port> class WorkspaceTurn {
             m_pending.reset();
             const bool DESTINATION = after.identity == m_destination.identity;
             if (DESTINATION != m_transition.target_destination()) {
-                m_transition.retarget(DESTINATION, DURATION);
+                if (!sample_transition(revision, [&](Transition &next) {
+                        next.retarget(DESTINATION, DURATION);
+                    })) { return; }
             }
         } else {
             m_pending = after;
@@ -216,6 +230,7 @@ template<class Port> class WorkspaceTurn {
 
     void frame(const Composition &current, double elapsed) {
         invalidate_frame();
+        const auto revision = m_revision;
         if (!m_active) {
             return;
         }
@@ -227,7 +242,9 @@ template<class Port> class WorkspaceTurn {
             cancel("hud-unsafe");
             return;
         }
-        if (!m_port->buffers(true)) {
+        const bool buffered = m_port->buffers(true);
+        if (m_revision != revision) { return; }
+        if (!buffered) {
             cancel("frame-buffers");
             return;
         }
@@ -236,9 +253,12 @@ template<class Port> class WorkspaceTurn {
                 cancel("clock-stall");
                 return;
             }
-            m_transition.advance(elapsed);
+            if (!sample_transition(revision, [&](Transition &next) { next.advance(elapsed); })) {
+                return;
+            }
             if (!m_transition.active()) {
                 m_port->landed();
+                if (m_revision != revision) { return; }
                 if (!m_pending) {
                     cancel();
                     return;
@@ -261,13 +281,16 @@ template<class Port> class WorkspaceTurn {
         const bool LIVE_SOURCE = should_refresh(CaptureKind::SourceIsolated);
         if (current.identity == m_source.identity && LIVE_SOURCE) {
             captured = capture(CaptureKind::SourceIsolated, current);
+            if (m_revision != revision) { return; }
         } else if (current.identity == m_destination.identity) {
             if (m_presented && LIVE_SOURCE) {
                 captured = refresh_inactive_source();
+                if (m_revision != revision) { return; }
             }
             if (captured &&
                 (!m_destination_ready || should_refresh(CaptureKind::DestinationLive))) {
                 captured = capture(CaptureKind::DestinationLive, current);
+                if (m_revision != revision) { return; }
                 m_destination_ready = captured;
             }
         }
@@ -283,37 +306,62 @@ template<class Port> class WorkspaceTurn {
     // Renderer calls can synchronously replace the turn; don't keep a turn reference across one.
     template<class Resolve, class Render, class Display>
     static Presentation draw_queued(std::uint64_t ticket, Resolve resolve, Render render, Display display) {
+        auto *turn = ticket ? resolve() : nullptr;
+        if (!turn || turn->m_queued != ticket || !turn->drawable()) {
+            return Presentation::Skipped;
+        }
+        turn->m_queued = 0;
+        turn->m_drawing = ticket;
         auto result = Presentation::Skipped;
         const auto CURRENT = [&]() -> WorkspaceTurn * {
-            auto *turn = resolve();
-            return ticket && turn && turn->m_queued == ticket && turn->drawable() ? turn : nullptr;
+            auto *current = resolve();
+            return current && current->m_drawing == ticket && current->drawable() ? current : nullptr;
         };
-        const auto ALLOWED = [&]() -> WorkspaceTurn * {
-            auto *turn = CURRENT();
-            if (turn && (!turn->m_port->scene_safe() ||
-                            (turn->m_port->native_hud() && !turn->m_port->hud_safe()))) {
-                turn->cancel("draw-unsafe");
+        const auto ALLOWED = [&](WorkspaceTurn *current) -> WorkspaceTurn * {
+            if (!current) { return nullptr; }
+            bool safe = current->m_port->scene_safe();
+            if (!(current = CURRENT())) { return nullptr; }
+            if (safe && current->m_port->native_hud()) {
+                safe = current->m_port->hud_safe();
+                if (!(current = CURRENT())) { return nullptr; }
+            }
+            if (!safe) {
+                current->cancel("draw-unsafe");
                 result = Presentation::Cancelled;
                 return nullptr;
             }
-            return turn;
+            return current;
         };
-        auto *turn = ALLOWED();
+        turn = ALLOWED(turn);
         if (!turn) {
             return result;
         }
-        const bool RENDERED = render(turn->progress(), turn->direction());
-        turn = ALLOWED();
+        bool rendered = false;
+        try {
+            rendered = render(turn->progress(), turn->direction());
+        } catch (...) {
+            // Re-resolve below: the throwing callback may have installed a newer turn.
+        }
+        turn = ALLOWED(CURRENT());
         if (!turn) {
             return result;
         }
-        if (!RENDERED) {
+        if (!rendered) {
             turn->presented(false);
             return Presentation::Cancelled;
         }
-        display();
+        try {
+            display();
+        } catch (...) {
+            // Submission may already have touched the output; never replay it.
+            if ((turn = CURRENT())) {
+                turn->cancel("workspace-display");
+                return Presentation::Cancelled;
+            }
+            return Presentation::Skipped;
+        }
         if ((turn = CURRENT())) {
-            turn->m_queued = 0;
+            turn->m_drawing = 0;
             result = turn->presented_once() ? Presentation::Displayed : Presentation::FirstDisplay;
             turn->presented(true);
         }
@@ -347,15 +395,19 @@ template<class Port> class WorkspaceTurn {
     }
     void cancel(std::string_view reason = {}) {
         invalidate_frame();
-        if (!reason.empty()) {
-            m_port->diagnostic(reason);
-        }
-        reset_blend(CaptureKind::SourceIsolated);
-        reset_blend(CaptureKind::DestinationLive);
+        const auto revision = m_revision;
         const bool WAS_ACTIVE = m_active;
         m_active = m_presented = m_destination_ready = m_staged = false;
         m_pending.reset();
         m_transition.cancel();
+        reset_blend(CaptureKind::SourceIsolated);
+        if (m_revision != revision) { return; }
+        reset_blend(CaptureKind::DestinationLive);
+        if (m_revision != revision) { return; }
+        if (!reason.empty()) {
+            m_port->diagnostic(reason);
+        }
+        if (m_revision != revision) { return; }
         if (WAS_ACTIVE) {
             m_port->damage();
         }
@@ -363,7 +415,8 @@ template<class Port> class WorkspaceTurn {
 
     template <class Prepare>
     std::uint64_t queue(bool resources_ready, Prepare &&prepare) {
-        m_queued = 0;
+        invalidate_frame();
+        const auto revision = m_revision;
         if (!drawable()) {
             return 0;
         }
@@ -379,7 +432,9 @@ template<class Port> class WorkspaceTurn {
             cancel("queue-hud-unsafe");
             return 0;
         }
-        if (!std::forward<Prepare>(prepare)()) {
+        const bool prepared = std::forward<Prepare>(prepare)();
+        if (m_revision != revision) { return 0; }
+        if (!prepared) {
             cancel("queue-prepare");
             return 0;
         }
@@ -392,6 +447,7 @@ template<class Port> class WorkspaceTurn {
         if (!m_port->native_hud()) {
             return;
         }
+        const auto revision = m_revision;
         for (const auto STEP : {HudReplay::Bottom,
                  HudReplay::Blur,
                  HudReplay::Top,
@@ -399,6 +455,7 @@ template<class Port> class WorkspaceTurn {
                  HudReplay::Popups,
                  HudReplay::RestoreBlur}) {
             replay(STEP);
+            if (m_revision != revision) { return; }
         }
     }
     [[nodiscard]] double blend_mix(CaptureKind kind) {
@@ -471,11 +528,28 @@ template<class Port> class WorkspaceTurn {
     [[nodiscard]] const Composition &source() const { return m_source; }
     [[nodiscard]] const Composition &destination() const { return m_destination; }
     [[nodiscard]] bool presented_once() const { return m_presented; }
+    void invalidate_callbacks() { invalidate_frame(); }
 
   private:
+    template<class Sample>
+    bool sample_transition(std::uint64_t revision, Sample sample) {
+        // Keep the last committed timeline available to a nested gesture/retarget.
+        // A callback may invalidate this sample without cancelling the turn.
+        auto next = m_transition;
+        try {
+            sample(next);
+        } catch (...) {
+            if (m_revision == revision) { cancel("curve-sample"); }
+            return false;
+        }
+        if (m_revision != revision) { return false; }
+        m_transition = std::move(next);
+        return true;
+    }
     void invalidate_frame() {
         ++m_revision;
         m_queued = 0;
+        m_drawing = 0;
     }
     template <class PresentationPort>
     static void index_floating(auto &blend, const PresentationPort &port) {
@@ -528,13 +602,13 @@ template<class Port> class WorkspaceTurn {
         return kind == CaptureKind::SourceIsolated ? m_source_blend : m_destination_blend;
     }
     void reset_blend(CaptureKind kind) {
-        m_port->release_blend(kind);
         auto &blend = blend_state(kind);
         blend.started = blend.start_distance = blend.mix = 0.0;
         blend.active = blend.cached = blend.indexed = false;
         blend.old_order.clear();
         blend.matched.clear();
         blend.commands.clear();
+        m_port->release_blend(kind);
     }
     bool should_refresh(CaptureKind kind) {
         const double BOUNDARY = std::clamp(m_port->live_boundary(), 0.0, 1.0);
@@ -547,12 +621,14 @@ template<class Port> class WorkspaceTurn {
     }
     bool begin_refresh(CaptureKind kind) {
         auto &blend = blend_state(kind);
+        const auto revision = m_revision;
         if (!m_port->layered() || !m_presented || !blend.cached || blend.active) {
             return true;
         }
         if (!m_port->clone_capture(kind)) {
             return false;
         }
+        if (m_revision != revision) { return false; }
         blend.start_distance = std::max(1e-6, std::min(progress(), 1.0 - progress()));
         blend.started = m_port->now();
         blend.mix = 0.0;
@@ -561,11 +637,16 @@ template<class Port> class WorkspaceTurn {
         return true;
     }
     bool capture(CaptureKind kind, const Composition &composition) {
+        const auto revision = m_revision;
         if (!begin_refresh(kind)) {
+            // The caller checks revision before modifying or cancelling the turn.
             m_port->diagnostic("capture-clone");
             return false;
         }
-        if (!m_port->capture(kind, composition)) {
+        if (m_revision != revision) { return false; }
+        const bool captured = m_port->capture(kind, composition);
+        if (m_revision != revision) { return false; }
+        if (!captured) {
             m_port->diagnostic(kind == CaptureKind::SourceIsolated ? "capture-source" : "capture-destination");
             return false;
         }
@@ -577,6 +658,7 @@ template<class Port> class WorkspaceTurn {
             return true;
         }
         const auto FACTS = m_port->inactive_source_facts(m_source);
+        const auto revision = m_revision;
         if (!FACTS.monitor || !m_port->scene_safe()) {
             return false;
         }
@@ -584,10 +666,12 @@ template<class Port> class WorkspaceTurn {
             (!m_port->native_hud() && FACTS.popup) || !FACTS.shell_matches) {
             return true;
         }
-        if (!begin_refresh(CaptureKind::SourceIsolated) ||
-            !m_port->capture_inactive_source(m_source)) {
+        const auto source = m_source;
+        if (!begin_refresh(CaptureKind::SourceIsolated) || m_revision != revision ||
+            !m_port->capture_inactive_source(source)) {
             return false;
         }
+        if (m_revision != revision) { return false; }
         m_source_blend.cached = false;
         return true;
     }
@@ -596,6 +680,7 @@ template<class Port> class WorkspaceTurn {
     Port *m_port;
     inline static std::uint64_t s_next_ticket = 0;
     std::uint64_t m_queued = 0;
+    std::uint64_t m_drawing = 0;
     std::uint64_t m_revision = 0;
     Composition m_source{};
     Composition m_destination{};
@@ -630,23 +715,26 @@ template<class Monitor, class Port> class WorkspaceTurns {
         return found == m_turns.end() ? nullptr : found->second;
     }
     void remove(Monitor monitor) {
-        if (auto *turn = find(monitor)) {
-            turn->cancel();
-            m_turns.erase(monitor);
-        }
+        const auto found = m_turns.find(monitor);
+        if (found == m_turns.end()) { return; }
+        auto turn = std::move(found->second);
+        m_turns.erase(found);
+        turn->cancel();
     }
     void clear() {
-        for (auto &item : m_turns) {
+        auto turns = std::exchange(m_turns, {});
+        for (auto &item : turns) {
             item.second->cancel();
         }
-        m_turns.clear();
     }
     template<class Resolve>
     void configure(bool enabled, std::uint64_t style, double duration, std::string_view curve_name,
         bool settings_changed, Resolve &&resolve) {
+        const auto revision = ++m_configuration_revision;
         const bool VALID = enabled && std::isfinite(duration) && duration > 0.0;
         if (m_enabled && (!VALID || style != m_style)) {
             clear();
+            if (m_configuration_revision != revision) { return; }
         }
         if (settings_changed || m_enabled != VALID || m_style != style || m_duration != duration ||
             m_curve_name != curve_name) {
@@ -662,20 +750,27 @@ template<class Monitor, class Port> class WorkspaceTurns {
             m_curve_name = curve_name;
         }
         if (m_curve_dirty || !m_curve) {
-            auto curve = std::forward<Resolve>(resolve)(m_curve_name);
+            const auto name = m_curve_name;
+            auto curve = std::forward<Resolve>(resolve)(name);
+            if (m_configuration_revision != revision) { return; }
             if (curve) {
                 m_curve = std::move(curve);
                 m_curve_dirty = false;
             }
         }
     }
-    void reload() { m_curve_dirty = true; }
+    void reload() {
+        ++m_configuration_revision;
+        m_curve_dirty = true;
+        for (auto &item : m_turns) { item.second->invalidate_callbacks(); }
+    }
     [[nodiscard]] bool enabled() const { return m_enabled && static_cast<bool>(m_curve); }
     [[nodiscard]] double duration() const { return m_duration; }
     [[nodiscard]] const Transition::Curve &curve() const { return m_curve; }
 
   private:
     std::unordered_map<Monitor, std::shared_ptr<Turn>> m_turns;
+    std::uint64_t m_configuration_revision = 0;
     std::uint64_t m_style = 0;
     double m_duration = 0.0;
     std::string m_curve_name;

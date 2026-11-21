@@ -58,6 +58,8 @@ If the session locks, sharing rules change to protect a window, or a preview wor
 
 A queued frame belongs to one turn on one monitor. Hyprimate checks that turn and the current capture policy again before displaying the texture. A stale pass draws nothing. If the current turn loses authorization or the style fails to draw, the workspace plane clears to black until the native repaint; it never substitutes a saved destination image.
 
+Native rendering can synchronously change the workspace or its settings. A capture interrupted this way cannot finish a replacement turn. Hyprimate submits or aborts only its own offscreen render session; the next normal monitor frame remains under compositor control.
+
 ## Renderer profiling
 
 ```sh
