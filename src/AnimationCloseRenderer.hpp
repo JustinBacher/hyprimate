@@ -53,7 +53,7 @@ class CAnimationCloseRenderer {
         hyprimate::animation::Handle pending);
     [[nodiscard]] bool has_record_for(const PHLMONITOR &monitor,
         Desktop::eFadeoutPlane plane, const PHLWORKSPACE &workspace) const;
-    bool render_batch(Render::CRenderContext &ctx, const PHLMONITOR &monitor,
+    void render_batch(Render::CRenderContext &ctx, const PHLMONITOR &monitor,
         Desktop::eFadeoutPlane plane, const PHLWORKSPACE &workspace);
 
     static CAnimationCloseRenderer *s_active;

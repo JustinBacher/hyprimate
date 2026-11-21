@@ -53,14 +53,26 @@ class CallbackLifetime {
     std::shared_ptr<std::uint64_t> m_state = std::make_shared<std::uint64_t>(0);
 };
 
-// Backdrop submission may synchronously invalidate the content it precedes. The same
-// predicate must also guard deferred execution; successful queueing is not permission.
-template<class Valid, class Backdrop, class Content>
-bool submit_close(Valid &&valid, Backdrop &&backdrop, Content &&content) {
+// Only preparation is safe to retry. The renderer can reenter or throw after accepting a
+// pass; neither a backdrop nor the content may be handed to it twice.
+template<class Valid, class Prepare, class Backdrop, class Submit>
+bool submit_close(Valid &&valid, Prepare &&prepare, Backdrop &&backdrop, Submit &&submit) {
     if (!valid()) { return false; }
-    std::forward<Backdrop>(backdrop)();
+    decltype(prepare()) content{};
+    try {
+        content = prepare();
+    } catch (const std::bad_alloc &) {
+        if (!valid()) { return false; }
+        content = prepare();
+    }
+    if (!content || !valid()) { return false; }
+    try {
+        backdrop();
+    } catch (const std::bad_alloc &) {
+        // Dim/blur is optional. Keep any effect already queued and the prepared pixels.
+    }
     if (!valid()) { return false; }
-    std::forward<Content>(content)();
+    submit(std::move(content));
     return true;
 }
 

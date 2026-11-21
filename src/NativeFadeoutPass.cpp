@@ -68,10 +68,9 @@ void CNativeFadeoutPass::draw_backdrop(
     }
 }
 
-void CNativeFadeoutPass::draw_texture(const Desktop::IFadeout &fadeout,
+UP<IPassElement> CNativeFadeoutPass::prepare_texture(const Desktop::IFadeout &fadeout,
     const SP<Render::ITexture> &tex,
     const Desktop::SFadeoutRenderEffects &effects, const CloseRenderGuard &guard) {
-    if (!guard.valid(m_ctx.get(), true)) { return; }
     CTexPassElement::SRenderData data;
     data.tex = tex;
     data.box = fadeout.renderBox();
@@ -84,6 +83,5 @@ void CNativeFadeoutPass::draw_texture(const Desktop::IFadeout &fadeout,
     data.ignoreAlpha = effects.textureBlur.ignoreAlpha;
     data.blockBlurOptimization = effects.textureBlur.blockBlurOptimization;
 
-    Render::IHyprRenderer::addPassElement(m_ctx.get(),
-        makeUnique<CGuardedClosePass<CTexPassElement>>(std::move(data), guard, m_ctx.get()));
+    return makeUnique<CGuardedClosePass<CTexPassElement>>(std::move(data), guard, m_ctx.get());
 }

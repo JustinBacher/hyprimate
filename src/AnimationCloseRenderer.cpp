@@ -125,13 +125,11 @@ namespace {
         if ((active != nullptr) && mode == Render::eSceneMode::MONITOR &&
             active->has_record_for(monitor, plane, workspace)) {
             try {
-                if (active->render_batch(ctx, monitor, plane, workspace)) {
-                    return;
-                }
+                active->render_batch(ctx, monitor, plane, workspace);
             } catch (...) {
-                // Drawing may already have submitted passes. Never replay the native plane.
-                return;
+                // The plane contains plugin-owned content. Never delegate it wholesale.
             }
+            return;
         }
 
         if (ORIGINAL != nullptr) {
@@ -344,16 +342,20 @@ bool CAnimationCloseRenderer::has_record_for(
     });
 }
 
-bool CAnimationCloseRenderer::render_batch(Render::CRenderContext &ctx,
+void CAnimationCloseRenderer::render_batch(Render::CRenderContext &ctx,
     const PHLMONITOR &monitor, Desktop::eFadeoutPlane plane, const PHLWORKSPACE &workspace) {
     using namespace hyprimate::animation;
     if (!monitor) {
-        return true;
+        return;
     }
     if (WorkspaceCaptureScope::for_context(ctx) == nullptr) {
         const auto CALLBACK = callback_ticket();
-        prune_records();
-        if (!CALLBACK.valid()) { return true; }
+        try {
+            prune_records();
+        } catch (const std::bad_alloc &) {
+            // Housekeeping is optional: collection and submission recheck live ownership.
+        }
+        if (!CALLBACK.valid()) { return; }
     }
     const auto CALLBACK = callback_ticket();
     const auto MODEL = m_animations.callback_ticket();
@@ -366,11 +368,10 @@ bool CAnimationCloseRenderer::render_batch(Render::CRenderContext &ctx,
             try {
                 draw_item(ctx, monitor, item);
             } catch (const std::bad_alloc &) {
-                // A pass allocation can fail after its backdrop was submitted. Do not replay it,
-                // but keep unrelated items visible instead of discarding the rest of the plane.
+                // Persistent allocation failure or an ambiguous host handoff is local to
+                // this item. Never replay it or abandon the remaining guarded siblings.
             }
         });
-    return true;
 }
 
 template<class Emit>
@@ -398,7 +399,7 @@ void CAnimationCloseRenderer::collect_batch(Render::CRenderContext &ctx, const P
         const auto FADEOUT_ID = m_port.fadeout_identity(fadeout);
         const auto FOUND = std::ranges::find(m_records, FADEOUT_ID, &Record::fadeout);
         const bool ASSOCIATED = FADEOUT_ID != 0 && FOUND != m_records.end() && MATCHES(*FOUND);
-        const bool SUPPRESSED = ASSOCIATED && m_animations.suppresses(FADEOUT_ID);
+        const bool SUPPRESSED = FADEOUT_ID != 0 && m_animations.suppresses(FADEOUT_ID);
         if (fadeout->done()) {
             continue;
         }
@@ -437,33 +438,33 @@ void CAnimationCloseRenderer::draw_item(Render::CRenderContext &ctx, const PHLMO
         .no_screen_share = FOUND && FOUND->no_screen_share};
     // Do not turn a stale owned item into native content after association removal.
     if (item.view && (!FOUND || FOUND->handle != item.view->handle)) { return; }
+    const auto SUBMIT = [&](UP<IPassElement> content) {
+        Render::IHyprRenderer::addPassElement(ctx, std::move(content));
+    };
     if (FOUND) {
         const auto IMAGE = m_port.fadeout_image(FOUND->handle);
         if (IMAGE && IMAGE->getTexture()) {
-            const auto &bounds = FOUND->bounds_device;
-            CWindowAnimationPass::SData data{
-                .resources = &m_port.canvas_resources(),
-                .animations = &m_animations,
-                .handle = FOUND->handle,
-                .image = IMAGE,
-                .source = FOUND->render_box,
-                .output = bounds,
-                .canvas_box = {.x = std::floor(bounds.x), .y = std::floor(bounds.y),
-                    .w = std::ceil(bounds.x + bounds.w) - std::floor(bounds.x),
-                    .h = std::ceil(bounds.y + bounds.h) - std::floor(bounds.y)},
-                .image_origin = {},
-                .image_size = FOUND->image_size,
-                .scale = FOUND->scale,
-                .alpha = FOUND->alpha,
-                .monitor = FOUND->monitor,
-                .damage = native.damage(),
-                .close_guard = guard};
-            // Everything borrowed from the renderer is captured before the first submit.
             const auto EFFECTS = item.fadeout ? item.fadeout->effects() : Desktop::SFadeoutRenderEffects{};
-            submit_close([&] { return guard.valid(ctx); },
-                [&] { native.draw_backdrop(EFFECTS, guard); },
-                [&] { Render::IHyprRenderer::addPassElement(ctx,
-                    makeUnique<CWindowAnimationPass>(std::move(data))); });
+            submit_close([&] { return guard.valid(ctx); }, [&] {
+                const auto &bounds = FOUND->bounds_device;
+                return makeUnique<CWindowAnimationPass>(CWindowAnimationPass::SData{
+                    .resources = &m_port.canvas_resources(),
+                    .animations = &m_animations,
+                    .handle = FOUND->handle,
+                    .image = IMAGE,
+                    .source = FOUND->render_box,
+                    .output = bounds,
+                    .canvas_box = {.x = std::floor(bounds.x), .y = std::floor(bounds.y),
+                        .w = std::ceil(bounds.x + bounds.w) - std::floor(bounds.x),
+                        .h = std::ceil(bounds.y + bounds.h) - std::floor(bounds.y)},
+                    .image_origin = {},
+                    .image_size = FOUND->image_size,
+                    .scale = FOUND->scale,
+                    .alpha = FOUND->alpha,
+                    .monitor = FOUND->monitor,
+                    .damage = native.damage(),
+                    .close_guard = guard});
+            }, [&] { native.draw_backdrop(EFFECTS, guard); }, SUBMIT);
             return;
         }
     }
@@ -477,6 +478,6 @@ void CAnimationCloseRenderer::draw_item(Render::CRenderContext &ctx, const PHLMO
     const auto EFFECTS = item.fadeout->effects();
     guard.handle.reset();
     submit_close([&] { return guard.valid(ctx); },
-        [&] { native.draw_backdrop(EFFECTS, guard); },
-        [&] { native.draw_texture(*item.fadeout, FRAMEBUFFER->getTexture(), EFFECTS, guard); });
+        [&] { return native.prepare_texture(*item.fadeout, FRAMEBUFFER->getTexture(), EFFECTS, guard); },
+        [&] { native.draw_backdrop(EFFECTS, guard); }, SUBMIT);
 }

@@ -1033,8 +1033,14 @@ void mixed_close_batch(std::size_t count, bool capture) {
             draw_close_batch<SyntheticCloseItem>(ENUMERATE, [&](const auto &) { ++inner_count; });
             CHECK(inner_count == (capture ? count - count / 7 : count));
         }
-        if (item.owned && item.image) { owned.push_back(item.key); }
-        else if (!item.suppressed) { native.push_back(item.key); }
+        const bool use_owned = item.owned && item.image;
+        int preparations = 0;
+        submit_close([&] { return use_owned || !item.suppressed; }, [&] {
+            if (++preparations == 1 && item.key.identity % 4 == 1) { throw std::bad_alloc{}; }
+            return std::optional{item.key};
+        }, [&] {
+            if (item.key.identity % 3 == 1) { throw std::bad_alloc{}; }
+        }, [&](auto content) { (use_owned ? owned : native).push_back(*content); });
     });
     std::vector<CloseBatchKey> expected, expected_native, expected_owned;
     for (const auto &item : source) {
@@ -1066,6 +1072,24 @@ void close_batch_capacity_fallback_and_reentry() {
             [&](const auto &) { ++submissions; throw std::bad_alloc{}; });
     } catch (const std::bad_alloc &) { threw = true; }
     CHECK(threw); CHECK(submissions == 1); // A partial submit never restarts collection.
+}
+void backdrop_failure_preserves_close_content() {
+    for (const bool dim_queued : {false, true}) {
+        std::vector<int> passes;
+        submit_close([] { return true; }, [] { return 2; }, [&] {
+            if (dim_queued) { passes.push_back(1); }
+            throw std::bad_alloc{}; // Building the next optional backdrop pass.
+        }, [&](int content) { passes.push_back(content); });
+        CHECK(passes == (dim_queued ? std::vector<int>{1, 2} : std::vector<int>{2}));
+    }
+    int preparations = 0;
+    bool allowed = true;
+    CHECK(!submit_close([&] { return allowed; }, [&]() -> int {
+        ++preparations;
+        allowed = false;
+        throw std::bad_alloc{};
+    }, [] { CHECK(false); }, [](int) { CHECK(false); }));
+    CHECK(preparations == 1);
 }
 void close_draw_rechecks_callback_invalidation() {
     for (const bool succeeded : {false, true}) {
@@ -1128,19 +1152,19 @@ void close_submission_callback_contract() {
     const auto TICKET = owner.ticket();
     std::vector<int> submitted;
     bool associated = true;
-    CHECK(!submit_close([&] { return TICKET.valid() && associated; },
-        [&] { associated = false; },
-        [&] { submitted.push_back(1); }));
+    CHECK(!submit_close([&] { return TICKET.valid() && associated; }, [] { return 1; },
+        [&] { associated = false; }, [&](int pass) { submitted.push_back(pass); }));
     // A stale association skips only that item; valid siblings still submit exactly once.
-    CHECK(submit_close([&] { return TICKET.valid(); }, [] {},
-        [&] { submitted.push_back(2); }));
+    CHECK(submit_close([&] { return TICKET.valid(); }, [] { return 2; }, [] {},
+        [&](int pass) { submitted.push_back(pass); }));
     CHECK(submitted == std::vector<int>{2});
     bool queued = false;
-    CHECK(submit_close([&] { return TICKET.valid(); }, [] {}, [&] { queued = true; }));
+    CHECK(submit_close([&] { return TICKET.valid(); }, [] { return true; }, [] {},
+        [&](bool pass) { queued = pass; }));
     CHECK(queued);
     owner.invalidate();
-    CHECK(!submit_close([&] { return TICKET.valid(); }, [] {},
-        [&] { submitted.push_back(3); }));
+    CHECK(!submit_close([&] { return TICKET.valid(); }, [] { return 3; }, [] {},
+        [&](int pass) { submitted.push_back(pass); }));
     CHECK(submitted == std::vector<int>{2});
     CHECK(owner.ticket().valid());
     CallbackLifetime::Ticket destroyed;
@@ -1155,8 +1179,8 @@ void close_submission_callback_contract() {
     int backdrops = 0, contents = 0;
     bool threw = false;
     try {
-        submit_close([] { return true; }, [&] { ++backdrops; },
-            [&] { ++contents; throw std::bad_alloc{}; });
+        submit_close([] { return true; }, [] { return 1; }, [&] { ++backdrops; },
+            [&](int) { ++contents; throw std::bad_alloc{}; });
     } catch (const std::bad_alloc &) { threw = true; }
     CHECK(threw); CHECK(backdrops == 1); CHECK(contents == 1);
 }
@@ -1170,18 +1194,18 @@ void close_submission_rechecks_model_suppression() {
     // A native item can acquire an owned association while its backdrop submits.
     CHECK(!submit_close(
         [&] { return TICKET.valid() && !fixture.module.suppresses(706); },
-        [&] { fixture.module.bind_fadeout(1, fixture.fade(706), {.id = 6}); },
-        [&] { ++native; }));
+        [] { return 1; }, [&] { fixture.module.bind_fadeout(1, fixture.fade(706), {.id = 6}); },
+        [&](int) { ++native; }));
     CHECK(fixture.module.suppresses(706));
     CHECK(submit_close(
         [&] { return TICKET.valid() && !fixture.module.suppresses(707); },
-        [] {}, [&] { ++native; }));
+        [] { return 1; }, [] {}, [&](int) { ++native; }));
     CHECK(native == 1);
     // An owned association removed by a callback cannot display its copied source.
     CHECK(!submit_close([&] {
         const auto view = fixture.module.dying_view_for(706);
         return TICKET.valid() && view && view->handle == HANDLE;
-    }, [&] { fixture.module.monitor_changed(1); }, [&] { ++owned; }));
+    }, [] { return 1; }, [&] { fixture.module.monitor_changed(1); }, [&](int) { ++owned; }));
     CHECK(owned == 0);
     CHECK(!fixture.module.active(HANDLE));
     fixture.module.end_all();
@@ -1225,6 +1249,7 @@ int main() try {
     dying_draw_adapter_lifecycle(); dying_damage_follows_native_placement();
     owned_close_draw_failure_restores_native();
     close_batch_capacity_fallback_and_reentry(); close_lookup_survives_view_scratch_rebuild();
+    backdrop_failure_preserves_close_content();
     close_draw_rechecks_callback_invalidation();
     close_submission_callback_contract();
     nested_close_draw_keeps_outer_state_and_visuals();

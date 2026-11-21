@@ -21,8 +21,8 @@ class CNativeFadeoutPass {
     // Dim-around and pre-blur, drawn behind the fadeout's pixels while it is live.
     void draw_backdrop(const Desktop::SFadeoutRenderEffects &effects, const CloseRenderGuard &guard);
 
-    // The fadeout's texture at its native box, with its native texture blur.
-    void draw_texture(const Desktop::IFadeout &fadeout,
+    // Build (but do not submit) the native content before queuing any backdrop.
+    [[nodiscard]] UP<IPassElement> prepare_texture(const Desktop::IFadeout &fadeout,
         const SP<Render::ITexture> &tex,
         const Desktop::SFadeoutRenderEffects &effects, const CloseRenderGuard &guard);
 
