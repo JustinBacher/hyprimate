@@ -31,7 +31,7 @@ namespace hyprimate {
     };
 
     // Measures a `side` x `side` frame of 8-bit alpha, row-major; texels of at least half alpha are
-    // solid. An empty frame measures as zero core and reach around its middle.
+    // solid. Empty, truncated or unrepresentable grids measure as zero core and reach.
     SpriteFrame measure_sprite(std::span<const std::uint8_t> alpha, int side);
 
     // Frame of a `frames`-long walk cycle after walking `travel` px, one cycle per `stride` px.

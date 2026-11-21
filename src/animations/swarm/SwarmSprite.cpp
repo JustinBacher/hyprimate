@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <numbers>
 #include <span>
 #include <string>
@@ -89,14 +90,20 @@ namespace hyprimate {
 
     SpriteFrame measure_sprite(std::span<const std::uint8_t> alpha, int side) {
         SpriteFrame frame;
-        if (side <= 0 || alpha.size() < static_cast<std::size_t>(side) * side) {
+        if (side <= 0 || side > std::numeric_limits<int>::max() - 2 ||
+            static_cast<std::size_t>(side) > alpha.size() / static_cast<std::size_t>(side)) {
             return frame;
         }
 
         // Squared distance from every texel to the nearest empty one. A ring of empty texels stands
         // in for everything outside the frame.
         const int PADDED_SIDE = side + 2;
-        std::vector<double> field(static_cast<std::size_t>(PADDED_SIDE) * PADDED_SIDE, 0.0);
+        const auto EXTENT = static_cast<std::size_t>(PADDED_SIDE);
+        std::vector<double> field;
+        if (EXTENT > field.max_size() / EXTENT) {
+            return frame;
+        }
+        field.resize(EXTENT * EXTENT);
         bool any = false;
         for (int alpha_row = 0; alpha_row < side; ++alpha_row) {
             for (int alpha_col = 0; alpha_col < side; ++alpha_col) {
@@ -112,7 +119,7 @@ namespace hyprimate {
         }
 
         std::vector<int> sites(PADDED_SIDE);
-        std::vector<double> boundaries(PADDED_SIDE + 1);
+        std::vector<double> boundaries(EXTENT + 1);
         std::vector<double> out(PADDED_SIDE);
         for (int field_row = 0; field_row < PADDED_SIDE; ++field_row) {
             distance_pass(field,

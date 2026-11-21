@@ -807,6 +807,9 @@ namespace {
             std::vector<std::uint8_t>(static_cast<std::size_t>(SIDE) * SIDE, 0), SIDE);
         CHECK(EMPTY.core == 0.0 && EMPTY.reach == 0.0);
         CHECK(sprite_size(EMPTY, SpriteFit{40.0}, SpriteCover{60.0}, SpriteLock{0.5}) == 0.0);
+        // On a 32-bit host the unchecked input square wraps to zero at this side.
+        const auto TRUNCATED = measure_sprite({}, 65536);
+        CHECK(TRUNCATED.core == 0 && TRUNCATED.reach == 0);
 
         // Loose, the whole silhouette fits; locked, the solid core covers the tile; it only grows
         // in between.
