@@ -34,6 +34,16 @@ for style in "${styles[@]}"; do
         echo "$style: nested compositor logs are missing or unreadable" >&2; exit 1;
     }
     hc() { hyprctl -i "$instance" "$@"; }
+    output_ready() { hc monitors -j | jq -e 'any(.[]; .width > 0 and .height > 0 and .name != "FALLBACK")' >/dev/null; }
+    for _ in {1..20}; do output_ready && break; sleep .1; done
+    if ! output_ready; then
+        # A nested backend can start IPC before announcing its first Wayland output.
+        # Ask this disposable instance for an output; do not map a client to a 0x0 fallback.
+        result=$(hc output create wayland hyprimate-test)
+        [[ $result == ok ]] || { echo "$style: could not create nested output: $result" >&2; exit 1; }
+        for _ in {1..50}; do output_ready && break; sleep .1; done
+        output_ready || { echo "$style: no usable nested Wayland output" >&2; exit 1; }
+    fi
     hc dispatch 'hl.dsp.exec_cmd("kitty")' >/dev/null
     address=''
     for _ in $(seq 100); do
@@ -80,6 +90,15 @@ for style in "${styles[@]}"; do
     sleep 2
     kill -0 "$runner" 2>/dev/null || { cat "$log" >&2; exit 1; }
     [[ $(hc clients -j | jq --arg a "$address" '[.[] | select(.address == $a)] | length') == 0 ]] || { echo "$style: window did not close" >&2; exit 1; }
+    # Exercise teardown while the driver, work-buffer pool and output are still live.
+    # A process exit alone cannot distinguish safe cleanup from context destruction.
+    plugin=${HYPRIMATE_PLUGIN:-$root/build/hyprimate.so}
+    result=$(hc plugin unload "$plugin")
+    [[ $result == ok ]] || { echo "$style: plugin unload failed: $result" >&2; exit 1; }
+    hc monitors -j | jq -e 'any(.[]; .width > 0 and .height > 0)' >/dev/null
+    result=$(hc plugin load "$plugin")
+    [[ $result == ok ]] || { echo "$style: plugin reload failed: $result" >&2; exit 1; }
+    echo "$style: unloaded and reloaded with a live output"
     # The compositor buffers its file log. Stop it before inspecting presentation
     # evidence or GL errors, so a quiet final frame cannot go unobserved.
     kill "$runner"

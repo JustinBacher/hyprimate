@@ -4,4 +4,8 @@ Animation models, materials and their tests never depend on a running compositor
 
 A GL object name does not prove that storage exists, and a complete framebuffer can still hold an older attachment. Materials check the allocated storage before caching a program, mesh, or target size. On failed growth they reject that draw without discarding the last usable resources. Offscreen tests suppress individual driver allocations and compare rendered pixels after a smaller draw and a retry; they do not exhaust GPU memory.
 
+Raw passes clear inherited samplers on the units they use, then restore the caller’s bindings, including distinct read and draw framebuffers. CPU uploads establish their own pixel-unpack layout. Hyprland’s cached state must agree with the driver after either operation.
+
+A GL name belongs to its creating backend, EGL display, and context. Teardown must verify that owner before deleting anything and restore the caller’s EGL surfaces afterward. Host framebuffer and texture destructors can switch contexts themselves; plugin-created wrappers therefore keep a final reference until it is safe to drop. Borrowed work buffers do not get an extra reference when the pool still owns them. If the owner is permanently unavailable at unload and the host has no detach API, abandon the resource rather than delete a same-numbered object in another context.
+
 We accept that the test harness builds programs differently from production, in exchange for tests that run without Hyprland and a core that could support another compositor (e.g. Niri) without restructuring models or tests. We rejected maintaining our own shader-management code in production solely to share it with tests, and rejected adapter layers introduced only for testing.
