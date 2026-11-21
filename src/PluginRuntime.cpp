@@ -28,6 +28,7 @@
 #include "WindowAnimations.hpp"
 #include "animations/shared/SheetResources.hpp"
 #include "config_generated.hpp"
+#include "gl/NativeResource.hpp"
 #include "workspace/WorkspaceAnimation.hpp"
 
 namespace {
@@ -166,6 +167,19 @@ CPluginRuntime::Impl::~Impl() {
     m_open.reset(); m_close_event.reset(); m_destroy.reset(); m_pre_checks.reset();
     m_pre.reset(); m_stage.reset(); m_reload.reset(); m_config_refresh.reset();
     m_monitor_layout.reset(); m_monitor_removed.reset();
+    // The host owns queued pass elements, including their plugin vtables and framebuffer
+    // leases. Remove ours before destroying the animation owners or unloading this library.
+    if (g_pHyprRenderer) {
+        auto &context = g_pHyprRenderer->context();
+        auto &current = Render::IHyprRenderer::currentPass(context);
+        for (const auto *name : {"hyprimate-native-close", "hyprimate-window-animation",
+                 "hyprimate-burn-ground", "hyprimate-bubble", "hyprimate-bubble-wallpaper",
+                 "hyprimate-workspace-wallpaper", "hyprimate-workspace-native-hud-blur",
+                 "hyprimate-workspace-presentation"}) {
+            current.removeAllOfType(name);
+            if (&current != &context.m_pass) { context.m_pass.removeAllOfType(name); }
+        }
+    }
     m_workspace->shutdown();
     m_close->unhook();
     m_animations.detach_transformers();
@@ -230,6 +244,7 @@ void CPluginRuntime::Impl::reload() {
 }
 
 void CPluginRuntime::Impl::render_pre(const PHLMONITOR &monitor) {
+    hyprimate::gl::collect_native_resources();
     if (m_warm_pending) {
         warm_style();
     }
@@ -278,4 +293,7 @@ void CPluginRuntime::Impl::restore_scanout() {
 }
 
 CPluginRuntime::CPluginRuntime(HANDLE handle) : m_impl(std::make_unique<Impl>(handle)) {}
-CPluginRuntime::~CPluginRuntime() = default;
+CPluginRuntime::~CPluginRuntime() {
+    m_impl.reset(); // Drop caches and pending animations before collecting their host references.
+    hyprimate::gl::finish_native_resources();
+}

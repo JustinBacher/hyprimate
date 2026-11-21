@@ -99,6 +99,8 @@ add_library(hyprimate SHARED
     src/WindowAnimationPass.cpp
     src/StyleContract.cpp
     src/NativeFadeoutPass.cpp
+    src/gl/CompositorContext.cpp
+    src/gl/NativeResource.cpp
     src/animations/shared/SheetRenderer.cpp
     src/animations/shared/SolidFill.cpp
     src/workspace/WorkspaceCapture.cpp
@@ -198,6 +200,12 @@ if(BUILD_TESTING)
     target_link_libraries(gl-storage-tests PRIVATE PkgConfig::TEST_EGL)
     add_test(NAME gl-storage-tests COMMAND gl-storage-tests)
     set_tests_properties(gl-storage-tests PROPERTIES ENVIRONMENT "EGL_PLATFORM=surfaceless")
+    find_package(Threads REQUIRED)
+    add_executable(gl-context-tests tests/GlContextTests.cpp)
+    target_include_directories(gl-context-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(gl-context-tests PRIVATE PkgConfig::TEST_EGL Threads::Threads)
+    add_test(NAME gl-context-tests COMMAND gl-context-tests)
+    set_tests_properties(gl-context-tests PROPERTIES ENVIRONMENT "EGL_PLATFORM=surfaceless")
 
     add_test(NAME config-docs-check COMMAND ${Python3_EXECUTABLE} ${CONFIG_GENERATOR} --schema ${CONFIG_SCHEMA} --readme ${CMAKE_CURRENT_SOURCE_DIR}/README.md --lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/nested/hyprland.lua --check)
     add_test(NAME config-generator-tests COMMAND ${Python3_EXECUTABLE} -m unittest discover -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p test_config_generator.py)

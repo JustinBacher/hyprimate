@@ -1,0 +1,43 @@
+#include "gl/CompositorContext.hpp"
+
+#include <hyprland/src/render/OpenGL.hpp>
+#include <hyprland/src/render/Renderer.hpp>
+
+namespace hyprimate::gl {
+    namespace {
+        EglContextId compositor_id() noexcept {
+            const auto &backend = Render::GL::g_pHyprOpenGL;
+            // Callers also use the host renderer's framebuffer guard. During shutdown the two
+            // globals do not necessarily disappear together.
+            if (!backend || !g_pHyprRenderer) {
+                return {};
+            }
+            return {.display = backend->m_eglDisplay, .context = backend->m_eglContext};
+        }
+    }
+
+    bool CompositorContextOwner::ensure_current() noexcept {
+        const auto &backend = Render::GL::g_pHyprOpenGL;
+        if (m_id.valid()) {
+            return !m_backend.expired() && m_backend == backend && m_id == compositor_id() && m_id.current();
+        }
+        const auto CURRENT = compositor_id();
+        if (!CURRENT.current()) {
+            return false;
+        }
+        m_backend = WP<Render::GL::CHyprOpenGLImpl>{backend};
+        m_id = CURRENT;
+        return true;
+    }
+
+    void CompositorContextOwner::reset() noexcept {
+        m_backend.reset();
+        m_id = {};
+    }
+
+    ScopedCompositorContext::ScopedCompositorContext() noexcept : m_scope(compositor_id()) {}
+
+    ScopedCompositorContext::ScopedCompositorContext(const CompositorContextOwner &owner) noexcept
+        : m_scope(!owner.m_backend.expired() && owner.m_backend == Render::GL::g_pHyprOpenGL &&
+                      owner.m_id == compositor_id() ? owner.m_id : EglContextId{}) {}
+} // namespace hyprimate::gl
