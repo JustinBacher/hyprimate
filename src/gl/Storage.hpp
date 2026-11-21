@@ -34,6 +34,58 @@ namespace hyprimate::gl {
         GLint m_buffer = 0;
     };
 
+    // Hyprland's CPU texture constructor binds and unbinds on the current unit.
+    // Restore the real binding without changing its shadowed active-texture state.
+    class TextureUploadBinding {
+      public:
+        TextureUploadBinding() {
+            glGetIntegerv(GL_ACTIVE_TEXTURE, &m_active);
+            glGetIntegerv(GL_TEXTURE_BINDING_2D, &m_binding);
+        }
+        ~TextureUploadBinding() {
+            glActiveTexture(static_cast<GLenum>(m_active));
+            const auto PRIOR = static_cast<GLuint>(m_binding);
+            glBindTexture(GL_TEXTURE_2D, PRIOR != 0 && glIsTexture(PRIOR) == GL_TRUE ? PRIOR : 0);
+        }
+        TextureUploadBinding(const TextureUploadBinding &) = delete;
+        TextureUploadBinding &operator=(const TextureUploadBinding &) = delete;
+        TextureUploadBinding(TextureUploadBinding &&) = delete;
+        TextureUploadBinding &operator=(TextureUploadBinding &&) = delete;
+
+      private:
+        GLint m_active = GL_TEXTURE0;
+        GLint m_binding = 0;
+    };
+
+    // Native mesh rendering samples the source on unit 0 and an optional ICC LUT
+    // on unit 8. Sampler objects would override Hyprland's texture parameters.
+    class NativeMeshSamplers {
+      public:
+        NativeMeshSamplers() {
+            GLint active = GL_TEXTURE0;
+            glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
+            for (std::size_t i = 0; i < UNITS.size(); ++i) {
+                glActiveTexture(GL_TEXTURE0 + UNITS[i]);
+                glGetIntegerv(GL_SAMPLER_BINDING, &m_saved[i]);
+                glBindSampler(UNITS[i], 0);
+            }
+            glActiveTexture(static_cast<GLenum>(active));
+        }
+        ~NativeMeshSamplers() {
+            for (std::size_t i = 0; i < UNITS.size(); ++i) {
+                glBindSampler(UNITS[i], static_cast<GLuint>(m_saved[i]));
+            }
+        }
+        NativeMeshSamplers(const NativeMeshSamplers &) = delete;
+        NativeMeshSamplers &operator=(const NativeMeshSamplers &) = delete;
+        NativeMeshSamplers(NativeMeshSamplers &&) = delete;
+        NativeMeshSamplers &operator=(NativeMeshSamplers &&) = delete;
+
+      private:
+        static constexpr std::array<GLuint, 2> UNITS{0, 8};
+        std::array<GLint, UNITS.size()> m_saved{};
+    };
+
     [[nodiscard]] inline bool framebuffer_attachment_is(GLenum attachment, GLuint name) {
         GLint attached = 0;
         glGetFramebufferAttachmentParameteriv(
