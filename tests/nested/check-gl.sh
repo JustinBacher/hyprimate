@@ -14,8 +14,10 @@ cleanup() {
     [[ -n ${HYPRIMATE_NESTED_LOG:-} ]] || rm -f "$nested_log"
 }
 trap cleanup EXIT
+IFS=$' \t\n' read -r -d '' -a styles <<<"${CHECK_STYLES-liquid paper cloth swarm bubble smoke burn}" || true
+(( ${#styles[@]} > 0 )) || { echo "CHECK_STYLES selects no styles" >&2; exit 1; }
 workspace_checked=0
-for style in ${CHECK_STYLES:-liquid paper cloth swarm bubble smoke burn}; do
+for style in "${styles[@]}"; do
     : >"$log"
     HYPRIMATE_NESTED_LOG="$nested_log" "$root/tests/nested/run.sh" --style "$style" --no-build --no-window >"$log" 2>&1 &
     runner=$!
@@ -27,6 +29,10 @@ for style in ${CHECK_STYLES:-liquid paper cloth swarm bubble smoke burn}; do
         sleep .1
     done
     [[ -n $instance ]] || { echo "$style: nested compositor did not become ready" >&2; cat "$log" >&2; exit 1; }
+    compositor_log=${XDG_RUNTIME_DIR:-/tmp}/hypr/$instance/hyprland.log
+    [[ -f $nested_log && -r $nested_log && -f $compositor_log && -r $compositor_log ]] || {
+        echo "$style: nested compositor logs are missing or unreadable" >&2; exit 1;
+    }
     hc() { hyprctl -i "$instance" "$@"; }
     hc dispatch 'hl.dsp.exec_cmd("kitty")' >/dev/null
     address=''
@@ -66,9 +72,7 @@ for style in ${CHECK_STYLES:-liquid paper cloth swarm bubble smoke burn}; do
                     echo "nested compositor did not switch to workspace $workspace" >&2; exit 1;
                 }
             done
-            echo "workspace $workspace_style: 1 -> 2 -> 1 passed"
         done
-        workspace_checked=1
         result=$(hc dispatch "hl.dsp.focus({ window = \"address:$address\" })")
         [[ $result == ok ]] || { echo "could not refocus nested kitty: $result" >&2; exit 1; }
     fi
@@ -76,14 +80,40 @@ for style in ${CHECK_STYLES:-liquid paper cloth swarm bubble smoke burn}; do
     sleep 2
     kill -0 "$runner" 2>/dev/null || { cat "$log" >&2; exit 1; }
     [[ $(hc clients -j | jq --arg a "$address" '[.[] | select(.address == $a)] | length') == 0 ]] || { echo "$style: window did not close" >&2; exit 1; }
-    compositor_log=${XDG_RUNTIME_DIR:-/tmp}/hypr/$instance/hyprland.log
-    [[ -f $compositor_log ]] || { echo "$style: missing nested compositor log: $compositor_log" >&2; exit 1; }
-    if grep -Ei 'GL_INVALID_|OpenGL error|GL error|failed to (compile|link).*shader' "$nested_log" "$compositor_log"; then
+    # The compositor buffers its file log. Stop it before inspecting presentation
+    # evidence or GL errors, so a quiet final frame cannot go unobserved.
+    kill "$runner"
+    wait "$runner" || true
+    runner=''
+    [[ -f $nested_log && -r $nested_log && -f $compositor_log && -r $compositor_log ]] || {
+        echo "$style: nested compositor logs are missing or unreadable" >&2; exit 1;
+    }
+    grep_status=0
+    grep -Ei 'GL_INVALID_|OpenGL error|GL error|failed to (compile|link).*shader' "$nested_log" "$compositor_log" || grep_status=$?
+    if (( grep_status == 0 )); then
         echo "$style: GL error in nested compositor log" >&2
         exit 1
+    elif (( grep_status != 1 )); then
+        echo "$style: failed to read nested compositor logs" >&2
+        exit 1
     fi
-    kill "$runner" 2>/dev/null || true
-    wait "$runner" 2>/dev/null || true
-    runner=''
+    if (( ! workspace_checked )); then
+        # The log uses composition identities, not workspace numbers: empty workspaces
+        # can be destroyed and recreated. Pair each accepted request with its actual draw.
+        awk '
+            function field(key, i) { for (i=1; i<=NF; i++) if (index($i, key "=")==1) return substr($i, length(key)+2); return "" }
+            /\[hyprimate\] workspace request / && field("accepted")=="true" {
+                if (pending) exit 1
+                monitor=field("monitor"); src=field("before"); dst=field("after"); pending=1
+            }
+            /\[hyprimate\] workspace presented / && pending && field("monitor")==monitor &&
+                field("source")==src && field("destination")==dst && field("style")==((count<2) ? "rotation" : "planet_hop") {
+                pending=0; count++
+            }
+            END { if (count!=4 || pending) { print "expected four request-matched workspace presentations; found " count+0 > "/dev/stderr"; exit 1 } }
+        ' "$compositor_log"
+        echo "rotation and planet_hop: plugin presented 1 -> 2 -> 1"
+        workspace_checked=1
+    fi
     echo "$style: open, move and close passed"
 done

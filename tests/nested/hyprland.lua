@@ -19,6 +19,8 @@ hl.config({
         blur = { enabled = true, size = 3, passes = 2 },
     },
     animations = { enabled = true },
+    -- The nested GL check uses the compositor log as presentation evidence.
+    debug = { disable_logs = false },
     dwindle = { preserve_split = true },
     misc = { disable_hyprland_logo = true, force_default_wallpaper = 0 },
 })

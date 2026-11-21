@@ -87,8 +87,12 @@ trap 'exit 130' INT TERM
 instance=""
 for _ in $(seq 100); do
     kill -0 "$pid" 2>/dev/null || { echo "nested Hyprland exited; log: $log" >&2; exit 1; }
-    instance=$(hyprctl instances -j 2>/dev/null | jq -r --argjson pid "$pid" '.[] | select(.pid == $pid) | .instance')
-    [[ -n $instance ]] && hyprctl -i "$instance" version >/dev/null 2>&1 && break
+    # Before the first instance registers, hyprctl 0.57 can emit an incomplete JSON array.
+    if instance=$(hyprctl instances -j 2>/dev/null | jq -er --argjson pid "$pid" \
+        '.[] | select(.pid == $pid) | .instance' 2>/dev/null) &&
+        hyprctl -i "$instance" version >/dev/null 2>&1; then
+        break
+    fi
     instance=""
     sleep 0.1
 done
