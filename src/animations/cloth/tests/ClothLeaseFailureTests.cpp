@@ -437,6 +437,22 @@ namespace {
         return nullptr;
     }
 
+    bool movement_copy_does_not_keep_an_idle_worker() {
+        Attempt attempt;  // Outlives any tracked allocations reclaimed by the reaper.
+        const ClothPhysics PHYSICS;
+        ClothFlutter producer;
+        current_attempt() = &attempt;
+        start(producer, Startup::Movement);
+        current_attempt() = nullptr;
+        if (!attempt.first_allocation || !producer.wait_for_snapshots(2)) {
+            return false;
+        }
+        auto retained = producer;
+        producer.reset();
+        // The retained pose can still play, but nobody can post another movement target.
+        return wait_for_first_free(attempt) && retained.advance(0);
+    }
+
     bool shutdown_during_launch(Startup startup) {
         Shutdown shutdown{.physics = std::make_unique<ClothPhysics>(), .gate = {}};
         Launch launch;
@@ -515,6 +531,10 @@ int main() {
     std::array<std::array<Attempt, MAX_ALLOCATIONS + 1>, 2> attempts{};
     Attempt warm_attempt;
     bool passed = owner_lifetimes();
+    if (!movement_copy_does_not_keep_an_idle_worker()) {
+        std::fputs("retained movement kept its cancelled producer alive\n", stderr);
+        passed = false;
+    }
     passed = shutdown_during_launch(Startup::Transition) && passed;
     passed = shutdown_during_launch(Startup::Movement) && passed;
     const ClothPhysics PHYSICS;

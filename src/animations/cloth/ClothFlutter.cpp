@@ -398,7 +398,7 @@ namespace hyprimate {
           m_initial_opacity(other.m_initial_opacity),
           m_startup_recorded(other.m_startup_recorded),
           m_transition_held(other.m_transition_held),
-          m_run(other.m_run),
+          m_run(other.m_movement ? nullptr : other.m_run),
           m_fallback(other.m_fallback) {
         if (other.m_movement) {
             m_movement = std::make_unique<MovementPlayback>(*other.m_movement);
@@ -1468,8 +1468,7 @@ namespace hyprimate {
                                : Box{.x = window.x, .y = window.y, .w = window.w, .h = window.h};
         RUN->edge = geometry ? geometry->edge : Edge::Bottom;
         const double OLD_OPACITY = opacity();
-        if (kind == Transition::Close && (m_phase == Phase::Opening || moving()) &&
-            (m_run || m_fallback)) {
+        if (kind == Transition::Close && active() && m_phase != Phase::Closing) {
             if (m_movement) {
                 RUN->movement.springiness = m_movement->params.springiness;
             }
@@ -1733,7 +1732,10 @@ namespace hyprimate {
         m_movement.reset();
     }
     bool ClothFlutter::active() const noexcept {
-        return m_phase == Phase::Opening || m_phase == Phase::Movement || m_phase == Phase::Closing;
+        if (moving()) {
+            return m_movement != nullptr;  // A retained movement pose needs no worker.
+        }
+        return (m_phase == Phase::Opening || m_phase == Phase::Closing) && (m_run || m_fallback);
     }
     bool ClothFlutter::closed() const noexcept {
         return m_phase == Phase::Closed;
@@ -1767,7 +1769,7 @@ namespace hyprimate {
                         OUTSIDE_TIME, std::max(OUTSIDE_TIME + STEP_SECONDS, m_run->length), m_t));
     }
     void ClothFlutter::sample_vertices(SheetGrid &positions, SheetGrid &velocities) const noexcept {
-        if (!active() || (!m_run && !m_fallback)) {
+        if (!active()) {
             positions = rest_grid();
             velocities = {};
             return;
@@ -1911,7 +1913,7 @@ namespace hyprimate {
         return m_run->recorded.load(std::memory_order_acquire) >= count;
     }
     void ClothFlutter::frame(Vec2 size, SheetFrame &out) const noexcept {
-        if (!active() || (!m_run && !m_fallback)) {
+        if (!active()) {
             flat_sheet(out);
             return;
         }

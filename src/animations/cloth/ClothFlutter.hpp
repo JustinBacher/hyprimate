@@ -45,8 +45,8 @@ namespace hyprimate {
 
     // A fully simulated 57x57 fabric panel with a weighted hem, suspended along its entire top
     // edge. Opening spreads a vertically pleated sheet; closing carries its top rod toward the
-    // selected screen edge. Copies retain the same immutable recording; each copy has its own
-    // playback clock.
+    // selected screen edge. Copies of a transition share its recording with independent clocks.
+    // Copies of movement keep only the displayed snapshots; only the producer owns the worker.
     class ClothFlutter {
       public:
         ClothFlutter();

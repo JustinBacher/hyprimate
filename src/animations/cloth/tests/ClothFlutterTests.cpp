@@ -459,7 +459,7 @@ namespace {
             }
             CHECK(cloth.moving());
             ClothPhysics::pause_workers_for_testing(false);
-            CHECK(WITNESS.wait_for_snapshots(26, 2));
+            CHECK(cloth.wait_for_snapshots(26, 2));
             cloth.advance(0);
             CHECK(cloth.moving());
             CHECK(delta(pose(cloth).p, pose(WITNESS).p) > 1e-7);
