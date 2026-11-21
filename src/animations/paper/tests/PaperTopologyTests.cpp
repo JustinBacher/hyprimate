@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <map>
 #include <set>
+#include <stdexcept>
 #include <utility>
 
 #include "Check.hpp"
@@ -133,6 +134,186 @@ int main() {
     other.initialize({900, 100}, 17, params);
     CHECK(other.nodes.size() < medium_count);
     params.simulation_quality = PaperQuality::Medium;
+    Topology empty;
+    empty.adapt(params, 4);  // An untouched empty topology remains a no-op.
+
+    // Public connectivity edits are admitted through the checked rebuild boundary.
+    const auto square = [&] {
+        Topology result;
+        result.initialize({1, 1}, 17, params);
+        result.nodes.resize(4);
+        const std::array<Vec2, 4> uv{{{0, 0}, {1, 0}, {1, 1}, {0, 1}}};
+        for (std::size_t i = 0; i < uv.size(); ++i) {
+            result.nodes[i].uv = uv[i];
+            result.nodes[i].x = result.nodes[i].prev = material(result, uv[i]);
+            result.nodes[i].inv_mass = 4;
+        }
+        result.faces = {{{0, 1, 2}}, {{0, 2, 3}}};
+        result.rebuild();
+        return result;
+    };
+    {
+        auto control = square();
+        control.adapt(params, 4);
+        CHECK(control.nodes.size() == 4);
+        CHECK(control.faces.size() == 2);
+        CHECK(control.hinges.size() == 5);
+        CHECK(std::count_if(control.hinges.begin(), control.hinges.end(),
+                  [](const Hinge &h) { return h.d != UINT32_MAX; }) == 1);
+        check_mesh(control);
+        set_affine_state(control, 0.7);
+        control.adapt(params, 8);
+        CHECK(control.nodes.size() > 4);
+        check_mesh(control);
+    }
+    const auto reject_and_recover = [&](auto corrupt) {
+        auto malformed = square();
+        malformed.adapt(params, 4);
+        const auto valid_nodes = malformed.nodes;
+        const auto valid_faces = malformed.faces;
+        const auto valid_hinges = malformed.hinges;
+        corrupt(malformed);
+        const auto supplied_faces = malformed.faces;
+        const auto supplied_nodes = malformed.nodes.size();
+        if (supplied_nodes != valid_nodes.size() || supplied_faces.size() != valid_faces.size()) {
+            bool needs_rebuild = false;
+            try {
+                malformed.adapt(params, 8);
+            } catch (const std::invalid_argument &) {
+                needs_rebuild = true;
+            }
+            CHECK(needs_rebuild);
+        }
+        bool rejected = false;
+        try {
+            malformed.rebuild();
+        } catch (const std::invalid_argument &) {
+            rejected = true;
+        }
+        CHECK(rejected);
+        CHECK(malformed.nodes.size() == supplied_nodes);
+        CHECK(malformed.faces.size() == supplied_faces.size());
+        for (std::size_t i = 0; i < std::min(malformed.faces.size(), supplied_faces.size()); ++i)
+            CHECK(malformed.faces[i].v == supplied_faces[i].v);
+        // A rejected late edge must not publish even a valid hinge prefix.
+        CHECK(malformed.hinges.size() == valid_hinges.size());
+        for (std::size_t i = 0; i < std::min(malformed.hinges.size(), valid_hinges.size()); ++i) {
+            const auto &actual = malformed.hinges[i], &expected = valid_hinges[i];
+            CHECK(actual.a == expected.a && actual.b == expected.b);
+            CHECK(actual.c == expected.c && actual.d == expected.d);
+            CHECK(actual.length == expected.length);
+        }
+        rejected = false;
+        try {
+            malformed.adapt(params, 8);
+        } catch (const std::invalid_argument &) {
+            rejected = true;
+        }
+        CHECK(rejected);
+        // Repair the same object, including a failed partial adjacency rebuild.
+        malformed.nodes = valid_nodes;
+        malformed.faces = valid_faces;
+        malformed.rebuild();
+        malformed.adapt(params, 12);
+        check_mesh(malformed);
+        set_affine_state(malformed, 0.7);
+        malformed.adapt(params, 16);
+        CHECK(malformed.nodes.size() > 4);
+        check_mesh(malformed);
+    };
+    reject_and_recover([](Topology &topology) {
+        // Three distinct faces share (0,2), not a valid two-face manifold.
+        auto third = topology.nodes[3];
+        third.id = 9999;
+        topology.nodes.push_back(third);
+        topology.faces.push_back({{0, 2, 4}});
+    });
+    reject_and_recover([](Topology &topology) {
+        // Two same-direction incidences cannot define the two hinge opposites.
+        topology.faces[1] = {{0, 3, 2}};
+    });
+    reject_and_recover([](Topology &topology) {
+        // Reversing the same triangle does not create a distinct hinge opposite.
+        topology.faces[1] = {{2, 1, 0}};
+    });
+    reject_and_recover([](Topology &topology) { topology.faces[0].v[2] = 0; });
+    reject_and_recover([](Topology &topology) {
+        topology.faces[0].v[2] = static_cast<std::uint32_t>(topology.nodes.size());
+    });
+    reject_and_recover([](Topology &topology) { topology.faces[0].v[2] = UINT32_MAX; });
+    reject_and_recover([](Topology &topology) { topology.nodes.pop_back(); });
+    reject_and_recover([](Topology &topology) {
+        topology.nodes[1].id = topology.nodes[0].id;
+    });
+    {
+        auto imported = square();
+        for (std::size_t i = 0; i < imported.nodes.size(); ++i)
+            imported.nodes[i].id = 1000 + i;
+        imported.rebuild();
+        const auto imported_originals = imported.nodes;
+        set_affine_state(imported, 0.7);
+        imported.adapt(params, 4);
+        CHECK(imported.nodes.size() > 4);
+        for (std::size_t i = 4; i < imported.nodes.size(); ++i)
+            CHECK(imported.nodes[i].id > 1003);
+        check_mesh(imported);  // Includes unique IDs after actual subdivision.
+        std::vector<std::uint64_t> refined_ids;
+        for (std::size_t i = 4; i < imported.nodes.size(); ++i)
+            refined_ids.push_back(imported.nodes[i].id);
+        bool coarsened = false;
+        for (std::uint64_t tick = 40; tick <= 80 && !coarsened; tick += 4) {
+            // Supply a genuinely quiet inverse patch. Conserved angular momentum
+            // from prior collapses may otherwise veto later inverse operations.
+            for (auto &node : imported.nodes) {
+                node.x = node.prev = material(imported, node.uv);
+                node.velocity = {};
+            }
+            imported.adapt(params, tick);
+            coarsened = std::any_of(refined_ids.begin(), refined_ids.end(), [&](auto id) {
+                return std::none_of(imported.nodes.begin(),
+                    imported.nodes.end(),
+                    [&](const Node &node) { return node.id == id; });
+            });
+        }
+        CHECK(coarsened);  // Actual identity removal, not an assumed final mesh size.
+        for (const auto &original : imported_originals) {
+            const auto found = std::find_if(imported.nodes.begin(),
+                imported.nodes.end(),
+                [&](const Node &node) { return node.id == original.id; });
+            CHECK(found != imported.nodes.end());
+            if (found != imported.nodes.end()) {
+                CHECK(found->uv.x == original.uv.x);
+                CHECK(found->uv.y == original.uv.y);
+            }
+        }
+        check_mesh(imported);
+    }
+    {
+        auto exhausted = square();
+        exhausted.nodes.back().id = UINT64_MAX - 3;
+        exhausted.rebuild();
+        set_affine_state(exhausted, 0.7);
+        exhausted.adapt(params, 4);
+        CHECK(exhausted.nodes.size() > 4);
+        CHECK(exhausted.nodes.size() <= 6);  // Only two fresh IDs remain before exhaustion.
+        for (std::size_t i = 4; i < exhausted.nodes.size(); ++i) {
+            CHECK(exhausted.nodes[i].id > UINT64_MAX - 3);
+            CHECK(exhausted.nodes[i].id < UINT64_MAX);
+        }
+        check_mesh(exhausted);
+        const auto exhausted_count = exhausted.nodes.size();
+        exhausted.adapt(params, 8);
+        CHECK(exhausted.nodes.size() == exhausted_count);
+        check_mesh(exhausted);
+        // An explicitly supplied maximal ID is valid, but cannot be advanced.
+        exhausted = square();
+        exhausted.nodes.back().id = UINT64_MAX;
+        exhausted.rebuild();
+        set_affine_state(exhausted, 0.7);
+        exhausted.adapt(params, 4);
+        CHECK(exhausted.nodes.size() == 4);
+        check_mesh(exhausted);
+    }
 
     mesh.initialize({400, 300}, 17, params);
     const auto original_nodes = mesh.nodes.size(), original_faces = mesh.faces.size();

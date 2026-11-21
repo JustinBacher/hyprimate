@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cmath>
 #include <numeric>
+#include <stdexcept>
 #include <utility>
 
 #include "PaperTopology.hpp"
@@ -236,7 +237,31 @@ namespace hyprimate::paper {
         return found != ids_.end() && found->first == id ? found->second : UINT32_MAX;
     }
 
+    void Topology::rebuild() {
+        rebuild({}, mass(nodes));
+        splits_.clear();
+        // UINT64_MAX marks exhausted generated identities; do not wrap to zero.
+        const auto maximum_id = ids_.empty() ? 0 : ids_.back().first;
+        next_id_ = maximum_id == UINT64_MAX ? UINT64_MAX : maximum_id + 1;
+    }
+
     void Topology::rebuild(const std::vector<EdgeState> &states, double total_mass) {
+        adjacency_valid_ = false;
+        // Check the destinations before multiplying incidence counts or narrowing
+        // a node index. UINT32_MAX is reserved for an absent hinge opposite.
+        if (nodes.size() > UINT32_MAX || nodes.size() >= face_offsets_.max_size() ||
+            nodes.size() >= hinge_offsets_.max_size() || nodes.size() > ids_.max_size() ||
+            nodes.size() > area_scratch_.max_size() ||
+            faces.size() > edge_scratch_.max_size() / 3 ||
+            faces.size() > vertex_faces_.max_size() / 3 ||
+            faces.size() > face_edges_.max_size())
+            throw std::length_error("Paper topology incidence count exceeds storage");
+        for (const auto &face : faces) {
+            const auto [a, b, c] = face.v;
+            if (a >= nodes.size() || b >= nodes.size() || c >= nodes.size() ||
+                a == b || b == c || c == a)
+                throw std::invalid_argument("Paper topology has an invalid face");
+        }
         // Flat retained storage replaces one tree node per material/mesh edge.
         // The order field preserves the old map's last-write-wins override rule.
         state_scratch_.clear();
@@ -265,6 +290,9 @@ namespace hyprimate::paper {
             ids_.reserve(std::max(nodes.size(), ids_.capacity() * 2));
         for (std::uint32_t i = 0; i < nodes.size(); ++i) ids_.emplace_back(nodes[i].id, i);
         std::sort(ids_.begin(), ids_.end());
+        for (std::size_t i = 1; i < ids_.size(); ++i)
+            if (ids_[i - 1].first == ids_[i].first)
+                throw std::invalid_argument("Paper topology has duplicate node identities");
 
         face_offsets_.assign(nodes.size() + 1, 0);
         edge_scratch_.clear();
@@ -286,11 +314,6 @@ namespace hyprimate::paper {
                     {endpoints.first, endpoints.second, f.v[(side + 2) % 3], i, side, aidx < bidx});
             }
         }
-        std::partial_sum(face_offsets_.begin(), face_offsets_.end(), face_offsets_.begin());
-        vertex_faces_.resize(edge_count);
-        incidence_cursor_.assign(face_offsets_.begin(), face_offsets_.end() - 1);
-        for (std::size_t i = 0; i < faces.size(); ++i)
-            for (const auto vertex : faces[i].v) vertex_faces_[incidence_cursor_[vertex]++] = i;
         std::sort(edge_scratch_.begin(),
             edge_scratch_.end(),
             [](const EdgeRecord &left, const EdgeRecord &right) {
@@ -299,6 +322,33 @@ namespace hyprimate::paper {
                 return left.face < right.face;
             });
 
+        // Check all groups before publishing any adjacency, not just the group
+        // currently being filled: a later invalid edge must not leave a prefix.
+        std::size_t hinge_count = 0, hinge_incidence = 0;
+        for (std::size_t first = 0; first < edge_scratch_.size();) {
+            const auto &edge = edge_scratch_[first];
+            std::size_t last = first + 1;
+            while (last < edge_scratch_.size() && edge_scratch_[last].a == edge.a &&
+                   edge_scratch_[last].b == edge.b)
+                ++last;
+            if (last - first > 2 ||
+                (last - first == 2 &&
+                    (edge.forward == edge_scratch_[first + 1].forward ||
+                        edge.opposite == edge_scratch_[first + 1].opposite)))
+                throw std::invalid_argument("Paper topology has a non-manifold edge");
+            const std::size_t incidence = last - first == 2 ? 4 : 3;
+            if (hinge_count == hinges.max_size() || hinge_count == edge_faces_.max_size() ||
+                incidence > vertex_hinges_.max_size() - hinge_incidence)
+                throw std::length_error("Paper topology hinge incidence exceeds storage");
+            ++hinge_count;
+            hinge_incidence += incidence;
+            first = last;
+        }
+        std::partial_sum(face_offsets_.begin(), face_offsets_.end(), face_offsets_.begin());
+        vertex_faces_.resize(edge_count);
+        incidence_cursor_.assign(face_offsets_.begin(), face_offsets_.end() - 1);
+        for (std::size_t i = 0; i < faces.size(); ++i)
+            for (const auto vertex : faces[i].v) vertex_faces_[incidence_cursor_[vertex]++] = i;
         hinges.clear();
         edge_faces_.clear();
         face_edges_.assign(faces.size(), {SIZE_MAX, SIZE_MAX, SIZE_MAX});
@@ -358,6 +408,8 @@ namespace hyprimate::paper {
         const double density = total_mass / std::max(area, 1e-18);
         for (std::size_t i = 0; i < nodes.size(); ++i)
             if (nodes[i].inv_mass > 0) nodes[i].inv_mass = 1 / std::max(areas[i] * density, 1e-18);
+        adjacency_nodes_ = nodes.size();
+        adjacency_valid_ = true;
     }
 
     std::size_t Topology::refinement_edge(std::size_t index, unsigned depth) const {
@@ -388,6 +440,7 @@ namespace hyprimate::paper {
     }
 
     bool Topology::split_edge(std::size_t index, std::uint64_t tick) {
+        if (next_id_ == UINT64_MAX) return false;
         const Hinge edge = hinges[index];
         std::vector<std::size_t> incident;
         for (const auto i : edge_faces_[index]) {
@@ -397,6 +450,12 @@ namespace hyprimate::paper {
             incident.push_back(i);
         }
         if (incident.empty()) return false;
+        if (nodes.size() >= UINT32_MAX || nodes.size() == nodes.max_size() ||
+            incident.size() > faces.max_size() - faces.size() ||
+            faces.size() > edge_scratch_.max_size() / 3 - incident.size() ||
+            faces.size() > vertex_faces_.max_size() / 3 - incident.size() ||
+            incident.size() > face_edges_.max_size() - faces.size())
+            return false;
         auto states = edge_states();
         const double total_mass = mass(nodes);
         std::vector<std::uint32_t> patch;
@@ -452,6 +511,9 @@ namespace hyprimate::paper {
         const auto a = node_index(record.a), b = node_index(record.b),
                    m = node_index(record.midpoint);
         if (a == UINT32_MAX || b == UINT32_MAX || m == UINT32_MAX) return false;
+        for (const auto &parent : record.parents)
+            for (const auto id : parent)
+                if (node_index(id) == UINT32_MAX) return false;
         const double scale = rest_length(a, b);
         const auto &mid = nodes[m];
         // Bound removed velocity detail to 0.05 edge lengths per simulation time
@@ -530,6 +592,9 @@ namespace hyprimate::paper {
     }
 
     void Topology::adapt(const PaperParams &params, std::uint64_t tick) {
+        if (!adjacency_valid_ || adjacency_nodes_ != nodes.size() ||
+            face_edges_.size() != faces.size() || edge_faces_.size() != hinges.size())
+            throw std::invalid_argument("Paper topology requires rebuild before adaptation");
         if (nodes.empty() || tick % 4 != 0) return;
         // Recently split patches must remain quiet for 32 ticks before inverse coarsening.
         unsigned collapsed = 0;

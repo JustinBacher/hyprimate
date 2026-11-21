@@ -41,6 +41,14 @@ namespace hyprimate::paper {
         Vec2 material_size{1, 1};
 
         void initialize(Vec2 size, std::uint64_t seed, const PaperParams &params);
+        // After editing public nodes/faces, rebuild before using adjacency or adapt.
+        // Resets remeshing history and crease state; preserves total movable mass.
+        // IDs must be unique; generated IDs advance past the maximum supplied ID.
+        // UINT64_MAX marks ID exhaustion and disables further refinement.
+        // Invalid indices, repeated vertices/IDs, and non-manifold/winding-conflicted
+        // edges throw std::invalid_argument; unrepresentable counts throw
+        // std::length_error. Repair and rebuild (or initialize) after rejection.
+        void rebuild();
         void adapt(const PaperParams &params, std::uint64_t tick);
 
       private:
@@ -65,6 +73,7 @@ namespace hyprimate::paper {
         std::vector<Split> splits_;
         std::uint64_t next_id_ = 1;
         double base_length_ = 0;
+        bool adjacency_valid_ = true;
         std::vector<std::pair<std::uint64_t, std::uint32_t>> ids_;
         std::vector<std::size_t> face_offsets_, hinge_offsets_, vertex_faces_, vertex_hinges_;
         std::vector<std::size_t> incidence_cursor_;
@@ -73,6 +82,7 @@ namespace hyprimate::paper {
         std::vector<double> area_scratch_;
         std::vector<std::array<std::size_t, 2>> edge_faces_;
         std::vector<std::array<std::size_t, 3>> face_edges_;
+        std::size_t adjacency_nodes_ = 0;
         struct Candidate {
             double score = 0;
             std::size_t target = 0, order = 0;
