@@ -55,7 +55,7 @@ struct SSmokeModule {
         Resources &resources);
     static void end(State &state, Resources &resources, hyprimate::animation::End why) noexcept;
     static bool moves(const hyprimate::animation::Motion &motion, const Resources &resources) noexcept;
-    static void warm(Resources &resources);
+    static bool warm(Resources &resources);
     template<class Canvas> requires std::same_as<Canvas, CHyprAnimationCanvas>
     static bool draw(State &state, const hyprimate::animation::Draw<Canvas> &draw,
         Resources &resources) {

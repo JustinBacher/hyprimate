@@ -14,7 +14,7 @@ class CBurnRenderer {
     CBurnRenderer &operator=(const CBurnRenderer &) = delete;
     CBurnRenderer(CBurnRenderer &&) = delete;
     CBurnRenderer &operator=(CBurnRenderer &&) = delete;
-    void warm_up();
+    bool warm_up();
     bool draw(const hyprimate::BurnSimulation &simulation,
         const hyprimate::animation::Draw<CHyprAnimationCanvas> &draw);
 

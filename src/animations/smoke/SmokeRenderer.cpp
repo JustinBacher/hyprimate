@@ -68,14 +68,16 @@ bool CSmokeRenderer::initialize() {
     }
     return m_material.initialize(m_programs);
 }
-void CSmokeRenderer::warm_up() {
-    if (m_warmed || !Render::GL::g_pHyprOpenGL || !g_pHyprRenderer) return;
+bool CSmokeRenderer::warm_up() {
+    if (m_warmed) return true;
+    if (!Render::GL::g_pHyprOpenGL || !g_pHyprRenderer) return false;
     m_warmed = true;
     with_context([&] {
         const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
         const hyprimate::gl::CRawGlBracket<7> BRACKET{{}};
         initialize();
     });
+    return m_warmed;
 }
 SP<Render::IFramebuffer> CSmokeRenderer::render(
     Render::CRenderContext &ctx, const SSmokeDraw &draw) {

@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -50,7 +51,9 @@ class CPluginRuntime::Impl {
     Impl &operator=(Impl &&) = delete;
 
   private:
-    void configure(bool warm);
+    void configure();
+    void update_inert();
+    void warm_style();
     void configure_workspace();
     void reload();
     void render_pre(const PHLMONITOR &monitor);
@@ -68,6 +71,8 @@ class CPluginRuntime::Impl {
     CConfigValue<Config::INTEGER> m_wobble{"decoration:wobble:enabled"};
     bool m_inert = false;
     bool m_close_available = false;
+    bool m_warm_pending = true;
+    std::optional<decltype(m_config.style)> m_warmed_style;
     hyprimate::animation::FrameId m_frame = 0;
     std::vector<PHLMONITORREF> m_inhibited;
     std::unique_ptr<CAnimationCloseRenderer> m_close;
@@ -96,7 +101,7 @@ CPluginRuntime::Impl::Impl(HANDLE handle) : m_handle(handle) {
         notify("[hyprimate] workspace transitions unavailable: " + error);
     }
     configure_workspace();
-    configure(false);
+    configure();
 
     m_open = Event::bus()->m_events.window.openLate.listen([this](const PHLWINDOW &window) {
         if (window) {
@@ -146,7 +151,9 @@ CPluginRuntime::Impl::Impl(HANDLE handle) : m_handle(handle) {
     // with no compositor refresh bits. Don't read/parse every style's settings every frame.
     m_config_refresh = Event::bus()->m_events.config.props_refreshed.listen([this](bool) {
         m_config = hyprimate::config::readConfig(m_values);
+        update_inert();
         configure_workspace();
+        configure();
     });
     for (const auto &window : Desktop::windowState()->windows()) {
         if (window) {
@@ -174,14 +181,10 @@ void CPluginRuntime::Impl::notify(const std::string &text) const {
     HyprlandAPI::addNotification(m_handle, text, CHyprColor(1.F, 0.35F, 0.2F, 1.F), 10000.F);
 }
 
-void CPluginRuntime::Impl::configure(bool warm) {
-    m_resources.for_each([&]<class Style>(auto &resources) {
+void CPluginRuntime::Impl::configure() {
+    m_warm_pending = !m_warmed_style || *m_warmed_style != m_config.style;
+    m_resources.for_each([&]<class Style>(auto &) {
         m_animations.template update_settings<Style>(Style::settings(m_config));
-        if constexpr (requires { Style::warm(resources); }) {
-            if (warm && m_config.style == Style::KIND) {
-                Style::warm(resources);
-            }
-        }
     });
     m_animations.configure({.style = m_config.style, .enabled = m_config.enabled, .inert = m_inert,
         .opening = m_config.open.enabled, .movement = m_config.movement.enabled,
@@ -189,26 +192,47 @@ void CPluginRuntime::Impl::configure(bool warm) {
         .close_available = m_close_available});
 }
 
+void CPluginRuntime::Impl::warm_style() {
+    bool complete = true;
+    m_resources.for_each([&]<class Style>(auto &resources) {
+        if constexpr (requires { Style::warm(resources); }) {
+            if (m_config.style == Style::KIND) {
+                complete = Style::warm(resources);
+            }
+        }
+    });
+    if (complete) {
+        m_warmed_style = m_config.style;
+        m_warm_pending = false;
+    }
+}
+
 void CPluginRuntime::Impl::configure_workspace() {
     m_workspace->configure(m_config.workspace);
 }
 
-void CPluginRuntime::Impl::reload() {
-    m_config = hyprimate::config::readConfig(m_values);
+void CPluginRuntime::Impl::update_inert() {
     const bool INERT = m_config.enabled && *m_wobble != 0;
     if (INERT && !m_inert) {
         notify(WOBBLE_MESSAGE);
     }
     m_inert = INERT;
+}
+
+void CPluginRuntime::Impl::reload() {
+    m_config = hyprimate::config::readConfig(m_values);
+    update_inert();
     m_workspace->clear();
     configure_workspace();
     m_animations.reload();
-    configure(false);
+    configure();
     restore_scanout();
 }
 
 void CPluginRuntime::Impl::render_pre(const PHLMONITOR &monitor) {
-    configure(true);
+    if (m_warm_pending) {
+        warm_style();
+    }
     restore_scanout();
     if (monitor) {
         m_animations.frame({.monitor = m_port.monitor_identity(monitor), .frame = ++m_frame,

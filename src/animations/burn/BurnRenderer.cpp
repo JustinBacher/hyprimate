@@ -86,12 +86,14 @@ CBurnRenderer::~CBurnRenderer() {
         m_impl->shader.reset();
     }
 }
-void CBurnRenderer::warm_up() {
-    if (m_impl->attempted || !g_pHyprRenderer || !Render::GL::g_pHyprOpenGL) return;
+bool CBurnRenderer::warm_up() {
+    if (m_impl->attempted) return true;
+    if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL) return false;
     const ContextGuard CONTEXT;
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     const hyprimate::gl::CRawGlBracket<1> BRACKET{{}};
     (void)m_impl->initialize();
+    return m_impl->attempted;
 }
 
 bool CBurnRenderer::draw(const hyprimate::BurnSimulation &simulation,

@@ -2,11 +2,11 @@
 #include "animations/paper/PaperRenderer.hpp"
 #include "animations/paper/PaperStyle.hpp"
 
-void SPaperModule::warm(Resources &resources) {
+bool SPaperModule::warm(Resources &resources) {
     if (!resources.renderer) {
         resources.renderer = std::make_shared<CPaperRenderer>();
-        resources.renderer->warm_up();
     }
+    return resources.renderer->warm_up();
 }
 
 bool SPaperModule::draw(State &state,

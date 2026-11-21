@@ -2,11 +2,11 @@
 #include "animations/burn/BurnRenderer.hpp"
 #include "animations/burn/BurnStyle.hpp"
 
-void SBurnModule::warm(Resources &resources) {
+bool SBurnModule::warm(Resources &resources) {
     if (!resources.renderer) {
         resources.renderer = std::make_shared<CBurnRenderer>();
-        resources.renderer->warm_up();
     }
+    return resources.renderer->warm_up();
 }
 
 bool SBurnModule::draw(State &state,

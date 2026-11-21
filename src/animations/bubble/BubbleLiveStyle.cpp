@@ -128,8 +128,8 @@ void SBubbleModule::end(State &state, [[maybe_unused]] Resources &resources, hyp
     }
 }
 
-void SBubbleModule::warm(Resources &resources) {
-    resources.renderer->warm_up();
+bool SBubbleModule::warm(Resources &resources) {
+    return resources.renderer->warm_up();
 }
 
 bool SBubbleModule::draw(State &state,

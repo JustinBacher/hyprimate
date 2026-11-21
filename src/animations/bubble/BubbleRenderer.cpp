@@ -83,15 +83,15 @@ bool CBubbleRenderer::initialize() {
     return m_ready;
 }
 
-void CBubbleRenderer::warm_up() {
-    if (m_warmed || !g_pHyprRenderer || !Render::GL::g_pHyprOpenGL) {
-        return;
-    }
+bool CBubbleRenderer::warm_up() {
+    if (m_warmed) return true;
+    if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL) return false;
     with_compositor_context([&] {
         const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
         const hyprimate::gl::CRawGlBracket<4> BRACKET{{}};
         (void)initialize();
     });
+    return m_warmed;
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity): GL capture, drawing and restoration

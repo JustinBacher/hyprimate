@@ -22,7 +22,7 @@ class CPaperRenderer {
 
     bool draw(const hyprimate::PaperSurface &surface,
         const hyprimate::animation::Draw<CHyprAnimationCanvas> &draw);
-    void warm_up();
+    bool warm_up();
 
   private:
     struct Impl;

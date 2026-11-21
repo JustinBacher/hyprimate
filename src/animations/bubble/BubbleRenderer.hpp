@@ -42,7 +42,7 @@ class CBubbleRenderer {
     // Compiles the material ahead of the first bubble. Compilation takes long enough to read as a
     // frame stall, which would otherwise cancel the opening that first needs it. Safe to call
     // often; only the first call does work.
-    void warm_up();
+    bool warm_up();
 
   private:
     bool initialize();

@@ -56,7 +56,7 @@ struct SPaperModule {
         return motion.translated || motion.resized;
     }
 
-    static void warm(Resources &resources);
+    static bool warm(Resources &resources);
     static bool draw(State &state,
         const hyprimate::animation::Draw<CHyprAnimationCanvas> &draw,
         Resources &resources);

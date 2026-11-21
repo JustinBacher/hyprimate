@@ -57,7 +57,7 @@ struct SBurnModule {
     static void end(State &state, Resources &resources, hyprimate::animation::End why) noexcept;
     static bool moves(
         const hyprimate::animation::Motion &motion, const Resources &resources) noexcept;
-    static void warm(Resources &resources);
+    static bool warm(Resources &resources);
     static bool draw(State &state,
         const hyprimate::animation::Draw<CHyprAnimationCanvas> &draw,
         Resources &resources);

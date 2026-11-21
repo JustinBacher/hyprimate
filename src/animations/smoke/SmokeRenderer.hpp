@@ -36,7 +36,7 @@ class CSmokeRenderer {
     CSmokeRenderer(const CSmokeRenderer &) = delete;
     CSmokeRenderer &operator=(const CSmokeRenderer &) = delete;
     SP<Render::IFramebuffer> render(Render::CRenderContext &ctx, const SSmokeDraw &draw);
-    void warm_up();
+    bool warm_up();
 
   private:
     bool initialize();

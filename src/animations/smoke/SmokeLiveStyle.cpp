@@ -101,8 +101,8 @@ void SSmokeModule::end(State &state, [[maybe_unused]] Resources &resources,
     state.capture_field.reset();
 }
 
-void SSmokeModule::warm(Resources &resources) {
-    resources.renderer->warm_up();
+bool SSmokeModule::warm(Resources &resources) {
+    return resources.renderer->warm_up();
 }
 
 SSmokeModule::Prepared SSmokeModule::prepare_settings(const Settings &settings) {

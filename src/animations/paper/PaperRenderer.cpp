@@ -77,12 +77,14 @@ CPaperRenderer::~CPaperRenderer() {
     }
 }
 
-void CPaperRenderer::warm_up() {
-    if (m_impl->attempted || !g_pHyprRenderer || !Render::GL::g_pHyprOpenGL) return;
+bool CPaperRenderer::warm_up() {
+    if (m_impl->attempted) return true;
+    if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL) return false;
     const ContextGuard CONTEXT;
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     const hyprimate::gl::CRawGlBracket<2> BRACKET{{}};
     (void)m_impl->initialize();
+    return m_impl->attempted;
 }
 
 bool CPaperRenderer::draw(const hyprimate::PaperSurface &surface,
