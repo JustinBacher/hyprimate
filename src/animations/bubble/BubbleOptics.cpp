@@ -129,12 +129,16 @@ namespace hyprimate {
             !std::isfinite(max_thickness) || max_thickness <= 0) {
             return {};
         }
+        const auto WIDTH = static_cast<std::size_t>(thickness_samples);
+        const auto HEIGHT = static_cast<std::size_t>(cosine_samples);
+        if (WIDTH > std::vector<float>{}.max_size() / COLOUR_CHANNELS / HEIGHT) {
+            return {};
+        }
         BubbleThinFilmTable table{
             .thickness_samples = thickness_samples,
             .cosine_samples = cosine_samples,
             .max_thickness = max_thickness,
-            .rgb = std::vector<float>(
-                static_cast<std::size_t>(thickness_samples) * cosine_samples * COLOUR_CHANNELS),
+            .rgb = std::vector<float>(WIDTH * HEIGHT * COLOUR_CHANNELS),
         };
         // Colour matching is evaluated once per wavelength, not once per table cell.
         std::array<Colour, WAVELENGTH_SAMPLES> matching_by_wavelength{};

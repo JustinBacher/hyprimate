@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <limits>
 
 #include "Check.hpp"
 #include "animations/bubble/BubbleOptics.hpp"
@@ -37,5 +38,12 @@ int main() {
     };
     CHECK(std::max(SPREAD(450), SPREAD(500)) > SPREAD(200));
     CHECK(hyprimate::bubble_thin_film_table(1, 2, 100).rgb.empty());
+    // No table can contain this many RGB samples, even on a 64-bit host.
+    constexpr int MAX = std::numeric_limits<int>::max();
+    CHECK(hyprimate::bubble_thin_film_table(MAX, MAX, 100).rgb.empty());
+    if constexpr (sizeof(std::size_t) == 4) {
+        // The unguarded texel product wraps to zero before the RGB allocation.
+        CHECK(hyprimate::bubble_thin_film_table(65536, 65536, 100).rgb.empty());
+    }
     return g_failures == 0 ? 0 : 1;
 }
