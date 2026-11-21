@@ -849,4 +849,16 @@ std::span<const DyingView> CWindowAnimations<Port, StyleList<Styles...>>::dying_
     }
     return m_views;
 }
+template<class Port, class... Styles>
+std::optional<DyingView> CWindowAnimations<Port, StyleList<Styles...>>::dying_view_for(
+    std::uint64_t fadeout) const {
+    if (fadeout == 0) { return std::nullopt; }
+    for (const auto &entry : m_entries) {
+        if (entry.fadeout == fadeout &&
+            (entry.life == Life::DyingOwned || entry.life == Life::DyingNative)) {
+            return dying_view(entry);
+        }
+    }
+    return std::nullopt;
+}
 } // namespace hyprimate::animation

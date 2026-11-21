@@ -8,6 +8,7 @@
 #include "Check.hpp"
 #include "FakeWindowPort.hpp"
 #include "WindowAnimations.hpp"
+#include "CloseBatch.hpp"
 
 using namespace hyprimate;
 using namespace hyprimate::animation;
@@ -832,6 +833,89 @@ void capture_failure_releases_entry() {
     CHECK(threw); CHECK(!fixture.module.active(HANDLE)); CHECK(fixture.port.visuals.empty());
     CHECK(!fixture.module.suppresses(702)); CHECK(!fixture.module.pending_for(1));
 }
+struct SyntheticCloseItem {
+    CloseBatchKey key;
+    bool owned = false;
+    bool suppressed = false;
+    bool image = true;
+    bool private_content = false;
+};
+struct FailingCloseSpill : std::vector<SyntheticCloseItem> {
+    void reserve(std::size_t) { throw std::bad_alloc{}; }
+};
+template<class Spill>
+void mixed_close_batch(std::size_t count, bool capture) {
+    std::vector<SyntheticCloseItem> source;
+    for (std::size_t index = count; index > 0; --index) {
+        source.push_back({.key = {.z_index = static_cast<int>(index % 4),
+                .retained = index % 5 == 0, .identity = index},
+            .owned = index % 3 == 0, .suppressed = index % 3 != 1,
+            .image = index % 6 != 0, .private_content = index % 7 == 0});
+    }
+    const auto ENUMERATE = [&](auto emit) {
+        for (const auto &item : source) {
+            if (!capture || !item.private_content) { emit(item); }
+        }
+    };
+    std::vector<CloseBatchKey> visited, native, owned;
+    bool nested = false;
+    draw_close_batch<SyntheticCloseItem, 16, Spill>(ENUMERATE, [&](const auto &item) {
+        visited.push_back(item.key);
+        if (!nested) {
+            nested = true;
+            // A nested noncapture pass uses its own scratch. Reallocation invalidates all source
+            // pointers/iterators; the outer draw must retain a value, not a borrowed record.
+            source.reserve(source.capacity() + 100);
+            std::size_t inner_count = 0;
+            draw_close_batch<SyntheticCloseItem>(ENUMERATE, [&](const auto &) { ++inner_count; });
+            CHECK(inner_count == (capture ? count - count / 7 : count));
+        }
+        if (item.owned && item.image) { owned.push_back(item.key); }
+        else if (!item.suppressed) { native.push_back(item.key); }
+    });
+    std::vector<CloseBatchKey> expected, expected_native, expected_owned;
+    for (const auto &item : source) {
+        if (capture && item.private_content) { continue; }
+        expected.push_back(item.key);
+        if (item.owned && item.image) { expected_owned.push_back(item.key); }
+        else if (!item.suppressed) { expected_native.push_back(item.key); }
+    }
+    std::ranges::sort(expected);
+    std::ranges::sort(expected_native);
+    std::ranges::sort(expected_owned);
+    CHECK(visited == expected); CHECK(native == expected_native); CHECK(owned == expected_owned);
+}
+void close_batch_capacity_fallback_and_reentry() {
+    for (const auto count : {16U, 17U, 40U}) {
+        for (const bool capture : {false, true}) {
+            mixed_close_batch<std::vector<SyntheticCloseItem>>(count, capture);
+            mixed_close_batch<FailingCloseSpill>(count, capture);
+        }
+    }
+    int submissions = 0;
+    bool threw = false;
+    try {
+        draw_close_batch<SyntheticCloseItem>(
+            [](auto emit) {
+                emit(SyntheticCloseItem{.key = {.identity = 1}});
+                emit(SyntheticCloseItem{.key = {.identity = 2}});
+            },
+            [&](const auto &) { ++submissions; throw std::bad_alloc{}; });
+    } catch (const std::bad_alloc &) { threw = true; }
+    CHECK(threw); CHECK(submissions == 1); // A partial submit never restarts collection.
+}
+void close_lookup_survives_view_scratch_rebuild() {
+    Fixture fixture; fixture.window(1); fixture.frame(1);
+    fixture.module.close(1, fixture.port.now);
+    fixture.module.bind_fadeout(1, fixture.fade(703), {.id = 1});
+    const auto VIEW = fixture.module.dying_view_for(703);
+    CHECK(VIEW.has_value()); CHECK(!fixture.module.dying_view_for(0));
+    CHECK(!fixture.module.dying_view_for(999));
+    (void)fixture.module.dying_views();
+    fixture.module.end_all();
+    CHECK(!fixture.module.dying_view_for(703));
+    CHECK(VIEW && VIEW->fadeout == 703); // Copied data survives scratch rebuild and entry removal.
+}
 }
 int main() try {
     opening_movement_and_settlement(); settled_opening_edge_survives_until_close();
@@ -854,6 +938,7 @@ int main() try {
     isolated_mesh_buffers();
     dying_draw_adapter_lifecycle(); dying_damage_follows_native_placement();
     owned_close_draw_failure_restores_native();
+    close_batch_capacity_fallback_and_reentry(); close_lookup_survives_view_scratch_rebuild();
     return g_failures == 0 ? 0 : 1;
 }
 catch (const std::exception &error) {

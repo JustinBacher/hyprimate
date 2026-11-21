@@ -11,6 +11,7 @@
 #include <hyprland/src/render/Renderer.hpp>
 
 #include "HyprWindowAnimations.hpp"
+#include "CloseBatch.hpp"
 #include "WindowAnimationEntry.hpp"
 #include "WindowAnimationPort.hpp"
 
@@ -58,15 +59,16 @@ class CAnimationCloseRenderer {
     };
     struct BatchItem {
         SP<Desktop::IFadeout> fadeout;
-        const Record *record = nullptr;
-        int z_index = 0;
+        std::uint64_t fadeout_id = 0;
+        std::optional<hyprimate::animation::DyingView> view;
+        bool suppressed = false;
+        hyprimate::animation::CloseBatchKey key;
     };
     void prune_records();
-    bool collect_batch(Render::CRenderContext &ctx, const PHLMONITOR &monitor,
-        Desktop::eFadeoutPlane plane, const PHLWORKSPACE &workspace, std::vector<BatchItem> &batch,
-        std::span<const hyprimate::animation::DyingView> views);
-    void draw_batch(Render::CRenderContext &ctx, const PHLMONITOR &monitor,
-        const std::vector<BatchItem> &batch, std::span<const hyprimate::animation::DyingView> views);
+    template<class Emit>
+    void collect_batch(Render::CRenderContext &ctx, const PHLMONITOR &monitor,
+        Desktop::eFadeoutPlane plane, const PHLWORKSPACE &workspace, Emit &&emit);
+    void draw_item(Render::CRenderContext &ctx, const PHLMONITOR &monitor, const BatchItem &item);
 
     HANDLE m_handle;
     HyprWindowAnimations &m_animations;
@@ -74,5 +76,4 @@ class CAnimationCloseRenderer {
     CFunctionHook *m_create_hook = nullptr;
     CFunctionHook *m_render_hook = nullptr;
     std::vector<Record> m_records;
-    std::vector<BatchItem> m_batch;
 };

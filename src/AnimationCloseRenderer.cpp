@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <chrono>
 #include <cstddef>
@@ -51,7 +50,6 @@ namespace {
     // then selects one.
     constexpr const char *CREATE_NAME = "CWindowFadeout6create";
     constexpr const char *RENDER_NAME = "renderFadeouts";
-    constexpr size_t BATCH_CAPACITY = 16;
 
     using CreateFn = SP<Desktop::CWindowFadeout> (*)(
         PHLWINDOW, SP<Render::IFramebuffer>, float, SP<Render::IFramebuffer>);
@@ -120,19 +118,14 @@ namespace {
         auto *active = active_renderer();
         if ((active != nullptr) && mode == Render::eSceneMode::MONITOR &&
             active->has_record_for(monitor, plane, workspace)) {
-            bool submitted = false;
             try {
-                submitted = active->render_batch(ctx, monitor, plane, workspace);
+                if (active->render_batch(ctx, monitor, plane, workspace)) {
+                    return;
+                }
             } catch (...) {
-                // The batch may be partially submitted, so the native pass must not run on top of
-                // it.
+                // Drawing may already have submitted passes. Never replay the native plane.
                 return;
             }
-            if (submitted) {
-                return;
-            }
-            // Not handled (batch larger than the preallocated scratch): nothing was submitted, draw
-            // natively.
         }
 
         auto *original =
@@ -157,6 +150,10 @@ CAnimationCloseRenderer::~CAnimationCloseRenderer() {
 }
 
 bool CAnimationCloseRenderer::install(std::string &error) {
+    if (s_active != nullptr && s_active != this) {
+        error = "another close renderer owns the hooks";
+        return false;
+    }
     unhook();
 
     const void *create_address =
@@ -168,8 +165,7 @@ bool CAnimationCloseRenderer::install(std::string &error) {
         return false;
     }
 
-    m_batch.reserve(BATCH_CAPACITY);
-    m_records.reserve(BATCH_CAPACITY);
+    m_records.reserve(16);
     s_active = this;
     m_create_hook = HyprlandAPI::createFunctionHook(
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): Hook SDK requires a void* destination address.
@@ -202,14 +198,14 @@ void CAnimationCloseRenderer::unhook() {
     }
     m_render_hook = nullptr;
     m_create_hook = nullptr;
-    s_active = nullptr;
-    m_batch.clear();
+    if (s_active == this) {
+        s_active = nullptr;
+    }
 }
 
 void CAnimationCloseRenderer::prune_records() {
-    const auto VIEWS = m_animations.dying_views();
     std::erase_if(m_records, [&](const Record &record) {
-        const bool ACTIVE = std::ranges::find(VIEWS, record.fadeout, &hyprimate::animation::DyingView::fadeout) != VIEWS.end();
+        const bool ACTIVE = m_animations.dying_view_for(record.fadeout).has_value();
         const auto NATIVE = record.native.lock();
         if (!NATIVE || NATIVE->done()) {
             m_animations.native_finished(record.fadeout);
@@ -255,11 +251,11 @@ void CAnimationCloseRenderer::on_fadeout_created(
 
 bool CAnimationCloseRenderer::has_record_for(
     const PHLMONITOR &monitor, Desktop::eFadeoutPlane plane, const PHLWORKSPACE &workspace) const {
-    const auto VIEWS = m_animations.dying_views();
+    // Lookup returns a value without touching shared view scratch or allocating.
     return std::ranges::any_of(m_records, [&](const Record &record) {
         return record.monitor.lock() == monitor && record.plane == plane &&
             (!record.workspace_bound || (record.workspace.lock() && record.workspace.lock() == workspace)) &&
-            (std::ranges::find(VIEWS, record.fadeout, &hyprimate::animation::DyingView::fadeout) != VIEWS.end() ||
+            (m_animations.dying_view_for(record.fadeout).has_value() ||
                 m_animations.suppresses(record.fadeout));
     });
 }
@@ -270,36 +266,25 @@ bool CAnimationCloseRenderer::render_batch(Render::CRenderContext &ctx,
     if (!monitor) {
         return true;
     }
-    const bool CAPTURE = WorkspaceCaptureScope::for_context(ctx) != nullptr;
-    if (!CAPTURE) {
+    if (WorkspaceCaptureScope::for_context(ctx) == nullptr) {
         prune_records();
     }
-    // Nested capture must not overwrite a live batch or the module's view scratch.
-    std::vector<BatchItem> capture_batch;
-    if (CAPTURE) {
-        capture_batch.reserve(BATCH_CAPACITY);
-    }
-    auto &batch = CAPTURE ? capture_batch : m_batch;
-    batch.clear();
-    std::array<DyingView, BATCH_CAPACITY> copied_views{};
-    const auto VIEWS = m_animations.dying_views();
-    if (VIEWS.size() > copied_views.size()) {
-        return false;
-    }
-    std::ranges::copy(VIEWS, copied_views.begin());
-    const std::span<const DyingView> SNAPSHOT{copied_views.data(), VIEWS.size()};
-    if (!collect_batch(ctx, monitor, plane, workspace, batch, SNAPSHOT)) {
-        batch.clear();
-        return false;
-    }
-    draw_batch(ctx, monitor, batch, SNAPSHOT);
-    batch.clear();
+    draw_close_batch<BatchItem>(
+        [&](auto &&emit) { collect_batch(ctx, monitor, plane, workspace, emit); },
+        [&](const BatchItem &item) {
+            try {
+                draw_item(ctx, monitor, item);
+            } catch (const std::bad_alloc &) {
+                // A pass allocation can fail after its backdrop was submitted. Do not replay it,
+                // but keep unrelated items visible instead of discarding the rest of the plane.
+            }
+        });
     return true;
 }
 
-bool CAnimationCloseRenderer::collect_batch(Render::CRenderContext &ctx, const PHLMONITOR &monitor,
-    Desktop::eFadeoutPlane plane, const PHLWORKSPACE &workspace, std::vector<BatchItem> &batch,
-    std::span<const hyprimate::animation::DyingView> views) {
+template<class Emit>
+void CAnimationCloseRenderer::collect_batch(Render::CRenderContext &ctx, const PHLMONITOR &monitor,
+    Desktop::eFadeoutPlane plane, const PHLWORKSPACE &workspace, Emit &&emit) {
     using namespace hyprimate::animation;
     const auto MATCHES = [&](const Record &record) {
         const auto WORKSPACE = record.workspace.lock();
@@ -321,18 +306,20 @@ bool CAnimationCloseRenderer::collect_batch(Render::CRenderContext &ctx, const P
         }
         const auto FADEOUT_ID = m_port.fadeout_identity(fadeout);
         const auto FOUND = std::ranges::find(m_records, FADEOUT_ID, &Record::fadeout);
-        const Record *record = FADEOUT_ID != 0 && FOUND != m_records.end() && MATCHES(*FOUND) ? &*FOUND : nullptr;
-        if (record != nullptr && fadeout->done() && m_animations.suppresses(FADEOUT_ID)) {
+        const bool ASSOCIATED = FADEOUT_ID != 0 && FOUND != m_records.end() && MATCHES(*FOUND);
+        const bool SUPPRESSED = ASSOCIATED && m_animations.suppresses(FADEOUT_ID);
+        if (fadeout->done()) {
             continue;
         }
-        if (batch.size() == batch.capacity()) {
-            return false;
-        }
-        batch.push_back(BatchItem{.fadeout = fadeout, .record = record, .z_index = fadeout->zIndex()});
+        emit(BatchItem{.fadeout = fadeout, .fadeout_id = ASSOCIATED ? FADEOUT_ID : 0,
+            .view = ASSOCIATED ? m_animations.dying_view_for(FADEOUT_ID) : std::nullopt,
+            .suppressed = SUPPRESSED,
+            .key = {.z_index = fadeout->zIndex(), .retained = false,
+                .identity = reinterpret_cast<std::uintptr_t>(fadeout.get())}});
     }
     for (const auto &record : m_records) {
-        const auto FOUND = std::ranges::find(views, record.fadeout, &DyingView::fadeout);
-        if (FOUND == views.end() || FOUND->ownership != CloseStart::Owned || !MATCHES(record) ||
+        const auto VIEW = m_animations.dying_view_for(record.fadeout);
+        if (!VIEW || VIEW->ownership != CloseStart::Owned || !MATCHES(record) ||
             !ctx.shouldRenderContent(record.no_screen_share)) {
             continue;
         }
@@ -340,59 +327,56 @@ bool CAnimationCloseRenderer::collect_batch(Render::CRenderContext &ctx, const P
         if (NATIVE && !NATIVE->done()) {
             continue;
         }
-        if (batch.size() == batch.capacity()) {
-            return false;
-        }
-        batch.push_back(BatchItem{.fadeout = nullptr, .record = &record, .z_index = record.z_index});
+        emit(BatchItem{.fadeout = nullptr, .fadeout_id = record.fadeout, .view = VIEW,
+            .suppressed = m_animations.suppresses(record.fadeout),
+            .key = {.z_index = record.z_index, .retained = true, .identity = record.fadeout}});
     }
-    std::ranges::sort(batch, {}, &BatchItem::z_index);
-    return true;
 }
 
-void CAnimationCloseRenderer::draw_batch(Render::CRenderContext &ctx, const PHLMONITOR &monitor,
-    const std::vector<BatchItem> &batch, std::span<const hyprimate::animation::DyingView> views) {
+void CAnimationCloseRenderer::draw_item(Render::CRenderContext &ctx, const PHLMONITOR &monitor,
+    const BatchItem &item) {
     using namespace hyprimate::animation;
     CNativeFadeoutPass native{ctx, monitor};
-    for (const auto &item : batch) {
-        const auto FOUND = item.record != nullptr
-            ? std::ranges::find(views, item.record->fadeout, &DyingView::fadeout) : views.end();
-        const bool SUPPRESSED = item.record != nullptr && m_animations.suppresses(item.record->fadeout);
-        if (FOUND != views.end()) {
-            const auto IMAGE = m_port.fadeout_image(FOUND->handle);
-            if (IMAGE && IMAGE->getTexture()) {
-                if (item.fadeout) {
-                    native.draw_backdrop(item.fadeout->effects());
-                }
-                const auto &bounds = FOUND->bounds_device;
-                CWindowAnimationPass::SData data{
-                    .resources = &m_port.canvas_resources(),
-                    .animations = &m_animations,
-                    .handle = FOUND->handle,
-                    .image = IMAGE,
-                    .source = FOUND->render_box,
-                    .output = bounds,
-                    .canvas_box = {.x = std::floor(bounds.x), .y = std::floor(bounds.y),
-                        .w = std::ceil(bounds.x + bounds.w) - std::floor(bounds.x),
-                        .h = std::ceil(bounds.y + bounds.h) - std::floor(bounds.y)},
-                    .image_origin = {},
-                    .image_size = FOUND->image_size,
-                    .scale = FOUND->scale,
-                    .alpha = FOUND->alpha,
-                    .monitor = FOUND->monitor,
-                    .damage = native.damage()};
-                Render::IHyprRenderer::addPassElement(ctx, makeUnique<CWindowAnimationPass>(std::move(data)));
-                continue;
+    // This value belongs to the invocation, not m_records or the module's shared scratch.
+    const auto &FOUND = item.view;
+    const bool SUPPRESSED = item.suppressed || m_animations.suppresses(item.fadeout_id);
+    if (FOUND) {
+        const auto IMAGE = m_port.fadeout_image(FOUND->handle);
+        if (IMAGE && IMAGE->getTexture()) {
+            if (item.fadeout) {
+                native.draw_backdrop(item.fadeout->effects());
             }
+            const auto &bounds = FOUND->bounds_device;
+            CWindowAnimationPass::SData data{
+                .resources = &m_port.canvas_resources(),
+                .animations = &m_animations,
+                .handle = FOUND->handle,
+                .image = IMAGE,
+                .source = FOUND->render_box,
+                .output = bounds,
+                .canvas_box = {.x = std::floor(bounds.x), .y = std::floor(bounds.y),
+                    .w = std::ceil(bounds.x + bounds.w) - std::floor(bounds.x),
+                    .h = std::ceil(bounds.y + bounds.h) - std::floor(bounds.y)},
+                .image_origin = {},
+                .image_size = FOUND->image_size,
+                .scale = FOUND->scale,
+                .alpha = FOUND->alpha,
+                .monitor = FOUND->monitor,
+                .damage = native.damage()};
+            Render::IHyprRenderer::addPassElement(ctx, makeUnique<CWindowAnimationPass>(std::move(data)));
+            return;
         }
-        if (SUPPRESSED || !item.fadeout) {
-            continue;
-        }
-        const auto FRAMEBUFFER = item.fadeout->framebuffer(Render::eSceneMode::MONITOR);
-        if (!FRAMEBUFFER || !FRAMEBUFFER->getTexture()) {
-            continue;
-        }
-        const auto EFFECTS = item.fadeout->effects();
-        native.draw_backdrop(EFFECTS);
+    }
+    if (SUPPRESSED || !item.fadeout) {
+        return;
+    }
+    const auto FRAMEBUFFER = item.fadeout->framebuffer(Render::eSceneMode::MONITOR);
+    if (!FRAMEBUFFER || !FRAMEBUFFER->getTexture()) {
+        return;
+    }
+    const auto EFFECTS = item.fadeout->effects();
+    native.draw_backdrop(EFFECTS);
+    if (!m_animations.suppresses(item.fadeout_id)) {
         native.draw_texture(*item.fadeout, FRAMEBUFFER->getTexture(), EFFECTS);
     }
 }

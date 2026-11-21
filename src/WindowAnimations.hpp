@@ -55,6 +55,8 @@ class CWindowAnimations<Port, StyleList<Styles...>> {
     std::optional<Frame> view(Handle handle) const;
     std::optional<Handle> pending_for(WindowId window_id) const;
     std::span<const DyingView> dying_views() const;
+    // Allocation-free value lookup for reentrant close-renderer collection.
+    std::optional<DyingView> dying_view_for(std::uint64_t fadeout) const;
     bool suppresses(std::uint64_t fadeout) const;
     void native_finished(std::uint64_t fadeout);
     Box extents(Handle handle, const Box &capture) const;
