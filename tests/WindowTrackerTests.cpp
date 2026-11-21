@@ -34,6 +34,8 @@ int main() {
     after.body.x += 900;
     after.capture.x += 900;
     CHECK(!observe_motion(before, after, true, true));
+    const auto SWEEP = observe_motion(before, after, true, true, true);
+    CHECK(SWEEP && SWEEP->from_body.x == 100 && SWEEP->body.x == 1000);
     auto baseline = after;
     after.body.x += 30;
     after.capture.x += 30;
@@ -42,9 +44,11 @@ int main() {
     after.monitor = 2;
     after.body.x += 20;
     CHECK(!observe_motion(before, after, true, true));
+    CHECK(!observe_motion(before, after, true, true, true));
     after.monitor = 1;
     after.workspace = 2;
     CHECK(!observe_motion(before, after, true, true));
+    CHECK(!observe_motion(before, after, true, true, true));
     after = before;
     after.body.w = 0;
     CHECK(!observe_motion(before, after, true, true));

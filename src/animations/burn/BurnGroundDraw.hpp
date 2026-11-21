@@ -11,6 +11,7 @@ class CBurnGroundDraw {
     ~CBurnGroundDraw();
     CBurnGroundDraw(const CBurnGroundDraw &) = delete;
     CBurnGroundDraw &operator=(const CBurnGroundDraw &) = delete;
+    bool warm_up();
     void queue(CHyprAnimationCanvas &canvas,
         const CBurnGround &ground,
         const hyprimate::animation::ScreenFacts &screen);

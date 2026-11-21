@@ -55,6 +55,7 @@ struct Step {
     MonitorId monitor = 0;
     WorkspaceId workspace = 0;
     bool pinned = false;
+    WindowId window = 0;  // Stable through movement-only style acquisitions; no window reference.
 };
 struct Effects {
     std::optional<Box> drive_body;

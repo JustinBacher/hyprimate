@@ -171,6 +171,21 @@ hl.config({
                 },
                 enabled = true,
                 style = "liquid",
+                movement = {
+                    options = {
+                        burn = {
+                            smoke_density = 0.22,
+                        },
+                        smoke = {
+                            reform = 0.48,
+                            settle_speed = 1,
+                            mass = 0.45,
+                            roundness = 0.7,
+                        },
+                    },
+                    enabled = true,
+                    workspace_movement = true,
+                },
                 close = {
                     options = {
                         burn = {
@@ -180,18 +195,6 @@ hl.config({
                         },
                     },
                     enabled = true,
-                },
-                movement = {
-                    enabled = true,
-                    workspace_movement = true,
-                    options = {
-                        smoke = {
-                            reform = 0.48,
-                            settle_speed = 1,
-                            mass = 0.45,
-                            roundness = 0.7,
-                        },
-                    },
                 },
                 open = {
                     enabled = true,
@@ -379,6 +382,7 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `window:options:burn:gravity_strength` | float / `300` | 0–1800 | Downward gravitational acceleration in logical pixels per second squared. |
 | `window:options:burn:scorch_lifetime` | float / `1.4` | 0–10 | Seconds a fresh movement or closing scorch cools on the wallpaper before regeneration. |
 | `window:options:burn:healing_duration` | float / `1.8` | 0.1–10 | Seconds of local wallpaper recovery after the scorch lifetime. No wallpaper file is changed. |
+| `window:movement:options:burn:smoke_density` | float / `0.22` | 0–1 | Faint smoke released by newly charred wallpaper. Zero leaves the damaged paper and falling fragments visible without smoke. |
 | `window:close:options:burn:closing_style` | string / `"curl"` | — | Consume burns the printed sheet in place; curl also bends the brittle edges and exposed paper. Allowed: `consume`, `curl`. |
 | `window:close:options:burn:debris_direction` | string / `"natural"` | — | Motion of close debris: material-dependent natural forces, falling debris, rising debris or directional wind. Fire propagation is independent. Allowed: `natural`, `fall`, `rise`, `wind`. |
 | `window:close:options:burn:curl_intensity` | float / `0.8` | 0–1 | Strength of local bending at the combustion front in the curl closing style. |

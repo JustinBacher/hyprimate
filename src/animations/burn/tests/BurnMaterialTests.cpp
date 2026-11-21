@@ -6,8 +6,10 @@
 #include <vector>
 
 #include "Check.hpp"
-#include "GlHarness.hpp"
 #include "GlAllocationFault.hpp"
+#include "GlHarness.hpp"
+#include "animations/burn/BurnGroundDebris.hpp"
+#include "animations/burn/BurnGroundShader.hpp"
 #include "animations/burn/BurnMaterial.hpp"
 #include "animations/burn/BurnShaders.hpp"
 
@@ -72,8 +74,8 @@ namespace {
         for (unsigned channel = 0; channel < 4; ++channel)
             CHECK(std::abs(static_cast<int>(actual[channel]) - expected[channel]) <= 2);
     }
-    bool allocation_failure_retry(GLuint program, const Target &target, GLuint texture,
-        const Image &source) {
+    bool allocation_failure_retry(
+        GLuint program, const Target &target, GLuint texture, const Image &source) {
         hyprimate::BurnParams params;
         params.duration = 1;
         params.ember_density = params.fragment_density = 0;
@@ -83,20 +85,20 @@ namespace {
         advance(simulation, 150);
         CHECK(simulation.front().progress == 1);
         if (simulation.front().progress != 1) return false;
-        const auto DRAW = [&](CBurnMaterial &material, const SBurnTarget &placement,
-                              const Target &output) {
-            const bool OK = material.draw(simulation, placement, texture, output.framebuffer);
-            CHECK(OK);
-            if (!OK) return false;
-            const auto IMAGE = read(output);
-            for (std::size_t index = 0; index < source.size(); ++index)
-                near(IMAGE[index], source[index]);
-            return true;
-        };
-        for (unsigned occurrence : {1U, 2U}) {
+        const auto DRAW =
+            [&](CBurnMaterial &material, const SBurnTarget &placement, const Target &output) {
+                const bool OK = material.draw(simulation, placement, texture, output.framebuffer);
+                CHECK(OK);
+                if (!OK) return false;
+                const auto IMAGE = read(output);
+                for (std::size_t index = 0; index < source.size(); ++index)
+                    near(IMAGE[index], source[index]);
+                return true;
+            };
+        for (const unsigned occurrence : {1U, 2U}) {
             CBurnMaterial material;
             {
-                gl_harness::FailAllocation fail(gl_harness::Allocation::buffer, occurrence);
+                const gl_harness::FailAllocation FAIL(gl_harness::Allocation::buffer, occurrence);
                 const bool INITIALIZED = material.initialize(program);
                 CHECK(!INITIALIZED);
                 if (INITIALIZED) {
@@ -123,7 +125,7 @@ namespace {
             CHECK(INITIALIZED);
             if (!INITIALIZED) return false;
             {
-                gl_harness::FailAllocation fail(allocation);
+                const gl_harness::FailAllocation FAIL(allocation);
                 CHECK(!material.draw(simulation, placement(), texture, target.framebuffer));
             }
             if (!DRAW(material, placement(), target)) {
@@ -131,7 +133,7 @@ namespace {
                 return false;
             }
             {
-                gl_harness::FailAllocation fail(allocation);
+                const gl_harness::FailAllocation FAIL(allocation);
                 CHECK(!material.draw(simulation, growth, texture, larger.framebuffer));
             }
             // Failed growth must preserve both the old FBO and its capacity.
@@ -225,6 +227,102 @@ namespace {
         advance(simulation, 150);
         CHECK(material.draw(simulation, placement(), texture, target.framebuffer));
         for (const auto &pixel : read(target)) CHECK(pixel[3] == 0);
+    }
+    void flake_carries_birth_print(const Target &target) {
+        CBurnGroundDebris debris;
+        {
+            const gl_harness::FailAllocation FAIL(gl_harness::Allocation::buffer);
+            CHECK(!debris.initialize());
+        }
+        CHECK(debris.initialize());
+        Image paper(WIDTH * HEIGHT, Pixel{16, 25, 36, 255});
+        for (std::size_t i = 0; i < paper.size(); ++i)
+            if (i % WIDTH < WIDTH / 2) paper[i] = {230, 140, 80, 255};
+        glActiveTexture(GL_TEXTURE0);
+        const GLuint WALL = upload(paper);
+        // A cropped viewport on the right of an offset output. Both flakes are over
+        // the dark half; only the first was torn from the light half.
+        constexpr hyprimate::Box SCREEN{100, -100, 192, 96}, VIEW{196, -100, 96, 96};
+        CBurnGround::Particle flake{.position = {220, -62},
+            .source = {120, -50},
+            .age = .15,
+            .lifetime = 1,
+            .size = 15,
+            .angle = .4,
+            .fold = .25,
+            .char_depth = .35,
+            .shape = .35,
+            .velocity = {},
+            .terminal = {}};
+        const auto LIGHT = CBurnGroundDebris::pack(flake, SCREEN);
+        flake.position.x += 44;
+        flake.source.x += 120;
+        const std::array INSTANCES{LIGHT, CBurnGroundDebris::pack(flake, SCREEN)};
+        glBindFramebuffer(GL_FRAMEBUFFER, target.framebuffer);
+        glViewport(0, 0, WIDTH, HEIGHT);
+        constexpr std::array<float, 4> CLEAR{};
+        glClearBufferfv(GL_COLOR, 0, CLEAR.data());
+        debris.draw(INSTANCES, VIEW, SCREEN, {0, 0}, {1, 0}, {0, 1});
+        const auto PIXELS = read(target);
+        const auto LEFT = PIXELS[38 * WIDTH + 24], RIGHT = PIXELS[38 * WIDTH + 68];
+        CHECK(LEFT[3] == 255 && RIGHT[3] == 255);
+        CHECK(LEFT[0] > RIGHT[0] + 80);
+        CHECK(PIXELS[38 * WIDTH + 46][3] == 0);
+        debris.release();
+        glDeleteTextures(1, &WALL);
+    }
+    // An opaque mask could look convincing on one wallpaper. Change the print under
+    // the same cold damage: surviving paper must respond, the exposed backing must not.
+    void missing_paper_and_surviving_print(const Target &target) {
+        const GLuint PROGRAM =
+            gl_harness::build_program(burn_ground_shader::VERTEX, burn_ground_shader::fragment());
+        CHECK(PROGRAM != 0);
+        if (!PROGRAM) return;
+        glUseProgram(PROGRAM);
+        glUniform4f(glGetUniformLocation(PROGRAM, "viewUV"), 0, 0, 1, 1);
+        glUniform2f(glGetUniformLocation(PROGRAM, "axisX"), 1, 0);
+        glUniform2f(glGetUniformLocation(PROGRAM, "axisY"), 0, 1);
+        glUniform4f(glGetUniformLocation(PROGRAM, "logicalScreen"), 0, 0, 480, 480);
+        glUniform1i(glGetUniformLocation(PROGRAM, "field"), 1);
+        glBindFramebuffer(GL_FRAMEBUFFER, target.framebuffer);
+        glViewport(0, 0, WIDTH, HEIGHT);
+        glDisable(GL_BLEND);
+        glDisable(GL_DEPTH_TEST);
+        GLuint vao = 0;
+        glGenVertexArrays(1, &vao);
+        glBindVertexArray(vao);
+        Image field(WIDTH * HEIGHT);
+        for (std::size_t i = 0; i < field.size(); ++i) {
+            const auto col = i % WIDTH;
+            field[i][2] = col < WIDTH / 3 ? 0 : col < WIDTH * 2 / 3 ? 140 : 244;
+        }
+        glActiveTexture(GL_TEXTURE1);
+        const GLuint FIELD = upload(field);
+        glActiveTexture(GL_TEXTURE0);
+        const auto RENDER = [&](Pixel ink) {
+            const GLuint WALL = upload(Image(WIDTH * HEIGHT, ink));
+            constexpr std::array<float, 4> CLEAR{};
+            glClearBufferfv(GL_COLOR, 0, CLEAR.data());
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+            auto image = read(target);
+            glDeleteTextures(1, &WALL);
+            return image;
+        };
+        const auto DARK = RENDER({12, 24, 30, 255});
+        const auto LIGHT = RENDER({230, 210, 178, 255});
+        int holes = 0, printed = 0;
+        for (std::size_t i = 0; i < LIGHT.size(); ++i) {
+            const auto col = i % WIDTH;
+            if (col < WIDTH / 3 - 1) CHECK(LIGHT[i][3] == 0);
+            if (col > WIDTH / 3 && col < WIDTH * 2 / 3 - 1 && LIGHT[i][0] > DARK[i][0] + 32)
+                ++printed;
+            if (col > WIDTH * 2 / 3 && LIGHT[i][3] == 255 && LIGHT[i] == DARK[i]) ++holes;
+        }
+        CHECK(printed > WIDTH * HEIGHT / 6);
+        CHECK(holes > WIDTH * HEIGHT / 100);
+        glDeleteTextures(1, &FIELD);
+        glDeleteVertexArrays(1, &vao);
+        glDeleteProgram(PROGRAM);
     }
     void common_front_and_cold_ink(const Target &target) {
         constexpr std::string_view VERTEX = R"GLSL(#version 300 es
@@ -325,6 +423,8 @@ int main() {
     }
     opening_and_consume(material, target, TEXTURE, source);
     common_front_and_cold_ink(target);
+    missing_paper_and_surviving_print(target);
+    flake_carries_birth_print(target);
     CHECK(glGetError() == GL_NO_ERROR);
     material.release();
     glDeleteTextures(1, &TEXTURE);

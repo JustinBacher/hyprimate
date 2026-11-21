@@ -42,6 +42,7 @@ struct SBurnModule {
     static constexpr auto KIND = hyprimate::config::Style::Burn;
     static constexpr bool FIXED_CLOSE_PLACEMENT = true;
     static constexpr bool DRAWS_UNDER_BLUR = false;
+    static constexpr bool SWEEPS_LARGE_MOVES = true;
     static Prepared prepare_settings(const Settings &settings);
     static State start(const Resources &resources, std::uint64_t seed);
     static bool open(State &state,

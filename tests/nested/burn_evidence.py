@@ -3,6 +3,7 @@
 
 /usr/bin/python tests/nested/burn_evidence.py build/burn-evidence
 Needs kwin_wayland, Hyprland/hyprctl, grim, GTK3 + gtk-layer-shell GI, Cairo, PIL.
+--record additionally needs wf-recorder and ffprobe.
 PNG frames are at native resolution. No host socket, config or wallpaper is used.
 """
 import argparse
@@ -70,6 +71,183 @@ def until(fn, process):
     raise RuntimeError(f'private process not ready (exit {process.poll()}); see logs')
 
 
+def movement_matrix(hc, send, scene, snap, baseline, difference, metrics, out, compositor_pid):
+    """Exercise addressed native windows against an independently captured wallpaper."""
+    def settings(fields):
+        hc('eval', 'hl.config({plugin={hyprimate={window={' + fields + '}}}})')
+
+    def option(path):
+        return json.loads(hc('-j', 'getoption', 'plugin:hyprimate:window:' + path))['float']
+
+    smoke = 'movement:options:burn:smoke_density'
+    embers = 'options:burn:ember_density'
+    original = option(smoke), option(embers)
+    lifetime = option('options:burn:scorch_lifetime')
+    healing = option('options:burn:healing_duration')
+    settings('open={enabled=false},close={enabled=false},movement={enabled=false}')
+    hc('eval', 'hl.animation({leaf="windowsMove",enabled=false})')
+    width, height = baseline.size
+    # Two disjoint lanes: a wide painted window above a tall printed one.
+    start = [(32, 32), (width - 164, height // 2 + 30)]
+    sizes = [(min(282, width // 4), min(158, height // 5)), (132, min(262, height // 3))]
+    ids = (20, 21)
+    clients = {}
+    def lookup(ident):
+        return next((c for c in json.loads(hc('-j', 'clients'))
+                     if c['title'] == f'PaperEvidence-{ident}' and c['mapped']), None)
+
+    for n, ident in enumerate(ids):
+        w, h = sizes[n]
+        send('open', ident, width=w, height=h, image=n == 0)
+        clients[n] = until(lambda: lookup(ident), scene)['address']
+
+    def place(*moves):
+        # One IPC request: both owners move before the next repaint.
+        hc('eval', ';'.join(
+            f'assert(hl.dispatch(hl.dsp.window.move({{x={x},y={y},relative=false,window="address:{clients[n]}"}})).ok)'
+            for n, (x, y) in moves))
+
+    place(*enumerate(start))
+    time.sleep(.65)
+    native = snap('movement-native')
+    def rect(xy, size):
+        x, y = xy
+        return x, y, x + size[0], y + size[1]
+
+    references = [native.crop(rect(xy, size)) for xy, size in zip(start, sizes)]
+    settings('movement={enabled=true,options={burn={smoke_density=0}}},options={burn={ember_density=0}}')
+    if (option(smoke), option(embers)) != (0, 0):
+        raise RuntimeError('movement evidence requires smoke and embers both disabled')
+    samples = []
+    epoch = time.monotonic()
+    def sample(name, positions):
+        before = time.monotonic()
+        image = snap('movement-' + name)
+        after = time.monotonic()
+        boxes = []
+        for n, xy in enumerate(positions):
+            client = lookup(ids[n])
+            if not client or client['at'] != list(xy) or client['size'] != list(sizes[n]):
+                raise RuntimeError(('wrong movement geometry', name, ids[n], xy, sizes[n], client))
+            box = rect(xy, sizes[n])
+            boxes.append(box)
+            # The compositor quantizes the inactive client's colors one code
+            # value differently across positions. Check every channel, not MAE:
+            # this still rejects a single covered glyph or wallpaper pixel.
+            delta = ImageChops.difference(references[n].convert('RGB'), image.crop(box).convert('RGB'))
+            metrics[f'movement-{name}-native-max-{n}'] = max(hi for _, hi in delta.getextrema())
+        # Screencopy wall times identify the sample, not GPU frame times.
+        samples.append(dict(name=name, capture_interval_s=[before-epoch, after-epoch], boxes=boxes))
+        return image
+
+    probes = {}
+    def exposed(name, image, region):
+        metrics[f'movement-{name}-trail'] = difference(baseline, image, region)
+        # Preserve both the footprint and its signed contrast. The same mean
+        # error could otherwise describe a few sparks or an opaque rectangle.
+        bg = baseline.crop(region).convert('L')
+        shown = image.crop(region).convert('L')
+        pixels = bg.width * bg.height
+        probes[name] = dict(region=region,
+            darker_fraction=sum(ImageChops.subtract(bg, shown).histogram()[12:]) / pixels,
+            lighter_fraction=sum(ImageChops.subtract(shown, bg).histogram()[12:]) / pixels)
+
+    distance = min(width // 5, 180)
+    for step in range(1, 13):
+        dx = distance * step // 12
+        pair = [(start[0][0] + dx, start[0][1]), (start[1][0] - dx, start[1][1])]
+        place(*enumerate(pair))
+        time.sleep(.045)
+        if step in (6, 12):
+            frame = sample(f'horizontal-{step}', pair)
+            for n, ((x, y), (w, h)) in enumerate(zip(start, sizes)):
+                left, right = (x, x + dx) if n == 0 else (x + w - dx, x + w)
+                exposed(f'horizontal-{step}-{n}', frame, (left + 6, y + 8, right - 6, y + h - 8))
+
+    x, y = pair[0]
+    w, h = sizes[0]
+    end = (width - w - 32, y + height // 6)
+    final = [end, pair[1]]
+    # Between both endpoints, not under either window or in the preceding
+    # horizontal trail. A jump that stamps only the endpoint must fail.
+    cx = (x + w + end[0]) // 2
+    cy = (y + end[1] + h) // 2
+    half_width = min(60, (end[0] - x - w) // 3)
+    corridor = (cx - half_width, cy - h // 4, cx + half_width, cy + h // 4)
+    place((0, end))
+    time.sleep(.10)
+    jumped = sample('diagonal', final)
+    exposed('diagonal', jumped, corridor)
+    time.sleep(lifetime + healing * .55)
+    repairing = sample('repairing', final)
+    exposed('repairing', repairing, corridor)
+    place((0, pair[0]))
+    time.sleep(.10)
+    reversed_frame = sample('reverse', pair)
+    exposed('reverse', reversed_frame, corridor)
+    place((0, end))
+    time.sleep(.10)
+    reheated = sample('reheated', final)
+    exposed('reheated', reheated, corridor)
+    # Hold beyond the first stamp's expiry. Ordinary repair cannot explain a
+    # surviving mark in the jump corridor at this point.
+    time.sleep(healing * .45 + .3)
+    held = sample('renewed-hold', final)
+    exposed('renewed-hold', held, corridor)
+    metrics['movement-untouched'] = difference(baseline, held, (8, height // 2, width // 4, height - 16))
+    metrics['movement-reheating-trail-change'] = difference(repairing, reheated, corridor)
+    # Stress the same recovering material with two owners, without screencopy or
+    # configuration changes in the loop. RSS includes the compositor and driver pools.
+    def rss_kib():
+        status = Path(f'/proc/{compositor_pid}/status').read_text()
+        return int(next(row.split()[1] for row in status.splitlines() if row.startswith('VmRSS:')))
+
+    stress_rss = [rss_kib()]
+    for turn in range(32):
+        positions = (pair[0], start[1]) if turn % 2 == 0 else final
+        place(*enumerate(positions))
+        time.sleep(.045)
+        if turn % 8 == 7:
+            stress_rss.append(rss_kib())
+    sample('repeat-stop', final)
+    time.sleep(lifetime + healing + .75)
+    stopped = sample('stopped', final)
+    metrics['movement-restored-corridor'] = difference(baseline, stopped, corridor)
+    # Require the whole exposed image (not just the centre probe) to restore.
+    expected = baseline.copy()
+    for ref, xy in zip(references, final):
+        expected.paste(ref, xy)
+    metrics['movement-stopped-full-mae'] = difference(expected, stopped)
+    (out / 'movement-samples.json').write_text(json.dumps(dict(
+        smoke_density=0, ember_density=0, lifetime=lifetime, healing=healing,
+        corridor=corridor, probes=probes, samples=samples, repeat_moves=32,
+        compositor_rss_kib=stress_rss, settled_rss_kib=rss_kib()), indent=2))
+    after_stop = time.monotonic()
+    for ident in ids:
+        send('close', ident)
+    until(lambda: not any(lookup(ident) for ident in ids), scene)
+    settings('open={enabled=true},close={enabled=true},movement={options={burn={smoke_density='
+             + str(original[0]) + '}}},options={burn={ember_density=' + str(original[1]) + '}}')
+    return epoch, after_stop
+
+
+def recording_cadence(video, started, movement_interval):
+    # Frame PTS are measured, but alignment to the Python controller includes
+    # recorder startup latency. Never substitute capture cadence for GPU timing.
+    raw = sp.check_output(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_frames',
+                           '-show_entries', 'frame=best_effort_timestamp_time', '-of', 'json', video])
+    pts = [float(f['best_effort_timestamp_time']) for f in json.loads(raw)['frames']]
+    if len(pts) < 2:
+        raise RuntimeError('recording did not contain multiple frames')
+    start, stop = movement_interval
+    selected = [t for t in pts if start - started <= t - pts[0] <= stop - started]
+    gaps = sorted((b - a) * 1000 for a, b in zip(selected, selected[1:]))
+    return dict(frames=len(pts), movement_frames=len(selected), movement_pts_s=selected,
+                median_gap_ms=gaps[len(gaps)//2] if gaps else None,
+                p95_gap_ms=gaps[int(.95 * (len(gaps)-1))] if gaps else None,
+                note='Recorded frame spacing only; approximate movement interval; not compositor render time.')
+
+
 def run(out, plugin, runtime, procs, record, single_output):
     home = runtime / 'home'
     home.mkdir()
@@ -95,7 +273,8 @@ def run(out, plugin, runtime, procs, record, single_output):
     env.update(WAYLAND_DISPLAY='burn-parent', AQ_BACKENDS='wayland')
     # A published socket can precede the parent's usable wl_output. Complete
     # a registry round trip before Aquamarine negotiates its first swapchain.
-    until(lambda: 'wl_output' in sp.check_output(['wayland-info'], env=env, text=True), parent)
+    until(lambda: 'wl_output' in sp.run(['wayland-info'], env=env, text=True,
+                                        capture_output=True, timeout=5).stdout, parent)
     compositor = start('hyprland', ['Hyprland', '-c', ROOT / 'tests/nested/hyprland.lua'])
 
     def identify():
@@ -142,7 +321,7 @@ def run(out, plugin, runtime, procs, record, single_output):
 
     def snap_output(name, target):
         path = out / (name + '.png')
-        sp.run(['grim', '-o', target, path], env=env, check=True, timeout=6)
+        sp.run(['grim', '-l', '1', '-o', target, path], env=env, check=True, timeout=6)
         with Image.open(path) as image:
             return image.convert('RGB')
 
@@ -174,6 +353,7 @@ def run(out, plugin, runtime, procs, record, single_output):
     recording = None
     if record:
         recorder = shutil.which('wf-recorder') or ROOT / '.project-manager/tools/usr/bin/wf-recorder'
+        recording_start = time.monotonic()
         recording = start('recorder', [recorder, '-y', '-D', '-o', output, '-c', 'libx264',
             '-p', 'crf=16', '-p', 'preset=ultrafast', '-p', 'threads=2', '-f', out / 'burn.mkv'])
     time.sleep(1.2)
@@ -242,6 +422,7 @@ def run(out, plugin, runtime, procs, record, single_output):
             raise RuntimeError('close retained a mapped client')
         time.sleep(3.5)
         metrics[prefix + '-healed-mae'] = difference(baseline, snap(prefix + '-healed'))
+    movement_interval = movement_matrix(hc, send, scene, snap, baseline, difference, metrics, out, compositor.pid)
     # Close during opening; overlap two independent owners and unload with live damage.
     for i in range(4, 9):
         send('open', i, width=300+i*18, height=260, image=False)
@@ -256,7 +437,10 @@ def run(out, plugin, runtime, procs, record, single_output):
     metrics['unload-mae'] = difference(baseline, snap('unloaded'))
     if recording:
         recording.send_signal(signal.SIGINT)
-        recording.wait(10)
+        if recording.wait(10) != 0:
+            raise RuntimeError('recorder failed; see recorder.log')
+        cadence = recording_cadence(out / 'burn.mkv', recording_start, movement_interval)
+        (out / 'recording-cadence.json').write_text(json.dumps(cadence, indent=2))
     with plugin.open('rb') as artifact:
         digest = hashlib.file_digest(artifact, 'sha256').hexdigest()
     (out / 'manifest.json').write_text(json.dumps({
@@ -273,6 +457,8 @@ def run(out, plugin, runtime, procs, record, single_output):
         # native fade changes all its colors slightly.
         if '-print' in key or 'corner-wallpaper' in key:
             good = value <= 16
+        elif 'native-max-' in key:
+            good = value <= 1
         elif 'trail' in key or 'opening-to-native' in key or 'close-progression' in key:
             good = value >= 1
         else:

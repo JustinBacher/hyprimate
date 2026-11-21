@@ -9,6 +9,7 @@ target_sources(hyprimate PRIVATE
     src/animations/burn/BurnMaterial.cpp
     src/animations/burn/BurnRenderer.cpp
     src/animations/burn/BurnGroundDraw.cpp
+    src/animations/burn/BurnGroundDebris.cpp
     src/animations/burn/BurnScreen.cpp
 )
 
@@ -23,6 +24,7 @@ if(BUILD_TESTING)
 
     add_executable(burn-material-tests
         src/animations/burn/tests/BurnMaterialTests.cpp
+        src/animations/burn/BurnGroundDebris.cpp
         src/animations/burn/BurnMaterial.cpp)
     target_include_directories(burn-material-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     target_link_libraries(burn-material-tests PRIVATE hyprimate-core PkgConfig::TEST_EGL)

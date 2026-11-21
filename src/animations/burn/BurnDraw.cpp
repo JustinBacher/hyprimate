@@ -6,7 +6,7 @@ bool SBurnModule::warm(Resources &resources) {
     if (!resources.renderer) {
         resources.renderer = std::make_shared<CBurnRenderer>();
     }
-    return resources.renderer->warm_up();
+    return resources.renderer->warm_up() && resources.ground_draw.warm_up();
 }
 
 bool SBurnModule::draw(State &state,

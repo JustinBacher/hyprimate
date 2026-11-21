@@ -22,6 +22,10 @@ Burn samples the compositor's live window image on opening and its retained fade
 
 The wallpaper pass samples the rendered background before other windows, not the wallpaper file or a screenshot of the desktop. It combines a per-pixel opening rim with a 96×64 heat and damage field per affected output/workspace. Returning to a workspace shows its damage at its current age. Pinned damage belongs to the output. At most eight such fields are resident; a saturated budget drops new damage rather than evicting a still-visible trail.
 
+During movement, only the receding edges tear paper away. The field records the area they uncover, including the strip between two widely spaced drag samples. On the surviving paper you see the original print through singed fibers, charcoal and curled lips. A hole shows a shaded matte backing, not the contents of a lower window. Healing shrinks holes and closes cracks before the last discoloration clears.
+
+Falling pieces sample the current wallpaper at their tear sites; the plugin does not keep a texture per flake. Some pieces cling to the trailing edge before they tumble away. Both the damage and debris are drawn **under** windows. The shared Burn `fragment_density`, `ember_density`, wind and gravity settings apply; `window.movement.options.burn.smoke_density` controls only smoke from freshly damaged wallpaper (default `0.22`). Set it and `window.options.burn.ember_density` to `0` to see just the paper.
+
 This is an OpenGL effect. Fullscreen clients follow the framework's existing native path. If Hyprland cannot supply a compatible fadeout (including a fadeout that requires backdrop blur), Burn does not take ownership. Detached closing material is clipped to its originating output. The overlay does not reconstruct covered wallpaper from window pixels.
 
 ## Inspect on a private desktop
@@ -41,6 +45,7 @@ If Aquamarine cannot allocate the second virtual output on your driver, add `--s
 
 - Compare `*-open.png` with `*-native.png`: the same print should appear first at the center, framed by burned **wallpaper**, and fit the native geometry when settled.
 - Inspect the area behind the moving window in `*-trail.png`, then the same area in the close and healed frames. A fresh scorch should retain map contours and labels. Changing workspace must not move it onto another workspace or monitor.
+- The `movement-*.png` sequence isolates paper with smoke and embers disabled. Compare the same printed corridor in `movement-diagonal`, `movement-repairing`, `movement-reheated`, and `movement-stopped`. `movement-samples.json` records the probe regions, window rectangles, and compositor RSS during repeated moves. Recording cadence is screencopy frame spacing, not GPU render time.
 - Compare `consume-fall-close-mid.png` and `curl-natural-close-mid.png` at native resolution. Look for desaturated but readable print, changes in the silhouette of the surviving sheet, and detached pieces moving separately from the fire front. Use the recording to evaluate flutter, not just a still.
 - `measurements.json` compares settled/native, exposed trail/native wallpaper, other workspace/output, healed and post-unload images. A native endpoint match alone does not validate an animation.
 

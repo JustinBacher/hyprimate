@@ -11,6 +11,7 @@ namespace hyprimate {
     struct BurnParams {
         double duration = 1.5;
         double variation = .7, ember_density = .65, fragment_density = .55;
+        double smoke_density = .22;  // Movement combustion only.
         double wind_direction = 0, wind_strength = 100, gravity_strength = 300;
         double curl = .8, front_width = .055;
         double scorch_lifetime = 1.4, healing_duration = 1.8;

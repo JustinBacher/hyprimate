@@ -7,6 +7,7 @@ SBurnModule::Prepared SBurnModule::prepare_settings(const Settings &settings) {
     const BurnParams common{.variation = settings.shared.variation,
         .ember_density = settings.shared.emberDensity,
         .fragment_density = settings.shared.fragmentDensity,
+        .smoke_density = settings.movement.smokeDensity,
         .wind_direction = settings.shared.windDirection,
         .wind_strength = settings.shared.windStrength,
         .gravity_strength = settings.shared.gravityStrength,

@@ -523,7 +523,15 @@ void CWindowAnimations<Port, StyleList<Styles...>>::frame_mapped(Tracked &window
     std::optional<Motion> motion;
     const bool WORKSPACE_MOVEMENT = m_policy.workspace_movement && !observation->pinned;
     if (window.previous) {
-        motion = observe_motion(*window.previous, *observation, window.workspace_movement, WORKSPACE_MOVEMENT);
+        const bool SWEEP = ([&] {
+            if constexpr (requires { Styles::SWEEPS_LARGE_MOVES; }) {
+                return Styles::SWEEPS_LARGE_MOVES && m_policy.style == Styles::KIND &&
+                       m_policy.movement;
+            }
+            return false;
+        }() || ...);
+        motion = observe_motion(
+            *window.previous, *observation, window.workspace_movement, WORKSPACE_MOVEMENT, SWEEP);
         if (motion && window.previous_sample != Clock::time_point{}) {
             motion->sample_seconds = std::chrono::duration<double>(stamp.now - window.previous_sample).count();
         }
@@ -545,7 +553,8 @@ void CWindowAnimations<Port, StyleList<Styles...>>::frame_mapped(Tracked &window
         .work_area = observation->work_area, .motion = motion, .movement_enabled = m_policy.movement,
         .open_enabled = m_policy.opening, .held = observation->held,
         .workspace_visible = observation->workspace_visible, .workspace_moving = observation->workspace_moving,
-        .monitor = observation->monitor, .workspace = observation->workspace, .pinned = observation->pinned};
+        .monitor = observation->monitor, .workspace = observation->workspace, .pinned = observation->pinned,
+        .window = window.id};
     Effects effects;
     const bool HAD_TAIL = entry->current.tail;
     if (is_usable(entry->footprint)) { m_port.damage(entry->footprint); }

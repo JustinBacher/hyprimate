@@ -154,6 +154,21 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                         variation = 0.5,
 --                     },
 --                 },
+--                 movement = {
+--                     options = {
+--                         burn = {
+--                             smoke_density = 0.22,
+--                         },
+--                         smoke = {
+--                             reform = 0.48,
+--                             settle_speed = 1,
+--                             mass = 0.45,
+--                             roundness = 0.7,
+--                         },
+--                     },
+--                     enabled = true,
+--                     workspace_movement = true,
+--                 },
 --                 close = {
 --                     options = {
 --                         burn = {
@@ -163,18 +178,6 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                         },
 --                     },
 --                     enabled = true,
---                 },
---                 movement = {
---                     enabled = true,
---                     workspace_movement = true,
---                     options = {
---                         smoke = {
---                             reform = 0.48,
---                             settle_speed = 1,
---                             mass = 0.45,
---                             roundness = 0.7,
---                         },
---                     },
 --                 },
 --                 open = {
 --                     enabled = true,

@@ -15,8 +15,11 @@ bool same_box(const Box &first, const Box &second) noexcept {
 }
 }
 
-std::optional<Motion> observe_motion(const Observation &previous, const Observation &current,
-    bool previous_workspace_movement, bool workspace_movement) noexcept {
+std::optional<Motion> observe_motion(const Observation &previous,
+    const Observation &current,
+    bool previous_workspace_movement,
+    bool workspace_movement,
+    bool sweep_large_moves) noexcept {
     if (previous.monitor != current.monitor || previous.workspace != current.workspace ||
         previous_workspace_movement != workspace_movement) {
         return std::nullopt;
@@ -34,10 +37,13 @@ std::optional<Motion> observe_motion(const Observation &previous, const Observat
     const bool MOVED = OLD_BODY.x != NEW_BODY.x || OLD_BODY.y != NEW_BODY.y;
     const bool RESIZED = OLD_BODY.w != NEW_BODY.w || OLD_BODY.h != NEW_BODY.h;
     const bool CAPTURE_CHANGED = !same_box(OLD_CAPTURE, NEW_CAPTURE);
-    const double LARGEST = std::max({previous.body.w, previous.body.h, current.body.w, current.body.h});
-    // Workspace slides can be arbitrarily large; only client geometry can teleport.
-    const double JUMP = std::hypot(current.body.x - previous.body.x, current.body.y - previous.body.y);
-    if (JUMP > 1.5 * LARGEST || (!MOVED && !RESIZED && !CAPTURE_CHANGED)) {
+    const double LARGEST =
+        std::max({previous.body.w, previous.body.h, current.body.w, current.body.h});
+    // A wallpaper sweep is clipped to the output, not extrapolated as window velocity.
+    // All other styles rebaseline teleports; workspace slides can be arbitrarily large.
+    if ((!sweep_large_moves && std::hypot(current.body.x - previous.body.x,
+                                   current.body.y - previous.body.y) > 1.5 * LARGEST) ||
+        (!MOVED && !RESIZED && !CAPTURE_CHANGED)) {
         return std::nullopt;
     }
     return Motion{.from_body = OLD_BODY, .from_capture = OLD_CAPTURE, .body = NEW_BODY,
