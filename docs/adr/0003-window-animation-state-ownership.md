@@ -6,4 +6,6 @@ A renderer callback can end a close while its Style is still drawing. The module
 
 On a plane with a plugin-owned or suppressed close, Hyprimate handles native siblings individually, even beyond the inline batch capacity. It prepares each close's content before submitting dim or blur. If an optional effect cannot be allocated, the authorized content can still draw; no pass already handed to the renderer is replayed. A persistent content allocation failure skips that close, not its siblings.
 
+Cloth playbacks can share a simulation, but each owns its displayed pose and clock. Switching to fallback releases that playback’s lease; it does not stop a recording another playback still needs. The fallback pose remains valid for drawing and for a close that interrupts it.
+
 We rejected keeping the state in the transformer and copying it into the close renderer when the window closes. That gave the state two homes. It copied up to 56.6 KB on every close, because the old `std::variant` reserved bubble's size for every window. A close continued from the window's current state only when that state happened to be active. And every frame looked the transformer up 3 to 4 times per window. The cost of our choice is a lifetime contract with Hyprland's transformer, which the rules above define.

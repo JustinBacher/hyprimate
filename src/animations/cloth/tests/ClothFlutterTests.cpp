@@ -466,6 +466,39 @@ namespace {
         }
     }
 
+    void fallback_only_releases_its_own_playback() {
+        ClothPhysics::pause_workers_for_testing(true);
+        ClothFlutter opening;
+        opening.begin(Transition::Open, params(), 7, WINDOW, {});
+        auto retained = opening;
+        advance(retained, STALL_SECONDS + .05);
+        const auto DISPLAYED = pose(retained);
+        const double ALPHA = retained.opacity();
+        SheetFrame frame;
+        retained.frame({.x = WINDOW.w, .y = WINDOW.h}, frame);
+        // Mid-fallback, the curtain is still folded, not a flat native frame.
+        CHECK(frame.position.front().x > -.49);
+        CHECK(ALPHA > 0 && ALPHA < 1);
+        retained.begin(Transition::Close, params(), 8, WINDOW, {});
+        CHECK(delta(DISPLAYED.p, pose(retained).p) < 1e-9);
+        CHECK(delta(DISPLAYED.v, pose(retained).v) < 1e-9);
+        CHECK(retained.opacity() == ALPHA);
+        retained.reset();
+        ClothPhysics::pause_workers_for_testing(false);
+        CHECK(opening.wait_for_recording());
+
+        ClothFlutter moving;
+        moving.begin_movement({}, 7, WINDOW);
+        CHECK(moving.wait_for_snapshots(2));
+        auto observer = moving;
+        observer.advance(0);  // A movement copy has no input stream and switches to fallback.
+        auto box = WINDOW;
+        box.x += 20;
+        moving.update_movement(box, 1.0 / 60);
+        moving.advance(1.0 / 60);
+        CHECK(moving.wait_for_snapshots(4));
+    }
+
     void cloth_shine() {
         ClothFlutter cloth;
         auto material = params();
@@ -1228,6 +1261,7 @@ int main() {
         starvation();
         publication_recovery();
         movement_publication_recovery();
+        fallback_only_releases_its_own_playback();
         cloth_shine();
         cancel_and_unload();
         pocket_header_stays_horizontal();

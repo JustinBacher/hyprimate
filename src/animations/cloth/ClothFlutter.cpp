@@ -1446,10 +1446,11 @@ namespace hyprimate {
                                : Box{.x = window.x, .y = window.y, .w = window.w, .h = window.h};
         RUN->edge = geometry ? geometry->edge : Edge::Bottom;
         const double OLD_OPACITY = opacity();
-        if (kind == Transition::Close &&
-            (m_phase == Phase::Opening || m_phase == Phase::Movement) && m_run) {
-            RUN->movement.springiness = m_movement ? m_movement->params.springiness
-                                                  : m_run->movement.springiness;
+        if (kind == Transition::Close && (m_phase == Phase::Opening || moving()) &&
+            (m_run || m_fallback)) {
+            if (m_movement) {
+                RUN->movement.springiness = m_movement->params.springiness;
+            }
             sample_vertices(RUN->start, RUN->velocity);
         } else {
             RUN->start = rest_grid();
@@ -1548,12 +1549,14 @@ namespace hyprimate {
             fallback->alpha = opacity();
             m_fallback = std::move(fallback);
             m_fallback_time = 0;
-            m_run->stop.request_stop();
+            // The fallback owns its pose. Only the last playback lease stops the worker.
+            m_run.reset();
         } catch (...) {
             if (m_phase != Phase::Closing) {
                 reset();
             } else {
                 m_phase = Phase::Closed;
+                m_run.reset();
             }
         }
     }
@@ -1758,7 +1761,7 @@ namespace hyprimate {
                         OUTSIDE_TIME, std::max(OUTSIDE_TIME + STEP_SECONDS, m_run->length), m_t));
     }
     void ClothFlutter::sample_vertices(SheetGrid &positions, SheetGrid &velocities) const noexcept {
-        if (!active() || !m_run) {
+        if (!active() || (!m_run && !m_fallback)) {
             positions = rest_grid();
             velocities = {};
             return;
@@ -1902,7 +1905,7 @@ namespace hyprimate {
         return m_run->recorded.load(std::memory_order_acquire) >= count;
     }
     void ClothFlutter::frame(Vec2 size, SheetFrame &out) const noexcept {
-        if (!active() || !m_run) {
+        if (!active() || (!m_run && !m_fallback)) {
             flat_sheet(out);
             return;
         }
