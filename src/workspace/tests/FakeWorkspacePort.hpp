@@ -88,6 +88,10 @@ struct FakeWorkspacePort {
         timed_pair = {from.identity, destination.identity};
         return base;
     }
+    [[nodiscard]] WorkspaceTravel travel() const {
+        return path_measure;
+    }
+    WorkspaceTravel path_measure = nullptr;
     [[nodiscard]] double live_boundary() const { return boundary; }
     double frame_gap = STALL_SECONDS;
     [[nodiscard]] double max_frame_gap() const { return frame_gap; }

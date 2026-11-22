@@ -25,6 +25,7 @@
 #include "GlAllocationFault.hpp"
 #include "PlanetTestRenderer.hpp"
 #include "workspace/planet_hop/PlanetScene.hpp"
+#include "workspace/WorkspaceTransition.hpp"
 
 namespace {
     using namespace hyprimate::workspace;
@@ -1509,6 +1510,31 @@ namespace {
                 NEAR_ENDPOINT));
         }
         if (!profile) {
+            Transition motion;
+            CHECK(motion.begin(Direction::Forward, .8, [](double time) { return time; }));
+            motion.advance(.28);
+            const auto READ = [&](double progress) {
+                CHECK(RENDER(progress));
+                std::vector<unsigned char> pixels(source.size());
+                glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+                return pixels;
+            };
+            const auto INTERRUPTED = READ(motion.progress());
+            motion.retarget(false, .8, motion.motion(), [](double position, bool destination) {
+                return planet_hop::remaining_travel(position, destination, false);
+            });
+            CHECK(READ(motion.progress()) == INTERRUPTED);
+            motion.advance(.012);
+            CHECK(motion.progress() > .35);
+            const auto BRAKING = READ(motion.progress());
+            CHECK(BRAKING != INTERRUPTED && BRAKING != destination);
+            motion.advance(.15);
+            CHECK(motion.active() && motion.progress() < .35);
+            CHECK(READ(motion.progress()) != destination);
+            motion.advance(.103);
+            CHECK(!motion.active());
+            CHECK(equal_pixels(READ(motion.progress()), source, width, "raw-reversal-landing", 0));
+
             const auto RENDERED = [&] -> const auto & {
                 CHECK(RENDER(.25));
                 glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, actual.data());

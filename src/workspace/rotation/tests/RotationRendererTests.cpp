@@ -250,6 +250,32 @@ namespace {
         for (const double POSITION : {0.1, 0.25, 0.5, 0.75, 0.9}) {
             check_geometry(render, direction, gap, source, dest, POSITION);
         }
+        for (const auto STYLE : {GapFillStyle::Morph,
+                 GapFillStyle::Background,
+                 GapFillStyle::Wallpaper,
+                 GapFillStyle::Still}) {
+            gap.style = STYLE;
+            hyprimate::workspace::Transition motion;
+            CHECK(motion.begin(direction, .8, [](double time) { return time; }));
+            motion.advance(.2);
+            const auto INTERRUPTED = render(motion.progress(), direction, gap, false);
+            motion.retarget(false, .8, motion.motion());
+            CHECK(render(motion.progress(), motion.direction(), gap, false) == INTERRUPTED);
+            motion.advance(.012);
+            const auto BRAKING = render(motion.progress(), motion.direction(), gap, false);
+            CHECK(BRAKING != INTERRUPTED && BRAKING != end);
+            motion.advance(.189);
+            CHECK(!motion.active());
+            CHECK(render(motion.progress(), motion.direction(), gap, false) == start);
+            CHECK(motion.begin(direction, .8, [](double time) { return time; }));
+            motion.advance(.0048);
+            motion.retarget(false, .8, motion.motion());
+            motion.advance(1.0 / 240.0);
+            CHECK(motion.active());  // At 240 Hz a 4.8 ms segment straddles two frames.
+            motion.advance(1.0 / 240.0);
+            CHECK(!motion.active() &&
+                  render(motion.progress(), motion.direction(), gap, false) == start);
+        }
         std::array<Pixels, 4> results;
         for (int style = 0; style < 4; ++style) {
             gap.style = static_cast<GapFillStyle>(style);

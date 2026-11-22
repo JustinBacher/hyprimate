@@ -95,6 +95,9 @@ namespace hyprimate::workspace::planet_hop {
         const JourneyEndpoint &from, const JourneyEndpoint &destination, Layout layout);
     // Pure/reversible: generic WorkspaceTurn owns time, velocity, reversal and queueing.
     [[nodiscard]] Frame evaluate(const Journey &journey, double progress, double aspect);
+    // Relative travel estimate across departure, cruise and landing; no screen-space
+    // or world-unit norm is shared by the camera, curvature and layer effects.
+    [[nodiscard]] double remaining_travel(double progress, bool destination, bool solar);
     // Scene members may not cover a desktop while it bends back to native.
     // Center is already relative to the frame's floating origin.
     [[nodiscard]] bool neighbor_visible(const Frame &frame, Vec3 center, double radius);

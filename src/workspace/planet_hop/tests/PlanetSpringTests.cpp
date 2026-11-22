@@ -3,6 +3,7 @@
 
 #include "Check.hpp"
 #include "workspace/planet_hop/PlanetSpring.hpp"
+#include "workspace/planet_hop/PlanetScene.hpp"
 
 int main() {
     using hyprimate::workspace::Direction;
@@ -31,13 +32,13 @@ int main() {
         CHECK(turn.begin(Direction::Forward, SECONDS, CURVE));
         turn.advance(.125);
         const double OUTBOUND = turn.progress();
-        turn.retarget(false, SECONDS);
+        turn.retarget(false, SECONDS, turn.motion(), [](double position, bool destination) {
+            return hyprimate::workspace::planet_hop::remaining_travel(position, destination, true);
+        });
         turn.advance(.001);
         CHECK(turn.progress() >= OUTBOUND && turn.progress() - OUTBOUND < .01);
-        for (int frame = 0; frame < 6; ++frame) {
-            turn.advance(.125);
-        }
-        CHECK(!turn.active() && turn.progress() == 0);
+        turn.advance(.25);
+        CHECK(!turn.active() && turn.progress() == 0 && turn.velocity() == 0);
     }
     // Undamped analytic first lobe (1-cos(pi*t))/2. Detect an accidental
     // linear mapping or a clamp of the native overshoot at the destination.

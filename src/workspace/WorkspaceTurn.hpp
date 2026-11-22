@@ -216,9 +216,13 @@ template<class Port> class WorkspaceTurn {
             m_pending.reset();
             const bool DESTINATION = after.identity == m_destination.identity;
             if (DESTINATION != m_transition.target_destination()) {
+                const double STARTED = m_port->now();
                 if (!sample_transition(revision, [&](Transition &next) {
-                        next.retarget(DESTINATION, DURATION);
-                    })) { return; }
+                        next.retarget(DESTINATION, DURATION, m_last_presented, m_port->travel());
+                    })) {
+                    return;
+                }
+                m_retarget_time = STARTED;
             }
         } else {
             m_pending = after;
@@ -249,14 +253,25 @@ template<class Port> class WorkspaceTurn {
             return;
         }
         if (m_presented) {
-            if (!std::isfinite(elapsed) || elapsed < 0.0 || elapsed > m_port->max_frame_gap()) {
+            if (!std::isfinite(elapsed) || elapsed < 0.0) {
                 cancel("clock-stall");
                 return;
             }
-            if (!sample_transition(revision, [&](Transition &next) { next.advance(elapsed); })) {
+            const double STEP = m_retarget_time
+                                    ? std::clamp(m_port->now() - *m_retarget_time, 0.0, elapsed)
+                                    : elapsed;
+            m_retarget_time.reset();
+            if (STEP > m_port->max_frame_gap()) {
+                cancel("clock-stall");
                 return;
             }
-            if (!m_transition.active()) {
+            if (!sample_transition(revision, [&](Transition &next) { next.advance(STEP); })) {
+                return;
+            }
+            // Sampled completion is provisional until the endpoint was actually
+            // drawn. A request between pre-render and draw still uses the last visible frame.
+            if (!m_transition.active() && m_last_presented.position == m_transition.progress() &&
+                m_last_presented.velocity == 0.0) {
                 m_port->landed();
                 if (m_revision != revision) { return; }
                 if (!m_pending) {
@@ -350,17 +365,19 @@ template<class Port> class WorkspaceTurn {
             turn->presented(false);
             return Presentation::Cancelled;
         }
+        bool displayed = false;
         try {
-            display();
+            displayed = display();
         } catch (...) {
             // Submission may already have touched the output; never replay it.
-            if ((turn = CURRENT())) {
+            displayed = false;
+        }
+        turn = CURRENT();
+        if (turn != nullptr) {
+            if (!displayed) {
                 turn->cancel("workspace-display");
                 return Presentation::Cancelled;
             }
-            return Presentation::Skipped;
-        }
-        if ((turn = CURRENT())) {
             turn->m_drawing = 0;
             result = turn->presented_once() ? Presentation::Displayed : Presentation::FirstDisplay;
             turn->presented(true);
@@ -391,6 +408,7 @@ template<class Port> class WorkspaceTurn {
             return;
         }
         m_presented = true;
+        m_last_presented = m_transition.motion();
         m_port->damage();
     }
     void cancel(std::string_view reason = {}) {
@@ -400,6 +418,7 @@ template<class Port> class WorkspaceTurn {
         m_active = m_presented = m_destination_ready = m_staged = false;
         m_pending.reset();
         m_transition.cancel();
+        m_retarget_time.reset();
         reset_blend(CaptureKind::SourceIsolated);
         if (m_revision != revision) { return; }
         reset_blend(CaptureKind::DestinationLive);
@@ -518,7 +537,9 @@ template<class Port> class WorkspaceTurn {
     }
     [[nodiscard]] bool active() const { return m_active; }
     [[nodiscard]] std::uint64_t revision() const { return m_revision; }
-    [[nodiscard]] bool drawable() const { return m_active && m_destination_ready && m_transition.active(); }
+    [[nodiscard]] bool drawable() const {
+        return m_active && m_destination_ready;
+    }
     template<class Owns>
     [[nodiscard]] bool previews_current(std::uint64_t revision, const Owns &owns) const {
         return m_inventory.current(revision, owns);
@@ -687,6 +708,8 @@ template<class Port> class WorkspaceTurn {
     std::optional<Composition> m_pending;
     Direction m_pending_direction = Direction::Forward;
     Transition m_transition;
+    WorkspaceMotion m_last_presented;
+    std::optional<double> m_retarget_time;
     Transition::Curve m_curve;
     double m_duration = 0.0;
     std::int64_t m_staged_identity = 0;

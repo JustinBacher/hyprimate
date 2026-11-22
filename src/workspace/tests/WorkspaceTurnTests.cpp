@@ -35,15 +35,24 @@ struct Fixture {
         turn.begin(a, b, 1.0, LINEAR);
         CHECK(turn.active());
     }
-    void frame(const FakeWorkspacePort::Composition &current, double elapsed) {
+    void frame(const FakeWorkspacePort::Composition &current, double elapsed, bool display = true) {
         port.advance(elapsed);
         turn.frame(current, elapsed);
+        if (display && turn.presented_once() && turn.drawable()) {
+            turn.presented(true);
+        }
     }
     int displays = 0;
     bool draw(RecordingWorkspaceStyle &style, bool matching) {
         const auto ticket = turn.queue(true, [] { return true; });
-        const auto result = turn.draw_queued(ticket, [&] { return &turn; },
-            [&](double p, Direction d) { return style.draw(p, d, matching); }, [&] { ++displays; });
+        const auto result = turn.draw_queued(
+            ticket,
+            [&] { return &turn; },
+            [&](double p, Direction d) { return style.draw(p, d, matching); },
+            [&] {
+                ++displays;
+                return true;
+            });
         using Presentation = decltype(turn)::Presentation;
         return result == Presentation::FirstDisplay || result == Presentation::Displayed;
     }
@@ -131,6 +140,71 @@ void gate_and_unpresented_retarget() {
     fixture.start();
     fixture.turn.begin(fixture.b, fixture.a, 1.0, LINEAR);
     CHECK(!fixture.turn.active());
+}
+
+void reversal_ignores_a_sample_that_never_reached_the_output() {
+    Fixture fixture;
+    fixture.start();
+    fixture.present();
+    RecordingWorkspaceStyle style;
+    fixture.frame(fixture.b, .25);
+    CHECK(fixture.draw(style, false));
+    fixture.frame(fixture.b, .25, false);
+    const auto discarded = fixture.turn.queue(true, [] { return true; });
+    CHECK(discarded != 0);
+    fixture.turn.begin(fixture.b, fixture.a, 1.0, LINEAR);
+    CHECK(std::abs(fixture.turn.progress() - .25) < 1e-12);
+    CHECK(fixture.turn.draw_queued(
+              discarded,
+              [&] { return &fixture.turn; },
+              [](double, Direction) { return true; },
+              [] { return true; }) == decltype(fixture.turn)::Presentation::Skipped);
+}
+
+void reversal_rebases_the_clock_before_the_first_return_frame() {
+    Fixture fixture;
+    CHECK(fixture.turn.stage(fixture.a));
+    fixture.turn.begin(fixture.a, fixture.d, .8, LINEAR);
+    fixture.frame(fixture.d, 0.0);
+    fixture.turn.presented(true);
+    fixture.frame(fixture.d, .0048);
+    fixture.port.advance(.05);  // No frame presented in this interval.
+    fixture.turn.begin(fixture.d, fixture.a, .8, LINEAR);
+    CHECK(std::abs(fixture.turn.progress() - .006) < 1e-12);
+    fixture.port.advance(.0005);
+    fixture.turn.frame(fixture.a, .0505);
+    CHECK(fixture.turn.progress() > .006);  // The first return frame is still braking.
+    CHECK(fixture.turn.progress() < .007);
+    fixture.turn.presented(true);
+    fixture.frame(fixture.a, .0044);
+    CHECK(fixture.turn.progress() == 0);
+    fixture.frame(fixture.a, 0.0);
+    CHECK(!fixture.turn.active() && fixture.port.landings == 1);
+}
+
+void endpoint_sample_can_be_reversed_before_or_after_display() {
+    for (bool display_endpoint : {false, true}) {
+        Fixture fixture;
+        fixture.start();
+        fixture.present();
+        for (int i = 0; i < 4; ++i) {
+            fixture.frame(fixture.b, .24);
+        }
+        fixture.frame(fixture.b, .05, display_endpoint);
+        CHECK(fixture.turn.drawable() && fixture.turn.progress() == 1);
+        fixture.turn.begin(fixture.b, fixture.a, 1.0, LINEAR);
+        CHECK(std::abs(fixture.turn.progress() - (display_endpoint ? 1. : .96)) < 1e-12);
+        fixture.frame(fixture.a, .01);
+        CHECK(fixture.turn.progress() < 1);
+        fixture.turn.cancel();
+        CHECK(!fixture.turn.drawable());
+    }
+    Fixture fixture;
+    fixture.start();
+    fixture.present();
+    fixture.turn.begin(fixture.b, fixture.a, 1.0, LINEAR);
+    fixture.frame(fixture.a, 0.0);
+    CHECK(!fixture.turn.active() && fixture.port.landings == 1);
 }
 
 void reversal_and_coalescing() {
@@ -331,7 +405,10 @@ void queued_presentation_obeys_current_policy() {
     using Turn = decltype(fixture.turn);
     int renders = 0;
     const auto render = [&](double, Direction) { ++renders; return true; };
-    const auto display = [&] { ++fixture.displays; };
+    const auto display = [&] {
+        ++fixture.displays;
+        return true;
+    };
     CHECK(Turn::draw_queued(ticket, current, render, display) == Turn::Presentation::Cancelled);
     CHECK(renders == 0 && fixture.displays == 0);
     CHECK(!fixture.turn.presented_once());
@@ -374,7 +451,10 @@ void replacement_during_style_draw_cannot_present_the_old_frame() {
     };
     using Turn = decltype(fixture.turn);
     const auto current = [&] { return turns.find(1); };
-    const auto display = [&] { ++fixture.displays; };
+    const auto display = [&] {
+        ++fixture.displays;
+        return true;
+    };
     CHECK(Turn::draw_queued(ticket, current, replace, display) == Turn::Presentation::Skipped);
     CHECK(fixture.displays == 0);
     CHECK(Turn::draw_queued(replacement, current, [](double, Direction) { return true; }, display) ==
@@ -404,9 +484,17 @@ void callback_invalidation_does_not_resurrect_work() {
     fixture.start();
     fixture.present();
     const auto ticket = fixture.turn.queue(true, [] { return true; });
-    CHECK(decltype(fixture.turn)::draw_queued(ticket, [&] { return &fixture.turn; },
-        [&](double, Direction) { fixture.turn.cancel(); return true; },
-        [&] { ++fixture.displays; }) == decltype(fixture.turn)::Presentation::Skipped);
+    CHECK(decltype(fixture.turn)::draw_queued(
+              ticket,
+              [&] { return &fixture.turn; },
+              [&](double, Direction) {
+                  fixture.turn.cancel();
+                  return true;
+              },
+              [&] {
+                  ++fixture.displays;
+                  return true;
+              }) == decltype(fixture.turn)::Presentation::Skipped);
     CHECK(fixture.displays == 0);
 
     fixture.port.safety_facts = {};
@@ -418,9 +506,14 @@ void callback_invalidation_does_not_resurrect_work() {
         return true;
     }));
     CHECK(inner_ticket);
-    CHECK(decltype(fixture.turn)::draw_queued(inner_ticket, [&] { return &fixture.turn; },
-        [](double, Direction) { return true; }, [&] { ++fixture.displays; }) ==
-        decltype(fixture.turn)::Presentation::Displayed);
+    CHECK(decltype(fixture.turn)::draw_queued(
+              inner_ticket,
+              [&] { return &fixture.turn; },
+              [](double, Direction) { return true; },
+              [&] {
+                  ++fixture.displays;
+                  return true;
+              }) == decltype(fixture.turn)::Presentation::Displayed);
 
     int depth = 2;
     int *marker = &depth;
@@ -514,8 +607,13 @@ void capture_and_curve_callbacks_cannot_revive_cancelled_turns() {
     int displays = 0;
     using Turn = WorkspaceTurn<FakeWorkspacePort>;
     CHECK(Turn::Presentation::Skipped == Turn::draw_queued(
-        queued, [&] { return retained.get(); }, [](double, Direction) { return true; },
-        [&] { ++displays; }));
+                                             queued,
+                                             [&] { return retained.get(); },
+                                             [](double, Direction) { return true; },
+                                             [&] {
+                                                 ++displays;
+                                                 return true;
+                                             }));
     CHECK(displays == 0 && retained->active());
 }
 
@@ -723,6 +821,7 @@ void blend_state_does_not_escape_its_leg() {
     CHECK(fixture.turn.blend_mix(CaptureKind::DestinationLive) == 0.0);
     fixture.turn.begin(fixture.b, fixture.c, 1.0, LINEAR);
     fixture.frame(fixture.c, .21);
+    fixture.frame(fixture.c, 0.0);  // Hand off only after the previous endpoint was displayed.
     CHECK(fixture.turn.active());
     CHECK(fixture.port.swaps == 1);
     CHECK(fixture.port.source.identity == fixture.b.identity);
@@ -881,7 +980,10 @@ void queued_ticket_is_claimed_before_callbacks() {
     using Presentation = Turn::Presentation;
     const auto current = [&] { return &fixture.turn; };
     const auto render = [](double, Direction) { return true; };
-    const auto display = [&] { ++fixture.displays; };
+    const auto display = [&] {
+        ++fixture.displays;
+        return true;
+    };
     fixture.start();
     fixture.present();
     auto ticket = fixture.turn.queue(true, [] { return true; });
@@ -896,7 +998,7 @@ void queued_ticket_is_claimed_before_callbacks() {
             return true;
         }, [&] {
             CHECK(nested() == Presentation::Skipped);
-            display();
+            return display();
         }) == Presentation::Displayed);
     CHECK(fixture.displays == 1 && nested_renders == 0);
     CHECK(nested() == Presentation::Skipped);
@@ -931,7 +1033,10 @@ void queued_ticket_is_claimed_before_callbacks() {
     ticket = fixture.turn.queue(true, [] { return true; });
     auto result = Presentation::Skipped;
     try {
-        result = Turn::draw_queued(ticket, current, render, [&] { display(); throw 1; });
+        result = Turn::draw_queued(ticket, current, render, [&]() -> bool {
+            display();
+            throw 1;
+        });
     } catch (int) {}
     CHECK(result == Presentation::Cancelled && !fixture.turn.active());
     CHECK(nested() == Presentation::Skipped && fixture.displays == 3);
@@ -947,6 +1052,9 @@ int main() {
     staging_and_capture_failures();
     gate_and_unpresented_retarget();
     reversal_and_coalescing();
+    reversal_ignores_a_sample_that_never_reached_the_output();
+    reversal_rebases_the_clock_before_the_first_return_frame();
+    endpoint_sample_can_be_reversed_before_or_after_display();
     destination_swap_and_stall();
     adaptive_capture_and_queued_distance();
     cancellation_and_monitors();

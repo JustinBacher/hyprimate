@@ -115,6 +115,17 @@ namespace hyprimate::workspace {
             const JourneyEndpoint & /*from*/, const JourneyEndpoint & /*destination*/) {
             return resources.settings.prepared.duration;
         }
+        static WorkspaceTravel travel(const Resources &resources) {
+            if (resources.settings.prepared.scene.planet_layout ==
+                planet_hop::Layout::SolarSystem) {
+                return +[](double position, bool destination) {
+                    return planet_hop::remaining_travel(position, destination, true);
+                };
+            }
+            return +[](double position, bool destination) {
+                return planet_hop::remaining_travel(position, destination, false);
+            };
+        }
         // A missed refresh samples the same wall-clock journey, not a reason
         // to hand a long flight back to native 250 ms into its duration.
         static double max_frame_gap(const Resources &resources) { return resources.settings.prepared.duration; }

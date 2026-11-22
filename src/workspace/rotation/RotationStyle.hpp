@@ -34,6 +34,12 @@ struct RotationStyle {
     static double duration(const Resources &resources, const JourneyEndpoint & /*from*/, const JourneyEndpoint & /*to*/) {
         return resources.settings.prepared.duration;
     }
+    // Path progress is already a fraction of the wheel's angular displacement.
+    static constexpr WorkspaceTravel travel(const Resources & /*resources*/) {
+        return +[](double position, bool destination) {
+            return destination ? 1.0 - position : position;
+        };
+    }
     static constexpr double live_boundary(const Resources & /*resources*/) { return 1.0; }
     static constexpr bool needs_individual_windows(const Resources & /*resources*/) { return false; }
     static bool uses_native_hud(const Resources &resources) { return resources.settings.prepared.keep_overlays_static; }

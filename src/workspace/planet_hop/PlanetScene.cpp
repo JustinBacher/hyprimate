@@ -16,6 +16,16 @@ namespace hyprimate::workspace::planet_hop {
         double smooth(double value) {
             return value * value * value * ((value * ((value * 6) - 15)) + 10);
         }
+        double travel_progress(double position, bool solar) {
+            // Solar travel waits for full clearance and ends before descent.
+            const double END = solar ? .68 : .90;
+            const double START = solar ? .32 : .10;
+            const double SPAN = solar ? .36 : .80;
+            return position >= END ? 1 : smooth(unit((position - START) / SPAN));
+        }
+        double endpoint_envelope(double position) {
+            return 16 * position * position * (1 - position) * (1 - position);
+        }
         Vec3 add(Vec3 first, Vec3 second) {
             return {.x = first.x + second.x, .y = first.y + second.y, .z = first.z + second.z};
         }
@@ -239,19 +249,24 @@ namespace hyprimate::workspace::planet_hop {
         return result;
     }
 
+    double remaining_travel(double progress, bool destination, bool solar) {
+        // Measure toward either endpoint directly; 1 minus a rounded cumulative
+        // value would lose small but nonzero motion near the landing endpoint.
+        const double POSITION = unit(destination ? 1.0 - progress : progress);
+        const double ENVELOPE = endpoint_envelope(POSITION);
+        // Half the budget measures cruise; the other half measures departure
+        // and arrival, where camera translation alone can be stationary.
+        return (.5 * travel_progress(POSITION, solar)) +
+               (.25 * (POSITION <= .5 ? ENVELOPE : 2 - ENVELOPE));
+    }
+
     Frame evaluate(const Journey &journey, double progress, double aspect) {
         const double POSITION = unit(progress);
         const auto &options = journey.options;
         const bool SOLAR = options.planet_layout == Layout::SolarSystem;
-        // Solar travel waits until full clearance, then reaches the destination before
-        // descent. This remains collision-safe even when sparse number gaps are enormous.
-        const double TRAVEL_END = SOLAR ? .68 : .90;
-        const double TRAVEL_START = SOLAR ? .32 : .10;
-        const double TRAVEL_SPAN = SOLAR ? .36 : .80;
-        const double TRAVEL =
-            POSITION >= TRAVEL_END ? 1 : smooth(unit((POSITION - TRAVEL_START) / TRAVEL_SPAN));
+        const double TRAVEL = travel_progress(POSITION, SOLAR);
         // Polynomial bump has zero position/rotation/curvature velocity at both native endpoints.
-        const double ENVELOPE = 16 * POSITION * POSITION * (1 - POSITION) * (1 - POSITION);
+        const double ENVELOPE = endpoint_envelope(POSITION);
         const double ASPECT = positive(aspect, 1);
         const double RADIUS = options.planet_size;
         auto center = mix(journey.source_center, journey.destination_center, TRAVEL);

@@ -333,6 +333,9 @@ class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
         [[nodiscard]] bool capture(TurnKind kind, const hyprimate::workspace::TurnComposition<Workspace> &composition) const;
         [[nodiscard]] double duration(const hyprimate::workspace::JourneyEndpoint &from,
             const hyprimate::workspace::JourneyEndpoint &destination, double base) const;
+        [[nodiscard]] hyprimate::workspace::WorkspaceTravel travel() const {
+            return owner->m_travel;
+        }
         [[nodiscard]] double live_boundary() const;
         [[nodiscard]] double max_frame_gap() const { return owner->m_max_frame_gap; }
         [[nodiscard]] bool layered() const {
@@ -620,6 +623,7 @@ class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
     bool m_native_hud = false;
     bool m_uses_previews = false;
     double m_max_frame_gap = hyprimate::STALL_SECONDS;
+    hyprimate::workspace::WorkspaceTravel m_travel = nullptr;
     struct WallpaperAllocation {
         Vector2D size;
         std::uint32_t format = 0;
@@ -1311,11 +1315,14 @@ namespace {
                 return drawn && previews_current();
             };
             const auto DISPLAY = [&] {
-                if (!hyprimate::gl::native_current(m_frame.presentation)) { return; }
+                if (!hyprimate::gl::native_current(m_frame.presentation)) {
+                    return false;
+                }
                 CTexPassElement::SRenderData data;
                 data.tex = m_frame.presentation->getTexture();
                 data.box = {0, 0, m_monitor->m_transformedSize.x, m_monitor->m_transformedSize.y};
                 g_pHyprRenderer->draw(ctx, data, ctx.m_data.damage);
+                return true;
             };
             const auto result = Turn::draw_queued(m_ticket, CURRENT, RENDER, DISPLAY);
             if (result == Turn::Presentation::FirstDisplay) {
@@ -1576,6 +1583,7 @@ void CWorkspaceAnimation::Impl::configure(const hyprimate::config::SWorkspaceSet
             lifecycle = m_lifecycle;
         }
         m_layered = Style::LAYERED;
+        m_travel = Style::travel(resources);
         m_max_frame_gap = hyprimate::STALL_SECONDS;
         if constexpr (requires { Style::max_frame_gap(resources); }) {
             m_max_frame_gap = std::max(m_max_frame_gap, Style::max_frame_gap(resources));

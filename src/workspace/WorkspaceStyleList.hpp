@@ -17,6 +17,7 @@ concept WorkspaceStyle = requires(Style::Resources &resources,
     { Style::USES_WALLPAPER } -> std::convertible_to<bool>;
     { Style::LAYERED } -> std::convertible_to<bool>;
     { Style::duration(resources, endpoint, endpoint) } -> std::same_as<double>;
+    { Style::travel(resources) } -> std::same_as<WorkspaceTravel>;
     { Style::live_boundary(resources) } -> std::same_as<double>;
     { Style::needs_individual_windows(resources) } -> std::same_as<bool>;
     { Style::uses_native_hud(resources) } -> std::same_as<bool>;
