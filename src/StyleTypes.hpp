@@ -7,5 +7,6 @@
 #include "animations/bubble/BubbleStyle.hpp"
 #include "animations/smoke/SmokeStyle.hpp"
 #include "animations/burn/BurnStyle.hpp"
+#include "animations/construction/ConstructionStyle.hpp"
 
 #include "HyprWindowAnimations.hpp"

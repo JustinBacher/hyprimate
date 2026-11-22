@@ -105,7 +105,7 @@ class ConfigGeneratorTests(unittest.TestCase):
         self.assertIn('enum class WorkspaceStyle : std::uint8_t { Rotation, PlanetHop };', header)
         self.assertIn('WorkspaceStyle style{};', header)
         self.assertIn('Style style{};', header)
-        window_styles = ['liquid', 'paper', 'cloth', 'swarm', 'bubble', 'smoke', 'burn']
+        window_styles = ['liquid', 'paper', 'cloth', 'swarm', 'bubble', 'smoke', 'burn', 'construction']
         for path, accepted, rejected in [('workspace.style', ['rotation', 'planet_hop'], window_styles),
                                          ('window.style', window_styles, ['rotation', 'planet_hop']),
                                          ('workspace.options.rotation.gap_fill_style',

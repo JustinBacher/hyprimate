@@ -1,0 +1,126 @@
+#pragma once
+
+#include <array>
+
+namespace hyprimate::construction_shader {
+
+inline constexpr auto VERTEX = std::to_array(R"GLSL(#version 300 es
+precision highp float;
+precision highp int;
+
+layout(location = 0) in vec3 a_origin;
+layout(location = 1) in vec3 a_u;
+layout(location = 2) in vec3 a_v;
+layout(location = 3) in vec4 a_uv;
+layout(location = 4) in vec4 a_tint;
+layout(location = 5) in uint a_surface;
+
+uniform vec3 u_pivot;        // Capture-local projection center and reciprocal focal length.
+uniform vec4 u_canvas;       // NDC at the pivot and NDC units per logical pixel.
+uniform vec4 u_crop;         // Authorized image edges in capture-local logical pixels.
+uniform vec4 u_client_map;   // Capture-local logical coordinates -> image-relative device pixels.
+
+out vec2 v_uv;
+flat out vec4 v_tint;
+flat out uint v_surface;
+flat out int v_on_texel_grid;
+
+const uint CLIENT = 1u;
+const vec2 CORNERS[4] = vec2[4](vec2(0, 0), vec2(1, 0), vec2(0, 1), vec2(1, 1));
+
+void main() {
+    vec2 corner = CORNERS[gl_VertexID];
+    vec2 uv = a_uv.xy + corner * a_uv.zw;
+    v_tint = a_tint;
+    v_surface = a_surface;
+    v_on_texel_grid = 0;
+    if (a_surface == CLIENT) {
+        vec2 first = max((u_crop.xy - a_uv.xy) / a_uv.zw, vec2(0));
+        vec2 last = min((u_crop.zw - a_uv.xy) / a_uv.zw, vec2(1));
+        if (any(lessThanEqual(a_uv.zw, vec2(0))) || any(lessThanEqual(last, first))) {
+            // All four vertices coincide outside the clip volume: no rasterization.
+            v_uv = vec2(0);
+            gl_Position = vec4(2, 2, 0, 1);
+            return;
+        }
+        // Clip unposed source and posed geometry by the same fractions before projection.
+        // Keep unclipped 0/1 corners exact so neighboring installed panels share an edge.
+        corner = mix(first, last, corner);
+        uv = u_client_map.xy + (a_uv.xy + corner * a_uv.zw) * u_client_map.zw;
+        if (all(equal(a_origin, vec3(a_uv.xy, 0))) &&
+            all(equal(a_u, vec3(a_uv.z, 0, 0))) &&
+            all(equal(a_v, vec3(0, a_uv.w, 0))))
+            v_on_texel_grid = 1;
+    }
+    v_uv = uv;
+    vec3 p = a_origin + corner.x * a_u + corner.y * a_v;
+    float w = 1.0 - p.z * u_pivot.z;
+    // Keep w homogeneous so interpolated UVs follow the tilted face, not its screen box.
+    gl_Position = vec4(u_canvas.xy * w + (p.xy - u_pivot.xy) * u_canvas.zw, 0, w);
+}
+)GLSL");
+
+inline constexpr auto FRAGMENT = std::to_array(R"GLSL(#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+
+in vec2 v_uv;
+flat in vec4 v_tint;
+flat in uint v_surface;
+flat in int v_on_texel_grid;
+
+uniform sampler2D u_image;
+uniform sampler2D u_atlas;
+uniform vec4 u_sample_bounds;  // Authorized texel centers, common to every client quad.
+uniform vec2 u_inverse_image;
+uniform ivec3 u_texel_grid;  // X offset, Y offset, row direction (zero for a subpixel grid shift).
+uniform bool u_rgbx;
+layout(location = 0) out vec4 color;
+
+const uint CLIENT = 1u;
+const uint ATLAS = 2u;
+const uint SHADOW = 3u;
+
+vec4 client_pixel() {
+    // A stationary client face has the same source and destination pixel centers, even at
+    // fractional output scale. Fetch the exact texel without interpolator/sampler rounding.
+    if (v_on_texel_grid != 0 && u_texel_grid.z != 0) {
+        ivec2 texel = u_texel_grid.xy + ivec2(gl_FragCoord.xy) * ivec2(1, u_texel_grid.z);
+        return texelFetch(u_image, clamp(texel, ivec2(u_sample_bounds.xy),
+            ivec2(u_sample_bounds.zw)), 0);
+    }
+
+    // Hardware filtering is safe in the interior. At a true crop edge, clamp integer tap
+    // indices as well so subtexel/normalized-coordinate rounding cannot read foreign padding.
+    vec2 first = u_sample_bounds.xy;
+    vec2 last = u_sample_bounds.zw;
+    if (all(greaterThan(v_uv, first + 1.0)) && all(lessThan(v_uv, last - 1.0)))
+        return textureLod(u_image, v_uv * u_inverse_image, 0.0);
+
+    vec2 p = clamp(v_uv, first, last) - 0.5;
+    ivec2 lo = ivec2(floor(p));
+    ivec2 hi = min(lo + 1, ivec2(last));
+    vec2 t = fract(p);
+    vec4 top = mix(texelFetch(u_image, lo, 0), texelFetch(u_image, ivec2(hi.x, lo.y), 0), t.x);
+    vec4 bottom = mix(texelFetch(u_image, ivec2(lo.x, hi.y), 0), texelFetch(u_image, hi, 0), t.x);
+    return mix(top, bottom, t.y);
+}
+
+void main() {
+    if (v_surface == CLIENT) {
+        color = client_pixel();
+        if (u_rgbx)
+            color.a = 1.0;
+    } else if (v_surface == ATLAS) {
+        color = textureLod(u_atlas, v_uv, 0.0) * v_tint;
+    } else if (v_surface == SHADOW) {
+        vec2 delta = v_uv * 2.0 - 1.0;
+        color = v_tint * (1.0 - smoothstep(0.18, 1.0, dot(delta, delta)));
+    } else {
+        color = v_tint;
+    }
+}
+)GLSL");
+
+}  // namespace hyprimate::construction_shader
