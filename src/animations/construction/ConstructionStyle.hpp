@@ -16,7 +16,7 @@ struct SConstructionStyle {
     std::uint64_t seed = 0;
     hyprimate::animation::MonitorId monitor = 0;
     hyprimate::animation::WorkspaceId workspace = 0;
-    bool drew_identity = false;
+    bool native_seated = false;
     std::size_t peak_quads = 0;
     std::uint32_t work_width = 0, work_height = 0, work_fourcc = 0;
 };
@@ -42,6 +42,7 @@ struct SConstructionModule {
     static constexpr auto KIND = hyprimate::config::Style::Construction;
     static constexpr bool FIXED_CLOSE_PLACEMENT = true;
     static constexpr bool DRAWS_UNDER_BLUR = false;
+    static constexpr bool NATIVE_PROTECTED_MAPPED = true;
     static Prepared prepare_settings(const Settings &settings);
     static State start(const Resources &, std::uint64_t seed);
     static bool open(State &, const hyprimate::animation::Place &, Resources &, hyprimate::animation::Effects &);

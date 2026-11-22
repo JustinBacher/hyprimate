@@ -439,6 +439,18 @@ bool CWindowAnimations<Port, StyleList<Styles...>>::begin_mapped(
     const bool OPENING = observation.animating_in && !window.opening_seen;
     if (OPENING) { window.opening_edge.reset(); }
     window.opening_seen = observation.animating_in;
+    if (observation.no_screen_share) {
+        bool native_only = false;
+        selected([&]<class Style>(auto &) {
+            if constexpr (requires { Style::NATIVE_PROTECTED_MAPPED; }) {
+                native_only = Style::NATIVE_PROTECTED_MAPPED;
+            }
+        });
+        if (native_only) {
+            if (window.handle) { end(*window.handle, End::Interrupted); }
+            return false;
+        }
+    }
     bool acquired = false;
     if (!window.handle && m_policy.enabled && !m_policy.inert) {
         bool moves = false;
@@ -510,7 +522,11 @@ void CWindowAnimations<Port, StyleList<Styles...>>::present_mapped(
     entry.footprint = detail::translated(entry.current.bounds, {CAPTURE.x, CAPTURE.y});
     if (is_usable(entry.footprint)) { m_port.damage(entry.footprint); }
     if (!entry.current.running) { end(entry.handle, entry.current.interrupted ? End::Interrupted : End::Completed); return; }
-    m_port.ensure_transformer(window.window, entry.handle);
+    if (entry.current.native_presentation) {
+        m_port.detach_transformer(window.window);
+    } else {
+        m_port.ensure_transformer(window.window, entry.handle);
+    }
     m_port.damage_window(window.window);
     for (const auto MONITOR : m_port.monitors_overlapping(entry.footprint)) {
         m_port.schedule(MONITOR);
@@ -708,7 +724,8 @@ bool CWindowAnimations<Port, StyleList<Styles...>>::display_tail(
 template<class Port, class... Styles>
 bool CWindowAnimations<Port, StyleList<Styles...>>::draw(Handle handle, const Draw<Canvas> &draw_info) {
     auto *entry = record(handle);
-    if (entry == nullptr || !entry->current.running) { return false; }
+    if (entry == nullptr || !entry->current.running ||
+        (entry->life == Life::Mapped && entry->current.native_presentation)) { return false; }
     const auto CALLBACK = callback_ticket();
     auto isolated_draw = draw_info;
     if (isolated_draw.monitor == 0) { isolated_draw.monitor = entry->monitor; }
@@ -757,7 +774,7 @@ bool CWindowAnimations<Port, StyleList<Styles...>>::draw(Handle handle, const Dr
     // Never consult the borrowed pre-draw entry after returning from them.
     if (!CALLBACK.valid()) { return false; }
     const auto *current = record(handle);
-    if (current == nullptr) { return false; }
+    if (current == nullptr || (current->life == Life::Mapped && current->current.native_presentation)) { return false; }
     if (!drawn && REAL_PASS && current->life == Life::DyingOwned) {
         end(handle, End::Interrupted);
     }
@@ -768,7 +785,7 @@ void CWindowAnimations<Port, StyleList<Styles...>>::before_window(WindowId windo
     auto *window = tracked(window_id);
     if (window != nullptr && window->handle) {
         const auto *entry = record(*window->handle);
-        if (entry != nullptr && entry->life == Life::Mapped) {
+        if (entry != nullptr && entry->life == Life::Mapped && !entry->current.native_presentation) {
             if (canvas.pass() == PassKind::Live) { m_port.ensure_transformer(window->window, entry->handle); }
             if (entry->current.backdrop && canvas.pass() != PassKind::Inert) {
                 m_port.capture_backdrop(entry->handle, window->window, canvas);

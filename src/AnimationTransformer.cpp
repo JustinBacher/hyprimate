@@ -22,6 +22,11 @@ using namespace hyprimate::animation;
 
 namespace {
 bool construction_source_fits(const Desktop::View::CWindow &window) {
+    // Output capture masks the native footprint. Recheck before rendering, not just at
+    // acquisition: protection can change between animation ticks.
+    if (!window.m_ruleApplicator || window.m_ruleApplicator->noScreenShare().valueOrDefault()) {
+        return false;
+    }
     const auto SURFACE = window.wlSurface();
     const auto ROOT = SURFACE ? SURFACE->resource() : nullptr;
     if (!ROOT) {
@@ -65,7 +70,8 @@ bool CAnimationTransformer::active() const {
         return false;
     }
     const auto WINDOW = m_window.lock();
-    return WINDOW && m_animations.active(m_handle) &&
+    const auto frame = m_animations.view(m_handle);
+    return WINDOW && frame && frame->running && !frame->native_presentation &&
         (m_handle.style != hyprimate::config::Style::Construction || construction_source_fits(*WINDOW));
 }
 

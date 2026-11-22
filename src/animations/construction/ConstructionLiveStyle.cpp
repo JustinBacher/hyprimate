@@ -1,5 +1,6 @@
 #include "animations/construction/ConstructionStyle.hpp"
 
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <new>
@@ -20,6 +21,19 @@ bool same_placement(Box a, Box b) noexcept {
     constexpr double EPSILON = 1e-7;
     return std::abs(a.x - b.x) <= EPSILON && std::abs(a.y - b.y) <= EPSILON &&
         std::abs(a.w - b.w) <= EPSILON && std::abs(a.h - b.h) <= EPSILON;
+}
+
+bool is_capture_identity(const ConstructionSite &site) noexcept {
+    const auto &batch = site.batch();
+    if (batch.count != 1) return false;
+    const auto &quad = batch.quads[0];
+    const auto width = static_cast<float>(site.capture().w);
+    const auto height = static_cast<float>(site.capture().h);
+    return quad.surface == ConstructionSurface::Client &&
+        quad.origin == std::array{0.F, 0.F, 0.F} &&
+        quad.u == std::array{width, 0.F, 0.F} && quad.v == std::array{0.F, height, 0.F} &&
+        quad.uv == std::array{0.F, 0.F, width, height} &&
+        quad.tint == std::array<unsigned char, 4>{255, 255, 255, 255};
 }
 
 // Ordinary compositor lifecycle logging. No pixel data, per-frame I/O, or private runtime switch.
@@ -69,7 +83,14 @@ Frame SConstructionModule::advance(State &state, const Step &step, Resources &, 
         !same_placement(step.capture, state.site->capture())) return {.interrupted = true};
     state.site->step(step);
     if (state.site->batch().overflow) return {.interrupted = true};
-    return {.running = state.site->active(), .bounds = state.site->bounds()};
+    // An identity result from draw() would still be flattened by the host. Keep the
+    // seated interval active, but request native presentation before pass assembly.
+    const bool native = state.site->active() && is_capture_identity(*state.site);
+    if (native && !state.native_seated) {
+        trace_event("native-seated", state.seed);
+        state.native_seated = true;
+    }
+    return {.running = state.site->active(), .bounds = state.site->bounds(), .native_presentation = native};
 }
 
 CloseStart SConstructionModule::close(State &, const Place &, Resources &) {
@@ -105,10 +126,6 @@ bool SConstructionModule::draw(State &state, const Draw<CHyprAnimationCanvas> &d
                 state.work_height = static_cast<std::uint32_t>(draw.canvas_box.h);
                 state.work_fourcc = layer->m_drmFormat;
             }
-        }
-        if (drawn && !state.drew_identity && batch.count == 1 && batch.quads[0].surface == ConstructionSurface::Client) {
-            trace_event("identity", state.seed);
-            state.drew_identity = true;
         }
         return drawn;
     } catch (const std::bad_alloc &) {

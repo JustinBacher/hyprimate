@@ -32,7 +32,7 @@ HERE = Path(__file__).resolve().parent
 CLOCK = time.monotonic_ns
 READY = re.compile(r'zwlr_screencopy_frame_v1[@#]\d+\.ready\((\d+),\s*(\d+),\s*(\d+)\)')
 RESOURCE = re.compile(r'\[hyprimate\] construction resources seed=\d+(?: \w+=\d+)+')
-EVENT = re.compile(r'\[hyprimate\] construction event=(open|identity|end) seed=(\d+) mono_ns=(\d+)')
+EVENT = re.compile(r'\[hyprimate\] construction event=(open|native-seated|end) seed=(\d+) mono_ns=(\d+)')
 
 
 def save(path, data):
@@ -197,6 +197,11 @@ hl.animation({leaf="fade",enabled=false})
         self.send('open', ident, width=size[0], height=size[1], construction=pattern)
         client = until(lambda: self.lookup(ident), self.scene)
         case.update(mapped_ns=CLOCK(), geometry=client['at'] + client['size'], address=client['address'])
+        expected_private = 900 <= ident < 1000
+        rule = self.hc('getprop', 'address:'+client['address'], 'no_screen_share')
+        if rule != str(expected_private).lower():
+            raise RuntimeError(('unexpected effective capture protection', name, rule))
+        case['protected'] = expected_private
         if list(size) != client['size']:
             raise RuntimeError(('mapped geometry differs', size, client))
         time.sleep(max(0, (case['request_ns']-CLOCK()) * 1e-9 + duration*.43))
@@ -214,6 +219,9 @@ hl.animation({leaf="fade",enabled=false})
         time.sleep(max(.5, (case['request_ns']-CLOCK())*1e-9 + duration + .55))
         final = self.lookup(ident)
         case['final_geometry'] = final['at'] + final['size'] if final else None
+        if final and (final['address'] != client['address'] or
+                      self.hc('getprop', 'address:'+final['address'], 'no_screen_share') != rule):
+            raise RuntimeError(('window identity or protection changed during take', name))
         if (action == 'close') != (final is None):
             raise RuntimeError(('unexpected map lifetime', name, final))
         if action == 'resize' and final['size'] != [size[0]-96, size[1]-64]:
@@ -334,13 +342,13 @@ def analyze(out, case, trace, controls):
                             ('seat', seat_fraction), ('strike', bay_start + bay_span*.75),
                             ('withdraw', bay_start + bay_span*.86)]:
             cut[label] = at(epoch + round(frac*case['duration']*1e9))
-        if 'identity' in events and 'end' in events:
-            # Use the first capture after the successful identity submission, not a later
-            # native-looking frame selected merely because the slot was still alive.
-            first = bisect.bisect_left(times, events['identity'][1])
+        if 'native-seated' in events and 'end' in events:
+            # The slot is still running, but the compositor presents its own surfaces.
+            # Check both captured frames before slot end, not two convenient idle frames.
+            first = bisect.bisect_left(times, events['native-seated'][1])
             period = 1e9 / max(1.0, monitor['refreshRate'])
             post = bisect.bisect_left(times, events['end'][1])
-            if first < post and first+1 < len(times) and times[first]-events['identity'][1] < period:
+            if first+1 < post and times[first]-events['native-seated'][1] < period:
                 cut['active-seated'] = first
                 cut['following-frame'] = first+1
             if post < len(times):
@@ -361,7 +369,7 @@ def analyze(out, case, trace, controls):
     previous = None
     count_bytes = width*height*3
     control_case = not case['enabled']
-    protected = 900 <= case['id'] < 1000
+    protected = case['protected']
     private_fault = case['name'] == 'allocation-denied'
     labels = ('brace','raise','seat','strike','withdraw','active-seated','following-frame','first-post-end')
     with sp.Popen(['ffmpeg', '-v', 'error', '-threads', '2', '-i', folder/'output.mkv',
@@ -403,9 +411,11 @@ def analyze(out, case, trace, controls):
         failed.append('Native positive control lacks a moving or installed specimen sentinel.')
     if {p.get('generation') for p in painted} != {0, 1}:
         failed.append('GTK did not paint both requested generations.')
-    if case['enabled'] and not begin:
+    if case['enabled'] and not protected and not begin:
         unavailable.append('No observed Construction open event; effect ownership unproven.')
     if protected:
+        if begin or 'native-seated' in events:
+            failed.append('Construction acquired a window that must use protected native presentation.')
         if any(any(m) for m in markers):
             failed.append('Protected capture contains specimen sentinel.')
     elif case['enabled'] and not case['action'] and not private_fault and times and begin:
@@ -422,7 +432,7 @@ def analyze(out, case, trace, controls):
         if not moving or not any(times[i] > begin[1] and displaced(markers[i][0]) for i in range(moving[0])):
             failed.append('Two generations not observed on displaced panel before seating.')
         if 'active-seated' not in cut:
-            unavailable.append('No recorded frame between successful identity draw and slot end.')
+            unavailable.append('No pair of timely captured frames during the live native-seated interval.')
     if native is not None and not protected:
         compare = ['settled']
         if private_fault:

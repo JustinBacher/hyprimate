@@ -67,6 +67,8 @@ struct Frame {
     Box bounds{};
     bool backdrop = false, tail = false;
     bool interrupted = false; // terminal failure: an owned native fade must be released, not tombstoned
+    // Mapped identity interval: keep the timeline running, but present native surfaces directly.
+    bool native_presentation = false;
 };
 enum class CloseStart : std::uint8_t { Owned, Native, Declined };
 enum class PassKind : std::uint8_t { Live, WorkspaceSource, Inert };

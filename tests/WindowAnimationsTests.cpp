@@ -52,6 +52,7 @@ struct Log {
     bool accept_open = true;
     bool draw_succeeds = true;
     bool release = false, snap = false, alpha = false, running = true, tail = false, backdrop = false;
+    bool native_presentation = false;
     CloseStart close_result = CloseStart::Owned;
     std::function<void()> during_draw;
 };
@@ -65,6 +66,7 @@ template<config::Style Kind> struct TestStyle {
     };
     static constexpr auto KIND = Kind;
     static constexpr bool FIXED_CLOSE_PLACEMENT = false;
+    static constexpr bool NATIVE_PROTECTED_MAPPED = Kind == config::Style::Paper;
     static constexpr bool DRAWS_UNDER_BLUR = false;
     static Prepared prepare_settings(const Settings &settings) { return settings; }
     static State start(const Resources & /*resources*/, std::uint64_t seed) { return {.seed = seed}; }
@@ -82,7 +84,8 @@ template<config::Style Kind> struct TestStyle {
         effects.snap_to_goal = resources.log.snap;
         effects.settle_native_open_alpha = resources.log.alpha;
         return {.running = resources.log.running, .bounds = {0, 0, 100, 80},
-                .backdrop = resources.log.backdrop, .tail = resources.log.tail};
+                .backdrop = resources.log.backdrop, .tail = resources.log.tail,
+                .native_presentation = resources.log.native_presentation};
     }
     static CloseStart close(State &state, const Place &place, Resources &resources) {
         ++resources.log.closes;
@@ -193,6 +196,49 @@ struct Fixture {
         return facts;
     }
 };
+
+void seated_interval_uses_native_surfaces_before_slot_end() {
+    Fixture f;
+    f.window(1);
+    f.frame(1);
+    const auto handle = f.handle();
+    FakeCanvas canvas;
+    FakeCanvas::Image image{7};
+    const Draw<FakeCanvas> draw{.canvas=&canvas, .image=&image};
+    CHECK(f.module.draw(handle, draw));
+    f.log().native_presentation = true;
+    f.frame(1);
+    f.module.before_window(1, canvas);
+    CHECK(!f.port.transformers.contains(1));
+    CHECK(f.module.active(handle));
+    CHECK(!f.module.draw(handle, draw));
+    CHECK(canvas.draws.size() == 1);
+    f.log().native_presentation = false;
+    f.frame(1);
+    CHECK(f.handle() == handle);
+    CHECK(f.module.draw(handle, draw));
+    f.log().running = false;
+    f.frame(1);
+    CHECK(!f.module.active(handle));
+    CHECK(f.log().last_end == End::Completed);
+}
+
+void protected_window_keeps_native_presentation() {
+    Fixture f;
+    f.policy.style = Other::KIND;
+    f.module.configure(f.policy);
+    f.window(1);
+    f.port.windows.at(1).no_screen_share = true;
+    f.window(2);
+    f.frame(1);
+    CHECK(!f.port.transformers.contains(1));
+    CHECK(f.resources.get<Other>().log.opens == 1);
+    const auto public_handle = f.handle(2);
+    f.port.windows.at(2).no_screen_share = true;
+    f.frame(1);
+    CHECK(!f.module.active(public_handle));
+    CHECK(f.port.transformers.empty());
+}
 
 void opening_movement_and_settlement() {
     Fixture fixture; fixture.window(1); fixture.frame(1); const auto HANDLE = fixture.handle();
@@ -1226,6 +1272,8 @@ void close_lookup_survives_view_scratch_rebuild() {
 }
 int main() try {
     opening_movement_and_settlement(); settled_opening_edge_survives_until_close();
+    seated_interval_uses_native_surfaces_before_slot_end();
+    protected_window_keeps_native_presentation();
     new_opening_attempt_clears_previous_edge();
     disabled_open_and_move(); monitor_frames_and_reattach();
     close_continuity_and_association(); close_timeout_invalid_and_fresh(); invalidation_and_restore();
