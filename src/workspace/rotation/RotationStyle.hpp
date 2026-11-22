@@ -24,6 +24,7 @@ struct RotationStyle {
         double duration = 0.0;
         std::string curve;
         GapFill gap;
+        bool keep_overlays_static = false;
     };
     struct Resources {
         RotationRenderer renderer;
@@ -35,7 +36,7 @@ struct RotationStyle {
     }
     static constexpr double live_boundary(const Resources & /*resources*/) { return 1.0; }
     static constexpr bool needs_individual_windows(const Resources & /*resources*/) { return false; }
-    static constexpr bool uses_native_hud(const Resources & /*resources*/) { return false; }
+    static bool uses_native_hud(const Resources &resources) { return resources.settings.prepared.keep_overlays_static; }
     static constexpr bool uses_workspace_previews(const Resources & /*resources*/) { return false; }
     static bool draw(Resources &resources, Render::CRenderContext &ctx, const WorkspaceFrame &frame,
         double progress, Direction direction, bool matching_wallpaper) {
@@ -47,6 +48,7 @@ struct RotationStyle {
             Prepared result;
             result.duration = value.duration;
             result.curve = value.curve;
+            result.keep_overlays_static = value.keepOverlaysStatic;
             switch (value.gapFillStyle) {
                 case config::RotationGapFillStyle::Morph: result.gap.style = GapFillStyle::Morph; break;
                 case config::RotationGapFillStyle::Background: result.gap.style = GapFillStyle::Background; break;

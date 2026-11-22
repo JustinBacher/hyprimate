@@ -226,6 +226,7 @@ hl.config({
                         gap_fill_style = "still",
                         gap_fill_color = 0xff000000,
                         gap_fill_blur = 0,
+                        keep_overlays_static = false,
                     },
                     planet_hop = {
                         window_mode = "surface",
@@ -337,6 +338,7 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `workspace:options:rotation:gap_fill_style` | string / `"still"` | — | Gap treatment: morph stretches an auxiliary incoming-wallpaper bridge; background uses gap_fill_color; wallpaper blends enlarged, optionally blurred wallpaper copies; still (default) holds the outgoing wallpaper stationary while windows rotate. In still mode a different incoming wallpaper rotates in with its windows; matching texture resources with unchanged content stay stationary. No mode changes the rigid circular workspace motion. Configuration uses underscores: gap_fill_style, gap_fill_color, gap_fill_blur. Invalid styles are rejected. Allowed: `morph`, `background`, `wallpaper`, `still`. |
 | `workspace:options:rotation:gap_fill_color` | color / `0xff000000` | — | Gap colour for background mode, in ARGB; defaults to opaque black. |
 | `workspace:options:rotation:gap_fill_blur` | float / `0` | 0–64 | Blur radius in physical pixels for the duplicated background imagery in wallpaper mode only; zero disables blur. Original wallpapers, windows and rotation geometry are unaffected. |
+| `workspace:options:rotation:keep_overlays_static` | boolean / `false` | — | Keep layer-shell bars, overlays and their popups fixed on screen while the workspace rotates. When false, they rotate with the workspace as before. |
 | `workspace:options:planet_hop:window_mode` | string / `"surface"` | — | Place windows on the planet surface, float them above it, or fade them during the hop. Allowed: `surface`, `floating`, `fade`. |
 | `workspace:options:planet_hop:overlay_mode` | string / `"fade"` | — | Render overlays in the world, as a HUD, or fade them during the hop. Allowed: `world`, `hud`, `fade`. |
 | `workspace:options:planet_hop:planet_layout` | string / `"focused"` | — | Show the two journey endpoints, this monitor's workspaces, every monitor's workspaces, or every monitor's workspaces in a spatial solar system, respectively. Replaces linear and dynamic; use focused for endpoint-only travel. Allowed: `focused`, `monitor`, `all`, `solar_system`. |

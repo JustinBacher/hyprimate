@@ -57,6 +57,7 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                         gap_fill_style = "still",
 --                         gap_fill_color = 0xff000000,
 --                         gap_fill_blur = 0,
+--                         keep_overlays_static = false,
 --                     },
 --                     planet_hop = {
 --                         window_mode = "surface",

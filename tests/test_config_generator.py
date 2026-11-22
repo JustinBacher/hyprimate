@@ -81,7 +81,8 @@ class ConfigGeneratorTests(unittest.TestCase):
         self.assertEqual({path for path in paths if path.startswith('workspace.options.rotation.')},
                          {'workspace.options.rotation.duration', 'workspace.options.rotation.curve',
                           'workspace.options.rotation.gap_fill_style', 'workspace.options.rotation.gap_fill_color',
-                          'workspace.options.rotation.gap_fill_blur'})
+                          'workspace.options.rotation.gap_fill_blur',
+                          'workspace.options.rotation.keep_overlays_static'})
         items = {item['path']: item for item in SCHEMA}
         self.assertIs(items['workspace.enabled']['default'], False)
         self.assertEqual(items['workspace.style']['choices'], ['rotation', 'planet_hop'])
@@ -97,6 +98,7 @@ class ConfigGeneratorTests(unittest.TestCase):
         self.assertEqual(items['workspace.options.rotation.gap_fill_color']['default'], '0xff000000')
         gap_blur = items['workspace.options.rotation.gap_fill_blur']
         self.assertEqual((gap_blur['default'], gap_blur['min'], gap_blur['max']), (0, 0, 64))
+        self.assertIs(items['workspace.options.rotation.keep_overlays_static']['default'], False)
         self.assertFalse(any(item.get('optional') or item.get('inherited')
                              for path, item in items.items() if path.startswith('workspace.')))
 
