@@ -152,7 +152,7 @@ int main() try {
     set("workspace:options:rotation:duration", std::numeric_limits<float>::infinity());
     assert(near(readConfig(values).workspace.rotation.duration, 0.1));
     // Unset globals must retain each transition's historical default.
-    if (!near(config.construction.open.duration, 1.1)) return 1;
+    if (!near(config.construction.open.duration, 0.62)) return 1;
     set("window:options:construction:duration", 2.25F);
     if (!near(readConfig(values).construction.open.duration, 2.25)) return 1;
     set("window:open:options:construction:duration", 1.75F);

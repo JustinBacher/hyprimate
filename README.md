@@ -62,7 +62,7 @@ hl.config({
             window = {
                 options = {
                     construction = {
-                        duration = 1.1,
+                        duration = 0.62,
                     },
                     burn = {
                         -- duration = 1,
@@ -284,7 +284,7 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 
 | Setting | Type / default | Numeric range | Meaning |
 |---|---|---|---|
-| `window:options:construction:duration` | float / animation defaults: `1.1` | 0.25–3.0 | Time in seconds to rig, seat and fasten the panel during opening. |
+| `window:options:construction:duration` | float / animation defaults: `0.62` | 0.25–3.0 | Time in seconds for the builders to raise and fasten the window panels. |
 | `window:options:burn:duration` | float / animation defaults: open `1`, close `1.5` | 0.15–5 | Open: Combustion time in seconds for the hole to reveal the window. Shorter is faster. Close: Combustion time in seconds for the closing sheet. Detached material cools on its own clock. |
 | `window:options:liquid:strength` | float / animation defaults: `0.65` | 0–1.5 | Movement: Liquid movement deformation strength. Zero moves windows without deformation. Open: Liquid pop-out size and deformation strength when opening. Zero removes the pop-out. Close: Liquid drain deformation strength when closing. Zero closes the window natively. |
 | `window:options:liquid:viscosity` | float / animation defaults: `0.75` | 0–1 | Liquid resistance to flow during movement. Higher values make it thicker and more cohesive. |

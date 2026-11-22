@@ -320,14 +320,19 @@ def analyze(out, case, trace, controls):
                and (j := json.loads(line)).get('id') == case['id']]
     unavailable, failed = [], []
     begin = events.get('open')
+    # The specimen's L is in the bottom-right bay; timings are relative to that
+    # crew's start, not to the team that seats the first panel.
+    bay_start = .15 + (.07 if begin and begin[0] & 1 else 0)
+    bay_span = .64
+    seat_fraction = bay_start + bay_span * .66
     if times:
         def at(ns):
             return min(len(times)-1, bisect.bisect_left(times, ns))
         cut['pre'] = max(0, bisect.bisect_left(times, case['request_ns'])-1)
         epoch = begin[1] if begin else case['request_ns']
-        seat = .74 if begin and begin[0] & 1 else .66
-        for label, frac in [('walk', .12), ('signal', .29), ('lift', .41), ('guide', .58),
-                            ('seat', seat), ('strike', seat+.055), ('release', seat+.096)]:
+        for label, frac in [('brace', bay_start), ('raise', bay_start + bay_span*.32),
+                            ('seat', seat_fraction), ('strike', bay_start + bay_span*.75),
+                            ('withdraw', bay_start + bay_span*.86)]:
             cut[label] = at(epoch + round(frac*case['duration']*1e9))
         if 'identity' in events and 'end' in events:
             # Use the first capture after the successful identity submission, not a later
@@ -358,7 +363,7 @@ def analyze(out, case, trace, controls):
     control_case = not case['enabled']
     protected = 900 <= case['id'] < 1000
     private_fault = case['name'] == 'allocation-denied'
-    labels = ('walk','signal','lift','guide','seat','strike','release','active-seated','following-frame','first-post-end')
+    labels = ('brace','raise','seat','strike','withdraw','active-seated','following-frame','first-post-end')
     with sp.Popen(['ffmpeg', '-v', 'error', '-threads', '2', '-i', folder/'output.mkv',
                    '-map', '0:v:0', '-fps_mode', 'passthrough', '-enc_time_base', '1:1000', '-f', 'rawvideo', '-pix_fmt', 'rgb24',
                    '-threads', '1', '-'], stdout=sp.PIPE) as decoder:
@@ -373,7 +378,7 @@ def analyze(out, case, trace, controls):
             markers.append([sentinel(img, 0), sentinel(img, 1), sentinel(img, 'edge')])
             for label in keyframes.get(i, []):
                 still = Image.fromarray(img)
-                if label in ('walk','lift','active-seated','following-frame','first-post-end','pre','interrupted','settled','fault-active'):
+                if label in ('brace','raise','seat','strike','active-seated','following-frame','first-post-end','pre','interrupted','settled','fault-active'):
                     still.save(folder/(label+'.png'))
                 if label in labels or label.startswith('sample-'):
                     still.thumbnail((320, 200))
@@ -404,7 +409,7 @@ def analyze(out, case, trace, controls):
         if any(any(m) for m in markers):
             failed.append('Protected capture contains specimen sentinel.')
     elif case['enabled'] and not case['action'] and not private_fault and times and begin:
-        seat = begin[1] + int((.74 if begin[0] & 1 else .66)*case['duration']*1e9)
+        seat = begin[1] + round(seat_fraction*case['duration']*1e9)
         target = markers[-1][1]
         def displaced(m):
             return target and m and m[4] >= 24 and max(abs(c-d) for c,d in zip(m[:4], target[:4])) >= 3
@@ -453,7 +458,7 @@ def analyze(out, case, trace, controls):
     return dict(name=case['name'], events=events, compared=checks, failed=failed, unavailable=unavailable)
 
 
-def film(session, fault, duration):
+def film(session, fault, duration, visual_only):
     normal, small = (800,550), (480,320)
     def clip(name, ident, *, size=normal, style='light', seconds=duration, control=None, **kwargs):
         c = session.clip(name, ident, size, style, seconds, **kwargs)
@@ -464,11 +469,18 @@ def film(session, fault, duration):
     # one is delayed, nor substitute the slower-duration cut for that causal repeat.
     clip('installation-a', 10, control='native-normal')
     clip('installation-b', 11, control='native-normal')
-    clip('installation-spacious', 12, seconds=2.55, control='native-normal')
+    clip('installation-spacious', 12, seconds=.85, control='native-normal')
     clip('native-normal', 13, enabled=False)
     session.scale(1.25)
     clip('installation-small', 20, size=small, style='dark', control='native-small')
     clip('native-small', 21, size=small, style='dark', enabled=False)
+    if visual_only:
+        # A wider load has room for a third carrier. Keep its own same-size
+        # native control; don't substitute a scaled copy of the standard take.
+        session.scale(1)
+        clip('installation-wide', 14, size=(1100, 560), control='native-wide')
+        clip('native-wide', 15, size=(1100, 560), enabled=False)
+        return
     session.scale(1)
     clip('native-resized', 31, enabled=False, action='resize')
     clip('interrupt-resize', 32, action='resize', control='native-resized')
@@ -494,7 +506,9 @@ def main():
     ap.add_argument('--recorder', help='Path to an existing wf-recorder')
     ap.add_argument('--slice', action='store_true', required=True, help='Only the installation workload exists')
     ap.add_argument('--record', action='store_true', required=True, help='Capture lossless full-output VFR clips')
-    ap.add_argument('--duration', type=float, default=1.10, help='Primary open duration, in seconds')
+    ap.add_argument('--duration', type=float, default=.62, help='Primary open duration, in seconds')
+    ap.add_argument('--visual-only', action='store_true',
+                    help='Film the two crew tempos, delayed arrival, and size-matched controls; not a safety run')
     args = ap.parse_args()
     if not .25 <= args.duration <= 3:
         ap.error('--duration must be in [0.25,3]')
@@ -514,7 +528,7 @@ def main():
         source_paths={'choreography':'src/animations/construction/ConstructionSite.cpp',
                       'live_adapter':'src/animations/construction/ConstructionLiveStyle.cpp',
                       'renderer':'src/animations/construction/ConstructionRenderer.cpp'},
-        requested_duration=args.duration)
+        requested_duration=args.duration, visual_only=args.visual_only)
     save(out/'manifest.json', manifest)
     (out/'verdict.md').write_text('# Not validated\n\nCapture or analysis has not completed. Inspect logs.\n')
     def terminate(signum, _frame):
@@ -525,7 +539,7 @@ def main():
         try:
             manifest['instance'] = session.boot()
             manifest['system_info'] = session.hc('systeminfo')
-            film(session, fault, args.duration)
+            film(session, fault, args.duration, args.visual_only)
         finally:
             manifest['cases'] = session.cases
             session.cleanup()
@@ -574,13 +588,13 @@ def main():
     if not resources:
         gaps.append('No measured Construction resource records.')
     fault_count = log.count('[construction-fixture] work buffer denied')
-    if not fault or not fault_count:
+    if not args.visual_only and (not fault or not fault_count):
         gaps.append('No confirmed mapped work-buffer denial from separate test relink.')
     manifest.update(observed_pair_seeds=seeds, fault_log_count=fault_count)
     save(out/'manifest.json', manifest)
     report = ['# Construction installation — not promoted', '',
               'Footage is at **1×**, without annotations, in each `output.mkv`. '
-              'Start with `installation-a/output.mkv` and `installation-b/output.mkv` at original size. '
+              'Compare `installation-a/output.mkv` with `installation-spacious/output.mkv` at original size. '
               'Contact sheets are diagnostic only.', '',
               f'Artifact: `{plugin}` (SHA-256 `{manifest["plugin_sha256"]}`).',
               f'Observed matched seeds: `{seeds}`. Raw frame indices, clock correlation, marker extent, '
@@ -588,14 +602,12 @@ def main():
               '## Automatic discrepancies', *(f'- {v}' for v in failures or ['None recorded.']), '',
               '## Unavailable measurements', *(f'- {v}' for v in gaps),
               '- Recorder PTS measure nested capture cadence, not CPU submission, GPU or physical display timing.',
-              '- Actor height: measure visible helmet-to-sole distance in the full-resolution walk still; '
-              'divide by that case’s observed output scale. The authored value is not a measurement.',
+              '- Inspect visible helmet-to-sole height against output scale, not the authored value.',
               '', '## Review still required',
-              'Watch the unannotated clips at normal speed. Record the observed walk, signal, taut lift, '
-              'guide, seat, strike, release and native handoff with frame numbers. Compare the odd/even '
-              'arrival, planted feet, tool/fastener, sling/shadow, occlusion and normal/small silhouettes. '
-              'No phase label or modeled contact is a visual pass. Authoring retime/fastener trials '
-              'require separately hashed builds and their own footage.']
+              'Compare the short cut with the .85 s cut at 1×. Look for parallel hand placement, '
+              'panels standing upright, the tool strike, and a clean handoff. Contact sheets do not establish legibility.',
+              'Visual-only takes do not exercise or clear the outstanding safety gates.' if args.visual_only else
+              'The allocation-denied case exercises a null lease, not a host driver allocation failure.']
     (out/'verdict.md').write_text('\n'.join(report)+'\n')
     print(out/'verdict.md')
     if failures:
