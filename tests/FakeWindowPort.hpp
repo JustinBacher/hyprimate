@@ -60,10 +60,12 @@ struct FakeWindowPort {
     std::vector<MonitorId> scheduled, scanout;
     std::vector<WindowId> detached, forgotten, alpha_settled, backdrop_captures;
     std::set<std::uint64_t> suppressed;
+    int suppress_requests = 0;
     std::vector<MonitorId> overlapping;
     Clock::time_point now;
     bool fail_acquire = false;
     bool fail_bind = false;
+    bool refuse_retention = false;
     bool session_available = true, unlocked = true;
     [[nodiscard]] bool session_unlocked() const { return session_available && unlocked; }
     [[nodiscard]] bool tail_source_allowed(WindowRef window, WindowId expected, bool capture) const {
@@ -127,16 +129,23 @@ struct FakeWindowPort {
     void queue_tail(Handle handle, Canvas & /*canvas*/, const Canvas::Image &image, const TailDraw &draw) {
         queued_tails.push_back({.handle = handle, .image = image, .draw = draw});
     }
-    void bind_fadeout(Handle handle, std::uint64_t /*fadeout*/, RetainedImage image) {
+    bool bind_fadeout(Handle handle, std::uint64_t /*fadeout*/, RetainedImage image) {
         if (fail_bind) { throw std::runtime_error("fake capture failure"); }
+        if (refuse_retention) { return false; }
         visual_cache(handle).image = image;
+        return true;
     }
     [[nodiscard]] std::optional<FadeoutFacts> fadeout_facts(std::uint64_t fadeout) const {
         const auto ITER = fadeouts.find(fadeout);
         return ITER == fadeouts.end() ? std::nullopt : std::optional<FadeoutFacts>{ITER->second};
     }
     void suppress_native(std::uint64_t fadeout, bool suppress) {
-        if (suppress) { suppressed.insert(fadeout); } else { suppressed.erase(fadeout); }
+        if (suppress) {
+            ++suppress_requests;
+            suppressed.insert(fadeout);
+        } else {
+            suppressed.erase(fadeout);
+        }
     }
     void forget_window_reference(WindowId window) { forgotten.push_back(window); }
     [[nodiscard]] std::optional<ScreenFacts> monitor_facts(MonitorId monitor) const {

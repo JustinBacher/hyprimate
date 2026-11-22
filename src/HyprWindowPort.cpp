@@ -377,15 +377,15 @@ std::optional<RetainedFrame<CHyprWindowPort::Canvas>> CHyprWindowPort::retained_
         .capture = cache->capture,
         .frame = cache->frame};
 }
-void CHyprWindowPort::bind_fadeout(Handle handle, [[maybe_unused]] std::uint64_t fadeout, RetainedImage image) {
+bool CHyprWindowPort::bind_fadeout(Handle handle, [[maybe_unused]] std::uint64_t fadeout, RetainedImage image) {
     auto &cache = visual_cache(handle);
     // Fadeout creation can finish outside a render frame. Its framebuffer is a
     // Hyprland snapshot, so verify that compositor context before retaining it.
     const hyprimate::gl::ScopedCompositorContext CONTEXT{};
-    if (!CONTEXT) return;
-    if (!image || !cache.fadeout_owner.ensure_current()) return;
+    if (!CONTEXT || !image || !image->getTexture() || !cache.fadeout_owner.ensure_current()) return false;
     hyprimate::gl::release_native(cache.fadeout_image, cache.fadeout_owner);
     cache.fadeout_image = std::move(image);
+    return true;
 }
 CHyprWindowPort::RetainedImage CHyprWindowPort::fadeout_image(Handle handle) const {
     const auto *cache = find_visuals(handle);
@@ -421,6 +421,7 @@ std::optional<FadeoutFacts> CHyprWindowPort::fadeout_facts(std::uint64_t fadeout
         facts.alive = !FADEOUT->done();
         facts.blurred = FADEOUT->effects().textureBlur.enabled;
         facts.image_available = static_cast<bool>(TEXTURE);
+        facts.no_screen_share = FADEOUT->source().noScreenShare;
         return facts;
     }
     return std::nullopt;

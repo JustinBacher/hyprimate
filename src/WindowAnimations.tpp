@@ -327,13 +327,16 @@ void CWindowAnimations<Port, StyleList<Styles...>>::bind_fadeout(WindowId window
         end(CURRENT_HANDLE, End::Interrupted);
         return;
     }
-    entry->captured_alpha = fadeout.alpha;
+    bool retained = false;
     try {
-        m_port.bind_fadeout(CURRENT_HANDLE, fadeout.fadeout, std::move(image));
+        retained = m_port.bind_fadeout(CURRENT_HANDLE, fadeout.fadeout, std::move(image));
     } catch (...) {
         end(CURRENT_HANDLE, End::Interrupted);
         throw;
     }
+    if (!retained) { end(CURRENT_HANDLE, End::Interrupted); return; }
+    entry->captured_alpha = fadeout.alpha;
+    entry->no_screen_share = entry->no_screen_share || observation->no_screen_share || fadeout.no_screen_share;
     entry->fadeout = fadeout.fadeout;
     entry->fadeout_info = fadeout;
     entry->life = entry->ownership == CloseStart::Owned ? Life::DyingOwned : Life::DyingNative;
@@ -583,17 +586,16 @@ void CWindowAnimations<Port, StyleList<Styles...>>::frame_mapped(Tracked &window
 }
 template<class Port, class... Styles>
 bool CWindowAnimations<Port, StyleList<Styles...>>::refresh_fadeout(Record &entry) {
-    if (entry.life == Life::DyingNative) {
-        auto fadeout = m_port.fadeout_facts(entry.fadeout);
-        if (!fadeout || !fadeout->alive) { return false; }
-        entry.fadeout_info = *fadeout;
-    } else if (entry.fadeout != 0) {
-        auto fadeout = m_port.fadeout_facts(entry.fadeout);
-        if (fadeout && fadeout->alive) {
-            entry.fadeout_info = *fadeout;
-        } else {
-            m_port.suppress_native(entry.fadeout, false);
-        }
+    if (entry.fadeout == 0) { return entry.life != Life::DyingNative; }
+    const auto FADEOUT = m_port.fadeout_facts(entry.fadeout);
+    // The restriction belongs to the retained pixels, not the lifetime of the native fadeout.
+    if (FADEOUT && FADEOUT->no_screen_share) { entry.no_screen_share = true; }
+    if (FADEOUT && FADEOUT->alive) {
+        entry.fadeout_info = *FADEOUT;
+    } else if (entry.life == Life::DyingNative) {
+        return false;
+    } else {
+        m_port.suppress_native(entry.fadeout, false);
     }
     return true;
 }

@@ -162,13 +162,11 @@ bool CloseRenderGuard::valid(Render::CRenderContext &ctx, bool require_native) c
         std::ranges::any_of(Desktop::fadingOutState()->fadeouts(),
             [&](const auto &value) { return value.get() == native.get(); });
     if (require_native && !NATIVE_LIVE) { return false; }
-    if (handle) {
-        const auto VIEW = animations->dying_view_for(fadeout);
-        return ID == fadeout && VIEW && VIEW->handle == *handle &&
-            (VIEW->ownership == hyprimate::animation::CloseStart::Owned || NATIVE_LIVE) &&
-            VIEW->monitor == port->monitor_identity(monitor) && ALLOWED(VIEW->no_screen_share);
-    }
-    return NATIVE_LIVE && !animations->suppresses(ID);
+    return hyprimate::animation::close_association_valid(*animations, *port, handle, fadeout, ID, NATIVE_LIVE,
+        [&](const auto &view) {
+            return (view.ownership == hyprimate::animation::CloseStart::Owned || NATIVE_LIVE) &&
+                view.monitor == port->monitor_identity(monitor) && ALLOWED(view.no_screen_share);
+        });
 }
 CAnimationCloseRenderer *CAnimationCloseRenderer::s_active = nullptr;
 

@@ -71,7 +71,7 @@ class CHyprWindowPort {
         const hyprimate::animation::TailDraw &draw);
     [[nodiscard]] std::optional<hyprimate::animation::RetainedFrame<Canvas>> retained_mapped_image(
         hyprimate::animation::Handle handle) const;
-    void bind_fadeout(hyprimate::animation::Handle handle, std::uint64_t fadeout, RetainedImage image);
+    [[nodiscard]] bool bind_fadeout(hyprimate::animation::Handle handle, std::uint64_t fadeout, RetainedImage image);
     [[nodiscard]] RetainedImage fadeout_image(hyprimate::animation::Handle handle) const;
     [[nodiscard]] std::optional<hyprimate::animation::FadeoutFacts> fadeout_facts(std::uint64_t fadeout_id) const;
     void suppress_native(std::uint64_t fadeout_id, bool suppress);

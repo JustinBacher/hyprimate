@@ -48,6 +48,7 @@ struct FadeoutFacts {
     double scale = 1;
     float alpha = 1;
     bool alive = false, blurred = false, image_available = false;
+    bool no_screen_share = false;
 };
 struct DyingView {
     Handle handle;
@@ -103,7 +104,7 @@ template<class P> concept WindowPort = requires(P &port, const P &constant,
     { port.retain_mapped_image(handle, image, Vec2{}, box, frame) } -> std::same_as<void>;
     { port.release_mapped_image(handle) } -> std::same_as<void>;
     { port.queue_tail(handle, canvas, image, tail) } -> std::same_as<void>;
-    { port.bind_fadeout(handle, fadeout, std::move(retained)) } -> std::same_as<void>;
+    { port.bind_fadeout(handle, fadeout, std::move(retained)) } -> std::same_as<bool>;
     { constant.fadeout_facts(fadeout) } -> std::same_as<std::optional<FadeoutFacts>>;
     { port.suppress_native(fadeout, true) } -> std::same_as<void>;
     { port.forget_window_reference(window_id) } -> std::same_as<void>;

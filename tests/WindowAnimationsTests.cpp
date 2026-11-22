@@ -897,6 +897,116 @@ void close_placement_and_invalid_fadeouts() {
         CHECK(VIEWS[0].source_device.w == 220); CHECK(VIEWS[0].source_device.h == 180);
     }
 }
+void refused_retention_keeps_native() {
+    Fixture fixture;
+    fixture.window(1);
+    fixture.frame(1);
+    const auto HANDLE = fixture.handle();
+    fixture.module.close(1, fixture.port.now);
+    fixture.port.refuse_retention = true;
+    const auto FADE = fixture.fade(810);
+    fixture.module.bind_fadeout(1, FADE, {.id = 81});
+    CHECK(fixture.log().last_end == End::Interrupted);
+    CHECK(!fixture.module.pending_for(1));
+    CHECK(!fixture.module.active(HANDLE));
+    CHECK(fixture.port.find_visuals(HANDLE) == nullptr);
+    CHECK(!fixture.port.suppressed.contains(810));
+    CHECK(fixture.port.suppress_requests == 0);
+    CHECK(!fixture.module.suppresses(810)); // No owned entry or completion tombstone.
+    fixture.port.refuse_retention = false;
+    fixture.module.bind_fadeout(1, FADE, {.id = 81});
+    CHECK(!fixture.module.dying_view_for(810)); // A late handoff cannot revive it.
+    CHECK(!fixture.module.suppresses(810));
+}
+
+void retained_close_privacy_is_monotonic() {
+    enum class PrivateSource { BindObservation, Fadeout, LaterRefresh };
+    for (const auto MODE : {CloseStart::Owned, CloseStart::Native}) {
+        for (const auto source : {PrivateSource::BindObservation, PrivateSource::Fadeout, PrivateSource::LaterRefresh}) {
+            Fixture fixture;
+            fixture.log().close_result = MODE;
+            fixture.window(1); // Public at the close event.
+            fixture.frame(1);
+            fixture.module.close(1, fixture.port.now);
+            fixture.port.windows.at(1).no_screen_share = source == PrivateSource::BindObservation;
+            fixture.fade(811);
+            auto &facts = fixture.port.fadeouts.at(811);
+            facts.no_screen_share = source == PrivateSource::Fadeout;
+            fixture.module.bind_fadeout(1, facts, {.id = 81});
+            const auto BOUND = fixture.module.dying_view_for(811);
+            CHECK(BOUND && BOUND->no_screen_share == (source != PrivateSource::LaterRefresh));
+            fixture.port.windows.at(1).no_screen_share = false;
+            facts.no_screen_share = source == PrivateSource::LaterRefresh;
+            fixture.frame(1);
+            const auto STRICT = fixture.module.dying_view_for(811);
+            CHECK(STRICT && STRICT->no_screen_share);
+            facts.no_screen_share = false;
+            fixture.frame(1);
+            const auto REFRESHED = fixture.module.dying_view_for(811);
+            CHECK(REFRESHED && REFRESHED->no_screen_share);
+            fixture.port.fadeouts.erase(811);
+            fixture.module.native_finished(811);
+            fixture.frame(1);
+            const auto EXPIRED = fixture.module.dying_view_for(811);
+            if (MODE == CloseStart::Owned) {
+                CHECK(EXPIRED && EXPIRED->no_screen_share);
+            } else {
+                CHECK(!EXPIRED);
+            }
+        }
+    }
+}
+
+void queued_close_rechecks_session() {
+    Fixture fixture;
+    fixture.window(1);
+    fixture.frame(1);
+    const auto HANDLE = fixture.handle();
+    fixture.module.close(1, fixture.port.now);
+    fixture.module.bind_fadeout(1, fixture.fade(812), {.id = 81});
+    fixture.frame(1);
+    fixture.fade(813); // Native sibling has no retained association.
+
+    struct Item { std::uint64_t id; std::optional<Handle> handle; };
+    std::vector<Item> queue;
+    const auto valid = [&](const Item &item, std::uint64_t current_id) {
+        return close_association_valid(fixture.module, fixture.port, item.handle, item.id, current_id,
+            fixture.port.fadeouts.contains(current_id), [](const DyingView &view) { return !view.no_screen_share; });
+    };
+    auto stale = HANDLE;
+    ++stale.generation;
+    CHECK(!valid({812, HANDLE}, 813));
+    CHECK(!valid({812, stale}, 812));
+    for (const Item &item : {Item{812, HANDLE}, Item{813, std::nullopt}}) {
+        CHECK(submit_close([&] { return valid(item, item.id); }, [&] { return &item; }, [] {},
+            [&](const Item *submitted) { queue.push_back(*submitted); }));
+    }
+    CHECK(queue.size() == 2);
+    if (queue.size() != 2) { return; }
+    const auto retained_valid = [&] { return valid(queue.front(), 812); };
+    FakeCanvas canvas;
+    const FakeCanvas::Image IMAGE{.id = 81};
+    const Draw<FakeCanvas> DRAW{.canvas = &canvas, .image = &IMAGE, .source = {}, .output = {},
+        .canvas_box = {}, .image_origin = {}, .image_size = IMAGE.size, .real_pass = true};
+    const auto replay = [&] {
+        with_guarded_display(retained_valid, [&](const auto &guard_display) {
+            if (fixture.module.draw(HANDLE, DRAW)) {
+                guard_display([&] { canvas.composite(DRAW.output, DRAW.alpha); });
+            }
+        });
+    };
+    fixture.log().during_draw = [&] { fixture.port.unlocked = false; };
+    replay(); // Lock inside the style callback, before its layer can be composited.
+    CHECK(canvas.draws.size() == 1 && canvas.composites.empty());
+    replay(); // Already locked on entry: no style call either.
+    CHECK(canvas.draws.size() == 1 && canvas.composites.empty());
+    CHECK(valid(queue.back(), 813)); // Unassociated native sibling remains eligible.
+    fixture.log().during_draw = {};
+    fixture.port.unlocked = true;
+    replay();
+    CHECK(canvas.draws.size() == 2 && canvas.composites.size() == 1);
+}
+
 void owned_close_draw_failure_restores_native() {
     Fixture fixture;
     fixture.window(1);
@@ -1296,6 +1406,8 @@ int main() try {
     isolated_mesh_buffers();
     dying_draw_adapter_lifecycle(); dying_damage_follows_native_placement();
     owned_close_draw_failure_restores_native();
+    refused_retention_keeps_native(); retained_close_privacy_is_monotonic();
+    queued_close_rechecks_session();
     close_batch_capacity_fallback_and_reentry(); close_lookup_survives_view_scratch_rebuild();
     backdrop_failure_preserves_close_content();
     close_draw_rechecks_callback_invalidation();
