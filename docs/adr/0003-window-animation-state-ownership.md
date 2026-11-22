@@ -2,6 +2,11 @@
 
 A window animation's state lives in our window animation module for its whole life, from the opening through any movement to the end of its close. Hyprland's per-window transformer and the close drawing only hold a handle to it. Each Style keeps its own states in a pool inside its runtime-owned resources. A handle is a slot index plus a generation counter, so a stale handle reads as gone and never reaches the slot's next occupant. Our module decides when an entry ends: when its Style reports it settled, when the window stops being eligible (fullscreen, unmap), when its close finishes, or when the existing clearing rules apply (reload, close disabled, monitor removal or scale change). If Hyprland drops our transformer for its own housekeeping, the entry survives and a transformer is re-attached on the next draw.
 
+When an opening drives the window box, Hyprland's geometry warp also overwrites
+its reported goal. Keep the layout goal separate from the last presented box.
+Replace it only when Hyprland reports a different goal, and derive the resting
+capture from that layout goal so the opening still lands at full size.
+
 A renderer callback can end a close while its Style is still drawing. The module invalidates the handle immediately, but releases the Style state and visual buffers only after the last draw borrowing them returns. A queued close rechecks the fadeout identity and suppression at submission; it cannot draw a replacement that reused the same slot.
 
 On a plane with a plugin-owned or suppressed close, Hyprimate handles native siblings individually, even beyond the inline batch capacity. It prepares each close's content before submitting dim or blur. If an optional effect cannot be allocated, the authorized content can still draw; no pass already handed to the renderer is replayed. A persistent content allocation failure skips that close, not its siblings.

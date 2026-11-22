@@ -1,7 +1,7 @@
 {
   "_comment": "Findings exempt from the 'new finding' ratchet. They stay in every count and report; they are never deleted from the baselines. Do not edit the listed call sites as tooling work.",
   "frozen_files": [
-    "src/animations/bubble/BubbleMaterial.cpp"
+    "src/window/bubble/BubbleMaterial.cpp"
   ],
   "deferred": [
     {

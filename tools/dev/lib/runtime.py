@@ -149,7 +149,7 @@ def cmd_memcheck(args) -> int:
 
 
 # --------------------------------------------------------------------------------------- coverage
-COVERAGE_IGNORE = r"(/_deps/|/usr/|/generated/|/tests/|/build/|/src/animations/[a-z]+/tests/|Tests?\.cpp$)"
+COVERAGE_IGNORE = r"(/_deps/|/usr/|/generated/|/tests/|/build/|/src/window/[a-z]+/tests/|Tests?\.cpp$)"
 
 
 def cmd_coverage(args) -> int:

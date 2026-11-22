@@ -80,10 +80,10 @@ add_custom_target(update-config-docs
 # Hyprland-independent core: liquid mesh, edge transition, paper, cloth and swarm models. The plugin and the tests
 # link it.
 add_library(hyprimate-core STATIC
-    src/animations/shared/EdgeTransition.cpp
-    src/animations/shared/SheetFrame.cpp
+    src/window/shared/EdgeTransition.cpp
+    src/window/shared/SheetFrame.cpp
     src/workspace/WorkspaceTransition.cpp
-    src/WindowTracker.cpp
+    src/window/WindowTracker.cpp
 )
 target_include_directories(hyprimate-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(hyprimate-core PRIVATE Jolt)
@@ -91,18 +91,18 @@ target_compile_options(hyprimate-core PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>:-f
 
 add_library(hyprimate SHARED
     src/main.cpp
-    src/PluginRuntime.cpp
-    src/AnimationTransformer.cpp
-    src/AnimationCloseRenderer.cpp
-    src/HyprWindowPort.cpp
-    src/HyprAnimationCanvas.cpp
-    src/WindowAnimationPass.cpp
-    src/StyleContract.cpp
-    src/NativeFadeoutPass.cpp
+    src/plugin/PluginRuntime.cpp
+    src/window/hyprland/AnimationTransformer.cpp
+    src/window/hyprland/AnimationCloseRenderer.cpp
+    src/window/hyprland/HyprWindowPort.cpp
+    src/window/hyprland/HyprAnimationCanvas.cpp
+    src/window/hyprland/WindowAnimationPass.cpp
+    src/window/hyprland/StyleContract.cpp
+    src/window/hyprland/NativeFadeoutPass.cpp
     src/gl/CompositorContext.cpp
     src/gl/NativeResource.cpp
-    src/animations/shared/SheetRenderer.cpp
-    src/animations/shared/SolidFill.cpp
+    src/window/shared/SheetRenderer.cpp
+    src/window/shared/SolidFill.cpp
     src/workspace/WorkspaceCapture.cpp
     src/workspace/WorkspaceAnimation.cpp
 )
@@ -165,7 +165,7 @@ if(BUILD_TESTING)
 endif()
 set(HYPRIMATE_STYLES liquid paper cloth swarm bubble smoke burn)
 foreach(style IN LISTS HYPRIMATE_STYLES)
-    include(src/animations/${style}/Style.cmake)
+    include(src/window/${style}/Style.cmake)
 endforeach()
 set(HYPRIMATE_WORKSPACE_STYLES rotation planet_hop cube)
 foreach(style IN LISTS HYPRIMATE_WORKSPACE_STYLES)
