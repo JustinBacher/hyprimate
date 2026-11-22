@@ -12,7 +12,7 @@ hl.config({ plugin = { hyprimate = { workspace = {
     style = "cube",
     options = { cube = {
         variant = "solid",      -- solid | inside_out | dimensional_fold | tesseract
-        duration = 0.6,         -- seconds; proposed range 0.1–3, like rotation
+        duration = 600,         -- milliseconds; zero skips the transition
         curve = "default",      -- native named curve; see preview timing below
         solid = { cube_tilt = 0, zoom = 0.25 },
         inside_out = { cube_tilt = 0, zoom = 0.45 },
@@ -52,6 +52,6 @@ python tools/cube-preview/revision_comparisons.py R1 R2 R3
 
 `inside-out-vs-fold.mp4` uses the approved room movie on the left. The plans below the movies recover the room eye from its drawn walls and measure the fold angle from the same world coordinates as its panels, not their perspective silhouettes. `tesseract-history.mp4` places the two archived encodes beside the revision, synchronized by shot. The earlier film's backward shot plays its forward geometry in reverse; the other two use a fresh backward switch.
 
-The individual reels and the four-way comparison use the existing `direction_between` and `Transition` C++ code, the rotation family's configured **default** duration, and the controller's smoothstep curve. No live Hyprland curve is resolved. All four sample the same path clock, first in real time, then at quarter speed. A fresh backward switch exchanges the two capture owners and reflects travel, not lettering. An in-flight return keeps the original geometry and captures, and passes the presented position and velocity to `Transition::retarget`.
+The individual reels and the four-way comparison use the existing `direction_between` and `Transition` C++ code, the cube family's configured **default** duration, and the controller's smoothstep curve. No live Hyprland curve is resolved. All four sample the same path clock, first in real time, then at quarter speed. A fresh backward switch exchanges the two capture owners and reflects travel, not lettering. An in-flight return keeps the original geometry and captures, and passes the presented position and velocity to `Transition::retarget`.
 
 With all variants selected, `parameters.mp4` has five four-second studies. The two-variant R3 command renders just three: neighbor inventory, nested tilt/zoom and nested start size. Each briefly holds a common pose for comparison. Video compression is lossy; exact endpoints refer to the uncompressed offscreen output.

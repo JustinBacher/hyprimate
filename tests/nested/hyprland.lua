@@ -98,7 +98,7 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                     },
 --                     cube = {
 --                         variant = "solid",
---                         duration = 0.6,
+--                         duration = 600,
 --                         curve = "default",
 --                         solid = {
 --                             cube_tilt = 0,

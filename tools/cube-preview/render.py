@@ -31,12 +31,12 @@ ENCODE = ['-an', '-c:v', 'libx264', '-preset', 'fast', '-crf', '17', '-threads',
 
 def timeline():
     settings = json.loads((ROOT / 'config/settings.json').read_text())
-    duration = next(s['default'] for s in settings if s['path'] == 'workspace.options.rotation.duration')
+    duration_ms = next(s['default'] for s in settings if s['path'] == 'workspace.options.cube.duration')
     with tempfile.TemporaryDirectory() as work:
         sampler = Path(work)/'timeline'
         sp.run(['c++', '-std=c++20', '-O2', '-I', ROOT/'src', HERE/'timeline.cpp',
                 ROOT/'src/workspace/WorkspaceTransition.cpp', '-o', sampler], check=True)
-        rows = sp.check_output([sampler, str(duration)], text=True).splitlines()
+        rows = sp.check_output([sampler, str(duration_ms / 1000)], text=True).splitlines()
     shots = defaultdict(list)
     for row in rows:
         slow, shot, backward, p = row.split()

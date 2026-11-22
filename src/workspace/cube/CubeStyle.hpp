@@ -41,7 +41,7 @@ struct CubeStyle {
         resources.settings.update(settings.cube, [](const auto &value) {
             const bool SOLID = value.variant == config::CubeVariant::Solid;
             return Prepared{
-                .duration = value.duration,
+                .duration = value.duration / 1000.0,
                 .curve = value.curve,
                 .material = {
                     .variant = SOLID ? cube::Variant::Solid : cube::Variant::InsideOut,

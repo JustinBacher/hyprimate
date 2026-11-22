@@ -109,12 +109,12 @@ int main() try {
     assert(config.workspace.planetHop.curve == "linear");
     assert(config.workspace.planetHop.depthSource.empty());
     assert(config.workspace.cube.variant == CubeVariant::Solid);
-    assert(near(config.workspace.cube.duration, 0.6) && config.workspace.cube.curve == "default");
+    assert(near(config.workspace.cube.duration, 600) && config.workspace.cube.curve == "default");
     assert(near(config.workspace.cube.solid.cubeTilt, 0) && near(config.workspace.cube.solid.zoom, 0.25));
     assert(near(config.workspace.cube.insideOut.cubeTilt, 0) && near(config.workspace.cube.insideOut.zoom, 0.45));
     set("workspace:style", std::string("cube"));
     set("workspace:options:cube:variant", std::string("inside_out"));
-    set("workspace:options:cube:duration", 9.0F);
+    set("workspace:options:cube:duration", 4250.0F);
     set("workspace:options:cube:curve", std::string("easeOut"));
     set("workspace:options:cube:solid:cube_tilt", -25.0F);
     set("workspace:options:cube:inside_out:cube_tilt", 30.0F);
@@ -122,9 +122,11 @@ int main() try {
     set("workspace:options:cube:inside_out:zoom", -1.0F);
     config = readConfig(values);
     assert(config.workspace.style == WorkspaceStyle::Cube && config.workspace.cube.variant == CubeVariant::InsideOut);
-    assert(near(config.workspace.cube.duration, 3) && config.workspace.cube.curve == "easeOut");
+    assert(near(config.workspace.cube.duration, 4250) && config.workspace.cube.curve == "easeOut");
     assert(near(config.workspace.cube.solid.cubeTilt, -20) && near(config.workspace.cube.insideOut.cubeTilt, 20));
     assert(near(config.workspace.cube.solid.zoom, 1) && near(config.workspace.cube.insideOut.zoom, 0));
+    set("workspace:options:cube:duration", -1.0F);
+    assert(near(readConfig(values).workspace.cube.duration, 0));
     set("workspace:options:cube:variant", std::string("unsupported"));
     assert(readConfig(values).workspace.cube.variant == CubeVariant::Solid);
     set("workspace:style", std::string("planet_hop"));

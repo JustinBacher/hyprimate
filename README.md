@@ -269,7 +269,7 @@ hl.config({
                     },
                     cube = {
                         variant = "solid",
-                        duration = 0.6,
+                        duration = 600,
                         curve = "default",
                         solid = {
                             cube_tilt = 0,
@@ -394,7 +394,7 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `workspace:options:planet_hop:depth_strength` | float / `0.018` | 0–0.5 | Surface relief strength in planet-radius units. |
 | `workspace:options:planet_hop:depth_source` | string / `""` | — | Optional PNG depth image path; empty uses procedural depth. PNG images are limited to 4096 pixels per dimension and 16 MiB encoded. |
 | `workspace:options:cube:variant` | string / `"solid"` | — | Turn between full workspaces on the outer faces of a solid cube or the inner walls of a room. Allowed: `solid`, `inside_out`. |
-| `workspace:options:cube:duration` | float / `0.6` | 0.1–3 | Time in seconds for the cube turn. |
+| `workspace:options:cube:duration` | float / `600` | ≥ 0 | Time in milliseconds for the cube turn. Zero skips the transition. |
 | `workspace:options:cube:curve` | string / `"default"` | — | Name of a native Hyprland Bezier curve for the cube turn. Unknown names retain the previous valid curve, or fall back to the native default. |
 | `workspace:options:cube:solid:cube_tilt` | float / `0` | -20–20 | Mid-turn tilt in degrees. Positive angles tip the workspace face up; zero keeps it level. |
 | `workspace:options:cube:solid:zoom` | float / `0.25` | 0–1 | Extra camera retreat at mid-turn, measured in workspace widths. |
