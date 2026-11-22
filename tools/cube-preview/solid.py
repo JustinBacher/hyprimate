@@ -1,19 +1,29 @@
 """Review mesh only. Two full desktop faces share a radiused vertical corner."""
-from math import cos, pi, sin
+from math import cos, pi, radians, sin
 
 
-def draw(scene, p):
+def draw(scene, p, *, cube_tilt=0., zoom=.25):
     a = p * pi / 2
     envelope = sin(pi * p)
-    # The pullback starts with the turn: the near corner needs room immediately.
-    tilt = .23 * envelope
+    tilt = radians(cube_tilt) * envelope
     c, s, ct, st = cos(a), sin(a), cos(tilt), sin(tilt)
     radius, h = .012 * envelope, 9 / 16
 
+    # Fit the turned silhouette inside the view. At zero tilt this is a
+    # level dolly; zoom adds distance in fractions of one full face width.
+    retreat = 1.42 * envelope
+    if tilt:
+        for x in (-1, 1):
+            for z in (-1, 1):
+                across, toward = c*x - s*z, s*x + c*z
+                for y in (-h, h):
+                    height, depth = ct*y + st*toward, ct*toward - st*y
+                    retreat = max(retreat, depth - 1 + 3.4*(max(abs(across), abs(height)/h)-1))
+    retreat += 2 * zoom * envelope
+
     def point(x, y, z):
         across, toward = c*x - s*z, s*x + c*z
-        return (across, ct*y - st*toward + .17*envelope,
-                st*y + ct*toward - 1 - 1.4*envelope)
+        return (across, ct*y + st*toward, ct*toward - st*y - 1 - retreat)
 
     def side(l, r, material, light):
         scene.quad([point(l[0], h, l[1]), point(r[0], h, r[1]),
@@ -37,6 +47,10 @@ def draw(scene, p):
             t = (j//5 + (j%5 + .5)/4) * pi/2 - a
             light = .15 + .19*max(0, cos(t+.55)) + .32*max(0, cos(t+.26))**14
             side(l, r, (light*.86, light*.95, light), 1)
-        # Plain cap; quadrangulate the rounded perimeter as a triangle fan.
-        scene.quad([point(0,h,0), point(l[0],h,l[1]), point(r[0],h,r[1]), point(0,h,0)],
-                   (.19,.23,.26))
+        # A positive nose-up presentation exposes the underside; a negative
+        # one exposes the crown. Neither requires moving the camera in Y.
+        if tilt:
+            level = -h if tilt > 0 else h
+            center = point(0,level,0)
+            scene.quad((center, point(l[0],level,l[1]), point(r[0],level,r[1]), center),
+                       (.19,.23,.26) if level > 0 else (.14,.17,.20))

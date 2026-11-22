@@ -189,11 +189,11 @@ def _shell(im,workspace,active):
     for i in range(4):
         x,y=20+i%2*9,12+i//2*9; d.rounded_rectangle((x,y,x+6,y+6),2,'#e1eff4')
     _text(d,52,21,'Applications',17,'#eef2f5','bold')
-    for i in range(2):
+    for i in range(4):
         x=203+38*i
         if i==workspace:d.rounded_rectangle((x-16,6,x+16,35),6,'#535f6d')
         _text(d,x,20,str(i+1),16,'#f0f2f5',anchor='mm')
-    d.line((274,10,274,32),'#57616d');_text(d,295,21,active,16,'#e1e6e9')
+    d.line((350,10,350,32),'#57616d');_text(d,372,21,active,16,'#e1e6e9')
     _text(d,960,21,'Tue 16 Apr   10:42',17,'#f1f4f5','bold','mm')
     for radius in (6,11,16):d.arc((1726-radius,34-radius,1726+radius,34+radius),226,314,'#e4ebed',2)
     d.ellipse((1724,31,1728,35),'#e4ebed');d.polygon([(1756,18),(1761,18),(1768,12),(1768,30),(1761,25),(1756,25)],'#e4ebed');d.arc((1761,12,1779,30),305,55,'#e4ebed',2)
@@ -202,7 +202,8 @@ def _shell(im,workspace,active):
     d.rounded_rectangle((start-14,993,start+340,1061),18,'#2c353d',outline='#57626a')
     for i,k in enumerate(icons):
         xx=start+i*56;_icon(d,xx,1002,44,k)
-        if k in (('files','terminal') if workspace==0 else ('editor','music')):d.rounded_rectangle((xx+17,1051,xx+27,1054),2,'#bcdbe9')
+        running = (('editor',), ('files','terminal'), ('editor','music'), ('photo',))[workspace]
+        if k in running:d.rounded_rectangle((xx+17,1051,xx+27,1054),2,'#bcdbe9')
 
 
 def _files(im,wall):
@@ -254,7 +255,37 @@ def _player(im,wall):
 def make_desktops() -> tuple[Image.Image, Image.Image]:
     """Return two independent 1920×1080 RGB desktop textures, without video overlays."""
     mountains = _mountains(); a = mountains.copy()
-    _files(a,mountains); _terminal(a); _shell(a,0,'Terminal')
+    _files(a,mountains); _terminal(a); _shell(a,1,'Terminal')
     desert = _desert(); b = desert.copy()
-    _editor(b); _player(b,desert); _shell(b,1,'Music')
+    _editor(b); _player(b,desert); _shell(b,2,'Music')
     return a,b
+
+
+def make_neighbors():
+    """Ordered review inventory: existing synthetic workspaces 01 and 04.
+
+    Thumbnail resolution matches the production inventory's 384-pixel cap.
+    Neither wallpaper nor window is copied from the endpoint captures.
+    """
+    result = []
+    fixtures = ((0, '01', 'Fern atlas', (34, 91, 74), (159, 189, 134), 'editor'),
+                (3, '04', 'Plum studio', (80, 57, 100), (203, 156, 160), 'photo'))
+    for i, number, label, dark, light, icon in fixtures:
+        im = _sky(dark, light)
+        d = ImageDraw.Draw(im)
+        for j in range(10):
+            col = tuple(round(c*.88) for c in (dark if j%2 else light))
+            if i == 0:
+                x = j*241-360
+                d.polygon([(x-140,H),(x+100,455-j*19),(x+290,186+j*13),(x+210,630),(x+94,H)],col)
+            else:
+                x = 1000+(j%4)*243
+                y = 120+(j//4)*332
+                d.arc((x-320,y-270,x+320,y+270), 5, 316, fill=col,width=21)
+        d = _frame(im, 220, 280, 1460, 508, label, icon, True)
+        _text(d, 300, 445, 'SYNTHETIC WORKSPACE', 40, '#c1d1ce', 'mono')
+        _text(d, 298, 609, number, 184, '#eff4ee', 'bold')
+        _text(d, 590, 623, label, 92, '#e1e9e4', 'regular')
+        _shell(im, i, label)
+        result.append(im.resize((384,216), Image.Resampling.LANCZOS))
+    return tuple(result)

@@ -1,146 +1,68 @@
-"""Preview only: a recessed desktop corner everts through its portal."""
-from math import cos, hypot, radians, sin, tau
+"""Preview only: look around an inside corner of a fixed workspace room."""
+from math import cos, pi, radians, sin
 
 
-CAMERA_Z = 3.4
-HALF_HEIGHT = 9 / 16
+_CAPTURE_HALF_HEIGHT = 9 / 16
+_FOCAL_LENGTH = .8125
+_MAX_EYE_AXIS = .90
+_BASE_RETREAT = .22
+_RENDERER_EYE_Z = 3.4
 
-# p, projected crease x, A/B yaw in the horizontal section, B's far-edge
-# depth, and target projected height of the nearest desktop column.
-POSES = (
-    (0.,   1.,    0, 105,  0.,    1.),
-    (.055, .980,  0, 102.35, -.0271, .9871),
-    (.14,  .72,   0,  98, -.07,  .965),
-    (.30,  .47,   0,  87, -.16,  .895),
-    (.41,  .355,  4,  80, -.10,  .90),
-    (.49,  .15,  40,  72, -.05,  .92),
-    (.56, -.25,  67,  58,  .015, .94),
-    (.62, -.61,  69,  22,  .065, .84),
-    (.65, -.72,  70,   0,  .085, .83),
-    (.68, -.76,  72, -22,  .10,  .94),
-    (.77, -.79,  78, -39,  .18,  .96),
-    (.88, -.90,  91, -22,  .14,  .979),
-    (1., -1.,   100,   0,  0.,   1.),
-)
+# A display-aspect room: the floor plan is square, and the height fits
+# a complete desktop. The pictures ARE the walls from floor to ceiling.
+_A_LEFT, _CORNER, _B_RIGHT, _REAR = (-1., -1.), (1., -1.), (1., 1.), (-1., 1.)
 
 
-def pose_at(p):
-    # Local monotone cubic segments keep wall velocity continuous without
-    # overshooting these framing poses or easing to a stop at each key.
-    i = next((i for i in range(len(POSES) - 1) if p < POSES[i + 1][0]), len(POSES) - 2)
-    a, b = POSES[i:i + 2]
-    prev = POSES[i - 1] if i else None
-    after = POSES[i + 2] if i + 2 < len(POSES) else None
-    span = b[0] - a[0]
-    t = (p - a[0]) / span
-    blend = t * t * (3 - 2 * t)
-
-    def tangent(u, v):
-        return 2 * u * v / (u + v) if u * v > 0 else 0.
-
-    values = []
-    for j in range(1, len(a)):
-        delta = b[j] - a[j]
-        start = tangent(delta, span * (a[j] - prev[j]) / (a[0] - prev[0])) if prev else delta
-        end = tangent(delta, span * (after[j] - b[j]) / (after[0] - b[0])) if after else delta
-        values.append(a[j] + blend * delta + t * (1 - t) * ((1 - t) * start - t * end))
-    return values
-
-
-def section(screen_x, z):
-    """A point in the horizontal section, placed by its projected x."""
-    return screen_x * (1 - z / CAMERA_Z), z
-
-
-def wall(scene, left, right, height, material, shade=1., edge=0.):
+def _wall(left, right, top, bottom):
     lx, lz = left
     rx, rz = right
-    scene.quad(((lx, height, lz), (rx, height, rz),
-                (rx, -height, rz), (lx, -height, lz)), material, shade=shade, edge=edge)
+    # TL, TR, BR, BL as seen from the room, including the capture UVs.
+    return ((lx, top, lz), (rx, top, rz), (rx, bottom, rz), (lx, bottom, lz))
 
 
-def soffits(scene, a, b, height):
-    """Join a wall's top and bottom to the aperture plane at z=0."""
-    ax, az = a
-    bx, bz = b
-    if az * bz < 0:
-        # A wall passing through the lip has two caps meeting at a point.
-        # Splitting here keeps each quad simple instead of drawing a bow tie.
-        crossing = (ax + (bx - ax) * az / (az - bz), 0.)
-        soffits(scene, a, crossing, height)
-        soffits(scene, crossing, b, height)
-        return
-    if az == bz == 0:
-        return
+def _surfaces():
+    h = _CAPTURE_HALF_HEIGHT
+    yield _wall(_A_LEFT, _CORNER, h, -h), 'A', 1.
+    yield _wall(_CORNER, _B_RIGHT, h, -h), 'B', 1.
+    yield _wall(_B_RIGHT, _REAR, h, -h), (.24, .26, .28), (.92, .77, .77, .92)
+    yield _wall(_REAR, _A_LEFT, h, -h), (.28, .29, .30), (.77, .92, .92, .77)
 
-    fa = ax / (1 - az / CAMERA_Z)
-    fb = bx / (1 - bz / CAMERA_Z)
-    exterior = az + bz > 0
-    ceiling = (.32, .40, .49) if exterior else (.115, .17, .24)
-    floor = (.42, .50, .59) if exterior else (.17, .23, .31)
-    for y, color in ((height, ceiling), (-height, floor)):
-        scene.quad(((fa, y, 0.), (fb, y, 0.), (bx, y, bz), (ax, y, az)), color)
+    floor = (_A_LEFT, _CORNER, _B_RIGHT, _REAR)
+    yield tuple((x, -h, z) for x, z in floor), (.31, .33, .35), (.92, .65, .82, 1.09)
+    yield tuple((x, h, z) for x, z in reversed(floor)), (.16, .18, .20), (.96, .79, .65, .82)
 
 
-def bevel(scene, opening, height, depth):
-    inner = ((-opening, height, 0.), (opening, height, 0.),
-             (opening, -height, 0.), (-opening, -height, 0.))
-    inset = 1 - depth / CAMERA_Z
-    x = (opening + .40 * depth) * inset
-    y = (height + .22 * depth) * inset
-    outer = ((-x, y, depth), (x, y, depth), (x, -y, depth), (-x, -y, depth))
-    colors = ((.27, .32, .39), (.24, .29, .36), (.36, .42, .49), (.31, .37, .45))
-    for i, color in enumerate(colors):
-        j = (i + 1) % 4
-        scene.quad((outer[i], outer[j], inner[j], inner[i]), color)
+_ROOM = tuple(_surfaces())
 
 
-def ease(p, start, end):
-    t = min(1., max(0., (p - start) / (end - start)))
-    return t * t * (3 - 2 * t)
+def draw(scene, p, *, cube_tilt=0., zoom=.45):
+    # The retreat starts at second order, the turn at third: we begin and
+    # end square to a wall, with the largest reveal at the diagonal.
+    reveal = (4 * p * (1 - p)) ** 2
+    yaw = (pi / 2) * p**3 * (10 + p * (-15 + 6 * p))
+    s, c = sin(yaw), cos(yaw)
+    stand = 1 - _FOCAL_LENGTH
 
+    # Retreat along the view axis. Its fourth norm is a smooth upper bound
+    # on either axis component, leaving clearance from both rear walls.
+    max_retreat = _MAX_EYE_AXIS / (s**4 + c**4)**.25
+    rear = _BASE_RETREAT + zoom * (max_retreat - _BASE_RETREAT)
+    radius = stand - (stand + rear) * reveal
+    eye_x, eye_z = s * radius, -c * radius
 
-def draw(scene, p):
-    # Spend more of the fixed shot on the depth crossing, where both walls
-    # cover the most screen distance. Monotone, reversible, same endpoints.
-    p += .086 * sin(tau * p) + .024 * (1 - cos(tau * p))
-    activity = 4 * p * (1 - p)
-    screen_x, angle_a, angle_b, right_z, nearest_height = pose_at(p)
-    a, b = radians(angle_a), radians(angle_b)
+    # Change presentation by pitching at the eye, not moving it vertically.
+    pitch = radians(cube_tilt) * reveal
+    sp, cp = sin(pitch), cos(pitch)
 
-    # B deploys from the right boundary edge-on. Once deployed both panels
-    # have the desktop's true aspect ratio and share a single dolly scale.
-    b_width = 2 * ease(p, 0., .32)
-    depth_span = b_width * sin(b)
-    # Solve the perspective height bound for the common scale. A smoothed
-    # positive part keeps the dolly continuous when the nearer B edge swaps.
-    lead = (-depth_span + hypot(depth_span, .04 * activity)) / 2
-    scale = nearest_height * (1 - right_z / CAMERA_Z) / (1 + nearest_height * lead / CAMERA_Z)
-    crease_z = right_z - scale * depth_span
-    crease = section(screen_x, crease_z)
-    left = (crease[0] - 2 * scale * cos(a), crease_z - 2 * scale * sin(a))
-    right = (crease[0] + scale * b_width * cos(b), right_z)
-    height = HALF_HEIGHT * scale
+    def view(point):
+        x, y, z = point
+        x, z = x - eye_x, z - eye_z
+        depth = s * x - c * z
+        view_depth = cp * depth + sp * y
+        # The shared shader emits w = 3.4 - z. Feed it signed view depth
+        # so hardware clips primitives crossing the eye/near plane. Both
+        # head-on poses have view_depth == focal length, giving a 1:1 quad.
+        return c * x + s * z, cp * y - sp * depth, _RENDERER_EYE_Z * (1 - view_depth / _FOCAL_LENGTH)
 
-    opening = min(1. - .04 * activity, scale + .02 * activity)
-    lip_l, lip_r = (-opening, 0.), (opening, 0.)
-    jamb = section(-opening + .16 * ease(p, .50, .90), -.10 * p - .055 * activity)
-    bevel(scene, opening, height, .05 * activity)
-    wall(scene, lip_l, jamb, height, (.16, .22, .30))
-    wall(scene, jamb, left, height, (.13, .18, .25))
-    wall(scene, right, lip_r, height, (.20, .27, .35))
-
-    # B thrusts through the lip as the signed depth span changes. The jamb
-    # hides the receding edge of A; after A turns edge-on it lies behind B.
-    light_a_outer = 1 - .10 * activity
-    light_a_seam = 1 - .14 * activity + .15 * crease_z / CAMERA_Z
-    light_b_seam = 1 - .13 * activity + .25 * crease_z / CAMERA_Z
-    light_b_outer = 1 - .08 * activity
-    wall(scene, left, crease, height, 'A',
-         (light_a_outer, light_a_seam, light_a_seam, light_a_outer), .28 * activity)
-    wall(scene, crease, right, height, 'B',
-         (light_b_seam, light_b_outer, light_b_outer, light_b_seam), .28 * activity)
-
-    perimeter = (lip_l, jamb, left, crease, right, lip_r)
-    for a, b in zip(perimeter, perimeter[1:]):
-        soffits(scene, a, b, height)
+    for corners, material, shade in _ROOM:
+        scene.quad(tuple(view(point) for point in corners), material, shade=shade)

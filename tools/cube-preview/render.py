@@ -5,8 +5,10 @@ Requires Python with moderngl, numpy and Pillow; EGL, a C++20 compiler, ffmpeg
 """
 import argparse
 from collections import defaultdict
+from functools import partial
 from importlib import import_module
 import json
+import math
 from pathlib import Path
 import subprocess as sp
 import tempfile
@@ -15,12 +17,12 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from desktops import make_desktops
-from renderer import Scene
+from renderer import BackwardView, Scene
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 NAMES = ('solid', 'inside-out', 'tesseract', 'dimensional-fold')
-SHOTS = ('Forward   ·   01 → 02', 'Backward   ·   02 → 01', 'Interrupt   ·   return to 01 at halfway')
+SHOTS = ('Forward   ·   02 → 03', 'Backward   ·   03 → 02', 'Interrupt   ·   return to 02 at halfway')
 ENCODE = ['-an', '-c:v', 'libx264', '-preset', 'fast', '-crf', '17', '-threads', '6', '-pix_fmt', 'yuv420p',
           '-color_primaries', 'bt709', '-colorspace', 'bt709', '-color_trc', 'bt709', '-movflags', '+faststart']
 
@@ -35,8 +37,8 @@ def timeline():
         rows = sp.check_output([sampler, str(duration)], text=True).splitlines()
     shots = defaultdict(list)
     for row in rows:
-        slow, shot, _, p = row.split()
-        shots[int(slow), int(shot)].append(float(p))
+        slow, shot, backward, p = row.split()
+        shots[int(slow), int(shot), bool(int(backward))].append(float(p))
     return shots
 
 
@@ -51,7 +53,7 @@ def slate(base, name, slow, shot):
     def text(xy, value, font, px, colour):
         d.text(xy, value, font=ImageFont.truetype(font + '.ttf', px), fill=colour)
     number = NAMES.index(name)+1
-    text((24,14), f'HYPRIMATE    /    MOTION STUDY    {number:02} — 04', 'DejaVuSansMono', 17, '#a7c5c8')
+    text((24,14), f'HYPRIMATE    /    STUDY {number:02}    /    REVISION 02', 'DejaVuSansMono', 17, '#a7c5c8')
     text((22,38), name.replace('-', ' ').title(), 'DejaVuSans-Bold', 38, '#f3f3ef')
     text((24,96), SHOTS[shot], 'DejaVuSans', 22, '#d7dbd9')
     text((676,22), '1×' if slow == 1 else '¼×', 'DejaVuSans-Bold', 38, '#c3e2da')
@@ -60,8 +62,30 @@ def slate(base, name, slow, shot):
     return image
 
 
+def variant_draw(name, **options):
+    """Bind preview-only Python arguments once, not a compositor config reader."""
+    if name not in NAMES:
+        raise ValueError(f'unknown preview variant: {name}')
+    for key, value in options.items():
+        if key == 'show_other_workspaces':
+            if type(value) is not bool:
+                raise TypeError('show_other_workspaces must be boolean')
+        elif key in ('zoom', 'cube_tilt', 'next_workspace_start_size'):
+            if type(value) not in (int, float):
+                raise TypeError(f'{key} must be numeric')
+            low, high = (-20.,20.) if key == 'cube_tilt' else (0.,1.)
+            # Same float read behavior as generate_config.py's clamp_float.
+            options[key] = min(max(low, value), high) if math.isfinite(value) else low
+        else:
+            raise TypeError(f'unknown preview parameter: {key}')
+    return partial(import_module(name.replace('-', '_')).draw, **options)
+
+
 def encode(name, out, scene, images, shots):
-    draw = import_module(name.replace('-', '_')).draw
+    draw = variant_draw(name)
+    reverse_view = BackwardView(scene)
+    def backward_draw(_, p):
+        draw(reverse_view, p)
     # Keep the GL pipeline on the endpoints too. Detect an orientation, lighting,
     # sizing or sampling mistake rather than papering it over with a still.
     endpoints = []
@@ -84,8 +108,9 @@ def encode(name, out, scene, images, shots):
     n = 0
     with sp.Popen(args, stdin=sp.PIPE) as encoder:
         try:
-            for (slow, shot), path in shots.items():
-                base = endpoints[round(path[0])]
+            for (slow, shot, backward), path in shots.items():
+                base = endpoints[int(backward)]
+                active_draw = backward_draw if backward else draw
                 cue = slate(base, name, slow, shot)
                 def hold(rgb, frames):
                     nonlocal n
@@ -98,8 +123,8 @@ def encode(name, out, scene, images, shots):
                 hold(base.tobytes(), 8)
                 print(f'{name} {slow=} {shot=} motion {n}..{n+len(path)-1}', flush=True)
                 for p in path:
-                    hold(scene.frame(draw, p), 1)
-                hold(endpoints[round(path[-1])].tobytes(), 18)
+                    hold(scene.frame(active_draw, p), 1)
+                hold(endpoints[round(path[-1]) ^ int(backward)].tobytes(), 18)
         finally:
             encoder.stdin.close()
         if encoder.wait():
