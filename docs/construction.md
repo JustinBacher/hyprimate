@@ -39,3 +39,16 @@ The earlier 1.25× installation study (`build/construction-slice-13/`) measured 
 Stock Hyprland `948ac1abcd398f30460a5fb6951c7d46ba16bac7` is the tested revision containing the fractional redaction-mask change. In disposable sessions with Hyprimate unloaded or Construction opening disabled, the archived v0.57.0 transient did not recur in 354 protected monitor-capture frames. With the guarded Construction opening **enabled**, the effective rule on the synthetic protected client was `true` at map and rest: all 95 frames at 1× and all 95 at 1.5× contained only the gray background and native black mask. In the matched public recordings, the rule was `false`, the workers moved identifiable live client imagery, and native presentation took over at seating. See `build/construction-guarded-capture-01/verdict.md` for the six recordings, exact plugin hash and sampling limits. Use SDK headers and dependencies matching the exact compositor revision, not just its displayed version.
 
 This is compatibility evidence for windows protected before opening on the tested monitor-capture path. It does not qualify changing the rule on an already-rendered output, another capture API, retained closing content or the installed desktop. No host was patched. Stock Hyprland can abort when allocating framebuffer storage before the plugin can return a native fallback, including on `948ac1ab`; the null-lease test does not establish recovery from that host failure. Production integration remains gated.
+
+## Movement, resize and closing studies
+
+The native opening is the only live Construction behavior in this checkpoint. With `BUILD_TESTING=ON`, `src/animations/construction/studies/` also builds four CPU-only model tests:
+
+| Model | What the model publishes |
+|---|---|
+| `IntactTransport` | One posed window and either its carrying crew or the crane with two corner cables. |
+| `PieceRelocation` | Source regions of the current window, their destinations, and the workers carrying them. Vacated space contains no placeholder or moving aid. |
+| `EdgeStretch` | The authoritative resize rectangle, with workers pushing or pulling its edges. No subdivision. |
+| `RegionalClose` | A connected deformation of the faces visible when closing began. A local cue starts a staggered regional collapse. Draw authorization and crop restrict the source geometry each time it is requested. |
+
+None registers a live style, chooses a movement default, samples client pixels or owns a GL resource. These are model-level checks, not recordings of those behaviors running in Hyprland.

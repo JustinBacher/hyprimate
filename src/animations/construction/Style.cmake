@@ -24,6 +24,19 @@ if(BUILD_TESTING)
     target_include_directories(construction-site-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     target_link_libraries(construction-site-tests PRIVATE hyprimate-core)
     add_test(NAME construction-site-tests COMMAND construction-site-tests)
+    # Experimental motion models are exercised without linking them into the plugin.
+    function(add_construction_study_test target model)
+        add_executable(${target}
+            ${construction_dir}/studies/${model}.cpp
+            ${construction_dir}/studies/tests/${model}Tests.cpp)
+        target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+        target_link_libraries(${target} PRIVATE hyprimate-core)
+        add_test(NAME ${target} COMMAND ${target})
+    endfunction()
+    add_construction_study_test(construction-intact-transport-tests IntactTransport)
+    add_construction_study_test(construction-piece-relocation-tests PieceRelocation)
+    add_construction_study_test(construction-edge-stretch-tests EdgeStretch)
+    add_construction_study_test(construction-regional-close-tests RegionalClose)
     add_executable(construction-material-tests
         ${construction_dir}/tests/ConstructionMaterialTests.cpp
         ${construction_dir}/ConstructionMaterial.cpp ${construction_header})
