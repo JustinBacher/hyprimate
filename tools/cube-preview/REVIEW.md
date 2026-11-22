@@ -1,6 +1,8 @@
-# Cube studies · revision 02
+# Cube studies · fold and tesseract revision 03
 
 Visual proposal only. These keys are **not registered**. The scripts read no live compositor configuration, workspace list or captures, and do not load a plugin.
+
+Solid, inside-out and their parameter studies remain the approved revision 02. Revision 03 changes only the dimensional-fold and tesseract designs.
 
 ## Proposed Hyprland Lua shape
 
@@ -26,7 +28,8 @@ Public keys and enum values would use underscores, following `workspace.options.
 - **`solid.zoom` / `tesseract.zoom`** are extra peak camera retreat, measured in full desktop widths, range 0–1. Zero keeps geometric clearance; 1 adds one desktop width at peak. The camera returns to its original framing on landing.
 - **`inside_out.zoom`** is a fraction from 0 to 1 of the extra *safe interior retreat*. Zero retains a modest view of the inner corner. One uses the full conservative interior allowance, not one exterior desktop width. No value takes the eye through a wall.
 - **`dimensional_fold.show_other_workspaces`** defaults off. The demonstration uses two real entries from its synthetic inventory on either side of the journey: 01 Fern, **02 Mountain → 03 Desert**, 04 Plum. Neighbor textures are 384×216; missing images leave the corresponding planes absent. Proposed live behavior is to select existing eligible workspaces in native placement order, never fill numeric gaps, use only permitted budgeted inventory captures, and omit neighbors when unavailable or revoked. No live inventory traversal or capture is implemented here.
-- **`tesseract.next_workspace_start_size`** is the destination/source cell-width ratio at 26% path progress. At 0 the destination has zero area at reveal and unfolds from a point afterward. At 1 the cell is already full width but remains recessed, changes orientation, and exchanges places with the old cell. Both retain the desktop aspect ratio; nearer faces can appear larger on screen. The mechanism is a staged 3D cutaway with an x–w rotation of the sleeve rails, not a rigid projection of a whole 4D tesseract.
+  In R3 the two primary leaves begin nearly closed (20°). The destination opens from behind the source to a shared 112° angle; the source then tucks behind it. Each additional leaf articulates at the outside edge of its neighbor. The whole assembly sits farther back while open if a captured neighbor needs room; absent captures do not change the framing. The eye stays fixed.
+- **`tesseract.next_workspace_start_size`** is the destination/source cell-width ratio at 26% path progress. At 0 the insert has zero area at reveal and grows from a point afterward. At 1 it starts at the outer cell's width but is still recessed. All sizes use the same axial exchange: four panels connect the aperture of the receding source to the rear of the advancing destination. The aperture opens once. This is a 3D construction inspired by nested cells, not a 4D rotation.
 
 Use the established config generator and validators after approval, not a new parser: invalid choices rejected; bounded floats clamped, non-finite reads take the schema minimum. During review the renderer just binds typed Python arguments.
 
@@ -39,6 +42,16 @@ python tools/cube-preview/render.py /path/to/review
 python tools/cube-preview/parameters.py /path/to/review
 ```
 
+To produce only the two revised films, their parameter tests and the historical comparisons, keep both archived directories intact and use a new output directory:
+
+```sh
+python tools/cube-preview/render.py R3 --only dimensional-fold tesseract
+python tools/cube-preview/parameters.py R3 --only dimensional-fold tesseract
+python tools/cube-preview/revision_comparisons.py R1 R2 R3
+```
+
+`inside-out-vs-fold.mp4` uses the approved room movie on the left. The plans below the movies recover the room eye from its drawn walls and measure the fold angle from the same world coordinates as its panels, not their perspective silhouettes. `tesseract-history.mp4` places the two archived encodes beside the revision, synchronized by shot. The earlier film's backward shot plays its forward geometry in reverse; the other two use a fresh backward switch.
+
 The individual reels and the four-way comparison use the existing `direction_between` and `Transition` C++ code, the rotation family's configured **default** duration, and the controller's smoothstep curve. No live Hyprland curve is resolved. All four sample the same path clock, first in real time, then at quarter speed. A fresh backward switch exchanges the two capture owners and reflects travel, not lettering. An in-flight return keeps the original geometry and captures, and passes the presented position and velocity to `Transition::retarget`.
 
-`parameters.mp4` has five four-second studies: exterior tilt/zoom, interior tilt/zoom, neighbor inventory, nested tilt/zoom and nested start size. Within each study the viewports run in sync and briefly hold a common pose for comparison. Video compression is lossy; exact endpoints refer to the uncompressed offscreen output.
+With all variants selected, `parameters.mp4` has five four-second studies. The two-variant R3 command renders just three: neighbor inventory, nested tilt/zoom and nested start size. Each briefly holds a common pose for comparison. Video compression is lossy; exact endpoints refer to the uncompressed offscreen output.

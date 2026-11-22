@@ -22,6 +22,8 @@ from renderer import BackwardView, Scene
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 NAMES = ('solid', 'inside-out', 'tesseract', 'dimensional-fold')
+REVISIONS = {'solid': '02', 'inside-out': '02', 'dimensional-fold': '03', 'tesseract': '03'}
+CUE_HOLD, CUE_FADE, CLEAN_LEAD, CLEAN_TAIL = 56, 9, 8, 18
 SHOTS = ('Forward   ·   02 → 03', 'Backward   ·   03 → 02', 'Interrupt   ·   return to 02 at halfway')
 ENCODE = ['-an', '-c:v', 'libx264', '-preset', 'fast', '-crf', '17', '-threads', '6', '-pix_fmt', 'yuv420p',
           '-color_primaries', 'bt709', '-colorspace', 'bt709', '-color_trc', 'bt709', '-movflags', '+faststart']
@@ -53,7 +55,7 @@ def slate(base, name, slow, shot):
     def text(xy, value, font, px, colour):
         d.text(xy, value, font=ImageFont.truetype(font + '.ttf', px), fill=colour)
     number = NAMES.index(name)+1
-    text((24,14), f'HYPRIMATE    /    STUDY {number:02}    /    REVISION 02', 'DejaVuSansMono', 17, '#a7c5c8')
+    text((24,14), f'HYPRIMATE    /    STUDY {number:02}    /    REVISION {REVISIONS[name]}', 'DejaVuSansMono', 17, '#a7c5c8')
     text((22,38), name.replace('-', ' ').title(), 'DejaVuSans-Bold', 38, '#f3f3ef')
     text((24,96), SHOTS[shot], 'DejaVuSans', 22, '#d7dbd9')
     text((676,22), '1×' if slow == 1 else '¼×', 'DejaVuSans-Bold', 38, '#c3e2da')
@@ -117,14 +119,14 @@ def encode(name, out, scene, images, shots):
                     for _ in range(frames):
                         encoder.stdin.write(rgb)
                     n += frames
-                hold(cue.tobytes(), 56)
-                for k in range(1, 10):
-                    hold(Image.blend(cue, base, k/10).tobytes(), 1)
-                hold(base.tobytes(), 8)
+                hold(cue.tobytes(), CUE_HOLD)
+                for k in range(1, CUE_FADE + 1):
+                    hold(Image.blend(cue, base, k/(CUE_FADE+1)).tobytes(), 1)
+                hold(base.tobytes(), CLEAN_LEAD)
                 print(f'{name} {slow=} {shot=} motion {n}..{n+len(path)-1}', flush=True)
                 for p in path:
                     hold(scene.frame(active_draw, p), 1)
-                hold(endpoints[round(path[-1]) ^ int(backward)].tobytes(), 18)
+                hold(endpoints[round(path[-1]) ^ int(backward)].tobytes(), CLEAN_TAIL)
         finally:
             encoder.stdin.close()
         if encoder.wait():

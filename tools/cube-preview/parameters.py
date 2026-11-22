@@ -6,7 +6,7 @@ import subprocess as sp
 from PIL import Image, ImageDraw, ImageFont
 
 from desktops import make_desktops, make_neighbors
-from render import ENCODE, timeline, variant_draw
+from render import ENCODE, NAMES, REVISIONS, timeline, variant_draw
 from renderer import Scene
 
 SIZE = (1920, 1080)
@@ -32,16 +32,16 @@ def chapters():
            tesseract.REVEAL, [(f'{s:.2f}  starting size', '0° tilt   /   zoom 0.25', dict(next_workspace_start_size=s)) for s in (0.,.20,.65,1.)])
 
 
-def layout(name, title, detail, cases, index):
+def layout(name, title, detail, cases, index, total):
     # Titles and settings live outside the viewports; no desktop pixels covered.
     plate = Image.new('RGB', SIZE, '#161c22')
     pen = ImageDraw.Draw(plate)
     def text(x, y, value, px, color, bold=False, anchor='lt'):
         face = 'DejaVuSans-Bold.ttf' if bold else 'DejaVuSans.ttf'
         pen.text((x,y), value, font=ImageFont.truetype(face,px), fill=color, anchor=anchor)
-    text(44, 27, 'HYPRIMATE    /    PARAMETER STUDIES    •    REVISION 02', 20, '#a6cec4', True)
+    text(44, 27, 'HYPRIMATE    /    PARAMETER STUDIES    •    REVISION '+REVISIONS[name], 20, '#a6cec4', True)
     text(44, 65, f'{name}    /    {title}', 40, '#edf2f0', True)
-    text(1872, 40, f'{index:02d}  /  05', 24, '#b9cfce', anchor='rt')
+    text(1872, 40, f'{index:02d}  /  {total:02d}', 24, '#b9cfce', anchor='rt')
     count = len(cases)
     w,h = {2:(896,504),4:(720,405),6:(592,333)}[count]
     cols = 3 if count==6 else 2
@@ -61,19 +61,20 @@ def layout(name, title, detail, cases, index):
     return plate, (w,h), origins
 
 
-def render_parameters(out):
+def render_parameters(out, names=NAMES):
     out.mkdir(exist_ok=True, parents=True)
     images = make_desktops()
     neighbors = make_neighbors()
     path = timeline()[4,0,False]
+    selected = [entry for entry in chapters() if entry[0] in names]
     args = ['ffmpeg','-v','error','-y','-f','rawvideo','-pixel_format','rgb24','-video_size','1920x1080',
             '-framerate','60','-i','-', '-vf','scale=out_color_matrix=bt709:out_range=tv',*ENCODE,
-            '-metadata','title=Hyprimate / parameter studies, revision 02', out/'parameters.mp4']
+            '-metadata','title=Hyprimate / parameter studies', out/'parameters.mp4']
     with sp.Popen(args, stdin=sp.PIPE) as enc:
         try:
-            for i,(name,title,detail,pose,cases) in enumerate(chapters(),1):
+            for i,(name,title,detail,pose,cases) in enumerate(selected,1):
                 print(f'{i}: {title}  ({4*i-4}–{4*i}s)', flush=True)
-                plate, size, origins = layout(name,title,detail,cases,i)
+                plate, size, origins = layout(name,title,detail,cases,i,len(selected))
                 scene = Scene((*images,*neighbors) if name=='dimensional-fold' else images, size)
                 draws = [variant_draw(name,**opts) for _,_,opts in cases]
                 hold = min(range(len(path)), key=lambda k: abs(path[k]-pose))
@@ -96,4 +97,6 @@ def render_parameters(out):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output', type=Path)
-    render_parameters(parser.parse_args().output)
+    parser.add_argument('--only', choices=NAMES, nargs='+', default=NAMES)
+    args = parser.parse_args()
+    render_parameters(args.output, args.only)
