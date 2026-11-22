@@ -173,7 +173,7 @@ namespace hyprimate {
         const double SPOT_Y = (.12 + (.12 * unit_draw(seed))) * (unit_draw(seed) < .5 ? -1 : 1);
         m_initial = START;
         m_size = size;
-        m_duration = std::clamp(duration.seconds, .01, 60.0);
+        m_duration = duration.seconds;
         m_elapsed = 0;
         m_seed = MATERIAL_SEED;
         m_rupture = {.x = SPOT_X, .y = SPOT_Y};

@@ -79,8 +79,9 @@ void main() {
     float inside = 1.0 - smoothstep(-cell, cell, material);
     float body = bodyMask(rel, u_time, u_seed, .06 + .14 * u_smoke);
     float core = bodyMask(rel, u_time, u_seed, 0.0);
-    float phase = conversionPhase(luv, u_smoke, u_seed);
-    float previous = conversionPhase(luv, u_previous_smoke, u_seed);
+    bool opening = u_order < 0.0;
+    float formed = opening ? openingMaterial(rel, wuv, dye.a, u_smoke, u_seed, extent) : 0.0;
+    float phase = opening ? 1.0 - formed : conversionPhase(luv, u_smoke, u_seed);
     float massed = max(u_mass, u_transit);
 
     // Smoke ages from the moment it leaves the body; the body, and an opening or closing
@@ -98,7 +99,10 @@ void main() {
     float wake = mix(ageing, mix(2.6, .55, u_trail) * (1.0 + .6 * u_mass), u_transit);
     float decay = mix(wake, .25, body * (1.0 - u_dispersal)) +
         2.4 * u_dispersal * (.1 + 2.6 * patches * patches);
-    decay += 10.0 * (1.0 - phase) * inside * (.25 + u_cohesion + .3 * u_settle);
+    // Keep the forming front fed. Only the tightly bound interior takes dye out of circulation.
+    float bound = smoothstep(.60, 1.0, formed);
+    decay += (opening ? 4.0 * bound : 10.0 * (1.0 - phase)) *
+        inside * (.25 + u_cohesion + .3 * u_settle);
     // Gathering compresses smoke; beyond the body's own density the excess thins away so a
     // gathered head stays billowy instead of packing into an opaque ball.
     float full = (.55 + .6 * massed) * (.6 + .5 * u_density);
@@ -115,7 +119,10 @@ void main() {
     // Material that has just unravelled becomes smoke where it stood, in its own colours.
     vec2 drift = (vec2(noise3(vec3(luv * 3.0, u_time * .4 + 3.0)),
                       noise3(vec3(luv * 3.0 + 9.0, u_time * .4))) - .5) * .05;
-    dye += materialAt(luv, .012) * max(phase - previous, 0.0) * inside * 1.7 * (1.0 - .4 * massed);
+    if (!opening) {
+        float previous = conversionPhase(luv, u_previous_smoke, u_seed);
+        dye += materialAt(luv, .012) * max(phase - previous, 0.0) * inside * 1.7 * (1.0 - .4 * massed);
+    }
     // While it remains smoke, the body is kept full: denser the further it has contracted and
     // the higher the density setting, with slow seeded variations through its volume. Only
     // the deep interior of a massed body is refilled, so its wake comes from what peels off
@@ -123,14 +130,21 @@ void main() {
     float feed = mix(core, bodyMask(rel, u_time, u_seed, -.14), u_mass);
     float sustain = feed * mix(phase, 1.0, u_transit * u_smoke) * u_presence *
         (1.0 - u_dispersal);
+    if (opening) {
+        sustain = max(feed, .65 * body) * (1.0 - bound * inside) * u_presence *
+            (1.0 - smoothstep(.87, 1.0, 1.0 - u_smoke));
+    }
     // Seeded density variation; a head also carries layered folds so it never fills evenly.
     vec2 folded = bodyLocal(rel) / scale;
     float folds = .65 * noise3(vec3(folded * 1.8, u_time * .3 + u_seed * 21.0)) +
         .35 * noise3(vec3(folded * 4.4 + 7.0, u_time * .7 + u_seed * 13.0)) - .5;
     float clumping = max(1.0 + (.6 * u_variation + 1.1 * u_transit) * folds, .15);
     float deficit = max(full * clumping * sustain - dye.a, 0.0);
+    // Faster openings still gather a head instead of running the reveal before dye can arrive.
+    float recharge = opening ? u_dt * 8.0 + 2.7 * max(u_previous_smoke - u_smoke, 0.0)
+                             : u_dt * 5.0;
     dye += materialAt(mix(luv + drift * phase, clamp(buv, 0.0, 1.0), u_transit), .03 + .08 * u_transit) *
-        deficit * (1.0 - exp(-u_dt * 5.0));
+        deficit * (1.0 - exp(-recharge));
 
     // A travelling mass sheds clumps of itself from its rear and flanks at irregular places
     // and times; once outside the body they carry its momentum away as the wake. Shedding

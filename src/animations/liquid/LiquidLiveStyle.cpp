@@ -45,8 +45,10 @@ SLiquidModule::Prepared SLiquidModule::prepare_settings(const Settings &settings
                 .elasticity = settings.movement.elasticity,
                 .momentum = settings.movement.momentum,
                 .variation = settings.movement.variation},
-        .open = {.elasticity = settings.open.elasticity, .momentum = settings.open.momentum},
-        .close = {.elasticity = settings.close.elasticity, .momentum = settings.close.momentum},
+        .open = {.elasticity = settings.open.elasticity, .momentum = settings.open.momentum,
+            .duration_ms = settings.open.duration},
+        .close = {.elasticity = settings.close.elasticity, .momentum = settings.close.momentum,
+            .duration_ms = settings.close.duration},
         .movement_strength = settings.movement.strength,
         .open_strength = settings.open.strength,
         .close_strength = settings.close.strength,
@@ -62,7 +64,7 @@ SLiquidModule::State SLiquidModule::start(const Resources &resources, std::uint6
 
 bool SLiquidModule::open(State &state, const Place &place, Resources &resources, Effects &effects) {
     const auto &prepared = resources.prepared;
-    if (!resources.last || !(prepared.open_strength > 0.0)) {
+    if (!resources.last || prepared.open.duration_ms == 0.0 || !(prepared.open_strength > 0.0)) {
         return false;
     }
     const auto FRAME = resolve_style_open_edge(edge_input(place, true, std::nullopt),
@@ -150,6 +152,9 @@ Frame SLiquidModule::advance(State &state, const Step &step, Resources &resource
 }
 
 CloseStart SLiquidModule::close(State &state, const Place &place, Resources &resources) {
+    if (resources.prepared.close.duration_ms == 0.0) {
+        return CloseStart::Declined;
+    }
     state.dying = true;
     state.close_strength = resources.prepared.close_strength;
     if (state.box_driven && is_usable(place.body) && is_usable(place.goal_body)) {

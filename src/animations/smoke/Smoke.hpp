@@ -3,10 +3,21 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <optional>
 
 #include "animations/shared/Core.hpp"
 
 namespace hyprimate {
+
+    // The smoke body's underlying shape: a rounded rectangle around the window centre (plus
+    // carry), stretched along `stretch` and displaced by inertia. Identity at mass zero. During
+    // opening and closing it becomes the head.
+    struct SmokeBody {
+        Vec2 half;     // half extents before stretching
+        double radius = 0;
+        Vec2 offset;   // centre from the window centre
+        Vec2 stretch;  // travel direction scaled by elongation, 0 at rest
+    };
 
     // Per-frame drive for the GPU smoke fluid. Lengths are logical pixels.
     struct SmokeFrame {
@@ -40,25 +51,18 @@ namespace hyprimate {
         Vec2 head_lag;         // slower head velocity: the head's delayed stretch
         Vec2 head_half;
         double head_radius = 0;
-        Vec2 origin_uv;        // window point where conversion starts (order > 0) or ends
-        double order = 0;      // signed weight of conversion ordered by distance from origin_uv
+        Vec2 origin_uv;        // window point where the opening forms or the close unravels first
+        double order = 0;      // negative for opening and its wake; positive orders the close
         double attract = 0;    // pull of unravelled window material after the head
         double wind = 0;       // signed strength of the circulation around the head
         Vec2 edge_point;       // entering smoke streams in across the screen edge here
         Vec2 edge_dir;         // unit, from the window toward that edge; zero for none
         double density = 1;
         double variation = 0.5;
+        // Solid source shape at close start, until the material is mapped to the window.
+        std::optional<SmokeBody> close_source_body;
     };
 
-    // The smoke body's underlying shape: a rounded rectangle around the window centre (plus
-    // carry), stretched along `stretch` and displaced by inertia. Identity at mass zero. During
-    // opening and closing it becomes the head.
-    struct SmokeBody {
-        Vec2 half;     // half extents before stretching
-        double radius = 0;
-        Vec2 offset;   // centre from the window centre
-        Vec2 stretch;  // travel direction scaled by elongation, 0 at rest
-    };
     [[nodiscard]] SmokeBody smoke_body(const SmokeFrame &frame) noexcept;
 
     // Where opening smoke enters or closing smoke leaves.

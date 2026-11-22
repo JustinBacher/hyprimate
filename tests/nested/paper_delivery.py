@@ -41,7 +41,7 @@ def main():
     start = end = None
     for event in events:
         if event['kind'] == 'phase-duration-readback' and event['phase'] == 'close':
-            duration = event['actual']['float']
+            duration = event['actual']['float'] / 1000
         if event['kind'] == 'scene' and event['command']['id'] == ident:
             if event['command']['op'] == 'open':
                 start = max(0, event['t'] - origin - .1)

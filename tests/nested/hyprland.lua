@@ -52,7 +52,7 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                 style = "rotation",
 --                 options = {
 --                     rotation = {
---                         duration = 0.6,
+--                         duration = 600,
 --                         curve = "default",
 --                         gap_fill_style = "still",
 --                         gap_fill_color = 0xff000000,

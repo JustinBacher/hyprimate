@@ -214,7 +214,6 @@ namespace hyprimate {
                 !std::isfinite(params.variation) || !std::isfinite(params.shine)) {
                 return false;
             }
-            params.duration = std::clamp(params.duration, 0.1, 4.0);
             params.flutter = std::clamp(params.flutter, 0.0, 1.0);
             params.shading = std::clamp(params.shading, 0.0, 1.0);
             params.shine = std::clamp(params.shine, 0.0, 1.0);

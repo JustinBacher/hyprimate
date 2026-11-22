@@ -20,6 +20,8 @@ SSwarmModule::Prepared SSwarmModule::prepare_settings(const Settings &settings) 
         .movement = swarm_params(settings.movement),
         .open_sides = swarm_sides(settings.open.loneWindowSides),
         .close_sides = swarm_sides(settings.close.loneWindowSides),
+        .open_duration_ms = settings.open.duration,
+        .close_duration_ms = settings.close.duration,
     };
 }
 
@@ -30,7 +32,7 @@ SSwarmModule::State SSwarmModule::start([[maybe_unused]] const Resources &resour
 }
 
 bool SSwarmModule::open(State &state, const Place &place, Resources &resources, Effects &effects) {
-    if (!resources.last) {
+    if (!resources.last || resources.prepared.open_duration_ms == 0.0) {
         return false;
     }
     const EdgeSet SIDES = place.near.alone ? resources.prepared.open_sides :
@@ -43,7 +45,8 @@ bool SSwarmModule::open(State &state, const Place &place, Resources &resources, 
     state.creature = creature;
     state.swarm.reset();
     state.swarm.begin(Transition::Open, resources.prepared.open, place.seed,
-        {.capture = place.rest_capture, .body = place.goal_body, .screen = place.screen}, SIDES);
+        {.capture = place.rest_capture, .body = place.goal_body, .screen = place.screen}, SIDES,
+        resources.prepared.open_duration_ms);
     if (!state.swarm.active()) {
         return false;
     }
@@ -91,6 +94,9 @@ Frame SSwarmModule::advance(State &state, const Step &step, Resources &resources
 }
 
 CloseStart SSwarmModule::close(State &state, const Place &place, Resources &resources) {
+    if (resources.prepared.close_duration_ms == 0.0) {
+        return CloseStart::Declined;
+    }
     const EdgeSet SIDES = place.near.alone ? resources.prepared.close_sides :
         resolve_edge_sides(place.body, place.screen, place.near.tiled_goals);
     if (SIDES.empty() || !is_usable(place.capture) || !is_usable(place.screen) ||
@@ -105,7 +111,8 @@ CloseStart SSwarmModule::close(State &state, const Place &place, Resources &reso
         state.creature = creature;
     }
     state.swarm.begin(Transition::Close, resources.prepared.close, place.seed,
-        {.capture = place.capture, .body = place.body, .screen = place.screen}, SIDES);
+        {.capture = place.capture, .body = place.body, .screen = place.screen}, SIDES,
+        resources.prepared.close_duration_ms);
     return state.swarm.active() ? CloseStart::Owned : CloseStart::Declined;
 }
 

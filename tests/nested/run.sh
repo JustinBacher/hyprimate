@@ -131,7 +131,7 @@ Nested Hyprland is running (pid $pid), plugin loaded from $plugin.
   instance=$instance
 
 Change settings live from another terminal:
-  hyprctl -i $instance eval 'hl.config({ plugin = { hyprimate = { window = { open = { options = { paper = { duration = 1.5 } } } } } } })'
+  hyprctl -i $instance eval 'hl.config({ plugin = { hyprimate = { window = { open = { options = { paper = { duration = 1500 } } } } } } })'
   hyprctl -i $instance getoption plugin:hyprimate:window:style
 Reload after rebuilding:
   hyprctl -i $instance plugin unload $plugin && hyprctl -i $instance plugin load $plugin

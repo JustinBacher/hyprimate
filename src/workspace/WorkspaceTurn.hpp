@@ -754,7 +754,8 @@ template<class Monitor, class Port> class WorkspaceTurns {
     void configure(bool enabled, std::uint64_t style, double duration, std::string_view curve_name,
         bool settings_changed, Resolve &&resolve) {
         const auto revision = ++m_configuration_revision;
-        const bool VALID = enabled && std::isfinite(duration) && duration > 0.0;
+        const bool HAS_DURATION = std::isfinite(duration) && duration > 0.0;
+        const bool VALID = enabled && HAS_DURATION;
         if (m_enabled && (!VALID || style != m_style)) {
             clear();
             if (m_configuration_revision != revision) { return; }
@@ -772,7 +773,7 @@ template<class Monitor, class Port> class WorkspaceTurns {
         if (m_curve_name != curve_name) {
             m_curve_name = curve_name;
         }
-        if (m_curve_dirty || !m_curve) {
+        if (HAS_DURATION && (m_curve_dirty || !m_curve)) {
             const auto name = m_curve_name;
             auto curve = std::forward<Resolve>(resolve)(name);
             if (m_configuration_revision != revision) { return; }

@@ -1577,6 +1577,7 @@ void CWorkspaceAnimation::Impl::configure(const hyprimate::config::SWorkspaceSet
         const auto PREVIOUS = resources.settings.last;
         Style::prepare(resources, settings);
         if (m_lifecycle != lifecycle) { return; }
+        const bool ENABLED = settings.enabled && resources.settings.prepared.duration > 0.0;
         if (PREVIOUS != resources.settings.last || m_style_kind != Style::KIND || !settings.enabled) {
             clear();
             if (m_lifecycle != lifecycle + 1) { return; }
@@ -1590,21 +1591,21 @@ void CWorkspaceAnimation::Impl::configure(const hyprimate::config::SWorkspaceSet
         }
         m_individual_windows = Style::needs_individual_windows(resources);
         m_native_hud = Style::uses_native_hud(resources);
-        m_uses_previews = settings.enabled && Style::uses_workspace_previews(resources);
+        m_uses_previews = ENABLED && Style::uses_workspace_previews(resources);
         if (!m_uses_previews) {
             m_observed.clear();
         }
         const bool SUPPORTED = (!m_individual_windows || m_window_hook) && (!m_native_hud || m_layer_hook);
-        if (settings.enabled && !SUPPORTED && m_settings_changed) {
+        if (ENABLED && !SUPPORTED && m_settings_changed) {
             HyprlandAPI::addNotification(m_handle, "[hyprimate] Selected workspace options require an unavailable native capture hook",
                 CHyprColor(1.F, 0.35F, 0.2F, 1.F), 10000.F);
         }
         if (m_lifecycle != lifecycle) { return; }
-        configure_style<Style>(settings.enabled && SUPPORTED, resources);
+        configure_style<Style>(ENABLED && SUPPORTED, resources);
         if (m_lifecycle != lifecycle) { return; }
-        m_style_warm_pending = settings.enabled && SUPPORTED && !resources.ready;
+        m_style_warm_pending = m_turns.enabled() && !resources.ready;
     });
-    if (m_lifecycle == lifecycle && settings.enabled) {
+    if (m_lifecycle == lifecycle && m_turns.enabled()) {
         prime_outputs();
     }
 }

@@ -493,7 +493,9 @@ namespace hyprimate {
         reset();
         const EdgeFrame &chosen = CONTINUING ? PREVIOUS.m_frame : frame;
         if (!valid_frame(chosen) || !std::isfinite(params.elasticity) ||
-            !std::isfinite(params.momentum) || !std::isfinite(strength) || strength <= 0.0) {
+            !std::isfinite(params.momentum) || !std::isfinite(strength) || strength <= 0.0 ||
+            (params.duration_ms != -1.0 &&
+                (!std::isfinite(params.duration_ms) || params.duration_ms <= 0.0))) {
             return;
         }
 
@@ -553,6 +555,16 @@ namespace hyprimate {
         }
         m_taken = m_nc;
         refresh_profile();
+        if (params.duration_ms > 0.0) {
+            // The solver's endpoint depends on settling, and may include an inherited recoil.
+            // Count the fixed steps once, then play that exact trajectory on the requested clock.
+            EdgeTransition probe = *this;
+            do {
+                probe.step_and_refresh();
+                ++m_total_steps;
+            } while (probe.active());
+            m_requested_ms = params.duration_ms;
+        }
     }
 
     void EdgeTransition::reset() noexcept {
@@ -688,14 +700,29 @@ namespace hyprimate {
             abort();
             return false;
         }
+        if (m_requested_ms > 0.0) {
+            m_elapsed_ms += elapsed_seconds * 1000.0;
+            const int TARGET = m_elapsed_ms >= m_requested_ms ? m_total_steps
+                : std::min(m_total_steps - 1, static_cast<int>(
+                    (m_elapsed_ms / m_requested_ms) * m_total_steps + ACCUMULATOR_TOLERANCE));
+            // Finishing an opening resets the counters along with the rest of the transition.
+            while (active() && m_elapsed_steps < TARGET) {
+                ++m_elapsed_steps;
+                step_and_refresh();
+            }
+            return active();
+        }
         m_accumulator += elapsed_seconds;
         while (active() && m_accumulator >= SUBSTEP_SECONDS - ACCUMULATOR_TOLERANCE) {
             m_accumulator -= SUBSTEP_SECONDS;
-            step();
-            refresh_profile();  // per substep, so a snap always starts from the state one substep
-                                // earlier
+            step_and_refresh();
         }
         return active();
+    }
+
+    void EdgeTransition::step_and_refresh() noexcept {
+        step();
+        refresh_profile();  // a snap starts from the profile one substep earlier
     }
 
     bool EdgeTransition::quiet() const noexcept {

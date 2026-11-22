@@ -23,6 +23,8 @@ struct SSwarmPrepared {
     hyprimate::SwarmParams movement;
     hyprimate::EdgeSet open_sides;
     hyprimate::EdgeSet close_sides;
+    double open_duration_ms = -1.0;
+    double close_duration_ms = -1.0;
 };
 
 struct SSwarmResources :

@@ -90,7 +90,9 @@ namespace hyprimate::workspace {
             }
             // Cached successful/invalid paths are cheap; transient CPU allocation
             // failure must get another attempt even when settings are unchanged.
-            (void)resources.renderer.prepare_depth(settings.planetHop.depthSource);
+            if (resources.settings.prepared.duration > 0.0) {
+                (void)resources.renderer.prepare_depth(settings.planetHop.depthSource);
+            }
         }
         static bool draw(Resources &resources, Render::CRenderContext &ctx, const WorkspaceFrame &frame,
             double progress, Direction direction, bool matching) {

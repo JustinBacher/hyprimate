@@ -1091,6 +1091,63 @@ namespace {
         CHECK(swarm.params().speed == initial.speed);
     }
 
+    void durations_retime_opening_and_closing_motion() {
+        SwarmParams params;
+        params.count = 24;
+        const EdgeSet SIDES = sides({Edge::Left});
+        for (const Transition KIND : {Transition::Open, Transition::Close}) {
+            Swarm quick;
+            Swarm slow;
+            quick.begin(KIND, params, 31, placement(), SIDES, 125.5);
+            slow.begin(KIND, params, 31, placement(), SIDES, 2008.0);
+            quick.advance(0.06275);
+            for (int i = 0; i < 8; ++i) {
+                slow.advance(0.1255);
+            }
+            CHECK(quick.active() && slow.active());
+            CHECK(quick.bounds().w > 0.0);
+            CHECK(!in_formation(quick));
+            auto peer = slow.agents().begin();
+            for (const auto &agent : quick.agents()) {
+                CHECK(std::abs(agent.position.x - peer->position.x) < 1e-6);
+                CHECK(std::abs(agent.lock - peer->lock) < 1e-6);
+                ++peer;
+            }
+            CHECK(!quick.advance(0.06275));
+            for (int i = 0; i < 8; ++i) {
+                slow.advance(0.1255);
+            }
+            CHECK(!slow.active());
+            if (KIND == Transition::Open) {
+                CHECK(in_formation(quick) && in_formation(slow));
+            } else {
+                CHECK(quick.closed() && slow.closed());
+                CHECK(quick.bounds().w == 0.0 && slow.bounds().w == 0.0);
+            }
+        }
+        Swarm skipped;
+        skipped.begin(Transition::Open, params, 31, placement(), SIDES, 0.0);
+        CHECK(!skipped.active() && skipped.agents().empty());
+        skipped.begin(Transition::Close, params, 31, placement(), SIDES, 0.0);
+        CHECK(!skipped.active() && !skipped.closed());
+
+        Swarm interrupted;
+        interrupted.begin(Transition::Open, params, 31, placement(), SIDES, 300.0);
+        interrupted.advance(0.15);
+        const auto SHOWING = std::ranges::find_if(interrupted.agents(), [](const SwarmAgent &agent) {
+            return agent.visible && !agent.docked;
+        });
+        CHECK(SHOWING != interrupted.agents().end());
+        if (SHOWING != interrupted.agents().end()) {
+            const Vec2 POSITION = SHOWING->position;
+            interrupted.begin(Transition::Close, params, 32, placement(), SIDES, 80.25);
+            CHECK(interrupted.active() && !interrupted.opening());
+            CHECK(SHOWING->position.x == POSITION.x && SHOWING->position.y == POSITION.y);
+            CHECK(interrupted.advance(0.04));
+            CHECK(!interrupted.advance(0.041) && interrupted.closed());
+        }
+    }
+
 }  // namespace
 
 int main() {
@@ -1137,6 +1194,7 @@ int main() {
     turning_sprites_keep_animating();
     merging_sprites_keep_animating();
     movement_retuning_preserves_agents_and_latches_close();
+    durations_retime_opening_and_closing_motion();
     edge_sides_follow_the_neighbours();
     return g_failures == 0 ? 0 : 1;
 }

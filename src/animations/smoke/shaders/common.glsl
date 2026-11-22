@@ -13,10 +13,8 @@ vec2 previousUV(vec2 uv, vec2 shift) { return (uv - .5) * u_domain_scale + .5 + 
 uniform vec2 u_head_velocity, u_origin_uv, u_edge_point, u_edge_dir;
 uniform float u_transit, u_order, u_gather, u_density, u_variation, u_cohesion, u_attract;
 
-// Static, seeded order in which the material turns to smoke: the rim and ragged patches
-// first, the core last; or, with u_order, outward from u_origin_uv (positive) or inward
-// toward it (negative). Time-independent so a constant material coordinate never feeds or
-// drains the fluid.
+// Static order in which the material unravels: rim first in movement, or outward
+// from u_origin_uv in a close. A fixed material point does not feed or drain the fluid.
 float conversionPhase(vec2 luv, float s, float seed) {
     vec2 c = clamp(luv, 0.0, 1.0) - .5;
     float edge = smoothstep(.2, .98, 2.0 * max(abs(c.x), abs(c.y)));
@@ -24,7 +22,7 @@ float conversionPhase(vec2 luv, float s, float seed) {
         .38 * noise3(vec3(luv * 7.3, seed * 31.0 + 7.0));
     float threshold = .7 - .36 * edge;
     float reach = clamp(length(clamp(luv, 0.0, 1.0) - u_origin_uv) / 1.1, 0.0, 1.0);
-    threshold = mix(threshold, u_order > 0.0 ? .3 + .55 * reach : .85 - .55 * reach, abs(u_order));
+    threshold = mix(threshold, .3 + .55 * reach, u_order);
     threshold = clamp(threshold + .5 * (broad - .5), .25, .9);
     return s <= 0.0 ? 0.0 : smoothstep(threshold - .25, threshold + .07, s);
 }
@@ -69,6 +67,24 @@ float bodyDistance(vec2 rel) {
 }
 // Size against which body turbulence is measured.
 float bodyScale() { return max(2.0 * min(u_body_half.x, u_body_half.y), 48.0); }
+
+// Content resolves only inside the growing head and where live smoke has gathered.
+// The last part of the clock settles any remaining thin pockets into the exact surface.
+float openingMaterial(vec2 rel, vec2 luv, float dye, float smoke, float seed, float extent) {
+    if (smoke <= 0.0) {
+        return 1.0;
+    }
+    float progress = 1.0 - smoke;
+    vec2 farthest = max(u_origin_uv, 1.0 - u_origin_uv);
+    float reach = clamp(length(luv - u_origin_uv) / length(farthest), 0.0, 1.0);
+    float grain = .68 * noise3(vec3(luv * 4.0, seed * 31.0)) +
+                  .32 * noise3(vec3(luv * 13.0, seed * 31.0 + 7.0));
+    float arrival = .50 * reach * reach + .12 * grain;
+    float body = 1.0 - smoothstep(-.06, .07, bodyDistance(rel) / extent + .1 * (grain - .5));
+    float contact = smoothstep(.025, .30, dye) * body;
+    return smoothstep(arrival, arrival + .31, progress) *
+        mix(contact, 1.0, smoothstep(.70, 1.0, progress));
+}
 
 // The smoke body's dense core: the body shape with a boundary that boils with two octaves of
 // noise travelling with the body, so no straight window edge survives in the smoke.

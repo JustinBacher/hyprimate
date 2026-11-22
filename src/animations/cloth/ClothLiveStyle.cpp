@@ -43,9 +43,9 @@ SClothModule::Prepared SClothModule::prepare_settings(const Settings &settings) 
         .movement = {.strength = movement.strength, .flutter = movement.flutter,
             .shading = movement.shading, .variation = movement.variation, .shine = movement.shine,
             .springiness = movement.springiness, .gravity = movement.gravity},
-        .open = {.duration = open.duration, .flutter = open.flutter, .shading = open.shading,
+        .open = {.duration = open.duration / 1000.0, .flutter = open.flutter, .shading = open.shading,
             .variation = open.variation, .shine = open.shine},
-        .close = {.duration = close.duration, .flutter = close.flutter, .shading = close.shading,
+        .close = {.duration = close.duration / 1000.0, .flutter = close.flutter, .shading = close.shading,
             .variation = close.variation, .shine = close.shine},
     };
 }
@@ -58,7 +58,8 @@ SClothModule::State SClothModule::start(const Resources &resources, std::uint64_
 }
 
 bool SClothModule::open(State &state, const Place &place, Resources &resources, Effects &effects) {
-    if (!is_usable(place.goal_body) || !is_usable(place.rest_capture) || !resources.last) {
+    if (resources.prepared.open.duration <= 0 || !is_usable(place.goal_body) ||
+        !is_usable(place.rest_capture) || !resources.last) {
         return false;
     }
     const auto EDGE = resolve_style_open_edge(edge_input(place, true, std::nullopt), resources.last->open);
@@ -113,7 +114,7 @@ Frame SClothModule::advance(State &state, const Step &step, Resources &resources
 }
 
 CloseStart SClothModule::close(State &state, const Place &place, Resources &resources) {
-    if (!resources.last) {
+    if (resources.prepared.close.duration <= 0 || !resources.last) {
         return CloseStart::Declined;
     }
     const auto EDGE = resolve_style_close_edge(edge_input(place, false, state.origin), resources.last->close);

@@ -175,7 +175,10 @@ void CSmokeMaterial::use(Program program) const {
 void CSmokeMaterial::motion(Program program, const hyprimate::SmokeFrame &frame) const {
     const auto F = [](double value) { return static_cast<GLfloat>(value); };
     const auto &u = m_uniforms[program];
-    const auto BODY = hyprimate::smoke_body(frame);
+    // Only the composite draws solid pixels; the fluid still follows the growing head.
+    const auto BODY = program == Composite && frame.close_source_body
+                          ? *frame.close_source_body
+                          : hyprimate::smoke_body(frame);
     glUniform2f(u[Carry], F(frame.carry.x), F(frame.carry.y));
     glUniform2f(u[WindowVelocity], F(frame.velocity.x), F(frame.velocity.y));
     glUniform2f(u[Lag], F(frame.lag.x), F(frame.lag.y));

@@ -7,6 +7,7 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -27,7 +28,7 @@ using FLOAT = float;
 using STRING = std::string;
 // NOLINTNEXTLINE(readability-identifier-naming): mirrors Hyprland's Config::Values namespace.
 namespace Values {
-struct SFloatValueOptions { float min, max; };
+struct SFloatValueOptions { std::optional<float> min, max = std::nullopt; };
 struct SIntValueOptions { long long min, max; };
 struct SStringValueOptions { std::function<std::expected<void, std::string>(const STRING&)> validator; };
 struct Entry {
@@ -93,7 +94,7 @@ int main() try {
     assert(!config.workspace.enabled);
     assert(config.workspace.style == WorkspaceStyle::Rotation);
     assert(config.style == Style::Liquid);
-    assert(near(config.workspace.rotation.duration, 0.6));
+    assert(near(config.workspace.rotation.duration, 600));
     assert(config.workspace.planetHop.windowMode == PlanetHopWindowMode::Surface);
     assert(config.workspace.planetHop.overlayMode == PlanetHopOverlayMode::Fade);
     assert(config.workspace.planetHop.planetLayout == PlanetHopPlanetLayout::Focused);
@@ -140,20 +141,27 @@ int main() try {
     set("workspace:enabled", true);
     set("workspace:style", std::string("paper"));
     set("window:style", std::string("rotation"));
-    set("workspace:options:rotation:duration", 9.0F);
+    set("workspace:options:rotation:duration", 9000.0F);
     config = readConfig(values);
     assert(config.workspace.enabled && config.workspace.style == WorkspaceStyle::Rotation);
     assert(config.style == Style::Liquid);
-    assert(near(config.workspace.rotation.duration, 3.0));
+    assert(near(config.workspace.rotation.duration, 9000));
+    set("workspace:options:planet_hop:duration", 120000.0F);
+    set("workspace:options:rotation:duration", .5F);
+    config = readConfig(values);
+    assert(near(config.workspace.planetHop.duration, 120000));
+    assert(near(config.workspace.rotation.duration, .5));
     set("workspace:options:rotation:duration", -1.0F);
-    assert(near(readConfig(values).workspace.rotation.duration, 0.1));
+    assert(near(readConfig(values).workspace.rotation.duration, 0));
     set("workspace:options:rotation:duration", std::numeric_limits<float>::quiet_NaN());
-    assert(near(readConfig(values).workspace.rotation.duration, 0.1));
+    assert(near(readConfig(values).workspace.rotation.duration, 0));
     set("workspace:options:rotation:duration", std::numeric_limits<float>::infinity());
-    assert(near(readConfig(values).workspace.rotation.duration, 0.1));
+    assert(near(readConfig(values).workspace.rotation.duration, 0));
+    set("workspace:options:planet_hop:duration", 0.0F);
+    assert(near(readConfig(values).workspace.planetHop.duration, 0));
     // Unset globals must retain each transition's historical default.
-    assert(near(config.paper.open.duration, 0.6));
-    assert(near(config.paper.close.duration, 0.5));
+    assert(near(config.paper.open.duration, 600));
+    assert(near(config.paper.close.duration, 500));
     assert(near(config.paper.open.paperStiffness, .72) &&
            near(config.paper.close.paperStiffness, .72));
     assert(near(config.paper.open.settling, .45) && near(config.paper.close.settling, .45));
@@ -171,11 +179,23 @@ int main() try {
     assert(near(config.paper.resize.foldIntensity, .6) &&
            near(config.paper.resize.curlIntensity, .45));
     assert(near(config.paper.resize.creaseDensity, .5));
-    assert(near(config.cloth.open.duration, 1.0));
-    assert(near(config.cloth.close.duration, 0.9));
-    assert(near(config.bubble.open.duration, 1.0));
-    assert(near(config.bubble.close.duration, 0.42));
+    assert(near(config.cloth.open.duration, 1000));
+    assert(near(config.cloth.close.duration, 900));
+    assert(near(config.bubble.open.duration, 1000));
+    assert(near(config.bubble.close.duration, 420));
+    assert(near(config.smoke.open.duration, 1400));
+    assert(near(config.smoke.close.duration, 1600));
+    assert(near(config.burn.open.duration, 1000));
+    assert(near(config.burn.close.duration, 1500));
     assert(near(config.liquid.movement.strength, 0.65));
+    assert(config.liquid.open.duration == -1 && config.liquid.close.duration == -1);
+    assert(config.swarm.open.duration == -1 && config.swarm.close.duration == -1);
+    set("window:options:liquid:duration", 90000.0F);
+    set("window:open:options:liquid:duration", 0.0F);
+    set("window:close:options:swarm:duration", .5F);
+    config = readConfig(values);
+    assert(near(config.liquid.open.duration, 0) && near(config.liquid.close.duration, 90000));
+    assert(config.swarm.open.duration == -1 && near(config.swarm.close.duration, .5));
     // Formation-only keys live in the existing opening table, never global/close/movement.
     for (const char* leaf : {"count", "birth_rate", "size_variation", "growth_variation",
              "interaction", "damping", "buoyancy", "linger"}) {
@@ -198,23 +218,27 @@ int main() try {
     assert(near(config.bubble.open.sizeVariation, .9) && near(config.bubble.open.growthVariation, .3));
     assert(near(config.bubble.open.interaction, 1.4) && near(config.bubble.open.damping, 1.8));
     assert(near(config.bubble.open.buoyancy, 0) && near(config.bubble.open.linger, .8));
-    assert(config.bubble.close.count == 0 && near(config.bubble.close.duration, .42));
+    assert(config.bubble.close.count == 0 && near(config.bubble.close.duration, 420));
     set("window:open:options:bubble:count", 999LL);
     set("window:open:options:bubble:birth_rate", -1.0F);
     config = readConfig(values);
     assert(config.bubble.open.count == 160 && near(config.bubble.open.birthRate, .25));
 
-    set("window:options:paper:duration", 1.7F);
+    set("window:options:paper:duration", 120000.0F);
     set("window:options:liquid:strength", 1.2F);
     set("window:options:cloth:flutter", 0.8F);
-    set("window:options:bubble:duration", 1.4F);
+    set("window:options:bubble:duration", 1400.0F);
     config = readConfig(values);
-    assert(near(config.paper.open.duration, 1.7) && near(config.paper.close.duration, 1.7));
+    assert(near(config.paper.open.duration, 120000) && near(config.paper.close.duration, 120000));
     assert(near(config.liquid.open.strength, 1.2) && near(config.liquid.close.strength, 1.2));
     assert(near(config.liquid.movement.strength, 1.2));
     assert(near(config.cloth.open.flutter, 0.8) && near(config.cloth.close.flutter, 0.8));
     assert(near(config.cloth.movement.flutter, 0.8));
-    assert(near(config.bubble.open.duration, 1.4) && near(config.bubble.close.duration, 1.4));
+    assert(near(config.bubble.open.duration, 1400) && near(config.bubble.close.duration, 1400));
+    set("window:open:options:paper:duration", -1.0F);
+    set("window:close:options:paper:duration", .5F);
+    config = readConfig(values);
+    assert(near(config.paper.open.duration, 0) && near(config.paper.close.duration, .5));
 
     set("window:options:paper:crumple_origin", std::string("cursor"));
     set("window:close:options:paper:crumple_origin", std::string("left"));
@@ -276,12 +300,12 @@ int main() try {
     assert(config.cloth.close.edgeBounds == EdgeBounds::Screen);
 
     // Explicit values equal to old defaults still take precedence over global settings.
-    set("window:open:options:paper:duration", 0.6F);
-    set("window:close:options:paper:duration", 0.5F);
+    set("window:open:options:paper:duration", 600.0F);
+    set("window:close:options:paper:duration", 500.0F);
     set("window:movement:options:liquid:strength", 0.65F);
     set("window:close:options:cloth:flutter", 0.2F);
     config = readConfig(values);
-    assert(near(config.paper.open.duration, 0.6) && near(config.paper.close.duration, 0.5));
+    assert(near(config.paper.open.duration, 600) && near(config.paper.close.duration, 500));
     assert(near(config.liquid.movement.strength, 0.65));
     assert(near(config.liquid.open.strength, 1.2));
     assert(near(config.cloth.close.flutter, 0.2) && near(config.cloth.open.flutter, 0.8));

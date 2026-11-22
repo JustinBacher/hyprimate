@@ -10,6 +10,19 @@ using hyprimate::workspace::Direction;
 using hyprimate::workspace::Transition;
 
 namespace {
+    void positive_durations_are_not_clamped() {
+        constexpr double SHORTEST = std::numeric_limits<float>::denorm_min() / 1000.0;
+        constexpr double LONGEST = std::numeric_limits<float>::max() / 1000.0;
+        for (const double SECONDS : {SHORTEST, LONGEST}) {
+            Transition motion;
+            CHECK(motion.begin(Direction::Forward, SECONDS, [](double time) { return time; }));
+            motion.advance(SECONDS * .5);
+            CHECK(motion.active() && motion.progress() == .5);
+            motion.advance(SECONDS * .5);
+            CHECK(!motion.active() && motion.progress() == 1.0);
+        }
+    }
+
     void short_return_uses_travel_distance() {
         Transition motion;
         CHECK(motion.begin(Direction::Forward, .8, [](double time) { return time; }));
@@ -111,6 +124,7 @@ namespace {
 }  // namespace
 
 int main() {
+    positive_durations_are_not_clamped();
     short_return_uses_travel_distance();
     linear_returns_scale_with_angular_displacement();
     eased_return_uses_visual_not_elapsed_progress();

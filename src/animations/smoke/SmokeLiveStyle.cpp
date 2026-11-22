@@ -28,7 +28,8 @@ SSmokeModule::State SSmokeModule::start([[maybe_unused]] const Resources &resour
 
 bool SSmokeModule::open(State &state, const hyprimate::animation::Place &place,
     Resources &resources, hyprimate::animation::Effects &effects) {
-    if (!resources.last || !hyprimate::is_usable(place.goal_body) || !hyprimate::is_usable(place.rest_capture)) {
+    if (resources.prepared.open_duration <= 0 || !resources.last ||
+        !hyprimate::is_usable(place.goal_body) || !hyprimate::is_usable(place.rest_capture)) {
         return false;
     }
     state.smoke.begin(hyprimate::Transition::Open, resources.prepared.open_duration,
@@ -85,7 +86,7 @@ hyprimate::animation::Frame SSmokeModule::advance(State &state,
 
 hyprimate::animation::CloseStart SSmokeModule::close(State &state,
     const hyprimate::animation::Place &place, Resources &resources) {
-    if (!resources.last || !hyprimate::is_usable(place.capture)) {
+    if (resources.prepared.close_duration <= 0 || !resources.last || !hyprimate::is_usable(place.capture)) {
         return hyprimate::animation::CloseStart::Declined;
     }
     state.close_params = resources.prepared.closing;
@@ -126,6 +127,6 @@ SSmokeModule::Prepared SSmokeModule::prepare_settings(const Settings &settings) 
     return {.movement = PARAMS,
         .opening = opening,
         .closing = closing,
-        .open_duration = settings.open.duration,
-        .close_duration = settings.close.duration};
+        .open_duration = settings.open.duration / 1000.0,
+        .close_duration = settings.close.duration / 1000.0};
 }

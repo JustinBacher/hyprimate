@@ -13,6 +13,7 @@ namespace hyprimate {
     struct TransitionParams {
         double elasticity = 0.5;  // [0,1] spring stiffness; higher = snappier
         double momentum = 0.5;  // [0,1] inertia / overshoot; 0 = none
+        double duration_ms = -1.0;  // -1 keeps the natural timing; 0 skips the transition
     };
 
     // Rest geometry in the edge frame. n = distance from the screen edge into the screen; t =
@@ -195,6 +196,7 @@ namespace hyprimate {
         };
 
         void step() noexcept;
+        void step_and_refresh() noexcept;
         void abort() noexcept;
         void start_recoil(const Lobe
                 &snap) noexcept;  // the recoil starts at snap.height with snap's plateau and skirt
@@ -242,6 +244,8 @@ namespace hyprimate {
         Profile m_profile{};  // cached profile for the current state
         double m_taken = 0.0;  // centre n at the last take_travel()
         double m_accumulator = 0.0;
+        double m_elapsed_ms = 0.0, m_requested_ms = 0.0;
+        int m_total_steps = 0, m_elapsed_steps = 0;
     };
 
 }  // namespace hyprimate

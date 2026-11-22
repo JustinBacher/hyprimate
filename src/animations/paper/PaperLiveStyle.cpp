@@ -22,7 +22,7 @@ namespace {
             PaperForce::Inward, PaperForce::Directional, PaperForce::Rotational};
         constexpr std::array QUALITY{
             PaperQuality::Adaptive, PaperQuality::Low, PaperQuality::Medium, PaperQuality::High};
-        return {.duration = settings.duration,
+        return {.duration = settings.duration / 1000.0,
             .crumpliness = settings.crumpliness,
             .shading = settings.shading,
             .variation = settings.variation,
@@ -136,7 +136,7 @@ SPaperModule::State SPaperModule::start(const Resources &, std::uint64_t) {
 }
 
 bool SPaperModule::open(State &state, const Place &place, Resources &resources, Effects &effects) {
-    if (!is_usable(place.rest_capture) || !is_usable(place.goal_body)) {
+    if (resources.prepared.open.duration <= 0 || !is_usable(place.rest_capture) || !is_usable(place.goal_body)) {
         return false;
     }
     if (!resources.workers.begin(state.run,
@@ -183,7 +183,7 @@ Frame SPaperModule::advance(State &state, const Step &step, Resources &resources
 }
 
 CloseStart SPaperModule::close(State &state, const Place &place, Resources &resources) {
-    if (!is_usable(place.capture)) {
+    if (resources.prepared.close.duration <= 0 || !is_usable(place.capture)) {
         return CloseStart::Declined;
     }
     if (state.run && (state.display.faces.empty() || state.display.opacity <= 0)) {

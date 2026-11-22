@@ -19,7 +19,7 @@ hl.config({ plugin = { hyprimate = { workspace = {
 } } } })
 ```
 
-`duration` is the total time in **milliseconds** from the first planetary presentation to the native landing. Skipping workspaces does not add time. The camera, surface curvature, windows and shell all sample the same curved timeline. A reversal preserves position and outgoing velocity; a request for a third workspace queues the next leg rather than cutting away from the current pair.
+`duration` is the total time in **milliseconds** from the first planetary presentation to the native landing. It defaults to `800`, accepts fractional values, and has no configured maximum. Set it to `0` to skip Planet Hop and leave the workspace change to Hyprland. Skipping workspaces does not add time. The camera, surface curvature, windows and shell all sample the same curved timeline. A reversal preserves position and outgoing velocity; a request for a third workspace queues the next leg rather than cutting away from the current pair.
 
 `curve` accepts a native `hl.curve` Bézier or spring name. A spring declared with `hl.plugin.planet_hop.curve` is private to Planet Hop and takes precedence for a bare name. Use `spring:name` to explicitly select a native spring. Planet Hop uses Hyprutils' mass, stiffness, damping and step response. Unlike a native property that can overshoot and settle on its own schedule, the camera has two endpoints and a deadline: Planet Hop fits the spring's rising response to the duration, ending at its first peak or its settling tolerance rather than replaying rebounds or a stationary tail.
 
@@ -32,7 +32,7 @@ hl.config({ plugin = { hyprimate = { workspace = {
 
 The scene uses real workspaces, never placeholders for missing workspace numbers. Hidden special workspaces do not populate ordinary journeys. `solar_vertical_spread` stretches the orbits vertically; zero retains the base orbit. Window, overlay, atmosphere and surface controls are independent of workspace coverage.
 
-**Migrating an existing configuration:** multiply Planet Hop `duration` by 1000 (`0.8` → `800`); Rotation still uses seconds. Replace `linear` or `dynamic` **layout** with `focused` to retain the old two-world scope. `linear` remains a valid **curve**. Remove `skip_duration_mode`, `distance_scale`, `max_duration` and `adaptive_boundary`: there is no implicit distance multiplier or second clock. Old layout names are not aliases.
+**Migrating an existing configuration:** if your duration is still in seconds, multiply by 1000 (`0.8` → `800` for Planet Hop, `0.6` → `600` for Rotation). Leave existing millisecond values unchanged. Replace `linear` or `dynamic` **layout** with `focused` to retain the old two-world scope. `linear` remains a valid **curve**. Remove `skip_duration_mode`, `distance_scale`, `max_duration` and `adaptive_boundary`: there is no implicit distance multiplier or second clock. Old layout names are not aliases.
 
 Use `window_mode = "floating"` and adjust `elevation` for rectangular, separately anchored windows. Use `overlay_mode = "hud"` to keep panels screen-aligned. Set `sampling_quality = 0` to reduce tessellation and material sampling without turning off lighting, depth, clouds, stars or atmosphere. These effects and rotation each have their own switch. `depth_source` accepts a grayscale PNG depth map in wallpaper/screen coordinates (top row first); with no usable map, the renderer uses subtle procedural relief, not wallpaper luminance. See the [generated settings table](../README.md) for all ranges, defaults and switches.
 

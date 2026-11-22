@@ -169,7 +169,7 @@ def main():
         hc('eval', 'hl.window_rule({name="paper-evidence",match={title="^PaperEvidence-.*$"},float=true,move="40 40"})')
         hc('dismissnotify', '-1')
 
-        def options(settings='duration=1.2', close_duration=None):
+        def options(settings='duration=1200', close_duration=None):
             opening = 'false' if args.close_only else 'true'
             duration = dict(item.split('=', 1) for item in settings.split(','))['duration']
             closing_duration = duration if close_duration is None else str(close_duration)
@@ -198,7 +198,7 @@ def main():
                 event('phase-duration-readback', phase=phase, desired=desired, actual=actual)
                 if abs(actual.get('float', -1) - desired) > 1e-5:
                     raise RuntimeError(('phase duration readback mismatch', phase, desired, actual))
-            return float(duration)
+            return float(duration) / 1000
 
         options()
         scene = start('scene', ['/usr/bin/python', ROOT / 'tests/nested/paper_scene.py'], stdin=sp.PIPE)
@@ -229,27 +229,27 @@ def main():
             cases = [cases[1]]
         if args.directional_left:
             cases = [('directional-left', 620, 620, True, 1,
-                'duration=1.2,fold_density=.55,crumple_origin=\"left\",force_direction=\"directional\"')]
+                'duration=1200,fold_density=.55,crumple_origin=\"left\",force_direction=\"directional\"')]
         if args.unfolding:
-            cases = [('long-print', 760, 540, False, 1, 'duration=3,fold_density=.55'),
-                     ('wide-print', 1050, 300, False, 1, 'duration=.6,fold_density=.2'),
-                     ('tall-mixed', 320, 640, True, 1, 'duration=1.2,fold_density=.9,crumple_origin="left"')]
+            cases = [('long-print', 760, 540, False, 1, 'duration=3000,fold_density=.55'),
+                     ('wide-print', 1050, 300, False, 1, 'duration=600,fold_density=.2'),
+                     ('tall-mixed', 320, 640, True, 1, 'duration=1200,fold_density=.9,crumple_origin="left"')]
         if args.matrix:
             for name, width, height, image in [('small', 240, 160, False), ('large', 1160, 620, True),
                     ('wide', 1100, 240, False), ('tall', 260, 620, True), ('square', 620, 620, True)]:
                 for seed in range(3):
-                    settings = ('duration=1.2,fold_density=' + str([.15, .55, 1][seed]) +
+                    settings = ('duration=1200,fold_density=' + str([.15, .55, 1][seed]) +
                         ',crumple_origin="' + ['center', 'left', 'random'][seed] + '",force_direction="' +
                         ['inward', 'directional', 'rotational'][seed] + '",simulation_quality="adaptive"')
                     cases.append((name + '-seed-sequence-' + str(seed), width, height, seed != 0, 1, settings))
             for shade, name in ((1, 'shading-high'), (0, 'shading-zero')):
                 cases.append((name, 980, 620, False, 1,
-                    f'duration=1.2,variation=0,fold_density=.8,crumple_origin=\"center\",'
+                    f'duration=1200,variation=0,fold_density=.8,crumple_origin=\"center\",'
                     f'force_direction=\"inward\",shading={shade}'))
             cases.append(('cursor-origin', 760, 540, False, 1,
-                'duration=1.2,fold_density=.8,crumple_origin=\"cursor\",force_direction=\"directional\",shading=.7'))
+                'duration=1200,fold_density=.8,crumple_origin=\"cursor\",force_direction=\"directional\",shading=.7'))
             cases.append(('production-defaults', 760, 540, False, 1,
-                'duration=.6,crumpliness=.6,shading=.7,variation=.5,fold_density=.55,'
+                'duration=600,crumpliness=.6,shading=.7,variation=.5,fold_density=.55,'
                 'paper_stiffness=.72,crumple_size=.18,crumple_origin=\"center\",'
                 'force_direction=\"inward\",rotation_intensity=.22,settling=.45,simulation_quality=\"adaptive\"'))
         for name, width, height, image, count, settings in cases:
@@ -259,8 +259,8 @@ def main():
                 event('checked-cursor-origin', requested=[170, 230], actual=pointer)
                 if abs(pointer['x'] - 170) > .5 or abs(pointer['y'] - 230) > .5:
                     raise RuntimeError(('private pointer position mismatch', pointer))
-            close_duration = .5 if args.unfolding or name == 'production-defaults' else None
-            opening_duration = options(settings or 'duration=1.2', close_duration=close_duration)
+            close_duration = 500 if args.unfolding or name == 'production-defaults' else None
+            opening_duration = options(settings or 'duration=1200', close_duration=close_duration)
             ids = list(range(index, index + count))
             index += count
             event('case', name=name, ids=ids, width=width, height=height,
@@ -300,7 +300,7 @@ def main():
                 if max(stats.mean) > .1:
                     failures.append(dict(case=name, check='native-open-endpoint', mean_absolute_rgb=stats.mean))
                 # Restore the complete source settings, not only the enable flag.
-                options(settings or 'duration=1.2', close_duration=close_duration)
+                options(settings or 'duration=1200', close_duration=close_duration)
             for ident in ids:
                 send(dict(op='close', id=ident))
             time.sleep(1.8)
@@ -317,7 +317,7 @@ def main():
             if json.loads(hc('-j', 'clients')):
                 raise RuntimeError('reversal did not reach native closed endpoint')
         if args.matrix:
-            options('duration=1.2,fold_density=.8,shading=.7')
+            options('duration=1200,fold_density=.8,shading=.7')
             event('burst-start', count=24, delays=[0, .005, .03],
                   limitation='Map/unmap requests include zero-delay windows; first-pose publication is not directly instrumented.')
             for burst in range(24):
@@ -343,7 +343,7 @@ def main():
                 if compositor.poll() is not None:
                     raise RuntimeError('private compositor exited during plugin unload')
                 hc('plugin', 'load', str(plugin))
-                options('duration=1.2,fold_density=.8,shading=.7')
+                options('duration=1200,fold_density=.8,shading=.7')
                 send(dict(op='close', id=ident))
                 time.sleep(1.8)
                 if json.loads(hc('-j', 'clients')):
@@ -368,7 +368,7 @@ def main():
         durations = {}
         for e in events:
             if e['kind'] == 'phase-duration-readback':
-                durations[e['phase']] = e['actual']['float']
+                durations[e['phase']] = e['actual']['float'] / 1000
             if e['kind'] != 'scene' or e['command']['op'] not in ('open', 'close'):
                 continue
             begin = e['t'] - capture_start

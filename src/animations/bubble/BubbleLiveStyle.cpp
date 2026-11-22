@@ -30,8 +30,8 @@ SBubbleModule::Prepared SBubbleModule::prepare_settings(const Settings &settings
             .damping = open.damping,
             .buoyancy = open.buoyancy,
             .linger = open.linger},
-        .open_duration = open.duration,
-        .close_duration = settings.close.duration,
+        .open_duration = open.duration / 1000.0,
+        .close_duration = settings.close.duration / 1000.0,
     };
 }
 
@@ -43,7 +43,8 @@ SBubbleModule::State SBubbleModule::start([[maybe_unused]] const Resources &reso
 
 bool SBubbleModule::open(State &state, const hyprimate::animation::Place &place,
     Resources &resources, hyprimate::animation::Effects &effects) {
-    if (!hyprimate::is_usable(place.goal_body) || !hyprimate::is_usable(place.rest_capture)) {
+    if (resources.prepared.open_duration <= 0 ||
+        !hyprimate::is_usable(place.goal_body) || !hyprimate::is_usable(place.rest_capture)) {
         return false;
     }
     state.bubble.begin(hyprimate::Transition::Open,
@@ -111,6 +112,9 @@ hyprimate::animation::Frame SBubbleModule::advance(State &state,
 
 hyprimate::animation::CloseStart SBubbleModule::close(State &state,
     const hyprimate::animation::Place &place, Resources &resources) {
+    if (resources.prepared.close_duration <= 0) {
+        return hyprimate::animation::CloseStart::Declined;
+    }
     state.bubble.begin(hyprimate::Transition::Close,
         hyprimate::BubbleDuration{resources.prepared.close_duration}, place.seed,
         {.x = place.capture.w, .y = place.capture.h});

@@ -19,7 +19,7 @@ and any opening, movement, or closing settings to demonstrate.
 Example: tools/demo_hyprimate.sh 'window = { style = "paper" }' paper-demo.mp4
 The style launchers accept [CONFIG] [OUTPUT], for example:
   tools/demo_cloth.sh
-  tools/demo_cloth.sh 'window = { movement = { duration = 0.8 } }' cloth-demo.mp4
+  tools/demo_cloth.sh 'window = { open = { options = { cloth = { duration = 800 } } } }' cloth-demo.mp4
 Extra settings merge over the selected style. Use '' for CONFIG to set only OUTPUT.
 
 Records opening, tiled swaps, irregular floating movement, and closing with

@@ -88,7 +88,8 @@ class ConfigGeneratorTests(unittest.TestCase):
         self.assertEqual(items['workspace.style']['choices'], ['rotation', 'planet_hop'])
         self.assertEqual(items['workspace.style']['default'], 'rotation')
         duration = items['workspace.options.rotation.duration']
-        self.assertEqual((duration['default'], duration['min'], duration['max']), (0.6, 0.1, 3))
+        self.assertEqual((duration['default'], duration['min']), (600, 0))
+        self.assertNotIn('max', duration)
         curve = items['workspace.options.rotation.curve']
         self.assertEqual(curve['default'], 'default')
         self.assertNotIn('choices', curve)
@@ -119,7 +120,7 @@ class ConfigGeneratorTests(unittest.TestCase):
                 self.assertIn(f'value == "{choice}"', registration)
             for choice in rejected:
                 self.assertNotIn(f'value == "{choice}"', registration)
-        self.assertIn('config.workspace.rotation.duration = detail::clamp_float(values.m_workspaceRotationDuration->value(), 0.1F, 3.0F);', header)
+        self.assertIn('config.workspace.rotation.duration = detail::clamp_float(values.m_workspaceRotationDuration->value(), 0.0F);', header)
 
     def test_settings_header_is_standalone(self):
         header = self.tmp / 'config_settings_generated.hpp'
@@ -166,6 +167,8 @@ class ConfigGeneratorTests(unittest.TestCase):
                      'depth_enabled', 'rotation_enabled'):
             self.assertIs(items[name]['default'], True)
         self.assertEqual(items['duration']['default'], 800)
+        self.assertEqual(items['duration']['min'], 0)
+        self.assertNotIn('max', items['duration'])
         self.assertEqual(items['curve']['default'], 'linear')
         self.assertEqual(items['depth_source']['default'], '')
         self.assertEqual((items['live_boundary']['min'], items['live_boundary']['default'],
@@ -323,8 +326,9 @@ class ConfigGeneratorTests(unittest.TestCase):
                 continue
             path = item['path'].replace('.', ':')
             row = next(text for key, text in rows if key == path)
-            expected_range = (f'{item["min"]}–{item["max"]}'
-                              if item['type'] in ('int', 'float') else '—')
+            expected_range = '—'
+            if item['type'] in ('int', 'float'):
+                expected_range = f'{item["min"]}–{item["max"]}' if 'max' in item else f'≥ {item["min"]}'
             self.assertIn(f' | {expected_range} | ', row)
 
     def test_readme_example_includes_all_shared_options_without_changing_defaults(self):
@@ -343,13 +347,14 @@ class ConfigGeneratorTests(unittest.TestCase):
             values = {other['default'] for other in overrides}
             with self.subTest(path=item['path']):
                 self.assertEqual(item['path'] in active,
-                                 len(values) <= 1 and not any('fallback' in other for other in overrides))
+                                 len(values) <= 1 and not item.get('natural_timing')
+                                 and not any('fallback' in other for other in overrides))
 
     def test_readme_describes_differing_animation_defaults_and_meanings(self):
         block = GEN.documentation(SCHEMA)
-        for style, opening, closing in [('paper', '0.6', '0.5'),
-                                        ('cloth', '1.0', '0.9'),
-                                        ('bubble', '1.0', '0.42')]:
+        for style, opening, closing in [('paper', '600', '500'),
+                                        ('cloth', '1000', '900'),
+                                        ('bubble', '1000', '420')]:
             row = next(line for line in block.splitlines()
                        if line.startswith(f'| `window:options:{style}:duration` |'))
             self.assertIn(f'open `{opening}`', row)
@@ -359,6 +364,22 @@ class ConfigGeneratorTests(unittest.TestCase):
             self.assertNotIn(f'Shared {style} duration setting.', row)
         self.assertIn('window.<animation>.options.<style>', block)
         self.assertIn('clamped to the receiving animation', block)
+
+    def test_window_transition_durations_are_nonnegative_milliseconds_without_a_cap(self):
+        defaults = {'burn': (1000, 1500), 'paper': (600, 500), 'cloth': (1000, 900),
+                    'bubble': (1000, 420), 'smoke': (1400, 1600),
+                    'liquid': (0, 0), 'swarm': (0, 0)}
+        items = {item['path']: item for item in SCHEMA}
+        for style, durations in defaults.items():
+            shared = items[f'window.options.{style}.duration']
+            for phase, default in zip(('open', 'close'), durations):
+                with self.subTest(style=style, phase=phase):
+                    item = items[f'window.{phase}.options.{style}.duration']
+                    self.assertEqual(item['default'], default)
+                    self.assertEqual(item['min'], 0)
+                    self.assertNotIn('max', item)
+                    self.assertEqual(shared['min'], 0)
+                    self.assertNotIn('max', shared)
 
     def test_documentation_does_not_change_nested_lua_example(self):
         before = GEN.lua_config(SCHEMA)

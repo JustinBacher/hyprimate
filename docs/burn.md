@@ -9,12 +9,12 @@ hl.config({ plugin = { hyprimate = { window = {
     style = "burn",
     options = { burn = { wind_direction = 315, wind_strength = 240 } },
     close = { options = { burn = {
-        closing_style = "consume", debris_direction = "wind", duration = 1.6,
+        closing_style = "consume", debris_direction = "wind", duration = 1600,
     } } },
 } } } })
 ```
 
-`duration` controls burn speed; a shorter time is faster. `curl` bends the sheet locally at the front instead of contracting the entire window. Wind acts on detached material, not the location at which the sheet ignites. Wallpaper recovery has its own clock: `scorch_lifetime` is the cooling period, `healing_duration` is the subsequent restoration time. Neither setting prolongs the client's lifetime.
+`duration` controls burn speed in milliseconds; `0` skips the plugin transition. `curl` bends the sheet locally at the front instead of contracting the entire window. Wind acts on detached material, not the location at which the sheet ignites. Wallpaper recovery has its own clock: `scorch_lifetime` is the cooling period, `healing_duration` is the subsequent restoration time. Neither setting prolongs the client's lifetime.
 
 ## Where the material comes from
 

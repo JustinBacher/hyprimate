@@ -2,7 +2,7 @@
 precision highp float;
 precision highp sampler3D;
 #include "common.glsl"
-// Composite: the remaining solid window under lit, self-shadowed fluid smoke.
+// Composite the lit fluid with window material that forms from it or unravels into it.
 uniform sampler2D u_window, u_dye, u_velocity_field, u_age;
 uniform vec2 u_origin, u_source, u_size, u_tex_origin, u_tex_size;  // device pixels
 uniform vec2 u_logical, u_domain, u_grid, u_carry, u_velocity, u_position, u_offset;  // logical
@@ -24,18 +24,15 @@ void main() {
     }
     vec2 w = (local - .5) * u_logical;
     vec2 rel = w - u_carry;
-    // The still-solid window is the contracting body itself: its content is mapped onto the
-    // body's shrinking, rounding, stretching shape, so window and smoke stay one material.
-    // While a head gathers the window up or condenses into it, the window stays in place.
+    // Moving material contracts into its own body; closing keeps the old solid surface anchored.
     vec2 wuv = rel / u_logical + .5;
-    vec2 luv = mix(bodyUV(rel), wuv, u_transit);
     float extent = max(min(u_logical.x, u_logical.y), 48.0);
 
-    // Solid material: still-attached content is dragged along the flow before it lets go,
-    // and its boundary frays rather than fading as a rectangle.
+    bool opening = u_order < 0.0;
     vec4 solid = vec4(0.0);
-    float phase = conversionPhase(luv, u_smoke, u_seed);
-    {  // Unconditional: fwidth needs uniform control flow. Fray is zero once fully smoke.
+    if (!opening) {
+        vec2 luv = mix(bodyUV(rel), wuv, u_transit);
+        float phase = conversionPhase(luv, u_smoke, u_seed);
         float speed = length(u_velocity);
         vec2 heading = speed > .001 ? u_velocity / speed : vec2(0.0);
         float moving = smoothstep(30.0, 700.0, speed);
@@ -65,6 +62,7 @@ void main() {
     vec2 guv = (w - u_offset) / u_domain + .5;
     vec4 dye = texture(u_dye, guv);
     vec4 smoke = vec4(0.0);
+    vec2 fluid = vec2(0.0);
     if (dye.a > .002) {
         // Density gradient gives billows a surface; marching toward the light gives
         // dense folds their own shadow.
@@ -84,11 +82,11 @@ void main() {
         float shadow = exp(-occlusion * .38 * thickness);
         // Sub-grid fibres: noise smeared back along the local flow, so fast smoke breaks
         // into streaming strands and slow smoke into curdled folds.
-        vec2 flow = texture(u_velocity_field, guv).xy;
+        fluid = texture(u_velocity_field, guv).xy;
         vec2 world = w + u_position;
         float fibres = 0.0;
         for (int i = 0; i < 4; ++i) {
-            vec2 q = (world - flow * (.03 * float(i))) / extent * 10.0;
+            vec2 q = (world - fluid * (.03 * float(i))) / extent * 10.0;
             fibres += noise3(vec3(q, u_time * .35 + u_seed * 5.0));
         }
         fibres = smoothstep(.22, .78, fibres * .25);
@@ -112,6 +110,38 @@ void main() {
         colour *= .45 + .45 * shadow + .4 * diffuse * shadow;
         float alpha = (1.0 - exp(-density * 2.3 * thickness)) * u_fade;
         smoke = vec4(colour * alpha, alpha);
+    }
+    if (opening) {
+        if (!within) {
+            frag = smoke;
+            return;
+        }
+        if (u_smoke <= 0.0) {
+            // The interior is already fully formed; only the escaped wisps are still visible.
+            frag = windowAt(local);
+            return;
+        }
+        float formed = openingMaterial(rel, wuv, dye.a, u_smoke, u_seed, extent);
+        if (formed <= 0.0) {
+            frag = smoke;
+            return;
+        }
+        // Soft window colour is folded into the flowing head. Its displaced detail
+        // sharpens and comes to rest at the native coordinates as the material binds.
+        float loose = 1.0 - formed;
+        vec2 offset = clamp(bodyUV(rel) - wuv, vec2(-.14), vec2(.14)) * .55 -
+            clamp(fluid / extent, vec2(-2.0), vec2(2.0)) * .025;
+        vec2 uv = wuv + offset * loose;
+        vec2 spread = (.05 * loose * extent) / u_logical;
+        vec4 content = windowAt(clamp(uv, vec2(0.0), vec2(1.0)));
+        if (loose > .02) {
+            vec4 across = windowAt(clamp(uv + spread, vec2(0.0), vec2(1.0))) +
+                windowAt(clamp(uv - spread, vec2(0.0), vec2(1.0)));
+            content = mix(content, .5 * across, loose * .75);
+        }
+        // Resolve one material, rather than composing a second, independent window under smoke.
+        frag = mix(smoke, content, formed);
+        return;
     }
     frag = smoke + solid * (1.0 - smoke.a);
 }

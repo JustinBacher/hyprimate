@@ -62,7 +62,7 @@ hl.config({
             window = {
                 options = {
                     burn = {
-                        -- duration = 1,
+                        -- duration = 1000,
                         variation = 0.7,
                         fragment_density = 0.55,
                         ember_density = 0.65,
@@ -78,6 +78,7 @@ hl.config({
                         elasticity = 0.5,
                         momentum = 0.5,
                         variation = 0.5,
+                        -- duration = 0,
                         color = 0xff000000,
                         default_animation_edge = "bottom",
                         edge_bounds = "screen",
@@ -93,7 +94,7 @@ hl.config({
                         shading = 0.7,
                         shine = 0,
                         variation = 0.5,
-                        -- duration = 1.0,
+                        -- duration = 1000,
                         default_animation_edge = "bottom",
                         edge_bounds = "screen",
                         side = "auto",
@@ -106,19 +107,19 @@ hl.config({
                         roundness = 1,
                         shape_speed = 1200,
                         transparency = 0.88,
-                        -- duration = 1.0,
+                        -- duration = 1000,
                     },
                     smoke = {
                         strength = 0.85,
                         turbulence = 0.65,
                         trail = 0.65,
-                        -- duration = 1.4,
+                        -- duration = 1400,
                         -- direction = "inside",
                         density = 1,
                         variation = 0.5,
                     },
                     paper = {
-                        -- duration = 0.6,
+                        -- duration = 600,
                         crumpliness = 0.6,
                         shading = 0.7,
                         variation = 0.5,
@@ -156,6 +157,7 @@ hl.config({
                         },
                     },
                     swarm = {
+                        -- duration = 0,
                         lone_window_sides = "all",
                         sprite = "spider",
                         count = 250,
@@ -221,7 +223,7 @@ hl.config({
                 style = "rotation",
                 options = {
                     rotation = {
-                        duration = 0.6,
+                        duration = 600,
                         curve = "default",
                         gap_fill_style = "still",
                         gap_fill_color = 0xff000000,
@@ -276,13 +278,15 @@ Use `hyprimate` under `plugin` in `hl.config`; the matching `hyprctl` keys begin
 
 Style settings under `window.options.<style>` are shared; set `window.<animation>.options.<style>` to override one animation. When a shared setting is unset, each animation uses its own default. Shared values are clamped to the receiving animation’s range. Example lines with differing animation defaults are commented out to preserve them.
 
+Window opening, window closing, and workspace `duration` values are milliseconds with no upper limit. `0` skips the plugin transition and leaves Hyprland’s native animation unchanged. Leave Liquid and Swarm durations unset to retain their natural timing. Multiply old seconds values by 1000, including workspace Rotation (for example, `0.6` becomes `600`).
+
 Paper live movement and resizing use `window.options.paper.stiffness`, `inertia` and `settle_damping`; movement behavior is selected by `window.options.paper.move.style`, with separate `move.flutter`, `move.glide` and `resize` tables. These live controls do not create per-animation overrides. Opening and closing retain their historical defaults when the new material keys are unset. For stiffness and damping the precedence is an explicitly set legacy per-animation `paper_stiffness` / `settling`, then an explicitly set legacy shared key, then an explicitly set new `stiffness` / `settle_damping`, then the historical transition default. Shared inertia has no legacy override.
 
 Formation controls listed under `window.open.options.bubble` apply only to opening and have no global or closing counterpart. They use the same options table; shared settings such as `duration` still inherit normally.
 
 | Setting | Type / default | Numeric range | Meaning |
 |---|---|---|---|
-| `window:options:burn:duration` | float / animation defaults: open `1`, close `1.5` | 0.15–5 | Open: Combustion time in seconds for the hole to reveal the window. Shorter is faster. Close: Combustion time in seconds for the closing sheet. Detached material cools on its own clock. |
+| `window:options:burn:duration` | float / animation defaults: open `1000`, close `1500` | ≥ 0 | Open: Combustion time in milliseconds for the hole to reveal the window. Close: Combustion time in milliseconds for the closing sheet. Detached material cools on its own clock. |
 | `window:options:liquid:strength` | float / animation defaults: `0.65` | 0–1.5 | Movement: Liquid movement deformation strength. Zero moves windows without deformation. Open: Liquid pop-out size and deformation strength when opening. Zero removes the pop-out. Close: Liquid drain deformation strength when closing. Zero closes the window natively. |
 | `window:options:liquid:viscosity` | float / animation defaults: `0.75` | 0–1 | Liquid resistance to flow during movement. Higher values make it thicker and more cohesive. |
 | `window:options:liquid:elasticity` | float / animation defaults: `0.5` | 0–1 | Movement: Liquid stiffness and recovery speed during movement. Higher values snap back faster. Open: Liquid pop-out stiffness and recovery speed. Higher values snap back faster. Close: Liquid drain stiffness and recovery speed. Higher values snap back faster. |
@@ -305,11 +309,12 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `window:options:smoke:strength` | float / animation defaults: `0.85` | 0–1.5 | How readily motion unravels the window into flowing smoke. Zero disables movement transformation without affecting opening or closing. |
 | `window:options:smoke:turbulence` | float / animation defaults: `0.65` | 0–1 | Movement: Strength of evolving smoke folds and smaller curling structures. Shared with opening and closing unless overridden. Open: Strength of rolling folds and curling filaments during smoke materialization. Close: Strength of rolling folds and curling filaments during smoke disintegration. |
 | `window:options:smoke:trail` | float / animation defaults: `0.65` | 0–1 | Amount of content-coloured smoke shed into the wake and how long it lives, from about 0.55 s at zero to 1.15 s at one. Wake smoke curls and breaks up as it ages and is gone by the end of its lifetime. Zero stops new wake emission; existing wisps still dissipate over their remaining lifetime. |
+| `window:options:liquid:duration` | float / unset (natural timing) | ≥ 0 | Open: Time in milliseconds for the liquid pop-out. Close: Time in milliseconds for the window to drain to the screen edge. |
 | `window:options:liquid:color` | color / animation defaults: `0xff000000` | — | Open: Colour of the liquid at the opening edge, in ARGB. Zero alpha draws no liquid. Close: Colour of the liquid at the closing edge, in ARGB. Zero alpha draws no liquid. |
 | `window:options:liquid:default_animation_edge` | string / animation defaults: `"bottom"` | — | Open: Preferred opening edge for the first window on a workspace. Later windows use their placement. Invalid edges fall back to a valid edge. Close: Preferred closing edge for the last window on a workspace when side is auto. Other windows use their placement. Invalid edges fall back to a valid edge. Allowed: `bottom`, `top`, `left`, `right`. |
 | `window:options:liquid:edge_bounds` | string / animation defaults: `"screen"` | — | Open: Choose monitor edges (screen) or edges inside reserved areas (work_area) for the liquid pop-out. Close: Choose monitor edges (screen) or edges inside reserved areas (work_area) for the liquid exit. Allowed: `screen`, `work_area`. |
 | `window:options:liquid:emerge_drag` | float / animation defaults: `0.5` | 0–1 | Share of liquid pop-out travel applied as drag to the movement field. Zero makes the pop rigid. |
-| `window:options:paper:duration` | float / animation defaults: open `0.6`, close `0.5` | 0.1–3 | Open: Time in seconds for the paper ball to uncrumple into the window. Close: Time in seconds for the window to crumple into a paper ball and vanish. |
+| `window:options:paper:duration` | float / animation defaults: open `600`, close `500` | ≥ 0 | Open: Time in milliseconds for the paper ball to uncrumple into the window. Close: Time in milliseconds for the window to crumple into a paper ball and vanish. |
 | `window:options:paper:crumpliness` | float / animation defaults: `0.6` | 0–1 | Strength of the distributed pressure that gathers and creases the sheet. |
 | `window:options:paper:shading` | float / animation defaults: `0.7` | 0–1 | Strength of lighting and fold shadows; zero leaves the geometry unlit. |
 | `window:options:paper:variation` | float / animation defaults: `0.5` | 0–1 | Variation in grip locations, loads and timing. Zero retains subtle differences between events. |
@@ -321,19 +326,20 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `window:options:paper:rotation_intensity` | float / animation defaults: `0.22` | 0–1 | Rotational impulse applied by the grips. |
 | `window:options:paper:settling` | float / animation defaults: `0.45` | 0–1 | Higher values damp residual motion and increase friction between folded layers. Overrides shared settle_damping when explicitly set. |
 | `window:options:paper:simulation_quality` | string / animation defaults: `"adaptive"` | — | Physical mesh detail. Adaptive selects detail from capture size and active workload. Allowed: `adaptive`, `low`, `medium`, `high`. |
-| `window:options:cloth:duration` | float / animation defaults: open `1.0`, close `0.9` | 0.1–4 | Open: Time in seconds for the gathered curtain to spread from its top edge and settle flat. Close: Time in seconds for the top rod to carry the curtain beyond the selected screen edge. |
+| `window:options:cloth:duration` | float / animation defaults: open `1000`, close `900` | ≥ 0 | Open: Time in milliseconds for the gathered curtain to spread from its top edge and settle flat. Close: Time in milliseconds for the top rod to carry the curtain beyond the selected screen edge. |
 | `window:options:cloth:default_animation_edge` | string / animation defaults: `"bottom"` | — | Open: Opening origin for the first cloth window on a workspace, used when the closing side is origin. Later windows use their placement. Cloth still opens in place. Close: Preferred cloth closing edge for the last window on a workspace when side is auto. Invalid edges fall back to a valid edge. Allowed: `bottom`, `top`, `left`, `right`. |
 | `window:options:cloth:edge_bounds` | string / animation defaults: `"screen"` | — | Open: Choose monitor edges (screen) or edges inside reserved areas (work_area) for the cloth opening origin. Close: Choose monitor edges (screen) or edges inside reserved areas (work_area) for cloth edge selection. Cloth travels beyond the actual screen before disappearing. Allowed: `screen`, `work_area`. |
+| `window:options:swarm:duration` | float / unset (natural timing) | ≥ 0 | Open: Time in milliseconds for the swarm to arrive and form the window. Close: Time in milliseconds for the swarm to break up and leave the window. |
 | `window:options:swarm:lone_window_sides` | set / animation defaults: `"all"` | — | Open: Screen sides swarm creatures enter from for the first window on a workspace. Later windows use the side where they appear (see Edge choice). Close: Screen sides swarm creatures leave through for the last window on a workspace. Otherwise they use the side where the window sits (see Edge choice). Comma-separated list of: `top`, `bottom`, `left`, `right`; `all` selects every one and overrides the rest. |
-| `window:options:bubble:duration` | float / animation defaults: open `1.0`, close `0.42` | 0.1–3 | Open: Time in seconds for the opening: small bubbles surface and interact for about the first half, the window bubble grows out of them, then inflates into the window's shape and settles. Close: Time in seconds for the bubble film to thin, tear, retract into strands and droplets, and for the droplets to evaporate. |
-| `window:options:smoke:duration` | float / animation defaults: open `1.4`, close `1.6` | 0.2–3 | Open: Time in seconds for smoke to gather, grow into a mass and condense into the window's full-resolution contents. Close: Time in seconds for the window to gather into a smoke mass and leave. Trailing wisps may decay briefly afterward. |
+| `window:options:bubble:duration` | float / animation defaults: open `1000`, close `420` | ≥ 0 | Open: Time in milliseconds for the opening: small bubbles surface and interact for about the first half, the window bubble grows out of them, then inflates into the window's shape and settles. Close: Time in milliseconds for the bubble film to thin, tear, retract into strands and droplets, and for the droplets to evaporate. |
+| `window:options:smoke:duration` | float / animation defaults: open `1400`, close `1600` | ≥ 0 | Open: Time in milliseconds for smoke to gather, grow into a mass and condense into the window's full-resolution contents. Close: Time in milliseconds for the window to gather into a smoke mass and leave. Trailing wisps may decay briefly afterward. |
 | `window:options:smoke:direction` | string / animation defaults: open `"inside"`, close `"bottom"` | — | Open: Where opening smoke comes from. Inside grows the window from a faint wisp at a random point within it; an edge streams the smoke in from that screen edge. An edge the window does not face falls back to the opening-edge choice of liquid. Invalid names are rejected. Close: Where closing smoke leaves. Inside collapses the window into a swirling mass at a random point within it that dissipates; an edge gathers a mass on the opposite side, rears and turns it toward that screen edge and pulls the rest of the window after it. An edge the window does not face falls back to the closing-edge choice of liquid. Invalid names are rejected. Allowed: `inside`, `top`, `bottom`, `left`, `right`. |
 | `window:options:liquid:side` | string / animation defaults: `"auto"` | — | Liquid exit edge: the side of appearance (auto), nearest valid edge, opening origin, or a fixed edge. Invalid preferred edges fall back to the normal edge selection. Allowed: `auto`, `nearest`, `origin`, `top`, `bottom`, `left`, `right`. |
 | `window:options:liquid:splash` | boolean / animation defaults: `true` | — | Show a small edge-liquid splash where a window closes. When false, it closes without liquid. |
 | `window:options:cloth:side` | string / animation defaults: `"auto"` | — | Cloth exit edge: the side of appearance (auto), nearest valid edge, opening origin, or a fixed edge. Invalid preferred edges fall back to the normal edge selection. Allowed: `auto`, `nearest`, `origin`, `top`, `bottom`, `left`, `right`. |
 | `workspace:enabled` | boolean / `false` | — | Enable workspace transition effects independently of window effects. |
 | `workspace:style` | string / `"rotation"` | — | Choose the workspace transition style. Invalid names are rejected. Allowed: `rotation`, `planet_hop`. |
-| `workspace:options:rotation:duration` | float / `0.6` | 0.1–3 | Time in seconds for the workspace rotation. |
+| `workspace:options:rotation:duration` | float / `600` | ≥ 0 | Time in milliseconds for the workspace rotation. |
 | `workspace:options:rotation:curve` | string / `"default"` | — | Name of a Hyprland Bezier animation curve. Unknown names are rejected and the previous valid curve is retained. Curve overshoot is clipped to the wheel's rotation range. |
 | `workspace:options:rotation:gap_fill_style` | string / `"still"` | — | Gap treatment: morph stretches an auxiliary incoming-wallpaper bridge; background uses gap_fill_color; wallpaper blends enlarged, optionally blurred wallpaper copies; still (default) holds the outgoing wallpaper stationary while windows rotate. In still mode a different incoming wallpaper rotates in with its windows; matching texture resources with unchanged content stay stationary. No mode changes the rigid circular workspace motion. Configuration uses underscores: gap_fill_style, gap_fill_color, gap_fill_blur. Invalid styles are rejected. Allowed: `morph`, `background`, `wallpaper`, `still`. |
 | `workspace:options:rotation:gap_fill_color` | color / `0xff000000` | — | Gap colour for background mode, in ARGB; defaults to opaque black. |
@@ -342,7 +348,7 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `workspace:options:planet_hop:window_mode` | string / `"surface"` | — | Place windows on the planet surface, float them above it, or fade them during the hop. Allowed: `surface`, `floating`, `fade`. |
 | `workspace:options:planet_hop:overlay_mode` | string / `"fade"` | — | Render overlays in the world, as a HUD, or fade them during the hop. Allowed: `world`, `hud`, `fade`. |
 | `workspace:options:planet_hop:planet_layout` | string / `"focused"` | — | Show the two journey endpoints, this monitor's workspaces, every monitor's workspaces, or every monitor's workspaces in a spatial solar system, respectively. Replaces linear and dynamic; use focused for endpoint-only travel. Allowed: `focused`, `monitor`, `all`, `solar_system`. |
-| `workspace:options:planet_hop:duration` | float / `800` | 100–10000 | Total departure-to-landing time in milliseconds, including skipped workspaces. Multiply old seconds values by 1000. |
+| `workspace:options:planet_hop:duration` | float / `800` | ≥ 0 | Total departure-to-landing time in milliseconds, including skipped workspaces. |
 | `workspace:options:planet_hop:curve` | string / `"linear"` | — | Named Hyprland Bezier or spring for the complete journey. Planet Hop also accepts style-local spring definitions. |
 | `workspace:options:planet_hop:live_boundary` | float / `0.22` | 0.08–0.35 | Fraction adjoining each endpoint during which live workspace imagery is refreshed. |
 | `workspace:options:planet_hop:sampling_quality` | int / `2` | 0–2 | Material sampling quality: 0 low, 1 medium, 2 high. |

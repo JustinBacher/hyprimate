@@ -52,7 +52,7 @@ struct RotationStyle {
     static void prepare(Resources &resources, const config::SWorkspaceSettings &settings) {
         resources.settings.update(settings.rotation, [](const auto &value) {
             Prepared result;
-            result.duration = value.duration;
+            result.duration = value.duration / 1000.0;
             result.curve = value.curve;
             result.keep_overlays_static = value.keepOverlaysStatic;
             switch (value.gapFillStyle) {

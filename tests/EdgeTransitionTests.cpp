@@ -988,6 +988,30 @@ namespace {
         }
     }
 
+    void test_duration_retimes_the_visible_transition() {
+        for (const Transition KIND : {Transition::Open, Transition::Close}) {
+            EdgeTransition quick;
+            EdgeTransition slow;
+            quick.begin(KIND, QUARTER, TransitionParams{.duration_ms = 125.5}, STRENGTH);
+            slow.begin(KIND, QUARTER, TransitionParams{.duration_ms = 2008.0}, STRENGTH);
+            const auto START = quick.bead_centre();
+            quick.advance(0.06275);
+            for (int i = 0; i < 8; ++i) {
+                slow.advance(0.1255);
+            }
+            CHECK(quick.active() && slow.active());
+            CHECK(quick.bead_centre().y != START.y);
+            CHECK(std::abs(quick.bead_centre().y - slow.bead_centre().y) < 1e-8);
+            CHECK(std::abs(quick.meniscus_peak() - slow.meniscus_peak()) < 1e-8);
+            CHECK(!quick.advance(0.06275));
+            CHECK(quick.closed() == (KIND == Transition::Close));
+            for (int i = 0; i < 8; ++i) {
+                slow.advance(0.1255);
+            }
+            CHECK(!slow.active() && slow.closed() == quick.closed());
+        }
+    }
+
     // Invalid input.
     void test_invalid_inputs() {
         constexpr double K_NA_N = std::numeric_limits<double>::quiet_NaN();
@@ -1046,6 +1070,7 @@ int main() try {
     test_close_splash_off_leaves_no_liquid();
     test_close_interrupting_open_neck_decays_then_splashes();
     test_close_splash_agrees_across_refresh_rates();
+    test_duration_retimes_the_visible_transition();
     test_invalid_inputs();
     return g_failures == 0 ? 0 : 1;
 } catch (...) {

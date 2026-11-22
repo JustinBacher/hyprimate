@@ -328,6 +328,7 @@ namespace hyprimate {
         m_still = 0.0;
         m_time = 0.0;
         m_accumulator = 0.0;
+        m_requested_ms = 0.0;
         m_rounding = 0.0;
     }
 
@@ -336,9 +337,11 @@ namespace hyprimate {
         const SwarmParams &params,
         std::uint64_t seed,
         const SwarmPlacement &placement,
-        EdgeSet sides) {
+        EdgeSet sides,
+        double duration_ms) {
         if (!is_usable(placement.capture) || !is_usable(placement.screen) || sides.empty() ||
-            !finite(params)) {
+            !finite(params) ||
+            (duration_ms != -1.0 && (!std::isfinite(duration_ms) || duration_ms <= 0.0))) {
             return;
         }
 
@@ -358,6 +361,11 @@ namespace hyprimate {
             m_shift = {};
             m_time = 0.0;
         }
+        if (m_requested_ms > 0.0 || duration_ms > 0.0) {
+            m_accumulator = 0.0;
+        }
+        m_requested_ms = duration_ms > 0.0 ? duration_ms : 0.0;
+        m_elapsed_ms = 0.0;
         m_phase = CLOSING ? Phase::Closing : Phase::Opening;
         if (!CLOSING) {
             m_rounding = 1.0;
@@ -438,6 +446,7 @@ namespace hyprimate {
             first = std::min(first, waiting_agent.delay);
         }
         // The first to go goes now, so the animation never opens on a wait.
+        double route_seconds = 0.0;
         for (SwarmAgent &scheduled_agent : m_agents) {
             if (scheduled_agent.gone) {
                 continue;
@@ -445,6 +454,22 @@ namespace hyprimate {
             scheduled_agent.delay -= first;
             if (!CLOSING) {
                 scheduled_agent.due -= first;
+            }
+            if (m_requested_ms > 0.0) {
+                const double WALK = length((CLOSING ? scheduled_agent.exit : scheduled_agent.home)
+                    - scheduled_agent.position) / (CRUISE * scheduled_agent.pace);
+                const double FINISH = scheduled_agent.delay + (WALK / SPEED_CAP) +
+                    (CLOSING ? SPLIT_TIME : MERGE_MIN + CORNER_TIME);
+                route_seconds = std::max(route_seconds, FINISH);
+            }
+        }
+        if (m_requested_ms > 0.0) {
+            // Use a short route estimate for the physics clock. Agents still react to crowds and
+            // moving homes, so it is not an endpoint prediction; a timed finish closes the gap.
+            m_simulation_seconds =
+                std::clamp(route_seconds, STEP, m_params.stagger + CLOSE_DEADLINE);
+            if (CLOSING && route_seconds == 0.0) {
+                m_phase = Phase::Closed;  // an interrupted open whose agents never entered
             }
         }
     }
@@ -494,6 +519,7 @@ namespace hyprimate {
         m_window_speed = 0.0;
         m_rounding = 0.0;
         m_accumulator = 0.0;
+        m_requested_ms = 0.0;
     }
 
     Box Swarm::bounds() const noexcept {
@@ -539,9 +565,22 @@ namespace hyprimate {
         if (!active()) {
             return false;
         }
-        const double DELTA_TIME = std::isfinite(elapsed_seconds) && elapsed_seconds > 0.0
-                                      ? std::min(elapsed_seconds, STALL_SECONDS)
-                                      : 0.0;
+        const double ELAPSED = std::isfinite(elapsed_seconds) && elapsed_seconds > 0.0
+                                   ? std::min(elapsed_seconds, STALL_SECONDS)
+                                   : 0.0;
+        const bool TIMED = m_requested_ms > 0.0;
+        double delta_time = ELAPSED;
+        if (TIMED) {
+            const double BEFORE = m_elapsed_ms;
+            m_elapsed_ms = std::min(m_requested_ms, m_elapsed_ms + (ELAPSED * 1000.0));
+            if (m_elapsed_ms == m_requested_ms) {
+                guide_transition(1.0);
+                m_phase = opening() ? Phase::Idle : Phase::Closed;
+                return false;
+            }
+            delta_time = ((m_elapsed_ms - BEFORE) / m_requested_ms) * m_simulation_seconds;
+        }
+        const double DELTA_TIME = delta_time;
         if (!(DELTA_TIME > 0.0)) {
             return true;
         }
@@ -554,7 +593,7 @@ namespace hyprimate {
             }
         }
 
-        const double SPEED = length(m_shift) / DELTA_TIME;
+        const double SPEED = length(m_shift) / ELAPSED;
         if (SPEED > 0.0) {
             // Agents live in the window's frame. Loose agents remain in screen space when their
             // home moves, whether that motion comes from a drag or a workspace slide.
@@ -574,20 +613,38 @@ namespace hyprimate {
                 }
             }
             m_still = 0.0;
-        } else if (!WANDERING) {
+        } else if (!WANDERING && !TIMED) {
             m_still += DELTA_TIME;
         }
         if (WANDERING) {
             m_still = 0.0;
         }
-        m_window_speed =
-            std::max(SPEED, m_window_speed * std::exp(-DELTA_TIME / WINDOW_SPEED_HOLD));
+        m_window_speed = std::max(SPEED, m_window_speed *
+            std::exp(-ELAPSED / WINDOW_SPEED_HOLD));
         m_shift = {};
 
         m_accumulator += DELTA_TIME;
         while (m_accumulator >= STEP - ACCUMULATOR_TOLERANCE) {
+            if (TIMED) {
+                m_still += STEP;
+            }
             step(WANDERING);
+            if (TIMED) {
+                const double BEFORE = smoothstep(0.5, 1.0, (m_time - STEP) / m_simulation_seconds);
+                const double NOW = smoothstep(0.5, 1.0, m_time / m_simulation_seconds);
+                if (NOW > BEFORE && NOW < 1.0) {
+                    guide_transition((NOW - BEFORE) / (1.0 - BEFORE));
+                }
+            }
             m_accumulator = std::max(0.0, m_accumulator - STEP);
+        }
+        if (TIMED) {
+            if (opening()) {
+                // Do not hand off a square window early if every agent happened to dock.
+                m_rounding = std::max(m_rounding,
+                    1.0 - smoothstep(0.5, 1.0, m_elapsed_ms / m_requested_ms));
+            }
+            return true;
         }
 
         if (m_phase == Phase::Closing) {
@@ -602,6 +659,40 @@ namespace hyprimate {
             m_phase = Phase::Idle;
         }
         return active();
+    }
+
+    void Swarm::guide_transition(double fraction) {
+        // Ease toward the endpoint over the second half, rather than snapping agents that
+        // haven't arrived or left by the deadline. The ordinary steering remains live.
+        const bool OPENING = opening();
+        const bool FINISHED = fraction == 1.0;
+        for (auto &agent : m_agents) {
+            if (agent.gone) {
+                continue;
+            }
+            if (OPENING && FINISHED) {
+                agent.position = agent.home;
+                agent.visible = true;
+                agent.docked = true;
+                agent.velocity = {};
+                agent.turn = 0.0;
+                agent.lock = 1.0;
+            } else if (FINISHED) {
+                agent.gone = true;
+                agent.visible = false;
+            } else if (agent.delay <= 0.0) {
+                const Vec2 DESTINATION = OPENING ? agent.home : agent.exit;
+                agent.position = {.x = std::lerp(agent.position.x, DESTINATION.x, fraction),
+                    .y = std::lerp(agent.position.y, DESTINATION.y, fraction)};
+                if (OPENING && length(agent.position - agent.home) < REST_RADIUS * m_spacing) {
+                    agent.turn *= 1.0 - fraction;
+                    agent.lock = std::lerp(agent.lock, 1.0, fraction);
+                }
+            }
+        }
+        if (OPENING) {
+            m_rounding *= 1.0 - fraction;
+        }
     }
 
     void Swarm::hash() {

@@ -1,5 +1,6 @@
 #include <array>
 #include <cmath>
+#include <limits>
 
 #include "Check.hpp"
 #include "workspace/planet_hop/PlanetSpring.hpp"
@@ -49,5 +50,21 @@ int main() {
     CHECK(std::abs(LIGHT(.25) - HEAVY(.25)) > .04);
     const auto LONG = spring_curve({.stiffness = 100, .damping = 20, .mass = 1}, 10);
     CHECK(LONG(.9) < LONG(.99) && LONG(.99) < 1);
+    constexpr double TINY = std::numeric_limits<float>::denorm_min() / 1000.0;
+    constexpr double HUGE = std::numeric_limits<float>::max() / 1000.0;
+    for (const float DAMPING : std::array{0.F, 20.F, 40.F}) {
+        const auto SHORT = spring_curve({.stiffness = 100, .damping = DAMPING, .mass = 1}, TINY);
+        CHECK(SHORT);
+        if (SHORT) {
+            CHECK(SHORT(0) == 0 && SHORT(1) == 1);
+            CHECK(std::abs(SHORT(.5) - .25) < 1e-6);
+        }
+        const auto EXTENDED = spring_curve({.stiffness = 100, .damping = DAMPING, .mass = 1}, HUGE);
+        CHECK(EXTENDED);
+        if (EXTENDED) {
+            CHECK(EXTENDED(.9) < EXTENDED(.99) && EXTENDED(.99) < 1);
+            CHECK(EXTENDED(1) == 1);
+        }
+    }
     return g_failures == 0 ? 0 : 1;
 }

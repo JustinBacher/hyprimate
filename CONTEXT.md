@@ -92,4 +92,8 @@ _Avoid_: residue, leftovers.
 
 **Blob**: the outline of the tiles merged so far: free corners rounded off, the notches between merged tiles filled in. It squares up into the window only when every tile is in.
 
+**Smoke opening**: a rolling smoke head gathers and spreads into the window's outline. The window's details sharpen within that moving mass as it solidifies. Loose wisps keep drifting after the surface has formed.
+
+**Smoke close**: the remaining solid content keeps its position while the smoke head forms. A close that interrupts movement blends out the existing deformation, not the forming head's shape. The head and its wake follow their own flow.
+
 Cloth fold lighting has independent shading and shine controls; shine defaults to zero. Paper uses matte two-sided lighting and casts shadows between its folds. Its `shading` control does not change the material geometry or layer order.

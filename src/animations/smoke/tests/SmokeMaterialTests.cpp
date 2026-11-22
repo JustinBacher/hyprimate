@@ -99,6 +99,116 @@ namespace {
         }
         return sum;
     }
+
+    void test_stationary_close_keeps_solid_content_in_place(Harness &harness) {
+        const hyprimate::Vec2 SIZE{TW, TH};
+        for (const auto ROUTE : {hyprimate::SmokeRoute{},
+                 hyprimate::SmokeRoute{.edge = true, .direction = {0, 1}, .reach = 160}}) {
+            CSmokeField field;
+            hyprimate::Smoke driver;
+            driver.seed(7);
+            harness.frame = driver.frame(SIZE);
+            const Image REST = harness.render(field);
+            driver.begin(hyprimate::Transition::Close, 1.6, SIZE, ROUTE);
+            for (int step = 1; step <= 8; ++step) {
+                driver.advance(1.0 / 60, SIZE);
+                harness.frame = driver.frame(SIZE);
+                const Image CLOSE = harness.render(field);
+                // The still-solid interior must not shift or scale as the smoke head forms.
+                for (const int y : {108, 128, 148}) {
+                    const auto EXPECTED = at(REST, 145, y);
+                    const auto ACTUAL = at(CLOSE, 145, y);
+                    CHECK(std::abs(int(ACTUAL[0]) - int(EXPECTED[0])) <= 2 &&
+                          std::abs(int(ACTUAL[1]) - int(EXPECTED[1])) <= 2 &&
+                          ACTUAL[3] >= 253);
+                }
+            }
+            field.release();
+        }
+    }
+
+    void test_smoke_forms_the_window(Harness &harness, const char *capture, int frames, bool edge) {
+        const hyprimate::Vec2 SIZE{TW, TH};
+        const int LEFT = static_cast<int>(harness.target.source_pos.x);
+        const int TOP = static_cast<int>(harness.target.source_pos.y);
+        constexpr int AREA = (TW - 6) * (TH - 6);
+        const auto interior = [&](int x, int y) {
+            return x >= LEFT + 3 && x < LEFT + TW - 3 && y >= TOP + 3 && y < TOP + TH - 3;
+        };
+        CSmokeField field;
+        hyprimate::Smoke driver;
+        driver.seed(7);
+        harness.frame = driver.frame(SIZE);
+        const Image REST = harness.render(field);
+        driver.begin(hyprimate::Transition::Open, frames / 60.0, SIZE,
+            edge ? hyprimate::SmokeRoute{.edge = true, .direction = {1, 0}, .reach = 240}
+                 : hyprimate::SmokeRoute{});
+        std::filesystem::path destination;
+        std::string prefix;
+        if (capture != nullptr) {
+            destination = capture;
+            std::filesystem::create_directories(destination);
+            prefix = std::to_string(frames) + (edge ? "-edge-" : "-inside-");
+        }
+        int previous_opacity = 0, largest_gain = 0, early_smoke = 0;
+        for (int i = 0; i <= frames + 30; ++i) {
+            driver.advance(i == 0 ? 0.0 : 1.0 / 60.0, SIZE);
+            harness.frame = driver.frame(SIZE);
+            const Image IMAGE = harness.render(field);
+            if (capture != nullptr) {
+                save(destination / (prefix + std::to_string(i) + ".ppm"), IMAGE);
+            }
+            int solid = 0, smoke = 0, exact = 0, opacity = 0;
+            for (int y = 0; y < H; ++y) {
+                for (int x = 0; x < W; ++x) {
+                    const Pixel PIXEL = at(IMAGE, x, y);
+                    if (interior(x, y)) {
+                        solid += PIXEL[3] >= 245;
+                        opacity += PIXEL[3];
+                        exact += PIXEL == at(REST, x, y);
+                    }
+                    smoke += PIXEL[3] >= 24 && PIXEL[3] <= 180;
+                }
+            }
+            if (i <= frames / 2) {
+                early_smoke = std::max(early_smoke, smoke);
+                CHECK(solid < AREA / 4);
+            }
+            if (i == 2 * frames / 3) {
+                // The forming window cannot reveal itself on its own clock.
+                CSmokeField empty;
+                const Image UNSEEDED = harness.render(empty);
+                int unsupported = 0;
+                for (int y = TOP + 3; y < TOP + TH - 3; ++y) {
+                    for (int x = LEFT + 3; x < LEFT + TW - 3; ++x) {
+                        unsupported += at(UNSEEDED, x, y)[3] >= 192;
+                    }
+                }
+                if (capture != nullptr) {
+                    std::printf("%s unsupported solid %d/%d; smoke %d\n",
+                        prefix.c_str(), unsupported, AREA, smoke);
+                }
+                CHECK(unsupported < AREA / 12);
+                CHECK(smoke > AREA / 12);
+                empty.release();
+            }
+            if (i <= frames) {
+                largest_gain = std::max(largest_gain, opacity - previous_opacity);
+            }
+            if (i == frames || i == frames + 30) {
+                CHECK(exact > 99 * AREA / 100);
+            }
+            previous_opacity = opacity;
+        }
+        if (capture != nullptr) {
+            std::printf("%s early smoke %d; largest coverage gain %.1f%%\n",
+                prefix.c_str(), early_smoke, 100.0 * largest_gain / (255 * AREA));
+        }
+        CHECK(early_smoke > AREA / 12);
+        CHECK(largest_gain < 255 * AREA / 6);
+        field.release();
+    }
+
     void test_initialization_failures(CSmokeMaterial &material, const SSmokePrograms &programs) {
         auto incomplete = programs;
         incomplete.ids[SSmokePrograms::Pressure] = 0;
@@ -447,6 +557,15 @@ int main(int argc, char **argv) {
         h.frame.size = {TW, TH};
         h.frame.seed = 0.37;
         test_field_failures(h);
+        test_stationary_close_keeps_solid_content_in_place(h);
+        for (const int frames : {18, 84, 150}) {  // 300, 1400, and 2500 ms at 60 Hz
+            for (const bool edge : {false, true}) {
+                test_smoke_forms_the_window(h, capture, frames, edge);
+            }
+        }
+        h.frame = {};
+        h.frame.size = {TW, TH};
+        h.frame.seed = 0.37;
 
         // At rest the window is drawn exactly and nothing surrounds it.
         {

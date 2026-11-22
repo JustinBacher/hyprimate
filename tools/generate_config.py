@@ -90,9 +90,10 @@ def validate(settings):
             if not all(type(value) is int for value in (low, high, default)) or not low <= default <= high:
                 raise ValueError(f'{path}: int default must lie within integer min..max')
         if kind == 'float':
-            low, high = item['min'], item['max']
-            if not (is_number(low) and is_number(high) and is_number(default)) or not low <= default <= high:
-                raise ValueError(f'{path}: float default must lie within finite min..max')
+            low = item['min']
+            if (not is_number(low) or not is_number(default) or default < low
+                    or ('max' in item and (not is_number(item['max']) or default > item['max']))):
+                raise ValueError(f'{path}: float default must lie within the finite schema bounds')
         if kind == 'string' and 'choices' in item:
             choices = item['choices']
             if not isinstance(choices, list) or not choices or not all(isinstance(c, str) for c in choices) or default not in choices:
@@ -153,7 +154,10 @@ def expanded_settings(settings):
         shared = globals_by_path[path]
         if item['type'] in ('int', 'float'):
             shared['min'] = min(shared['min'], item['min'])
-            shared['max'] = max(shared['max'], item['max'])
+            if 'max' in shared and 'max' in item:
+                shared['max'] = max(shared['max'], item['max'])
+            else:
+                shared.pop('max', None)
 
     swarm_overrides = []
     for transition in ('movement', 'open', 'close'):
@@ -341,6 +345,10 @@ def config_header(settings):
     out.append('    return std::isfinite(value) ? std::clamp(static_cast<double>(value), low, high) : low;')
     out.append('}')
     out.append('')
+    out.append('inline double clamp_float(float value, double low) noexcept {')
+    out.append('    return std::isfinite(value) ? std::max(static_cast<double>(value), low) : low;')
+    out.append('}')
+    out.append('')
     out.append('inline int clamp_int(long long value, long long low, long long high) noexcept {')
     out.append('    return static_cast<int>(std::clamp(value, low, high));')
     out.append('}')
@@ -405,7 +413,9 @@ def config_header(settings):
         value = float_literal(default) if kind == 'float' else (default if kind == 'color' else literal(default))
         if kind in ('int', 'float'):
             if kind == 'float':
-                options = f'.min = {float_literal(item["min"])}, .max = {float_literal(item["max"])}'
+                options = f'.min = {float_literal(item["min"])}'
+                if 'max' in item:
+                    options += f', .max = {float_literal(item["max"])}'
                 options_type = 'SFloatValueOptions'
             else:
                 options = f'.min = {item["min"]}, .max = {item["max"]}'
@@ -468,7 +478,13 @@ def config_header(settings):
                     sum(1 << i for i, choice in enumerate(item['choices']) if choice in tokens))
             value = f'detail::{_parse_name(item)}({source}).value_or(Flags<{enum_name(item)}>{{{bits}}})'
         elif item['type'] == 'float':
-            value = f'detail::clamp_float({source}, {float_literal(item["min"])}, {float_literal(item["max"])})'
+            bounds = ', '.join(float_literal(item[bound]) for bound in ('min', 'max') if bound in item)
+            value = f'detail::clamp_float({source}, {bounds})'
+            if item.get('natural_timing') and item.get('inherited'):
+                # Native settings are nonnegative. The model's -1 is only reachable when
+                # neither registered key was set, not by entering an out-of-range value.
+                value = (f'(values.{item["member"]}Set.setByUser() || '
+                         f'values.{shared["member"]}Set.setByUser() ? {value} : -1.0)')
         elif item['type'] == 'string' and 'choices' in item:
             value = f'detail::{_parse_name(item)}({source})'
         elif item['type'] == 'color':
@@ -512,7 +528,7 @@ def documentation(settings):
                 values = overrides.get(child['path'], [])
                 comment = '-- ' if child.get('optional') and (
                     len({v['default'] for _, v in values}) > 1
-                    or any('fallback' in v for _, v in values)) else ''
+                    or child.get('natural_timing') or any('fallback' in v for _, v in values)) else ''
                 result.append(f'{pad}{comment}{name} = {value},')
         return result
 
@@ -524,6 +540,7 @@ def documentation(settings):
              example_lua, '```', '',
              'Use `hyprimate` under `plugin` in `hl.config`; the matching `hyprctl` keys begin with `plugin:hyprimate:`. Each nested Lua table maps to colon-separated key segments.', '',
              'Style settings under `window.options.<style>` are shared; set `window.<animation>.options.<style>` to override one animation. When a shared setting is unset, each animation uses its own default. Shared values are clamped to the receiving animation’s range. Example lines with differing animation defaults are commented out to preserve them.', '',
+             'Window opening, window closing, and workspace `duration` values are milliseconds with no upper limit. `0` skips the plugin transition and leaves Hyprland’s native animation unchanged. Leave Liquid and Swarm durations unset to retain their natural timing. Multiply old seconds values by 1000, including workspace Rotation (for example, `0.6` becomes `600`).', '',
              'Paper live movement and resizing use `window.options.paper.stiffness`, `inertia` and `settle_damping`; movement behavior is selected by `window.options.paper.move.style`, with separate `move.flutter`, `move.glide` and `resize` tables. These live controls do not create per-animation overrides. Opening and closing retain their historical defaults when the new material keys are unset. For stiffness and damping the precedence is an explicitly set legacy per-animation `paper_stiffness` / `settling`, then an explicitly set legacy shared key, then an explicitly set new `stiffness` / `settle_damping`, then the historical transition default. Shared inertia has no legacy override.', '',
              'Formation controls listed under `window.open.options.bubble` apply only to opening and have no global or closing counterpart. They use the same options table; shared settings such as `duration` still inherit normally.', '',
              '| Setting | Type / default | Numeric range | Meaning |', '|---|---|---|---|']
@@ -545,9 +562,12 @@ def documentation(settings):
         if kind == 'string' and 'choices' in item:
             meaning += ' Allowed: ' + ', '.join('`' + x + '`' for x in item['choices']) + '.'
         default = defaults(item)
-        if item.get('optional'):
+        if item.get('natural_timing'):
+            default = 'unset (natural timing)'
+        elif item.get('optional'):
             default = f'animation defaults: {default}'
-        numeric_range = f'{item["min"]}–{item["max"]}' if kind in ('int', 'float') else '—'
+        numeric_range = (f'{item["min"]}–{item["max"]}' if 'max' in item else f'≥ {item["min"]}'
+                         ) if kind in ('int', 'float') else '—'
         lines.append(f'| `{item["path"].replace(".", ":")}` | {kind} / {default} | {numeric_range} | {meaning} |')
     return '\n'.join(lines)
 

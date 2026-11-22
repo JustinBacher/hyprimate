@@ -684,6 +684,32 @@ void registry_settings_and_reload() {
     CHECK(delayed.enabled());
 }
 
+void zero_duration_releases_turn_to_native() {
+    Fixture fixture;
+    WorkspaceTurns<int, FakeWorkspacePort> turns;
+    int resolutions = 0;
+    const auto RESOLVE = [&](std::string_view) -> Transition::Curve {
+        ++resolutions;
+        return LINEAR;
+    };
+    turns.configure(true, 1, .6, "curve", true, RESOLVE);
+    const auto ACTIVE = turns.get(1, fixture.port);
+    CHECK(ACTIVE->stage(fixture.a));
+    ACTIVE->begin(fixture.a, fixture.b, turns.duration(), turns.curve());
+    CHECK(ACTIVE->active());
+
+    turns.configure(true, 1, 0.0, "curve", true, RESOLVE);
+    CHECK(!turns.enabled());
+    CHECK(!decltype(fixture.turn)::intercept_mutation({.enabled = turns.enabled()}));
+    CHECK(!ACTIVE->active());
+    CHECK(turns.find(1) == nullptr);
+    CHECK(resolutions == 1);
+
+    turns.configure(true, 1, .6, "curve", true, RESOLVE);
+    CHECK(turns.enabled());
+    CHECK(resolutions == 2);
+}
+
 void wallpaper_identity_matching() {
     using Identity = WallpaperIdentity<int>;
     const std::array<Identity, 2> SOURCE{{{.texture = 7, .generation = 1},
@@ -1060,6 +1086,7 @@ int main() {
     cancellation_and_monitors();
     lifetime_and_curve_latching();
     registry_settings_and_reload();
+    zero_duration_releases_turn_to_native();
     wallpaper_identity_matching();
     drawing_and_fallback();
     queued_presentation_obeys_current_policy();

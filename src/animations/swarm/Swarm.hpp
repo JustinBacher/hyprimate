@@ -103,11 +103,13 @@ namespace hyprimate {
         // Open: agents start beyond `sides` of the screen and travel into formation. Close: agents
         // leave through `sides`; a close begun while agents are loose continues from where they
         // are. Unusable boxes, an empty `sides` or non-finite parameters leave the model as it was.
+        // A positive duration retimes the transition; -1 uses natural timing and 0 skips it.
         void begin(Transition kind,
             const SwarmParams &params,
             std::uint64_t seed,
             const SwarmPlacement &placement,
-            EdgeSet sides);
+            EdgeSet sides,
+            double duration_ms = -1.0);
         // Starts in formation, ready to follow the window. Ignored unless idle.
         void begin_movement(
             const SwarmParams &params, std::uint64_t seed, const SwarmPlacement &placement);
@@ -162,6 +164,7 @@ namespace hyprimate {
         void build(const SwarmParams &params, std::uint64_t seed, const SwarmPlacement &placement);
         void layout(const SwarmPlacement &placement);
         void step(bool wandering);
+        void guide_transition(double fraction);
         void hash();
         // What the loose agents around one agent do to it.
         struct Crowd {
@@ -187,6 +190,7 @@ namespace hyprimate {
         double m_time = 0.0;  // seconds since the phase began
         double m_rounding = 0.0;
         double m_accumulator = 0.0;
+        double m_requested_ms = 0.0, m_elapsed_ms = 0.0, m_simulation_seconds = 0.0;
         std::uint64_t m_rng = 0;
 
         // Spatial hash of the loose agents, rebuilt each step; buffers are reused.

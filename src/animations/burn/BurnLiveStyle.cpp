@@ -15,7 +15,7 @@ SBurnModule::Prepared SBurnModule::prepare_settings(const Settings &settings) {
         .scorch_lifetime = settings.shared.scorchLifetime,
         .healing_duration = settings.shared.healingDuration};
     auto opening = common;
-    opening.duration = settings.open.duration;
+    opening.duration = settings.open.duration / 1000.0;
     auto closing = common;
     switch (settings.close.debrisDirection) {
         case config::DebrisDirection::Natural:
@@ -31,7 +31,7 @@ SBurnModule::Prepared SBurnModule::prepare_settings(const Settings &settings) {
             closing.direction = BurnDirection::Wind;
             break;
     }
-    closing.duration = settings.close.duration;
+    closing.duration = settings.close.duration / 1000.0;
     closing.consume = settings.close.closingStyle == config::ClosingStyle::Consume;
     return {.open = opening, .close = closing};
 }
@@ -41,7 +41,7 @@ SBurnModule::State SBurnModule::start(const Resources &, std::uint64_t seed) {
     return state;
 }
 bool SBurnModule::open(State &state, const Place &place, Resources &resources, Effects &effects) {
-    if (!is_usable(place.rest_capture)) return false;
+    if (resources.prepared.open.duration <= 0 || !is_usable(place.rest_capture)) return false;
     state.seed = place.seed;
     if (!state.simulation) state.simulation = std::make_unique<BurnSimulation>();
     state.simulation->open(place.rest_capture, resources.prepared.open, state.seed);
@@ -79,7 +79,7 @@ Frame SBurnModule::advance(State &state, const Step &step, Resources &resources,
     return {.running = state.simulation->active(), .bounds = bounds};
 }
 CloseStart SBurnModule::close(State &state, const Place &place, Resources &resources) {
-    if (!is_usable(place.capture)) return CloseStart::Declined;
+    if (resources.prepared.close.duration <= 0 || !is_usable(place.capture)) return CloseStart::Declined;
     if (!state.simulation) {
         state.seed = place.seed;
         state.simulation = std::make_unique<BurnSimulation>();

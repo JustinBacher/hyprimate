@@ -59,7 +59,6 @@ namespace hyprimate {
 
         bool sanitize(PaperParams &p) {
             if (!std::isfinite(p.duration) || p.duration <= 0) return false;
-            p.duration = std::clamp(p.duration, 0.1, 3.0);
             for (double *value : {&p.crumpliness,
                      &p.shading,
                      &p.variation,

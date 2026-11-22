@@ -81,6 +81,11 @@ namespace hyprimate {
 
     void Smoke::begin(Transition direction, double duration, Vec2 size, SmokeRoute route) noexcept {
         m_frame.size = safe_size(size);
+        if (direction != Transition::Close || m_frame.transit >= 1.0) {
+            m_frame.close_source_body.reset();
+        } else if (!m_frame.close_source_body) {
+            m_frame.close_source_body = smoke_body(m_frame);
+        }
         m_duration = std::isfinite(duration) && duration > 0.0
                          ? duration
                          : (direction == Transition::Open ? 1.4 : 1.6);
@@ -89,6 +94,7 @@ namespace hyprimate {
             m_frame.smoke = 1;
             m_frame.presence = 0;
             m_frame.transit = 0;
+            m_frame.order = -0.8;
         }
         m_start_smoke = m_frame.smoke;
         m_start_presence = m_frame.presence;
@@ -174,20 +180,19 @@ namespace hyprimate {
         };
 
         if (m_opening && !m_route.edge) {
-            // A faint wisp at a random point accumulates into a swirling mass that fills out
-            // into the window. The interior condenses first, the rim last.
+            // Gather a visible head before its density starts resolving into the window.
             const double GROW = smoothstep(0.0, 0.6, P);
-            const double FILL = smoothstep(0.35, 0.92, P);
+            const double FILL = smoothstep(0.30, 0.94, P);
             half = blend(blend(Vec2{.x = TINY, .y = TINY}, MASS.half, GROW), WINDOW, FILL);
             radius = std::min(half.x, half.y) * (1.0 - smoothstep(0.5, 0.95, P));
             head = add(blend(INSIDE, {}, FILL), mul(WANDER, 0.05 * SHORTEST * (1.0 - FILL)));
             transit = 1.0 - smoothstep(0.9, 1.0, P);
-            smoke = blend(m_start_smoke, 0.0, smoothstep(0.5, 1.0, P));
-            presence = blend(m_start_presence, 1.0, smoothstep(0.0, 0.6, P));
+            smoke = blend(m_start_smoke, 0.0, std::clamp((P - 0.35) / 0.65, 0.0, 1.0));
+            presence = blend(m_start_presence, 1.0, smoothstep(0.0, 0.40, P));
             cohesion = 1;
             m_frame.order = -0.8;
             m_frame.origin_uv = UV(INSIDE);
-            m_frame.wind = SPIN * 0.55 * smoothstep(0.0, 0.15, P) * (1.0 - smoothstep(0.35, 0.95, P));
+            m_frame.wind = SPIN * 0.55 * smoothstep(0.0, 0.15, P) * (1.0 - smoothstep(0.62, 0.99, P));
         } else if (m_opening) {
             // Streams start along the screen edge, gather into a head that travels in along a
             // slight bow, then the head fills out into the window from its arrival side.
@@ -198,18 +203,18 @@ namespace hyprimate {
             const double TRAVEL = smoothstep(0.1, 0.6, P);
             const double BOW = centred(m_draw[1]) * 0.18 * std::min(m_route.reach, 900.0) * VARIATION;
             head = add(blend(ENTRY, {}, TRAVEL), mul(SIDE, std::sin(PI * TRAVEL) * BOW));
-            const double FILL = smoothstep(0.55, 0.92, P);
+            const double FILL = smoothstep(0.46, 0.94, P);
             half = blend(blend(mul(MASS.half, 0.5), MASS.half, smoothstep(0.05, 0.5, P)), WINDOW, FILL);
             radius = std::min(half.x, half.y) * (1.0 - smoothstep(0.6, 0.95, P));
             transit = 1.0 - smoothstep(0.9, 1.0, P);
-            smoke = blend(m_start_smoke, 0.0, smoothstep(0.58, 1.0, P));
-            presence = blend(m_start_presence, 1.0, smoothstep(0.0, 0.4, P));
+            smoke = blend(m_start_smoke, 0.0, std::clamp((P - 0.42) / 0.58, 0.0, 1.0));
+            presence = blend(m_start_presence, 1.0, smoothstep(0.0, 0.32, P));
             cohesion = 1;
             follow = 1.0 - smoothstep(0.45, 0.85, P);
             m_frame.order = -0.8;
             m_frame.origin_uv = UV(add(mul(D, 0.9 * DEPTH), mul(SIDE, ALONG)));
             m_frame.wind = (BOW < 0 ? -SPIN : SPIN) * 0.5 * smoothstep(0.2, 0.45, P) *
-                (1.0 - smoothstep(0.7, 1.0, P));
+                (1.0 - smoothstep(0.72, 0.99, P));
         } else if (!m_route.edge) {
             // The window breaks down from its rim into a swirling mass at a random point, which
             // contracts and thins away.
@@ -267,6 +272,9 @@ namespace hyprimate {
         half = blend(m_from_half, half, HANDOVER);
         radius = blend(m_from_radius, radius, HANDOVER);
         transit = blend(m_from_transit, transit, smoothstep(0.0, 0.08, P));
+        if (m_frame.close_source_body && transit >= 1.0) {
+            m_frame.close_source_body.reset();
+        }
         const Vec2 VELOCITY = m_frame.transit > 0.0 || m_from_transit > 0.01
                                   ? limit(mul(sub(head, m_frame.head), 1.0 / STEP), 2.0 * MAX_SPEED)
                                   : Vec2{};
@@ -387,7 +395,11 @@ namespace hyprimate {
                 m_frame.wind = 0;
                 m_frame.gather = 0;
                 m_frame.dispersal = 0;
-                m_frame.order = 0;
+                // The opening wake stays outside the formed surface until it dwindles
+                // or movement takes ownership of the same field.
+                if (m_motion_smoke > 0 || m_frame.mass > 0 || m_residual <= 0) {
+                    m_frame.order = 0;
+                }
                 m_frame.edge_dir = {};
                 // Only opening gathers loose smoke from afar. A settling window keeps its body
                 // together itself and lets what it sheds drift away and dissipate.

@@ -8,7 +8,7 @@ namespace hyprimate {
     namespace {
         constexpr double PI = std::numbers::pi;
         BurnParams sanitized(BurnParams params) noexcept {
-            params.duration = std::isfinite(params.duration) ? std::max(.05, params.duration) : 1.5;
+            if (!std::isfinite(params.duration) || params.duration <= 0) params.duration = 1.5;
             params.variation = std::clamp(params.variation, 0., 1.);
             params.ember_density = std::clamp(params.ember_density, 0., 2.);
             params.fragment_density = std::clamp(params.fragment_density, 0., 2.);

@@ -33,7 +33,7 @@ def analyze(directory):
     durations = {'open': 1.2, 'close': 1.2}
     for event in events:
         if event['kind'] == 'phase-duration-readback':
-            durations[event['phase']] = event['actual']['float']
+            durations[event['phase']] = event['actual']['float'] / 1000
         if event['kind'] != 'scene' or event['command']['op'] not in ('open', 'close'):
             continue
         begin = event['t'] - origin
