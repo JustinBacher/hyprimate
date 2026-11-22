@@ -5,7 +5,7 @@
 #include "WindowAnimationFacts.hpp"
 
 class CHyprAnimationCanvas;
-namespace hyprimate { class ConstructionSite; }
+namespace hyprimate { struct ConstructionBatch; }
 
 class CConstructionRenderer {
   public:
@@ -16,8 +16,8 @@ class CConstructionRenderer {
     CConstructionRenderer(CConstructionRenderer &&) = delete;
     CConstructionRenderer &operator=(CConstructionRenderer &&) = delete;
 
-    [[nodiscard]] bool draw(const hyprimate::ConstructionSite &site,
-        const hyprimate::animation::Draw<CHyprAnimationCanvas> &draw);
+    [[nodiscard]] bool draw(const hyprimate::ConstructionBatch &batch, hyprimate::Box body,
+        hyprimate::Box capture, const hyprimate::animation::Draw<CHyprAnimationCanvas> &draw);
 
   private:
     struct Impl;

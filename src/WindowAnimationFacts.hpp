@@ -56,6 +56,7 @@ struct Step {
     WorkspaceId workspace = 0;
     bool pinned = false;
     WindowId window = 0;  // Stable through movement-only style acquisitions; no window reference.
+    bool resize_held = false;  // A stationary pointer can still be holding a resize edge.
 };
 struct Effects {
     std::optional<Box> drive_body;

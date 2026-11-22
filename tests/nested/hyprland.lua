@@ -159,6 +159,9 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                         burn = {
 --                             smoke_density = 0.22,
 --                         },
+--                         construction = {
+--                             variant = "native",
+--                         },
 --                         smoke = {
 --                             reform = 0.48,
 --                             settle_speed = 1,

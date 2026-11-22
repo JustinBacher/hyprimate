@@ -4,6 +4,7 @@
 #include <memory>
 
 #include "WindowStyle.hpp"
+#include "animations/construction/ConstructionMotionSite.hpp"
 #include "animations/construction/ConstructionSite.hpp"
 #include "config_settings_generated.hpp"
 
@@ -13,6 +14,7 @@ struct SSharedStyleResources;
 
 struct SConstructionStyle {
     std::unique_ptr<hyprimate::ConstructionSite> site;
+    std::unique_ptr<hyprimate::construction::MotionSite> motion;
     std::uint64_t seed = 0;
     hyprimate::animation::MonitorId monitor = 0;
     hyprimate::animation::WorkspaceId workspace = 0;
@@ -23,6 +25,7 @@ struct SConstructionStyle {
 
 struct ConstructionParams {
     double open_seconds;
+    bool crew_motion;
 };
 
 struct SConstructionResources : hyprimate::animation::ResourcesBase<SConstructionStyle,

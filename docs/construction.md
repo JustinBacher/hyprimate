@@ -1,6 +1,6 @@
 # Construction: installation study
 
-This worktree contains an opening experiment, not a supported four-behavior style. It does not acquire moves or fadeouts. The default remains `liquid`. Construction uses the current transformer's framebuffer for that draw only; the site stores geometry, not a window reference or client texture.
+Construction is an experimental window style. It opens windows with a miniature crew. Movement and resize stay native unless explicitly enabled for the isolated trial below. Closing stays native; Construction never acquires a fadeout. The plugin default remains `liquid`.
 
 ## Art and reproduction
 
@@ -16,7 +16,7 @@ Exporter: resvg 0.49.0. The normal build embeds the PNG via `tools/embed_constru
 
 ## Private review
 
-Use matching Hyprland headers and executable. Do not load this study into a production compositor. Build `build/construction-review` with Ninja and `BUILD_TESTING=ON`. `tests/nested/construction_evidence.py --slice --record` uses its own runtime, home, GTK clients and KWin → Hyprland output. Supply a new output directory as the positional argument and the absolute built artifact via `--plugin`.
+Use matching Hyprland headers and executable. Do not load this study into a production compositor. For the opening study, build `build/construction-review` with Ninja and `BUILD_TESTING=ON`. `tests/nested/construction_evidence.py --slice --record` uses its own runtime, home, GTK clients and KWin → Hyprland output. Supply a new output directory as the positional argument and the absolute built artifact via `--plugin`.
 
 For an opening choreography review, add `--visual-only`. This records ordinary synthetic clients and native controls, not the privacy or allocation checks. The Construction-only default is 620 ms; `--duration` changes the animation tempo without retiming the video. With the same geometry and seed, the structural layout and crew schedule replay identically. A new seed can change the number of bays, their bearings, which ready section goes up next, and who holds or fastens it. The crew reserves stations before admitting a job; upper sections wait for the sections directly beneath them. The wide and compact cuts exercise different crew limits. On a site without enough usable room to stage the crew, the native opening remains in charge.
 
@@ -42,7 +42,13 @@ This is compatibility evidence for windows protected before opening on the teste
 
 ## Movement, resize and closing studies
 
-The native opening is the only live Construction behavior in this checkpoint. With `BUILD_TESTING=ON`, `src/animations/construction/studies/` also builds four CPU-only model tests:
+For a disposable trial, select `window.style = "construction"`, keep `window.movement.enabled = true`, and set `window.movement.options.construction.variant = "crew_carry"`. A translation calls in the carrying crew; a resize recruits workers at the changing edges of the intact window. Neither drives Hyprland's client geometry. Set the variant back to `"native"` to keep just the opening. Crane transport, piece relocation and regional implosion are not live alternatives.
+
+The paired movement test uses a public synthetic client, a private pointer and a nested stock compositor. With the matching host under `build/upstream-stock-948ac1ab/` and the plugin under `build/construction-live-motion-01/obj/`, run `python3 -B tests/nested/construction_motion_evidence.py --sealed-sha256 <plugin-sha256> --take take-02` (choose an unused take number). Each scale and behavior has a native control, an animated recording, geometry traces and a decoded pixel comparison. These recordings do not validate protected-window capture.
+
+On stock `948ac1ab`, both variants passed at 1× and 1.5× (`build/construction-live-motion-01/take-02/`). Each used a continuous pointer grab with a pause and reversal. During the grab the client changed its test marker. At release the workers cleared, the vacated window footprint returned to wallpaper, and the settled output matched the paired native control with zero differing pixels. The resize trial grabbed the top-left corner and kept the opposite corner fixed.
+
+Set-down and crew exit are separate: after pointer release, the carry window's interior (22 logical pixels inset, compared in the lossless recording) matched native continuously from 178 ms at 1× and 173 ms at 1.5×. The last worker left about 0.59 s after release. The extra time is visible crew departure, not a delay to window input.
 
 | Model | What the model publishes |
 |---|---|
@@ -51,4 +57,4 @@ The native opening is the only live Construction behavior in this checkpoint. Wi
 | `EdgeStretch` | The authoritative resize rectangle, with workers pushing or pulling its edges. No subdivision. |
 | `RegionalClose` | A connected deformation of the faces visible when closing began. A local cue starts a staggered regional collapse. Draw authorization and crop restrict the source geometry each time it is requested. |
 
-None registers a live style, chooses a movement default, samples client pixels or owns a GL resource. These are model-level checks, not recordings of those behaviors running in Hyprland.
+`IntactTransport` (crew only) and `EdgeStretch` feed the live renderer. The table describes model output, not four live registrations. The models keep no client images or GL resources. The renderer borrows the current transform input for that draw; it does not retain an image for a later move, resize or close.

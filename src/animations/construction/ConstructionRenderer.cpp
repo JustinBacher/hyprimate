@@ -12,10 +12,10 @@
 #include <hyprland/src/render/gl/GLFramebuffer.hpp>
 
 #include "HyprAnimationCanvas.hpp"
+#include "animations/construction/ConstructionBatch.hpp"
 #include "animations/construction/ConstructionMaterial.hpp"
 #include "animations/construction/ConstructionProgram.hpp"
 #include "animations/construction/ConstructionShaders.hpp"
-#include "animations/construction/ConstructionSite.hpp"
 #include "gl/CompositorContext.hpp"
 #include "gl/NativeFramebuffer.hpp"
 #include "gl/RawGlBracket.hpp"
@@ -78,8 +78,8 @@ CConstructionRenderer::~CConstructionRenderer() {
     glDeleteProgram(m_impl->program);
 }
 
-bool CConstructionRenderer::draw(const hyprimate::ConstructionSite &site,
-    const hyprimate::animation::Draw<CHyprAnimationCanvas> &draw) try {
+bool CConstructionRenderer::draw(const hyprimate::ConstructionBatch &batch, hyprimate::Box body,
+    hyprimate::Box capture, const hyprimate::animation::Draw<CHyprAnimationCanvas> &draw) try {
     using namespace hyprimate;
     if (!draw.canvas || m_impl->render_thread != std::this_thread::get_id() || m_impl->drawing)
         return false;
@@ -90,8 +90,7 @@ bool CConstructionRenderer::draw(const hyprimate::ConstructionSite &site,
     } guard{m_impl->drawing};
 
     draw.canvas->layer().reset();
-    const auto &batch = site.batch();
-    if (!site.active() || batch.overflow || batch.count > batch.quads.size() || !g_pHyprRenderer ||
+    if (batch.count == 0 || batch.overflow || batch.count > batch.quads.size() || !g_pHyprRenderer ||
         g_pHyprRenderer->type() != Render::IHyprRenderer::RT_GL || !draw.image || !*draw.image)
         return false;
     // The framework authorizes this borrow independently for every physical, capture and matte
@@ -104,7 +103,7 @@ bool CConstructionRenderer::draw(const hyprimate::ConstructionSite &site,
         return false;
 
     const auto VIEW = CConstructionMaterial::prepare_view({.canvas = draw.canvas_box,
-        .source = draw.source, .body = site.body(), .capture = site.capture(),
+        .source = draw.source, .body = body, .capture = capture,
         .image_origin = draw.image_origin, .image_size = draw.image_size, .scale = draw.scale,
         .image_rgbx = IMAGE->m_type == Render::TEXTURE_RGBX});
     if (!VIEW || !m_impl->owner.ensure_current() || !m_impl->material.supports_view(*VIEW))

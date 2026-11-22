@@ -19,6 +19,7 @@ struct Observation {
     bool animating_in = false, layout_animated = false, held = false;
     bool workspace_visible = true, workspace_moving = false, pinned = false;
     bool no_screen_share = false;
+    bool resize_held = false;
 };
 template<class Canvas> struct RetainedFrame {
     const Canvas::Image *image = nullptr;

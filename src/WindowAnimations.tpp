@@ -573,7 +573,7 @@ void CWindowAnimations<Port, StyleList<Styles...>>::frame_mapped(Tracked &window
         .open_enabled = m_policy.opening, .held = observation->held,
         .workspace_visible = observation->workspace_visible, .workspace_moving = observation->workspace_moving,
         .monitor = observation->monitor, .workspace = observation->workspace, .pinned = observation->pinned,
-        .window = window.id};
+        .window = window.id, .resize_held = observation->resize_held};
     Effects effects;
     const bool HAD_TAIL = entry->current.tail;
     if (is_usable(entry->footprint)) { m_port.damage(entry->footprint); }

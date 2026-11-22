@@ -129,7 +129,8 @@ std::optional<Observation> CHyprWindowPort::observe(const WindowRef &ref) const 
     const auto WORKSPACE = WINDOW->m_workspace;
     const auto PRESENTATION = Render::resolveWindowSnapshotPresentation(
         WINDOW->presentation().renderPresentation(Render::eSceneMode::MONITOR));
-    const auto TARGET = g_layoutManager->dragController()->target();
+    const auto &drag = g_layoutManager->dragController();
+    const auto TARGET = drag->target();
     Observation result;
     result.window = identity(ref);
     result.monitor = monitor_identity(MONITOR);
@@ -149,8 +150,12 @@ std::optional<Observation> CHyprWindowPort::observe(const WindowRef &ref) const 
     result.animating_in = WINDOW->presentation().animatingIn();
     result.layout_animated = WINDOW->positionAnimation()->isBeingAnimated() ||
                              WINDOW->sizeAnimation()->isBeingAnimated();
-    result.held = TARGET && TARGET->window() == WINDOW &&
-                  g_layoutManager->dragController()->mode() == MBIND_MOVE;
+    if (TARGET && TARGET->window() == WINDOW) {
+        const auto mode = drag->mode();
+        result.held = mode == MBIND_MOVE;
+        result.resize_held = mode == MBIND_RESIZE || mode == MBIND_RESIZE_FORCE_RATIO ||
+                             mode == MBIND_RESIZE_BLOCK_RATIO;
+    }
     result.workspace_visible = !WORKSPACE || WORKSPACE->visible();
     result.workspace_moving = PRESENTATION.workspaceOffsetAnimating;
     result.pinned = static_cast<bool>(WINDOW->m_state & Desktop::View::WINDOW_STATE_PINNED);

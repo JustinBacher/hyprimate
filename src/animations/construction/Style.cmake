@@ -11,7 +11,11 @@ find_package(PNG REQUIRED)
 
 target_sources(hyprimate-core PRIVATE
     ${construction_dir}/ConstructionSite.cpp
-    ${construction_dir}/ConstructionCrew.cpp)
+    ${construction_dir}/ConstructionCrew.cpp
+    ${construction_dir}/studies/IntactTransport.cpp
+    ${construction_dir}/studies/EdgeStretch.cpp
+    ${construction_dir}/ConstructionMotionArt.cpp
+    ${construction_dir}/ConstructionMotionSite.cpp)
 target_sources(hyprimate PRIVATE
     ${construction_dir}/ConstructionLiveStyle.cpp
     ${construction_dir}/ConstructionRenderer.cpp
@@ -20,23 +24,22 @@ target_sources(hyprimate PRIVATE
 target_link_libraries(hyprimate PRIVATE PNG::PNG)
 
 if(BUILD_TESTING)
-    add_executable(construction-site-tests ${construction_dir}/tests/ConstructionSiteTests.cpp)
-    target_include_directories(construction-site-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
-    target_link_libraries(construction-site-tests PRIVATE hyprimate-core)
-    add_test(NAME construction-site-tests COMMAND construction-site-tests)
-    # Experimental motion models are exercised without linking them into the plugin.
-    function(add_construction_study_test target model)
-        add_executable(${target}
-            ${construction_dir}/studies/${model}.cpp
-            ${construction_dir}/studies/tests/${model}Tests.cpp)
+    function(add_construction_test target test_source)
+        add_executable(${target} ${construction_dir}/${test_source} ${ARGN})
         target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
         target_link_libraries(${target} PRIVATE hyprimate-core)
         add_test(NAME ${target} COMMAND ${target})
     endfunction()
-    add_construction_study_test(construction-intact-transport-tests IntactTransport)
-    add_construction_study_test(construction-piece-relocation-tests PieceRelocation)
-    add_construction_study_test(construction-edge-stretch-tests EdgeStretch)
-    add_construction_study_test(construction-regional-close-tests RegionalClose)
+    add_construction_test(construction-site-tests tests/ConstructionSiteTests.cpp)
+    add_construction_test(construction-motion-art-tests tests/ConstructionMotionArtTests.cpp)
+    add_construction_test(construction-motion-site-tests tests/ConstructionMotionSiteTests.cpp)
+    add_construction_test(construction-intact-transport-tests studies/tests/IntactTransportTests.cpp)
+    add_construction_test(construction-edge-stretch-tests studies/tests/EdgeStretchTests.cpp)
+    # These models remain test-only; neither can acquire a live window.
+    add_construction_test(construction-piece-relocation-tests studies/tests/PieceRelocationTests.cpp
+        ${construction_dir}/studies/PieceRelocation.cpp)
+    add_construction_test(construction-regional-close-tests studies/tests/RegionalCloseTests.cpp
+        ${construction_dir}/studies/RegionalClose.cpp)
     add_executable(construction-material-tests
         ${construction_dir}/tests/ConstructionMaterialTests.cpp
         ${construction_dir}/ConstructionMaterial.cpp ${construction_header})
