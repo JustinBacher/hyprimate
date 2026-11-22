@@ -267,6 +267,19 @@ hl.config({
                         depth_strength = 0.018,
                         depth_source = "",
                     },
+                    cube = {
+                        variant = "solid",
+                        duration = 0.6,
+                        curve = "default",
+                        solid = {
+                            cube_tilt = 0,
+                            zoom = 0.25,
+                        },
+                        inside_out = {
+                            cube_tilt = 0,
+                            zoom = 0.45,
+                        },
+                    },
                 },
             },
         },
@@ -338,7 +351,7 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `window:options:liquid:splash` | boolean / animation defaults: `true` | — | Show a small edge-liquid splash where a window closes. When false, it closes without liquid. |
 | `window:options:cloth:side` | string / animation defaults: `"auto"` | — | Cloth exit edge: the side of appearance (auto), nearest valid edge, opening origin, or a fixed edge. Invalid preferred edges fall back to the normal edge selection. Allowed: `auto`, `nearest`, `origin`, `top`, `bottom`, `left`, `right`. |
 | `workspace:enabled` | boolean / `false` | — | Enable workspace transition effects independently of window effects. |
-| `workspace:style` | string / `"rotation"` | — | Choose the workspace transition style. Invalid names are rejected. Allowed: `rotation`, `planet_hop`. |
+| `workspace:style` | string / `"rotation"` | — | Choose the workspace transition style. Invalid names are rejected. Allowed: `rotation`, `planet_hop`, `cube`. |
 | `workspace:options:rotation:duration` | float / `600` | ≥ 0 | Time in milliseconds for the workspace rotation. |
 | `workspace:options:rotation:curve` | string / `"default"` | — | Name of a Hyprland Bezier animation curve. Unknown names are rejected and the previous valid curve is retained. Curve overshoot is clipped to the wheel's rotation range. |
 | `workspace:options:rotation:gap_fill_style` | string / `"still"` | — | Gap treatment: morph stretches an auxiliary incoming-wallpaper bridge; background uses gap_fill_color; wallpaper blends enlarged, optionally blurred wallpaper copies; still (default) holds the outgoing wallpaper stationary while windows rotate. In still mode a different incoming wallpaper rotates in with its windows; matching texture resources with unchanged content stay stationary. No mode changes the rigid circular workspace motion. Configuration uses underscores: gap_fill_style, gap_fill_color, gap_fill_blur. Invalid styles are rejected. Allowed: `morph`, `background`, `wallpaper`, `still`. |
@@ -380,6 +393,13 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `workspace:options:planet_hop:depth_enabled` | boolean / `true` | — | Enable planet surface depth. |
 | `workspace:options:planet_hop:depth_strength` | float / `0.018` | 0–0.5 | Surface relief strength in planet-radius units. |
 | `workspace:options:planet_hop:depth_source` | string / `""` | — | Optional PNG depth image path; empty uses procedural depth. PNG images are limited to 4096 pixels per dimension and 16 MiB encoded. |
+| `workspace:options:cube:variant` | string / `"solid"` | — | Turn between full workspaces on the outer faces of a solid cube or the inner walls of a room. Allowed: `solid`, `inside_out`. |
+| `workspace:options:cube:duration` | float / `0.6` | 0.1–3 | Time in seconds for the cube turn. |
+| `workspace:options:cube:curve` | string / `"default"` | — | Name of a native Hyprland Bezier curve for the cube turn. Unknown names retain the previous valid curve, or fall back to the native default. |
+| `workspace:options:cube:solid:cube_tilt` | float / `0` | -20–20 | Mid-turn tilt in degrees. Positive angles tip the workspace face up; zero keeps it level. |
+| `workspace:options:cube:solid:zoom` | float / `0.25` | 0–1 | Extra camera retreat at mid-turn, measured in workspace widths. |
+| `workspace:options:cube:inside_out:cube_tilt` | float / `0` | -20–20 | Mid-turn tilt in degrees. Positive angles tip the workspace face up; zero keeps it level. |
+| `workspace:options:cube:inside_out:zoom` | float / `0.45` | 0–1 | Fraction of the safe camera retreat inside the room at mid-turn; 1 uses the full safe distance. |
 | `window:enabled` | boolean / `true` | — | Enable window movement, opening and closing effects. When false, none of these effects run. |
 | `window:style` | string / `"liquid"` | — | Choose the material for movement, opening and closing. Liquid deforms the edges; paper crumples into a ball, flutters or glides while moving and folds while resizing; cloth drapes and flutters; swarm breaks the window into creature-shaped pieces; bubble inflates a soap film, sloshes while moving and bursts on close; smoke gathers, unravels into flowing content-coloured volumes while moving, reforms at rest and dissipates on close; burn opens through the wallpaper, scorches it during movement and consumes the printed window on close. Invalid names are rejected. Allowed: `liquid`, `paper`, `cloth`, `swarm`, `bubble`, `smoke`, `burn`. |
 | `window:options:burn:variation` | float / `0.7` | 0–1 | Irregularity of the combustion front, from even propagation to strongly uneven burning. |

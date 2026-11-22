@@ -96,6 +96,19 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                         depth_strength = 0.018,
 --                         depth_source = "",
 --                     },
+--                     cube = {
+--                         variant = "solid",
+--                         duration = 0.6,
+--                         curve = "default",
+--                         solid = {
+--                             cube_tilt = 0,
+--                             zoom = 0.25,
+--                         },
+--                         inside_out = {
+--                             cube_tilt = 0,
+--                             zoom = 0.45,
+--                         },
+--                     },
 --                 },
 --             },
 --             window = {

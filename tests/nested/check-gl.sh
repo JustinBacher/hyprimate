@@ -69,10 +69,14 @@ for style in "${styles[@]}"; do
     after_pos=$(hc clients -j | jq -r --arg a "$address" '.[] | select(.address == $a) | .at | @tsv')
     [[ -n $before_pos && -n $after_pos && $before_pos != "$after_pos" ]] || { echo "$style: window did not move" >&2; exit 1; }
     if (( ! workspace_checked )); then
-        # Exercise both production workspace renderers with a mapped window. Unlike
-        # the offscreen material tests, this crosses the native capture and CShader seam.
-        for workspace_style in rotation planet_hop; do
-            result=$(hc eval "hl.config({ plugin = { hyprimate = { workspace = { enabled = true, style = \"$workspace_style\" } } } })")
+        # Cross the native capture/renderer seam for each workspace presentation.
+        for study in rotation planet_hop cube:solid cube:inside_out; do
+            workspace_style=${study%%:*}
+            options=''
+            if [[ $study == cube:* ]]; then
+                options=", options = { cube = { variant = \"${study#*:}\" } }"
+            fi
+            result=$(hc eval "hl.config({ plugin = { hyprimate = { workspace = { enabled = true, style = \"$workspace_style\" $options } } } })")
             [[ $result == ok ]] || { echo "$workspace_style settings rejected: $result" >&2; exit 1; }
             for workspace in 2 1; do
                 result=$(hc dispatch "hl.dsp.focus({ workspace = $workspace })")
@@ -126,12 +130,12 @@ for style in "${styles[@]}"; do
                 monitor=field("monitor"); src=field("before"); dst=field("after"); pending=1
             }
             /\[hyprimate\] workspace presented / && pending && field("monitor")==monitor &&
-                field("source")==src && field("destination")==dst && field("style")==((count<2) ? "rotation" : "planet_hop") {
+                field("source")==src && field("destination")==dst && field("style")==((count<2) ? "rotation" : (count<4) ? "planet_hop" : "cube") {
                 pending=0; count++
             }
-            END { if (count!=4 || pending) { print "expected four request-matched workspace presentations; found " count+0 > "/dev/stderr"; exit 1 } }
+            END { if (count!=8 || pending) { print "expected eight request-matched workspace presentations; found " count+0 > "/dev/stderr"; exit 1 } }
         ' "$compositor_log"
-        echo "rotation and planet_hop: plugin presented 1 -> 2 -> 1"
+        echo "rotation, planet_hop and both cube variants: plugin presented 1 -> 2 -> 1"
         workspace_checked=1
     fi
     echo "$style: open, move and close passed"

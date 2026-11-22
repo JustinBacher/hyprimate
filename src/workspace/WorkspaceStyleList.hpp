@@ -4,6 +4,7 @@
 #include <type_traits>
 
 #include "WindowStyleList.hpp"
+#include "workspace/cube/CubeStyle.hpp"
 #include "workspace/planet_hop/PlanetHopStyle.hpp"
 #include "workspace/rotation/RotationStyle.hpp"
 
@@ -61,6 +62,6 @@ struct WorkspaceStyleCoverage<animation::StyleList<Styles...>> {
     }
 };
 
-using WorkspaceStyles = animation::StyleList<RotationStyle, PlanetHopStyle>;
+using WorkspaceStyles = animation::StyleList<RotationStyle, PlanetHopStyle, CubeStyle>;
 static_assert(WorkspaceStyleCoverage<WorkspaceStyles>::valid());
 }

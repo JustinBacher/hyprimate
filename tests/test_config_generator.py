@@ -85,7 +85,7 @@ class ConfigGeneratorTests(unittest.TestCase):
                           'workspace.options.rotation.keep_overlays_static'})
         items = {item['path']: item for item in SCHEMA}
         self.assertIs(items['workspace.enabled']['default'], False)
-        self.assertEqual(items['workspace.style']['choices'], ['rotation', 'planet_hop'])
+        self.assertEqual(items['workspace.style']['choices'], ['rotation', 'planet_hop', 'cube'])
         self.assertEqual(items['workspace.style']['default'], 'rotation')
         duration = items['workspace.options.rotation.duration']
         self.assertEqual((duration['default'], duration['min']), (600, 0))
@@ -105,12 +105,15 @@ class ConfigGeneratorTests(unittest.TestCase):
 
     def test_workspace_and_window_styles_have_independent_enums_and_validators(self):
         header = GEN.settings_header(SCHEMA) + GEN.config_header(SCHEMA)
-        self.assertIn('enum class WorkspaceStyle : std::uint8_t { Rotation, PlanetHop };', header)
+        self.assertIn('enum class WorkspaceStyle : std::uint8_t { Rotation, PlanetHop, Cube };', header)
         self.assertIn('WorkspaceStyle style{};', header)
         self.assertIn('Style style{};', header)
         window_styles = ['liquid', 'paper', 'cloth', 'swarm', 'bubble', 'smoke', 'burn']
-        for path, accepted, rejected in [('workspace.style', ['rotation', 'planet_hop'], window_styles),
-                                         ('window.style', window_styles, ['rotation', 'planet_hop']),
+        workspace_styles = ['rotation', 'planet_hop', 'cube']
+        for path, accepted, rejected in [('workspace.style', workspace_styles, window_styles),
+                                         ('window.style', window_styles, workspace_styles),
+                                         ('workspace.options.cube.variant',
+                                          ['solid', 'inside_out'], ['tesseract', 'dimensional_fold']),
                                          ('workspace.options.rotation.gap_fill_style',
                                           ['morph', 'background', 'wallpaper', 'still'], ['rotation', 'invalid'])]:
             item = next(item for item in SCHEMA if item['path'] == path)
@@ -143,7 +146,7 @@ class ConfigGeneratorTests(unittest.TestCase):
         header = GEN.settings_header(SCHEMA + [other])
         self.assertIn('enum class RotationGapFillStyle : std::uint8_t { Morph, Background, Wallpaper, Still };', header)
         self.assertIn('enum class OtherGapFillStyle : std::uint8_t { Solid, Clear };', header)
-        self.assertIn('inline constexpr std::array WORKSPACE_STYLES{WorkspaceStyle::Rotation, WorkspaceStyle::PlanetHop};', header)
+        self.assertIn('inline constexpr std::array WORKSPACE_STYLES{WorkspaceStyle::Rotation, WorkspaceStyle::PlanetHop, WorkspaceStyle::Cube};', header)
         styles = [dict(item) for item in SCHEMA]
         selection = next(item for item in styles if item['path'] == 'workspace.style')
         selection['choices'] = ['rotation', 'other']

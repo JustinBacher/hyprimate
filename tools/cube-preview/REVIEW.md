@@ -1,10 +1,10 @@
 # Cube studies · fold and tesseract revision 03
 
-Visual proposal only. These keys are **not registered**. The scripts read no live compositor configuration, workspace list or captures, and do not load a plugin.
+This document records the four-variant visual proposal. Only `solid` and `inside_out` shipped as production options; `dimensional_fold` and `tesseract` remain preview-only. See the [generated configuration reference](../../README.md) for supported settings and [production verification](production.md) for rendering the approved pair with the real material. The study scripts do not read live captures or load a plugin.
 
 Solid, inside-out and their parameter studies remain the approved revision 02. Revision 03 changes only the dimensional-fold and tesseract designs.
 
-## Proposed Hyprland Lua shape
+## Original proposal (includes preview-only options)
 
 ```lua
 hl.config({ plugin = { hyprimate = { workspace = {
