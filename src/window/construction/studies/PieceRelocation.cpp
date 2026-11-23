@@ -104,10 +104,11 @@ namespace hyprimate::construction::studies {
         m_until_dispatch = 0;
     }
 
-    void PieceRelocation::reset(Box body, std::uint64_t seed) noexcept {
+    void PieceRelocation::reset(Box body, std::uint64_t seed, double worker_size) noexcept {
         clear();
         m_body = body;
         m_seed = seed;
+        m_worker_size = worker_size;
     }
 
     void PieceRelocation::add(Rect a, Rect b) noexcept {
@@ -146,7 +147,8 @@ namespace hyprimate::construction::studies {
         m_landing_velocity = {};
         m_haul_distance = 0;
         const double width = source.w, height = source.h;
-        m_height = std::min(42.0, std::min(width, height) * .29);
+        // Hidden workers retain a positive simulation scale, so transport still completes.
+        m_height = .075 * std::min(width, height) * (m_worker_size == 0 ? 1 : m_worker_size);
         auto rng = m_seed;
         const auto draw = [&](double low, double high) {
             return std::lerp(low, high, unit_draw(rng));

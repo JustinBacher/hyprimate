@@ -33,6 +33,7 @@ struct SConstructionStyle {
 
 struct ConstructionParams {
     double open_seconds, close_seconds;
+    double worker_size;
     hyprimate::construction::TransportVariant transport;
 };
 

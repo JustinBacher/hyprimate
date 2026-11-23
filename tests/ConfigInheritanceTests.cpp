@@ -125,6 +125,12 @@ int main() try {
     SConfigValues values;
     registerConfigValues(nullptr, values);
     auto config = readConfig(values);
+    for (const auto &[input, expected] : {std::pair{0.0F, 0.0}, {0.5F, 0.5}, {1.0F, 1.0},
+             {2.0F, 2.0}, {-1.0F, 0.0}, {3.0F, 2.0}}) {
+        set("window:options:construction:worker_size", input);
+        if (!near(readConfig(values).construction.shared.workerSize, expected)) return 1;
+    }
+    set("window:options:construction:worker_size", 1.0F);
     assert(!config.workspace.enabled);
     assert(config.workspace.style == WorkspaceStyle::Rotation);
     assert(config.style == Style::Liquid);

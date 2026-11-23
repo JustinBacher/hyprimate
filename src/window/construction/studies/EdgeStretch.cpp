@@ -56,11 +56,10 @@ namespace hyprimate::construction::studies {
             return std::array{b.x, b.x + b.w, b.y, b.y + b.h}[index(edge)];
         }
 
-        // Keep the approved half-pixel contact inset; for tiny rectangles scale only
-        // the inset and the second glove's separation, never the actor or body.
-        Vec3 socket(Box body, Edge edge, double fraction) noexcept {
+        // Keep the half-pixel inset only where the worker can reach it.
+        Vec3 socket(Box body, Edge edge, double fraction, double size) noexcept {
             const bool vertical = vertical_edge(edge);
-            const double inset = std::min(.5, .25 * (vertical ? body.w : body.h));
+            const double inset = std::min({.5, .25 * (vertical ? body.w : body.h), size * (.5 / 39)});
             const double line = edge_line(body, edge) + (near_edge(edge) ? inset : -inset);
             if (vertical) return {line, body.y + body.h * fraction, 0};
             return {body.x + body.w * fraction, line, 0};
@@ -79,9 +78,9 @@ namespace hyprimate::construction::studies {
         Vec3 clip_station(Vec3 p, Box body, Box area, Edge edge, double size) noexcept {
             const double line = edge_line(body, edge);
             if (vertical_edge(edge))
-                p.x = std::clamp(p.x, line - 46, line + 46);
+                p.x = std::clamp(p.x, line - 1.18 * size, line + 1.18 * size);
             else
-                p.y = std::clamp(p.y, line - 45 + .44 * size, line + 45 + .44 * size);
+                p.y = std::clamp(p.y, line - .71 * size, line + 1.59 * size);
             if (!usable(area)) return p;
             // Prefer screen room like the filmed apron, but don't pull a boot so
             // far away at a screen boundary that reaching the rim becomes impossible.
@@ -108,7 +107,7 @@ namespace hyprimate::construction::studies {
             constexpr std::array DOWN{.64, .64, .34, .77};
             return clip_station(grip + Vec3{-facing * size * (across + .012 * (variant % 3)),
                                            size * DOWN[index(edge)],
-                                           1.8},
+                                           size * (1.8 / 39)},
                 body,
                 area,
                 edge,
@@ -142,7 +141,7 @@ namespace hyprimate::construction::studies {
                                   ? Vec3{bend * delta.y / planar, -bend * delta.x / planar, 0}
                                   : Vec3{bend, 0, 0};
             const double reach =
-                std::clamp(actual, std::abs(upper - lower) + .001, upper + lower - .001);
+                std::clamp(actual, std::abs(upper - lower) + .00001 * upper, upper + lower - .00001 * upper);
             const double along = (reach * reach + upper * upper - lower * lower) / (2 * reach);
             const double rise = std::sqrt(std::max(0., upper * upper - along * along));
             return {root + axis * along + side * rise,
@@ -193,14 +192,16 @@ namespace hyprimate::construction::studies {
         const double fraction =
             slot == 0 ? .20 + .09 * unit_draw(seed) : .63 + .10 * unit_draw(seed);
         const double anchored = (leading_corner ? 0 : .38) + .62 * fraction;
-        const Vec3 grip = socket(m_body, edge, anchored);
+        const double size = .075 * std::min(m_body.w, m_body.h) *
+            (m_worker_size == 0 ? 1 : m_worker_size) * ((37 + 4 * unit_draw(seed)) / 39);
+        const Vec3 grip = socket(m_body, edge, anchored, size);
         if (usable(area) && !contains(area, grip)) return;
 
         job = {};
         job.live = true;
         job.fraction = anchored;
         job.variant = static_cast<unsigned>((slot + i + m_seed) % 4);
-        job.size = 37 + 4 * unit_draw(seed);
+        job.size = size;
         job.speed = 206 + 40 * unit_draw(seed);
         job.delay = .007 + .044 * slot + .026 * unit_draw(seed);
         job.lane = unit_draw(seed) < .5 ? -1 : 1;
@@ -245,7 +246,7 @@ namespace hyprimate::construction::studies {
         EdgeWorkerPose &out) const noexcept {
         const double elapsed = timing.elapsed;
         const double s = job.size, f = job.facing;
-        const Vec3 grip = socket(m_body, edge, job.fraction);
+        const Vec3 grip = socket(m_body, edge, job.fraction, s);
         Vec3 goal;
         bool seeking = false;
         if (!assigned) {
@@ -283,8 +284,12 @@ namespace hyprimate::construction::studies {
                     job.station_velocity + (velocity - job.station_velocity) * timing.lead;
             }
             job.station = station;
-            const Vec3 lead = toward({}, job.station_velocity * .037, 9);
-            goal = age <= 0 ? job.origin : clip_station(station + lead, m_body, area, edge, s);
+            // A pixel-sized lookahead can exceed a tiny fitter's entire arm reach.
+            // Reserve reach for the planted stance and apron adjustment as well.
+            const Vec3 lead = toward({}, job.station_velocity * .037, .12 * s);
+            // station_for already applies the apron nudge. Applying it again here
+            // would spend another tenth-height of the same arm's reach at screen edges.
+            goal = age <= 0 ? job.origin : station + lead;
             if (elapsed > 0) job.presence = std::max(job.presence, smoothstep(0, .115, age));
             seeking = age > .06 && length(job.foot - goal) < .57 * s;
         }
@@ -318,8 +323,8 @@ namespace hyprimate::construction::studies {
         out.facing = f;
         out.action = action;
         const double across = vertical_edge(edge) ? job.foot.x : job.foot.y - .44 * s;
-        out.opacity =
-            job.presence * (1 - smoothstep(39, 47, std::abs(across - edge_line(m_body, edge))));
+        out.opacity = job.presence *
+            (1 - smoothstep(1.0 * s, 1.21 * s, std::abs(across - edge_line(m_body, edge))));
         out.hip = job.foot + Vec3{f * job.shape[1] * s, -job.shape[0] * s, 0};
         out.neck = out.hip + Vec3{f * job.shape[2] * s, -.31 * s, 0};
         const std::array targets{grip, second_socket(grip, m_body, edge, s, f)};
@@ -411,6 +416,13 @@ namespace hyprimate::construction::studies {
             return;
         }
 
+        // Re-pose at the current window scale while retaining planted world-space boots.
+        if (usable(previous)) {
+            const double ratio = std::min(m_body.w, m_body.h) / std::min(previous.w, previous.h);
+            for (auto &pair : m_jobs)
+                for (auto &job : pair)
+                    if (job.live) job.size *= ratio;
+        }
         const auto delta = edge_motion(previous, m_body);
         EdgeSet moving_edges;
         for (const Edge e : EDGES) {

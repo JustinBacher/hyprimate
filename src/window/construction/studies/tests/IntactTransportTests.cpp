@@ -451,9 +451,43 @@ namespace {
         CHECK(!hop.active() && !hop.crane() && hop.bearers().empty());
         check_identity(hop, wider);
     }
+    void worker_scale_and_hidden_simulation() {
+        const Box body{1000, 1000, 800, 400}, large{1000, 1000, 1600, 800};
+        const Box apron{0, 0, 5000, 4000};
+        IntactTransport normal{IntactTransportKind::CrewCarry, 1307};
+        IntactTransport doubled{IntactTransportKind::CrewCarry, 1307, 2};
+        IntactTransport hidden{IntactTransportKind::CrewCarry, 1307, 0};
+        const auto step = [&](Box box, bool held) {
+            auto sample = input(box, held);
+            sample.screen = sample.work_area = apron;
+            return sample;
+        };
+        for (int i = 0; i < 240; ++i) {
+            normal.step(step(body, true));
+            doubled.step(step(body, true));
+            hidden.step(step(body, true));
+        }
+        CHECK(!normal.bearers().empty() && !doubled.bearers().empty());
+        CHECK(hidden.active() && hidden.bearers().empty());
+        if (normal.bearers().empty() || doubled.bearers().empty()) return;
+        const double height = normal.bearers()[0].height;
+        CHECK(height > 28 && height < 33);
+        CHECK(near(doubled.bearers()[0].height, 2 * height));
+        for (const auto &a : doubled.bearers()) check_bearer(a, doubled.face());
+        for (int i = 0; i < 240; ++i) normal.step(step(large, true));
+        CHECK(!normal.bearers().empty());
+        if (!normal.bearers().empty()) CHECK(near(normal.bearers()[0].height, 2 * height));
+        check_face(normal.face(), large);
+        for (const auto &a : normal.bearers()) check_bearer(a, normal.face());
+        for (int i = 0; i < 240; ++i) hidden.step(step(body, false));
+        CHECK(!hidden.active());
+        check_identity(hidden, body);
+    }
+
 }  // namespace
 
 int main() {
+    worker_scale_and_hidden_simulation();
     for (double hz : {60., 120., 144.}) crew_gathers_lifts_plants_and_disperses(hz);
     crew_regrab_preserves_pose_and_seed_varies_the_cast();
     const std::array single{SCREEN};

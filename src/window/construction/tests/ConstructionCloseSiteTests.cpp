@@ -165,7 +165,7 @@ void partial_opening_starts_on_the_actual_print_and_preserves_its_pose() {
     bool posed = false;
     double area = 0;
     for (int i = 0; i != 45 && !posed; ++i) {
-        opening->step({.elapsed = DT});
+        opening->step({.elapsed = DT, .body = BODY, .capture = CAPTURE});
         count = 0;
         area = 0;
         for (const auto &quad : std::span{opening->batch().quads}.first(opening->batch().count)) {
@@ -384,9 +384,33 @@ void incompatible_source_and_dying_facts_decline() {
     CHECK(!aborted.running && aborted.interrupted);
     CHECK(!site->emit(LOCAL, *frame, effects) && frame->source_faces().empty() && effects.count == 0);
 }
+void enlarged_and_hidden_crew_keep_source_and_damage_bounds() {
+    const auto site = std::make_unique<CloseSite>();
+    const auto frame = std::make_unique<RegionalFrame>();
+    ConstructionBatch effects;
+    for (double multiplier : {0., .5, 1., 2.}) {
+        CHECK(site->start(BODY, CAPTURE, std::nullopt, 19, DURATION, multiplier));
+        bool saw_crew = false;
+        for (int i = 0; i < 40; ++i) {
+            const auto result = site->advance(tick(i == 0 ? 0 : DT));
+            CHECK(result.running && !result.interrupted);
+            CHECK(site->emit(LOCAL, *frame, effects));
+            CHECK(!effects.overflow);
+            check_bounds(*frame, effects, result.bounds, SCREEN);
+            if (multiplier == 0) CHECK(frame->crew().empty());
+            for (const auto &worker : frame->crew()) {
+                saw_crew = true;
+                CHECK(worker.height > 29 * multiplier && worker.height < 35 * multiplier);
+            }
+        }
+        CHECK(multiplier == 0 || saw_crew);
+    }
+}
+
 }  // namespace
 
 int main() {
+    enlarged_and_hidden_crew_keep_source_and_damage_bounds();
     complete_capture_animates_with_local_cue_and_contact_dust();
     partial_opening_starts_on_the_actual_print_and_preserves_its_pose();
     fractional_piece_motion_handoff_rejoins_only_rounded_source_edges();

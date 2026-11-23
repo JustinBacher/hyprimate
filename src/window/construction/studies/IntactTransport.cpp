@@ -104,11 +104,11 @@ namespace hyprimate::construction::studies {
         Chain two_link(Vec3 root, Vec3 wanted, double upper, double lower, int bend) noexcept {
             const Vec3 d = wanted - root;
             const double full = std::sqrt(sum_sq(d)), planar = length(xy(d));
-            const Vec3 axis = full > .0001 ? d * (1 / full) : Vec3{0, 1, 0};
-            const Vec3 side = planar > .0001 ? Vec3{bend * d.y / planar, -bend * d.x / planar, 0}
-                                             : Vec3{double(bend), 0, 0};
+            const Vec3 axis = full > 0 ? d * (1 / full) : Vec3{0, 1, 0};
+            const Vec3 side = planar > 0 ? Vec3{bend * d.y / planar, -bend * d.x / planar, 0}
+                                        : Vec3{double(bend), 0, 0};
             const double reach =
-                std::clamp(full, std::abs(upper - lower) + .001, upper + lower - .001);
+                std::clamp(full, std::abs(upper - lower) + .00001 * upper, upper + lower - .00001 * upper);
             const double along = (reach * reach + upper * upper - lower * lower) / (2 * reach);
             const double rise = std::sqrt(std::max(0.0, upper * upper - along * along));
             return {
@@ -309,8 +309,9 @@ namespace hyprimate::construction::studies {
         return origin + u * (local.x / source.w) + v * (local.y / source.h);
     }
 
-    IntactTransport::IntactTransport(IntactTransportKind kind, std::uint64_t seed) noexcept
-        : m_kind(kind), m_seed(seed) {
+    IntactTransport::IntactTransport(IntactTransportKind kind, std::uint64_t seed,
+        double worker_size) noexcept
+        : m_kind(kind), m_seed(seed), m_worker_size(worker_size) {
     }
 
     void IntactTransport::reset() noexcept {
@@ -421,6 +422,17 @@ namespace hyprimate::construction::studies {
         const Vec2 velocity = interval > 0 && distance > 0
                                   ? shift * (std::min(max_speed, distance / interval) / distance)
                                   : Vec2{};
+        if (resized && usable(previous)) {
+            const double ratio = std::min(body.w, body.h) / std::min(previous.w, previous.h);
+            for (std::size_t i = 0; i < m_crew_count; ++i) {
+                auto &a = m_crew[i];
+                a.height *= ratio;
+                a.stance_offset = a.stance_offset * ratio;
+                a.staging = a.staging * ratio;
+                a.stride *= ratio;
+                a.trigger *= ratio;
+            }
+        }
         if (m_kind == IntactTransportKind::CrewCarry) {
             if (fresh || (work && (moved || resized) && m_crew_count < MAX_BEARERS))
                 place_crew(apron);
@@ -667,8 +679,7 @@ namespace hyprimate::construction::studies {
     void IntactTransport::place_crew(Box apron) noexcept {
         const Box body = m_face.source;
         const double w = body.w, h = body.h, room_b = bottom(apron) - bottom(body);
-        const double size =
-            std::lerp(22.0, 42.0, std::clamp((std::min(w, h) - 55) / 225, 0.0, 1.0));
+        const double size = .075 * std::min(w, h) * (m_worker_size == 0 ? 1 : m_worker_size);
         std::uint64_t rng = m_seed ^ 0x57BAE2;
         const auto draw = [&](double lo, double hi) { return std::lerp(lo, hi, unit_draw(rng)); };
         const auto filled = [&](unsigned slot) { return (m_crew_roster & (1U << slot)) != 0; };
@@ -705,7 +716,7 @@ namespace hyprimate::construction::studies {
             const double room = facing == 1 ? body.x - apron.x : right(apron) - right(body);
             const unsigned slot = facing == 1 ? 0U : 1U;
             if (filled(slot) || room < .31 * size) continue;
-            const double s = std::max(17.0, size + draw(-2.3, 2.8));
+            const double s = size * (1 + draw(-2.3, 2.8) / 42);
             const double edge = facing == 1 ? 0 : w;
             const double bottom_grip = h - std::min(8.0, h * .18);
             const double hp = std::clamp(bottom(apron) - body.y - s * .76, 0.0, bottom_grip);
@@ -738,7 +749,7 @@ namespace hyprimate::construction::studies {
                     return !a.side && std::abs(a.sockets[0].x * w - sx) < .85 * size;
                 }))
                 continue;
-            const double s = size + draw(-3.3, 3.1);
+            const double s = size * (1 + draw(-3.3, 3.1) / 42);
             const int facing = i % 2 == 0 ? 1 : -1;
             const double spread = std::min(w * .16, s * .17);
             add(slot,

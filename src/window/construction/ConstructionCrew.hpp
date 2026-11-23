@@ -29,6 +29,7 @@ struct CrewCues {
     CrewLadder ladder{}; // Optional: near/far work soles use rungs 3/6 and 4/6.
     bool aim_contacts = false; // Opt in to side/overhead socket alignment.
     bool steady_during_finish = false; // Fasten/Weld keep the far glove on far_contact.
+    double scale = 1; // World units per authored rig unit; sockets remain in world space.
 };
 
 // Shared by the carrying walk and the load so neither can get ahead of the other.

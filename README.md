@@ -63,6 +63,7 @@ hl.config({
                 options = {
                     construction = {
                         -- duration = 620,
+                        worker_size = 1,
                     },
                     burn = {
                         -- duration = 1000,
@@ -409,6 +410,7 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `workspace:options:cube:inside_out:zoom` | float / `0.45` | 0–1 | Fraction of the safe camera retreat inside the room at mid-turn; 1 uses the full safe distance. |
 | `window:enabled` | boolean / `true` | — | Enable window movement, opening and closing effects. When false, none of these effects run. |
 | `window:style` | string / `"liquid"` | — | Choose the material for movement, opening and closing. Liquid deforms the edges; paper crumples into a ball, flutters or glides while moving and folds while resizing; cloth drapes and flutters; swarm breaks the window into creature-shaped pieces; bubble inflates a soap film, sloshes while moving and bursts on close; smoke gathers, unravels into flowing content-coloured volumes while moving, reforms at rest and dissipates on close; burn opens through the wallpaper, scorches it during movement and consumes the printed window on close. Construction builds with miniature workers, offers optional transport and intact resize, and closes with a regional implosion. Invalid names are rejected. Allowed: `liquid`, `paper`, `cloth`, `swarm`, `bubble`, `smoke`, `burn`, `construction`. |
+| `window:options:construction:worker_size` | float / `1` | 0–2 | Worker size multiplier for opening, movement, resizing and closing. Workers scale with the window's shorter dimension; 1 is normal size, 0 hides the people, and 2 doubles their size. |
 | `window:options:burn:variation` | float / `0.7` | 0–1 | Irregularity of the combustion front, from even propagation to strongly uneven burning. |
 | `window:options:burn:fragment_density` | float / `0.55` | 0–1 | Relative emission of detached printed fragments. Zero disables them. |
 | `window:options:burn:ember_density` | float / `0.65` | 0–1 | Relative emission of luminous embers. Zero disables them. |

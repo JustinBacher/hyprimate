@@ -17,9 +17,10 @@ class CloseSite {
   public:
     // Nullopt is a known native identity. An engaged span is the last presented, source-clipped
     // client faces in this capture's coordinates, possibly empty. Never substitute missing print.
+    // Worker scale uses body dimensions, not capture trim; zero hides all departing crew.
     [[nodiscard]] bool start(Box body, Box capture,
         std::optional<std::span<const ConstructionQuad>> currently_visible, std::uint64_t seed,
-        double seconds) noexcept;
+        double seconds, double worker_size = 1) noexcept;
 
     // Before retention/suppression, pass the available unposed snapshot rectangle in
     // capture-local logical pixels. A moved face may need texels outside the output.
@@ -48,7 +49,7 @@ class CloseSite {
     std::unique_ptr<ConstructionQuad[]> m_departing;
     std::size_t m_departing_count = 0;
     double m_departure_seconds = 0, m_departure_elapsed = 0, m_departure_distance = 0;
-    bool m_blank = false;
+    bool m_blank = false, m_hide_workers = false;
 };
 
 }  // namespace hyprimate::construction

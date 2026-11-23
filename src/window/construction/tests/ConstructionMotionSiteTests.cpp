@@ -458,9 +458,32 @@ void piece_relocation_retargets_and_seats_the_current_image() {
     }
     CHECK(false);
 }
+void worker_multiplier_keeps_every_motion_variant_running() {
+    const Box moved{HOME.x + 35, HOME.y, HOME.w, HOME.h};
+    const Box enlarged{HOME.x, HOME.y, HOME.w + 40, HOME.h + 20};
+    for (auto variant : {TransportVariant::CrewCarry, TransportVariant::Crane, TransportVariant::PieceByPiece}) {
+        for (double multiplier : {0., .5, 1., 2.}) {
+            for (bool resize : {false, true}) {
+                MotionSite site(1307, variant, multiplier);
+                const Box body = resize ? enlarged : moved;
+                const auto press = resize ? resizing(first(HOME, body)) : first(HOME, body);
+                auto frame = site.advance(press);
+                CHECK(frame.running && !frame.interrupted);
+                for (int i = 0; i < 120; ++i) {
+                    frame = site.advance(resize ? resizing(tick(body)) : tick(body));
+                    CHECK(frame.running && !frame.interrupted && is_usable(frame.bounds));
+                    CHECK(!site.batch().overflow);
+                }
+                completes_after_release(site, body);
+            }
+        }
+    }
+}
+
 }  // namespace
 
 int main() {
+    worker_multiplier_keeps_every_motion_variant_running();
     carry_holds_settles_and_can_restart_on_new_geometry();
     resize_seeds_the_previous_edges_and_never_deforms_the_face();
     quiet_resize_and_held_move_with_incidental_configure();

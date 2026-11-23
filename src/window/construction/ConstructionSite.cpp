@@ -185,14 +185,14 @@ void moving_face(ConstructionBatch &batch, Box bay, Box source, const Panel &p, 
 }
 
 void receiving_ledge(ConstructionBatch &batch, Box bay, Box area, double y,
-    double opacity, double offset, double departure) noexcept {
+    double opacity, double offset, double departure, double scale) noexcept {
     if (departure >= 1) return;
     opacity *= 1 - smoothstep(.1, 1, departure);
-    const double x = std::max(area.x, bay.x + std::min(-57.0, offset - 13));
-    const double r = std::min(right(area), right(bay) + std::max(0.0, offset) + 5);
+    const double x = std::max(area.x, bay.x + std::min(-57 * std::max(1.0, scale), offset - 13 * scale));
+    const double r = std::min(right(area), right(bay) + std::max(0.0, offset) + 5 * std::max(1.0, scale));
     const double height = std::min(5.0, bottom(area) - y);
     if (r <= x || height <= 0 || y < area.y) return;
-    const Vec3 top{x, y, -7}, width{r - x, 0, 0}, depth{0, 0, 22};
+    const Vec3 top{x, y, -7}, width{r - x, 0, 0}, depth{0, 0, std::max(22.0, 16 + 3 * scale)};
     quad(batch, top, width, depth, tint({137, 107, 69, 255}, opacity));
     quad(batch, top + depth, width, {0, height, 0}, tint(NAVY, opacity));
     line(batch, top + depth, top + depth + width, 1.5, tint(GOLD, opacity));
@@ -207,9 +207,11 @@ void receiving_ledge(ConstructionBatch &batch, Box bay, Box area, double y,
     }
 }
 
-void station_deck(ConstructionBatch &batch, const auto &station, double opacity) noexcept {
-    constexpr Vec3 DEPTH{0, 0, 24};
-    const Vec3 top{station.deck_left, station.floor.y, -5}, width{station.deck_right - station.deck_left, 0, 0};
+void station_deck(ConstructionBatch &batch, const auto &station, double opacity, double scale) noexcept {
+    const Vec3 DEPTH{0, 0, std::max(24.0, 19 + 3 * scale)};
+    const double apron = 13 * std::max(0.0, scale - 1);
+    const Vec3 top{station.deck_left - apron, station.floor.y, -5},
+        width{station.deck_right - station.deck_left + 2 * apron, 0, 0};
     quad(batch, top, width, DEPTH, tint({137, 107, 69, 255}, opacity));
     quad(batch, top + DEPTH, width, {0, 4, 0}, tint(NAVY, opacity));
     line(batch, top + DEPTH, top + DEPTH + width, 1.4, tint(GOLD, opacity));
@@ -219,8 +221,9 @@ void station_deck(ConstructionBatch &batch, const auto &station, double opacity)
     if (station.ladder_top.y < station.ladder_base.y) {
         // The top ties to the shoe, not to the moving face. The crew rig paints
         // the occupied rails/rungs.
-        const Vec3 post = station.ladder_top - Vec3{0, 0, 8};
-        line(batch, post, station.ladder_top, 3, tint(STEEL, opacity));
+        const Vec3 ladder_top = station.ladder_base + (station.ladder_top - station.ladder_base) * scale;
+        const Vec3 post = ladder_top - Vec3{0, 0, 8};
+        line(batch, post, ladder_top, 3, tint(STEEL, opacity));
         line(batch, post, mount, 3.2, tint(STEEL, opacity));
     }
 }
@@ -250,14 +253,17 @@ double placement_work(const PlacementRecipe &recipe, double to_seat, double stri
 }
 
 void placement_crew(ConstructionBatch &batch, Box bay, const PlacementRecipe &recipe, const FrameJob &frame,
-    const auto &station, bool tool_worker) noexcept {
+    const auto &station, bool tool_worker, double scale) noexcept {
+    if (scale <= 0) return;
+    const CrewLadder ladder{station.ladder_base,
+        station.ladder_base + (station.ladder_top - station.ladder_base) * scale};
     const bool on_ladder = station.ladder_top.y < station.ladder_base.y;
     const double arrival = station.guide ? progress(0, .57, frame.phase) : frame.arrival;
     const double f = station.facing;
-    const Vec3 stand = on_ladder ? mix(station.ladder_base, station.ladder_top, 7.0 / 12) :
+    const Vec3 stand = on_ladder ? mix(ladder.base, ladder.top, 7.0 / 12) :
         station.floor + Vec3{walk_offset(station.walk, arrival), 0, 0};
-    const Vec3 far = face_socket(frame.panel, bay, stand + Vec3{f * 13.5, -34, -4});
-    const Vec3 near = face_socket(frame.panel, bay, stand + Vec3{f * 16.0, -26, -4});
+    const Vec3 far = face_socket(frame.panel, bay, stand + Vec3{f * 13.5, -34, -4} * scale);
+    const Vec3 near = face_socket(frame.panel, bay, stand + Vec3{f * 16.0, -26, -4} * scale);
     const bool travelling = std::abs(recipe.approach_x) > 16 && std::abs(recipe.approach_y) < 16;
     CrewJob role = station.guide ? CrewJob::Guide : travelling ? CrewJob::Carry : CrewJob::Brace;
     Vec3 contact = near;
@@ -265,8 +271,8 @@ void placement_crew(ConstructionBatch &batch, Box bay, const PlacementRecipe &re
     if (finishing) {
         role = recipe.weld ? CrewJob::Weld : CrewJob::Fasten;
         const Vec3 foot = on_ladder ? stand : station.floor;
-        contact = {std::clamp(foot.x + f * 19.0, bay.x + 5, right(bay) - 5),
-            std::clamp(foot.y - 31, bay.y + 6, bottom(bay) - 6), 5};
+        contact = {std::clamp(foot.x + f * 19.0 * scale, bay.x + 5, right(bay) - 5),
+            std::clamp(foot.y - 31 * scale, bay.y + 6, bottom(bay) - 6), 5};
         const double opacity = 1 - smoothstep(.1, .9, frame.departure);
         // Physical seam plate and shared tool target; keep the dedicated
         // receiver's washer and response distinct.
@@ -277,8 +283,7 @@ void placement_crew(ConstructionBatch &batch, Box bay, const PlacementRecipe &re
     draw_crew(batch, {.floor = station.floor, .far_contact = far, .near_contact = contact, .job = role,
         .facing = f, .approach = station.walk, .arrival = arrival, .work = frame.work,
         .departure = frame.departure, .hold_until = helping_until(recipe), .cadence = 1 / recipe.pace,
-        .ladder = {.base = station.ladder_base, .top = station.ladder_top},
-        .aim_contacts = true, .steady_during_finish = finishing});
+        .ladder = ladder, .aim_contacts = true, .steady_during_finish = finishing, .scale = scale});
 }
 
 void contact_response(ConstructionBatch &batch, Vec3 bolt, double phase, double opacity) noexcept {
@@ -295,24 +300,27 @@ void contact_response(ConstructionBatch &batch, Vec3 bolt, double phase, double 
 }
 
 void receiving_crew(ConstructionBatch &batch, Box bay, const Panel &panel, const auto &guide_station,
-    const auto &fitter_station, double time, double phase) noexcept {
+    const auto &fitter_station, double time, double phase, double scale) noexcept {
+    if (scale <= 0) return;
     const double guide_done = progress(.735, .918, phase);
-    const Vec3 guide = panel.at(0, guide_station.floor.y - bottom(bay) - GUIDE_ABOVE_LEDGE);
+    const Vec3 guide_floor{bay.x - 16 * scale, guide_station.floor.y, guide_station.floor.z};
+    const Vec3 fitter_floor{right(bay) - 26 * scale, fitter_station.floor.y, fitter_station.floor.z};
+    const Vec3 guide = panel.at(0, guide_floor.y - bottom(bay) - GUIDE_ABOVE_LEDGE * scale);
     // The guide arrives on the same cue in both takes; the delayed carrier makes
     // them keep the ready stance longer rather than playing the same pose later.
-    draw_crew(batch, {.floor = guide_station.floor, .far_contact = guide, .job = CrewJob::Guide,
+    draw_crew(batch, {.floor = guide_floor, .far_contact = guide, .job = CrewJob::Guide,
         .facing = guide_station.facing, .approach = guide_station.walk,
         .arrival = progress(GUIDE_ENTERS, GUIDE_PLANTS, time),
-        .work = phase, .departure = guide_done});
+        .work = phase, .departure = guide_done, .scale = scale});
 
-    const Vec3 bolt{right(bay) - FASTENER_INSET, fitter_station.floor.y - FASTENER_ABOVE_LEDGE, 5};
+    const Vec3 bolt{right(bay) - FASTENER_INSET * scale, fitter_floor.y - FASTENER_ABOVE_LEDGE * scale, 5};
     const double fastener_done = progress(WITHDRAW, RECEIVING_CLEAR, phase);
     if (phase >= PANEL_SEAT && fastener_done < 1)
         contact_response(batch, bolt, phase, 1 - smoothstep(0, .82, fastener_done));
-    draw_crew(batch, {.floor = fitter_station.floor, .near_contact = bolt, .job = CrewJob::Fasten,
+    draw_crew(batch, {.floor = fitter_floor, .near_contact = bolt, .job = CrewJob::Fasten,
         .facing = fitter_station.facing, .approach = fitter_station.walk,
         .arrival = progress(FITTER_ENTERS, FITTER_PLANTS, time),
-        .work = phase, .departure = fastener_done});
+        .work = phase, .departure = fastener_done, .scale = scale});
 }
 
 Box projected_bounds(const ConstructionBatch &batch, Box body, Box capture) noexcept {
@@ -338,10 +346,13 @@ Box projected_bounds(const ConstructionBatch &batch, Box body, Box capture) noex
 
 // Only the receiver is authored as a fixed beat. The rest is a rectangular
 // partition over shared cuts, with courses that can bear across several seats.
-void ConstructionSite::build(Box body, Box capture, Box work_area, std::uint64_t seed, double duration) {
+void ConstructionSite::build(Box body, Box capture, Box work_area, std::uint64_t seed, double duration, double worker_size) {
     m_body = body;
     m_capture = capture;
     m_duration = duration;
+    // Worker size never changes the panel plan, scheduling or source geometry.
+    m_worker_scale = .075 * std::min(body.w, body.h) / CREW_HEIGHT *
+        (std::isfinite(worker_size) ? std::clamp(worker_size, 0.0, 2.0) : 1.0);
     m_elapsed = 0;
     m_active = false;
     m_job_count = 0;
@@ -790,7 +801,7 @@ void ConstructionSite::publish(double time) noexcept {
     if (time >= receive_from) {
         const double departure = progress(WITHDRAW, RECEIVING_CLEAR, receive.phase);
         receiving_ledge(batch, marker.bay, m_work_area, carrier.floor.y,
-            smoothstep(receive_from, receive_from + .048, time), receive.offset, departure);
+            smoothstep(receive_from, receive_from + .048, time), receive.offset, departure, m_worker_scale);
     }
     for (std::size_t i = 1; i < m_job_count; ++i) {
         const auto &job = m_jobs[i];
@@ -798,23 +809,24 @@ void ConstructionSite::publish(double time) noexcept {
         const auto &f = frame[i];
         const double placed = job.start == 0 ? 1 : smoothstep(0, .13, f.phase);
         const double opacity = placed * (1 - smoothstep(.38, 1, f.departure));
-        for (std::size_t k = 0; k < job.workers; ++k) station_deck(batch, job.stations[k], opacity);
+        for (std::size_t k = 0; k < job.workers; ++k) station_deck(batch, job.stations[k], opacity, m_worker_scale);
     }
     for (std::size_t k = 0; k < moving_count; ++k) {
         const auto i = moving[k];
         moving_face(batch, m_jobs[i].bay, m_jobs[i].source, frame[i].panel,
             i == RECEIVER ? frame[i].phase / PANEL_SEAT : frame[i].phase);
     }
-    if (time >= marker.start && receive.departure < 1) {
+    if (m_worker_scale > 0 && time >= marker.start && receive.departure < 1) {
         const double facing = carrier.facing, hinge = receive.panel.pivot;
         const double inset_y = carrier.floor.y - bottom(marker.bay);
-        draw_crew(batch, {.floor = carrier.floor,
-            .far_contact = receive.panel.at(hinge - facing * 13, inset_y - 24),
-            .near_contact = receive.panel.at(hinge - facing * 21, inset_y - 32), .job = CrewJob::Carry,
+        const Vec3 floor{marker.bay.x + 29 * m_worker_scale, carrier.floor.y, carrier.floor.z};
+        draw_crew(batch, {.floor = floor,
+            .far_contact = receive.panel.at(hinge - facing * 13 * m_worker_scale, inset_y - 24 * m_worker_scale),
+            .near_contact = receive.panel.at(hinge - facing * 21 * m_worker_scale, inset_y - 32 * m_worker_scale), .job = CrewJob::Carry,
             .facing = facing, .approach = carrier.walk, .arrival = receive.arrival,
-            .work = receive.phase, .departure = receive.departure});
+            .work = receive.phase, .departure = receive.departure, .scale = m_worker_scale});
     }
-    receiving_crew(batch, marker.bay, receive.panel, marker.stations[1], marker.stations[2], time, receive.phase);
+    receiving_crew(batch, marker.bay, receive.panel, marker.stations[1], marker.stations[2], time, receive.phase, m_worker_scale);
     for (std::size_t i = 1; i < m_job_count; ++i) {
         const auto &job = m_jobs[i];
         if (time < job.start || time >= job.clear) continue;
@@ -822,7 +834,7 @@ void ConstructionSite::publish(double time) noexcept {
         const std::size_t finisher = job.stations[last].guide ? last : 0;
         for (std::size_t k = 0; k < job.workers; ++k)
             placement_crew(batch, job.bay, job.placement, frame[i], job.stations[k],
-                (job.placement.fasten || job.placement.weld) && k == finisher);
+                (job.placement.fasten || job.placement.weld) && k == finisher, m_worker_scale);
     }
     m_bounds = projected_bounds(batch, m_local_body, cap);
 }

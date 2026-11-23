@@ -89,16 +89,16 @@ struct Hull {
     }
 };
 
-Box close_envelope(Hull hull, Box local_body, Box cap, double focal) noexcept {
+Box close_envelope(Hull hull, Box local_body, Box cap, double focal, double worker_size) noexcept {
     // The study moves print only down to its toe and inward toward a point on a
     // saved face. Cover that path and the two workers' walks, local flash and dust.
     // An event envelope avoids evaluating the indexed mesh a second time for damage.
     const double span = std::min(cap.w, cap.h);
-    const double worker = 45 * std::clamp(span / 200, .25, 1.0);
+    const double worker = .075 * std::min(local_body.w, local_body.h) * worker_size * (45.0 / 42);
     // The flagger travels under five heights including the starting setback.
     // A sixth covers the painted edges; a two-height vertical apron also covers the soft accents.
-    const double apron = 6 * worker;
-    const double vertical_apron = 2 * worker;
+    const double apron = std::max(6 * worker, .12 * span);
+    const double vertical_apron = std::max(2 * worker, .10 * span);
     const double floor = std::max(hull.hi.y, cap.h) + .02 * span;
     const double min_y = hull.lo.y - vertical_apron;
     const double max_y = floor + vertical_apron;
@@ -188,9 +188,10 @@ void glow(ConstructionBatch &effects, Vec3 center, Vec2 radius, Tint opaque, dou
 }  // namespace
 
 bool CloseSite::start(Box body, Box capture, std::optional<std::span<const ConstructionQuad>> currently_visible,
-    std::uint64_t seed, double seconds) noexcept {
+    std::uint64_t seed, double seconds, double worker_size) noexcept {
     m_close.cancel();
     m_blank = false;
+    m_hide_workers = worker_size == 0;
     m_body = m_capture = m_envelope = m_required_snapshot = {};
     m_departing.reset();
     m_departing_count = 0;
@@ -257,10 +258,10 @@ bool CloseSite::start(Box body, Box capture, std::optional<std::span<const Const
             hull.add(p);
         }
     }
-    const auto envelope = close_envelope(hull, local, cap, focal);
+    const auto envelope = close_envelope(hull, local, cap, focal, worker_size);
     // The study's lattice rectangle is also its source domain. Use the real capture
     // domain so normal decoration in a face survives; the projection still uses body.
-    if (!valid_box(envelope) || !m_close.start(cap, visible, seed, seconds)) return false;
+    if (!valid_box(envelope) || !m_close.start(cap, visible, seed, seconds, worker_size, local)) return false;
     m_body = body;
     m_capture = capture;
     m_envelope = envelope;
@@ -287,6 +288,7 @@ bool CloseSite::can_capture(Box local_snapshot_crop, double scale) const noexcep
 }
 
 bool CloseSite::depart(const ConstructionBatch &last_presented) noexcept {
+    if (m_hide_workers) return m_blank || m_close.active();
     if ((!m_blank && !m_close.active()) || m_departing || last_presented.overflow ||
         last_presented.count > last_presented.quads.size()) return false;
 

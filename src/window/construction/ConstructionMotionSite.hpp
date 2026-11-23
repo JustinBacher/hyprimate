@@ -21,8 +21,11 @@ class MotionSite {
   public:
     enum class Kind { None, Carry, Resize, Crane, Pieces };
 
-    explicit MotionSite(std::uint64_t seed, TransportVariant variant = TransportVariant::CrewCarry) noexcept
-        : m_seed(seed), m_variant(variant) {}
+    // Worker height is 7.5% of the current body's shorter side, times worker_size.
+    // Zero hides the crew without disabling transport or resize animation.
+    explicit MotionSite(std::uint64_t seed, TransportVariant variant = TransportVariant::CrewCarry,
+        double worker_size = 1) noexcept
+        : m_seed(seed), m_variant(variant), m_worker_size(worker_size) {}
     [[nodiscard]] static bool admits(const animation::Motion &motion) noexcept;
     [[nodiscard]] animation::Frame advance(const animation::Step &step) noexcept;
     [[nodiscard]] Kind kind() const noexcept;
@@ -33,6 +36,7 @@ class MotionSite {
   private:
     const std::uint64_t m_seed;
     const TransportVariant m_variant;
+    const double m_worker_size;
     std::variant<std::monostate, studies::IntactTransport, studies::EdgeStretch, studies::PieceRelocation> m_model;
     ConstructionBatch m_batch;
     Box m_body{}, m_capture{}, m_output_owner{};

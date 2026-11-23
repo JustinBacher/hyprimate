@@ -163,7 +163,7 @@ animation::Frame MotionSite::advance(const animation::Step &step) noexcept {
         if (previous != Kind::Resize) {
             // Seed the previous local rectangle without advancing the roster/clock. EdgeStretch
             // then separates common translation from near/far edge work from these exact facts.
-            m_model.emplace<studies::EdgeStretch>(m_seed).step({.body = from, .work_area = area});
+            m_model.emplace<studies::EdgeStretch>(m_seed, m_worker_size).step({.body = from, .work_area = area});
         }
         auto &model = std::get<studies::EdgeStretch>(m_model);
         model.step({.body = step.body, .work_area = area, .elapsed = step.elapsed,
@@ -173,7 +173,7 @@ animation::Frame MotionSite::advance(const animation::Step &step) noexcept {
         auto *model = std::get_if<studies::PieceRelocation>(&m_model);
         if (!model) {
             model = &m_model.emplace<studies::PieceRelocation>();
-            model->reset(from, m_seed);
+            model->reset(from, m_seed, m_worker_size);
         }
         model->step(step.body, step.elapsed, moving_grab);
         active = model->active();
@@ -184,7 +184,7 @@ animation::Frame MotionSite::advance(const animation::Step &step) noexcept {
         if (!model) {
             const auto transport = next == Kind::Crane ? studies::IntactTransportKind::Crane :
                 studies::IntactTransportKind::CrewCarry;
-            model = &m_model.emplace<studies::IntactTransport>(transport, m_seed);
+            model = &m_model.emplace<studies::IntactTransport>(transport, m_seed, m_worker_size);
             auto acquisition = step;
             acquisition.motion->from_body = from;
             acquisition.motion->body = step.body;

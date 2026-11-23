@@ -48,7 +48,8 @@ namespace {
         const Box b = stretch.body();
         for (const auto &pose : stretch.workers()) {
             const auto s = pose.height;
-            CHECK(s >= 37 && s <= 41);
+            const double base = .075 * std::min(b.w, b.h);
+            CHECK(s >= base * (37.0 / 39) - EPS && s <= base * (41.0 / 39) + EPS);
             CHECK(pose.opacity >= 0 && pose.opacity <= 1);
             for (const auto &arm : pose.arms) {
                 CHECK(std::abs(distance(arm.shoulder, arm.elbow) - .179 * s) < EPS);
@@ -380,9 +381,38 @@ namespace {
         }
         CHECK(different_glove && different_swing && distinct_coworkers);
     }
+    void worker_scale_tracks_current_geometry() {
+        const Box small{1000, 1000, 800, 400}, large{1000, 1000, 1600, 800};
+        EdgeStretch normal(72), doubled(72, 2), hidden(72, 0);
+        const auto grab = only(Edge::Bottom);
+        for (int i = 0; i < 240; ++i) {
+            normal.step({.body = small, .elapsed = 1.0 / 120, .grab = grab});
+            doubled.step({.body = small, .elapsed = 1.0 / 120, .grab = grab});
+            hidden.step({.body = small, .elapsed = 1.0 / 120, .grab = grab});
+        }
+        CHECK(!normal.workers().empty() && !doubled.workers().empty());
+        CHECK(hidden.active() && hidden.workers().empty());
+        if (normal.workers().empty() || doubled.workers().empty()) return;
+        const double height = normal.workers()[0].height;
+        CHECK(height >= 28 && height <= 32);
+        CHECK(std::abs(doubled.workers()[0].height - 2 * height) < EPS);
+        for (int i = 0; i < 240; ++i)
+            normal.step({.body = large, .elapsed = 1.0 / 120, .grab = grab});
+        CHECK(std::abs(normal.workers()[0].height - 2 * height) < EPS);
+        geometry(normal);
+        bool contact = false;
+        for (const auto &pose : normal.workers())
+            for (const auto &arm : pose.arms) contact |= arm.gripping;
+        CHECK(contact);
+        for (int i = 0; i < 120; ++i)
+            hidden.step({.body = small, .elapsed = 1.0 / 120, .grab = EdgeSet{}});
+        CHECK(!hidden.active());
+    }
+
 }  // namespace
 
 int main() {
+    worker_scale_tracks_current_geometry();
     for (double hz : {60., 120., 144.}) filmed_corner_actions(hz);
     pause_translate_and_regrab();
     sampled_resize_not_translation();

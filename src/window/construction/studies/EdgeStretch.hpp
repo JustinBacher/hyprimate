@@ -50,8 +50,8 @@ namespace hyprimate::construction::studies {
 
     class EdgeStretch {
       public:
-        explicit EdgeStretch(std::uint64_t seed) noexcept : m_seed(seed) {
-        }
+        explicit EdgeStretch(std::uint64_t seed, double worker_size = 1) noexcept
+            : m_seed(seed), m_worker_size(worker_size) {}
         void step(const EdgeStretchStep &sample) noexcept;
 
         // The entire intact face is this one rectangle. No image or source-sized geometry is
@@ -64,7 +64,7 @@ namespace hyprimate::construction::studies {
         }
         // Includes arriving/departing actors even when their current opacity is zero.
         [[nodiscard]] std::span<const EdgeWorkerPose> workers() const noexcept {
-            return {m_poses.data(), m_count};
+            return {m_poses.data(), m_worker_size == 0 ? 0 : m_count};
         }
 
       private:
@@ -106,6 +106,7 @@ namespace hyprimate::construction::studies {
             EdgeWorkerPose &out) const noexcept;
 
         std::uint64_t m_seed;
+        double m_worker_size;
         Box m_body{};
         bool m_was_held = false;
         std::array<double, 4> m_velocity{}, m_recent{};

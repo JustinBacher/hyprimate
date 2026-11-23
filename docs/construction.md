@@ -2,6 +2,8 @@
 
 Construction is an experimental window style. A miniature crew builds the opening, optional transport and resize follow Hyprland's geometry, and closing uses regional implosion. The plugin default remains `liquid`; Construction movement defaults to `native`.
 
+Worker height follows the window's shorter dimension (7.5% at normal size, with seeded variation where supported). Set `window.options.construction.worker_size` to a floating-point multiplier from `0` to `2`: `1` is normal, `0.5` is half size, `2` doubles it, and `0` hides the people without disabling the construction effect. The setting applies to opening, movement, resizing and closing.
+
 ## Art and reproduction
 
 `src/window/construction/art/construction.svg` is original vector artwork authored for this study. `ConstructionArt.hpp` specifies the part anchors in the same 64-texel cell coordinates. The 512×256 atlas contains 24 painted cells; its decoded RGBA texture is 524,288 bytes. Art is premultiplied at upload, not in the PNG. No fonts, external images, asset downloads or rasterizer are needed to build the plugin.

@@ -161,7 +161,7 @@ namespace hyprimate::construction::studies {
     bool RegionalClose::start(Box body,
         std::span<const VisibleFace> visible,
         std::uint64_t seed,
-        double duration) noexcept {
+        double duration, double worker_size, Box worker_body) noexcept {
         cancel();
         if (!valid(body) || visible.empty() || visible.size() > MAX_VISIBLE_FACES ||
             !std::isfinite(duration) || duration <= 0)
@@ -169,6 +169,8 @@ namespace hyprimate::construction::studies {
 
         m_body = body;
         m_scale = std::min(body.w, body.h);
+        const Box crew_body = valid(worker_body) ? worker_body : body;
+        const double crew_height = .075 * std::min(crew_body.w, crew_body.h) * worker_size;
         double floor = body.y + body.h;
         double top = body.y;
         m_x_count = grid_axis(m_x_edges, body.x, body.w, COLUMNS);
@@ -330,7 +332,7 @@ namespace hyprimate::construction::studies {
             for (std::size_t j = 0; j < m_patch_count; ++j)
                 if (side * (edge(m_patches[j].visible) - edge(edge_patch->visible)) > 0)
                     edge_patch = &m_patches[j];
-            const double height = (38 + 7 * unit_draw(seed)) * std::clamp(m_scale / 200, .25, 1.0);
+            const double height = crew_height * ((38 + 7 * unit_draw(seed)) / 42);
             const auto b = edge_patch->visible;
             const double foot_y = b.y + b.h;
             const double gap = (i == 0 ? .19 : .28) * height;
@@ -354,6 +356,7 @@ namespace hyprimate::construction::studies {
         for (std::size_t i = 0; i < m_stations.size(); ++i) {
             const auto &station = m_stations[i];
             const double s = station.height, flank = station.flank;
+            if (s == 0) continue;
             const double turn = i == 0 ? .075 : .122;
             const double depart = turn + .027;
             const double travel = smoothstep(depart, .285, m_progress);

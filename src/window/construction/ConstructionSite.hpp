@@ -10,7 +10,7 @@ namespace animation { struct Step; }
 
 class ConstructionSite {
 public:
-    void build(Box body, Box capture, Box work_area, std::uint64_t seed, double duration);
+    void build(Box body, Box capture, Box work_area, std::uint64_t seed, double duration, double worker_size = 1);
     void step(const animation::Step &step) noexcept;
 
     [[nodiscard]] bool active() const noexcept { return m_active; }
@@ -42,6 +42,7 @@ private:
     Box m_body, m_capture, m_bounds;
     bool m_oversized_outsets = false;
     double m_duration = 0, m_elapsed = 0;
+    double m_worker_scale = 1;
     bool m_active = false;
 };
 

@@ -40,7 +40,7 @@ namespace hyprimate::construction::studies {
 
         // Establish the origin of a new observation. A motion sample uses the latest unoffset body;
         // callers reset on a scope change. Incompatible sizes or a stall release to native.
-        void reset(Box body, std::uint64_t seed) noexcept;
+        void reset(Box body, std::uint64_t seed, double worker_size = 1) noexcept;
         void step(Box body, double elapsed, bool held) noexcept;
 
         [[nodiscard]] bool active() const noexcept {
@@ -53,7 +53,7 @@ namespace hyprimate::construction::studies {
             return {m_faces.data(), m_face_count};
         }
         [[nodiscard]] std::span<const Worker> workers() const noexcept {
-            return {m_workers.data(), m_worker_count};
+            return {m_workers.data(), m_worker_size == 0 ? 0 : m_worker_count};
         }
 
       private:
@@ -105,6 +105,7 @@ namespace hyprimate::construction::studies {
         std::size_t m_count = 0, m_seated = 0, m_closure = 0, m_face_count = 0, m_worker_count = 0;
         unsigned m_installed = 0;
         double m_height = 0, m_until_dispatch = 0, m_haul_distance = 0;
+        double m_worker_size = 1;
     };
 
 }  // namespace hyprimate::construction::studies

@@ -121,7 +121,7 @@ namespace {
             }
         }
         for (const auto &w : workers) {
-            CHECK(w.height > 0 && w.height <= 42);
+            CHECK(std::abs(w.height - .075 * std::min(body.w, body.h)) < EPS);
             CHECK(w.visibility >= 0 && w.visibility <= 1);
             for (const auto &leg : w.legs) {
                 CHECK(std::abs(distance(leg.root, leg.joint) - .232 * w.height) <= EPS);
@@ -392,9 +392,48 @@ namespace {
         model.step({10, 10, resized.w, resized.h}, std::numeric_limits<double>::quiet_NaN(), false);
         CHECK(!model.active());
     }
+    void worker_scale_preserves_contacts_and_hidden_transport() {
+        for (double span : {400., 800.}) {
+            const Box source{100, 100, 2 * span, span};
+            const Box target{source.x + 120, source.y + 30, source.w, source.h};
+            for (double multiplier : {0., .5, 1., 2.}) {
+                PieceRelocation model;
+                model.reset(source, 1307, multiplier);
+                model.step(target, 0, true);
+                bool saw_worker = false, saw_carried = false;
+                for (int i = 0; i < 240; ++i) {
+                    model.step(target, 1.0 / 120, true);
+                    check_tiling(model.faces(), target);
+                    for (const auto &face : model.faces()) {
+                        CHECK(std::isfinite(face.origin.x) && std::isfinite(face.origin.y));
+                        saw_carried |= face.placement == Placement::Carried;
+                    }
+                    if (multiplier == 0) CHECK(model.workers().empty());
+                    for (const auto &w : model.workers()) {
+                        saw_worker = true;
+                        CHECK(std::abs(w.height - .075 * span * multiplier) < EPS);
+                        for (const auto &leg : w.legs) {
+                            CHECK(std::abs(distance(leg.root, leg.joint) - .232 * w.height) < EPS);
+                            CHECK(std::abs(distance(leg.joint, leg.tip) - .247 * w.height) < EPS);
+                        }
+                        if (!w.gripping) continue;
+                        for (const auto &arm : w.arms)
+                            CHECK(std::any_of(model.faces().begin(), model.faces().end(), [&](const auto &f) {
+                                return f.piece == w.piece && contains(f, arm.tip);
+                            }));
+                    }
+                }
+                CHECK(saw_carried && (multiplier == 0 || saw_worker));
+                for (int i = 0; i < 1200 && model.active(); ++i) model.step(target, 1.0 / 120, false);
+                CHECK(!model.active());
+            }
+        }
+    }
+
 }  // namespace
 
 int main() {
+    worker_scale_preserves_contacts_and_hidden_transport();
     deterministic_mixed_tiling();
     overlapping_trips_retarget_without_jumps();
     regrab_during_exit_and_interruptions();

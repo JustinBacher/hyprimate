@@ -62,7 +62,8 @@ namespace hyprimate::construction::studies {
 
     class IntactTransport {
       public:
-        explicit IntactTransport(IntactTransportKind kind, std::uint64_t seed) noexcept;
+        explicit IntactTransport(IntactTransportKind kind, std::uint64_t seed,
+            double worker_size = 1) noexcept;
 
         // An owner constrains a mapped crane to one drawable apron and an exposed exit.
         // Returns false only when that mapped route cannot be used; no owner preserves the study.
@@ -75,7 +76,7 @@ namespace hyprimate::construction::studies {
             return m_face;
         }
         [[nodiscard]] std::span<const CarryBearerPose> bearers() const noexcept {
-            return {m_bearers.data(), m_bearer_count};
+            return {m_bearers.data(), m_worker_size == 0 ? 0 : m_bearer_count};
         }
         [[nodiscard]] const std::optional<CarryCranePose> &crane() const noexcept {
             return m_crane_pose;
@@ -139,6 +140,7 @@ namespace hyprimate::construction::studies {
         static constexpr std::size_t MAX_BEARERS = 6;
         const IntactTransportKind m_kind;
         const std::uint64_t m_seed;
+        const double m_worker_size;
         IntactTransportFace m_face;
         Box m_shadow;
         std::array<Bearer, MAX_BEARERS> m_crew;

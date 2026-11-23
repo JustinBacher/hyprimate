@@ -59,11 +59,12 @@ void trace_motion_end(SConstructionStyle &state, MotionSite::Kind kind) noexcept
     trace_resources(state);
 }
 
-Frame advance_motion(SConstructionStyle &state, const Step &step, construction::TransportVariant transport) {
+Frame advance_motion(SConstructionStyle &state, const Step &step, construction::TransportVariant transport,
+    double worker_size) {
     if (!state.motion) {
         if (!step.movement_enabled || !step.motion || !MotionSite::admits(*step.motion)) return {};
         try {
-            state.motion = std::make_unique<MotionSite>(state.seed, transport);
+            state.motion = std::make_unique<MotionSite>(state.seed, transport, worker_size);
         } catch (const std::bad_alloc &) {
             return {.interrupted = true};
         }
@@ -103,7 +104,7 @@ SConstructionModule::Prepared SConstructionModule::prepare_settings(const Settin
         case config::Variant::PieceByPiece: mode = Mode::PieceByPiece; break;
     }
     return {.open_seconds = settings.open.duration / 1000.0, .close_seconds = settings.close.duration / 1000.0,
-        .transport = mode};
+        .worker_size = settings.shared.workerSize, .transport = mode};
 }
 
 SConstructionModule::State SConstructionModule::start(const Resources &, std::uint64_t seed) {
@@ -115,7 +116,8 @@ bool SConstructionModule::open(State &state, const Place &place, Resources &reso
     std::unique_ptr<ConstructionSite> opening;
     try {
         opening = std::make_unique<ConstructionSite>();
-        opening->build(place.goal_body, place.rest_capture, place.work_area, place.seed, resources.prepared.open_seconds);
+        opening->build(place.goal_body, place.rest_capture, place.work_area, place.seed,
+            resources.prepared.open_seconds, resources.prepared.worker_size);
     } catch (const std::bad_alloc &) {
         return false;
     }
@@ -140,7 +142,7 @@ Frame SConstructionModule::advance(State &state, const Step &step, Resources &re
     state.drawn_art_current = false;
     if (!state.site) {
         if (resources.prepared.transport == construction::TransportVariant::Native) return {.interrupted = true};
-        return advance_motion(state, step, resources.prepared.transport);
+        return advance_motion(state, step, resources.prepared.transport, resources.prepared.worker_size);
     }
     // Opening has priority: the framework's rising-open tick may still carry a motion
     // observation taken before the existing snap-to-goal and observation reread.
@@ -203,7 +205,8 @@ CloseStart SConstructionModule::close(State &state, const Place &place, Resource
     }
     try {
         auto closing = std::make_unique<construction::CloseSite>();
-        if (!closing->start(place.body, place.capture, visible, place.seed, resources.prepared.close_seconds))
+        if (!closing->start(place.body, place.capture, visible, place.seed, resources.prepared.close_seconds,
+                resources.prepared.worker_size))
             return CloseStart::Declined;
         if (visible && !closing->depart(state.site ? state.site->batch() : state.motion->batch()))
             return CloseStart::Declined;

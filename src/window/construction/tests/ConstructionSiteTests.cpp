@@ -152,7 +152,7 @@ double stance_gap(const WorkerPaint &worker, Vec3 near, Vec3 far) {
 
 struct ReceivingPaint { WorkerPaint guide, fitter; };
 
-ReceivingPaint receiving_workers(const ConstructionBatch &batch, double left, double right, double sill) {
+ReceivingPaint receiving_workers(const ConstructionBatch &batch, double left, double right, double sill, double scale) {
     // Group the painted limbs of each rig; identify the receivers by their
     // planted sockets, not where they appear in the crew's paint order.
     ReceivingPaint result;
@@ -160,10 +160,10 @@ ReceivingPaint receiving_workers(const ConstructionBatch &batch, double left, do
     double guide_gap=INFINITY, fitter_gap=INFINITY;
     const auto consider=[&] {
         if (worker.hammer) {
-            const double gap=stance_gap(worker,{right-32,sill,11.9},{right-20,sill,6.3});
+            const double gap=stance_gap(worker,{right-32*scale,sill,9+2.9*scale},{right-20*scale,sill,9-2.7*scale});
             if (gap<fitter_gap) { fitter_gap=gap; result.fitter=worker; }
         } else {
-            const double gap=stance_gap(worker,{left-22,sill,10.9},{left-10,sill,5.3});
+            const double gap=stance_gap(worker,{left-22*scale,sill,8+2.9*scale},{left-10*scale,sill,8-2.7*scale});
             if (gap<guide_gap) { guide_gap=gap; result.guide=worker; }
         }
     };
@@ -184,7 +184,8 @@ ReceivingPaint receiving_workers(const ConstructionBatch &batch, double left, do
 }
 
 const ConstructionQuad *receiving_bolt(const ConstructionBatch &batch, Box body) {
-    const Vec3 target{body.w-6,body.h-31,5};
+    const double scale=.075*std::min(body.w,body.h)/CREW_HEIGHT;
+    const Vec3 target{body.w-6*scale,body.h-31*scale,5};
     for (std::size_t i=0; i<batch.count; ++i) {
         const auto &q=batch.quads[i];
         if (owns_uv(q,FASTENER) && length(socket(q,FASTENER.pivot)-target)<=.5) return &q;
@@ -208,18 +209,19 @@ bool on_sill(const ConstructionBatch &batch, Vec3 sole) {
 struct ContactSample { double grip=INFINITY, stance=INFINITY, hammer=INFINITY; };
 
 ContactSample sample_contacts(const ConstructionBatch &batch, const ConstructionQuad &face,
-    const ConstructionQuad *bolt) {
+    const ConstructionQuad *bolt, double scale) {
     ContactSample sample;
     const double x=face.uv[0], y=double(face.uv[1])+face.uv[3];
-    const auto [guide,fitter]=receiving_workers(batch,x,double(face.uv[0])+face.uv[2],y);
-    // The fixture has no capture trim: the receiving socket is on the face's
-    // left edge, 32 logical px above the sill in the moving panel's own plane.
+    const auto [guide,fitter]=receiving_workers(batch,x,double(face.uv[0])+face.uv[2],y,scale);
+    // The fixture has no capture trim; socket height follows the rig scale in
+    // the moving panel's own plane.
     if (guide.far_glove)
-        sample.grip=length(socket(*guide.far_glove,GLOVE.tip)-point(face,0,1-32.0/face.uv[3]));
+        sample.grip=length(socket(*guide.far_glove,GLOVE.tip)-point(face,0,1-32*scale/face.uv[3]));
     if (guide.near_boot && guide.far_boot) {
         const Vec3 near=socket(*guide.near_boot,NEAR_BOOT.tip), far=socket(*guide.far_boot,FAR_BOOT.tip);
         if (on_sill(batch,near) && on_sill(batch,far))
-            sample.stance=std::max(length(near-Vec3{x-22,y,10.9}),length(far-Vec3{x-10,y,5.3}));
+            sample.stance=std::max(length(near-Vec3{x-22*scale,y,8+2.9*scale}),
+                length(far-Vec3{x-10*scale,y,8-2.7*scale}));
     }
     if (fitter.hammer && bolt)
         sample.hammer=length(socket(*fitter.hammer,HAMMER.tip)-socket(*bolt,FASTENER.pivot));
@@ -457,7 +459,7 @@ MarkerTrace contacts(std::uint64_t seed) {
         if (bolt && first_bolt<0) first_bolt=ms;
         if (const auto *face=marker_face(batch,BODY)) {
             if (!full_identity(*face,BODY)) {
-                samples[ms]=sample_contacts(batch,*face,bolt);
+                samples[ms]=sample_contacts(batch,*face,bolt,.075*std::min(BODY.w,BODY.h)/CREW_HEIGHT);
                 split_covered=complete_identity_coverage(batch,BODY);
             } else if (!checked_coverage) {
                 // Verify the last assembled split frame as well as the active
@@ -549,11 +551,100 @@ void installation(Box body, std::uint64_t seed, double hz) {
     std::printf("%.0fx%.0f seed=%llu simulated_Hz=%.0f peak_quads=%zu stream_bytes=%zu storage_bytes=%zu\n",
         body.w,body.h,static_cast<unsigned long long>(seed),hz,peak,peak*sizeof(ConstructionQuad),sizeof(site));
 }
+void scaled_rigs_keep_world_contacts() {
+    constexpr Vec3 floor{180,240,9};
+    for (const auto job : {CrewJob::Carry,CrewJob::Guide,CrewJob::Brace,CrewJob::Fasten,CrewJob::Weld}) {
+        for (double work : {.44,.55,FASTENER_STRIKE,.80}) {
+            const CrewCues cues{.floor=floor,.far_contact=floor+Vec3{13,-32,-4},
+                .near_contact=floor+Vec3{19,-31,-4},.job=job,.facing=1,.approach=0,
+                .arrival=1,.work=work,.departure=0,.aim_contacts=true,.steady_during_finish=true};
+            ConstructionBatch reference;
+            draw_crew(reference,cues);
+            CHECK(reference.count>0 && !reference.overflow);
+            for (double scale : {.125,.5,1.0,2.0,4.0}) {
+                auto scaled=cues;
+                scaled.scale=scale;
+                scaled.far_contact=floor+(cues.far_contact-floor)*scale;
+                scaled.near_contact=floor+(cues.near_contact-floor)*scale;
+                ConstructionBatch batch;
+                draw_crew(batch,scaled);
+                CHECK(batch.count==reference.count && !batch.overflow);
+                for (std::size_t i=0;i<std::min(batch.count,reference.count);++i) {
+                    CHECK(batch.quads[i].surface==reference.quads[i].surface);
+                    CHECK(batch.quads[i].uv==reference.quads[i].uv);
+                    for (int corner=0;corner<4;++corner) {
+                        const Vec3 expected=floor+(point(reference.quads[i],corner&1,corner>>1)-floor)*scale;
+                        CHECK(length(point(batch.quads[i],corner&1,corner>>1)-expected)<.002);
+                    }
+                }
+                if (const auto *boot=paint(batch,NEAR_BOOT))
+                    CHECK(std::abs(socket(*boot,NEAR_BOOT.tip).y-floor.y)<.002);
+                if (const auto *boot=paint(batch,FAR_BOOT))
+                    CHECK(std::abs(socket(*boot,FAR_BOOT.tip).y-floor.y)<.002);
+            }
+            auto hidden=cues;
+            hidden.scale=0;
+            ConstructionBatch batch;
+            draw_crew(batch,hidden);
+            CHECK(batch.count==0 && !batch.overflow);
+        }
+    }
+}
+
+void opening_worker_size_preserves_source_faces() {
+    for (const Box body : {Box{100,100,480,320},Box{100,100,800,550},Box{100,100,1600,1100}}) {
+        const Box area{0,0,body.w+400,body.h+400};
+        for (double multiplier : {0.0,.5,1.0,2.0}) {
+            ConstructionSite reference,scaled;
+            reference.build(body,body,area,42,OPEN_SECONDS);
+            scaled.build(body,body,area,42,OPEN_SECONDS,multiplier);
+            CHECK(reference.active() && scaled.active());
+            bool saw_workers=false,saw_client=false,saw_identity=false;
+            for (int frame=0;frame<80 && reference.active();++frame) {
+                const auto &a=reference.batch(),&b=scaled.batch();
+                CHECK(scaled.active() && !b.overflow);
+                std::size_t next=0;
+                for (std::size_t i=0;i<b.count;++i) {
+                    const auto &q=b.quads[i];
+                    for (int corner=0;corner<4;++corner) {
+                        const Vec3 p=point(q,corner&1,corner>>1);
+                        CHECK(std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z));
+                    }
+                    if (owns_uv(q,HEAD)) {
+                        saw_workers=true;
+                        const double scale=.075*std::min(body.w,body.h)/CREW_HEIGHT*multiplier;
+                        const double head_height=56*(CREW_HEIGHT-23.1-13.2-.9)/(HEAD.pivot.y-HEAD.tip.y)*scale;
+                        CHECK(std::abs(length(Vec3{q.v[0],q.v[1],q.v[2]})-head_height)<.002);
+                    }
+                    if (q.surface!=ConstructionSurface::Client) continue;
+                    saw_client=true;
+                    saw_identity|=full_identity(q,body);
+                    while (next<a.count && a.quads[next].surface!=ConstructionSurface::Client) ++next;
+                    CHECK(next<a.count);
+                    if (next>=a.count) continue;
+                    const auto &expected=a.quads[next++];
+                    CHECK(q.origin==expected.origin && q.u==expected.u && q.v==expected.v && q.uv==expected.uv);
+                }
+                while (next<a.count && a.quads[next].surface!=ConstructionSurface::Client) ++next;
+                CHECK(next==a.count);
+                const animation::Step tick{.elapsed=1.0/120,.body=body,.capture=body,.goal_body=body,
+                    .rest_capture=body,.screen=area,.work_area=area,.motion={},.open_enabled=true};
+                reference.step(tick);
+                scaled.step(tick);
+            }
+            CHECK(saw_workers==(multiplier>0));
+            CHECK(saw_client && saw_identity && !scaled.active());
+        }
+    }
+}
+
 }  // namespace
 
 int main() {
     crew_built_opening();
     opening_diversity_and_support();
+    scaled_rigs_keep_world_contacts();
+    opening_worker_size_preserves_source_faces();
     const auto early=contacts(42), delayed=contacts(43);
     const int delay=delayed.seat-early.seat;
     CHECK(delay>=30);

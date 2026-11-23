@@ -441,9 +441,48 @@ namespace {
         CHECK(!model.start(LANDSCAPE, oversized, 17, .82));
     }
 
+    void worker_scale_tracks_window_not_source_crop() {
+        Close model;
+        Close::Frame frame;
+        for (double span : {400., 800.}) {
+            const Box body{0, 0, 2 * span, span};
+            const auto face = Close::VisibleFace::flat(body);
+            std::array<double, 2> heights{};
+            CHECK(model.start(body, std::span{&face, 1}, 19, 1));
+            model.emit(authorized(body), frame);
+            CHECK(frame.crew().size() == 2);
+            for (std::size_t i = 0; i < frame.crew().size(); ++i) {
+                heights[i] = frame.crew()[i].height;
+                CHECK(heights[i] > .067 * span && heights[i] < .081 * span);
+            }
+            CHECK(model.start(body, std::span{&face, 1}, 19, 1, 1, {0, 0, span, span / 2}));
+            model.emit(authorized(body), frame);
+            for (std::size_t i = 0; i < frame.crew().size(); ++i)
+                CHECK(std::abs(frame.crew()[i].height - .5 * heights[i]) < 1e-7);
+            CHECK(model.start(body, std::span{&face, 1}, 19, 1, 2));
+            model.emit(authorized(body), frame);
+            for (std::size_t i = 0; i < frame.crew().size(); ++i)
+                CHECK(std::abs(frame.crew()[i].height - 2 * heights[i]) < 1e-7);
+            CHECK(model.start(body, std::span{&face, 1}, 19, 1, 0));
+            model.emit(authorized(body), frame);
+            CHECK(frame.crew().empty() && !frame.source_faces().empty());
+            bool saw_flash = false;
+            for (int tick = 0; tick < 35; ++tick) {
+                model.advance(.01);
+                model.emit(authorized(body), frame);
+                CHECK(frame.crew().empty());
+                saw_flash |= frame.flash.has_value();
+            }
+            CHECK(saw_flash);
+            for (const auto &v : frame.source_vertices())
+                CHECK(std::isfinite(v.position.x) && std::isfinite(v.position.y) && std::isfinite(v.position.z));
+        }
+    }
+
 }  // namespace
 
 int main() {
+    worker_scale_tracks_window_not_source_crop();
     seed_and_shape_change_the_first_region();
     preserves_only_the_interrupted_print();
     crew_clears_before_flash_and_dust_stays_local();

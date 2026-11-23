@@ -115,6 +115,9 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                 enabled = true,
 --                 style = "liquid",
 --                 options = {
+--                     construction = {
+--                         worker_size = 1,
+--                     },
 --                     burn = {
 --                         variation = 0.7,
 --                         fragment_density = 0.55,

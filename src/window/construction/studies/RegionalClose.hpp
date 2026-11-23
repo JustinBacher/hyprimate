@@ -100,10 +100,11 @@ namespace hyprimate::construction::studies {
         // source faces with disjoint interiors; an empty span means nothing was built/visible.
         // Geometry is copied at handoff; the caller owns authorization, image identity and
         // lifetime.
+        // worker_body optionally distinguishes the window size from its source/capture domain.
         bool start(Box body,
             std::span<const VisibleFace> visible,
             std::uint64_t seed,
-            double duration) noexcept;
+            double duration, double worker_size = 1, Box worker_body = {}) noexcept;
         void advance(double elapsed, bool stalled = false) noexcept;
         void cancel() noexcept;
         [[nodiscard]] bool active() const noexcept {
