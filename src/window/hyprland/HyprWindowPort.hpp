@@ -83,7 +83,7 @@ class CHyprWindowPort {
         const hyprimate::animation::TailDraw &draw);
     [[nodiscard]] std::optional<hyprimate::animation::RetainedFrame<Canvas>> retained_mapped_image(
         hyprimate::animation::Handle handle) const;
-    void bind_fadeout(
+    [[nodiscard]] bool bind_fadeout(
         hyprimate::animation::Handle handle, std::uint64_t fadeout, RetainedImage image);
     [[nodiscard]] RetainedImage fadeout_image(hyprimate::animation::Handle handle) const;
     [[nodiscard]] std::optional<hyprimate::animation::FadeoutFacts> fadeout_facts(
@@ -94,6 +94,8 @@ class CHyprWindowPort {
         hyprimate::animation::MonitorId monitor_id) const;
     std::span<const hyprimate::animation::MonitorId> monitors_overlapping(
         const hyprimate::Box &box);
+    [[nodiscard]] std::span<const hyprimate::Box> visible_outputs(
+        hyprimate::Vec2 presentation_offset);
 
   private:
     Canvas::Resources m_canvas_resources;
@@ -115,6 +117,7 @@ class CHyprWindowPort {
     std::uint64_t m_next_fadeout = 1;
     std::vector<Visual> m_visuals;
     std::vector<hyprimate::Box> m_neighbours, m_obstacles;
+    std::vector<hyprimate::Box> m_visible_outputs;
     std::vector<hyprimate::animation::MonitorId> m_overlapping;
     std::vector<std::uint64_t> m_suppressed;
     HyprWindowAnimations *m_module = nullptr;

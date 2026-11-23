@@ -60,6 +60,10 @@ namespace hyprimate::animation {
         bool pinned = false;
         WindowId window =
             0;  // Stable through movement-only style acquisitions; no window reference.
+        bool resize_held = false;  // A stationary pointer can still be holding a resize edge.
+        // Mapped advance only, borrowed in unoffset body coordinates.
+        std::span<const Box> visible_outputs{};
+        std::optional<Box> visible_output_owner{};  // Owner screen in the same coordinates.
     };
     struct Effects {
         std::optional<Box> drive_body;
@@ -72,6 +76,8 @@ namespace hyprimate::animation {
         bool backdrop = false, tail = false;
         bool interrupted =
             false;  // terminal failure: an owned native fade must be released, not tombstoned
+        // Mapped identity interval: keep the timeline running, but present native surfaces directly.
+        bool native_presentation = false;
     };
     enum class CloseStart : std::uint8_t { Owned, Native, Declined };
     enum class PassKind : std::uint8_t { Live, WorkspaceSource, Inert };

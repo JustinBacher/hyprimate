@@ -133,7 +133,8 @@ std::optional<Observation> CHyprWindowPort::observe(const WindowRef &ref) const 
     const auto WORKSPACE = WINDOW->m_workspace;
     const auto PRESENTATION = Render::resolveWindowSnapshotPresentation(
         WINDOW->presentation().renderPresentation(Render::eSceneMode::MONITOR));
-    const auto TARGET = g_layoutManager->dragController()->target();
+    const auto &drag = g_layoutManager->dragController();
+    const auto TARGET = drag->target();
     Observation result;
     result.window = identity(ref);
     result.monitor = monitor_identity(MONITOR);
@@ -153,8 +154,12 @@ std::optional<Observation> CHyprWindowPort::observe(const WindowRef &ref) const 
     result.animating_in = WINDOW->presentation().animatingIn();
     result.layout_animated = WINDOW->positionAnimation()->isBeingAnimated() ||
                              WINDOW->sizeAnimation()->isBeingAnimated();
-    result.held = TARGET && TARGET->window() == WINDOW &&
-                  g_layoutManager->dragController()->mode() == MBIND_MOVE;
+    if (TARGET && TARGET->window() == WINDOW) {
+        const auto mode = drag->mode();
+        result.held = mode == MBIND_MOVE;
+        result.resize_held = mode == MBIND_RESIZE || mode == MBIND_RESIZE_FORCE_RATIO ||
+                             mode == MBIND_RESIZE_BLOCK_RATIO;
+    }
     result.workspace_visible = !WORKSPACE || WORKSPACE->visible();
     result.workspace_moving = PRESENTATION.workspaceOffsetAnimating;
     result.pinned = static_cast<bool>(WINDOW->m_state & Desktop::View::WINDOW_STATE_PINNED);
@@ -386,16 +391,18 @@ std::optional<RetainedFrame<CHyprWindowPort::Canvas>> CHyprWindowPort::retained_
         .capture = cache->capture,
         .frame = cache->frame};
 }
-void CHyprWindowPort::bind_fadeout(
+bool CHyprWindowPort::bind_fadeout(
     Handle handle, [[maybe_unused]] std::uint64_t fadeout, RetainedImage image) {
     auto &cache = visual_cache(handle);
     // Fadeout creation can finish outside a render frame. Its framebuffer is a
     // Hyprland snapshot, so verify that compositor context before retaining it.
     const hyprimate::gl::ScopedCompositorContext CONTEXT{};
-    if (!CONTEXT) return;
-    if (!image || !cache.fadeout_owner.ensure_current()) return;
+    if (!CONTEXT || !image || !image->getTexture() || !cache.fadeout_owner.ensure_current()) {
+        return false;
+    }
     hyprimate::gl::release_native(cache.fadeout_image, cache.fadeout_owner);
     cache.fadeout_image = std::move(image);
+    return true;
 }
 CHyprWindowPort::RetainedImage CHyprWindowPort::fadeout_image(Handle handle) const {
     const auto *cache = find_visuals(handle);
@@ -433,6 +440,7 @@ std::optional<FadeoutFacts> CHyprWindowPort::fadeout_facts(std::uint64_t fadeout
         facts.alive = !FADEOUT->done();
         facts.blurred = FADEOUT->effects().textureBlur.enabled;
         facts.image_available = static_cast<bool>(TEXTURE);
+        facts.no_screen_share = FADEOUT->source().noScreenShare;
         return facts;
     }
     return std::nullopt;
@@ -474,4 +482,16 @@ std::span<const MonitorId> CHyprWindowPort::monitors_overlapping(const hyprimate
         }
     }
     return m_overlapping;
+}
+
+std::span<const hyprimate::Box> CHyprWindowPort::visible_outputs(hyprimate::Vec2 presentation_offset) {
+    m_visible_outputs.clear();
+    for (const auto &monitor : State::monitorState()->monitors()) {
+        if (!monitor || !monitor->m_dpmsStatus) { continue; }
+        auto box = box_of(monitor->logicalBox());
+        box.x -= presentation_offset.x;
+        box.y -= presentation_offset.y;
+        if (hyprimate::is_usable(box)) { m_visible_outputs.push_back(box); }
+    }
+    return m_visible_outputs;
 }

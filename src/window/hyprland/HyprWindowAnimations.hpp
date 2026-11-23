@@ -10,6 +10,7 @@ struct SBubbleModule;
 struct SSwarmModule;
 struct SSmokeModule;
 struct SBurnModule;
+struct SConstructionModule;
 
 namespace hyprimate::animation {
     template <class Port, class List>
@@ -22,6 +23,7 @@ using ProductionStyles = hyprimate::animation::StyleList<SLiquidModule,
     SBubbleModule,
     SSwarmModule,
     SSmokeModule,
-    SBurnModule>;
+    SBurnModule,
+    SConstructionModule>;
 using HyprWindowAnimations =
     hyprimate::animation::CWindowAnimations<CHyprWindowPort, ProductionStyles>;

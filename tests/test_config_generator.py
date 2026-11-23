@@ -108,7 +108,7 @@ class ConfigGeneratorTests(unittest.TestCase):
         self.assertIn('enum class WorkspaceStyle : std::uint8_t { Rotation, PlanetHop, Cube };', header)
         self.assertIn('WorkspaceStyle style{};', header)
         self.assertIn('Style style{};', header)
-        window_styles = ['liquid', 'paper', 'cloth', 'swarm', 'bubble', 'smoke', 'burn']
+        window_styles = ['liquid', 'paper', 'cloth', 'swarm', 'bubble', 'smoke', 'burn', 'construction']
         workspace_styles = ['rotation', 'planet_hop', 'cube']
         for path, accepted, rejected in [('workspace.style', workspace_styles, window_styles),
                                          ('window.style', window_styles, workspace_styles),
@@ -357,7 +357,8 @@ class ConfigGeneratorTests(unittest.TestCase):
         block = GEN.documentation(SCHEMA)
         for style, opening, closing in [('paper', '600', '500'),
                                         ('cloth', '1000', '900'),
-                                        ('bubble', '1000', '420')]:
+                                        ('bubble', '1000', '420'),
+                                        ('construction', '620', '850')]:
             row = next(line for line in block.splitlines()
                        if line.startswith(f'| `window:options:{style}:duration` |'))
             self.assertIn(f'open `{opening}`', row)
@@ -370,7 +371,7 @@ class ConfigGeneratorTests(unittest.TestCase):
 
     def test_window_transition_durations_are_nonnegative_milliseconds_without_a_cap(self):
         defaults = {'burn': (1000, 1500), 'paper': (600, 500), 'cloth': (1000, 900),
-                    'bubble': (1000, 420), 'smoke': (1400, 1600),
+                    'bubble': (1000, 420), 'smoke': (1400, 1600), 'construction': (620, 850),
                     'liquid': (0, 0), 'swarm': (0, 0)}
         items = {item['path']: item for item in SCHEMA}
         for style, durations in defaults.items():

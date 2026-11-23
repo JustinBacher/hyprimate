@@ -26,6 +26,7 @@ namespace bench {
     void register_bubble(Registry &registry);
     void register_smoke(Registry &registry);
     void register_sheets(Registry &registry);
+    void register_construction(Registry &registry);
 
     // Keeps a value observable to the compiler without emitting code that touches memory.
     template <class T>

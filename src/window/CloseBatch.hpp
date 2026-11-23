@@ -59,6 +59,41 @@ namespace hyprimate::animation {
         std::shared_ptr<std::uint64_t> m_state = std::make_shared<std::uint64_t>(0);
     };
 
+    // Re-resolve a queued association at the point of use. The compositor owns
+    // the lock policy for ordinary native siblings; only retained content needs
+    // our additional session check.
+    template <class Model, class Port, class Handle, class ViewAllowed>
+    bool close_association_valid(const Model &model,
+        const Port &port,
+        const std::optional<Handle> &handle,
+        std::uint64_t fadeout,
+        std::uint64_t current_id,
+        bool native_live,
+        ViewAllowed &&view_allowed) {
+        if (!handle) {
+            return native_live && !model.suppresses(current_id);
+        }
+        if (!port.session_unlocked() || current_id != fadeout) {
+            return false;
+        }
+        const auto view = model.dying_view_for(fadeout);
+        return view && view->handle == *handle && view_allowed(*view);
+    }
+
+    // Style code can re-enter the host between drawing a layer and displaying it.
+    // Check before touching queued model state, then again at the composite.
+    template <class Valid, class Draw>
+    void with_guarded_display(Valid &&valid, Draw &&draw) {
+        if (!valid()) {
+            return;
+        }
+        draw([&](auto &&display) {
+            if (valid()) {
+                display();
+            }
+        });
+    }
+
     // Only preparation is safe to retry. The renderer can reenter or throw after accepting a
     // pass; neither a backdrop nor the content may be handed to it twice.
     template <class Valid, class Prepare, class Backdrop, class Submit>

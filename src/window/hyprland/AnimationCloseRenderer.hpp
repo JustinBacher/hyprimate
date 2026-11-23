@@ -30,7 +30,10 @@ struct CloseRenderGuard {
     std::uint64_t fadeout = 0;
     std::optional<hyprimate::animation::Handle> handle;
     bool no_screen_share = false;
+    bool public_close_only = false;
     [[nodiscard]] bool valid(Render::CRenderContext &ctx, bool require_native = false) const;
+    void physical_failure(Render::CRenderContext &ctx) const;
+    void physical_presented(Render::CRenderContext &ctx, bool submitted) const;
 };
 
 // Associates native fadeouts with module-owned animations and preserves native batch ordering.
@@ -50,6 +53,11 @@ class CAnimationCloseRenderer {
 
     [[nodiscard]] std::optional<hyprimate::animation::Handle> pending_for(
         const PHLWINDOW &window) const;
+    void note_monitor_snapshot(const PHLWINDOW &window,
+        const PHLMONITOR &monitor,
+        Render::CRenderContext &ctx);
+    void begin_monitor_frame(const PHLMONITOR &monitor, Render::CRenderContext &ctx);
+    void finish_monitor_frame(const PHLMONITOR &monitor, Render::CRenderContext &ctx);
     void on_fadeout_created(const PHLWINDOW &window,
         const SP<Desktop::CWindowFadeout> &created,
         hyprimate::animation::Handle pending);
@@ -73,6 +81,14 @@ class CAnimationCloseRenderer {
     }
 
   private:
+    struct Snapshot {
+        hyprimate::animation::Handle pending;
+        WP<Render::IFramebuffer> producer;
+        PHLMONITORREF monitor;
+        hyprimate::Box screen;
+        hyprimate::Vec2 extent;
+        std::uint32_t transform = 0;
+    };
     struct Record {
         std::uint64_t fadeout = 0;
         PHLMONITORREF monitor;
@@ -82,6 +98,7 @@ class CAnimationCloseRenderer {
         Desktop::eFadeoutPlane plane = Desktop::FADEOUT_PLANE_WINDOW_TILED;
         int z_index = 0;
         bool no_screen_share = false;
+        bool awaiting_physical_queue = false;
         // Keep a prepublished association through reentrant pruning, but not past either owner.
         hyprimate::animation::CallbackLifetime::Ticket binding_renderer, binding_model;
     };
@@ -109,5 +126,6 @@ class CAnimationCloseRenderer {
     CFunctionHook *m_create_hook = nullptr;
     CFunctionHook *m_render_hook = nullptr;
     std::vector<Record> m_records;
+    std::vector<Snapshot> m_snapshots;
     hyprimate::animation::CallbackLifetime m_callbacks;
 };

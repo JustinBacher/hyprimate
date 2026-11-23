@@ -222,6 +222,35 @@ int main() try {
     // Unset globals must retain each transition's historical default.
     assert(near(config.paper.open.duration, 600));
     assert(near(config.paper.close.duration, 500));
+    if (!near(config.construction.open.duration, 620) ||
+        !near(config.construction.close.duration, 850) ||
+        config.construction.movement.variant != Variant::Native)
+        return 1;
+    set("window:options:construction:duration", 4250.0F);
+    config = readConfig(values);
+    if (!near(config.construction.open.duration, 4250) ||
+        !near(config.construction.close.duration, 4250))
+        return 1;
+    set("window:open:options:construction:duration", 0.0F);
+    config = readConfig(values);
+    if (!near(config.construction.open.duration, 0) ||
+        !near(config.construction.close.duration, 4250))
+        return 1;
+    set("window:close:options:construction:duration", 970.5F);
+    if (!near(readConfig(values).construction.close.duration, 970.5))
+        return 1;
+    set("window:movement:options:construction:variant", std::string("crew_carry"));
+    if (readConfig(values).construction.movement.variant != Variant::CrewCarry)
+        return 1;
+    set("window:movement:options:construction:variant", std::string("crane"));
+    if (readConfig(values).construction.movement.variant != Variant::Crane)
+        return 1;
+    set("window:movement:options:construction:variant", std::string("piece_by_piece"));
+    if (readConfig(values).construction.movement.variant != Variant::PieceByPiece)
+        return 1;
+    set("window:movement:options:construction:variant", std::string("unsupported"));
+    if (readConfig(values).construction.movement.variant != Variant::Native)
+        return 1;
     assert(near(config.paper.open.paperStiffness, .72) &&
            near(config.paper.close.paperStiffness, .72));
     assert(near(config.paper.open.settling, .45) && near(config.paper.close.settling, .45));

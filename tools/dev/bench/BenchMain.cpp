@@ -205,6 +205,7 @@ int main(int argc, char **argv) {
     bench::register_bubble(registry);
     bench::register_smoke(registry);
     bench::register_sheets(registry);
+    bench::register_construction(registry);
 
     std::vector<const bench::Scenario *> selected;
     for (const bench::Scenario &scenario : registry) {
