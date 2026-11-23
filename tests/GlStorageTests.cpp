@@ -6,17 +6,23 @@
 
 int main() {
     gl_harness::CContext context{8, 8};
-    if (!context.valid()) { return 1; }
+    if (!context.valid()) {
+        return 1;
+    }
     GLuint texture = 0;
     glGenTextures(1, &texture);
     glBindTexture(GL_TEXTURE_2D, texture);
-    if (texture == 0 || glIsTexture(texture) != GL_TRUE) { return 1; }
+    if (texture == 0 || glIsTexture(texture) != GL_TRUE) {
+        return 1;
+    }
 
     // A caller may already have separate read and draw targets. Neither is the
     // storage we're validating. An object name without a level must be rejected.
     std::array<GLuint, 2> fbos{};
     glGenFramebuffers(2, fbos.data());
-    if (fbos[0] == 0 || fbos[1] == 0) { return 1; }
+    if (fbos[0] == 0 || fbos[1] == 0) {
+        return 1;
+    }
     glBindFramebuffer(GL_READ_FRAMEBUFFER, fbos[0]);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbos[1]);
     CHECK(!hyprimate::gl::has_color_storage(texture));
@@ -31,21 +37,25 @@ int main() {
     CHECK(glGetError() == GL_NO_ERROR);
     // Exercise both the host's TexImage upload and the ground field's TexSubImage
     // under compositor-owned unpack state, including a bound pixel buffer.
-    constexpr std::array<GLenum, 6> FIELDS{GL_UNPACK_ALIGNMENT, GL_UNPACK_ROW_LENGTH,
-        GL_UNPACK_IMAGE_HEIGHT, GL_UNPACK_SKIP_PIXELS, GL_UNPACK_SKIP_ROWS, GL_UNPACK_SKIP_IMAGES};
+    constexpr std::array<GLenum, 6> FIELDS{GL_UNPACK_ALIGNMENT,
+        GL_UNPACK_ROW_LENGTH,
+        GL_UNPACK_IMAGE_HEIGHT,
+        GL_UNPACK_SKIP_PIXELS,
+        GL_UNPACK_SKIP_ROWS,
+        GL_UNPACK_SKIP_IMAGES};
     constexpr std::array<GLint, 6> HOSTILE{8, 7, 9, 1, 2, 1};
     constexpr std::array<GLubyte, 16> PIXELS{
-        255, 0, 0, 255, 0, 255, 0, 255,
-        0, 0, 255, 255, 255, 255, 0, 255};
+        255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 0, 255};
     constexpr std::array<GLubyte, 16> UPDATED{
-        12, 34, 56, 255, 78, 90, 123, 255,
-        21, 43, 65, 255, 87, 109, 135, 255};
+        12, 34, 56, 255, 78, 90, 123, 255, 21, 43, 65, 255, 87, 109, 135, 255};
     GLuint pbo = 0;
     GLuint uploaded = 0;
     glGenBuffers(1, &pbo);
     glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
     glBufferData(GL_PIXEL_UNPACK_BUFFER, 512, nullptr, GL_STATIC_DRAW);
-    for (std::size_t i = 0; i < FIELDS.size(); ++i) { glPixelStorei(FIELDS[i], HOSTILE[i]); }
+    for (std::size_t i = 0; i < FIELDS.size(); ++i) {
+        glPixelStorei(FIELDS[i], HOSTILE[i]);
+    }
     glActiveTexture(GL_TEXTURE3);
     glBindTexture(GL_TEXTURE_2D, texture);
     glGenTextures(1, &uploaded);
@@ -57,11 +67,13 @@ int main() {
             if (pass == 0) {
                 // The host sets row length from stride and unbinds after upload.
                 glPixelStorei(GL_UNPACK_ROW_LENGTH, 2);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, PIXELS.data());
+                glTexImage2D(
+                    GL_TEXTURE_2D, 0, GL_RGBA8, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, PIXELS.data());
                 glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
                 glBindTexture(GL_TEXTURE_2D, 0);
             } else {
-                glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 2, 2, GL_RGBA, GL_UNSIGNED_BYTE, UPDATED.data());
+                glTexSubImage2D(
+                    GL_TEXTURE_2D, 0, 0, 0, 2, 2, GL_RGBA, GL_UNSIGNED_BYTE, UPDATED.data());
             }
         }
         GLint state = 0;
@@ -76,7 +88,8 @@ int main() {
             CHECK(state == HOSTILE[i]);
         }
         glBindFramebuffer(GL_READ_FRAMEBUFFER, fbos[0]);
-        glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, uploaded, 0);
+        glFramebufferTexture2D(
+            GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, uploaded, 0);
         CHECK(glCheckFramebufferStatus(GL_READ_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
         std::array<GLubyte, 16> actual{};
         glReadPixels(0, 0, 2, 2, GL_RGBA, GL_UNSIGNED_BYTE, actual.data());

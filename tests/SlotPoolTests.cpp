@@ -1,8 +1,8 @@
-#include "Check.hpp"
-#include "SlotPool.hpp"
-
 #include <stdexcept>
 #include <vector>
+
+#include "Check.hpp"
+#include "window/SlotPool.hpp"
 
 namespace {
     struct State {
@@ -18,7 +18,7 @@ namespace {
         State &operator=(State &&) = delete;
         int value;
     };
-}
+}  // namespace
 
 int main() try {
     using Pool = hyprimate::CSlotPool<State>;
@@ -82,7 +82,6 @@ int main() try {
     }
     CHECK(pool.get(AFTER_CLEAR)->value == 42);
     return g_failures == 0 ? 0 : 1;
-}
-catch (const std::exception &) {
+} catch (const std::exception &) {
     return 1;
 }

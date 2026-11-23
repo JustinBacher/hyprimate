@@ -20,14 +20,25 @@ namespace gl_harness {
             : m_display(eglGetDisplay(EGL_DEFAULT_DISPLAY)) {
             EGLint major = 0;
             EGLint minor = 0;
-            if (m_display == EGL_NO_DISPLAY || eglInitialize(m_display, &major, &minor) == EGL_FALSE ||
+            if (m_display == EGL_NO_DISPLAY ||
+                eglInitialize(m_display, &major, &minor) == EGL_FALSE ||
                 eglBindAPI(EGL_OPENGL_ES_API) == EGL_FALSE) {
                 (void)std::fprintf(stderr, "Cannot initialize EGL; try EGL_PLATFORM=surfaceless\n");
                 return;
             }
-            const std::array<EGLint, 13> ATTRIBUTES{EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
-                EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT, EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8,
-                EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8, EGL_NONE};
+            const std::array<EGLint, 13> ATTRIBUTES{EGL_SURFACE_TYPE,
+                EGL_PBUFFER_BIT,
+                EGL_RENDERABLE_TYPE,
+                EGL_OPENGL_ES3_BIT,
+                EGL_RED_SIZE,
+                8,
+                EGL_GREEN_SIZE,
+                8,
+                EGL_BLUE_SIZE,
+                8,
+                EGL_ALPHA_SIZE,
+                8,
+                EGL_NONE};
             EGLConfig config{};
             EGLint count = 0;
             if (eglChooseConfig(m_display, ATTRIBUTES.data(), &config, 1, &count) == EGL_FALSE ||

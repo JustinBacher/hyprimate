@@ -3,8 +3,8 @@
 #include <utility>
 
 #include "Check.hpp"
-#include "animations/liquid/LiquidPose.hpp"
-#include "animations/shared/SheetMesh.hpp"
+#include "window/liquid/LiquidPose.hpp"
+#include "window/shared/SheetMesh.hpp"
 
 namespace {
     bool near(float first, double second) {
@@ -12,13 +12,16 @@ namespace {
     }
 
     void check_vertex(const hyprimate::animation::MeshVertex &vertex,
-        double pos_x, double pos_y, double tex_u, double tex_v) {
+        double pos_x,
+        double pos_y,
+        double tex_u,
+        double tex_v) {
         CHECK(near(vertex.x, pos_x));
         CHECK(near(vertex.y, pos_y));
         CHECK(near(vertex.u, tex_u));
         CHECK(near(vertex.v, tex_v));
     }
-}
+}  // namespace
 
 int main() {
     using namespace hyprimate;
@@ -26,8 +29,10 @@ int main() {
     const animation::MeshTarget<animation::MeshVertex> TARGET{
         .source = {.x = 10, .y = 20, .w = 112, .h = 56},
         .output = {.x = 0, .y = 0, .w = 224, .h = 112},
-        .image_origin = {.x = 0, .y = 0}, .image_size = {.x = 224, .y = 112},
-        .scale = 1, .buffers = &buffers};
+        .image_origin = {.x = 0, .y = 0},
+        .image_size = {.x = 224, .y = 112},
+        .scale = 1,
+        .buffers = &buffers};
     SheetFrame frame;
     flat_sheet(frame);
     const auto FIRST_UNSHADED = fill_sheet_mesh(frame, TARGET, false, 1.F);
@@ -98,8 +103,8 @@ int main() {
     CHECK(buffers.window.data() == window_data);
     const Box UNDER_BOX{.x = 5, .y = 6, .w = 70, .h = 80};
     const Box CLIP{.x = 1, .y = 2, .w = 3, .h = 4};
-    const auto WITH_UNDER = fill_liquid_mesh(POSE, TARGET, grid, UNDER_BOX,
-        {.r = 0.2F, .g = 0.3F, .b = 0.4F, .a = 0.5F}, CLIP);
+    const auto WITH_UNDER = fill_liquid_mesh(
+        POSE, TARGET, grid, UNDER_BOX, {.r = 0.2F, .g = 0.3F, .b = 0.4F, .a = 0.5F}, CLIP);
     CHECK(WITH_UNDER.under == &buffers.under);
     CHECK(buffers.under.size() == LIQUID_MENISCUS_VERTEX_COUNT);
     CHECK(WITH_UNDER.under_output.x == 5 && WITH_UNDER.under_output.h == 80);

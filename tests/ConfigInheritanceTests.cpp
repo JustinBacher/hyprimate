@@ -13,79 +13,113 @@
 #include <utility>
 
 namespace {
-using HANDLE = void*;
-template <typename T> using SP = std::shared_ptr<T>;
-// NOLINTNEXTLINE(readability-identifier-naming): mirrors Hyprland's makeShared, which the generated header calls.
-template <typename T, typename... Args> SP<T> makeShared(Args&&... args) {
-    return std::make_shared<T>(std::forward<Args>(args)...);
-}
+    using HANDLE = void *;
+    template <typename T>
+    using SP = std::shared_ptr<T>;
+    // NOLINTNEXTLINE(readability-identifier-naming): mirrors Hyprland's makeShared, which the
+    // generated header calls.
+    template <typename T, typename... Args>
+    SP<T> makeShared(Args &&...args) {
+        return std::make_shared<T>(std::forward<Args>(args)...);
+    }
 
-// NOLINTNEXTLINE(readability-identifier-naming): mirrors Hyprland's Config namespace used by the generated header.
-namespace Config {
-using BOOL = bool;
-using INTEGER = long long;
-using FLOAT = float;
-using STRING = std::string;
-// NOLINTNEXTLINE(readability-identifier-naming): mirrors Hyprland's Config::Values namespace.
-namespace Values {
-struct SFloatValueOptions { std::optional<float> min, max = std::nullopt; };
-struct SIntValueOptions { long long min, max; };
-struct SStringValueOptions { std::function<std::expected<void, std::string>(const STRING&)> validator; };
-struct Entry {
-    bool specified = false;
-    Entry() = default;
-    virtual ~Entry() = default;
-    Entry(const Entry &) = default;
-    Entry &operator=(const Entry &) = default;
-    Entry(Entry &&) = default;
-    Entry &operator=(Entry &&) = default;
-};
-std::unordered_map<std::string, Entry*>& entries() {
-    static std::unordered_map<std::string, Entry*> registry;
-    return registry;
-}
-template <typename T> struct Value : Entry {
-    T current;
-    template <typename... Options> Value(const std::string& key, const char* /*description*/, T initial, [[maybe_unused]] Options&&... options)
-        : current(std::move(initial)) { entries()[key] = this; }
-    [[nodiscard]] T value() const { return current; }
-};
-using CBoolValue = Value<bool>;
-using CIntValue = Value<long long>;
-using CFloatValue = Value<float>;
-using CStringValue = Value<std::string>;
-using CColorValue = Value<unsigned int>;
-}
-}
-template <typename T> class CConfigValue {
-    std::string key;
-  public:
-    CConfigValue() = default;
-    void bind(std::string name) { key = std::move(name); }
-    explicit CConfigValue(std::string name) : key(std::move(name)) {}
-    // NOLINTNEXTLINE(readability-identifier-naming): mirrors Hyprland's CConfigValue::setByUser.
-    [[nodiscard]] bool setByUser() const { return Config::Values::entries().at(key)->specified; }
-};
-// NOLINTNEXTLINE(readability-identifier-naming): mirrors Hyprland's HyprlandAPI namespace.
-namespace HyprlandAPI {
-// NOLINTNEXTLINE(readability-identifier-naming): mirrors HyprlandAPI::addConfigValueV2.
-template <typename T> bool addConfigValueV2(HANDLE /*handle*/, const SP<T>& /*value*/) { return true; }
-}
-}
+    // NOLINTNEXTLINE(readability-identifier-naming): mirrors Hyprland's Config namespace used by
+    // the generated header.
+    namespace Config {
+        using BOOL = bool;
+        using INTEGER = long long;
+        using FLOAT = float;
+        using STRING = std::string;
+        // NOLINTNEXTLINE(readability-identifier-naming): mirrors Hyprland's Config::Values
+        // namespace.
+        namespace Values {
+            struct SFloatValueOptions {
+                std::optional<float> min, max = std::nullopt;
+            };
+            struct SIntValueOptions {
+                long long min, max;
+            };
+            struct SStringValueOptions {
+                std::function<std::expected<void, std::string>(const STRING &)> validator;
+            };
+            struct Entry {
+                bool specified = false;
+                Entry() = default;
+                virtual ~Entry() = default;
+                Entry(const Entry &) = default;
+                Entry &operator=(const Entry &) = default;
+                Entry(Entry &&) = default;
+                Entry &operator=(Entry &&) = default;
+            };
+            std::unordered_map<std::string, Entry *> &entries() {
+                static std::unordered_map<std::string, Entry *> registry;
+                return registry;
+            }
+            template <typename T>
+            struct Value : Entry {
+                T current;
+                template <typename... Options>
+                Value(const std::string &key,
+                    const char * /*description*/,
+                    T initial,
+                    [[maybe_unused]] Options &&...options)
+                    : current(std::move(initial)) {
+                    entries()[key] = this;
+                }
+                [[nodiscard]] T value() const {
+                    return current;
+                }
+            };
+            using CBoolValue = Value<bool>;
+            using CIntValue = Value<long long>;
+            using CFloatValue = Value<float>;
+            using CStringValue = Value<std::string>;
+            using CColorValue = Value<unsigned int>;
+        }  // namespace Values
+    }  // namespace Config
+    template <typename T>
+    class CConfigValue {
+        std::string key;
+
+      public:
+        CConfigValue() = default;
+        void bind(std::string name) {
+            key = std::move(name);
+        }
+        explicit CConfigValue(std::string name) : key(std::move(name)) {
+        }
+        // NOLINTNEXTLINE(readability-identifier-naming): mirrors Hyprland's
+        // CConfigValue::setByUser.
+        [[nodiscard]] bool setByUser() const {
+            return Config::Values::entries().at(key)->specified;
+        }
+    };
+    // NOLINTNEXTLINE(readability-identifier-naming): mirrors Hyprland's HyprlandAPI namespace.
+    namespace HyprlandAPI {
+        // NOLINTNEXTLINE(readability-identifier-naming): mirrors HyprlandAPI::addConfigValueV2.
+        template <typename T>
+        bool addConfigValueV2(HANDLE /*handle*/, const SP<T> & /*value*/) {
+            return true;
+        }
+    }  // namespace HyprlandAPI
+}  // namespace
 
 #include "config_generated.hpp"
 
 using namespace hyprimate::config;
 namespace {
-template <typename T> void set(const char* suffix, T value) {
-    auto* entry = Config::Values::entries().at(std::string("plugin:hyprimate:") + suffix);
-    auto* typed = dynamic_cast<Config::Values::Value<T>*>(entry);
-    assert(typed);
-    typed->current = std::move(value);
-    typed->specified = true;
-}
-[[maybe_unused]] bool near(double first, double second) { return std::abs(first - second) < 0.00001; }
-}
+    template <typename T>
+    void set(const char *suffix, T value) {
+        auto *entry = Config::Values::entries().at(std::string("plugin:hyprimate:") + suffix);
+        auto *typed = dynamic_cast<Config::Values::Value<T> *>(entry);
+        assert(typed);
+        typed->current = std::move(value);
+        typed->specified = true;
+    }
+    [[maybe_unused]] bool near(double first, double second) {
+        return std::abs(first - second) < 0.00001;
+    }
+}  // namespace
 
 int main() try {
     SConfigValues values;
@@ -110,8 +144,10 @@ int main() try {
     assert(config.workspace.planetHop.depthSource.empty());
     assert(config.workspace.cube.variant == CubeVariant::Solid);
     assert(near(config.workspace.cube.duration, 600) && config.workspace.cube.curve == "default");
-    assert(near(config.workspace.cube.solid.cubeTilt, 0) && near(config.workspace.cube.solid.zoom, 0.25));
-    assert(near(config.workspace.cube.insideOut.cubeTilt, 0) && near(config.workspace.cube.insideOut.zoom, 0.45));
+    assert(near(config.workspace.cube.solid.cubeTilt, 0) &&
+           near(config.workspace.cube.solid.zoom, 0.25));
+    assert(near(config.workspace.cube.insideOut.cubeTilt, 0) &&
+           near(config.workspace.cube.insideOut.zoom, 0.45));
     set("workspace:style", std::string("cube"));
     set("workspace:options:cube:variant", std::string("inside_out"));
     set("workspace:options:cube:duration", 4250.0F);
@@ -121,10 +157,13 @@ int main() try {
     set("workspace:options:cube:solid:zoom", 2.0F);
     set("workspace:options:cube:inside_out:zoom", -1.0F);
     config = readConfig(values);
-    assert(config.workspace.style == WorkspaceStyle::Cube && config.workspace.cube.variant == CubeVariant::InsideOut);
+    assert(config.workspace.style == WorkspaceStyle::Cube &&
+           config.workspace.cube.variant == CubeVariant::InsideOut);
     assert(near(config.workspace.cube.duration, 4250) && config.workspace.cube.curve == "easeOut");
-    assert(near(config.workspace.cube.solid.cubeTilt, -20) && near(config.workspace.cube.insideOut.cubeTilt, 20));
-    assert(near(config.workspace.cube.solid.zoom, 1) && near(config.workspace.cube.insideOut.zoom, 0));
+    assert(near(config.workspace.cube.solid.cubeTilt, -20) &&
+           near(config.workspace.cube.insideOut.cubeTilt, 20));
+    assert(
+        near(config.workspace.cube.solid.zoom, 1) && near(config.workspace.cube.insideOut.zoom, 0));
     set("workspace:options:cube:duration", -1.0F);
     assert(near(readConfig(values).workspace.cube.duration, 0));
     set("workspace:options:cube:variant", std::string("unsupported"));
@@ -218,8 +257,14 @@ int main() try {
     assert(near(config.liquid.open.duration, 0) && near(config.liquid.close.duration, 90000));
     assert(config.swarm.open.duration == -1 && near(config.swarm.close.duration, .5));
     // Formation-only keys live in the existing opening table, never global/close/movement.
-    for (const char* leaf : {"count", "birth_rate", "size_variation", "growth_variation",
-             "interaction", "damping", "buoyancy", "linger"}) {
+    for (const char *leaf : {"count",
+             "birth_rate",
+             "size_variation",
+             "growth_variation",
+             "interaction",
+             "damping",
+             "buoyancy",
+             "linger"}) {
         [[maybe_unused]] const std::string SUFFIX = std::string(":options:bubble:") + leaf;
         assert(Config::Values::entries().contains("plugin:hyprimate:window:open" + SUFFIX));
         assert(!Config::Values::entries().contains("plugin:hyprimate:window" + SUFFIX));
@@ -236,7 +281,8 @@ int main() try {
     set("window:open:options:bubble:linger", .8F);
     config = readConfig(values);
     assert(config.bubble.open.count == 12 && near(config.bubble.open.birthRate, 1.7));
-    assert(near(config.bubble.open.sizeVariation, .9) && near(config.bubble.open.growthVariation, .3));
+    assert(
+        near(config.bubble.open.sizeVariation, .9) && near(config.bubble.open.growthVariation, .3));
     assert(near(config.bubble.open.interaction, 1.4) && near(config.bubble.open.damping, 1.8));
     assert(near(config.bubble.open.buoyancy, 0) && near(config.bubble.open.linger, .8));
     assert(config.bubble.close.count == 0 && near(config.bubble.close.duration, 420));
@@ -340,10 +386,12 @@ int main() try {
     set("window:options:swarm:agility", 0.8F);
     set("window:movement:options:swarm:agility", 0.5F);
     config = readConfig(values);
-    assert(config.swarm.open.count == 250 && config.swarm.close.count == 123 && config.swarm.movement.count == 123);
+    assert(config.swarm.open.count == 250 && config.swarm.close.count == 123 &&
+           config.swarm.movement.count == 123);
     assert(near(config.swarm.open.speed, 2100) && near(config.swarm.close.speed, 900));
     assert(near(config.swarm.movement.speed, 2100));
-    assert(config.swarm.open.sprite == "/tmp/open.png" && config.swarm.close.sprite == "/tmp/custom sprite.png");
+    assert(config.swarm.open.sprite == "/tmp/open.png" &&
+           config.swarm.close.sprite == "/tmp/custom sprite.png");
     assert(config.swarm.movement.sprite == "/tmp/custom sprite.png");
     assert(near(config.swarm.open.agility, 0.8) && near(config.swarm.close.agility, 0.8));
     assert(near(config.swarm.movement.agility, 0.5));
@@ -407,7 +455,6 @@ int main() try {
     assert(near(config.paper.move.flutter.frequency, .1));
     assert(
         near(config.paper.move.glide.cornerLift, 1) && near(config.paper.resize.creaseDensity, 0));
-}
-catch (const std::exception &) {
+} catch (const std::exception &) {
     return 1;
 }

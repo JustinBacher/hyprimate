@@ -1,6 +1,6 @@
-#include "GlAllocationFault.hpp"
-
 #include <GLES3/gl3.h>
+
+#include "GlAllocationFault.hpp"
 
 namespace gl_harness {
     thread_local FailAllocation *FailAllocation::s_active = nullptr;
@@ -20,7 +20,7 @@ namespace gl_harness {
         }
         return --s_active->m_remaining == 0;
     }
-} // namespace gl_harness
+}  // namespace gl_harness
 
 using gl_harness::Allocation;
 using gl_harness::FailAllocation;
@@ -32,7 +32,8 @@ void __wrap_glTexStorage2D(GLenum target, GLsizei levels, GLenum format, GLsizei
         __real_glTexStorage2D(target, levels, format, w, h);
 }
 void __real_glTexStorage3D(GLenum, GLsizei, GLenum, GLsizei, GLsizei, GLsizei);
-void __wrap_glTexStorage3D(GLenum target, GLsizei levels, GLenum format, GLsizei w, GLsizei h, GLsizei d) {
+void __wrap_glTexStorage3D(
+    GLenum target, GLsizei levels, GLenum format, GLsizei w, GLsizei h, GLsizei d) {
     if (!FailAllocation::intercept(Allocation::texture_3d))
         __real_glTexStorage3D(target, levels, format, w, h, d);
 }
@@ -43,6 +44,7 @@ void __wrap_glRenderbufferStorage(GLenum target, GLenum format, GLsizei w, GLsiz
 }
 void __real_glBufferData(GLenum, GLsizeiptr, const void *, GLenum);
 void __wrap_glBufferData(GLenum target, GLsizeiptr size, const void *data, GLenum usage) {
-    if (!FailAllocation::intercept(Allocation::buffer)) __real_glBufferData(target, size, data, usage);
+    if (!FailAllocation::intercept(Allocation::buffer))
+        __real_glBufferData(target, size, data, usage);
 }
-} // extern "C"
+}  // extern "C"

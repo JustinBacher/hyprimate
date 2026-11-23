@@ -9,9 +9,13 @@
 namespace {
     using hyprimate::gl::SRawGlShadowState;
     using Pixel = std::array<std::uint8_t, 4>;
-    constexpr std::array<GLenum, 7> CAPS{GL_DEPTH_TEST, GL_CULL_FACE,
-        GL_RASTERIZER_DISCARD, GL_SAMPLE_ALPHA_TO_COVERAGE, GL_SAMPLE_COVERAGE,
-        GL_POLYGON_OFFSET_FILL, GL_PRIMITIVE_RESTART_FIXED_INDEX};
+    constexpr std::array<GLenum, 7> CAPS{GL_DEPTH_TEST,
+        GL_CULL_FACE,
+        GL_RASTERIZER_DISCARD,
+        GL_SAMPLE_ALPHA_TO_COVERAGE,
+        GL_SAMPLE_COVERAGE,
+        GL_POLYGON_OFFSET_FILL,
+        GL_PRIMITIVE_RESTART_FIXED_INDEX};
 
     GLint integer(GLenum name) {
         GLint value = 0;
@@ -84,7 +88,8 @@ namespace {
                 glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(state.read_framebuffer));
             }
             if (cache.viewport != state.viewport) {
-                glViewport(state.viewport[0], state.viewport[1], state.viewport[2], state.viewport[3]);
+                glViewport(
+                    state.viewport[0], state.viewport[1], state.viewport[2], state.viewport[3]);
             }
             if (cache.scissor != state.scissor) {
                 enabled(GL_SCISSOR_TEST, state.scissor);
@@ -128,7 +133,8 @@ namespace {
             }
             for (std::size_t unit = 0; unit < units.size(); ++unit) {
                 glActiveTexture(GL_TEXTURE0 + static_cast<GLenum>(unit));
-                units[unit] = {integer(GL_TEXTURE_BINDING_2D), integer(GL_TEXTURE_BINDING_3D),
+                units[unit] = {integer(GL_TEXTURE_BINDING_2D),
+                    integer(GL_TEXTURE_BINDING_3D),
                     integer(GL_SAMPLER_BINDING)};
             }
             glActiveTexture(static_cast<GLenum>(shadow.active_texture));
@@ -242,8 +248,11 @@ namespace {
         CHECK(glGetError() == GL_NO_ERROR);
 
         const auto DRAW = [&](bool early) {
-            const Guard GUARD{{.viewport_width = 8, .viewport_height = 8,
-                .framebuffer = output.framebuffer, .blend = !early}, shadow};
+            const Guard GUARD{{.viewport_width = 8,
+                                  .viewport_height = 8,
+                                  .framebuffer = output.framebuffer,
+                                  .blend = !early},
+                shadow};
             check_shadow(shadow.cache, shadow_state());
             CHECK(integer(GL_ACTIVE_TEXTURE) == GL_TEXTURE0);
             CHECK(integer(GL_ARRAY_BUFFER_BINDING) == 0);

@@ -9,7 +9,9 @@
 
 namespace {
     struct Owner : hyprimate::gl::EglContextId {
-        bool ensure_current() const { return current(); }
+        bool ensure_current() const {
+            return current();
+        }
     };
     struct NativeBuffer {
         GLuint name;
@@ -19,7 +21,7 @@ namespace {
             glDeleteBuffers(1, &name);
         }
     };
-}
+}  // namespace
 
 int main() {
     gl_harness::CContext fixture(8, 8);
@@ -36,7 +38,9 @@ int main() {
     const std::array size{EGL_WIDTH, 8, EGL_HEIGHT, 8, EGL_NONE};
     const EGLContext owner = eglCreateContext(display, config, EGL_NO_CONTEXT, attrs.data());
     const EGLSurface read = eglCreatePbufferSurface(display, config, size.data());
-    if (owner == EGL_NO_CONTEXT || read == EGL_NO_SURFACE || !eglMakeCurrent(display, draw, read, caller)) return 1;
+    if (owner == EGL_NO_CONTEXT || read == EGL_NO_SURFACE ||
+        !eglMakeCurrent(display, draw, read, caller))
+        return 1;
 
     const auto new_buffer = [] {
         GLuint buffer = 0;
@@ -47,7 +51,8 @@ int main() {
     const GLuint caller_buffer = new_buffer();
     GLuint owner_buffer = 0;
     const hyprimate::gl::EglContextId target{display, owner};
-    using Retained = hyprimate::gl::NativeRetirement<NativeBuffer, Owner, hyprimate::gl::ScopedEglContext>;
+    using Retained =
+        hyprimate::gl::NativeRetirement<NativeBuffer, Owner, hyprimate::gl::ScopedEglContext>;
     Retained retained;
     const Owner origin{target};
     EGLContext cached_destroyed = EGL_NO_CONTEXT, borrowed_destroyed = EGL_NO_CONTEXT;
@@ -88,7 +93,7 @@ int main() {
     if (worker_current) {
         const hyprimate::gl::ScopedEglContext busy(target);
         cached.reset();
-        retained.drop_borrowed(pool, origin); // Now the last reference; must defer deletion.
+        retained.drop_borrowed(pool, origin);  // Now the last reference; must defer deletion.
         retained.collect();
         CHECK(cached_destroyed == EGL_NO_CONTEXT && borrowed_destroyed == EGL_NO_CONTEXT);
         CHECK(glIsBuffer(second_caller) && glIsBuffer(third_caller));

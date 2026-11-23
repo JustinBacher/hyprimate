@@ -1,7 +1,7 @@
 #include <limits>
 
 #include "Check.hpp"
-#include "WindowTracker.hpp"
+#include "window/WindowTracker.hpp"
 
 using namespace hyprimate;
 using namespace hyprimate::animation;

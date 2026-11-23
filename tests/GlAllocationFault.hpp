@@ -22,4 +22,4 @@ namespace gl_harness {
         Allocation m_kind;
         unsigned m_remaining;
     };
-} // namespace gl_harness
+}  // namespace gl_harness

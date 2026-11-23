@@ -15,20 +15,20 @@
 #include <GLES3/gl32.h>
 
 #include "Check.hpp"
-#include "GlHarness.hpp"
 #include "GlAllocationFault.hpp"
+#include "GlHarness.hpp"
 #include "PaperPoseBank.hpp"
-#include "animations/paper/PaperMaterial.hpp"
-#include "animations/paper/PaperShaders.hpp"
+#include "window/paper/PaperMaterial.hpp"
+#include "window/paper/PaperShaders.hpp"
 
 // Allocation/readback prerequisites must stop the test rather than let later
 // comparisons pass on empty or unrelated framebuffer contents.
-#define REQUIRE(expr) \
-    do { \
-        if (!(expr)) { \
+#define REQUIRE(expr)                                 \
+    do {                                              \
+        if (!(expr)) {                                \
             report(false, #expr, __FILE__, __LINE__); \
-            std::exit(EXIT_FAILURE); \
-        } \
+            std::exit(EXIT_FAILURE);                  \
+        }                                             \
     } while (false)
 
 namespace {
@@ -524,11 +524,10 @@ namespace {
         const auto TARGET = placement();
         auto grown = TARGET;
         grown.canvas = {192, 160};
-        for (const auto [allocation, occurrence] :
-            std::array{std::pair{Allocation::texture_2d, 1U},
-                std::pair{Allocation::texture_2d, 2U},
-                std::pair{Allocation::renderbuffer, 1U},
-                std::pair{Allocation::buffer, 1U}}) {
+        for (const auto [allocation, occurrence] : std::array{std::pair{Allocation::texture_2d, 1U},
+                 std::pair{Allocation::texture_2d, 2U},
+                 std::pair{Allocation::renderbuffer, 1U},
+                 std::pair{Allocation::buffer, 1U}}) {
             CPaperMaterial material;
             REQUIRE(material.initialize(program));
             {
@@ -539,21 +538,25 @@ namespace {
             GLint old_framebuffer = 0;
             glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &old_framebuffer);
             const auto BEFORE = read(output.framebuffer);
-            REQUIRE(std::any_of(BEFORE.begin(), BEFORE.end(),
-                [](const Pixel &pixel) { return pixel[3] != 0; }));
+            REQUIRE(std::any_of(
+                BEFORE.begin(), BEFORE.end(), [](const Pixel &pixel) { return pixel[3] != 0; }));
             GLint old_shadow = 0, old_buffer = 0;
             glGetIntegerv(GL_TEXTURE_BINDING_2D, &old_shadow);
             glGetVertexAttribiv(0, GL_VERTEX_ATTRIB_ARRAY_BUFFER_BINDING, &old_buffer);
             auto larger_mesh = surface;
             // Coplanar duplicate triangles increase VBO demand without changing
             // the visible sheet or introducing solver/model dependencies.
-            larger_mesh.faces.insert(larger_mesh.faces.end(), surface.faces.begin(), surface.faces.end());
-            larger_mesh.faces.insert(larger_mesh.faces.end(), surface.faces.begin(), surface.faces.end());
+            larger_mesh.faces.insert(
+                larger_mesh.faces.end(), surface.faces.begin(), surface.faces.end());
+            larger_mesh.faces.insert(
+                larger_mesh.faces.end(), surface.faces.begin(), surface.faces.end());
             const bool BUFFER = allocation == Allocation::buffer;
             {
                 gl_harness::FailAllocation fail(allocation, occurrence);
                 CHECK(!material.draw(BUFFER ? larger_mesh : surface,
-                    BUFFER ? TARGET : grown, texture, output.framebuffer));
+                    BUFFER ? TARGET : grown,
+                    texture,
+                    output.framebuffer));
             }
             REQUIRE(material.draw(surface, TARGET, texture, output.framebuffer));
             GLint framebuffer = 0;
@@ -566,12 +569,16 @@ namespace {
             CHECK(shadow == old_shadow);
             CHECK(buffer == old_buffer);
             REQUIRE(material.draw(BUFFER ? larger_mesh : surface,
-                BUFFER ? TARGET : grown, texture, output.framebuffer));
+                BUFFER ? TARGET : grown,
+                texture,
+                output.framebuffer));
             const auto RETRIED = read(output.framebuffer);
-            REQUIRE(std::any_of(RETRIED.begin(), RETRIED.end(),
-                [](const Pixel &pixel) { return pixel[3] != 0; }));
+            REQUIRE(std::any_of(
+                RETRIED.begin(), RETRIED.end(), [](const Pixel &pixel) { return pixel[3] != 0; }));
             REQUIRE(material.draw(BUFFER ? larger_mesh : surface,
-                BUFFER ? TARGET : grown, texture, output.framebuffer));
+                BUFFER ? TARGET : grown,
+                texture,
+                output.framebuffer));
             CHECK(RETRIED == read(output.framebuffer));
             REQUIRE(material.draw(surface, TARGET, texture, output.framebuffer));
             CHECK(BEFORE == read(output.framebuffer));

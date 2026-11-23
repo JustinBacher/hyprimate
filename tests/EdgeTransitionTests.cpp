@@ -10,10 +10,10 @@
 #include <vector>
 
 #include "Check.hpp"
-#include "animations/liquid/LiquidMesh.hpp"
-#include "animations/liquid/LiquidPose.hpp"
-#include "animations/shared/Core.hpp"
-#include "animations/shared/EdgeTransition.hpp"
+#include "shared/Core.hpp"
+#include "window/liquid/LiquidMesh.hpp"
+#include "window/liquid/LiquidPose.hpp"
+#include "window/shared/EdgeTransition.hpp"
 
 namespace {
 
