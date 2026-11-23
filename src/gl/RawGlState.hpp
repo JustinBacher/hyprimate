@@ -82,7 +82,9 @@ namespace hyprimate::gl {
             glBlendEquation(GL_FUNC_ADD);
             glDepthRangef(0, 1);
             const SRawGlShadowState BASELINE{
-                .viewport = {known.viewport_x, known.viewport_y, known.viewport_width,
+                .viewport = {known.viewport_x,
+                    known.viewport_y,
+                    known.viewport_width,
                     known.viewport_height},
                 .draw_framebuffer = static_cast<GLint>(known.framebuffer),
                 .read_framebuffer = static_cast<GLint>(known.framebuffer),
@@ -106,11 +108,11 @@ namespace hyprimate::gl {
             m_prior.array_buffer = static_cast<GLint>(live(m_prior.array_buffer, glIsBuffer));
             const GLint DRAW_FRAMEBUFFER = m_prior.draw_framebuffer;
             const GLint READ_FRAMEBUFFER = m_prior.read_framebuffer;
-            m_prior.draw_framebuffer =
-                static_cast<GLint>(live(DRAW_FRAMEBUFFER, glIsFramebuffer));
-            m_prior.read_framebuffer = DRAW_FRAMEBUFFER == READ_FRAMEBUFFER
-                ? m_prior.draw_framebuffer
-                : static_cast<GLint>(live(READ_FRAMEBUFFER, glIsFramebuffer));
+            m_prior.draw_framebuffer = static_cast<GLint>(live(DRAW_FRAMEBUFFER, glIsFramebuffer));
+            m_prior.read_framebuffer =
+                DRAW_FRAMEBUFFER == READ_FRAMEBUFFER
+                    ? m_prior.draw_framebuffer
+                    : static_cast<GLint>(live(READ_FRAMEBUFFER, glIsFramebuffer));
             // Host binding guards can outlive this bracket. Invalidate their saved
             // bindings too, before their own destructor gets a chance to rebind them.
             if (DRAW_FRAMEBUFFER != 0 && m_prior.draw_framebuffer == 0) {
@@ -122,8 +124,10 @@ namespace hyprimate::gl {
             }
             apply_shadow(m_prior);
             // Hyprland caches only the RGB blend-factor pair.
-            glBlendFuncSeparate(static_cast<GLenum>(m_prior.src), static_cast<GLenum>(m_prior.dst),
-                static_cast<GLenum>(m_src_alpha), static_cast<GLenum>(m_dst_alpha));
+            glBlendFuncSeparate(static_cast<GLenum>(m_prior.src),
+                static_cast<GLenum>(m_prior.dst),
+                static_cast<GLenum>(m_src_alpha),
+                static_cast<GLenum>(m_dst_alpha));
             glBlendEquationSeparate(
                 static_cast<GLenum>(m_equation_rgb), static_cast<GLenum>(m_equation_alpha));
             for (std::size_t i = 0; i < CAPS.size(); ++i) {
@@ -156,9 +160,13 @@ namespace hyprimate::gl {
         // Material-owned VAOs, textures and FBOs cover vertex input and draw-buffer state.
         // Depth functions/masks and renderbuffers are restored by the materials using them.
         // These inherited enables can otherwise suppress fullscreen and mesh draws alike.
-        static constexpr std::array<GLenum, 7> CAPS{GL_DEPTH_TEST, GL_CULL_FACE,
-            GL_RASTERIZER_DISCARD, GL_SAMPLE_ALPHA_TO_COVERAGE, GL_SAMPLE_COVERAGE,
-            GL_POLYGON_OFFSET_FILL, GL_PRIMITIVE_RESTART_FIXED_INDEX};
+        static constexpr std::array<GLenum, 7> CAPS{GL_DEPTH_TEST,
+            GL_CULL_FACE,
+            GL_RASTERIZER_DISCARD,
+            GL_SAMPLE_ALPHA_TO_COVERAGE,
+            GL_SAMPLE_COVERAGE,
+            GL_POLYGON_OFFSET_FILL,
+            GL_PRIMITIVE_RESTART_FIXED_INDEX};
 
         static void set_enabled(GLenum capability, bool enabled) {
             if (enabled) {
@@ -171,7 +179,8 @@ namespace hyprimate::gl {
         template <typename IsObject>
         static GLuint live(GLint name, IsObject is_object) {
             return name != 0 && is_object(static_cast<GLuint>(name)) != GL_FALSE
-                ? static_cast<GLuint>(name) : 0;
+                       ? static_cast<GLuint>(name)
+                       : 0;
         }
 
         void apply_shadow(const SRawGlShadowState &state) {

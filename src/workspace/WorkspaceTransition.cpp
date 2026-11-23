@@ -44,7 +44,8 @@ namespace hyprimate::workspace {
 
     bool Transition::begin(Direction direction, double duration_seconds, Curve curve) {
         auto selected = std::isfinite(duration_seconds) && duration_seconds > 0.0 && curve
-            ? std::make_shared<const Curve>(std::move(curve)) : nullptr;
+                            ? std::make_shared<const Curve>(std::move(curve))
+                            : nullptr;
         m_direction = direction;
         m_position = m_start = 0.0;
         m_velocity = m_brake_time = m_brake_velocity = 0.0;

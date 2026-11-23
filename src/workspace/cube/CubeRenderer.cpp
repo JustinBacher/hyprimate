@@ -1,5 +1,3 @@
-#include "workspace/cube/CubeRenderer.hpp"
-
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/render/gl/GLFramebuffer.hpp>
@@ -7,13 +5,18 @@
 #include "gl/NativeResource.hpp"
 #include "gl/RawGlBracket.hpp"
 #include "workspace/WorkspaceFrame.hpp"
+#include "workspace/cube/CubeRenderer.hpp"
 
 namespace hyprimate::workspace {
-    CubeRenderer::~CubeRenderer() { release(); }
+    CubeRenderer::~CubeRenderer() {
+        release();
+    }
 
     bool CubeRenderer::initialize() {
         const gl::ScopedCompositorContext CONTEXT{};
-        if (!CONTEXT || !m_owner.ensure_current()) { return false; }
+        if (!CONTEXT || !m_owner.ensure_current()) {
+            return false;
+        }
         const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
         const gl::CRawGlBracket<2> BRACKET{{}};
         return m_material.initialize();
@@ -32,8 +35,11 @@ namespace hyprimate::workspace {
         m_owner.reset();
     }
 
-    bool CubeRenderer::draw(Render::CRenderContext & /*context*/, const WorkspaceFrame &frame,
-        double progress, Direction direction, const cube::Settings &settings) {
+    bool CubeRenderer::draw(Render::CRenderContext & /*context*/,
+        const WorkspaceFrame &frame,
+        double progress,
+        Direction direction,
+        const cube::Settings &settings) {
         const auto &source = frame.source.composite;
         const auto &destination = frame.destination.composite;
         const auto &output = frame.presentation;
@@ -46,14 +52,22 @@ namespace hyprimate::workspace {
         const auto src = source->getTexture();
         const auto dst = destination->getTexture();
         const auto out = output->getTexture();
-        if (!src || !dst || !out) { return false; }
+        if (!src || !dst || !out) {
+            return false;
+        }
         // All three buffers came from this GL backend. Only bind the presentation target.
-        const auto fbo = static_cast<Render::GL::CGLFramebuffer *>(output.get())->getFBID(); // NOLINT(cppcoreguidelines-pro-type-static-cast-downcast)
+        const auto fbo =
+            static_cast<Render::GL::CGLFramebuffer *>(output.get())
+                ->getFBID();  // NOLINT(cppcoreguidelines-pro-type-static-cast-downcast)
         const auto width = static_cast<int>(output->m_size.x);
         const auto height = static_cast<int>(output->m_size.y);
-        if (fbo == 0 || width <= 0 || height <= 0) { return false; }
+        if (fbo == 0 || width <= 0 || height <= 0) {
+            return false;
+        }
         const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
-        const gl::CRawGlBracket<2> BRACKET{{.viewport_width = width, .viewport_height = height, .framebuffer = fbo}};
-        return m_material.draw(src->m_texID, dst->m_texID, out->m_texID, width, height, progress, direction, settings);
+        const gl::CRawGlBracket<2> BRACKET{
+            {.viewport_width = width, .viewport_height = height, .framebuffer = fbo}};
+        return m_material.draw(
+            src->m_texID, dst->m_texID, out->m_texID, width, height, progress, direction, settings);
     }
-} // namespace hyprimate::workspace
+}  // namespace hyprimate::workspace

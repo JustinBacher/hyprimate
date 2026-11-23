@@ -45,7 +45,8 @@ namespace hyprimate::workspace {
             const planet_hop::Frame & /*scene*/);
         void prepare_neighbors(const WorkspaceFrame & /*frame*/,
             const planet_hop::Journey & /*journey*/,
-            const planet_hop::Frame & /*scene*/, double radius);
+            const planet_hop::Frame & /*scene*/,
+            double radius);
         gl::CompositorContextOwner m_context;
         PlanetGlRenderer m_core;
         std::array<std::unique_ptr<CShader>, 3> m_shaders;

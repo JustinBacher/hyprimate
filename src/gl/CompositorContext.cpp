@@ -1,7 +1,7 @@
-#include "gl/CompositorContext.hpp"
-
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Renderer.hpp>
+
+#include "gl/CompositorContext.hpp"
 
 namespace hyprimate::gl {
     namespace {
@@ -14,12 +14,13 @@ namespace hyprimate::gl {
             }
             return {.display = backend->m_eglDisplay, .context = backend->m_eglContext};
         }
-    }
+    }  // namespace
 
     bool CompositorContextOwner::ensure_current() noexcept {
         const auto &backend = Render::GL::g_pHyprOpenGL;
         if (m_id.valid()) {
-            return !m_backend.expired() && m_backend == backend && m_id == compositor_id() && m_id.current();
+            return !m_backend.expired() && m_backend == backend && m_id == compositor_id() &&
+                   m_id.current();
         }
         const auto CURRENT = compositor_id();
         if (!CURRENT.current()) {
@@ -35,9 +36,13 @@ namespace hyprimate::gl {
         m_id = {};
     }
 
-    ScopedCompositorContext::ScopedCompositorContext() noexcept : m_scope(compositor_id()) {}
+    ScopedCompositorContext::ScopedCompositorContext() noexcept : m_scope(compositor_id()) {
+    }
 
     ScopedCompositorContext::ScopedCompositorContext(const CompositorContextOwner &owner) noexcept
         : m_scope(!owner.m_backend.expired() && owner.m_backend == Render::GL::g_pHyprOpenGL &&
-                      owner.m_id == compositor_id() ? owner.m_id : EglContextId{}) {}
-} // namespace hyprimate::gl
+                          owner.m_id == compositor_id()
+                      ? owner.m_id
+                      : EglContextId{}) {
+    }
+}  // namespace hyprimate::gl

@@ -21,10 +21,14 @@ namespace {
         return std::abs(first - second) < tolerance;
     }
     bool close(Vec3 first, Vec3 second, double tolerance = 1e-5) {
-        return close(first.x, second.x, tolerance) && close(first.y, second.y, tolerance) && close(first.z, second.z, tolerance);
+        return close(first.x, second.x, tolerance) && close(first.y, second.y, tolerance) &&
+               close(first.z, second.z, tolerance);
     }
-    double length(Vec3 value) { return std::hypot(value.x, value.y, value.z); }
-    std::array<double, 4> transform(const std::array<float, 16> &matrix, std::array<double, 4> point) {
+    double length(Vec3 value) {
+        return std::hypot(value.x, value.y, value.z);
+    }
+    std::array<double, 4> transform(
+        const std::array<float, 16> &matrix, std::array<double, 4> point) {
         std::array<double, 4> result{};
         for (int row = 0; row < 4; ++row) {
             for (int column = 0; column < 4; ++column) {
@@ -72,7 +76,8 @@ namespace {
                             FRAME.destination_center.z + FRAME.world_origin.z},
                 JOURNEY.destination_center));
         }
-        for (auto const LAYOUT : {Layout::Focused, Layout::Monitor, Layout::All, Layout::SolarSystem}) {
+        for (auto const LAYOUT :
+            {Layout::Focused, Layout::Monitor, Layout::All, Layout::SolarSystem}) {
             options.planet_layout = LAYOUT;
             const JourneyEndpoint NAMED{.identity = std::numeric_limits<std::int64_t>::min(),
                 .numbered = {},
@@ -102,16 +107,16 @@ namespace {
         uninvolved.owner = 30;
         auto special = uninvolved;
         special.special = true;
-        for (const auto LAYOUT : {Layout::Focused, Layout::Monitor, Layout::All, Layout::SolarSystem}) {
+        for (const auto LAYOUT :
+            {Layout::Focused, Layout::Monitor, Layout::All, Layout::SolarSystem}) {
             CHECK(scene_member(from, from, to, LAYOUT));
             CHECK(scene_member(to, from, to, LAYOUT));
             CHECK(!scene_member(special, from, to, LAYOUT));
             CHECK(scene_member(local, from, to, LAYOUT) == (LAYOUT != Layout::Focused));
             CHECK(scene_member(other_involved, from, to, LAYOUT) == (LAYOUT != Layout::Focused));
             CHECK(scene_member(uninvolved, from, to, LAYOUT) ==
-                (LAYOUT == Layout::All || LAYOUT == Layout::SolarSystem));
-            CHECK(scene_member(local, to, from, LAYOUT) ==
-                scene_member(local, from, to, LAYOUT));
+                  (LAYOUT == Layout::All || LAYOUT == Layout::SolarSystem));
+            CHECK(scene_member(local, to, from, LAYOUT) == scene_member(local, from, to, LAYOUT));
         }
         CHECK(!scene_member(other_involved, from, local, Layout::Monitor));
         auto special_source = from;
@@ -145,8 +150,13 @@ namespace {
         CHECK(layout_position(same_slot, all).y > layout_position(from, all).y);
         CHECK(std::abs(layout_position(to, all).z) <= 2);
         const hyprimate::workspace::TurnComposition<int> COMPOSITION{.identity = 1,
-            .workspace = 1, .numbered = std::nullopt, .owner = 10, .monitor_x = 1920, .monitor_y = -1080,
-            .monitor_width = 1920, .monitor_height = 1080};
+            .workspace = 1,
+            .numbered = std::nullopt,
+            .owner = 10,
+            .monitor_x = 1920,
+            .monitor_y = -1080,
+            .monitor_width = 1920,
+            .monitor_height = 1080};
         CHECK(COMPOSITION.endpoint().owner == 10);
         CHECK(COMPOSITION.endpoint().monitor_y == -1080);
         CHECK(COMPOSITION.endpoint().monitor_width == 1920);
@@ -176,28 +186,29 @@ namespace {
                 const auto JOURNEY = make_journey(from, to, options, ASPECT);
                 const auto RELATIVE = [](Vec3 position, const Frame &frame) {
                     return Vec3{position.x - frame.world_origin.x,
-                        position.y - frame.world_origin.y, position.z - frame.world_origin.z};
+                        position.y - frame.world_origin.y,
+                        position.z - frame.world_origin.z};
                 };
                 for (const double PROGRESS : {0., .08, .92, 1.}) {
                     const auto FRAME = evaluate(JOURNEY, PROGRESS, ASPECT);
-                    const auto NATIVE = PROGRESS < .5 ? FRAME.source_center : FRAME.destination_center;
-                    CHECK(!neighbor_visible(FRAME,
-                        {NATIVE.x, NATIVE.y, NATIVE.z + 1.5}, .75));
-                    CHECK(neighbor_visible(FRAME,
-                        {NATIVE.x, NATIVE.y, NATIVE.z - 3}, .75));
+                    const auto NATIVE =
+                        PROGRESS < .5 ? FRAME.source_center : FRAME.destination_center;
+                    CHECK(!neighbor_visible(FRAME, {NATIVE.x, NATIVE.y, NATIVE.z + 1.5}, .75));
+                    CHECK(neighbor_visible(FRAME, {NATIVE.x, NATIVE.y, NATIVE.z - 3}, .75));
                     for (const auto &endpoint : inventory) {
                         const auto ANCHOR = layout_position(endpoint, options, ASPECT);
-                        CHECK(close(ANCHOR, layout_position(endpoint, options, ASPECT == .6 ? 2.4 : .6)));
+                        CHECK(close(
+                            ANCHOR, layout_position(endpoint, options, ASPECT == .6 ? 2.4 : .6)));
                         const auto CENTER = RELATIVE(ANCHOR, FRAME);
                         if (!neighbor_visible(FRAME, CENTER, .75)) {
                             continue;
                         }
-                        const auto CLIP = transform(FRAME.view_projection,
-                            {CENTER.x, CENTER.y, CENTER.z, 1});
-                        const auto NATIVE_CLIP = transform(FRAME.view_projection,
-                            {NATIVE.x, NATIVE.y, NATIVE.z, 1});
+                        const auto CLIP =
+                            transform(FRAME.view_projection, {CENTER.x, CENTER.y, CENTER.z, 1});
+                        const auto NATIVE_CLIP =
+                            transform(FRAME.view_projection, {NATIVE.x, NATIVE.y, NATIVE.z, 1});
                         CHECK(CLIP[3] >= NATIVE_CLIP[3] || CLIP[3] <= 0 ||
-                            std::abs(CLIP[0]) > CLIP[3] || std::abs(CLIP[1]) > CLIP[3]);
+                              std::abs(CLIP[0]) > CLIP[3] || std::abs(CLIP[1]) > CLIP[3]);
                     }
                 }
                 unsigned revealed = 0;
@@ -206,15 +217,16 @@ namespace {
                     for (int sample = 32; sample <= 68; ++sample) {
                         const double PROGRESS = sample / 100.;
                         const auto FRAME = evaluate(JOURNEY, PROGRESS, ASPECT);
-                        const auto CENTER = RELATIVE(layout_position(endpoint, options, ASPECT), FRAME);
-                        const auto CLIP = transform(FRAME.view_projection,
-                            {CENTER.x, CENTER.y, CENTER.z, 1});
-                        visible = visible || (CLIP[3] > 0 &&
-                            std::abs(CLIP[0]) < CLIP[3] && std::abs(CLIP[1]) < CLIP[3]);
+                        const auto CENTER =
+                            RELATIVE(layout_position(endpoint, options, ASPECT), FRAME);
+                        const auto CLIP =
+                            transform(FRAME.view_projection, {CENTER.x, CENTER.y, CENTER.z, 1});
+                        visible = visible || (CLIP[3] > 0 && std::abs(CLIP[0]) < CLIP[3] &&
+                                                 std::abs(CLIP[1]) < CLIP[3]);
                     }
                     revealed += static_cast<unsigned>(visible);
                 }
-                CHECK(revealed >= 1); // Local workspace 2 is on the actual orbital leg.
+                CHECK(revealed >= 1);  // Local workspace 2 is on the actual orbital leg.
             }
         }
     }
@@ -222,11 +234,18 @@ namespace {
     void origin_and_named_handoffs_have_no_foreground_inventory() {
         constexpr std::array<std::uint64_t, 7> SLOTS{0, 2, 4, 6, 65, 127, 255};
         constexpr std::array<Vec3, 7> SAMPLES{Vec3{},
-            Vec3{.x = 1}, Vec3{.x = -1}, Vec3{.y = 1}, Vec3{.y = -1},
-            Vec3{.z = 1}, Vec3{.z = -1}};
+            Vec3{.x = 1},
+            Vec3{.x = -1},
+            Vec3{.y = 1},
+            Vec3{.y = -1},
+            Vec3{.z = 1},
+            Vec3{.z = -1}};
         const auto ENDPOINT = [](std::uint64_t slot) {
             return JourneyEndpoint{.identity = static_cast<std::int64_t>(slot + 1),
-                .placement = slot, .owner = 1, .monitor_width = 1920, .monitor_height = 1080};
+                .placement = slot,
+                .owner = 1,
+                .monitor_width = 1920,
+                .monitor_height = 1080};
         };
         constexpr double ASPECT = 16. / 9;
         constexpr double RADIUS = .75;
@@ -237,16 +256,18 @@ namespace {
                 const auto JOURNEY = make_journey(ENDPOINT(SOURCE), ENDPOINT(4), options, ASPECT);
                 for (const double PROGRESS : {0., 1.}) {
                     const auto FRAME = evaluate(JOURNEY, PROGRESS, ASPECT);
-                    const auto NATIVE = PROGRESS == 0 ? FRAME.source_center : FRAME.destination_center;
-                    const auto DESKTOP = transform(FRAME.view_projection,
-                        {NATIVE.x, NATIVE.y, NATIVE.z + FRAME.radius, 1});
+                    const auto NATIVE =
+                        PROGRESS == 0 ? FRAME.source_center : FRAME.destination_center;
+                    const auto DESKTOP = transform(
+                        FRAME.view_projection, {NATIVE.x, NATIVE.y, NATIVE.z + FRAME.radius, 1});
                     for (const auto SLOT : SLOTS) {
                         if (SLOT == SOURCE || SLOT == 4) {
                             continue;
                         }
                         const auto WORLD = layout_position(ENDPOINT(SLOT), options, ASPECT);
                         const Vec3 CENTER{WORLD.x - FRAME.world_origin.x,
-                            WORLD.y - FRAME.world_origin.y, WORLD.z - FRAME.world_origin.z};
+                            WORLD.y - FRAME.world_origin.y,
+                            WORLD.z - FRAME.world_origin.z};
                         if (!neighbor_visible(FRAME, CENTER, RADIUS)) {
                             continue;
                         }
@@ -254,9 +275,10 @@ namespace {
                             const auto CLIP = transform(FRAME.view_projection,
                                 {CENTER.x + (SAMPLE.x * RADIUS * ASPECT),
                                     CENTER.y + (SAMPLE.y * RADIUS),
-                                    CENTER.z + (SAMPLE.z * RADIUS), 1});
-                            const bool ONSCREEN = CLIP[3] > 0 &&
-                                std::abs(CLIP[0]) < CLIP[3] && std::abs(CLIP[1]) < CLIP[3];
+                                    CENTER.z + (SAMPLE.z * RADIUS),
+                                    1});
+                            const bool ONSCREEN = CLIP[3] > 0 && std::abs(CLIP[0]) < CLIP[3] &&
+                                                  std::abs(CLIP[1]) < CLIP[3];
                             CHECK(!ONSCREEN || CLIP[2] / CLIP[3] >= DESKTOP[2] / DESKTOP[3]);
                         }
                     }
@@ -340,11 +362,13 @@ namespace {
         // All four material edges meet the geometric hemisphere silhouette,
         // not an interior chart boundary on a larger backing sphere.
         for (double const COORD : {0., .2, .5, .8, 1.}) {
-            for (const auto UV : {std::array{0.,COORD}, std::array{1.,COORD},
-                     std::array{COORD,0.}, std::array{COORD,1.}}) {
+            for (const auto UV : {std::array{0., COORD},
+                     std::array{1., COORD},
+                     std::array{COORD, 0.},
+                     std::array{COORD, 1.}}) {
                 const auto EDGE = make_surface_vertex(UV[0], UV[1], 2, 1, .7);
                 CHECK(close(EDGE.sphere_position[2], 0));
-                CHECK(close(std::hypot(EDGE.sphere_position[0],EDGE.sphere_position[1]),1));
+                CHECK(close(std::hypot(EDGE.sphere_position[0], EDGE.sphere_position[1]), 1));
             }
         }
     }
@@ -370,7 +394,8 @@ namespace {
             CHECK(FRAME.travel_progress >= previous);
             previous = FRAME.travel_progress;
             const auto &PATH = JOURNEY.solar_path;
-            const double NORMALIZED_X = FRAME.world_origin.x /
+            const double NORMALIZED_X =
+                FRAME.world_origin.x /
                 std::lerp(PATH.from_aspect, PATH.to_aspect, FRAME.travel_progress);
             const double NORMALIZED_Y = FRAME.world_origin.y / (1 + options.solar_vertical_spread);
             CHECK(close(std::hypot(NORMALIZED_X, NORMALIZED_Y),
@@ -415,17 +440,27 @@ namespace {
         options.elevation = .2;
         std::array<Vec3, 256> centers{};
         for (std::size_t index = 0; index < centers.size(); ++index) {
-            centers[index] = layout_position(numbered(static_cast<std::int64_t>(index + 1),
-                static_cast<std::uint32_t>(index + 1), 0), options);
+            centers[index] = layout_position(
+                numbered(
+                    static_cast<std::int64_t>(index + 1), static_cast<std::uint32_t>(index + 1), 0),
+                options);
             for (std::size_t previous = 0; previous < index; ++previous) {
-                CHECK(length({centers[index].x - centers[previous].x, centers[index].y - centers[previous].y, 0}) >= 2.4 - 1e-5);
+                CHECK(length({centers[index].x - centers[previous].x,
+                          centers[index].y - centers[previous].y,
+                          0}) >= 2.4 - 1e-5);
             }
         }
-        const std::array<std::uint32_t, 6> EXTREMES{0, 1, 2, UINT32_MAX - 2, UINT32_MAX - 1, UINT32_MAX};
+        const std::array<std::uint32_t, 6> EXTREMES{
+            0, 1, 2, UINT32_MAX - 2, UINT32_MAX - 1, UINT32_MAX};
         for (std::size_t index = 0; index < EXTREMES.size(); ++index) {
-            const auto FIRST = layout_position(numbered(INT64_MIN + static_cast<std::int64_t>(index), EXTREMES[index], 0), options);
+            const auto FIRST = layout_position(
+                numbered(INT64_MIN + static_cast<std::int64_t>(index), EXTREMES[index], 0),
+                options);
             for (std::size_t previous = 0; previous < index; ++previous) {
-                const auto SECOND = layout_position(numbered(INT64_MIN + static_cast<std::int64_t>(previous), EXTREMES[previous], 0), options);
+                const auto SECOND = layout_position(
+                    numbered(
+                        INT64_MIN + static_cast<std::int64_t>(previous), EXTREMES[previous], 0),
+                    options);
                 CHECK(length({FIRST.x - SECOND.x, FIRST.y - SECOND.y, 0}) >= 2.4 - 1e-4);
             }
         }
@@ -440,7 +475,8 @@ namespace {
             CHECK(close(JOURNEY.destination_center, layout_position(FIFTH, options, ASPECT)));
             auto changed_rank = FIFTH;
             changed_rank.logical_order = 900;
-            CHECK(close(layout_position(changed_rank, options, ASPECT), JOURNEY.destination_center));
+            CHECK(
+                close(layout_position(changed_rank, options, ASPECT), JOURNEY.destination_center));
             const auto REVERSE = make_journey(FIFTH, FIRST, options, ASPECT);
             CHECK(close(REVERSE.source_center, JOURNEY.destination_center));
             CHECK(close(REVERSE.destination_center, JOURNEY.source_center));
@@ -456,11 +492,13 @@ namespace {
             for (int sample = 32; sample <= 68; ++sample) {
                 const auto FRAME = evaluate(LOCAL, sample / 100., ASPECT);
                 const auto CLIP = transform(FRAME.view_projection,
-                    {ANCHOR.x - FRAME.world_origin.x, ANCHOR.y - FRAME.world_origin.y,
-                        ANCHOR.z - FRAME.world_origin.z, 1});
+                    {ANCHOR.x - FRAME.world_origin.x,
+                        ANCHOR.y - FRAME.world_origin.y,
+                        ANCHOR.z - FRAME.world_origin.z,
+                        1});
                 visible = visible || (CLIP[3] > 0 && std::abs(CLIP[0]) < CLIP[3] &&
-                    std::abs(CLIP[1]) < CLIP[3] &&
-                    720 * 2.414213562373095 * .75 / CLIP[3] >= 30);
+                                         std::abs(CLIP[1]) < CLIP[3] &&
+                                         720 * 2.414213562373095 * .75 / CLIP[3] >= 30);
                 CHECK(FRAME.camera_position.z < 40);
             }
             CHECK(visible);
@@ -468,7 +506,8 @@ namespace {
                 const auto FRAME = evaluate(JOURNEY, PROGRESS, ASPECT);
                 CHECK(close(FRAME.camera_position, {0, 0, FRAME.radius + 2.414213562373095}));
                 const auto CENTER = PROGRESS == 0 ? FRAME.source_center : FRAME.destination_center;
-                const auto CLIP = transform(FRAME.view_projection, {ASPECT, 1, CENTER.z + FRAME.radius, 1});
+                const auto CLIP =
+                    transform(FRAME.view_projection, {ASPECT, 1, CENTER.z + FRAME.radius, 1});
                 CHECK(close(CLIP[0] / CLIP[3], 1));
                 CHECK(close(CLIP[1] / CLIP[3], 1));
             }
@@ -505,15 +544,16 @@ namespace {
                 endpoint.identity = static_cast<std::int64_t>(index);
                 endpoint.logical_order = 0;
                 CHECK(close(centers[index], layout_position(endpoint, options, 1.8)));
-                CHECK(length(centers[index]) < 500); // Bounded by orbit radius, not lifetime ID.
+                CHECK(length(centers[index]) < 500);  // Bounded by orbit radius, not lifetime ID.
                 for (std::size_t previous = 0; previous < index; ++previous) {
                     CHECK(length({centers[index].x - centers[previous].x,
-                        centers[index].y - centers[previous].y,
-                        centers[index].z - centers[previous].z}) >= 2.4 - 1e-5);
+                              centers[index].y - centers[previous].y,
+                              centers[index].z - centers[previous].z}) >= 2.4 - 1e-5);
                 }
                 const auto ZERO = layout_position(numbered(0, 0, 0), options, 1.8);
-                CHECK(length({centers[index].x - ZERO.x, centers[index].y - ZERO.y,
-                    centers[index].z - ZERO.z}) >= 2.4 - 1e-5);
+                CHECK(length({centers[index].x - ZERO.x,
+                          centers[index].y - ZERO.y,
+                          centers[index].z - ZERO.z}) >= 2.4 - 1e-5);
             }
         }
         const JourneyEndpoint NAMED{.identity = 20, .placement = 17};
@@ -521,7 +561,8 @@ namespace {
         const auto FLAT = layout_position(NAMED, options);
         options.solar_vertical_spread = .65;
         CHECK(std::abs(layout_position(NAMED, options).y - FLAT.y) > .1);
-        const JourneyEndpoint EXTREME_SPECIAL{.identity = INT64_MIN, .special = true, .placement = UINT64_MAX};
+        const JourneyEndpoint EXTREME_SPECIAL{
+            .identity = INT64_MIN, .special = true, .placement = UINT64_MAX};
         const auto EXTREME = make_journey(NAMED, EXTREME_SPECIAL, options, 1.8);
         for (double const PROGRESS : {0., .2, .32, .5, .68, .8, 1.}) {
             const auto FRAME = evaluate(EXTREME, PROGRESS, 1.8);
@@ -666,8 +707,8 @@ namespace {
             for (const double ASPECT : {.6, 1., 16. / 9, 2.4}) {
                 SceneOptions options;
                 options.planet_layout = LAYOUT;
-                const auto JOURNEY = make_journey(numbered(1, 1, 0), numbered(3, 3, 2),
-                    options, ASPECT);
+                const auto JOURNEY =
+                    make_journey(numbered(1, 1, 0), numbered(3, 3, 2), options, ASPECT);
                 bool unbent = false;
                 std::array<double, 2> first_bend{1, 1};
                 std::array<double, 2> last_bend{};
@@ -676,8 +717,10 @@ namespace {
                 for (int sample = 0; sample <= 1000; ++sample) {
                     const auto FRAME = evaluate(JOURNEY, sample / 1000., ASPECT);
                     for (int endpoint = 0; endpoint < 2; ++endpoint) {
-                        const auto CENTER = endpoint == 0 ? FRAME.source_center : FRAME.destination_center;
-                        const double CURVATURE = endpoint == 0 ? FRAME.source_curvature : FRAME.destination_curvature;
+                        const auto CENTER =
+                            endpoint == 0 ? FRAME.source_center : FRAME.destination_center;
+                        const double CURVATURE =
+                            endpoint == 0 ? FRAME.source_curvature : FRAME.destination_curvature;
                         double left = 1e20, right = -1e20, bottom = 1e20, top = -1e20;
                         bool in_front = true;
                         for (const double X : {-ASPECT, ASPECT}) {
@@ -706,7 +749,8 @@ namespace {
                             first_bend[endpoint] = std::min(first_bend[endpoint], sample / 1000.);
                             last_bend[endpoint] = std::max(last_bend[endpoint], sample / 1000.);
                             bend_states[endpoint] |= CURVATURE < .3 ? 1U : CURVATURE < .7 ? 2U : 4U;
-                            overlapping_motion[endpoint] = overlapping_motion[endpoint] ||
+                            overlapping_motion[endpoint] =
+                                overlapping_motion[endpoint] ||
                                 FRAME.camera_position.z > FRAME.radius + 2.414213562373095 + .0001;
                         }
                     }
@@ -721,12 +765,14 @@ namespace {
                 CHECK(evaluate(JOURNEY, .999, ASPECT).destination_curvature > 0);
                 const double EPSILON = 1e-5;
                 CHECK(evaluate(JOURNEY, EPSILON, ASPECT).source_curvature / EPSILON < .001);
-                CHECK(evaluate(JOURNEY, 1 - EPSILON, ASPECT).destination_curvature / EPSILON < .001);
+                CHECK(
+                    evaluate(JOURNEY, 1 - EPSILON, ASPECT).destination_curvature / EPSILON < .001);
                 auto translated_from = JOURNEY.from;
                 auto translated_to = JOURNEY.to;
                 translated_from.monitor_x += 10000;
                 translated_to.monitor_x += 10000;
-                const auto TRANSLATED = make_journey(translated_from, translated_to, options, ASPECT);
+                const auto TRANSLATED =
+                    make_journey(translated_from, translated_to, options, ASPECT);
                 CHECK(close(evaluate(JOURNEY, .5, ASPECT).camera_position.z,
                     evaluate(TRANSLATED, .5, ASPECT).camera_position.z));
             }
@@ -736,7 +782,8 @@ namespace {
     void placements_survive_recreation_and_resolve_collisions() {
         using hyprimate::workspace::CompositionPlacements;
         CompositionPlacements placements;
-        hyprimate::workspace::CompositionIdentities<std::shared_ptr<int>, std::weak_ptr<int>> lifetimes;
+        hyprimate::workspace::CompositionIdentities<std::shared_ptr<int>, std::weak_ptr<int>>
+            lifetimes;
         auto original = std::make_shared<int>(7);
         const auto OLD_ID = lifetimes.get(original, {});
         const auto NUMBERED_SLOT = placements.get(7, {}, std::nullopt);
@@ -789,8 +836,10 @@ namespace {
         auto special_after = SPECIAL_BEFORE;
         special_after.identity = 1000;
         special_after.placement = placements.get(7, "7", std::string_view{"special:scratch"});
-        CHECK(close(layout_position(SPECIAL_BEFORE, options), layout_position(special_after, options)));
-        CHECK(!close(layout_position(NAMED_BEFORE, options), layout_position(SPECIAL_BEFORE, options)));
+        CHECK(close(
+            layout_position(SPECIAL_BEFORE, options), layout_position(special_after, options)));
+        CHECK(!close(
+            layout_position(NAMED_BEFORE, options), layout_position(SPECIAL_BEFORE, options)));
         CHECK(!close(layout_position(before, options), layout_position(SPECIAL_BEFORE, options)));
 
         CompositionPlacements collisions;
@@ -828,7 +877,8 @@ namespace {
                             .coverage = COVERAGE,
                             .curvature = CURVATURE,
                             .rotation = IDENTITY});
-                        CHECK(std::isfinite(POINT.position.x) && std::isfinite(POINT.position.y) && std::isfinite(POINT.position.z));
+                        CHECK(std::isfinite(POINT.position.x) && std::isfinite(POINT.position.y) &&
+                              std::isfinite(POINT.position.z));
                         CHECK(close(length(POINT.normal), 1, 1e-10));
                         if (CURVATURE == 0) {
                             CHECK(POINT.position.x == ((2 * COORD_U) - 1) * ASPECT);
@@ -842,15 +892,15 @@ namespace {
                         } else {
                             // The front is a graph with bounded XY; it has no
                             // extended exterior sheet or receding hidden body.
-                            const double HALF_WIDTH = (1-CURVATURE)*ASPECT+CURVATURE*RADIUS;
-                            const double HALF_HEIGHT = 1-CURVATURE+CURVATURE*RADIUS;
-                            CHECK(std::abs(POINT.position.x) <= HALF_WIDTH+1e-12);
-                            CHECK(std::abs(POINT.position.y) <= HALF_HEIGHT+1e-12);
-                            CHECK(POINT.position.z >= RADIUS*(1-CURVATURE)-1e-12);
-                            CHECK(POINT.position.z <= RADIUS+1e-12);
-                            if (COORD_U==0 || COORD_U==1 || COORD_V==0 || COORD_V==1)
-                                CHECK(close(POINT.position.z,RADIUS*(1-CURVATURE),1e-12));
-                            if (CURVATURE==1) CHECK(close(length(POINT.position),RADIUS,1e-10));
+                            const double HALF_WIDTH = (1 - CURVATURE) * ASPECT + CURVATURE * RADIUS;
+                            const double HALF_HEIGHT = 1 - CURVATURE + CURVATURE * RADIUS;
+                            CHECK(std::abs(POINT.position.x) <= HALF_WIDTH + 1e-12);
+                            CHECK(std::abs(POINT.position.y) <= HALF_HEIGHT + 1e-12);
+                            CHECK(POINT.position.z >= RADIUS * (1 - CURVATURE) - 1e-12);
+                            CHECK(POINT.position.z <= RADIUS + 1e-12);
+                            if (COORD_U == 0 || COORD_U == 1 || COORD_V == 0 || COORD_V == 1)
+                                CHECK(close(POINT.position.z, RADIUS * (1 - CURVATURE), 1e-12));
+                            if (CURVATURE == 1) CHECK(close(length(POINT.position), RADIUS, 1e-10));
                         }
                         const auto ELEVATED = project_surface({.u = COORD_U,
                             .v = COORD_V,
@@ -942,12 +992,14 @@ namespace {
                         .z = (TANGENT_V.x * TANGENT_U.y) - (TANGENT_V.y * TANGENT_U.x)};
                     const double LENGTH = length(CROSS);
                     CHECK(LENGTH > 0);
-                    CHECK(close(POINT.normal, {CROSS.x / LENGTH, CROSS.y / LENGTH, CROSS.z / LENGTH}, 1e-5));
+                    CHECK(close(POINT.normal,
+                        {CROSS.x / LENGTH, CROSS.y / LENGTH, CROSS.z / LENGTH},
+                        1e-5));
                 }
             }
         }
     }
-}
+}  // namespace
 
 int main() {
     layouts_are_deterministic_and_locked();

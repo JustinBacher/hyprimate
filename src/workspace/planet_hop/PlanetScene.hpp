@@ -31,7 +31,7 @@ namespace hyprimate::workspace::planet_hop {
         SceneOptions options;
         Vec3 source_center;
         Vec3 destination_center;
-        double aspect = 1; // Effective render aspect; anchors use their owner's geometry.
+        double aspect = 1;  // Effective render aspect; anchors use their owner's geometry.
         double neighborhood_width = 0;
         struct SolarPath {
             double from_angle = 0;
@@ -92,7 +92,9 @@ namespace hyprimate::workspace::planet_hop {
         double aspect = 1);
     // Membership is separate from whether a workspace currently has capturable pixels.
     [[nodiscard]] bool scene_member(const JourneyEndpoint &candidate,
-        const JourneyEndpoint &from, const JourneyEndpoint &destination, Layout layout);
+        const JourneyEndpoint &from,
+        const JourneyEndpoint &destination,
+        Layout layout);
     // Pure/reversible: generic WorkspaceTurn owns time, velocity, reversal and queueing.
     [[nodiscard]] Frame evaluate(const Journey &journey, double progress, double aspect);
     // Relative travel estimate across departure, cruise and landing; no screen-space
@@ -116,4 +118,4 @@ namespace hyprimate::workspace::planet_hop {
     };
     // CPU reference for the material vertex deformation, also useful for floating anchors.
     [[nodiscard]] SurfacePoint project_surface(const SurfaceProjection &projection);
-}
+}  // namespace hyprimate::workspace::planet_hop

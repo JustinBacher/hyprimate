@@ -10,7 +10,6 @@
 
 namespace hyprimate::workspace {
 
-
     // Exact ABI of the protected Hyprland 0.57 beginRender overload. The bridge resolves it by
     // exported signature; calling the public full-fake convenience method would use live caches.
     using BeginRender = bool (*)(Render::IHyprRenderer *,

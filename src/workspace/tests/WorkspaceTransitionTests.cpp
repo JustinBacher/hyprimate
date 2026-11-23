@@ -3,7 +3,7 @@
 #include <limits>
 
 #include "Check.hpp"
-#include "animations/shared/Core.hpp"
+#include "shared/Core.hpp"
 #include "workspace/WorkspaceTransition.hpp"
 
 using hyprimate::workspace::Direction;

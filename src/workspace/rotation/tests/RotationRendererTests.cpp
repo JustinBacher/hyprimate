@@ -5,11 +5,10 @@
 #include <utility>
 #include <vector>
 
-#include "GlHarness.hpp"
-
 #include "Check.hpp"
-#include "workspace/rotation/RotationRenderer.hpp"
+#include "GlHarness.hpp"
 #include "workspace/rotation/RotationGeometry.hpp"
+#include "workspace/rotation/RotationRenderer.hpp"
 
 namespace {
     constexpr int WIDTH = 96;
@@ -41,10 +40,20 @@ namespace {
       public:
         bool initialize();
         void release();
-        bool draw_raw(GLuint src, GLuint dst, GLuint out, GLuint source_framebuffer,
-            GLuint presentation_framebuffer, int width, int height, double position, Direction direction,
-            const hyprimate::workspace::GapFill &gap, bool matching_wallpaper,
-            GLuint source_wallpaper, GLuint destination_wallpaper);
+        bool draw_raw(GLuint src,
+            GLuint dst,
+            GLuint out,
+            GLuint source_framebuffer,
+            GLuint presentation_framebuffer,
+            int width,
+            int height,
+            double position,
+            Direction direction,
+            const hyprimate::workspace::GapFill &gap,
+            bool matching_wallpaper,
+            GLuint source_wallpaper,
+            GLuint destination_wallpaper);
+
       private:
         GLuint m_program = 0;
         GLuint m_vao = 0;
@@ -52,8 +61,8 @@ namespace {
     };
     using hyprimate::workspace::GapFill;
     bool TestRenderer::initialize() {
-        m_program = gl_harness::build_program(hyprimate::workspace::VERTEX_SHADER,
-            hyprimate::workspace::FRAGMENT_SHADER);
+        m_program = gl_harness::build_program(
+            hyprimate::workspace::VERTEX_SHADER, hyprimate::workspace::FRAGMENT_SHADER);
         if (m_program == 0) {
             return false;
         }
@@ -67,9 +76,19 @@ namespace {
         glDeleteVertexArrays(1, &m_vao);
         glDeleteProgram(m_program);
     }
-    bool TestRenderer::draw_raw(GLuint src, GLuint dst, GLuint out, GLuint source_framebuffer,
-        GLuint presentation_framebuffer, int width, int height, double position, Direction direction,
-        const GapFill &gap, bool matching_wallpaper, GLuint source_wallpaper, GLuint destination_wallpaper) {
+    bool TestRenderer::draw_raw(GLuint src,
+        GLuint dst,
+        GLuint out,
+        GLuint source_framebuffer,
+        GLuint presentation_framebuffer,
+        int width,
+        int height,
+        double position,
+        Direction direction,
+        const GapFill &gap,
+        bool matching_wallpaper,
+        GLuint source_wallpaper,
+        GLuint destination_wallpaper) {
         GLint read_framebuffer = 0;
         GLint draw_framebuffer = 0;
         GLint program = 0;
@@ -86,7 +105,8 @@ namespace {
         glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
         glGetIntegerv(GL_VIEWPORT, viewport.data());
         glGetBooleanv(GL_COLOR_WRITEMASK, mask.data());
-        const std::array<GLenum, 5> CAPS{GL_SCISSOR_TEST, GL_STENCIL_TEST, GL_DEPTH_TEST, GL_CULL_FACE, GL_BLEND};
+        const std::array<GLenum, 5> CAPS{
+            GL_SCISSOR_TEST, GL_STENCIL_TEST, GL_DEPTH_TEST, GL_CULL_FACE, GL_BLEND};
         std::array<GLboolean, 5> enabled{};
         for (std::size_t i = 0; i < CAPS.size(); ++i) {
             enabled[i] = glIsEnabled(CAPS[i]);
@@ -100,9 +120,22 @@ namespace {
         }
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, presentation_framebuffer);
         glViewport(0, 0, width, height);
-        const bool RESULT = hyprimate::workspace::draw_rotation(m_program, m_vao, m_uniforms, src, dst, out,
-            source_framebuffer, presentation_framebuffer, width, height, position, direction, gap,
-            matching_wallpaper, source_wallpaper, destination_wallpaper);
+        const bool RESULT = hyprimate::workspace::draw_rotation(m_program,
+            m_vao,
+            m_uniforms,
+            src,
+            dst,
+            out,
+            source_framebuffer,
+            presentation_framebuffer,
+            width,
+            height,
+            position,
+            direction,
+            gap,
+            matching_wallpaper,
+            source_wallpaper,
+            destination_wallpaper);
         for (std::size_t i = 0; i < UNITS; ++i) {
             glActiveTexture(GL_TEXTURE0 + static_cast<GLenum>(i));
             glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(textures[i]));
@@ -124,9 +157,9 @@ namespace {
     }
 
     GLuint program() {
-        const GLuint PROGRAM_ID = gl_harness::build_program(
-            "#version 300 es\nvoid main(){gl_Position=vec4(0.0);}",
-            "#version 300 es\nprecision mediump float; out vec4 c; void main(){c=vec4(1.0);}");
+        const GLuint PROGRAM_ID =
+            gl_harness::build_program("#version 300 es\nvoid main(){gl_Position=vec4(0.0);}",
+                "#version 300 es\nprecision mediump float; out vec4 c; void main(){c=vec4(1.0);}");
         CHECK(PROGRAM_ID != 0);
         return PROGRAM_ID;
     }
@@ -173,7 +206,8 @@ namespace {
     void populate(Pixels &source, Pixels &dest, Pixels &wall_a, Pixels &wall_b) {
         for (int row = 0; row < HEIGHT; ++row) {
             for (int col = 0; col < WIDTH; ++col) {
-                const auto INDEX = ((static_cast<std::size_t>(row) * WIDTH) + static_cast<std::size_t>(col)) * 4;
+                const auto INDEX =
+                    ((static_cast<std::size_t>(row) * WIDTH) + static_cast<std::size_t>(col)) * 4;
                 const bool WINDOW = col > 25 && col < 70 && row > 15 && row < 50;
                 wall_a[INDEX] = static_cast<unsigned char>(((col / 4) % 2 != 0) ? 180 : 20);
                 wall_a[INDEX + 1] = 40;
@@ -194,11 +228,16 @@ namespace {
     }
 
     template <typename Render>
-    void check_geometry(const Render &render, Direction direction, GapFill &gap,
-        const Pixels &source, const Pixels &dest, double position) {
+    void check_geometry(const Render &render,
+        Direction direction,
+        GapFill &gap,
+        const Pixels &source,
+        const Pixels &dest,
+        double position) {
         gap.style = GapFillStyle::Background;
         gap.color = {0.25F, 0.0F, 0.0F, 0.5F};
-        const auto FRAME = hyprimate::workspace::rotation::make_frame({.width = WIDTH, .height = HEIGHT}, position, direction);
+        const auto FRAME = hyprimate::workspace::rotation::make_frame(
+            {.width = WIDTH, .height = HEIGHT}, position, direction);
         const auto IMAGE = render(position, direction, gap, false);
         const auto PROJECT = [](const auto &matrix, double xpos, double ypos) {
             return std::array{(matrix[0] * xpos) + (matrix[3] * ypos) + matrix[6],
@@ -218,15 +257,18 @@ namespace {
                 const auto &point = FIRST ? SOURCE_POINT : DEST_POINT;
                 // Nearest-filter fixture avoids conflating geometric placement with filtering.
                 const auto OFFSET = ((static_cast<std::size_t>(point[1]) * WIDTH) +
-                    static_cast<std::size_t>(point[0])) * 4;
-                const auto OUTPUT = ((static_cast<std::size_t>(row) * WIDTH) + static_cast<std::size_t>(col)) * 4;
+                                        static_cast<std::size_t>(point[0])) *
+                                    4;
+                const auto OUTPUT =
+                    ((static_cast<std::size_t>(row) * WIDTH) + static_cast<std::size_t>(col)) * 4;
                 const auto &expected = FIRST ? source : dest;
                 for (std::size_t channel = 0; channel < 3; ++channel) {
                     CHECK(IMAGE[OUTPUT + channel] == expected[OFFSET + channel]);
                 }
             }
         }
-        for (const auto STYLE : {GapFillStyle::Morph, GapFillStyle::Wallpaper, GapFillStyle::Still}) {
+        for (const auto STYLE :
+            {GapFillStyle::Morph, GapFillStyle::Wallpaper, GapFillStyle::Still}) {
             gap.style = STYLE;
             const auto STYLED = render(position, direction, gap, false);
             for (std::size_t i = 0; i < IMAGE.size(); i += 4) {
@@ -236,7 +278,8 @@ namespace {
     }
 
     template <typename Render>
-    void check_direction(const Render &render, Direction direction, const Pixels &source, const Pixels &dest) {
+    void check_direction(
+        const Render &render, Direction direction, const Pixels &source, const Pixels &dest) {
         GapFill gap;
         auto start = render(0, direction, gap, false);
         auto end = render(1, direction, gap, false);
@@ -325,8 +368,10 @@ namespace {
         Pixels wall_b(source.size());
         const Pixels BLANK(source.size());
         populate(source, dest, wall_a, wall_b);
-        std::array<GLuint, 5> tex{texture(source), texture(dest), texture(BLANK), texture(wall_a), texture(wall_b)};
-        std::array<GLuint, 3> framebuffers{framebuffer(tex[0]), framebuffer(tex[1]), framebuffer(tex[2])};
+        std::array<GLuint, 5> tex{
+            texture(source), texture(dest), texture(BLANK), texture(wall_a), texture(wall_b)};
+        std::array<GLuint, 3> framebuffers{
+            framebuffer(tex[0]), framebuffer(tex[1]), framebuffer(tex[2])};
         TestRenderer renderer;
         CHECK(renderer.initialize());
         GLuint vao = 0;
@@ -349,8 +394,19 @@ namespace {
         glEnable(GL_BLEND);
         const State BEFORE = state();
         const auto RENDER = [&](double position, Direction direction, GapFill gap, bool matching) {
-            CHECK(renderer.draw_raw(tex[0], tex[1], tex[2], framebuffers[0], framebuffers[2], WIDTH, HEIGHT,
-                position, direction, gap, matching, tex[3], tex[4]));
+            CHECK(renderer.draw_raw(tex[0],
+                tex[1],
+                tex[2],
+                framebuffers[0],
+                framebuffers[2],
+                WIDTH,
+                HEIGHT,
+                position,
+                direction,
+                gap,
+                matching,
+                tex[3],
+                tex[4]));
             CHECK(state() == BEFORE);
             for (int unit = 0; unit < 4; ++unit) {
                 glActiveTexture(GL_TEXTURE0 + unit);

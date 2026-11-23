@@ -3,8 +3,8 @@
 #include <limits>
 
 #include "Check.hpp"
-#include "workspace/planet_hop/PlanetSpring.hpp"
 #include "workspace/planet_hop/PlanetScene.hpp"
+#include "workspace/planet_hop/PlanetSpring.hpp"
 
 int main() {
     using hyprimate::workspace::Direction;

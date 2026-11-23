@@ -21,11 +21,11 @@
 #include <unistd.h>
 
 #include "Check.hpp"
-#include "GlHarness.hpp"
 #include "GlAllocationFault.hpp"
+#include "GlHarness.hpp"
 #include "PlanetTestRenderer.hpp"
-#include "workspace/planet_hop/PlanetScene.hpp"
 #include "workspace/WorkspaceTransition.hpp"
+#include "workspace/planet_hop/PlanetScene.hpp"
 
 namespace {
     using namespace hyprimate::workspace;
@@ -331,15 +331,18 @@ namespace {
         return missing;
     }
 
-    void dump_frame(std::string_view label, double progress,
-        int width, int height, const std::vector<unsigned char> &pixels) {
+    void dump_frame(std::string_view label,
+        double progress,
+        int width,
+        int height,
+        const std::vector<unsigned char> &pixels) {
         const char *directory = std::getenv("HYPRIMATE_PLANET_FRAME_DIR");
         if (directory == nullptr || *directory == '\0') {
             return;
         }
         std::filesystem::create_directories(directory);
         const auto PATH = std::filesystem::path(directory) /
-            (std::string(label) + "-" + std::to_string(progress) + ".png");
+                          (std::string(label) + "-" + std::to_string(progress) + ".png");
         png_image image{};
         image.version = PNG_IMAGE_VERSION;
         image.width = static_cast<png_uint_32>(width);
@@ -351,40 +354,40 @@ namespace {
     // Independent orthographic oracle for the production square-to-disk chart.
     // Invert its monotone XY map rather than assuming an expanding ellipsoid.
     std::array<double, 2> chart_xy(double x, double y, double bend, double aspect) {
-        const double CX = .7*std::min(1.,aspect);
-        const double CY = .7*std::min(1.,1/aspect);
-        const double SX = x*(CX+(1-CX)*x*x);
-        const double SY = y*(CY+(1-CY)*y*y);
-        return {(1-bend)*aspect*x+bend*SX*std::sqrt(std::max(0.,1-SY*SY/2)),
-                (1-bend)*y+bend*SY*std::sqrt(std::max(0.,1-SX*SX/2))};
+        const double CX = .7 * std::min(1., aspect);
+        const double CY = .7 * std::min(1., 1 / aspect);
+        const double SX = x * (CX + (1 - CX) * x * x);
+        const double SY = y * (CY + (1 - CY) * y * y);
+        return {(1 - bend) * aspect * x + bend * SX * std::sqrt(std::max(0., 1 - SY * SY / 2)),
+            (1 - bend) * y + bend * SY * std::sqrt(std::max(0., 1 - SX * SX / 2))};
     }
-    std::array<double, 3> inverse_chart(double world_x, double world_y,
-        double bend, double aspect) {
-        double x = std::clamp(world_x/((1-bend)*aspect+bend),-1.,1.);
-        double y = std::clamp(world_y,-1.,1.);
+    std::array<double, 3> inverse_chart(
+        double world_x, double world_y, double bend, double aspect) {
+        double x = std::clamp(world_x / ((1 - bend) * aspect + bend), -1., 1.);
+        double y = std::clamp(world_y, -1., 1.);
         constexpr double STEP = 1.0e-5;
         for (int iteration = 0; iteration < 20; ++iteration) {
-            const auto P = chart_xy(x,y,bend,aspect);
-            const double EX = world_x-P[0], EY = world_y-P[1];
-            if (std::hypot(EX,EY)<1.0e-10) break;
-            const auto EAST = chart_xy(x+STEP,y,bend,aspect);
-            const auto WEST = chart_xy(x-STEP,y,bend,aspect);
-            const auto NORTH = chart_xy(x,y+STEP,bend,aspect);
-            const auto SOUTH = chart_xy(x,y-STEP,bend,aspect);
-            const double XX = (EAST[0]-WEST[0])/(2*STEP);
-            const double YX = (EAST[1]-WEST[1])/(2*STEP);
-            const double XY = (NORTH[0]-SOUTH[0])/(2*STEP);
-            const double YY = (NORTH[1]-SOUTH[1])/(2*STEP);
-            const double DET = XX*YY-XY*YX;
+            const auto P = chart_xy(x, y, bend, aspect);
+            const double EX = world_x - P[0], EY = world_y - P[1];
+            if (std::hypot(EX, EY) < 1.0e-10) break;
+            const auto EAST = chart_xy(x + STEP, y, bend, aspect);
+            const auto WEST = chart_xy(x - STEP, y, bend, aspect);
+            const auto NORTH = chart_xy(x, y + STEP, bend, aspect);
+            const auto SOUTH = chart_xy(x, y - STEP, bend, aspect);
+            const double XX = (EAST[0] - WEST[0]) / (2 * STEP);
+            const double YX = (EAST[1] - WEST[1]) / (2 * STEP);
+            const double XY = (NORTH[0] - SOUTH[0]) / (2 * STEP);
+            const double YY = (NORTH[1] - SOUTH[1]) / (2 * STEP);
+            const double DET = XX * YY - XY * YX;
             // The disk's four corners have a singular boundary Jacobian.
             // Retain a finite residual there so exterior pixels are still
             // checked as sky rather than disappearing through a NaN oracle.
-            if (std::abs(DET)<1.0e-10) break;
-            x = std::clamp(x+(YY*EX-XY*EY)/DET,-1.,1.);
-            y = std::clamp(y+(XX*EY-YX*EX)/DET,-1.,1.);
+            if (std::abs(DET) < 1.0e-10) break;
+            x = std::clamp(x + (YY * EX - XY * EY) / DET, -1., 1.);
+            y = std::clamp(y + (XX * EY - YX * EX) / DET, -1., 1.);
         }
-        const auto P = chart_xy(x,y,bend,aspect);
-        return {x,y,std::hypot(world_x-P[0],world_y-P[1])};
+        const auto P = chart_xy(x, y, bend, aspect);
+        return {x, y, std::hypot(world_x - P[0], world_y - P[1])};
     }
 
     void check_continuous_surface(PlanetTestRenderer &renderer) {
@@ -416,11 +419,12 @@ namespace {
         frame.radius = 1;
         frame.coverage = .7;
         frame.source_center = frame.destination_center = {.x = 400};
-        frame.source_rotation = frame.destination_rotation = {1,0,0,0,1,0,0,0,1};
+        frame.source_rotation = frame.destination_rotation = {1, 0, 0, 0, 1, 0, 0, 0, 1};
         frame.source_curvature = frame.destination_curvature = frame.endpoint_envelope = 1;
         frame.camera_position = {.z = 30};
-        frame.view_projection = {.4F,0,0,0,0,.6F,0,0,0,0,-.02F,0,0,0,0,1};
-        frame.inverse_view_projection = {1/.4F,0,0,0,0,1/.6F,0,0,0,0,-50,0,0,0,0,1};
+        frame.view_projection = {.4F, 0, 0, 0, 0, .6F, 0, 0, 0, 0, -.02F, 0, 0, 0, 0, 1};
+        frame.inverse_view_projection = {
+            1 / .4F, 0, 0, 0, 0, 1 / .6F, 0, 0, 0, 0, -50, 0, 0, 0, 0, 1};
         const auto READ = [&](std::span<const PlanetNeighborTextures> neighbors = {}) {
             CHECK(renderer.draw_raw(textures, frame, .5, settings, neighbors));
             std::vector<unsigned char> pixels(pattern.size());
@@ -434,42 +438,43 @@ namespace {
             for (const double BEND : {.25, .5, .75, 1.0}) {
                 frame.destination_curvature = BEND;
                 const auto PIXELS = READ();
-                dump_frame("closed-surface-q" + std::to_string(quality), BEND,
-                    WIDTH, HEIGHT, PIXELS);
-                const double PIXEL_X = .4*WIDTH/2, PIXEL_Y = .6*HEIGHT/2;
+                dump_frame(
+                    "closed-surface-q" + std::to_string(quality), BEND, WIDTH, HEIGHT, PIXELS);
+                const double PIXEL_X = .4 * WIDTH / 2, PIXEL_Y = .6 * HEIGHT / 2;
                 for (int y = 0; y < HEIGHT; ++y) {
                     for (int x = 0; x < WIDTH; ++x) {
-                        const double WX = (x+.5-WIDTH/2)/PIXEL_X;
-                        const double WY = -(y+.5-HEIGHT/2)/PIXEL_Y;
-                        const auto INVERSE = inverse_chart(WX,WY,BEND,frame.aspect);
-                        const auto OFFSET = static_cast<std::size_t>(y*WIDTH+x)*4;
-                        const bool SAME = std::equal(PIXELS.begin()+OFFSET,
-                            PIXELS.begin()+OFFSET+4, SKY.begin()+OFFSET);
+                        const double WX = (x + .5 - WIDTH / 2) / PIXEL_X;
+                        const double WY = -(y + .5 - HEIGHT / 2) / PIXEL_Y;
+                        const auto INVERSE = inverse_chart(WX, WY, BEND, frame.aspect);
+                        const auto OFFSET = static_cast<std::size_t>(y * WIDTH + x) * 4;
+                        const bool SAME = std::equal(PIXELS.begin() + OFFSET,
+                            PIXELS.begin() + OFFSET + 4,
+                            SKY.begin() + OFFSET);
                         // Check actual boundary support and all safe interior
                         // pixels against meaningful desktop texture coordinates.
                         if (INVERSE[2] < 1.0e-7 &&
-                            std::max(std::abs(INVERSE[0]),std::abs(INVERSE[1])) < .9) {
+                            std::max(std::abs(INVERSE[0]), std::abs(INVERSE[1])) < .9) {
                             CHECK(!SAME);
-                            const double U = (1+INVERSE[0])/2;
-                            const double V = (1-INVERSE[1])/2;
-                            CHECK(std::abs(PIXELS[OFFSET]-(64+128*U)) < 12);
-                            CHECK(std::abs(PIXELS[OFFSET+1]-(64+128*V)) < 12);
+                            const double U = (1 + INVERSE[0]) / 2;
+                            const double V = (1 - INVERSE[1]) / 2;
+                            CHECK(std::abs(PIXELS[OFFSET] - (64 + 128 * U)) < 12);
+                            CHECK(std::abs(PIXELS[OFFSET + 1] - (64 + 128 * V)) < 12);
                         }
                         if (!SAME) {
                             CHECK(PIXELS[OFFSET] >= 64);
-                            CHECK(PIXELS[OFFSET+1] >= 64);
-                            CHECK(PIXELS[OFFSET+2] == 80);
+                            CHECK(PIXELS[OFFSET + 1] >= 64);
+                            CHECK(PIXELS[OFFSET + 2] == 80);
                         }
-                        if (INVERSE[2]*std::min(PIXEL_X,PIXEL_Y) > 1.5) CHECK(SAME);
+                        if (INVERSE[2] * std::min(PIXEL_X, PIXEL_Y) > 1.5) CHECK(SAME);
                     }
                 }
             }
         }
         // Exercise the real inactive-world pass while a primary is still
         // unrolling, not just when every surface is already a round globe.
-        std::array<PlanetNeighborTextures, 1> neighbors{{
-            {.endpoint = {.identity = 3, .placement = 3}, .center = {.z = -2}, .image = WALL}}};
-        for (const double BEND : {.25,.5,.75,1.0}) {
+        std::array<PlanetNeighborTextures, 1> neighbors{
+            {{.endpoint = {.identity = 3, .placement = 3}, .center = {.z = -2}, .image = WALL}}};
+        for (const double BEND : {.25, .5, .75, 1.0}) {
             frame.destination_curvature = BEND;
             neighbors[0].center.z = -2;
             const auto PRIMARY = READ();
@@ -483,60 +488,75 @@ namespace {
         frame.view_projection[0] = .5F;
         frame.view_projection[5] = .75F;
         frame.inverse_view_projection[0] = 2;
-        frame.inverse_view_projection[5] = 1/.75F;
+        frame.inverse_view_projection[5] = 1 / .75F;
         for (const double BEND : {.1, .3, .6, 1.0}) {
             frame.destination_curvature = BEND;
             const auto PIXELS = READ();
-            for (const auto UV : {std::array{.2,.35}, std::array{.5,.5}, std::array{.8,.65}}) {
-                const auto POINT = planet_hop::project_surface({.u = UV[0], .v = UV[1],
-                    .aspect = frame.aspect, .radius = 1, .coverage = .7, .curvature = BEND,
+            for (const auto UV : {std::array{.2, .35}, std::array{.5, .5}, std::array{.8, .65}}) {
+                const auto POINT = planet_hop::project_surface({.u = UV[0],
+                    .v = UV[1],
+                    .aspect = frame.aspect,
+                    .radius = 1,
+                    .coverage = .7,
+                    .curvature = BEND,
                     .rotation = frame.destination_rotation});
-                const int X = static_cast<int>((.5+.25*POINT.position.x)*WIDTH);
-                const int Y = static_cast<int>((.5-.375*POINT.position.y)*HEIGHT);
-                const auto OFFSET = static_cast<std::size_t>(Y*WIDTH+X)*4;
-                CHECK(std::abs(static_cast<int>(PIXELS[OFFSET])-(64+128*UV[0])) < 12);
-                CHECK(std::abs(static_cast<int>(PIXELS[OFFSET+1])-(64+128*UV[1])) < 12);
-                CHECK(PIXELS[OFFSET+2] == 80);
+                const int X = static_cast<int>((.5 + .25 * POINT.position.x) * WIDTH);
+                const int Y = static_cast<int>((.5 - .375 * POINT.position.y) * HEIGHT);
+                const auto OFFSET = static_cast<std::size_t>(Y * WIDTH + X) * 4;
+                CHECK(std::abs(static_cast<int>(PIXELS[OFFSET]) - (64 + 128 * UV[0])) < 12);
+                CHECK(std::abs(static_cast<int>(PIXELS[OFFSET + 1]) - (64 + 128 * UV[1])) < 12);
+                CHECK(PIXELS[OFFSET + 2] == 80);
             }
         }
         // Conspicuous edge colours must reach the geometric perimeter itself.
         // Beyond it is sky, not a dark margin or clamped wallpaper extension.
-        constexpr std::array<unsigned char, 4> RIGHT_EDGE{230,30,180,255};
-        constexpr std::array<unsigned char, 4> LEFT_EDGE{20,200,220,255};
+        constexpr std::array<unsigned char, 4> RIGHT_EDGE{230, 30, 180, 255};
+        constexpr std::array<unsigned char, 4> LEFT_EDGE{20, 200, 220, 255};
         for (int y = 0; y < HEIGHT; ++y) {
             for (int x = 0; x < WIDTH; ++x) {
-                const auto OFFSET = static_cast<std::size_t>(y*WIDTH+x)*4;
-                const auto COLOR = x >= WIDTH*5/6 ? RIGHT_EDGE : x < WIDTH/6 ? LEFT_EDGE :
-                    ((x/8+y/8)%2 == 0 ? std::array<unsigned char,4>{235,190,30,255} :
-                                       std::array<unsigned char,4>{35,60,130,255});
+                const auto OFFSET = static_cast<std::size_t>(y * WIDTH + x) * 4;
+                const auto COLOR = x >= WIDTH * 5 / 6 ? RIGHT_EDGE
+                                   : x < WIDTH / 6
+                                       ? LEFT_EDGE
+                                       : ((x / 8 + y / 8) % 2 == 0
+                                                 ? std::array<unsigned char, 4>{235, 190, 30, 255}
+                                                 : std::array<unsigned char, 4>{35, 60, 130, 255});
                 std::ranges::copy(COLOR, std::span{pattern}.subspan(OFFSET).begin());
             }
         }
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, WALL);
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, WIDTH, HEIGHT,
-            GL_RGBA, GL_UNSIGNED_BYTE, pattern.data());
-        for (const double BEND : {.15,.3,.6,1.}) {
+        glTexSubImage2D(
+            GL_TEXTURE_2D, 0, 0, 0, WIDTH, HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, pattern.data());
+        for (const double BEND : {.15, .3, .6, 1.}) {
             frame.destination_curvature = BEND;
-            const auto EDGE = planet_hop::project_surface({.u = 1, .v = .5,
-                .aspect = 1.5, .radius = 1, .coverage = .7, .curvature = BEND,
+            const auto EDGE = planet_hop::project_surface({.u = 1,
+                .v = .5,
+                .aspect = 1.5,
+                .radius = 1,
+                .coverage = .7,
+                .curvature = BEND,
                 .rotation = frame.destination_rotation});
-            for (const double SCALE : {.9,1.,1.1}) {
-                frame.view_projection[0] = static_cast<float>(SCALE/EDGE.position.x);
-                frame.inverse_view_projection[0] = 1/frame.view_projection[0];
+            for (const double SCALE : {.9, 1., 1.1}) {
+                frame.view_projection[0] = static_cast<float>(SCALE / EDGE.position.x);
+                frame.inverse_view_projection[0] = 1 / frame.view_projection[0];
                 const auto PIXELS = READ();
                 dump_frame("textured-material-perimeter-" + std::to_string(BEND),
-                    SCALE, WIDTH, HEIGHT, PIXELS);
-                const double PERIMETER = (.5+.5*SCALE)*WIDTH;
-                const int INSIDE = std::min(WIDTH-3,static_cast<int>(PERIMETER)-3);
-                const auto OFFSET = static_cast<std::size_t>((HEIGHT/2)*WIDTH+INSIDE)*4;
+                    SCALE,
+                    WIDTH,
+                    HEIGHT,
+                    PIXELS);
+                const double PERIMETER = (.5 + .5 * SCALE) * WIDTH;
+                const int INSIDE = std::min(WIDTH - 3, static_cast<int>(PERIMETER) - 3);
+                const auto OFFSET = static_cast<std::size_t>((HEIGHT / 2) * WIDTH + INSIDE) * 4;
                 for (std::size_t channel = 0; channel < 4; ++channel)
-                    CHECK(std::abs(static_cast<int>(PIXELS[OFFSET+channel])-
-                        RIGHT_EDGE[channel]) <= 1);
-                for (int x = static_cast<int>(std::ceil(PERIMETER))+1; x < WIDTH; ++x) {
-                    const auto OUTSIDE = static_cast<std::size_t>((HEIGHT/2)*WIDTH+x)*4;
-                    CHECK(std::equal(PIXELS.begin()+OUTSIDE,PIXELS.begin()+OUTSIDE+4,
-                        SKY.begin()+OUTSIDE));
+                    CHECK(std::abs(static_cast<int>(PIXELS[OFFSET + channel]) -
+                                   RIGHT_EDGE[channel]) <= 1);
+                for (int x = static_cast<int>(std::ceil(PERIMETER)) + 1; x < WIDTH; ++x) {
+                    const auto OUTSIDE = static_cast<std::size_t>((HEIGHT / 2) * WIDTH + x) * 4;
+                    CHECK(std::equal(PIXELS.begin() + OUTSIDE,
+                        PIXELS.begin() + OUTSIDE + 4,
+                        SKY.begin() + OUTSIDE));
                 }
             }
         }
@@ -545,45 +565,49 @@ namespace {
         auto windows = pattern;
         for (int y = 0; y < HEIGHT; ++y) {
             for (int x = 0; x < WIDTH; ++x) {
-                const auto OFFSET = static_cast<std::size_t>(y*WIDTH+x)*4;
-                const bool WINDOW = x >= WIDTH/8 && x < WIDTH*3/8 &&
-                                    y >= HEIGHT/8 && y < HEIGHT*3/8;
+                const auto OFFSET = static_cast<std::size_t>(y * WIDTH + x) * 4;
+                const bool WINDOW =
+                    x >= WIDTH / 8 && x < WIDTH * 3 / 8 && y >= HEIGHT / 8 && y < HEIGHT * 3 / 8;
                 windows[OFFSET] = WINDOW ? 220 : 0;
-                windows[OFFSET+1] = WINDOW ? 20 : 0;
-                windows[OFFSET+2] = WINDOW ? 30 : 0;
-                windows[OFFSET+3] = WINDOW ? 255 : 0;
+                windows[OFFSET + 1] = WINDOW ? 20 : 0;
+                windows[OFFSET + 2] = WINDOW ? 30 : 0;
+                windows[OFFSET + 3] = WINDOW ? 255 : 0;
             }
         }
         const GLuint WINDOWS = texture(WIDTH, HEIGHT, windows.data());
-        constexpr std::array<unsigned char, 4> GREEN{20,220,30,255};
+        constexpr std::array<unsigned char, 4> GREEN{20, 220, 30, 255};
         const GLuint CROP = texture(1, 1, GREEN.data());
-        const std::array<PlanetFloatingTextures, 1> FLOATING{{
-            {.layer = {.image = CROP}, .rect = {.62F,.27F,.16F,.16F}}}};
+        const std::array<PlanetFloatingTextures, 1> FLOATING{
+            {{.layer = {.image = CROP}, .rect = {.62F, .27F, .16F, .16F}}}};
         textures.source.windows = textures.destination.windows = {.image = WINDOWS};
         textures.source.floating = textures.destination.floating = FLOATING;
         // Recompose native endpoints from the same layers, as the production
         // native-HUD path does; a wallpaper-only composite would fake a jump.
         textures.native_hud = true;
         settings.elevation = 0;
-        for (const double BEND : {.1,.3,.6,1.0}) {
+        for (const double BEND : {.1, .3, .6, 1.0}) {
             frame.destination_curvature = BEND;
             const auto PIXELS = READ();
-            for (const auto UV : {std::array{.25,.25}, std::array{.7,.35}}) {
-                const auto POINT = planet_hop::project_surface({.u = UV[0], .v = UV[1],
-                    .aspect = 1.5, .radius = 1, .coverage = .7, .curvature = BEND,
+            for (const auto UV : {std::array{.25, .25}, std::array{.7, .35}}) {
+                const auto POINT = planet_hop::project_surface({.u = UV[0],
+                    .v = UV[1],
+                    .aspect = 1.5,
+                    .radius = 1,
+                    .coverage = .7,
+                    .curvature = BEND,
                     .rotation = frame.destination_rotation});
-                const int X = static_cast<int>((.5+.25*POINT.position.x)*WIDTH);
-                const int Y = static_cast<int>((.5-.375*POINT.position.y)*HEIGHT);
-                const auto OFFSET = static_cast<std::size_t>(Y*WIDTH+X)*4;
-                CHECK(PIXELS[OFFSET] == (UV[0]<.5 ? 220 : 20));
-                CHECK(PIXELS[OFFSET+1] == (UV[0]<.5 ? 20 : 220));
-                CHECK(PIXELS[OFFSET+2] == 30);
+                const int X = static_cast<int>((.5 + .25 * POINT.position.x) * WIDTH);
+                const int Y = static_cast<int>((.5 - .375 * POINT.position.y) * HEIGHT);
+                const auto OFFSET = static_cast<std::size_t>(Y * WIDTH + X) * 4;
+                CHECK(PIXELS[OFFSET] == (UV[0] < .5 ? 220 : 20));
+                CHECK(PIXELS[OFFSET + 1] == (UV[0] < .5 ? 20 : 220));
+                CHECK(PIXELS[OFFSET + 2] == 30);
             }
             dump_frame("attached-windows", BEND, WIDTH, HEIGHT, PIXELS);
         }
-        const auto JOURNEY = planet_hop::make_journey(
-            {.identity = 1, .numbered = 1, .logical_order = 1},
-            {.identity = 2, .numbered = 2, .logical_order = 2});
+        const auto JOURNEY =
+            planet_hop::make_journey({.identity = 1, .numbered = 1, .logical_order = 1},
+                {.identity = 2, .numbered = 2, .logical_order = 2});
         // Inspect real journey frames, not only the analytic orthographic fixture.
         settings = {};
         for (const double POSITION : {0., .01, .05, .1, .18, .3, .5, .7, .82, .9, .95, .99, 1.}) {
@@ -593,12 +617,12 @@ namespace {
             glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
             dump_frame("journey", POSITION, WIDTH, HEIGHT, pixels);
         }
-        for (const double ENDPOINT : {0.,1.}) {
+        for (const double ENDPOINT : {0., 1.}) {
             frame = planet_hop::evaluate(JOURNEY, ENDPOINT, 1.5);
             CHECK(renderer.draw_raw(textures, frame, ENDPOINT, settings));
             std::vector<unsigned char> native(pattern.size());
             glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, native.data());
-            const double NEAR = ENDPOINT == 0 ? 1.0e-9 : 1.0-1.0e-9;
+            const double NEAR = ENDPOINT == 0 ? 1.0e-9 : 1.0 - 1.0e-9;
             frame = planet_hop::evaluate(JOURNEY, NEAR, 1.5);
             CHECK(renderer.draw_raw(textures, frame, NEAR, settings));
             std::vector<unsigned char> pixels(pattern.size());
@@ -869,26 +893,25 @@ namespace {
         neighbors[0].endpoint.monitor_height = 100;
         const auto WIDE_OWNER = READ(neighbors);
         CHECK(WIDE_OWNER != PORTRAIT_OWNER);
-        const auto LANDMARK = static_cast<std::size_t>((HEIGHT/2)*WIDTH+WIDTH/2+6)*4;
-        const double RADIUS = frame.radius*settings.solar_background_scale;
-        const double LANDMARK_X = 6.5/(.15*WIDTH/2*RADIUS);
-        const double LANDMARK_Y = .5/(.225*HEIGHT/2*RADIUS);
-        const auto WIDE_UV = inverse_chart(LANDMARK_X,LANDMARK_Y,1,3.);
-        const auto PORTRAIT_UV = inverse_chart(LANDMARK_X,LANDMARK_Y,1,1./3);
+        const auto LANDMARK = static_cast<std::size_t>((HEIGHT / 2) * WIDTH + WIDTH / 2 + 6) * 4;
+        const double RADIUS = frame.radius * settings.solar_background_scale;
+        const double LANDMARK_X = 6.5 / (.15 * WIDTH / 2 * RADIUS);
+        const double LANDMARK_Y = .5 / (.225 * HEIGHT / 2 * RADIUS);
+        const auto WIDE_UV = inverse_chart(LANDMARK_X, LANDMARK_Y, 1, 3.);
+        const auto PORTRAIT_UV = inverse_chart(LANDMARK_X, LANDMARK_Y, 1, 1. / 3);
         // Green is the stripe fixture's linear ramp: texture coordinate u
         // samples texel 64*u-.5, whose green value is 255-3*texel.
-        CHECK(std::abs(WIDE_OWNER[LANDMARK+1]-
-            (256.5-192*(1+WIDE_UV[0])/2)) < 3);
-        CHECK(std::abs(PORTRAIT_OWNER[LANDMARK+1]-
-            (256.5-192*(1+PORTRAIT_UV[0])/2)) < 3);
-        CHECK(WIDE_OWNER[LANDMARK+1] > PORTRAIT_OWNER[LANDMARK+1]);
+        CHECK(std::abs(WIDE_OWNER[LANDMARK + 1] - (256.5 - 192 * (1 + WIDE_UV[0]) / 2)) < 3);
+        CHECK(
+            std::abs(PORTRAIT_OWNER[LANDMARK + 1] - (256.5 - 192 * (1 + PORTRAIT_UV[0]) / 2)) < 3);
+        CHECK(WIDE_OWNER[LANDMARK + 1] > PORTRAIT_OWNER[LANDMARK + 1]);
         // Keep the actual projection matrix fixed: changing only the viewer's
         // chart metadata must not remap the remote owner's recognizable image.
-        for (const double VIEWER_ASPECT : {.5,4.}) {
+        for (const double VIEWER_ASPECT : {.5, 4.}) {
             frame.aspect = VIEWER_ASPECT;
             CHECK(READ(neighbors) == WIDE_OWNER);
         }
-        frame.aspect = static_cast<double>(WIDTH)/HEIGHT;
+        frame.aspect = static_cast<double>(WIDTH) / HEIGHT;
         neighbors[0].endpoint.monitor_width = neighbors[0].endpoint.monitor_height = 1;
         settings.rotation_enabled = true;
         settings.rotation_limit = 0;
@@ -1102,7 +1125,7 @@ namespace {
     }
 
     void check_topology_layout_visibility(PlanetTestRenderer &renderer) {
-        constexpr int HEIGHT = 240; // Keep actual cruise bodies above subpixel LOD.
+        constexpr int HEIGHT = 240;  // Keep actual cruise bodies above subpixel LOD.
         const std::array<unsigned char, 4> BLUE{0, 0, 255, 255};
         const std::array<unsigned char, 4> GREEN{0, 255, 0, 255};
         const GLuint DESKTOP = texture(1, 1, BLUE.data());
@@ -1110,7 +1133,8 @@ namespace {
         PlanetRenderSettings settings;
         settings.clouds = settings.lighting = settings.depth_enabled = false;
         settings.star_density = settings.atmosphere_intensity = 0;
-        for (const auto LAYOUT : {planet_hop::Layout::Monitor, planet_hop::Layout::All,
+        for (const auto LAYOUT : {planet_hop::Layout::Monitor,
+                 planet_hop::Layout::All,
                  planet_hop::Layout::SolarSystem}) {
             for (const double ASPECT : {.6, 1., 16. / 9, 2.4}) {
                 const int WIDTH = static_cast<int>(HEIGHT * ASPECT);
@@ -1123,8 +1147,12 @@ namespace {
                 textures.output = OUT;
                 textures.width = WIDTH;
                 textures.height = HEIGHT;
-                auto from = JourneyEndpoint{.identity = 1, .numbered = 1, .placement = 2,
-                    .owner = 10, .monitor_width = 1920, .monitor_height = 1080};
+                auto from = JourneyEndpoint{.identity = 1,
+                    .numbered = 1,
+                    .placement = 2,
+                    .owner = 10,
+                    .monitor_width = 1920,
+                    .monitor_height = 1080};
                 auto to = from;
                 to.identity = 3;
                 to.numbered = 3;
@@ -1133,7 +1161,8 @@ namespace {
                 options.planet_layout = LAYOUT;
                 const double RENDER_ASPECT = static_cast<double>(WIDTH) / HEIGHT;
                 const auto JOURNEY = planet_hop::make_journey(from, to, options, RENDER_ASPECT);
-                const auto READ = [&](const planet_hop::Frame &scene, double progress,
+                const auto READ = [&](const planet_hop::Frame &scene,
+                                      double progress,
                                       std::span<const PlanetNeighborTextures> neighbors) {
                     CHECK(renderer.draw_raw(textures, scene, progress, settings, neighbors));
                     std::vector<unsigned char> pixels(static_cast<std::size_t>(WIDTH) * HEIGHT * 4);
@@ -1142,7 +1171,8 @@ namespace {
                 };
                 unsigned revealed_frames = 0;
                 std::array<unsigned, 2> owner_visible_frames{};
-                for (const double PROGRESS : {1e-8, .32, .4, .45, .475, .5, .525, .55, .6, .68, 1 - 1e-8}) {
+                for (const double PROGRESS :
+                    {1e-8, .32, .4, .45, .475, .5, .525, .55, .6, .68, 1 - 1e-8}) {
                     const auto SCENE = planet_hop::evaluate(JOURNEY, PROGRESS, RENDER_ASPECT);
                     std::vector<PlanetNeighborTextures> neighbors;
                     for (const std::uint32_t number : {2U, 4U, 5U, 6U, 7U}) {
@@ -1163,15 +1193,19 @@ namespace {
                         if (!planet_hop::scene_member(endpoint, from, to, LAYOUT)) {
                             continue;
                         }
-                        const auto POSITION = planet_hop::layout_position(endpoint, options, RENDER_ASPECT);
+                        const auto POSITION =
+                            planet_hop::layout_position(endpoint, options, RENDER_ASPECT);
                         const planet_hop::Vec3 CENTER{POSITION.x - SCENE.world_origin.x,
-                            POSITION.y - SCENE.world_origin.y, POSITION.z - SCENE.world_origin.z};
-                        const double OWNER_BOUND = .75 * std::max(1.,
-                            endpoint.monitor_width / endpoint.monitor_height) /
+                            POSITION.y - SCENE.world_origin.y,
+                            POSITION.z - SCENE.world_origin.z};
+                        const double OWNER_BOUND =
+                            .75 * std::max(1., endpoint.monitor_width / endpoint.monitor_height) /
                             std::max(1., SCENE.aspect);
                         if (planet_hop::neighbor_visible(SCENE, CENTER, OWNER_BOUND)) {
-                            neighbors.push_back({.endpoint = endpoint, .center = CENTER,
-                                .image = PREVIEW, .shared_wallpaper = false});
+                            neighbors.push_back({.endpoint = endpoint,
+                                .center = CENTER,
+                                .image = PREVIEW,
+                                .shared_wallpaper = false});
                         }
                     }
                     const auto EMPTY = READ(SCENE, PROGRESS, {});
@@ -1187,19 +1221,25 @@ namespace {
                             endpoint.monitor_width = 1280;
                             endpoint.monitor_height = 720;
                         }
-                        const auto POSITION = planet_hop::layout_position(endpoint, options, RENDER_ASPECT);
+                        const auto POSITION =
+                            planet_hop::layout_position(endpoint, options, RENDER_ASPECT);
                         const planet_hop::Vec3 CENTER{POSITION.x - SCENE.world_origin.x,
-                            POSITION.y - SCENE.world_origin.y, POSITION.z - SCENE.world_origin.z};
-                        const double BOUND = .75 * std::max(1.,
-                            endpoint.monitor_width / endpoint.monitor_height) / std::max(1., SCENE.aspect);
-                        std::array<PlanetNeighborTextures, 1> body{{
-                            {.endpoint = endpoint, .center = CENTER, .image = PREVIEW,
-                                .shared_wallpaper = false}}};
-                        const bool ELIGIBLE = planet_hop::scene_member(endpoint, from, to, LAYOUT) &&
+                            POSITION.y - SCENE.world_origin.y,
+                            POSITION.z - SCENE.world_origin.z};
+                        const double BOUND =
+                            .75 * std::max(1., endpoint.monitor_width / endpoint.monitor_height) /
+                            std::max(1., SCENE.aspect);
+                        std::array<PlanetNeighborTextures, 1> body{{{.endpoint = endpoint,
+                            .center = CENTER,
+                            .image = PREVIEW,
+                            .shared_wallpaper = false}}};
+                        const bool ELIGIBLE =
+                            planet_hop::scene_member(endpoint, from, to, LAYOUT) &&
                             planet_hop::neighbor_visible(SCENE, CENTER, BOUND);
-                        const auto PIXELS = READ(SCENE, PROGRESS, ELIGIBLE ?
-                            std::span<const PlanetNeighborTextures>{body} :
-                            std::span<const PlanetNeighborTextures>{});
+                        const auto PIXELS = READ(SCENE,
+                            PROGRESS,
+                            ELIGIBLE ? std::span<const PlanetNeighborTextures>{body}
+                                     : std::span<const PlanetNeighborTextures>{});
                         if (PROGRESS < .01 || PROGRESS > .99) {
                             CHECK(PIXELS == EMPTY);
                         } else {
@@ -1214,8 +1254,8 @@ namespace {
                 }
                 CHECK(revealed_frames >= 2);
                 CHECK(owner_visible_frames[0] >= 2);
-                CHECK(LAYOUT == planet_hop::Layout::Monitor ?
-                    owner_visible_frames[1] == 0 : owner_visible_frames[1] >= 2);
+                CHECK(LAYOUT == planet_hop::Layout::Monitor ? owner_visible_frames[1] == 0
+                                                            : owner_visible_frames[1] >= 2);
                 glDeleteTextures(1, &OUT);
             }
         }
@@ -1243,9 +1283,9 @@ namespace {
         textures.output = OUTPUT;
         textures.width = WIDTH;
         textures.height = HEIGHT;
-        const auto JOURNEY = planet_hop::make_journey(
-            {.identity = 1, .numbered = 1, .logical_order = 1},
-            {.identity = 5, .numbered = 5, .logical_order = 2});
+        const auto JOURNEY =
+            planet_hop::make_journey({.identity = 1, .numbered = 1, .logical_order = 1},
+                {.identity = 5, .numbered = 5, .logical_order = 2});
         auto frame = planet_hop::evaluate(JOURNEY, .5, static_cast<double>(WIDTH) / HEIGHT);
         PlanetRenderSettings settings;
         settings.quality = 0;
@@ -1333,7 +1373,8 @@ namespace {
         // The optional custom PNG falls back procedurally on allocation failure,
         // retaining decoded pixels even after the source file has disappeared.
         const auto PATH = (std::filesystem::temp_directory_path() /
-            ("planet-hop-retry-" + std::to_string(getpid()) + ".png")).string();
+                           ("planet-hop-retry-" + std::to_string(getpid()) + ".png"))
+                              .string();
         png_image image{};
         image.version = PNG_IMAGE_VERSION;
         image.width = image.height = 2;
@@ -1346,7 +1387,8 @@ namespace {
             GLint program = 0;
             GLint custom = -1;
             glGetIntegerv(GL_CURRENT_PROGRAM, &program);
-            const GLint LOCATION = glGetUniformLocation(static_cast<GLuint>(program), "depthSource");
+            const GLint LOCATION =
+                glGetUniformLocation(static_cast<GLuint>(program), "depthSource");
             REQUIRE(LOCATION >= 0);
             glGetUniformiv(static_cast<GLuint>(program), LOCATION, &custom);
             return custom;
@@ -1366,7 +1408,7 @@ namespace {
         const std::string REPLACEMENT = PATH + ".replacement";
         constexpr std::array<unsigned char, 4> OTHER_DEPTH{255, 0, 170, 85};
         REQUIRE(png_image_write_to_file(
-            &image, REPLACEMENT.c_str(), 0, OTHER_DEPTH.data(), 0, nullptr) != 0);
+                    &image, REPLACEMENT.c_str(), 0, OTHER_DEPTH.data(), 0, nullptr) != 0);
         REQUIRE(renderer.prepare_depth(REPLACEMENT));
         std::filesystem::remove(REPLACEMENT);
         {
@@ -1394,8 +1436,8 @@ namespace {
         frame.camera_position = {.z = 10};
         frame.source_curvature = frame.destination_curvature = frame.endpoint_envelope = 1;
         settings.depth_enabled = false;
-        const std::array<PlanetNeighborTextures, 1> UNKNOWN{{
-            {.endpoint = {.identity = 3, .placement = 3}, .center = {}}}};
+        const std::array<PlanetNeighborTextures, 1> UNKNOWN{
+            {{.endpoint = {.identity = 3, .placement = 3}, .center = {}}}};
         {
             gl_harness::FailAllocation fail(gl_harness::Allocation::texture_2d);
             CHECK(!DRAW(.5, UNKNOWN));
@@ -1415,8 +1457,7 @@ namespace {
             .sky = gl_harness::build_program(shader::SKY_VERTEX, shader::SKY_FRAGMENT)};
         const GLuint OTHER_QUAD =
             gl_harness::build_program(shader::QUAD_VERTEX, shader::QUAD_FRAGMENT);
-        REQUIRE(PROGRAMS.planet != 0 && PROGRAMS.quad != 0 && PROGRAMS.sky != 0 &&
-            OTHER_QUAD != 0);
+        REQUIRE(PROGRAMS.planet != 0 && PROGRAMS.quad != 0 && PROGRAMS.sky != 0 && OTHER_QUAD != 0);
         PlanetGlRenderer raw;
         CHECK(!raw.initialize_raw({}));
         REQUIRE(raw.initialize_raw(PROGRAMS));

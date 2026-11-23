@@ -23,8 +23,10 @@ namespace hyprimate::workspace {
     class Transition {
       public:
         using Curve = std::function<double(double)>;
-        bool begin(Direction direction, double duration_seconds,
-            Curve curve = [](double time) { return time * time * (3.0 - (2.0 * time)); });
+        bool begin(
+            Direction direction, double duration_seconds, Curve curve = [](double time) {
+                return time * time * (3.0 - (2.0 * time));
+            });
         void retarget(bool destination,
             double nominal_seconds,
             WorkspaceMotion presented,

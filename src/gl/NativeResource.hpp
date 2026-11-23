@@ -6,11 +6,12 @@ namespace Render {
     class IFramebuffer;
     class ITexture;
     class CSceneResources;
-}
+}  // namespace Render
 
 namespace hyprimate::gl {
     // Only for freshly plugin-created objects, in their creating context. Returning the original
-    // smart pointer preserves host identity, casts and equality. Never pin a work-buffer pool entry.
+    // smart pointer preserves host identity, casts and equality. Never pin a work-buffer pool
+    // entry.
     [[nodiscard]] SP<Render::IFramebuffer> retain_native(SP<Render::IFramebuffer>);
     [[nodiscard]] SP<Render::ITexture> retain_native(SP<Render::ITexture>);
     [[nodiscard]] SP<Render::CSceneResources> retain_native(SP<Render::CSceneResources>);
@@ -21,4 +22,4 @@ namespace hyprimate::gl {
     void release_native(SP<Render::IFramebuffer> &, const CompositorContextOwner &) noexcept;
     void collect_native_resources() noexcept;
     void finish_native_resources() noexcept;
-} // namespace hyprimate::gl
+}  // namespace hyprimate::gl

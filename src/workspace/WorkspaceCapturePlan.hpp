@@ -37,9 +37,9 @@ namespace hyprimate::workspace {
 
     // beginRender has transferred a full-fake session to us. Native callbacks
     // may invalidate it: never submit or abort a replacement on the reusable context.
-    template<class Owns, class Build, class Submit, class Abort>
-    bool run_capture_pass(const Owns &owns, const Build &build_authorized,
-        const Submit &submit, const Abort &abort) {
+    template <class Owns, class Build, class Submit, class Abort>
+    bool run_capture_pass(
+        const Owns &owns, const Build &build_authorized, const Submit &submit, const Abort &abort) {
         if (!owns()) {
             return false;
         }
@@ -270,8 +270,7 @@ namespace hyprimate::workspace {
                 m_failed = true;
                 return result;
             }
-            result.crop =
-                CaptureRect{.x = LEFT, .y = TOP, .width = WIDTH, .height = HEIGHT};
+            result.crop = CaptureRect{.x = LEFT, .y = TOP, .width = WIDTH, .height = HEIGHT};
             return result;
         }
         [[nodiscard]] bool complete(CaptureCompletionFacts facts) const {

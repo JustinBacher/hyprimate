@@ -4,8 +4,8 @@
 #include <new>
 #include <numbers>
 
-#include "workspace/planet_hop/PlanetGlRenderer.hpp"
 #include "gl/Storage.hpp"
+#include "workspace/planet_hop/PlanetGlRenderer.hpp"
 
 namespace hyprimate::workspace {
     namespace {
@@ -185,11 +185,18 @@ namespace hyprimate::workspace {
             glActiveTexture(GL_TEXTURE2);
             glGenTextures(1, &candidate);
             glBindTexture(GL_TEXTURE_2D, candidate);
-            allocated = candidate != 0 &&
-                gl::allocate_texture_2d(GL_R8, m_depth_width, m_depth_height);
+            allocated =
+                candidate != 0 && gl::allocate_texture_2d(GL_R8, m_depth_width, m_depth_height);
             if (allocated) {
-                glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_depth_width, m_depth_height,
-                    GL_RED, GL_UNSIGNED_BYTE, m_depth_pixels.data());
+                glTexSubImage2D(GL_TEXTURE_2D,
+                    0,
+                    0,
+                    0,
+                    m_depth_width,
+                    m_depth_height,
+                    GL_RED,
+                    GL_UNSIGNED_BYTE,
+                    m_depth_pixels.data());
             }
         }
         if (!allocated) {
@@ -246,24 +253,29 @@ namespace hyprimate::workspace {
         std::vector<GLuint> indices;
         try {
             vertices.reserve(2 * VERTICES_PER_SIDE);
-            indices.reserve(static_cast<std::size_t>(COLUMNS) * static_cast<std::size_t>(ROWS) * 12U);
+            indices.reserve(
+                static_cast<std::size_t>(COLUMNS) * static_cast<std::size_t>(ROWS) * 12U);
             for (std::size_t side = 0; side < 2; ++side) {
                 const auto OFFSET = static_cast<GLuint>(side * VERTICES_PER_SIDE);
                 for (int row = 0; row <= ROWS; ++row) {
                     for (int column = 0; column <= COLUMNS; ++column) {
-                        vertices.push_back({static_cast<float>(column) / static_cast<float>(COLUMNS),
-                            static_cast<float>(row) / static_cast<float>(ROWS),
-                            side == 0 ? 1.F : -1.F});
+                        vertices.push_back(
+                            {static_cast<float>(column) / static_cast<float>(COLUMNS),
+                                static_cast<float>(row) / static_cast<float>(ROWS),
+                                side == 0 ? 1.F : -1.F});
                     }
                 }
                 for (int row = 0; row < ROWS; ++row) {
                     for (int column = 0; column < COLUMNS; ++column) {
-                        const auto FIRST = OFFSET + static_cast<GLuint>((row * (COLUMNS + 1)) + column);
+                        const auto FIRST =
+                            OFFSET + static_cast<GLuint>((row * (COLUMNS + 1)) + column);
                         const auto NEXT = FIRST + static_cast<GLuint>(COLUMNS + 1);
                         if (side == 0) {
-                            indices.insert(indices.end(), {FIRST,NEXT,FIRST+1,FIRST+1,NEXT,NEXT+1});
+                            indices.insert(
+                                indices.end(), {FIRST, NEXT, FIRST + 1, FIRST + 1, NEXT, NEXT + 1});
                         } else {
-                            indices.insert(indices.end(), {FIRST,FIRST+1,NEXT,FIRST+1,NEXT+1,NEXT});
+                            indices.insert(
+                                indices.end(), {FIRST, FIRST + 1, NEXT, FIRST + 1, NEXT + 1, NEXT});
                         }
                     }
                 }
@@ -288,21 +300,27 @@ namespace hyprimate::workspace {
         glBindBuffer(GL_ARRAY_BUFFER, candidate.vertices);
         if (!gl::allocate_buffer(GL_ARRAY_BUFFER,
                 static_cast<GLsizeiptr>(vertices.size() * sizeof(vertices[0])),
-                vertices.data(), GL_STATIC_DRAW)) {
+                vertices.data(),
+                GL_STATIC_DRAW)) {
             DISCARD();
             return false;
         }
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, candidate.indices);
         if (!gl::allocate_buffer(GL_ELEMENT_ARRAY_BUFFER,
                 static_cast<GLsizeiptr>(indices.size() * sizeof(indices[0])),
-                indices.data(), GL_STATIC_DRAW)) {
+                indices.data(),
+                GL_STATIC_DRAW)) {
             DISCARD();
             return false;
         }
         glEnableVertexAttribArray(2);
         glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(vertices[0]), nullptr);
         glEnableVertexAttribArray(3);
-        glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, sizeof(vertices[0]),
+        glVertexAttribPointer(3,
+            1,
+            GL_FLOAT,
+            GL_FALSE,
+            sizeof(vertices[0]),
             reinterpret_cast<const void *>(2 * sizeof(float)));
         candidate.count = static_cast<GLsizei>(indices.size());
         mesh = candidate;
@@ -448,7 +466,8 @@ namespace hyprimate::workspace {
             glGetIntegerv(GL_RENDERBUFFER_BINDING, &prior);
             glGenRenderbuffers(1, &candidate);
             glBindRenderbuffer(GL_RENDERBUFFER, candidate);
-            const bool ALLOCATED = candidate != 0 &&
+            const bool ALLOCATED =
+                candidate != 0 &&
                 gl::allocate_renderbuffer(GL_DEPTH_COMPONENT24, textures.width, textures.height);
             glBindRenderbuffer(GL_RENDERBUFFER, static_cast<GLuint>(prior));
             if (!ALLOCATED) {
@@ -461,22 +480,21 @@ namespace hyprimate::workspace {
         const bool CHANGED = textures.output != m_output_texture || DEPTH != m_output_depth;
         glFramebufferTexture2D(
             GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textures.output, 0);
-        glFramebufferRenderbuffer(
-            GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, DEPTH);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, DEPTH);
         const auto ATTACHED = [](GLenum attachment, GLenum type, GLuint name) {
             GLint actual_type = 0;
             GLint actual_name = 0;
-            glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, attachment,
-                GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &actual_type);
+            glGetFramebufferAttachmentParameteriv(
+                GL_FRAMEBUFFER, attachment, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &actual_type);
             if (actual_type != static_cast<GLint>(type)) {
                 return false;
             }
-            glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, attachment,
-                GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &actual_name);
+            glGetFramebufferAttachmentParameteriv(
+                GL_FRAMEBUFFER, attachment, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &actual_name);
             return static_cast<GLuint>(actual_name) == name;
         };
         if ((CHANGED && (!ATTACHED(GL_COLOR_ATTACHMENT0, GL_TEXTURE, textures.output) ||
-                           !ATTACHED(GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, DEPTH))) ||
+                            !ATTACHED(GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, DEPTH))) ||
             glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
             m_output_texture = m_output_depth = 0;
             glFramebufferRenderbuffer(
@@ -633,8 +651,9 @@ namespace hyprimate::workspace {
         glUniform1i(uniforms[27], static_cast<GLint>(settings.depth_enabled));
         glUniform1f(uniforms[28], RADIUS > 0 ? RADIUS : static_cast<float>(frame.radius));
         glUniform1f(uniforms[29], static_cast<float>(frame.coverage));
-        glUniform1f(uniforms[30], std::isfinite(surface.aspect) && surface.aspect > 0 ?
-            surface.aspect : static_cast<float>(frame.aspect));
+        glUniform1f(uniforms[30],
+            std::isfinite(surface.aspect) && surface.aspect > 0 ? surface.aspect
+                                                                : static_cast<float>(frame.aspect));
         glUniform1f(uniforms[33], RADIUS > 0 ? RADIUS : static_cast<float>(frame.radius));
         glUniform1f(uniforms[34], 0.035F);
         glUniform1i(uniforms[35], GL_TRUE);
@@ -791,9 +810,10 @@ namespace hyprimate::workspace {
         }
         const double OWNER_ASPECT =
             std::isfinite(neighbor.endpoint.monitor_width) &&
-            std::isfinite(neighbor.endpoint.monitor_height) &&
-            neighbor.endpoint.monitor_width > 0 && neighbor.endpoint.monitor_height > 0 ?
-                neighbor.endpoint.monitor_width / neighbor.endpoint.monitor_height : 0;
+                    std::isfinite(neighbor.endpoint.monitor_height) &&
+                    neighbor.endpoint.monitor_width > 0 && neighbor.endpoint.monitor_height > 0
+                ? neighbor.endpoint.monitor_width / neighbor.endpoint.monitor_height
+                : 0;
         draw_surface(context,
             {.capture = context.textures.get().source,
                 .center = neighbor.center,

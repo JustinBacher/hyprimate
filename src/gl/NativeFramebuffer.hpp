@@ -14,7 +14,9 @@ namespace hyprimate::gl {
     [[nodiscard]] inline SP<Render::IFramebuffer> get_work_buffer(
         Render::CRenderContext &context, const Vector2D &size) {
         CompositorContextOwner current;
-        if (!current.ensure_current()) { return nullptr; }
+        if (!current.ensure_current()) {
+            return nullptr;
+        }
         const FramebufferAllocationState ALLOCATION;
         return g_pHyprRenderer->getWorkBuffer(context, size);
     }
@@ -22,8 +24,10 @@ namespace hyprimate::gl {
     [[nodiscard]] inline bool allocate_framebuffer(
         Render::IFramebuffer &framebuffer, int width, int height, DRMFormat format) {
         CompositorContextOwner current;
-        if (!current.ensure_current()) { return false; }
+        if (!current.ensure_current()) {
+            return false;
+        }
         const FramebufferAllocationState ALLOCATION;
         return framebuffer.alloc(width, height, format);
     }
-} // namespace hyprimate::gl
+}  // namespace hyprimate::gl

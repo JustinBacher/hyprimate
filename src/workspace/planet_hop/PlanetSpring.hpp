@@ -31,9 +31,8 @@ namespace hyprimate::workspace::planet_hop {
             // The native float response subtracts nearly equal values at takeoff.
             // Normalize its short-time expansion before that cancellation can erase it.
             const double CUBIC = (2.0 / 3.0) * DECAY * span;
-            return [CUBIC](double time) {
-                return time * time * (1.0 - CUBIC * time) / (1.0 - CUBIC);
-            };
+            return
+                [CUBIC](double time) { return time * time * (1.0 - CUBIC * time) / (1.0 - CUBIC); };
         }
         const auto RESPONSE = [spring](double elapsed) {
             float value = 0;

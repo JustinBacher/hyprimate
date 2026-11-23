@@ -16,8 +16,11 @@ namespace hyprimate::gl {
             glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
         }
         ~FramebufferAllocationState() {
-            if (m_depth != GL_FALSE) { glEnable(GL_DEPTH_TEST); }
-            else { glDisable(GL_DEPTH_TEST); }
+            if (m_depth != GL_FALSE) {
+                glEnable(GL_DEPTH_TEST);
+            } else {
+                glDisable(GL_DEPTH_TEST);
+            }
             glDepthMask(m_depth_mask);
             glBindBuffer(GL_PIXEL_UNPACK_BUFFER, static_cast<GLuint>(m_unpack_buffer));
         }

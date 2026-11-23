@@ -10,4 +10,4 @@ namespace hyprimate::workspace {
         std::array<float, 4> color{0, 0, 0, 1};
         float blur = 0;
     };
-}
+}  // namespace hyprimate::workspace

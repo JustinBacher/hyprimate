@@ -5,7 +5,7 @@
 
 #include <hyprland/src/plugins/PluginAPI.hpp>
 
-#include "PluginRuntime.hpp"
+#include "plugin/PluginRuntime.hpp"
 
 namespace {
     constexpr const char *MISMATCH_MESSAGE =

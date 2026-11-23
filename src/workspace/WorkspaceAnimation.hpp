@@ -7,7 +7,9 @@
 #include <hyprland/src/SharedDefs.hpp>
 #include <hyprland/src/plugins/PluginAPI.hpp>
 
-namespace hyprimate::config { struct SWorkspaceSettings; }
+namespace hyprimate::config {
+    struct SWorkspaceSettings;
+}
 
 class CWorkspaceAnimation {
   public:

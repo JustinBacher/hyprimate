@@ -47,7 +47,8 @@ namespace {
             return FOUND != facts.end() && !workspace.expired() &&
                    FOUND->endpoint.owner != UINT64_MAX && FOUND->endpoint.owner == owner;
         }
-        bool includes(const JourneyEndpoint &candidate, const JourneyEndpoint &source,
+        bool includes(const JourneyEndpoint &candidate,
+            const JourneyEndpoint &source,
             const JourneyEndpoint &destination) const {
             return !monitor_scope || candidate.owner == source.owner ||
                    candidate.owner == destination.owner;
@@ -439,8 +440,12 @@ namespace {
 
     void capture_callbacks_only_finish_the_session_they_started() {
         enum class Event { Complete, Deny, Throw, Replace, ReplaceAndThrow, EndFails };
-        for (const auto event : {Event::Complete, Event::Deny, Event::Throw, Event::Replace,
-                 Event::ReplaceAndThrow, Event::EndFails}) {
+        for (const auto event : {Event::Complete,
+                 Event::Deny,
+                 Event::Throw,
+                 Event::Replace,
+                 Event::ReplaceAndThrow,
+                 Event::EndFails}) {
             enum class Session { Capture, Replacement, Idle };
             auto session = Session::Capture;
             int submissions = 0, aborts = 0;
@@ -458,7 +463,9 @@ namespace {
                     },
                     [&] {
                         ++submissions;
-                        if (event == Event::EndFails) { return false; }
+                        if (event == Event::EndFails) {
+                            return false;
+                        }
                         session = Session::Idle;
                         return true;
                     },
@@ -472,9 +479,12 @@ namespace {
             CHECK(completed == (event == Event::Complete));
             CHECK(threw == (event == Event::Throw || event == Event::ReplaceAndThrow));
             CHECK(submissions == (event == Event::Complete || event == Event::EndFails ? 1 : 0));
-            CHECK(aborts == (event == Event::Throw || event == Event::Deny || event == Event::EndFails ? 1 : 0));
+            CHECK(aborts ==
+                  (event == Event::Throw || event == Event::Deny || event == Event::EndFails ? 1
+                                                                                             : 0));
             CHECK(session == (event == Event::Replace || event == Event::ReplaceAndThrow
-                        ? Session::Replacement : Session::Idle));
+                                     ? Session::Replacement
+                                     : Session::Idle));
         }
     }
 

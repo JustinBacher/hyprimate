@@ -19,7 +19,9 @@ namespace hyprimate::gl {
             }
         }
         ~ClientPixelUnpack() {
-            for (std::size_t i = 0; i < FIELDS.size(); ++i) { glPixelStorei(FIELDS[i], m_saved[i]); }
+            for (std::size_t i = 0; i < FIELDS.size(); ++i) {
+                glPixelStorei(FIELDS[i], m_saved[i]);
+            }
             glBindBuffer(GL_PIXEL_UNPACK_BUFFER, static_cast<GLuint>(m_buffer));
         }
         ClientPixelUnpack(const ClientPixelUnpack &) = delete;
@@ -28,8 +30,12 @@ namespace hyprimate::gl {
         ClientPixelUnpack &operator=(ClientPixelUnpack &&) = delete;
 
       private:
-        static constexpr std::array<GLenum, 6> FIELDS{GL_UNPACK_ALIGNMENT, GL_UNPACK_ROW_LENGTH,
-            GL_UNPACK_IMAGE_HEIGHT, GL_UNPACK_SKIP_PIXELS, GL_UNPACK_SKIP_ROWS, GL_UNPACK_SKIP_IMAGES};
+        static constexpr std::array<GLenum, 6> FIELDS{GL_UNPACK_ALIGNMENT,
+            GL_UNPACK_ROW_LENGTH,
+            GL_UNPACK_IMAGE_HEIGHT,
+            GL_UNPACK_SKIP_PIXELS,
+            GL_UNPACK_SKIP_ROWS,
+            GL_UNPACK_SKIP_IMAGES};
         std::array<GLint, FIELDS.size()> m_saved{};
         GLint m_buffer = 0;
     };
@@ -96,15 +102,21 @@ namespace hyprimate::gl {
     // Hyprland's createTexture returns a wrapper even when its first TexImage2D fails.
     // Only for fresh color-renderable 2D textures: an empty level cannot complete a fresh FBO.
     [[nodiscard]] inline bool has_color_storage(GLuint texture) {
-        if (texture == 0) { return false; }
+        if (texture == 0) {
+            return false;
+        }
         GLuint probe = 0;
         glGenFramebuffers(1, &probe);
-        if (probe == 0) { return false; }
+        if (probe == 0) {
+            return false;
+        }
         GLint previous = 0;
         glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previous);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, probe);
-        glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
-        const bool complete = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+        glFramebufferTexture2D(
+            GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+        const bool complete =
+            glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(previous));
         glDeleteFramebuffers(1, &probe);
         return complete;
@@ -119,7 +131,8 @@ namespace hyprimate::gl {
         return immutable == GL_TRUE;
     }
 
-    [[nodiscard]] inline bool allocate_texture_3d(GLenum format, GLsizei width, GLsizei height, GLsizei depth) {
+    [[nodiscard]] inline bool allocate_texture_3d(
+        GLenum format, GLsizei width, GLsizei height, GLsizei depth) {
         glTexStorage3D(GL_TEXTURE_3D, 1, format, width, height, depth);
         GLint immutable = GL_FALSE;
         glGetTexParameteriv(GL_TEXTURE_3D, GL_TEXTURE_IMMUTABLE_FORMAT, &immutable);
@@ -139,10 +152,11 @@ namespace hyprimate::gl {
 
     // Call only on a fresh buffer or for a change of size. A failed same-size reupload
     // would be indistinguishable from the old data store. Use SubData for existing capacity.
-    [[nodiscard]] inline bool allocate_buffer(GLenum target, GLsizeiptr bytes, const void *data, GLenum usage) {
+    [[nodiscard]] inline bool allocate_buffer(
+        GLenum target, GLsizeiptr bytes, const void *data, GLenum usage) {
         glBufferData(target, bytes, data, usage);
         GLint64 allocated = -1;
         glGetBufferParameteri64v(target, GL_BUFFER_SIZE, &allocated);
         return bytes > 0 && allocated == bytes;
     }
-} // namespace hyprimate::gl
+}  // namespace hyprimate::gl

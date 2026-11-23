@@ -4,7 +4,9 @@
 
 #include "gl/EglContext.hpp"
 
-namespace Render::GL { class CHyprOpenGLImpl; }
+namespace Render::GL {
+    class CHyprOpenGLImpl;
+}
 
 namespace hyprimate::gl {
     // Kept with the GL names, not the animation/window that happens to draw them. The weak
@@ -24,9 +26,11 @@ namespace hyprimate::gl {
       public:
         ScopedCompositorContext() noexcept;
         explicit ScopedCompositorContext(const CompositorContextOwner &owner) noexcept;
-        [[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(m_scope); }
+        [[nodiscard]] explicit operator bool() const noexcept {
+            return static_cast<bool>(m_scope);
+        }
 
       private:
         ScopedEglContext m_scope;
     };
-} // namespace hyprimate::gl
+}  // namespace hyprimate::gl

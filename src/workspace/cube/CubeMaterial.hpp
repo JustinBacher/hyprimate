@@ -27,8 +27,14 @@ namespace hyprimate::workspace::cube {
         bool initialize();
         void release();
         void abandon();
-        bool draw(GLuint source, GLuint destination, GLuint output_texture, int width, int height,
-            double progress, Direction direction, const Settings &settings);
+        bool draw(GLuint source,
+            GLuint destination,
+            GLuint output_texture,
+            int width,
+            int height,
+            double progress,
+            Direction direction,
+            const Settings &settings);
 
       private:
         GLuint m_program = 0;

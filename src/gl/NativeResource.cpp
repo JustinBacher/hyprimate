@@ -1,5 +1,3 @@
-#include "gl/NativeResource.hpp"
-
 #include <cstdio>
 #include <new>
 
@@ -8,11 +6,13 @@
 #include <hyprland/src/render/SceneResources.hpp>
 #include <hyprland/src/render/Texture.hpp>
 
+#include "gl/NativeResource.hpp"
 #include "gl/NativeRetirement.hpp"
 
 namespace hyprimate::gl {
     namespace {
-        template<class T> using Anchors = NativeRetirement<T, CompositorContextOwner, ScopedCompositorContext>;
+        template <class T>
+        using Anchors = NativeRetirement<T, CompositorContextOwner, ScopedCompositorContext>;
         struct NativeResources {
             Anchors<Render::CSceneResources> scenes;
             Anchors<Render::IFramebuffer> framebuffers;
@@ -25,20 +25,30 @@ namespace hyprimate::gl {
                 auto unavailable = scenes.finish(gone);
                 unavailable += framebuffers.finish(gone);
                 unavailable += textures.finish(gone);
-                if (unavailable) std::fprintf(stderr, "hyprimate: retained %zu native GL references at unload: owner unavailable or resource still in use\n", unavailable);
+                if (unavailable)
+                    std::fprintf(stderr,
+                        "hyprimate: retained %zu native GL references at unload: owner unavailable "
+                        "or resource still in use\n",
+                        unavailable);
             }
-            ~NativeResources() { finish(); }
+            ~NativeResources() {
+                finish();
+            }
         };
         NativeResources resources;
 
-        template<class T> SP<T> retain(Anchors<T> &anchors, SP<T> resource) {
+        template <class T>
+        SP<T> retain(Anchors<T> &anchors, SP<T> resource) {
             CompositorContextOwner owner;
             if (!resource || !owner.ensure_current()) return nullptr;
-            try { anchors.keep(resource, owner); }
-            catch (const std::bad_alloc &) { return nullptr; }
+            try {
+                anchors.keep(resource, owner);
+            } catch (const std::bad_alloc &) {
+                return nullptr;
+            }
             return resource;
         }
-    }
+    }  // namespace
     SP<Render::CSceneResources> retain_native(SP<Render::CSceneResources> resource) {
         return retain(resources.scenes, std::move(resource));
     }
@@ -51,7 +61,8 @@ namespace hyprimate::gl {
     bool native_current(const SP<Render::IFramebuffer> &resource) noexcept {
         return resources.framebuffers.current(resource);
     }
-    void release_native(SP<Render::IFramebuffer> &resource, const CompositorContextOwner &owner) noexcept {
+    void release_native(
+        SP<Render::IFramebuffer> &resource, const CompositorContextOwner &owner) noexcept {
         resources.framebuffers.drop_borrowed(resource, owner);
     }
     void collect_native_resources() noexcept {
@@ -59,5 +70,7 @@ namespace hyprimate::gl {
         resources.framebuffers.collect();
         resources.textures.collect();
     }
-    void finish_native_resources() noexcept { resources.finish(); }
-} // namespace hyprimate::gl
+    void finish_native_resources() noexcept {
+        resources.finish();
+    }
+}  // namespace hyprimate::gl

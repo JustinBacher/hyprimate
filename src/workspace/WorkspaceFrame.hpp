@@ -3,8 +3,10 @@
 #include <cstdint>
 #include <memory>
 #include <vector>
+
 #include <hyprland/src/render/Framebuffer.hpp>
 #include <hyprutils/math/Box.hpp>
+
 #include "workspace/WorkspaceJourney.hpp"
 
 namespace hyprimate::workspace {
@@ -20,13 +22,13 @@ namespace hyprimate::workspace {
     // presentation-only: rendering must never rewrite the retained native capture.
     struct WorkspaceFloating {
         std::int64_t identity = 0;
-        CBox rect; // Normalized monitor coordinates, x right and y down; includes decorations.
+        CBox rect;  // Normalized monitor coordinates, x right and y down; includes decorations.
         WorkspaceLayer layer;
         bool cropped = true;
         float opacity = 1.F;
         WorkspaceLayer previous_layer;
         float live_mix = 1.F;
-        double order = 0.0; // Native stacking order, interpolated only in presentation metadata.
+        double order = 0.0;  // Native stacking order, interpolated only in presentation metadata.
     };
 
     struct WorkspaceCapture {
@@ -59,4 +61,4 @@ namespace hyprimate::workspace {
         std::shared_ptr<const std::vector<WorkspacePreview>> neighbors;
         bool native_hud = false;
     };
-}
+}  // namespace hyprimate::workspace

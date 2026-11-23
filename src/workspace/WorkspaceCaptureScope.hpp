@@ -9,9 +9,15 @@
 class WorkspaceCaptureScope {
   public:
     using Kind = hyprimate::workspace::CaptureKind;
-    WorkspaceCaptureScope(Render::CRenderContext &ctx, Kind kind,
-        const Render::IFramebuffer &output, const Render::CSceneResources &resources) noexcept
-        : m_context(&ctx), m_output(&output), m_resources(&resources), m_kind(kind), m_previous(s_current) {
+    WorkspaceCaptureScope(Render::CRenderContext &ctx,
+        Kind kind,
+        const Render::IFramebuffer &output,
+        const Render::CSceneResources &resources) noexcept
+        : m_context(&ctx),
+          m_output(&output),
+          m_resources(&resources),
+          m_kind(kind),
+          m_previous(s_current) {
         s_current = this;
     }
     ~WorkspaceCaptureScope() {

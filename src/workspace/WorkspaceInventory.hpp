@@ -179,7 +179,7 @@ namespace hyprimate::workspace {
             blend(NOW);
             port.publish(m_previews);
         }
-        template<class Owns>
+        template <class Owns>
         [[nodiscard]] bool current(std::uint64_t revision, const Owns &owns) const {
             return m_previews && m_revision == revision && owners_current(owns);
         }
@@ -188,11 +188,10 @@ namespace hyprimate::workspace {
         }
 
       private:
-        template<class Owns>
+        template <class Owns>
         [[nodiscard]] bool owners_current(const Owns &owns) const {
-            return std::ranges::all_of(m_owners, [&](const auto &value) {
-                return owns(value.workspace, value.owner);
-            });
+            return std::ranges::all_of(
+                m_owners, [&](const auto &value) { return owns(value.workspace, value.owner); });
         }
         static double priority(const JourneyEndpoint &candidate,
             const JourneyEndpoint &source,

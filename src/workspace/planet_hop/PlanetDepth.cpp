@@ -53,8 +53,8 @@ namespace hyprimate::workspace {
                     depth_error = std::data(image.message);
                     return false;
                 }
-                if (image.width == 0 || image.height == 0 ||
-                    image.width > 4096 || image.height > 4096) {
+                if (image.width == 0 || image.height == 0 || image.width > 4096 ||
+                    image.height > 4096) {
                     depth_error = "depthSource dimensions must be between 1 and 4096 pixels";
                     return false;
                 }

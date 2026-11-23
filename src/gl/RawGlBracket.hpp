@@ -1,8 +1,8 @@
 #pragma once
 
-#include "RawGlState.hpp"
-
 #include <hyprland/src/render/OpenGL.hpp>
+
+#include "RawGlState.hpp"
 
 namespace hyprimate::gl {
     namespace detail {
@@ -37,7 +37,8 @@ namespace hyprimate::gl {
     template <std::size_t Units>
     class CRawGlBracket {
       public:
-        explicit CRawGlBracket(const SShadowedState &known) : m_state(known, m_shadow) {}
+        explicit CRawGlBracket(const SShadowedState &known) : m_state(known, m_shadow) {
+        }
 
         CRawGlBracket(const CRawGlBracket &) = delete;
         CRawGlBracket &operator=(const CRawGlBracket &) = delete;

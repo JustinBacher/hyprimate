@@ -10,14 +10,14 @@ namespace hyprimate::gl {
     // Hyprland native wrappers can unconditionally switch EGL and delete on destruction. Keep
     // one ordinary host reference until all consumers finish, then drop it inside its owner.
     // No plugin deleter or alternate control block escapes to the compositor.
-    template<class T, class Owner, class Scope>
+    template <class T, class Owner, class Scope>
     class NativeRetirement {
       public:
         NativeRetirement() = default;
         NativeRetirement(const NativeRetirement &) = delete;
         NativeRetirement &operator=(const NativeRetirement &) = delete;
         void keep(const SP<T> &resource, const Owner &owner) {
-            collect(); // Keep up with bursts of replacement allocations between frames.
+            collect();  // Keep up with bursts of replacement allocations between frames.
             const auto buckets = m_entries.bucket_count();
             m_entries.try_emplace(resource.get(), owner, resource);
             if (buckets != m_entries.bucket_count()) m_cursor = m_entries.end();
@@ -27,11 +27,17 @@ namespace hyprimate::gl {
             return it != m_entries.end() && it->second.owner.ensure_current();
         }
         void drop_borrowed(SP<T> &resource, const Owner &owner) noexcept {
-            if (!resource || resource.strongRef() > 1) { resource.reset(); return; }
+            if (!resource || resource.strongRef() > 1) {
+                resource.reset();
+                return;
+            }
             const Scope scope{owner};
             if (!scope) {
-                try { keep(resource, owner); }
-                catch (...) { abandon(resource); }
+                try {
+                    keep(resource, owner);
+                } catch (...) {
+                    abandon(resource);
+                }
             }
             resource.reset();
         }
@@ -53,7 +59,10 @@ namespace hyprimate::gl {
             for (auto &[_, item] : m_entries) {
                 if (!backend_gone) {
                     const Scope scope{item.owner};
-                    if (!scope || item.resource.strongRef() > 1) { abandon(item.resource); ++unavailable; }
+                    if (!scope || item.resource.strongRef() > 1) {
+                        abandon(item.resource);
+                        ++unavailable;
+                    }
                     item.resource.reset();
                 } else {
                     item.resource.reset();
@@ -70,12 +79,17 @@ namespace hyprimate::gl {
         static void abandon(SP<T> &resource) noexcept {
             union Unreleased {
                 SP<T> reference;
-                explicit Unreleased(SP<T> &source) : reference(std::move(source)) {}
-                ~Unreleased() {} // Deliberately do not drop the sole remaining strong reference.
+                explicit Unreleased(SP<T> &source) : reference(std::move(source)) {
+                }
+                ~Unreleased() {
+                }  // Deliberately do not drop the sole remaining strong reference.
             } outstanding(resource);
         }
-        struct Entry { Owner owner; SP<T> resource; };
-        std::unordered_map<const T*, Entry> m_entries;
+        struct Entry {
+            Owner owner;
+            SP<T> resource;
+        };
+        std::unordered_map<const T *, Entry> m_entries;
         typename decltype(m_entries)::iterator m_cursor = m_entries.end();
     };
-} // namespace hyprimate::gl
+}  // namespace hyprimate::gl

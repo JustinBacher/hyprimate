@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+
 #include "workspace/WorkspaceTransition.hpp"
 
 namespace hyprimate::workspace::rotation {
@@ -16,4 +17,4 @@ namespace hyprimate::workspace::rotation {
         int height;
     };
     [[nodiscard]] Frame make_frame(Extent extent, double position, Direction direction);
-}
+}  // namespace hyprimate::workspace::rotation

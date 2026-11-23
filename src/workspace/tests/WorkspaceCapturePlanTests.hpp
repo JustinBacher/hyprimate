@@ -186,8 +186,11 @@ namespace hyprimate::workspace::test::capture_plan_tests {
         for (const double BAD : {NAN_VALUE, INFINITY_VALUE, -INFINITY_VALUE}) {
             for (int field = 0; field < 6; ++field) {
                 auto invalid = VALID;
-                std::array<double *, 6> values{&invalid.bounds.left, &invalid.bounds.top,
-                    &invalid.bounds.right, &invalid.bounds.bottom, &invalid.output_width,
+                std::array<double *, 6> values{&invalid.bounds.left,
+                    &invalid.bounds.top,
+                    &invalid.bounds.right,
+                    &invalid.bounds.bottom,
+                    &invalid.output_width,
                     &invalid.output_height};
                 *values[field] = BAD;
                 CaptureSession session{{.layered = true, .individual = true}};
@@ -252,10 +255,10 @@ namespace hyprimate::workspace::test::capture_plan_tests {
 
         Fixture empty;
         auto &events = empty.port.capture_scene.events;
-        events.insert(events.begin() + 2,
-            window({.left = 10.2, .top = 2, .right = 10.2, .bottom = 5}));
-        events.insert(events.begin() + 3,
-            window({.left = 2, .top = 10.2, .right = 5, .bottom = 10.2}));
+        events.insert(
+            events.begin() + 2, window({.left = 10.2, .top = 2, .right = 10.2, .bottom = 5}));
+        events.insert(
+            events.begin() + 3, window({.left = 2, .top = 10.2, .right = 5, .bottom = 10.2}));
         events.insert(events.begin() + 4, VALID);
         CHECK(empty.stage());
         CHECK(empty.port.capture_scene.crops.size() == 1);
@@ -273,7 +276,6 @@ namespace hyprimate::workspace::test::capture_plan_tests {
         CHECK(scene.crops.empty());
         CHECK(scene.native_window_draws == 2);
     }
-
 
     inline void invalid_boundaries_keep_native_drawing() {
         Fixture early;

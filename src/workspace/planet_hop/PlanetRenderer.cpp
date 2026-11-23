@@ -9,8 +9,8 @@
 #include <hyprland/src/render/Texture.hpp>
 #include <hyprland/src/render/gl/GLFramebuffer.hpp>
 
-#include "gl/RawGlBracket.hpp"
 #include "gl/NativeResource.hpp"
+#include "gl/RawGlBracket.hpp"
 #include "workspace/WorkspaceFrame.hpp"
 #include "workspace/planet_hop/PlanetMaterial.hpp"
 #include "workspace/planet_hop/PlanetRenderer.hpp"
@@ -21,7 +21,7 @@ namespace hyprimate::workspace {
             Vector2D size;
             [[nodiscard]] GLuint texture(const auto &buffer, bool cropped = false) const {
                 return buffer && gl::native_current(buffer) &&
-                           (cropped || buffer->m_size == size) && buffer->getTexture()
+                               (cropped || buffer->m_size == size) && buffer->getTexture()
                            ? buffer->getTexture()->m_texID
                            : 0;
             }
@@ -76,7 +76,9 @@ namespace hyprimate::workspace {
         };
     }  // namespace
     PlanetRenderer::PlanetRenderer() = default;
-    PlanetRenderer::~PlanetRenderer() { release(); }
+    PlanetRenderer::~PlanetRenderer() {
+        release();
+    }
     bool PlanetRenderer::initialize() {
         const gl::ScopedCompositorContext CONTEXT{};
         if (!CONTEXT || !m_context.ensure_current()) {
@@ -183,7 +185,8 @@ namespace hyprimate::workspace {
     }
     void PlanetRenderer::prepare_neighbors(const WorkspaceFrame &frame,
         const planet_hop::Journey &journey,
-        const planet_hop::Frame &scene, double radius) {
+        const planet_hop::Frame &scene,
+        double radius) {
         m_neighbors.clear();
         if (journey.options.planet_layout == planet_hop::Layout::Focused || !frame.neighbors) {
             return;
@@ -193,8 +196,8 @@ namespace hyprimate::workspace {
         m_neighbors.reserve(frame.neighbors->size());
         for (std::size_t index = 0; index < frame.neighbors->size(); ++index) {
             const auto &preview = (*frame.neighbors)[index];
-            if (!planet_hop::scene_member(preview.endpoint, journey.from, journey.to,
-                    journey.options.planet_layout) ||
+            if (!planet_hop::scene_member(
+                    preview.endpoint, journey.from, journey.to, journey.options.planet_layout) ||
                 preview.endpoint.identity == journey.from.identity ||
                 preview.endpoint.identity == journey.to.identity) {
                 continue;
@@ -203,10 +206,11 @@ namespace hyprimate::workspace {
             const planet_hop::Vec3 CENTER{.x = position.x - scene.world_origin.x,
                 .y = position.y - scene.world_origin.y,
                 .z = position.z - scene.world_origin.z};
-            const double OWNER_ASPECT = preview.endpoint.monitor_height > 0 ?
-                preview.endpoint.monitor_width / preview.endpoint.monitor_height : 1;
-            const double BOUND = radius * std::max(1.0, OWNER_ASPECT) /
-                std::max(1.0, scene.aspect);
+            const double OWNER_ASPECT =
+                preview.endpoint.monitor_height > 0
+                    ? preview.endpoint.monitor_width / preview.endpoint.monitor_height
+                    : 1;
+            const double BOUND = radius * std::max(1.0, OWNER_ASPECT) / std::max(1.0, scene.aspect);
             if (!planet_hop::neighbor_visible(scene, CENTER, BOUND)) {
                 continue;
             }
@@ -232,11 +236,13 @@ namespace hyprimate::workspace {
         (void)ctx;
         (void)direction;
         (void)matching;
-        if (!m_context.ensure_current()) { return false; }
+        if (!m_context.ensure_current()) {
+            return false;
+        }
         if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL ||
             g_pHyprRenderer->type() != Render::IHyprRenderer::RT_GL || !frame.presentation ||
-            !gl::native_current(frame.presentation) || !frame.presentation->getTexture() || !frame.source.layered ||
-            !frame.destination.layered) {
+            !gl::native_current(frame.presentation) || !frame.presentation->getTexture() ||
+            !frame.source.layered || !frame.destination.layered) {
             return false;
         }
         const auto SIZE = frame.presentation->m_size;
@@ -255,8 +261,8 @@ namespace hyprimate::workspace {
         }
         const auto SCENE =
             planet_hop::evaluate(journey, progress, static_cast<double>(SIZE.x) / SIZE.y);
-        prepare_neighbors(frame, journey, SCENE,
-            SCENE.radius * std::max(0.F, settings.solar_background_scale));
+        prepare_neighbors(
+            frame, journey, SCENE, SCENE.radius * std::max(0.F, settings.solar_background_scale));
         auto render_settings = settings;
         render_settings.rotation_enabled = journey.options.rotation_enabled;
         render_settings.rotation_limit = static_cast<float>(journey.options.rotation_limit);

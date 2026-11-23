@@ -4,43 +4,43 @@
 
 namespace hyprimate::workspace::planet_hop::shader {
 
-// GLES 3.0, premultiplied output throughout. Compile once per GL context.
-// Attributes: 0=flatPosition.xyz, 1=spherePosition.xyz, 2=texcoord.xy,
-// 3=hemisphere (+1 front, -1 back; parametric fullSphere meshes only).
-// Positions are planet-local (+x right, +y up, +z towards the viewer); UVs are
-// top-left-origin. Matrices are column-major. No shader changes GL state.
-//
-// VERTEX uniforms: viewProjection(mat4), planetRotation(mat3), planetCenter(vec3),
-// curvature, endpointEnvelope, elevation, depthStrength(float),
-// uDepthEnabled(bool), depthSource(int: 0 procedural, 1 depthImage),
-// samplingQuality(int: 0..2), depthImage(sampler2D, top-down decoded PNG rows).
-// parametricMesh(bool, default false), aspect/radius/coverage(float) optionally
-// derive positions from UV. fullSphere(bool) selects the production closed-body
-// chart: a square-to-disk front hemisphere and matched back hemisphere flatten
-// into the native rectangle. Its front matches Scene::project_surface exactly.
-// All layers share that chart; no exterior viewport/backing rectangle is drawn.
-// FRAGMENT: image/backdrop(sampler2D), reconstructLayer(bool), uvTransform(vec4),
-// Both image programs accept previousImage/previousBackdrop(sampler2D),
-// previousReconstruct(bool), liveMix(float). ALWAYS bind liveMix=1 for ordinary
-// captures (GLSL initializes uniforms to zero). Old/live layers are separately
-// recovered to premultiplied colors before blending and material effects.
-// layer(int: 0 wallpaper/opaque dark globe, 1 attached windows, 2 world shell),
-// opacity, endpointEnvelope, nightBrightness, indirectBrightness,
-// cloudCoverage, cloudOpacity, cloudSpeed, time, atmosphereIntensity,
-// atmosphereThickness(float), lightDirection/cameraPosition(vec3), lightingEnabled,
-// cloudsEnabled, atmosphereEnabled(bool), samplingQuality(int: 0..2).
-// Shared planetRotation(mat3)/planetCenter(vec3), planetRadius(float world units),
-// cloudHeight(float fraction of radius, recommended .035) define the independent
-// analytic cloud shell, an oblate local approximation while unrolling and
-// exactly spherical on the globe. Height/optical opacity vanish at endpoints.
-// uvTransform is offset.xy/scale.zw; FBO bottom-left images use (0,1,1,-1).
-// Set endpointEnvelope to zero at BOTH native endpoints. At zero the image path
-// is exact and no lighting, relief, cloud, atmosphere or visibility mask remains.
-// Samplers use CLAMP_TO_EDGE, never mirrored repeat. Production front UVs remain
-// inside the captured desktop; its material perimeter IS the body's perimeter.
-// No wallpaper-edge extension or independently masked interior chart is drawn.
-// All elevations are local scene units; Renderer/Scene own depth and ordering.
-inline constexpr std::string_view VERTEX = R"GLSL(#version 300 es
+    // GLES 3.0, premultiplied output throughout. Compile once per GL context.
+    // Attributes: 0=flatPosition.xyz, 1=spherePosition.xyz, 2=texcoord.xy,
+    // 3=hemisphere (+1 front, -1 back; parametric fullSphere meshes only).
+    // Positions are planet-local (+x right, +y up, +z towards the viewer); UVs are
+    // top-left-origin. Matrices are column-major. No shader changes GL state.
+    //
+    // VERTEX uniforms: viewProjection(mat4), planetRotation(mat3), planetCenter(vec3),
+    // curvature, endpointEnvelope, elevation, depthStrength(float),
+    // uDepthEnabled(bool), depthSource(int: 0 procedural, 1 depthImage),
+    // samplingQuality(int: 0..2), depthImage(sampler2D, top-down decoded PNG rows).
+    // parametricMesh(bool, default false), aspect/radius/coverage(float) optionally
+    // derive positions from UV. fullSphere(bool) selects the production closed-body
+    // chart: a square-to-disk front hemisphere and matched back hemisphere flatten
+    // into the native rectangle. Its front matches Scene::project_surface exactly.
+    // All layers share that chart; no exterior viewport/backing rectangle is drawn.
+    // FRAGMENT: image/backdrop(sampler2D), reconstructLayer(bool), uvTransform(vec4),
+    // Both image programs accept previousImage/previousBackdrop(sampler2D),
+    // previousReconstruct(bool), liveMix(float). ALWAYS bind liveMix=1 for ordinary
+    // captures (GLSL initializes uniforms to zero). Old/live layers are separately
+    // recovered to premultiplied colors before blending and material effects.
+    // layer(int: 0 wallpaper/opaque dark globe, 1 attached windows, 2 world shell),
+    // opacity, endpointEnvelope, nightBrightness, indirectBrightness,
+    // cloudCoverage, cloudOpacity, cloudSpeed, time, atmosphereIntensity,
+    // atmosphereThickness(float), lightDirection/cameraPosition(vec3), lightingEnabled,
+    // cloudsEnabled, atmosphereEnabled(bool), samplingQuality(int: 0..2).
+    // Shared planetRotation(mat3)/planetCenter(vec3), planetRadius(float world units),
+    // cloudHeight(float fraction of radius, recommended .035) define the independent
+    // analytic cloud shell, an oblate local approximation while unrolling and
+    // exactly spherical on the globe. Height/optical opacity vanish at endpoints.
+    // uvTransform is offset.xy/scale.zw; FBO bottom-left images use (0,1,1,-1).
+    // Set endpointEnvelope to zero at BOTH native endpoints. At zero the image path
+    // is exact and no lighting, relief, cloud, atmosphere or visibility mask remains.
+    // Samplers use CLAMP_TO_EDGE, never mirrored repeat. Production front UVs remain
+    // inside the captured desktop; its material perimeter IS the body's perimeter.
+    // No wallpaper-edge extension or independently masked interior chart is drawn.
+    // All elevations are local scene units; Renderer/Scene own depth and ordering.
+    inline constexpr std::string_view VERTEX = R"GLSL(#version 300 es
 precision highp float;
 precision highp int;
 layout(location=0) in vec3 flatPosition;
@@ -217,7 +217,7 @@ void main() {
 }
 )GLSL";
 
-inline constexpr std::string_view FRAGMENT = R"GLSL(#version 300 es
+    inline constexpr std::string_view FRAGMENT = R"GLSL(#version 300 es
 precision highp float;
 precision highp int;
 in vec2 vUV;
@@ -436,23 +436,23 @@ void main() {
 }
 )GLSL";
 
-// A unit rectangle, TRIANGLE_STRIP with four vertices and no vertex buffer.
-// model maps centered [-.5,.5] local XY to world; imageRect is normalized
-// full-monitor offset.xy/extent.zw, top-left origin. Scene owns each window's
-// independently anchored model, its elevation, and camera-relative parallax.
-// Native full-screen blits use identity VP and model scale (2,2,1), imageRect
-// (0,0,1,1). Uniforms: viewProjection/model(mat4), imageRect/uvTransform(vec4),
-// image/backdrop(sampler2D), opacity(float), reconstructLayer/forceOpaque(bool).
-// HUD blending optionally uses secondaryImage/secondaryBackdrop(sampler2D),
-// secondaryReconstruct(bool), mixAmount(float, default 0). Recover and history-
-// blend each endpoint, then mix premultiplied endpoints before opacity/GL blend.
-// The secondary endpoint also accepts secondaryPreviousImage/secondaryPreviousBackdrop,
-// secondaryPreviousReconstruct and secondaryLiveMix; bind secondaryLiveMix=1
-// when it has no capture history. Endpoint and history blends each skip
-// inactive texture reads when their interpolation is exactly zero or one.
-// forceOpaque is ONLY for native full-monitor composites whose RGB already
-// includes the opaque backdrop but whose stored alpha describes coverage.
-inline constexpr std::string_view QUAD_VERTEX = R"GLSL(#version 300 es
+    // A unit rectangle, TRIANGLE_STRIP with four vertices and no vertex buffer.
+    // model maps centered [-.5,.5] local XY to world; imageRect is normalized
+    // full-monitor offset.xy/extent.zw, top-left origin. Scene owns each window's
+    // independently anchored model, its elevation, and camera-relative parallax.
+    // Native full-screen blits use identity VP and model scale (2,2,1), imageRect
+    // (0,0,1,1). Uniforms: viewProjection/model(mat4), imageRect/uvTransform(vec4),
+    // image/backdrop(sampler2D), opacity(float), reconstructLayer/forceOpaque(bool).
+    // HUD blending optionally uses secondaryImage/secondaryBackdrop(sampler2D),
+    // secondaryReconstruct(bool), mixAmount(float, default 0). Recover and history-
+    // blend each endpoint, then mix premultiplied endpoints before opacity/GL blend.
+    // The secondary endpoint also accepts secondaryPreviousImage/secondaryPreviousBackdrop,
+    // secondaryPreviousReconstruct and secondaryLiveMix; bind secondaryLiveMix=1
+    // when it has no capture history. Endpoint and history blends each skip
+    // inactive texture reads when their interpolation is exactly zero or one.
+    // forceOpaque is ONLY for native full-monitor composites whose RGB already
+    // includes the opaque backdrop but whose stored alpha describes coverage.
+    inline constexpr std::string_view QUAD_VERTEX = R"GLSL(#version 300 es
 precision highp float;
 uniform mat4 viewProjection;
 uniform mat4 model;
@@ -464,7 +464,7 @@ void main() {
     gl_Position = viewProjection*model*vec4(p-0.5,0.0,1.0);
 }
 )GLSL";
-inline constexpr std::string_view QUAD_FRAGMENT = R"GLSL(#version 300 es
+    inline constexpr std::string_view QUAD_FRAGMENT = R"GLSL(#version 300 es
 precision highp float;
 in vec2 vUV;
 uniform sampler2D image;
@@ -518,14 +518,14 @@ void main() {
 }
 )GLSL";
 
-// Full-screen TRIANGLES, three vertices, no VBO. Draw before opaque planets.
-// Uniforms: inverseViewProjection(mat4), cameraPosition(vec3, floating-origin
-// relative), endpointEnvelope/starDensity(float), starOffsetNear/Mid/Far(vec3).
-// Each offset component is computed in CPU double precision as positiveModulo(
-// (worldOrigin+relativeCamera)*starParallax/depth,1024), depth=40/90/210.
-// The periodic cell hash makes offset wraps continuous, avoiding huge floats
-// and preserving parallax through camera rebasing and across journeys.
-inline constexpr std::string_view SKY_VERTEX = R"GLSL(#version 300 es
+    // Full-screen TRIANGLES, three vertices, no VBO. Draw before opaque planets.
+    // Uniforms: inverseViewProjection(mat4), cameraPosition(vec3, floating-origin
+    // relative), endpointEnvelope/starDensity(float), starOffsetNear/Mid/Far(vec3).
+    // Each offset component is computed in CPU double precision as positiveModulo(
+    // (worldOrigin+relativeCamera)*starParallax/depth,1024), depth=40/90/210.
+    // The periodic cell hash makes offset wraps continuous, avoiding huge floats
+    // and preserving parallax through camera rebasing and across journeys.
+    inline constexpr std::string_view SKY_VERTEX = R"GLSL(#version 300 es
 precision highp float;
 out vec2 vNDC;
 void main() {
@@ -534,7 +534,7 @@ void main() {
     gl_Position = vec4(vNDC,1.0,1.0);
 }
 )GLSL";
-inline constexpr std::string_view SKY_FRAGMENT = R"GLSL(#version 300 es
+    inline constexpr std::string_view SKY_FRAGMENT = R"GLSL(#version 300 es
 precision highp float;
 precision highp int;
 in vec2 vNDC;
@@ -593,4 +593,4 @@ void main() {
 }
 )GLSL";
 
-} // namespace hyprimate::workspace::planet_hop::shader
+}  // namespace hyprimate::workspace::planet_hop::shader

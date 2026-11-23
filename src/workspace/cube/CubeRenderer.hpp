@@ -3,7 +3,9 @@
 #include "gl/CompositorContext.hpp"
 #include "workspace/cube/CubeMaterial.hpp"
 
-namespace Render { class CRenderContext; }
+namespace Render {
+    class CRenderContext;
+}
 
 namespace hyprimate::workspace {
     struct WorkspaceFrame;
@@ -19,11 +21,14 @@ namespace hyprimate::workspace {
 
         bool initialize();
         void release();
-        bool draw(Render::CRenderContext &context, const WorkspaceFrame &frame, double progress,
-            Direction direction, const cube::Settings &settings);
+        bool draw(Render::CRenderContext &context,
+            const WorkspaceFrame &frame,
+            double progress,
+            Direction direction,
+            const cube::Settings &settings);
 
       private:
         gl::CompositorContextOwner m_owner;
         cube::Material m_material;
     };
-} // namespace hyprimate::workspace
+}  // namespace hyprimate::workspace
