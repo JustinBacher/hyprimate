@@ -3,9 +3,9 @@
 #include <cstdint>
 
 #include "Bench.hpp"
-#include "animations/liquid/LiquidMesh.hpp"
-#include "animations/paper/PaperCrumple.hpp"
-#include "animations/shared/EdgeTransition.hpp"
+#include "window/liquid/LiquidMesh.hpp"
+#include "window/paper/PaperCrumple.hpp"
+#include "window/shared/EdgeTransition.hpp"
 
 namespace {
     using namespace hyprimate;

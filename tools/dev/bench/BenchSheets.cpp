@@ -3,9 +3,9 @@
 #include <memory>
 
 #include "Bench.hpp"
-#include "animations/cloth/ClothFlutter.hpp"
-#include "animations/shared/SheetMesh.hpp"
-#include "animations/swarm/Swarm.hpp"
+#include "window/cloth/ClothFlutter.hpp"
+#include "window/shared/SheetMesh.hpp"
+#include "window/swarm/Swarm.hpp"
 
 namespace {
     using namespace hyprimate;

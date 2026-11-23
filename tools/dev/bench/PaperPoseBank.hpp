@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <vector>
 
-#include "animations/paper/PaperCrumple.hpp"
+#include "window/paper/PaperCrumple.hpp"
 
 namespace bench {
     // Capture the compact halves of independently seeded production trajectories before starting

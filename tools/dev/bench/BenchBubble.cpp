@@ -3,7 +3,7 @@
 #include <array>
 
 #include "Bench.hpp"
-#include "animations/bubble/Bubble.hpp"
+#include "window/bubble/Bubble.hpp"
 
 namespace {
     using namespace hyprimate;

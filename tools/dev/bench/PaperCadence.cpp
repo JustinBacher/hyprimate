@@ -6,7 +6,7 @@
 #include <thread>
 #include <vector>
 
-#include "animations/paper/PaperWorkers.hpp"
+#include "window/paper/PaperWorkers.hpp"
 
 namespace {
     using namespace hyprimate;

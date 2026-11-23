@@ -1,6 +1,6 @@
 // Smoke model workloads. The GPU fluid is not exercised here, only the CPU drive state.
 #include "Bench.hpp"
-#include "animations/smoke/Smoke.hpp"
+#include "window/smoke/Smoke.hpp"
 
 namespace {
     using namespace hyprimate;
