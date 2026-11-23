@@ -230,7 +230,7 @@ int main() try {
     assert(near(config.paper.close.duration, 500));
     if (!near(config.construction.open.duration, 620) ||
         !near(config.construction.close.duration, 850) ||
-        config.construction.movement.variant != Variant::Native)
+        config.construction.movement.variant != Variant::CrewCarry)
         return 1;
     set("window:options:construction:duration", 4250.0F);
     config = readConfig(values);
@@ -255,7 +255,7 @@ int main() try {
     if (readConfig(values).construction.movement.variant != Variant::PieceByPiece)
         return 1;
     set("window:movement:options:construction:variant", std::string("unsupported"));
-    if (readConfig(values).construction.movement.variant != Variant::Native)
+    if (readConfig(values).construction.movement.variant != Variant::CrewCarry)
         return 1;
     assert(near(config.paper.open.paperStiffness, .72) &&
            near(config.paper.close.paperStiffness, .72));

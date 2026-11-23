@@ -28,6 +28,10 @@ class CWindowAnimationPass final : public IPassElement {
         CRegion damage;
         bool retained_tail = false;
         bool no_screen_share = false;
+        bool blur = false;
+        bool blur_live = true;
+        double blur_rounding = 0;
+        double blur_rounding_power = 2;
         std::optional<CloseRenderGuard> close_guard;
     };
     explicit CWindowAnimationPass(SData data);

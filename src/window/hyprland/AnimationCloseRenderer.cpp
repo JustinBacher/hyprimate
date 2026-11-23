@@ -87,7 +87,9 @@ namespace {
     }
 
     bool supported_close_effects(const Desktop::SFadeoutRenderEffects &effects) {
-        return effects.dimAroundAlpha == 0.F && !effects.preBlur && !effects.textureBlur.enabled;
+        // Window pre-blur is composed through the posed Construction mask. Other
+        // fadeout effects still require their own rendering contract.
+        return effects.dimAroundAlpha == 0.F && !effects.textureBlur.enabled;
     }
 
     bool same_box(const hyprimate::Box &a, const hyprimate::Box &b) {
@@ -489,6 +491,7 @@ void CAnimationCloseRenderer::on_fadeout_created(
                 Render::eSceneMode::MONITOR, created->plane(), created->source().pinned),
             .z_index = created->zIndex(),
             .no_screen_share = created->source().noScreenShare,
+            .blur = created->effects().preBlur,
             .binding_renderer = CALLBACK,
             .binding_model = MODEL});
     }
@@ -682,6 +685,9 @@ void CAnimationCloseRenderer::draw_item(
         if (IMAGE && IMAGE->getTexture()) {
             const auto EFFECTS = item.fadeout && !FOUND->public_close_only ?
                 item.fadeout->effects() : Desktop::SFadeoutRenderEffects{};
+            const auto RECORD = std::ranges::find(m_records, item.fadeout_id, &Record::fadeout);
+            const auto BLUR = FOUND->public_close_only && RECORD != m_records.end() ?
+                RECORD->blur : std::optional<Desktop::SFadeoutPreBlur>{};
             const bool QUEUED = submit_close([&] { return guard.valid(ctx); }, [&] {
                 return makeUnique<CWindowAnimationPass>(CWindowAnimationPass::SData{
                     .resources = &m_port.canvas_resources(),
@@ -701,6 +707,10 @@ void CAnimationCloseRenderer::draw_item(
                     .alpha = FOUND->public_close_only ? 1.F : FOUND->alpha,
                     .monitor = FOUND->monitor,
                     .damage = native.damage(),
+                    .blur = BLUR.has_value(),
+                    .blur_live = BLUR && !BLUR->xray,
+                    .blur_rounding = BLUR ? BLUR->round : 0.0,
+                    .blur_rounding_power = BLUR ? BLUR->roundingPower : 2.0,
                     .close_guard = guard});
             }, [&] {
                 if (!FOUND->public_close_only) { native.draw_backdrop(EFFECTS, guard); }

@@ -54,7 +54,8 @@ double overlap_width(Box a, Box b) noexcept {
 Box capture_source(Box bay, Box body, Box cap) noexcept {
     // Adjacent bays share edges and one sampling domain. Only the perimeter
     // pieces take nearby trim; an output-wide capture is never a moving wall.
-    return from_edges(bay.x == body.x ? 0 : bay.x, bay.y == body.y ? 0 : bay.y,
+    return from_edges(std::abs(bay.x - body.x) < EDGE_EPS ? 0 : bay.x,
+        std::abs(bay.y - body.y) < EDGE_EPS ? 0 : bay.y,
         std::abs(right(bay) - right(body)) < EDGE_EPS ? cap.w : right(bay),
         std::abs(bottom(bay) - bottom(body)) < EDGE_EPS ? cap.h : bottom(bay));
 }
@@ -501,6 +502,7 @@ void ConstructionSite::build(Box body, Box capture, Box work_area, std::uint64_t
         receive.stations[worker] = {.floor = floor, .facing = facing, .walk = walk,
             .deck_left = left, .deck_right = right_edge, .bearing = floor.x,
             .bearing_y = std::min(floor.y + 11, bottom(area)), .guide = worker == 1};
+        ++receive.workers;
         occupied[occupied_count++] = {RECEIVER, start, end, left, right_edge, floor.y};
     };
     reserve_receiver(0, receive.start, receive.clear, {carrier_x, ground_floor, 9}, RECEIVING_FACING, carrier_walk);
@@ -719,16 +721,53 @@ void ConstructionSite::build(Box body, Box capture, Box work_area, std::uint64_t
     publish(0);
 }
 
+bool ConstructionSite::reframe(Box capture) noexcept {
+    // Decoration extents may animate while the client body stays put. Rebase
+    // the existing jobs, not their schedule or poses, into the new source domain.
+    if (!usable(capture) || capture.x > m_body.x || capture.y > m_body.y ||
+        right(capture) < right(m_body) || bottom(capture) < bottom(m_body)) return false;
+    const Vec3 shift{m_capture.x - capture.x, m_capture.y - capture.y, 0};
+    m_capture = capture;
+    m_local_body = {m_body.x - capture.x, m_body.y - capture.y, m_body.w, m_body.h};
+    m_work_area.x += shift.x;
+    m_work_area.y += shift.y;
+    const Box cap{0, 0, capture.w, capture.h};
+    m_oversized_outsets = std::max({m_local_body.x, m_local_body.y,
+        cap.w - right(m_local_body), cap.h - bottom(m_local_body)}) > 48;
+    for (std::size_t i = 0; i < m_job_count; ++i) {
+        auto &job = m_jobs[i];
+        job.bay.x += shift.x;
+        job.bay.y += shift.y;
+        job.source = m_oversized_outsets ? job.bay : capture_source(job.bay, m_local_body, cap);
+        for (std::size_t k = 0; k < job.workers; ++k) {
+            auto &station = job.stations[k];
+            station.floor = station.floor + shift;
+            station.ladder_base = station.ladder_base + shift;
+            station.ladder_top = station.ladder_top + shift;
+            station.deck_left += shift.x;
+            station.deck_right += shift.x;
+            station.bearing += shift.x;
+            station.bearing_y += shift.y;
+        }
+    }
+    return true;
+}
+
 void ConstructionSite::step(const animation::Step &step) noexcept {
     if (!m_active) return;
-    if (step.stalled || step.dying || !std::isfinite(step.elapsed) || step.elapsed < 0 || step.elapsed > STALL_SECONDS) {
+    const bool capture_changed = step.capture.x != m_capture.x || step.capture.y != m_capture.y ||
+        step.capture.w != m_capture.w || step.capture.h != m_capture.h;
+    if (step.stalled || step.dying || !std::isfinite(step.elapsed) || step.elapsed < 0 ||
+        step.elapsed > STALL_SECONDS || (capture_changed && !reframe(step.capture))) {
         m_active = false;
-    } else if (step.elapsed > 0) {
-        const bool before_identity = m_elapsed / m_duration < RETIRE;
-        m_elapsed += step.elapsed;
-        // If ordinary frame cadence skips the tail, still publish identity once.
-        m_active = m_elapsed < m_duration || before_identity;
-        if (m_active) publish(m_elapsed / m_duration);
+    } else {
+        if (step.elapsed > 0) {
+            const bool before_identity = m_elapsed / m_duration < RETIRE;
+            m_elapsed += step.elapsed;
+            // If ordinary frame cadence skips the tail, still publish identity once.
+            m_active = m_elapsed < m_duration || before_identity;
+        }
+        if (m_active && (step.elapsed > 0 || capture_changed)) publish(m_elapsed / m_duration);
     }
     if (!m_active) {
         m_batch.count = 0;

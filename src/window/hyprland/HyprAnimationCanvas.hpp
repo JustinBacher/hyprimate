@@ -19,11 +19,16 @@ class CHyprAnimationCanvas {
         CSheetShade shade;
         CSolidFill solid;
     };
-    CHyprAnimationCanvas(Render::CRenderContext &ctx, Resources &resources)
-        : m_context(&ctx), m_resources(&resources) {
+    CHyprAnimationCanvas(Render::CRenderContext &ctx, Resources &resources,
+        bool blur_mask = false, double mask_rounding = 0, double mask_rounding_power = 2)
+        : m_context(&ctx), m_resources(&resources), m_blur_mask(blur_mask),
+          m_mask_rounding(mask_rounding), m_mask_rounding_power(mask_rounding_power) {
     }
     [[nodiscard]] hyprimate::animation::PassKind pass() const;
     [[nodiscard]] bool captures_pixels() const;
+    [[nodiscard]] bool blur_mask() const { return m_blur_mask; }
+    [[nodiscard]] double mask_rounding() const { return m_mask_rounding; }
+    [[nodiscard]] double mask_rounding_power() const { return m_mask_rounding_power; }
     bool submit_mesh(const hyprimate::animation::Mesh<Vertex> &mesh,
         const hyprimate::animation::Draw<CHyprAnimationCanvas> &draw);
     static hyprimate::Vec2 image_size(const Image &image);
@@ -48,4 +53,7 @@ class CHyprAnimationCanvas {
     Render::CRenderContext *m_context;
     Resources *m_resources;
     Image m_layer;
+    bool m_blur_mask = false;
+    double m_mask_rounding = 0;
+    double m_mask_rounding_power = 2;
 };

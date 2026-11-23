@@ -1,6 +1,6 @@
 # Construction: installation study
 
-Construction is an experimental window style. A miniature crew builds the opening, optional transport and resize follow Hyprland's geometry, and closing uses regional implosion. The plugin default remains `liquid`; Construction movement defaults to `native`.
+Construction is an experimental window style. A miniature crew builds the opening, transport and resize follow Hyprland's geometry, and closing uses regional implosion. The plugin default remains `liquid`; Construction movement defaults to `crew_carry`.
 
 Worker height follows the window's shorter dimension (7.5% at normal size, with seeded variation where supported). Set `window.options.construction.worker_size` to a floating-point multiplier from `0` to `2`: `1` is normal, `0.5` is half size, `2` doubles it, and `0` hides the people without disabling the construction effect. The setting applies to opening, movement, resizing and closing.
 
@@ -48,8 +48,8 @@ Select `window.style = "construction"`. With `window.movement.enabled = true`, c
 
 | Variant | Translation | Resize |
 |---|---|---|
-| `native` (default) | Hyprland | Hyprland |
-| `crew_carry` | A crew supports the intact window | Workers stretch the intact window |
+| `native` | Hyprland (explicit opt-out) | Hyprland (explicit opt-out) |
+| `crew_carry` (default) | A crew supports the intact window | Workers stretch the intact window |
 | `crane` | A crane lifts the window on two corner cables, then detaches and drives off | Same intact stretch; no crane |
 | `piece_by_piece` | Workers carry regions of the live window to its changing destination; the gaps stay empty | Same intact stretch; no detached pieces |
 
@@ -57,7 +57,7 @@ None of these variants moves the actual client or queues pointer updates. Openin
 
 Hyprland chooses which output draws a window from its native rectangle, not from the extent of the animated artwork. The mapped crane therefore needs a route to an exposed display edge. Transport that would strand the artwork on an output which cannot draw it falls back to native; the plugin does not cache another display's client pixels to extend the trip.
 
-Closing during a posed movement or opening requires a matching physical draw and a snapshot that contains the print being carried. An attached crane, unsupported scene color or blur, and print posed into view from outside the snapshot stay on Hyprland's native close. Once crane transport has finished, the ordinary regional close is eligible again.
+Closing during a posed movement or opening requires a matching physical draw and a snapshot that contains the print being carried. An attached crane, unsupported scene color, and print posed into view from outside the snapshot stay on Hyprland's native close. Once crane transport has finished, the ordinary regional close is eligible again.
 
 The paired movement test uses a public synthetic client, a private pointer and a nested stock compositor. With the matching host under `build/upstream-stock-948ac1ab/` and the plugin under `build/construction-live-motion-01/obj/`, run `python3 -B tests/nested/construction_motion_evidence.py --sealed-sha256 <plugin-sha256> --take take-02` (choose an unused take number). Each scale and behavior has a native control, an animated recording, geometry traces and a decoded pixel comparison. These recordings do not validate protected-window capture.
 
@@ -79,3 +79,13 @@ Set-down and crew exit are separate: after pointer release, the carry window's i
 | `RegionalClose` | A connected deformation of the faces visible when closing began. A local cue starts a staggered regional collapse. Draw authorization and crop restrict the source geometry each time it is requested. |
 
 The models keep no client images or GL resources. Movement borrows only the current transform input. Closing hands off the source regions and poses currently visible, not a saved opening image; an idle window contributes one intact face. The renderer borrows the host's retained close image under the existing fadeout identity and draw guards. If that image cannot be acquired, or protection or lock state forbids acquisition, the effect does not take ownership of the native fadeout.
+
+## Blur integration
+
+Construction keeps compositor blur enabled during opening, movement, resize and closing. A plugin pass inside the native window-content pass identifies its framebuffer; the separate native white-on-black blur matte does not execute that pass. Construction warps the matte through the same client geometry, without crew artwork or shadows, and never records a matte draw as a client publication. The marker holds only a weak framebuffer reference; queued markers are removed before their transformer is destroyed.
+
+Opening also tracks animated shadow extents. A changing capture box rebases the existing client cuts and crew stations into the new source coordinates without rebuilding their schedule, moving their world-space poses or restarting the opening clock.
+
+Closing deforms the source body's blur coverage with the regional close mesh and composites it through Hyprland's existing texture-blur path, rather than leaving a static blurred window rectangle behind. Capture authorization, session-lock checks and `no_screen_share` handling are unchanged. No Hyprland changes are required.
+
+Run `python3 tests/nested/construction_blur_evidence.py /tmp/construction-blur-proof --plugin /absolute/path/hyprimate.so` for private blur-enabled opening, carry, resize and closing evidence.

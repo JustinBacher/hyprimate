@@ -21,6 +21,7 @@ public:
 
 private:
     void publish(double time) noexcept;
+    bool reframe(Box capture) noexcept;
 
     static constexpr std::size_t RECEIVER = 0, MAX_JOBS = 12;
     struct Station {

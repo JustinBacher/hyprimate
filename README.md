@@ -183,7 +183,7 @@ hl.config({
                             smoke_density = 0.22,
                         },
                         construction = {
-                            variant = "native",
+                            variant = "crew_carry",
                         },
                         smoke = {
                             reform = 0.48,
@@ -453,7 +453,7 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `window:options:smoke:variation` | float / `0.5` | 0–1 | Randomness of smoke between windows and animations: where smoke gathers or leaves, how it turns and swirls, and how its density and wisps vary. Zero makes every animation alike while the smoke still moves naturally. Configured directions are always respected. |
 | `window:movement:enabled` | boolean / `true` | — | Deform windows while they move. This does not affect opening or closing effects. |
 | `window:movement:workspace_movement` | boolean / `true` | — | Let workspace slides trigger movement effects. When false, ordinary movement, opening and closing are unaffected. |
-| `window:movement:options:construction:variant` | string / `"native"` | — | Leave movement and resize native, or choose how Construction moves a window: carry it with workers, lift it with a crane, or relocate its pieces. All three use workers to resize the intact window. Allowed: `native`, `crew_carry`, `crane`, `piece_by_piece`. |
+| `window:movement:options:construction:variant` | string / `"crew_carry"` | — | Choose how Construction moves a window: carry it with workers (default), lift it with a crane, or relocate its pieces. All three use workers to resize the intact window. Native explicitly opts out of movement and resize effects. Allowed: `native`, `crew_carry`, `crane`, `piece_by_piece`. |
 | `window:movement:options:smoke:reform` | float / `0.48` | 0.15–1.5 | Time scale in seconds for moving smoke to condense back into the exact window after movement stops. |
 | `window:movement:options:smoke:settle_speed` | float / `1` | 0.1–2 | Speed multiplier for the smoke body's expansion and condensation after movement or resizing stops. One preserves the reform time scale; higher values reform faster and lower values linger. Opening and closing durations are unchanged. |
 | `window:movement:options:smoke:mass` | float / `0.45` | 0.15–1 | Size of the moving smoke body as a fraction of the window's width and height. One keeps roughly the window's footprint; smaller values contract a moving window into a denser mass that expands back when it stops. |

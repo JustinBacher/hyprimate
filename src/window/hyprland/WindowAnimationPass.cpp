@@ -1,6 +1,8 @@
 #include <utility>
 
 #include <hyprland/src/render/OpenGL.hpp>
+#include <hyprland/src/render/Renderer.hpp>
+#include <hyprland/src/render/pass/TexPassElement.hpp>
 
 #include "HyprWindowPort.hpp"
 #include "StyleTypes.hpp"
@@ -34,24 +36,53 @@ std::vector<UP<IPassElement>> CWindowAnimationPass::draw(Render::CRenderContext 
             .image_origin = m_data.image_origin, .image_size = m_data.image_size,
             .scale = m_data.scale, .alpha = m_data.alpha, .real_pass = true, .monitor = m_data.monitor,
             .frame = m_data.frame};
+        CHyprAnimationCanvas matte{ctx, *m_data.resources, true,
+            m_data.blur_rounding, m_data.blur_rounding_power};
         const auto composite = [&] {
             if (!canvas.layer()) {
                 if (m_data.close_guard) { m_data.close_guard->physical_presented(ctx, false); }
                 return;
             }
-            Render::GL::CHyprOpenGLImpl::STextureRenderData texture_data{};
-            texture_data.damage = &m_data.damage;
-            texture_data.a = m_data.alpha;
-            texture_data.allowCustomUV = true;
             const auto &box = m_data.canvas_box;
+            const CBox BOX{box.x, box.y, box.w, box.h};
             const hyprimate::gl::NativeMeshSamplers SAMPLERS;
-            Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, canvas.layer()->getTexture(),
-                CBox{box.x, box.y, box.w, box.h}, sheet_canvas_quad(), texture_data);
+            if (m_data.blur) {
+                CTexPassElement::SRenderData texture_data;
+                texture_data.tex = canvas.layer()->getTexture();
+                texture_data.box = BOX;
+                texture_data.a = m_data.alpha;
+                texture_data.damage = m_data.damage;
+                texture_data.useProvidedDamage = true;
+                texture_data.blur = true;
+                texture_data.forceBlurBlend = true;
+                texture_data.blurShapeInvalid = true;
+                texture_data.liveBlurOverride = m_data.blur_live;
+                texture_data.blurPatternBox = BOX;
+                texture_data.blurAlphaMatte = matte.layer()->getTexture();
+                texture_data.discardMode = 0;
+                g_pHyprRenderer->draw(ctx, texture_data, m_data.damage);
+            } else {
+                Render::GL::CHyprOpenGLImpl::STextureRenderData texture_data{};
+                texture_data.damage = &m_data.damage;
+                texture_data.a = m_data.alpha;
+                texture_data.allowCustomUV = true;
+                Render::GL::g_pHyprOpenGL->renderTextureMesh(
+                    ctx, canvas.layer()->getTexture(), BOX, sheet_canvas_quad(), texture_data);
+            }
             if (m_data.close_guard) { m_data.close_guard->physical_presented(ctx, true); }
         };
         if (m_data.retained_tail) {
             m_data.animations->display_tail(m_data.handle, DRAW, m_data.no_screen_share, [&] { guard_display(composite); });
         } else if (m_data.animations->draw(m_data.handle, DRAW)) {
+            if (m_data.blur) {
+                auto mask_draw = DRAW;
+                mask_draw.canvas = &matte;
+                mask_draw.real_pass = false;
+                if (!m_data.animations->draw(m_data.handle, mask_draw) || !matte.layer()) {
+                    if (m_data.close_guard) { m_data.close_guard->physical_failure(ctx); }
+                    return;
+                }
+            }
             guard_display(composite);
         }
     });
@@ -59,10 +90,10 @@ std::vector<UP<IPassElement>> CWindowAnimationPass::draw(Render::CRenderContext 
 }
 
 bool CWindowAnimationPass::needsLiveBlur([[maybe_unused]] Render::CRenderContext &ctx) {
-    return false;
+    return m_data.blur && m_data.blur_live;
 }
 bool CWindowAnimationPass::needsPrecomputeBlur([[maybe_unused]] Render::CRenderContext &ctx) {
-    return false;
+    return m_data.blur && !m_data.blur_live;
 }
 const char *CWindowAnimationPass::passName() {
     return "hyprimate-window-animation";

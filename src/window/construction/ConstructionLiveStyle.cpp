@@ -151,7 +151,7 @@ Frame SConstructionModule::advance(State &state, const Step &step, Resources &re
     if (step.dying || !step.open_enabled || step.stalled || !std::isfinite(step.elapsed) ||
         step.elapsed < 0 || step.elapsed > STALL_SECONDS || step.monitor != state.monitor ||
         step.workspace != state.workspace || !same_placement(step.body, state.site->body()) ||
-        !same_placement(step.capture, state.site->capture())) return {.interrupted = true};
+        !is_usable(step.capture)) return {.interrupted = true};
     state.site->step(step);
     if (state.site->batch().overflow) return {.interrupted = true};
     // An identity result from draw() would still be flattened by the host. Keep the

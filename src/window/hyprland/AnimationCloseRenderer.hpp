@@ -99,6 +99,7 @@ class CAnimationCloseRenderer {
         int z_index = 0;
         bool no_screen_share = false;
         bool awaiting_physical_queue = false;
+        std::optional<Desktop::SFadeoutPreBlur> blur;
         // Keep a prepublished association through reentrant pruning, but not past either owner.
         hyprimate::animation::CallbackLifetime::Ticket binding_renderer, binding_model;
     };

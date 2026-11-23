@@ -551,6 +551,53 @@ void installation(Box body, std::uint64_t seed, double hz) {
     std::printf("%.0fx%.0f seed=%llu simulated_Hz=%.0f peak_quads=%zu stream_bytes=%zu storage_bytes=%zu\n",
         body.w,body.h,static_cast<unsigned long long>(seed),hz,peak,peak*sizeof(ConstructionQuad),sizeof(site));
 }
+
+void animated_capture_keeps_the_opening_pose_and_clock() {
+    constexpr Box BODY{170,160,800,550}, AREA{0,0,1400,900};
+    constexpr Box INITIAL{168,158,804,554};
+    ConstructionSite reference, animated;
+    reference.build(BODY, INITIAL, AREA, 42, OPEN_SECONDS);
+    animated.build(BODY, INITIAL, AREA, 42, OPEN_SECONDS);
+    Box capture = INITIAL;
+    const auto world = [&](const ConstructionQuad &quad, int corner, Box domain) {
+        const auto p = point(quad, corner & 1, corner >> 1);
+        const Vec2 center{BODY.x - domain.x + BODY.w * .5, BODY.y - domain.y + BODY.h * .5};
+        const double w = 1 - p.z / (4 * std::max(BODY.w, BODY.h));
+        return Vec2{domain.x + center.x + (p.x - center.x) / w,
+            domain.y + center.y + (p.y - center.y) / w};
+    };
+    bool seated = false;
+    for (int frame = 0; reference.active() && frame < 120; ++frame) {
+        const double trim = std::min(frame, 24) * .19;
+        capture = {168,158 - trim,804,554 + 2 * trim};
+        const auto tick = [&](ConstructionSite &site, Box domain) {
+            site.step({.elapsed=1.0/120,.body=BODY,.capture=domain,.goal_body=BODY,
+                .rest_capture=domain,.screen=AREA,.work_area=AREA,.motion={},.open_enabled=true});
+        };
+        tick(reference, INITIAL);
+        tick(animated, capture);
+        CHECK(animated.active() == reference.active());
+        CHECK(animated.capture().x == capture.x && animated.capture().y == capture.y &&
+            animated.capture().w == capture.w && animated.capture().h == capture.h);
+        const auto &before = reference.batch(), &after = animated.batch();
+        CHECK(before.count == after.count && !after.overflow);
+        for (std::size_t i = 0; i < std::min(before.count, after.count); ++i) {
+            CHECK(before.quads[i].surface == after.quads[i].surface);
+            if (before.quads[i].surface == ConstructionSurface::Client) continue;
+            for (int corner = 0; corner < 4; ++corner) {
+                const auto a = world(before.quads[i], corner, INITIAL);
+                const auto b = world(after.quads[i], corner, capture);
+                CHECK(std::abs(a.x-b.x) < .005 && std::abs(a.y-b.y) < .005);
+            }
+        }
+        if (animated.active() && after.count == 1) {
+            seated = true;
+            CHECK((after.quads[0].uv == std::array<float,4>{
+                0,0,static_cast<float>(capture.w),static_cast<float>(capture.h)}));
+        }
+    }
+    CHECK(seated && !reference.active() && !animated.active());
+}
 void scaled_rigs_keep_world_contacts() {
     constexpr Vec3 floor{180,240,9};
     for (const auto job : {CrewJob::Carry,CrewJob::Guide,CrewJob::Brace,CrewJob::Fasten,CrewJob::Weld}) {
@@ -643,6 +690,7 @@ void opening_worker_size_preserves_source_faces() {
 int main() {
     crew_built_opening();
     opening_diversity_and_support();
+    animated_capture_keeps_the_opening_pose_and_clock();
     scaled_rigs_keep_world_contacts();
     opening_worker_size_preserves_source_faces();
     const auto early=contacts(42), delayed=contacts(43);

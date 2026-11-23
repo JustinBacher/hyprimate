@@ -12,6 +12,9 @@
 
 namespace hyprimate {
 
+// Matches u_mask_mode: draw color, warp the native matte, or synthesize a body matte.
+enum class ConstructionMaskMode : GLint { None = 0, Image = 1, Body = 2 };
+
 struct SConstructionTarget {
     Box canvas, source;             // Top-first device pixels in the same output coordinates.
     Box body, capture;              // Authoritative logical boxes in the same coordinate space.
@@ -20,6 +23,9 @@ struct SConstructionTarget {
     bool image_rgbx = false;
     bool output_top_first = true;
     bool allow_empty_crop = false; // A valid off-output close is a successful blank publication.
+    ConstructionMaskMode mask_mode = ConstructionMaskMode::None;
+    double mask_rounding = 0;     // Body mask corner radius in device pixels.
+    double mask_rounding_power = 2;
 };
 
 class CConstructionMaterial {
@@ -35,6 +41,10 @@ class CConstructionMaterial {
         std::array<GLint, 3> texel_grid;
         std::optional<Box> authorized_local_crop; // Double precision for model triangle clipping.
         bool rgbx;
+        ConstructionMaskMode mask_mode = ConstructionMaskMode::None;
+        std::array<float, 4> mask_body{}; // Image-relative device pixel edges.
+        float mask_rounding = 0;
+        float mask_rounding_power = 2;
     };
 
     CConstructionMaterial() = default;
@@ -59,7 +69,9 @@ class CConstructionMaterial {
 
   private:
     struct Uniforms {
-        GLint pivot, canvas, crop, client_map, sample_bounds, inverse_image, texel_grid, rgbx, image, atlas, mesh;
+        GLint pivot, canvas, crop, client_map, sample_bounds, inverse_image, texel_grid, rgbx;
+        GLint mask_mode, mask_body, mask_rounding;
+        GLint image, atlas, mesh;
     };
     struct MeshVertex {
         std::array<float, 3> position;

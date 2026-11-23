@@ -96,6 +96,7 @@ add_library(hyprimate SHARED
     src/window/hyprland/AnimationCloseRenderer.cpp
     src/window/hyprland/HyprWindowPort.cpp
     src/window/hyprland/HyprAnimationCanvas.cpp
+    src/window/hyprland/HyprglassCompat.cpp
     src/window/hyprland/WindowAnimationPass.cpp
     src/window/hyprland/StyleContract.cpp
     src/window/hyprland/NativeFadeoutPass.cpp
@@ -109,7 +110,7 @@ add_library(hyprimate SHARED
 set_target_properties(hyprimate PROPERTIES PREFIX "" INTERPROCEDURAL_OPTIMIZATION FALSE)
 add_dependencies(hyprimate generate-config)
 target_include_directories(hyprimate PRIVATE ${CONFIG_GENERATED_DIR})
-target_link_libraries(hyprimate PRIVATE PkgConfig::HYPRLAND Jolt hyprimate-core)
+target_link_libraries(hyprimate PRIVATE PkgConfig::HYPRLAND Jolt hyprimate-core ${CMAKE_DL_LIBS})
 # Keep Jolt's symbols out of the plugin's dynamic symbol table, so they cannot bind to another copy in the process.
 target_link_options(hyprimate PRIVATE -Wl,--exclude-libs,ALL)
 # GNU-unique inline statics otherwise make dlclose retain stale plugin code.
@@ -256,6 +257,17 @@ if(BUILD_TESTING)
     target_link_libraries(sheet-mesh-tests PRIVATE hyprimate-core)
     target_include_directories(sheet-mesh-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME sheet-mesh-tests COMMAND sheet-mesh-tests)
+
+    add_library(plugin-import-fixture SHARED tests/PluginImportFixture.cpp)
+    target_link_options(plugin-import-fixture PRIVATE -Wl,-z,lazy,-z,relro)
+    add_library(plugin-import-protected-fixture SHARED tests/PluginImportFixture.cpp)
+    target_link_options(plugin-import-protected-fixture PRIVATE -Wl,-z,now,-z,relro)
+    add_executable(plugin-import-tests tests/PluginImportTests.cpp)
+    target_include_directories(plugin-import-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(plugin-import-tests PRIVATE ${CMAKE_DL_LIBS})
+    add_dependencies(plugin-import-tests plugin-import-fixture plugin-import-protected-fixture)
+    add_test(NAME plugin-import-tests COMMAND plugin-import-tests
+        $<TARGET_FILE:plugin-import-fixture> $<TARGET_FILE:plugin-import-protected-fixture>)
 
     add_executable(slot-pool-tests tests/SlotPoolTests.cpp)
     target_include_directories(slot-pool-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)

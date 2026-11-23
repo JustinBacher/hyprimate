@@ -125,7 +125,7 @@ std::optional<CConstructionMaterial::View> CConstructionMaterial::prepare_view(
             static_cast<GLint>(GRID_Y + (t.output_top_first ? 0 : t.canvas.h - 1)),
             t.output_top_first ? 1 : -1};
     }
-    const View VIEW{.width = static_cast<GLsizei>(t.canvas.w),
+    View view{.width = static_cast<GLsizei>(t.canvas.w),
         .height = static_cast<GLsizei>(t.canvas.h),
         .pivot = {static_cast<float>(PIVOT_X), static_cast<float>(PIVOT_Y),
             static_cast<float>(1 / FOCAL)},
@@ -144,14 +144,30 @@ std::optional<CConstructionMaterial::View> CConstructionMaterial::prepare_view(
             static_cast<float>(1 / t.image_size.y)},
         .texel_grid = texel_grid,
         .authorized_local_crop = HAS_CROP ? std::optional{LOCAL} : std::nullopt,
-        .rgbx = t.image_rgbx};
-    if (!finite(VIEW.pivot) || !finite(VIEW.canvas) || !finite(VIEW.crop) ||
-        !finite(VIEW.client_map) || !finite(VIEW.sample_bounds) ||
-        (HAS_CROP && (VIEW.crop[0] >= VIEW.crop[2] || VIEW.crop[1] >= VIEW.crop[3])) ||
-        VIEW.canvas[2] <= 0 || VIEW.canvas[3] == 0 || VIEW.pivot[2] <= 0 ||
-        VIEW.client_map[2] <= 0 || VIEW.inverse_image[0] <= 0 || VIEW.inverse_image[1] <= 0)
+        .rgbx = t.image_rgbx,
+        .mask_mode = t.mask_mode};
+    if (!finite(view.pivot) || !finite(view.canvas) || !finite(view.crop) ||
+        !finite(view.client_map) || !finite(view.sample_bounds) ||
+        (HAS_CROP && (view.crop[0] >= view.crop[2] || view.crop[1] >= view.crop[3])) ||
+        view.canvas[2] <= 0 || view.canvas[3] == 0 || view.pivot[2] <= 0 ||
+        view.client_map[2] <= 0 || view.inverse_image[0] <= 0 || view.inverse_image[1] <= 0)
         return std::nullopt;
-    return VIEW;
+    if (t.mask_mode == ConstructionMaskMode::Body) {
+        if (!std::isfinite(t.mask_rounding) || t.mask_rounding < 0 ||
+            !(1 <= t.mask_rounding_power && t.mask_rounding_power <= std::numeric_limits<float>::max()))
+            return std::nullopt;
+        const double BODY_X = X + (t.body.x - t.capture.x) * t.scale;
+        const double BODY_Y = Y + (t.body.y - t.capture.y) * t.scale;
+        const double BODY_W = t.body.w * t.scale, BODY_H = t.body.h * t.scale;
+        view.mask_body = {static_cast<float>(BODY_X), static_cast<float>(BODY_Y),
+            static_cast<float>(BODY_X + BODY_W), static_cast<float>(BODY_Y + BODY_H)};
+        if (!finite(view.mask_body) || view.mask_body[0] >= view.mask_body[2] ||
+            view.mask_body[1] >= view.mask_body[3])
+            return std::nullopt;
+        view.mask_rounding = static_cast<float>(std::min({t.mask_rounding, BODY_W * 0.5, BODY_H * 0.5}));
+        view.mask_rounding_power = static_cast<float>(t.mask_rounding_power);
+    }
+    return view;
 }
 
 bool CConstructionMaterial::supports_view(const View &view) noexcept {
@@ -215,12 +231,16 @@ bool CConstructionMaterial::initialize(GLuint program) noexcept {
         .inverse_image = glGetUniformLocation(program, "u_inverse_image"),
         .texel_grid = glGetUniformLocation(program, "u_texel_grid"),
         .rgbx = glGetUniformLocation(program, "u_rgbx"),
+        .mask_mode = glGetUniformLocation(program, "u_mask_mode"),
+        .mask_body = glGetUniformLocation(program, "u_mask_body"),
+        .mask_rounding = glGetUniformLocation(program, "u_mask_rounding"),
         .image = glGetUniformLocation(program, "u_image"),
         .atlas = glGetUniformLocation(program, "u_atlas"),
         .mesh = glGetUniformLocation(program, "u_mesh")};
     if (std::min({m_uniforms.pivot, m_uniforms.canvas, m_uniforms.crop, m_uniforms.client_map,
-            m_uniforms.sample_bounds, m_uniforms.inverse_image, m_uniforms.rgbx,
-            m_uniforms.texel_grid, m_uniforms.image, m_uniforms.atlas, m_uniforms.mesh}) < 0)
+            m_uniforms.sample_bounds, m_uniforms.inverse_image, m_uniforms.rgbx, m_uniforms.texel_grid,
+            m_uniforms.mask_mode, m_uniforms.mask_body, m_uniforms.mask_rounding,
+            m_uniforms.image, m_uniforms.atlas, m_uniforms.mesh}) < 0)
         return false;
 
     glGenVertexArrays(1, &m_vao);
@@ -309,6 +329,11 @@ void CConstructionMaterial::bind_view(const View &view, GLuint image) const noex
     glUniform2fv(m_uniforms.inverse_image, 1, view.inverse_image.data());
     glUniform3iv(m_uniforms.texel_grid, 1, view.texel_grid.data());
     glUniform1i(m_uniforms.rgbx, view.rgbx ? 1 : 0);
+    glUniform1i(m_uniforms.mask_mode, static_cast<GLint>(view.mask_mode));
+    if (view.mask_mode == ConstructionMaskMode::Body) {
+        glUniform4fv(m_uniforms.mask_body, 1, view.mask_body.data());
+        glUniform2f(m_uniforms.mask_rounding, view.mask_rounding, view.mask_rounding_power);
+    }
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, image);
     glBindSampler(0, m_client_sampler);

@@ -154,7 +154,11 @@ bool CConstructionRenderer::Impl::submit(const ConstructionBatch *batch, Box bod
     const auto VIEW = CConstructionMaterial::prepare_view({.canvas = draw.canvas_box,
         .source = draw.source, .body = body, .capture = capture,
         .image_origin = draw.image_origin, .image_size = draw.image_size, .scale = draw.scale,
-        .image_rgbx = IMAGE->m_type == Render::TEXTURE_RGBX, .allow_empty_crop = close != nullptr});
+        .image_rgbx = IMAGE->m_type == Render::TEXTURE_RGBX, .allow_empty_crop = close != nullptr,
+        .mask_mode = !draw.canvas->blur_mask() ? ConstructionMaskMode::None :
+            close ? ConstructionMaskMode::Body : ConstructionMaskMode::Image,
+        .mask_rounding = draw.canvas->mask_rounding(),
+        .mask_rounding_power = draw.canvas->mask_rounding_power()});
     if (!VIEW) return false;
     if (close) {
         if (draw.image_origin.x != 0 || draw.image_origin.y != 0) return false;

@@ -31,6 +31,7 @@
 #include "window/hyprland/AnimationCloseRenderer.hpp"
 #include "window/hyprland/HyprAnimationCanvas.hpp"
 #include "window/hyprland/HyprWindowPort.hpp"
+#include "window/hyprland/HyprglassCompat.hpp"
 #include "window/hyprland/StyleTypes.hpp"
 #include "window/shared/SheetResources.hpp"
 #include "workspace/WorkspaceAnimation.hpp"
@@ -81,6 +82,7 @@ class CPluginRuntime::Impl {
     hyprimate::animation::FrameId m_frame = 0;
     std::vector<PHLMONITORREF> m_inhibited;
     std::unique_ptr<CAnimationCloseRenderer> m_close;
+    std::unique_ptr<CHyprglassCompat> m_glass;
     std::unique_ptr<CWorkspaceAnimation> m_workspace;
     CHyprSignalListener m_open, m_close_event, m_destroy, m_pre_checks, m_pre, m_stage;
     CHyprSignalListener m_reload, m_config_refresh, m_monitor_layout, m_monitor_removed;
@@ -105,6 +107,7 @@ CPluginRuntime::Impl::Impl(HANDLE handle) : m_handle(handle) {
     if (!m_workspace->install(error)) {
         notify("[hyprimate] workspace transitions unavailable: " + error);
     }
+    m_glass = std::make_unique<CHyprglassCompat>(m_handle, m_animations, m_port);
     configure_workspace();
     configure();
 
@@ -198,6 +201,7 @@ CPluginRuntime::Impl::~Impl() {
         }
     }
     m_workspace->shutdown();
+    m_glass.reset();
     m_close->unhook();
     m_animations.detach_transformers();
     m_animations.end_all();
@@ -265,6 +269,7 @@ void CPluginRuntime::Impl::reload() {
 }
 
 void CPluginRuntime::Impl::render_pre(const PHLMONITOR &monitor) {
+    m_glass->refresh();
     hyprimate::gl::collect_native_resources();
     if (m_warm_pending) {
         warm_style();

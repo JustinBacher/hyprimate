@@ -19,7 +19,7 @@ class CAnimationTransformer final : public Render::IWindowTransformer {
         HyprWindowAnimations &animations,
         CHyprWindowPort &port,
         hyprimate::animation::Handle handle);
-    ~CAnimationTransformer() override = default;
+    ~CAnimationTransformer() override;
     CAnimationTransformer(const CAnimationTransformer &) = delete;
     CAnimationTransformer &operator=(const CAnimationTransformer &) = delete;
     CAnimationTransformer(CAnimationTransformer &&) = delete;
@@ -34,6 +34,7 @@ class CAnimationTransformer final : public Render::IWindowTransformer {
     [[nodiscard]] CBox transformedExtents(const CBox &current_box) const override;
     [[nodiscard]] CBox sourceBoxForOutput(
         const CBox &output_box, const CBox &input_box) const override;
+    void preWindowRender(Render::CRenderContext &ctx, CSurfacePassElement::SRenderData *) override;
     [[nodiscard]] hyprimate::animation::Handle handle() const noexcept {
         return m_handle;
     }
@@ -42,6 +43,13 @@ class CAnimationTransformer final : public Render::IWindowTransformer {
     }
 
   private:
+    class CContentSourcePass;
+    struct ContentSource {
+        WP<Render::IFramebuffer> framebuffer;
+        Render::CRenderContext *context = nullptr;
+        CContentSourcePass *passes = nullptr;
+    };
+    ContentSource m_content_source;
     PHLWINDOWREF m_window;
     HyprWindowAnimations &m_animations;
     CHyprWindowPort &m_port;

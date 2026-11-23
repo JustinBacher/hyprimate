@@ -93,6 +93,67 @@ void check_pixels(CConstructionMaterial &material, GLuint image, GLuint target, 
     CHECK(!CConstructionMaterial::prepare_view(bad));
 }
 
+void check_blur_mask(CConstructionMaterial &material, GLuint image, GLuint target, GLuint framebuffer) {
+    // The image crops the first four columns of the client. Pose the client with a
+    // subpixel translation so both its clipped edge and the filtered matte edge move.
+    SConstructionTarget placement{.canvas = {0, 0, WIDTH, HEIGHT}, .source = {-4, 0, 24, 16},
+        .body = {0, 0, 24, 16}, .capture = {0, 0, 24, 16},
+        .image_origin = {0, 0}, .image_size = {WIDTH, HEIGHT}};
+    const auto normal_view = CConstructionMaterial::prepare_view(placement);
+    placement.mask_mode = ConstructionMaskMode::Image;
+    const auto mask_view = CConstructionMaterial::prepare_view(placement);
+    CHECK(normal_view && mask_view);
+    if (!normal_view || !mask_view) return;
+
+    constexpr Pixel BLACK{0, 0, 0, 255}, WHITE{255, 255, 255, 255}, RED{255, 0, 0, 255};
+    constexpr Pixel SHADE{0, 0, 0, 128};
+    Pixels source;
+    source.fill(BLACK);
+    for (int y = 2; y < 12; ++y)
+        for (int x = 0; x < 12; ++x)
+            source[y * WIDTH + x] = WHITE;
+    glBindTexture(GL_TEXTURE_2D, image);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, WIDTH, HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, source.data());
+
+    ConstructionBatch batch;
+    auto client = front(0, 24, 16);
+    client.origin = {8.25, 4, 0};
+    batch.add(client);
+    // Artwork painted after the client overlaps both covered and uncovered matte.
+    batch.add({.origin = {22, 7, 0}, .u = {8, 0, 0}, .v = {0, 4, 0}, .uv = {0, 0, 1, 1},
+        .tint = RED, .surface = ConstructionSurface::Solid});
+    batch.add({.origin = {5, 15, 0}, .u = {6, 0, 0}, .v = {0, 6, 0}, .uv = {0, 0, 1, 1},
+        .tint = SHADE, .surface = ConstructionSurface::Shadow});
+
+    Shadow shadow;
+    const auto readback = [&](const CConstructionMaterial::View &view, Pixels &pixels) {
+        gl::CRawGlState<2, Shadow> state({.viewport_width = WIDTH, .viewport_height = HEIGHT,
+            .framebuffer = framebuffer}, shadow);
+        CHECK(material.draw(batch, view, image, target));
+        glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+    };
+
+    Pixels normal_before{}, mask{}, normal_after{};
+    readback(*normal_view, normal_before);
+    readback(*mask_view, mask);
+    readback(*normal_view, normal_after);
+
+    Pixels expected{};
+    for (int y = 6; y < 16; ++y) {
+        for (int x = 8; x < 20; ++x)
+            expected[y * WIDTH + x] = WHITE;
+        // At column 20, 1/4 of the linear sample is white. Allow UNORM rounding.
+        const GLubyte coverage = mask[y * WIDTH + 20][0];
+        CHECK(coverage >= 63 && coverage <= 65);
+        expected[y * WIDTH + 20] = {coverage, coverage, coverage, coverage};
+    }
+    CHECK(mask == expected);
+    CHECK(normal_before[8 * WIDTH + 20] == RED);
+    CHECK(normal_before[12 * WIDTH + 21] == BLACK);
+    CHECK(normal_before[18 * WIDTH + 4] == SHADE);
+    CHECK(normal_after == normal_before);
+}
+
 // Take 13 installation-small: (96,96) 480x320 logical, scale 1.25, normal
 // 1280x720 output. Derive the seated geometry from the pinned host's 2-logical-pixel
 // bounding-box outsets and 1-device-pixel canvas padding (floor/ceil). The archived
@@ -513,6 +574,71 @@ void check_retained_regional_close(CConstructionMaterial &material, GLuint image
     glDeleteVertexArrays(1, &ambient_vao);
 }
 
+void check_close_body_mask(CConstructionMaterial &material, GLuint image, GLuint target, GLuint framebuffer) {
+    using Close = construction::studies::RegionalClose;
+    const SConstructionTarget placement{.canvas = {0, 0, WIDTH, HEIGHT},
+        .source = {-3, 0, 20, 16}, .body = {102, 202, 12, 8}, .capture = {100, 200, 20, 16},
+        .image_origin = {0, 0}, .image_size = {WIDTH, HEIGHT},
+        .mask_mode = ConstructionMaskMode::Body, .mask_rounding = 4};
+    const auto view = CConstructionMaterial::prepare_view(placement);
+    CHECK(view && view->authorized_local_crop);
+    if (!view || !view->authorized_local_crop) return;
+    auto squared_placement = placement;
+    squared_placement.mask_rounding_power = 4;
+    const auto squared_view = CConstructionMaterial::prepare_view(squared_placement);
+    CHECK(squared_view);
+    if (!squared_view) return;
+
+    constexpr Pixel GREEN{0, 255, 0, 255}, RED{255, 0, 0, 255}, WHITE{255, 255, 255, 255}, CLEAR{};
+    Pixels source;
+    for (int y = 0; y < HEIGHT; ++y)
+        for (int x = 0; x < WIDTH; ++x)
+            source[y * WIDTH + x] = x < 11 ? GREEN : RED;
+    glBindTexture(GL_TEXTURE_2D, image);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, WIDTH, HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, source.data());
+
+    const Box local{0, 0, placement.capture.w, placement.capture.h};
+    std::array visible{Close::VisibleFace::flat(local)};
+    visible[0].origin.x += 8;
+    visible[0].origin.y += 3;
+    Close model;
+    CHECK(model.start(local, visible, 42, 1));
+    const auto frame = std::make_unique_for_overwrite<Close::Frame>();
+    model.emit({*view->authorized_local_crop, true}, *frame);
+    CHECK(!frame->source_faces().empty());
+    ConstructionBatch effects;
+    effects.add({.origin = {24, 4, 0}, .u = {4, 0, 0}, .v = {0, 4, 0}, .uv = {},
+        .tint = RED, .surface = ConstructionSurface::Solid});
+
+    Shadow shadow;
+    const auto readback = [&](const CConstructionMaterial::View &draw_view) {
+        Pixels pixels{};
+        gl::CRawGlState<2, Shadow> state({.viewport_width = WIDTH, .viewport_height = HEIGHT,
+            .framebuffer = framebuffer}, shadow);
+        CHECK(material.draw_close(*frame, effects, draw_view, image, target));
+        glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+        return pixels;
+    };
+    const auto pixels = readback(*view);
+    const auto squared_pixels = readback(*squared_view);
+
+    // The body translates to [7,19) x [5,13), but the source crop removes column 7.
+    CHECK(pixels[8 * WIDTH + 7] == CLEAR);
+    CHECK(pixels[8 * WIDTH + 8] == WHITE);  // Source green (red = 0) still covers.
+    CHECK(pixels[8 * WIDTH + 20] == CLEAR); // Source red outside the body never covers.
+    CHECK(pixels[5 * WIDTH + 18] == CLEAR); // Inside the box, outside the rounded corner.
+    const auto &edge = pixels[6 * WIDTH + 18];
+    CHECK(edge[0] > 0 && edge[0] < 255);
+    CHECK((edge == Pixel{edge[0], edge[0], edge[0], edge[0]}));
+    CHECK(pixels[5 * WIDTH + 22] == CLEAR); // Close effect overlay never covers.
+    // A fourth-power corner includes more of the same diagonal than a circle.
+    const auto &squared_edge = squared_pixels[5 * WIDTH + 18];
+    CHECK(squared_edge[0] > 0 && squared_edge[0] < 255);
+    CHECK((squared_edge == Pixel{squared_edge[0], squared_edge[0], squared_edge[0], squared_edge[0]}));
+    CHECK(squared_pixels[8 * WIDTH + 7] == CLEAR);
+    CHECK(squared_pixels[8 * WIDTH + 8] == WHITE);
+}
+
 GLuint check_program_retry() {
     using namespace construction_shader;
     constexpr const char *INVALID = "#version 300 es\nthis is not GLSL\n";
@@ -571,6 +697,8 @@ int main(int argc, char **argv) {
     check_pixels(material,textures[0],textures[1],framebuffer, 1.25, true);
     check_retained_regional_close(material, textures[0], textures[1], framebuffer);
     check_pixels(material,textures[0],textures[1],framebuffer, 1.25, false);
+    check_blur_mask(material, textures[0], textures[1], framebuffer);
+    check_close_body_mask(material, textures[0], textures[1], framebuffer);
     check_identity_transfer(material);
     { gl::CRawGlState<2, Shadow> state({},shadow); material.release(); }
     GLint fbo = -1;

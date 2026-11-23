@@ -51,18 +51,64 @@ bool construction_source_fits(const Desktop::View::CWindow &window) {
         }
     }
 
-    // A blur-eligible window is replayed through the same transformer with a
-    // white-on-black mask and identical public context. Decline before the host
-    // disables native surface blur rather than mistaking a mask for client art.
-    // The monitor presentation is conservative: isolated workspace draws only
-    // reset workspace alpha to unity, which cannot make shouldBlur() stricter.
-    return !window.shouldBlur();
+    return true;
 }
 }  // namespace
+
+// Only the actual nested window pass executes this marker. Hyprland's second
+// transformer invocation renders a blur rectangle into a different framebuffer.
+// Framebuffer identity distinguishes the two without reading client pixels or
+// depending on call order, and remains valid through preceding transformers.
+class CAnimationTransformer::CContentSourcePass final : public IPassElement {
+  public:
+    CContentSourcePass(ContentSource &source, CRenderPass &pass)
+        : m_source(source), m_pass(pass), m_next(source.passes) {
+        if (m_next) { m_next->m_previous = this; }
+        source.passes = this;
+    }
+    ~CContentSourcePass() override {
+        if (m_previous) { m_previous->m_next = m_next; }
+        else { m_source.passes = m_next; }
+        if (m_next) { m_next->m_previous = m_previous; }
+    }
+    CContentSourcePass(const CContentSourcePass &) = delete;
+    CContentSourcePass &operator=(const CContentSourcePass &) = delete;
+    CContentSourcePass(CContentSourcePass &&) = delete;
+    CContentSourcePass &operator=(CContentSourcePass &&) = delete;
+    std::vector<UP<IPassElement>> draw(CRenderContext &ctx) override {
+        m_source.framebuffer = ctx.m_data.currentFB;
+        m_source.context = &ctx;
+        return {};
+    }
+    bool needsLiveBlur(CRenderContext &) override { return false; }
+    bool needsPrecomputeBlur(CRenderContext &) override { return false; }
+    bool undiscardable(CRenderContext &) override { return true; }
+    bool disableSimplification(CRenderContext &) override { return true; }
+    ePassElementType type() override { return EK_CUSTOM; }
+    const char *passName() override { return "hyprimate-construction-source"; }
+    void remove() { m_pass.removeAllOfType(passName()); }
+
+  private:
+    ContentSource &m_source;
+    CRenderPass &m_pass;
+    CContentSourcePass *m_next = nullptr, *m_previous = nullptr;
+};
 
 CAnimationTransformer::CAnimationTransformer(
     PHLWINDOWREF window, HyprWindowAnimations &animations, CHyprWindowPort &port, Handle handle)
     : m_window(std::move(window)), m_animations(animations), m_port(port), m_handle(handle) {
+}
+
+CAnimationTransformer::~CAnimationTransformer() {
+    // Nested passes are host-owned and may outlive detachment. Remove their
+    // plugin vtables before the transformer (or the plugin library) is destroyed.
+    while (m_content_source.passes) { m_content_source.passes->remove(); }
+}
+
+void CAnimationTransformer::preWindowRender(CRenderContext &ctx, CSurfacePassElement::SRenderData *) {
+    if (m_handle.style != hyprimate::config::Style::Construction) { return; }
+    auto &pass = IHyprRenderer::currentPass(ctx);
+    IHyprRenderer::addPassElement(ctx, makeUnique<CContentSourcePass>(m_content_source, pass));
 }
 
 bool CAnimationTransformer::active() const {
@@ -115,7 +161,10 @@ SWindowTransformBuffer CAnimationTransformer::transform(CRenderContext &ctx,
     if (CANVAS.empty() || SOURCE.empty() || SIZE.x <= 0 || SIZE.y <= 0) {
         return input;
     }
-    CHyprAnimationCanvas canvas{ctx, m_port.canvas_resources()};
+    const bool BLUR_MASK = m_handle.style == hyprimate::config::Style::Construction &&
+        (m_content_source.context != &ctx ||
+            m_content_source.framebuffer.lock() != ctx.m_data.currentFB);
+    CHyprAnimationCanvas canvas{ctx, m_port.canvas_resources(), BLUR_MASK};
     const Draw<CHyprAnimationCanvas> DRAW{.canvas = &canvas,
         .image = &input.framebuffer,
         .source = to_box(SOURCE),
@@ -124,7 +173,7 @@ SWindowTransformBuffer CAnimationTransformer::transform(CRenderContext &ctx,
         .image_origin = {.x = input.box.x, .y = input.box.y},
         .image_size = {.x = SIZE.x, .y = SIZE.y},
         .scale = SCALE,
-        .real_pass = true,
+        .real_pass = !BLUR_MASK,
         .monitor = m_port.monitor_identity(context.monitor.lock())};
     if (!m_animations.draw(m_handle, DRAW)) {
         return {.framebuffer = input.framebuffer, .box = input.box, .success = false};

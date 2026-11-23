@@ -90,11 +90,16 @@ uniform vec4 u_sample_bounds;  // Authorized texel centers, common to every clie
 uniform vec2 u_inverse_image;
 uniform ivec3 u_texel_grid;  // X offset, Y offset, row direction (zero for a subpixel grid shift).
 uniform bool u_rgbx;
+uniform int u_mask_mode;      // 0: color; 1: image matte; 2: synthesized body matte.
+uniform vec4 u_mask_body;     // Image-relative device pixel edges, as used by v_uv.
+uniform vec2 u_mask_rounding; // Radius in source device pixels, then superellipse exponent.
 layout(location = 0) out vec4 color;
 
 const uint CLIENT = 1u;
 const uint ATLAS = 2u;
 const uint SHADOW = 3u;
+const int MASK_NONE = 0;
+const int MASK_BODY = 2;
 
 vec4 client_pixel() {
     // A stationary client face has the same source and destination pixel centers, even at
@@ -121,7 +126,43 @@ vec4 client_pixel() {
     return mix(top, bottom, t.y);
 }
 
+float body_coverage() {
+    if (any(lessThan(v_uv, u_mask_body.xy)) || any(greaterThanEqual(v_uv, u_mask_body.zw)))
+        return 0.0;
+    float radius = u_mask_rounding.x;
+    if (radius == 0.0)
+        return 1.0;
+    vec2 inset = min(v_uv - u_mask_body.xy, u_mask_body.zw - v_uv);
+    vec2 corner = vec2(radius) - inset;
+    if (any(lessThanEqual(corner, vec2(0.0))))
+        return 1.0; // Straight spans don't need the superellipse.
+
+    float power = u_mask_rounding.y;
+    float shape_distance;
+    if (power == 2.0) {
+        shape_distance = length(corner);
+    } else {
+        // Factor out the larger axis to keep the powers in a bounded range.
+        float major = max(corner.x, corner.y);
+        float ratio = min(corner.x, corner.y) / major;
+        shape_distance = major * pow(1.0 + pow(ratio, power), 1.0 / power);
+    }
+    // Match the native rounding ramp, evaluated in the source plane before posing.
+    const float EDGE_WIDTH = 3.141592653589793 / 5.34665792551;
+    return 1.0 - smoothstep(radius - EDGE_WIDTH, radius + EDGE_WIDTH, shape_distance);
+}
+
 void main() {
+    if (u_mask_mode != MASK_NONE) {
+        if (v_surface != CLIENT)
+            discard;
+        // The retained close capture is color, not a matte. Use its posed source
+        // coordinates without sampling it. For the native matte, red carries coverage.
+        float coverage = u_mask_mode == MASK_BODY ? body_coverage() : client_pixel().r;
+        // Premultiplied coverage leaves earlier client faces visible through black.
+        color = vec4(coverage);
+        return;
+    }
     if (v_surface == CLIENT) {
         color = client_pixel();
         if (u_rgbx)
