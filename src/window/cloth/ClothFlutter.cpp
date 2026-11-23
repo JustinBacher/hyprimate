@@ -18,6 +18,7 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+#include "perf/LiveProfiler.hpp"
 
 // Jolt's base header must precede its dependent headers.
 // clang-format off
@@ -503,8 +504,13 @@ namespace hyprimate {
                         if (done->worker.joinable()) {
                             done->worker.join();
                         }
-                        done.reset();  // potentially large recording is freed here, never on
-                                       // playback's last-reference path
+                        {
+                            const perf::CpuScope PROFILE{{perf::Domain::Window, "cloth",
+                                done->live ? "move" :
+                                    (done->kind == Transition::Close ? "close" : "open")},
+                                perf::Phase::Worker};
+                            done.reset();  // Free the recording off the playback thread.
+                        }
                         lock.lock();
                         iterator = runs.begin();  // add() may have reallocated the vector while the
                                                   // lock was released
@@ -810,6 +816,8 @@ namespace hyprimate {
         // NOLINTNEXTLINE(readability-function-cognitive-complexity): Splitting risks per-vertex
         // calls and publication ordering.
         void simulate_movement(Run &run, double phase) {
+            std::optional<perf::CpuScope> setup_profile{std::in_place,
+                perf::Key{perf::Domain::Window, "cloth", "move"}, perf::Phase::Worker};
             using namespace JPH;
             constexpr ObjectLayer CLOTH = 0;
             const ObjectLayerPairFilterTable PAIRS(1);
@@ -909,6 +917,7 @@ namespace hyprimate {
             double time = 0;
             double last_motion = 0;
             double previous_rod_velocity = 0;
+            setup_profile.reset();
             while (good && !STOPPED()) {
                 if (s_pause.load(std::memory_order_acquire) &&
                     run.recorded.load(std::memory_order_relaxed) >=
@@ -922,6 +931,8 @@ namespace hyprimate {
                     continue;
                 }
                 const Run::Target TARGET = run.targets.at(TAIL % Run::INPUT_CAPACITY);
+                const perf::CpuScope PROFILE{
+                    {perf::Domain::Window, "cloth", "move"}, perf::Phase::Worker};
                 run.input_tail.store(TAIL + 1, std::memory_order_release);
                 const ClothMovementParams &movement = TARGET.movement;
                 system.SetGravity(JPH::Vec3(0, static_cast<float>(-GRAVITY * movement.gravity), 0));
@@ -1054,6 +1065,10 @@ namespace hyprimate {
         // NOLINTNEXTLINE(readability-function-cognitive-complexity): Splitting risks per-vertex
         // calls and neighbor update ordering.
         void simulate(Run &run, const SimInput &input) {
+            const perf::Key KEY{perf::Domain::Window, "cloth",
+                run.kind == Transition::Close ? "close" : "open"};
+            std::optional<perf::CpuScope> setup_profile{
+                std::in_place, KEY, perf::Phase::Worker};
             using namespace JPH;
             const auto STOPPED = [&] { return run.stop.stop_requested(); };
             const auto WAIT_PUBLICATION = [&] {
@@ -1071,6 +1086,11 @@ namespace hyprimate {
             // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays): Recording
             // length is determined at runtime.
             run.samples = std::make_unique<Run::Frame[]>(static_cast<std::size_t>(run.frames));
+            if (setup_profile->session() != 0) {
+                perf::resource_sample(KEY,
+                    sizeof(Run) + static_cast<std::uint64_t>(run.frames) * sizeof(Run::Frame),
+                    0, setup_profile->session());
+            }
             constexpr ObjectLayer STATIC = 0;
             constexpr ObjectLayer CLOTH = 1;
             constexpr ObjectLayer LAYERS = 2;
@@ -1187,12 +1207,15 @@ namespace hyprimate {
                     static_cast<float>(VELOCITY.y),
                     static_cast<float>(VELOCITY.z));
             }
+            setup_profile.reset();
             if (run.kind == Transition::Open) {
                 // A level, gathered sleeve compresses the first material rows. Relax that sewn
                 // pocket with Jolt on the worker before publishing frame zero, instead of
                 // displaying its initial constraint correction.
                 motion->SetLinearDamping(8);
                 for (int step = 0; step < 24; ++step) {
+                    const perf::CpuScope PROFILE{
+                        {perf::Domain::Window, "cloth", "open"}, perf::Phase::Worker};
                     if (!WAIT_PUBLICATION() ||
                         system.Update(static_cast<float>(STEP_SECONDS), 1, &temp, &jobs) !=
                             EPhysicsUpdateError::None) {
@@ -1206,6 +1229,7 @@ namespace hyprimate {
                 }
                 motion->SetLinearDamping(1.5F);
             }
+            setup_profile.emplace(KEY, perf::Phase::Worker);
             std::optional<Pocket> pocket;
             if (run.kind == Transition::Close && run.movement.springiness > 0) {
                 pocket.emplace(run);
@@ -1222,7 +1246,10 @@ namespace hyprimate {
             }
             const auto OPEN_AIR_DRAG_FACTOR =
                 static_cast<float>(1 - std::exp(-OPEN_AIR_DRAG * STEP_SECONDS));
+            setup_profile.reset();
             for (int step = 1; step < run.frames && WAIT_PUBLICATION(); ++step) {
+                const perf::CpuScope PROFILE{{perf::Domain::Window, "cloth",
+                    run.kind == Transition::Close ? "close" : "open"}, perf::Phase::Worker};
                 const double TIME = (step - 1) * STEP_SECONDS;
                 if (pocket) {
                     const double PROGRESS =

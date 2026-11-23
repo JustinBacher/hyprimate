@@ -9,6 +9,7 @@
 #include "gl/NativeResource.hpp"
 #include "workspace/WorkspaceCapture.hpp"
 #include "workspace/WorkspaceCapturePlan.hpp"
+#include "workspace/WorkspaceProfiling.hpp"
 
 namespace hyprimate::workspace {
 
@@ -46,6 +47,9 @@ namespace hyprimate::workspace {
             (resources->isolated() && !gl::native_current(resources->blurFramebuffer()))) {
             return false;
         }
+        // begin/end execute native GL work; draw() itself may only enqueue it.
+        // Keep the query inside the compositor context and across pass execution.
+        const ProfileGpuScope GPU;
 
         CRegion damage{0, 0, monitor->m_transformedSize.x, monitor->m_transformedSize.y};
         Render::SRenderOptions options;

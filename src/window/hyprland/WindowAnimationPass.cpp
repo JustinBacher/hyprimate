@@ -11,6 +11,8 @@
 #include "gl/Storage.hpp"
 #include "window/WindowAnimations.hpp"
 #include "window/shared/SheetRenderer.hpp"
+#include "window/Profiling.hpp"
+#include "perf/GpuTimer.hpp"
 
 using namespace hyprimate::animation;
 
@@ -30,6 +32,9 @@ std::vector<UP<IPassElement>> CWindowAnimationPass::draw(Render::CRenderContext 
     with_guarded_display(valid, [&](const auto &guard_display) {
         if (m_data.animations == nullptr || m_data.resources == nullptr || !m_data.image ||
             !m_data.animations->active(m_data.handle)) { return; }
+        const auto PROFILE_KEY =
+            profile_key(m_data.handle.style, m_data.retained_tail ? "shared" : "close");
+        const hyprimate::perf::GpuScope GPU_PROFILE{PROFILE_KEY};
         CHyprAnimationCanvas canvas{ctx, *m_data.resources};
         const Draw<CHyprAnimationCanvas> DRAW{.canvas = &canvas, .image = &m_data.image,
             .source = m_data.source, .output = m_data.output, .canvas_box = m_data.canvas_box,
@@ -68,6 +73,9 @@ std::vector<UP<IPassElement>> CWindowAnimationPass::draw(Render::CRenderContext 
                 texture_data.allowCustomUV = true;
                 Render::GL::g_pHyprOpenGL->renderTextureMesh(
                     ctx, canvas.layer()->getTexture(), BOX, sheet_canvas_quad(), texture_data);
+            }
+            if (canvas.pass() == PassKind::Live && !canvas.captures_pixels()) {
+                hyprimate::perf::touch(PROFILE_KEY, m_data.monitor);
             }
             if (m_data.close_guard) { m_data.close_guard->physical_presented(ctx, true); }
         };

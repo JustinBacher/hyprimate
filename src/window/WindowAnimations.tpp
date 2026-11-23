@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "WindowTracker.hpp"
+#include "Profiling.hpp"
 
 namespace hyprimate::animation {
     namespace detail {
@@ -156,6 +157,7 @@ namespace hyprimate::animation {
         Tracked &tracked_window, const Observation &observation, std::uint64_t seed) {
         std::optional<Handle> result;
         selected([&]<class Style>(auto &resources) {
+            const perf::CpuScope PROFILE{profile_key(Style::KIND), perf::Phase::Setup};
             const auto POOL_HANDLE = resources.animations.emplace(
                 std::in_place, [&] { return Style::start(resources, seed); });
             const Handle ENTRY_HANDLE{Style::KIND, POOL_HANDLE.index, POOL_HANDLE.generation};
@@ -346,6 +348,7 @@ namespace hyprimate::animation {
                     facts.enabled = policy.enabled && !policy.inert &&
                                     (policy.opening || policy.movement || policy.closing) &&
                                     (policy.style == Styles::KIND || RETAINED || SCREEN_ACTIVE);
+                    const perf::CpuScope PROFILE{profile_key(Styles::KIND), perf::Phase::Update};
                     Styles::Screen::tick(resources, facts);
                 }
             }(),
@@ -355,6 +358,7 @@ namespace hyprimate::animation {
     template <class Style>
     void CWindowAnimations<Port, StyleList<Styles...>>::update_settings(
         const Style::Settings &settings) {
+        const perf::CpuScope PROFILE{profile_key(Style::KIND), perf::Phase::Setup};
         m_resources.template get<Style>().update(settings, Style::prepare_settings);
     }
     template <class Port, class... Styles>
@@ -429,6 +433,7 @@ namespace hyprimate::animation {
                     return;
                 }
             }
+            const perf::CpuScope PROFILE{profile_key(Style::KIND, "close"), perf::Phase::Setup};
             result = Style::close(slot.state, event_place, resources);
         });
         if (result == CloseStart::Declined) {
@@ -539,6 +544,8 @@ namespace hyprimate::animation {
                 if constexpr (requires { Style::PUBLIC_CLOSE_ONLY; }) {
                     if constexpr (Style::PUBLIC_CLOSE_ONLY) {
                         static_assert(noexcept(Style::initial_close_frame(slot.state, STEP, resources)));
+                        const perf::CpuScope PROFILE{
+                            profile_key(Style::KIND, "close"), perf::Phase::Update};
                         entry->current = Style::initial_close_frame(slot.state, STEP, resources);
                     }
                 }
@@ -599,6 +606,7 @@ namespace hyprimate::animation {
             facts.enabled = m_policy.enabled && !m_policy.inert &&
                             (m_policy.opening || m_policy.movement || m_policy.closing) &&
                             (m_policy.style == Style::KIND || RETAINED || NEEDED_BEFORE);
+            const perf::CpuScope PROFILE{profile_key(Style::KIND), perf::Phase::Update};
             Style::Screen::tick(resources, facts);
             const bool NEEDED_AFTER = Style::Screen::needs_frame(resources, monitor);
             if (NEEDED_BEFORE || NEEDED_AFTER) {
@@ -738,6 +746,7 @@ namespace hyprimate::animation {
             const auto INITIAL = place(
                 observation, m_port.neighbourhood(window.window), acquired ? m_seed : ++m_seed);
             visit(CURRENT_HANDLE, [&]<class Style>(auto &slot, auto &resources) {
+                const perf::CpuScope PROFILE{profile_key(Style::KIND, "open"), perf::Phase::Setup};
                 accepted = Style::open(slot.state, INITIAL, resources, effects);
             });
             if ((!accepted && acquired) || (accepted && !apply(window, observation, effects))) {
@@ -901,6 +910,10 @@ namespace hyprimate::animation {
                     STEP.visible_outputs = m_port.visible_outputs(OFFSET);
                 }
             }
+            const perf::CpuScope PROFILE{profile_key(Style::KIND), perf::Phase::Update};
+            if (perf::enabled()) {
+                perf::resource_sample(profile_key(Style::KIND), sizeof(slot.state), 0);
+            }
             entry->current = Style::advance(slot.state, STEP, resources, effects);
         });
         if (HAD_TAIL && !entry->current.tail) {
@@ -1033,6 +1046,10 @@ namespace hyprimate::animation {
         }
         Effects effects;
         visit(CURRENT_HANDLE, [&]<class Style>(auto &slot, auto &resources) {
+            const perf::CpuScope PROFILE{profile_key(Style::KIND, "close"), perf::Phase::Update};
+            if (perf::enabled()) {
+                perf::resource_sample(profile_key(Style::KIND, "close"), sizeof(slot.state), 0);
+            }
             entry.current = Style::advance(slot.state, STEP, resources, effects);
         });
         damage_dying(entry);
@@ -1269,6 +1286,9 @@ namespace hyprimate::animation {
         bool drawn = false;
         InFlightDraw flight{*this, handle};
         visit(handle, [&]<class Style>(auto &slot, auto &resources) {
+            const auto PROFILE_KEY = profile_key(Style::KIND,
+                entry->life == Life::Mapped ? "shared" : "close");
+            const perf::CpuScope PROFILE{PROFILE_KEY, perf::Phase::Draw};
             if constexpr (requires { Style::warm(resources); }) {
                 Style::warm(resources);
             }
@@ -1286,6 +1306,12 @@ namespace hyprimate::animation {
                 auto &cache = m_port.visual_cache(handle);
                 auto &buffers = draw_info.canvas->pass() == PassKind::Live ? cache.buffers
                                                                            : cache.scratch_buffers;
+                if (perf::enabled()) {
+                    // These vectors belong to this handle's visual cache, not the native image.
+                    perf::resource_sample(PROFILE_KEY, sizeof(slot.state) +
+                        (buffers.window.capacity() + buffers.under.capacity() +
+                            buffers.shade.capacity()) * sizeof(typename Canvas::Vertex), 0);
+                }
                 const MeshTarget<typename Canvas::Vertex> TARGET{draw_info.source,
                     draw_info.output,
                     draw_info.image_origin,
@@ -1319,11 +1345,40 @@ namespace hyprimate::animation {
         return drawn;
     }
     template <class Port, class... Styles>
+    void CWindowAnimations<Port, StyleList<Styles...>>::profile_transformed(
+        Handle handle, MonitorId monitor) {
+        if (!perf::enabled() || monitor == 0) return;
+        auto *entry = record(handle);
+        if (entry == nullptr || entry->life != Life::Mapped ||
+            !entry->current.running || entry->current.native_presentation) return;
+        entry->profile_monitor = monitor;
+        entry->profile_generation = perf::generation();
+    }
+    template <class Port, class... Styles>
+    void CWindowAnimations<Port, StyleList<Styles...>>::profile_frame_presented(
+        MonitorId monitor) {
+        if (!perf::enabled() || monitor == 0) return;
+        const auto SESSION = perf::generation();
+        for (const auto &window : m_tracked) {
+            if (!window.handle) continue;
+            auto *entry = record(*window.handle);
+            if (entry == nullptr || entry->profile_monitor != monitor) continue;
+            entry->profile_monitor = 0;
+            if (entry->profile_generation != SESSION || entry->life != Life::Mapped ||
+                !entry->current.running || entry->current.native_presentation) continue;
+            perf::touch(profile_key(window.handle->style), monitor);
+        }
+    }
+
+    template <class Port, class... Styles>
     void CWindowAnimations<Port, StyleList<Styles...>>::before_window(
         WindowId window_id, Canvas &canvas, MonitorId render_monitor, FrameId render_frame) {
         auto *window = tracked(window_id);
         if (window != nullptr && window->handle) {
-            const auto *entry = record(*window->handle);
+            auto *entry = record(*window->handle);
+            if (entry != nullptr) {
+                entry->profile_monitor = 0;
+            }
             if (entry != nullptr && entry->life == Life::Mapped && !entry->current.native_presentation) {
                 if (canvas.pass() == PassKind::Live) {
                     m_port.ensure_transformer(window->window, entry->handle);
@@ -1382,6 +1437,7 @@ namespace hyprimate::animation {
                               }) {
                     const ScreenDraw<Canvas> INFO{
                         &canvas, *facts, window_id, canvas.pass() == PassKind::Live};
+                    const perf::CpuScope PROFILE{profile_key(Styles::KIND), perf::Phase::Draw};
                     Styles::Screen::under_window(m_resources.template get<Styles>(), INFO);
                 }
             }(),
@@ -1404,6 +1460,7 @@ namespace hyprimate::animation {
                                   Styles::Screen::before_windows(resources, draw_info);
                               }) {
                     const ScreenDraw<Canvas> INFO{&canvas, *facts, 0, true};
+                    const perf::CpuScope PROFILE{profile_key(Styles::KIND), perf::Phase::Draw};
                     Styles::Screen::before_windows(m_resources.template get<Styles>(), INFO);
                 }
             }(),
@@ -1463,6 +1520,7 @@ namespace hyprimate::animation {
                               }) {
                     const ScreenDraw<Canvas> INFO{
                         &canvas, *facts, 0, canvas.pass() == PassKind::Live};
+                    const perf::CpuScope PROFILE{profile_key(Styles::KIND), perf::Phase::Draw};
                     Styles::Screen::after_windows(m_resources.template get<Styles>(), INFO);
                 }
             }(),

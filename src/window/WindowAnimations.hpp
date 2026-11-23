@@ -88,6 +88,10 @@ namespace hyprimate::animation {
         [[nodiscard]] CallbackLifetime::Ticket callback_ticket() const {
             return m_callbacks.ticket();
         }
+        // A successful transform is only an offscreen receipt. A final, executed
+        // native display pass consumes receipts; captures/snapshots must not call it.
+        void profile_transformed(Handle handle, MonitorId monitor);
+        void profile_frame_presented(MonitorId monitor);
 
       private:
         struct Tracked {
@@ -131,6 +135,8 @@ namespace hyprimate::animation {
             bool public_close_only = false;
             bool awaiting_close_presentation = false;
             bool retained_no_screen_share = false;
+            MonitorId profile_monitor = 0;
+            std::uint64_t profile_generation = 0;
         };
         template <class Function>
         bool visit(Handle handle, Function &&function);

@@ -15,6 +15,7 @@
 #include "StyleTypes.hpp"
 #include "gl/NativeFramebuffer.hpp"
 #include "window/WindowAnimations.hpp"
+#include "perf/GpuTimer.hpp"
 
 using namespace Render;
 using namespace hyprimate::animation;
@@ -165,6 +166,7 @@ SWindowTransformBuffer CAnimationTransformer::transform(CRenderContext &ctx,
         (m_content_source.context != &ctx ||
             m_content_source.framebuffer.lock() != ctx.m_data.currentFB);
     CHyprAnimationCanvas canvas{ctx, m_port.canvas_resources(), BLUR_MASK};
+    const hyprimate::perf::GpuScope GPU_PROFILE{profile_key(m_handle.style)};
     const Draw<CHyprAnimationCanvas> DRAW{.canvas = &canvas,
         .image = &input.framebuffer,
         .source = to_box(SOURCE),
@@ -178,6 +180,7 @@ SWindowTransformBuffer CAnimationTransformer::transform(CRenderContext &ctx,
     if (!m_animations.draw(m_handle, DRAW)) {
         return {.framebuffer = input.framebuffer, .box = input.box, .success = false};
     }
+    const bool TRANSFORMED = canvas.layer() != nullptr;
     if (!canvas.layer()) {
         canvas.layer() = hyprimate::gl::get_work_buffer(ctx, CANVAS.size());
         if (!canvas.layer()) {
@@ -190,6 +193,9 @@ SWindowTransformBuffer CAnimationTransformer::transform(CRenderContext &ctx,
         ctx.m_data.fbSize = CANVAS.size();
         g_pHyprRenderer->setProjectionType(ctx, Render::RPT_EXPORT);
         g_pHyprRenderer->draw(ctx, CClearPassElement::SClearData{CHyprColor(0, 0, 0, 0)});
+    }
+    if (TRANSFORMED && !BLUR_MASK && !canvas.captures_pixels()) {
+        m_animations.profile_transformed(m_handle, DRAW.monitor);
     }
     return {.framebuffer = canvas.layer(), .box = CANVAS};
 }

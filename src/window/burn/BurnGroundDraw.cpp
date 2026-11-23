@@ -24,6 +24,7 @@
 #include "window/hyprland/HyprAnimationCanvas.hpp"
 #include "window/shared/SheetRenderer.hpp"
 #include "workspace/WorkspaceCaptureScope.hpp"
+#include "perf/GpuTimer.hpp"
 
 namespace {
     constexpr std::size_t FIELD_BYTES = CBurnGround::WIDTH * CBurnGround::HEIGHT * 4;
@@ -148,6 +149,9 @@ struct CBurnGroundDraw::Impl {
         std::array<float, 32 * 4> opening_rect{}, opening_state{};
         std::size_t opening_count = 0;
         std::vector<UP<IPassElement>> draw(Render::CRenderContext &ctx) override {
+            constexpr hyprimate::perf::Key KEY{
+                hyprimate::perf::Domain::Window, "burn", "shared"};
+            const hyprimate::perf::CpuScope CPU_PROFILE{KEY, hyprimate::perf::Phase::Draw};
             if (!wallpaper || !wallpaper->framebuffer || !g_pHyprRenderer ||
                 !Render::GL::g_pHyprOpenGL || !live_ground(ctx) ||
                 g_pHyprRenderer->type() != Render::IHyprRenderer::RT_GL)
@@ -155,6 +159,7 @@ struct CBurnGroundDraw::Impl {
             if (!renderer->owner.ensure_current() || !wallpaper->owner.ensure_current()) return {};
             const auto IMAGE = wallpaper->framebuffer->getTexture();
             if (!IMAGE || IMAGE->m_texID == 0) return {};
+            const hyprimate::perf::GpuScope GPU_PROFILE{KEY};
             const Vector2D SIZE{viewport.w, viewport.h};
             const hyprimate::Box VIEW{screen.screen.x + viewport.x / screen.scale,
                 screen.screen.y + viewport.y / screen.scale,
@@ -255,6 +260,7 @@ struct CBurnGroundDraw::Impl {
                 Render::GL::g_pHyprOpenGL->renderTextureMesh(
                     ctx, layer->getTexture(), viewport, sheet_canvas_quad(), data);
             }
+            hyprimate::perf::touch(KEY, screen.monitor);
             return {};
         }
         bool needsLiveBlur(Render::CRenderContext &) override {

@@ -118,12 +118,76 @@ Comparing: `bench run --name before`, change code, `bench run --name after`, the
 `inconclusive`; otherwise `no-measurable-change`. Use a quiet machine (governor `performance`, low load); `dev.py` warns
 when it is not. Interleave rather than run sequentially if you suspect drift: `compare-codegen --run-bench` does.
 
-**GPU profiling feasibility.** Hyprland 0.57 renders through OpenGL ES (`egl`/`glesv2`, as the material tests also use),
-not Vulkan, so Vulkan tools (RenderDoc-Vulkan layers, Radeon GPU Profiler, `VK_` timestamp queries) do not apply. Viable
-routes, none implemented: `GL_EXT_disjoint_timer_query` around the renderer's passes (requires adding instrumentation
-code to the renderers, i.e. a production-code change that needs approval and must be compiled out of release), RenderDoc
-GLES capture of a nested compositor, or `perf`/`intel_gpu_top`/`radeontop` for aggregate GPU load. The renderer classes
-link Hyprland and have no isolated harness today; the blocker is architectural (no headless renderer entry point).
+## Live per-style profiling
+
+The loaded plugin exposes an opt-in IPC command. Profiling is off by default; no
+configuration changes or profiler dependencies are required:
+
+```sh
+hyprctl hyprimate:profile start
+# Exercise window opening, closing, movement, and/or workspace transitions.
+hyprctl hyprimate:profile report | jq
+hyprctl hyprimate:profile stop > build/live-profile.json
+```
+
+Use `hyprctl -i INSTANCE ...` to select a disposable nested compositor rather than
+your desktop. `start` starts a fresh session. `reset` clears samples and preserves
+whether collection was enabled. `report` reads without clearing; `stop` freezes the
+report. Loading the rebuilt plugin is required before these commands exist.
+
+Reports group samples by domain, style and operation. Window setup distinguishes
+`open`/`close`; mapped updates/drawing use `shared` because opening, movement and
+residual dynamics can overlap. Workspace operations use `transition`.
+
+* **CPU:** calling-thread CPU and elapsed wall time, separated into setup, update,
+  draw and worker phases. Paper and Cloth worker simulation is measured on its
+  worker thread. These are instrumented scope samples, not end-to-end frame times;
+  do not sum percentiles or interpret samples as one refresh's total cost.
+* **GPU:** asynchronous GLES `GL_EXT_disjoint_timer_query` measurements of actual
+  render/capture commands, including offscreen work. Queries never wait for the
+  GPU. Unsupported timers, disjoint epochs and dropped samples are explicit.
+  Nested scopes or an existing caller-owned elapsed query are skipped. A series
+  with no samples means unmeasured, not zero cost. Pending queries at stop are
+  discarded; let several frames render before stopping to collect recent results.
+  Capture scopes are inclusive: window GPU work nested inside a workspace capture
+  is charged to that workspace scope, not separately to the window style. Timings
+  are not additive. Run this as the sole GPU-timer profiler: GLES disjoint status is
+  read-to-clear and cannot be safely shared with an independent timer collector.
+* **Pacing:** per-output draw intervals and real Aquamarine presentation intervals
+  associated with styles being drawn. Multiple instances/passes of the same style
+  count once per output frame; offscreen captures do not count as display. Output
+  presentation is shared by concurrent styles, not exact per-image scanout
+  attribution. Idle gaps between separate effects are excluded. Intervals over
+  1.5 refresh periods are late; missed-refresh counts are estimates, particularly
+  with VRR and nested backends.
+  Backends without presentation timestamps retain successful event counts and
+  expose a separate `presentation_callback_intervals` series. Callback arrival is
+  a scheduling proxy, never relabeled as hardware presentation time.
+* **Memory:** sampled compositor RSS, virtual size, start baseline and RSS delta.
+  RSS observed during a style is **shared process memory**, not that style's heap.
+  Known per-animation resource peaks are separate lower bounds: window state,
+  sampled mesh/publication/recording storage; workspace retained color attachments
+  and sampled state/accounting buffers. Borrowed native textures and shared history
+  are excluded. Driver overhead, depth/stencil, mipmaps, unsampled allocations and
+  private renderer caches are not a complete heap or physical VRAM measurement.
+  Previews created before profiling began can be absent from resource accounting.
+  Resource samples are peaks for one animation, not summed simultaneous instances.
+
+Sampling storage is bounded: up to 96 style/operation rows, 16 outputs and the most
+recent 512 samples per series. Percentiles use retained samples; counts, means and
+maxima cover the session. RSS is sampled at most every 250 ms plus report/stop.
+Collector storage size is reported and excluded from the initial RSS baseline.
+Report generation itself and instrumentation have overhead; collect on a quiet
+machine and avoid repeatedly requesting reports during a measured animation.
+
+For comparisons, use the same monitor resolution/refresh, window geometry,
+settings and concurrency. Start a fresh session per style, repeat the same actions,
+then save each report. An idle or plugin-disabled run measures compositor memory
+baseline, but does not manufacture per-style timing samples.
+
+The separate Planet Hop renderer profiler is documented in
+[`docs/planet-hop.md`](../../docs/planet-hop.md#renderer-profiling). It is not a
+replacement for live capture/compositing measurements.
 
 ## Binary and code-generation comparison
 

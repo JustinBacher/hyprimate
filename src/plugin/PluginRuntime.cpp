@@ -27,7 +27,10 @@
 #include "PluginRuntime.hpp"
 #include "config_generated.hpp"
 #include "gl/NativeResource.hpp"
+#include "perf/LiveProfiler.hpp"
+#include "perf/RuntimeProfiler.hpp"
 #include "window/WindowAnimations.hpp"
+#include "window/Profiling.hpp"
 #include "window/hyprland/AnimationCloseRenderer.hpp"
 #include "window/hyprland/HyprAnimationCanvas.hpp"
 #include "window/hyprland/HyprWindowPort.hpp"
@@ -84,6 +87,7 @@ class CPluginRuntime::Impl {
     std::unique_ptr<CAnimationCloseRenderer> m_close;
     std::unique_ptr<CHyprglassCompat> m_glass;
     std::unique_ptr<CWorkspaceAnimation> m_workspace;
+    std::unique_ptr<hyprimate::perf::RuntimeProfiler> m_profiler;
     CHyprSignalListener m_open, m_close_event, m_destroy, m_pre_checks, m_pre, m_stage;
     CHyprSignalListener m_reload, m_config_refresh, m_monitor_layout, m_monitor_removed;
 };
@@ -168,9 +172,12 @@ CPluginRuntime::Impl::Impl(HANDLE handle) : m_handle(handle) {
             m_animations.track(PHLWINDOWREF{window});
         }
     }
+    m_profiler = std::make_unique<hyprimate::perf::RuntimeProfiler>(m_handle, m_port,
+        [this](std::uint64_t monitor) { m_animations.profile_frame_presented(monitor); });
 }
 
 CPluginRuntime::Impl::~Impl() {
+    m_profiler.reset();
     m_open.reset();
     m_close_event.reset();
     m_destroy.reset();
@@ -236,6 +243,8 @@ void CPluginRuntime::Impl::warm_style() {
     m_resources.for_each([&]<class Style>(auto &resources) {
         if constexpr (requires { Style::warm(resources); }) {
             if (m_config.style == Style::KIND) {
+                const hyprimate::perf::CpuScope PROFILE{
+                    hyprimate::animation::profile_key(Style::KIND), hyprimate::perf::Phase::Setup};
                 complete = Style::warm(resources);
             }
         }

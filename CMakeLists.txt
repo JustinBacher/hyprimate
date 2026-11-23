@@ -84,6 +84,7 @@ add_library(hyprimate-core STATIC
     src/window/shared/SheetFrame.cpp
     src/workspace/WorkspaceTransition.cpp
     src/window/WindowTracker.cpp
+    src/perf/LiveProfiler.cpp
 )
 target_include_directories(hyprimate-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(hyprimate-core PRIVATE Jolt)
@@ -92,6 +93,8 @@ target_compile_options(hyprimate-core PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>:-f
 add_library(hyprimate SHARED
     src/main.cpp
     src/plugin/PluginRuntime.cpp
+    src/perf/GpuTimer.cpp
+    src/perf/RuntimeProfiler.cpp
     src/window/hyprland/AnimationTransformer.cpp
     src/window/hyprland/AnimationCloseRenderer.cpp
     src/window/hyprland/HyprWindowPort.cpp
@@ -173,6 +176,16 @@ foreach(style IN LISTS HYPRIMATE_WORKSPACE_STYLES)
     include(src/workspace/${style}/Style.cmake)
 endforeach()
 if(BUILD_TESTING)
+    add_executable(live-profiler-probe tests/LiveProfilerProbe.cpp)
+    target_link_libraries(live-profiler-probe PRIVATE hyprimate-core)
+    add_test(NAME live-profiler-tests COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_live_profiler.py $<TARGET_FILE:live-profiler-probe>)
+    add_executable(gpu-timer-tests tests/GpuTimerTests.cpp src/perf/GpuTimer.cpp)
+    target_include_directories(gpu-timer-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_link_libraries(gpu-timer-tests PRIVATE PkgConfig::TEST_EGL Threads::Threads)
+    target_link_options(gpu-timer-tests PRIVATE "LINKER:--wrap=glGetIntegerv")
+    add_test(NAME gpu-timer-tests COMMAND gpu-timer-tests)
+    set_tests_properties(gpu-timer-tests PROPERTIES ENVIRONMENT "EGL_PLATFORM=surfaceless" SKIP_RETURN_CODE 77)
     add_executable(raw-gl-state-tests tests/RawGlStateTests.cpp)
     target_include_directories(raw-gl-state-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_link_libraries(raw-gl-state-tests PRIVATE PkgConfig::TEST_EGL)

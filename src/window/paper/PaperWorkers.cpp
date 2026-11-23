@@ -11,6 +11,7 @@
 
 #include "window/paper/PaperCrumple.hpp"
 #include "window/paper/PaperWorkers.hpp"
+#include "perf/LiveProfiler.hpp"
 
 namespace hyprimate {
     namespace {
@@ -184,6 +185,7 @@ namespace hyprimate {
             m_next = (m_next + 1) % m_runs.size();
             run->busy = true;
             const auto REVISION = run->revision;
+            const auto KIND = run->load.kind;
             const auto BEGIN = std::exchange(run->begin, false);
             const auto LOAD = BEGIN ? std::optional{std::move(run->load)} : std::nullopt;
             const double DELTA = BEGIN ? 0.0 : std::min(run->remaining, PUBLICATION_SLICE);
@@ -192,6 +194,9 @@ namespace hyprimate {
             bool active = false;
             bool failed = false;
             try {
+                const perf::Key KEY{perf::Domain::Window, "paper",
+                    KIND == Transition::Close ? "close" : "open"};
+                const perf::CpuScope PROFILE{KEY, perf::Phase::Worker};
                 if (LOAD) {
                     run->model.begin(LOAD->kind,
                         LOAD->params,
@@ -207,6 +212,12 @@ namespace hyprimate {
                 }
                 if (!run->cancellation.stop_requested()) {
                     run->model.frame(run->writing);
+                    if (PROFILE.session() != 0) {
+                        perf::resource_sample(KEY, sizeof(PaperRun) +
+                            run->writing.points.capacity() * sizeof(PaperPoint) +
+                            run->writing.faces.capacity() * sizeof(PaperTriangle), 0,
+                            PROFILE.session());
+                    }
                 }
             } catch (...) {
                 // A failed allocation/invalid mesh ends only this effect; the caller releases its
@@ -227,7 +238,11 @@ namespace hyprimate {
             }
             // Never destroy a cancelled solver with the scheduler lock held.
             lock.unlock();
-            run.reset();
+            {
+                const perf::CpuScope PROFILE{{perf::Domain::Window, "paper",
+                    KIND == Transition::Close ? "close" : "open"}, perf::Phase::Worker};
+                run.reset();
+            }
             lock.lock();
         }
     }

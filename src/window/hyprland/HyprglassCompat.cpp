@@ -22,6 +22,7 @@
 #include "window/WindowAnimations.hpp"
 #include "window/shared/SheetRenderer.hpp"
 #include "workspace/WorkspaceCaptureScope.hpp"
+#include "perf/GpuTimer.hpp"
 
 // Opaque Hyprglass arguments: never inspect another plugin's private layout.
 class CGlassDecoration;
@@ -206,6 +207,7 @@ bool CHyprglassCompat::Impl::deform(Render::CRenderContext &ctx, const Image &sa
     const auto glass = hyprimate::gl::get_work_buffer(ctx, raster_box.size());
     if (!glass) return false;
 
+    const hyprimate::perf::GpuScope GPU_PROFILE{profile_key(transformer->handle().style)};
     const Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
     {
         const auto state = ctx.saveDrawState();

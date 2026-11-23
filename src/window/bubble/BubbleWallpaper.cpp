@@ -18,6 +18,7 @@
 #include "gl/NativeFramebuffer.hpp"
 #include "gl/NativeResource.hpp"
 #include "gl/RawGlBracket.hpp"
+#include "perf/GpuTimer.hpp"
 
 namespace {
     class CBubbleWallpaperPass final : public IPassElement {
@@ -47,6 +48,9 @@ namespace {
         }
 
         std::vector<UP<IPassElement>> draw(Render::CRenderContext &ctx) override {
+            constexpr hyprimate::perf::Key KEY{
+                hyprimate::perf::Domain::Window, "bubble", "shared"};
+            const hyprimate::perf::CpuScope CPU_PROFILE{KEY, hyprimate::perf::Phase::Draw};
             if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL || ctx.m_renderingCapture ||
                 ctx.m_renderingSnapshot ||
                 g_pHyprRenderer->type() != Render::IHyprRenderer::RT_GL) {
@@ -143,6 +147,7 @@ namespace {
                 if (!destination) return {};
             }
 
+            const hyprimate::perf::GpuScope GPU_PROFILE{KEY};
             glBindFramebuffer(GL_READ_FRAMEBUFFER, SOURCE_ID);
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER,
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): RT_GL selects

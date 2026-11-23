@@ -26,6 +26,9 @@
 #include "window/bubble/BubbleMaterial.hpp"
 #include "window/bubble/BubbleRenderer.hpp"
 #include "window/shared/SheetRenderer.hpp"
+#include "perf/GpuTimer.hpp"
+#include "perf/MonitorIdentity.hpp"
+#include "workspace/WorkspaceCaptureScope.hpp"
 
 CBubbleRenderer::~CBubbleRenderer() {
     const hyprimate::gl::ScopedCompositorContext CONTEXT{m_owner};
@@ -187,6 +190,9 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
 CBubblePassElement::CBubblePassElement(SData data) : m_data(std::move(data)) {
 }
 std::vector<UP<IPassElement>> CBubblePassElement::draw(Render::CRenderContext &ctx) {
+    constexpr hyprimate::perf::Key KEY{hyprimate::perf::Domain::Window, "bubble", "shared"};
+    const hyprimate::perf::CpuScope CPU_PROFILE{KEY, hyprimate::perf::Phase::Draw};
+    const hyprimate::perf::GpuScope GPU_PROFILE{KEY};
     const auto LAYER =
         m_data.renderer ? m_data.renderer->render(ctx, m_data.draw) : SP<Render::IFramebuffer>{};
     Render::GL::CHyprOpenGLImpl::STextureRenderData texture_data{};
@@ -198,6 +204,15 @@ std::vector<UP<IPassElement>> CBubblePassElement::draw(Render::CRenderContext &c
         const hyprimate::gl::NativeMeshSamplers SAMPLERS;
         Render::GL::g_pHyprOpenGL->renderTextureMesh(
             ctx, LAYER->getTexture(), m_data.box, sheet_canvas_quad(), texture_data);
+        // Both vestige deposits and wakes use this screen-only pass. Their material
+        // descriptor may be Inert; only the executing native target proves display.
+        if (ctx.m_data.pMonitor && !ctx.readOnlyEffects() &&
+            !ctx.m_renderingCapture && !ctx.m_renderingSnapshot &&
+            WorkspaceCaptureScope::for_context(ctx) == nullptr &&
+            !WorkspaceCaptureScope::is_destination_live(ctx)) {
+            hyprimate::perf::touch(KEY,
+                hyprimate::perf::monitor_identity(ctx.m_data.pMonitor.lock()));
+        }
     }
     return {};
 }

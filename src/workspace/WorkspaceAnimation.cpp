@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <exception>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <string_view>
 #include <type_traits>
@@ -59,6 +60,8 @@
 #include "gl/FramebufferAllocationState.hpp"
 #include "gl/NativeResource.hpp"
 #include "gl/RawGlBracket.hpp"
+#include "perf/LiveProfiler.hpp"
+#include "perf/MonitorIdentity.hpp"
 #include "workspace/WorkspaceAnimation.hpp"
 #include "workspace/WorkspaceCallbackScope.hpp"
 #include "workspace/WorkspaceCapture.hpp"
@@ -66,6 +69,7 @@
 #include "workspace/WorkspaceFrame.hpp"
 #include "workspace/WorkspaceIdentity.hpp"
 #include "workspace/WorkspaceStyleList.hpp"
+#include "workspace/WorkspaceProfiling.hpp"
 #include "workspace/WorkspaceTurn.hpp"
 
 namespace {
@@ -423,6 +427,10 @@ class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
         uint32_t output_format = 0;
         SP<Render::CSceneResources> source_resources;
         std::shared_ptr<std::vector<hyprimate::workspace::WorkspacePreview>> neighbors;
+        // Provenance for opt-in accounting only. History wallpaper images are
+        // shared across turns and must not be charged to this animation.
+        std::vector<WP<Render::IFramebuffer>> profile_previews;
+        std::vector<GLuint> profile_attachments;
         Clock::time_point last = Clock::now();
         TurnPort port;
     };
@@ -593,6 +601,15 @@ class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
     static std::uintptr_t monitor_key(const PHLMONITOR &monitor) {
         return std::bit_cast<std::uintptr_t>(monitor.get());
     }
+    [[nodiscard]] hyprimate::perf::Key profile_key() const noexcept {
+        hyprimate::perf::Key key{hyprimate::perf::Domain::Workspace, {}, "transition"};
+        m_styles.for_each([&]<class Style>(const auto &) {
+            if (Style::KIND == m_style_kind) {
+                key.style = Style::NAME;
+            }
+        });
+        return key;
+    }
     hyprimate::workspace::WorkspaceTurn<TurnPort> *turn(const PHLMONITOR &monitor) {
         return monitor ? m_turns.find(monitor_key(monitor)) : nullptr;
     }
@@ -729,6 +746,106 @@ namespace {
         return CWorkspaceAnimation::Impl::s_active;
     }
 
+    void track_preview(CWorkspaceAnimation::Impl::MonitorState &entry,
+        const SP<Render::IFramebuffer> &image) noexcept {
+        if (!hyprimate::perf::enabled() || !image) {
+            return;
+        }
+        try {
+            std::erase_if(entry.profile_previews, [](const auto &item) { return item.expired(); });
+            entry.profile_previews.emplace_back(image);
+        } catch (...) {
+            // Losing an optional lower-bound sample must not cancel a capture.
+        }
+    }
+
+    // Visit only plugin-created captures. Native attachments and history images
+    // borrowed by previews are absent. Count each color attachment's level zero
+    // once; omit mipmaps, driver padding, depth/stencil and renderer-private data.
+    void sample_resources(hyprimate::perf::Key key,
+        CWorkspaceAnimation::Impl::MonitorState &entry) noexcept {
+        if (!hyprimate::perf::enabled()) {
+            return;
+        }
+        try {
+            auto &attachments = entry.profile_attachments;
+            attachments.clear();
+            std::uint64_t gpu_bytes = 0;
+            const auto ADD = [&](const SP<Render::IFramebuffer> &target) {
+                if (!target || !hyprimate::gl::native_current(target) || !target->isAllocated() ||
+                    (target->m_drmFormat != DRM_FORMAT_ABGR8888 &&
+                        target->m_drmFormat != DRM_FORMAT_ABGR16161616F)) {
+                    return;
+                }
+                const auto TEXTURE = target->getTexture();
+                if (!TEXTURE || TEXTURE->m_texID == 0 ||
+                    std::ranges::find(attachments, TEXTURE->m_texID) != attachments.end()) {
+                    return;
+                }
+                const auto BYTES = hyprimate::workspace::capture_extent_bytes(target->m_size.x,
+                    target->m_size.y,
+                    target->m_drmFormat == DRM_FORMAT_ABGR16161616F);
+                if (!BYTES || *BYTES > std::numeric_limits<std::uint64_t>::max() - gpu_bytes) {
+                    return;
+                }
+                attachments.push_back(TEXTURE->m_texID);
+                gpu_bytes += *BYTES;
+            };
+            const auto LAYER = [&](const hyprimate::workspace::WorkspaceLayer &layer) {
+                ADD(layer.accumulated);
+                ADD(layer.backdrop);
+            };
+            const auto FLOATING = [&](const auto &floating) {
+                if (floating) {
+                    for (const auto &window : *floating) {
+                        LAYER(window.layer);
+                        LAYER(window.previous_layer);
+                    }
+                }
+            };
+            const auto CAPTURE = [&](const auto &self,
+                                     const hyprimate::workspace::WorkspaceCapture &capture) -> void {
+                ADD(capture.composite);
+                ADD(capture.wallpaper);
+                LAYER(capture.bottom);
+                LAYER(capture.windows);
+                LAYER(capture.top);
+                FLOATING(capture.floating);
+                if (capture.previous) {
+                    self(self, *capture.previous);
+                }
+            };
+            ADD(entry.source);
+            ADD(entry.destination);
+            ADD(entry.presentation);
+            ADD(entry.source_wallpaper);
+            ADD(entry.destination_wallpaper);
+            ADD(entry.opaque_backdrop);
+            if (entry.source_resources) {
+                ADD(entry.source_resources->blurFramebuffer());
+            }
+            CAPTURE(CAPTURE, entry.source_frame);
+            CAPTURE(CAPTURE, entry.destination_frame);
+            for (const auto *blend : {&entry.source_blend, &entry.destination_blend}) {
+                if (blend->stale) {
+                    CAPTURE(CAPTURE, *blend->stale);
+                }
+                FLOATING(blend->presentation);
+            }
+            for (const auto &preview : entry.profile_previews) {
+                ADD(preview.lock());
+            }
+            // Known owned object storage, not a total heap census.
+            const auto CPU_BYTES = sizeof(entry) +
+                                   entry.profile_previews.capacity() *
+                                       sizeof(decltype(entry.profile_previews)::value_type) +
+                                   entry.profile_attachments.capacity() * sizeof(GLuint);
+            hyprimate::perf::resource_sample(key, CPU_BYTES, gpu_bytes);
+        } catch (...) {
+            // Optional accounting must not make an otherwise drawable frame fail.
+        }
+    }
+
     template <typename Fn>
     Fn original(CFunctionHook *hook) {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): Hyprland exposes original
@@ -776,6 +893,7 @@ namespace {
         const auto HEIGHT = static_cast<GLint>(target->m_size.y);
         const auto SOURCE_WIDTH = crop ? WIDTH : static_cast<GLint>(source->m_size.x);
         const auto SOURCE_HEIGHT = crop ? HEIGHT : static_cast<GLint>(source->m_size.y);
+        const hyprimate::workspace::ProfileGpuScope GPU;
         glBlitFramebuffer(LEFT,
             BOTTOM,
             LEFT + SOURCE_WIDTH,
@@ -852,6 +970,7 @@ namespace {
         // Only plugin-owned thumbnails receive mip levels; never modify a native client texture.
         const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
         const hyprimate::gl::CRawGlBracket<1> STATE{{}};
+        const hyprimate::workspace::ProfileGpuScope GPU;
         glBindTexture(GL_TEXTURE_2D, thumbnail->getTexture()->m_texID);
         glGenerateMipmap(GL_TEXTURE_2D);
         return allowed();
@@ -1391,11 +1510,13 @@ namespace {
         CWorkspacePresentationPass(std::uint64_t ticket,
             PHLMONITOR monitor,
             hyprimate::workspace::WorkspaceFrame frame,
-            bool matching_wallpaper)
+            bool matching_wallpaper,
+            hyprimate::perf::Key key)
             : m_ticket(ticket),
               m_monitor(std::move(monitor)),
               m_frame(std::move(frame)),
-              m_matching_wallpaper(matching_wallpaper) {
+              m_matching_wallpaper(matching_wallpaper),
+              m_key(key) {
         }
 
         std::vector<UP<IPassElement>> draw(Render::CRenderContext &ctx) override {
@@ -1442,6 +1563,12 @@ namespace {
                         owner->m_styles.for_each([&]<class Style>(auto &resources) {
                             if (Style::KIND == owner->m_style_kind && resources.ready) {
                                 style_name = Style::NAME;
+                                const hyprimate::perf::Key KEY{
+                                    hyprimate::perf::Domain::Workspace, Style::NAME, "transition"};
+                                const hyprimate::workspace::ProfileCpuScope CPU{
+                                    KEY, hyprimate::perf::Phase::Draw};
+                                const hyprimate::workspace::ProfileAttribution ATTRIBUTION{KEY};
+                                const hyprimate::perf::GpuScope GPU{KEY};
                                 drawn = Style::draw(resources,
                                     ctx,
                                     m_frame,
@@ -1480,10 +1607,19 @@ namespace {
                 if (!hyprimate::gl::native_current(m_frame.presentation)) {
                     return false;
                 }
+                const hyprimate::workspace::ProfileCpuScope CPU{
+                    m_key, hyprimate::perf::Phase::Draw};
+                const hyprimate::perf::GpuScope GPU{m_key};
                 CTexPassElement::SRenderData data;
                 data.tex = m_frame.presentation->getTexture();
                 data.box = {0, 0, m_monitor->m_transformedSize.x, m_monitor->m_transformedSize.y};
                 g_pHyprRenderer->draw(ctx, data, ctx.m_data.damage);
+                if (hyprimate::perf::enabled()) {
+                    const auto MONITOR = hyprimate::perf::monitor_identity(m_monitor);
+                    if (MONITOR != 0) {
+                        hyprimate::perf::touch(m_key, MONITOR);
+                    }
+                }
                 return true;
             };
             const auto result = Turn::draw_queued(m_ticket, CURRENT, RENDER, DISPLAY);
@@ -1530,6 +1666,7 @@ namespace {
         PHLMONITOR m_monitor;
         hyprimate::workspace::WorkspaceFrame m_frame;
         bool m_matching_wallpaper;
+        hyprimate::perf::Key m_key;
     };
 }  // namespace
 
@@ -1791,6 +1928,9 @@ void CWorkspaceAnimation::Impl::configure(const hyprimate::config::SWorkspaceSet
         if (settings.style != Style::KIND) {
             return;
         }
+        const hyprimate::workspace::ProfileCpuScope CPU{
+            {hyprimate::perf::Domain::Workspace, Style::NAME, "transition"},
+            hyprimate::perf::Phase::Setup};
         const auto PREVIOUS = resources.settings.last;
         Style::prepare(resources, settings);
         if (m_lifecycle != lifecycle) {
@@ -2019,6 +2159,9 @@ hyprimate::workspace::CaptureBufferFacts CWorkspaceAnimation::Impl::buffer_facts
 }
 
 bool CWorkspaceAnimation::Impl::ensure_buffers(MonitorState &entry, const PHLMONITOR &monitor) {
+    const auto KEY = profile_key();
+    const hyprimate::workspace::ProfileCpuScope CPU{KEY, hyprimate::perf::Phase::Setup};
+    const hyprimate::workspace::ProfileAttribution ATTRIBUTION{KEY};
     // resources() is lazy and fatal on an unconfigured output. A completed native
     // POST frame, not resources(), is the readiness proof during connect/disconnect.
     if (g_pHyprRenderer == nullptr || !ready(monitor)) {
@@ -2120,6 +2263,11 @@ bool CWorkspaceAnimation::Impl::initialize_selected_style() {
             if (!CONTEXT) {
                 return;
             }
+            const hyprimate::workspace::ProfileCpuScope CPU{
+                {hyprimate::perf::Domain::Workspace, Style::NAME, "transition"},
+                hyprimate::perf::Phase::Setup};
+            const hyprimate::perf::GpuScope GPU{
+                {hyprimate::perf::Domain::Workspace, Style::NAME, "transition"}};
             resources.ready = resources.renderer.initialize();
         }
         ready = resources.ready;
@@ -2223,6 +2371,9 @@ bool CWorkspaceAnimation::Impl::capture(MonitorState &entry,
     hyprimate::workspace::CaptureKind kind,
     const SP<Render::IFramebuffer> &target,
     bool inactive) {
+    const auto KEY = profile_key();
+    const hyprimate::workspace::ProfileCpuScope CPU{KEY, hyprimate::perf::Phase::Setup};
+    const hyprimate::workspace::ProfileAttribution ATTRIBUTION{KEY};
     if (!safe_scene() || !workspace || !ensure_buffers(entry, monitor)) {
         return false;
     }
@@ -2374,6 +2525,9 @@ void CWorkspaceAnimation::Impl::release_blend(
 bool CWorkspaceAnimation::Impl::begin_refresh(
     MonitorState &entry, const PHLMONITOR &monitor, TurnKind kind) {
     auto &blend = kind == TurnKind::SourceIsolated ? entry.source_blend : entry.destination_blend;
+    const auto KEY = profile_key();
+    const hyprimate::workspace::ProfileCpuScope CPU{KEY, hyprimate::perf::Phase::Setup};
+    const hyprimate::workspace::ProfileAttribution ATTRIBUTION{KEY};
     const hyprimate::gl::ScopedCompositorContext CONTEXT{};
     if (!CONTEXT) {
         return false;
@@ -2624,6 +2778,9 @@ void CWorkspaceAnimation::Impl::TurnPort::diagnostic(std::string_view reason) co
 std::vector<CWorkspaceAnimation::Impl::Snapshot> CWorkspaceAnimation::Impl::snapshot(
     std::initializer_list<PHLMONITOR> monitors) {
     const auto keep_alive = shared_from_this();
+    const auto KEY = profile_key();
+    const hyprimate::workspace::ProfileCpuScope CPU{KEY, hyprimate::perf::Phase::Setup};
+    const hyprimate::workspace::ProfileAttribution ATTRIBUTION{KEY};
     const auto lifecycle = m_lifecycle;
     std::vector<Snapshot> result;
     result.reserve(monitors.size());
@@ -2670,6 +2827,9 @@ std::vector<CWorkspaceAnimation::Impl::Snapshot> CWorkspaceAnimation::Impl::snap
 
 void CWorkspaceAnimation::Impl::finish(std::vector<Snapshot> &snapshots) {
     const auto keep_alive = shared_from_this();
+    const auto KEY = profile_key();
+    const hyprimate::workspace::ProfileCpuScope CPU{KEY, hyprimate::perf::Phase::Setup};
+    const hyprimate::workspace::ProfileAttribution ATTRIBUTION{KEY};
     for (const auto &item : snapshots) {
         if (!item.ready || !item.monitor) {
             continue;
@@ -2887,6 +3047,9 @@ void CWorkspaceAnimation::Impl::pre_render(const PHLMONITOR &monitor) {
     if (!active_turn || !active_turn->active()) {
         return;
     }
+    const auto KEY = profile_key();
+    const hyprimate::workspace::ProfileCpuScope CPU{KEY, hyprimate::perf::Phase::Update};
+    const hyprimate::workspace::ProfileAttribution ATTRIBUTION{KEY};
     const auto NOW = Clock::now();
     const auto ELAPSED = std::chrono::duration<double>(NOW - entry->last).count();
     entry->last = NOW;
@@ -2934,6 +3097,9 @@ bool CWorkspaceAnimation::Impl::queue(
     if (entry == nullptr || active_turn == nullptr) {
         return false;
     }
+    const auto KEY = profile_key();
+    const hyprimate::workspace::ProfileCpuScope CPU{KEY, hyprimate::perf::Phase::Update};
+    const hyprimate::workspace::ProfileAttribution ATTRIBUTION{KEY};
     entry->source_frame.endpoint = active_turn->source().endpoint();
     entry->destination_frame.endpoint = active_turn->destination().endpoint();
     hyprimate::workspace::WorkspaceFrame frame{.source = entry->source_frame,
@@ -2962,12 +3128,14 @@ bool CWorkspaceAnimation::Impl::queue(
         }
         return false;
     }
+    sample_resources(KEY, *entry);
     Render::IHyprRenderer::addPassElement(ctx,
         makeUnique<CWorkspacePresentationPass>(ticket,
             monitor,
             std::move(frame),
             hyprimate::workspace::wallpaper_matches<SP<Render::ITexture>>(
-                entry->source_wallpaper_identity, entry->destination_wallpaper_identity)));
+                entry->source_wallpaper_identity, entry->destination_wallpaper_identity),
+            KEY));
     active_turn->replay_hud([&](hyprimate::workspace::HudReplay step) {
         using hyprimate::workspace::HudReplay;
         const auto revision = active_turn->revision();
@@ -3112,7 +3280,11 @@ SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::InventoryPort::local_wallpap
     const ScopedCapture CAPTURE_SCOPE{owner->m_capture_depth};
     const auto WALLPAPER = entry->destination_frame.wallpaper;
     const auto IMAGE = preview_target(monitor, side);
-    return write_thumbnail(WALLPAPER, IMAGE, [&] { return allowed(); }) ? IMAGE : nullptr;
+    if (!write_thumbnail(WALLPAPER, IMAGE, [&] { return allowed(); })) {
+        return nullptr;
+    }
+    track_preview(*entry, IMAGE);
+    return IMAGE;
 }
 
 hyprimate::workspace::PreviewCaptureFacts CWorkspaceAnimation::Impl::InventoryPort::capture_facts(
@@ -3136,6 +3308,9 @@ SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::capture_preview(const Invent
     const PHLWORKSPACE &workspace,
     const SP<Render::IFramebuffer> &paper,
     hyprimate::workspace::PreviewCapturePlan plan) {
+    const auto KEY = profile_key();
+    const hyprimate::workspace::ProfileCpuScope CPU{KEY, hyprimate::perf::Phase::Setup};
+    const hyprimate::workspace::ProfileAttribution ATTRIBUTION{KEY};
     // Local isolated scene resources can switch EGL when destroyed.
     const hyprimate::gl::ScopedCompositorContext CONTEXT{};
     if (!CONTEXT) {
@@ -3242,19 +3417,24 @@ SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::capture_preview(const Invent
             1.F);
     };
     const auto IMAGE = preview_target(OWNER, plan.side);
-    return IMAGE && data.original && ALLOWED() &&
-                   hyprimate::workspace::capture_workspace(*g_pHyprRenderer,
-                       m_begin_render,
-                       OWNER,
-                       scratch,
-                       resources,
-                       TurnKind::SourceIsolated,
-                       DRAW,
-                       &data,
-                       [](void *context) { return static_cast<DrawData *>(context)->allowed(); }) &&
-                   write_thumbnail(scratch, IMAGE, ALLOWED)
-               ? IMAGE
-               : nullptr;
+    const bool CAPTURED = IMAGE && data.original && ALLOWED() &&
+                          hyprimate::workspace::capture_workspace(*g_pHyprRenderer,
+                              m_begin_render,
+                              OWNER,
+                              scratch,
+                              resources,
+                              TurnKind::SourceIsolated,
+                              DRAW,
+                              &data,
+                              [](void *context) {
+                                  return static_cast<DrawData *>(context)->allowed();
+                              }) &&
+                          write_thumbnail(scratch, IMAGE, ALLOWED);
+    if (!CAPTURED) {
+        return nullptr;
+    }
+    track_preview(*port.entry, IMAGE);
+    return IMAGE;
 }
 
 void CWorkspaceAnimation::Impl::remove_monitor(const PHLMONITOR &monitor) {
