@@ -62,7 +62,7 @@ hl.config({
             window = {
                 options = {
                     construction = {
-                        duration = 0.62,
+                        -- duration = 0.62,
                     },
                     burn = {
                         -- duration = 1,
@@ -287,7 +287,7 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 
 | Setting | Type / default | Numeric range | Meaning |
 |---|---|---|---|
-| `window:options:construction:duration` | float / animation defaults: `0.62` | 0.25–3.0 | Time in seconds for the builders to raise and fasten the window panels. |
+| `window:options:construction:duration` | float / animation defaults: open `0.62`, close `0.85` | 0.25–3.0 | Open: Time in seconds for the builders to raise and fasten the window panels. Close: Time in seconds for the crew to clear the window and its printed facade to collapse. |
 | `window:options:burn:duration` | float / animation defaults: open `1`, close `1.5` | 0.15–5 | Open: Combustion time in seconds for the hole to reveal the window. Shorter is faster. Close: Combustion time in seconds for the closing sheet. Detached material cools on its own clock. |
 | `window:options:liquid:strength` | float / animation defaults: `0.65` | 0–1.5 | Movement: Liquid movement deformation strength. Zero moves windows without deformation. Open: Liquid pop-out size and deformation strength when opening. Zero removes the pop-out. Close: Liquid drain deformation strength when closing. Zero closes the window natively. |
 | `window:options:liquid:viscosity` | float / animation defaults: `0.75` | 0–1 | Liquid resistance to flow during movement. Higher values make it thicker and more cohesive. |
@@ -380,7 +380,7 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `workspace:options:planet_hop:depth_strength` | float / `0.018` | 0–0.5 | Surface relief strength in planet-radius units. |
 | `workspace:options:planet_hop:depth_source` | string / `""` | — | Optional PNG depth image path; empty uses procedural depth. PNG images are limited to 4096 pixels per dimension and 16 MiB encoded. |
 | `window:enabled` | boolean / `true` | — | Enable window movement, opening and closing effects. When false, none of these effects run. |
-| `window:style` | string / `"liquid"` | — | Choose the material for movement, opening and closing. Liquid deforms the edges; paper crumples into a ball, flutters or glides while moving and folds while resizing; cloth drapes and flutters; swarm breaks the window into creature-shaped pieces; bubble inflates a soap film, sloshes while moving and bursts on close; smoke gathers, unravels into flowing content-coloured volumes while moving, reforms at rest and dissipates on close; burn opens through the wallpaper, scorches it during movement and consumes the printed window on close. Construction builds the opening with a miniature crew; its movement and resize trial is opt-in, and closing stays native. Invalid names are rejected. Allowed: `liquid`, `paper`, `cloth`, `swarm`, `bubble`, `smoke`, `burn`, `construction`. |
+| `window:style` | string / `"liquid"` | — | Choose the material for movement, opening and closing. Liquid deforms the edges; paper crumples into a ball, flutters or glides while moving and folds while resizing; cloth drapes and flutters; swarm breaks the window into creature-shaped pieces; bubble inflates a soap film, sloshes while moving and bursts on close; smoke gathers, unravels into flowing content-coloured volumes while moving, reforms at rest and dissipates on close; burn opens through the wallpaper, scorches it during movement and consumes the printed window on close. Construction builds with miniature workers, offers optional transport and intact resize, and closes with a regional implosion. Invalid names are rejected. Allowed: `liquid`, `paper`, `cloth`, `swarm`, `bubble`, `smoke`, `burn`, `construction`. |
 | `window:options:burn:variation` | float / `0.7` | 0–1 | Irregularity of the combustion front, from even propagation to strongly uneven burning. |
 | `window:options:burn:fragment_density` | float / `0.55` | 0–1 | Relative emission of detached printed fragments. Zero disables them. |
 | `window:options:burn:ember_density` | float / `0.65` | 0–1 | Relative emission of luminous embers. Zero disables them. |
@@ -423,7 +423,7 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `window:options:smoke:variation` | float / `0.5` | 0–1 | Randomness of smoke between windows and animations: where smoke gathers or leaves, how it turns and swirls, and how its density and wisps vary. Zero makes every animation alike while the smoke still moves naturally. Configured directions are always respected. |
 | `window:movement:enabled` | boolean / `true` | — | Deform windows while they move. This does not affect opening or closing effects. |
 | `window:movement:workspace_movement` | boolean / `true` | — | Let workspace slides trigger movement effects. When false, ordinary movement, opening and closing are unaffected. |
-| `window:movement:options:construction:variant` | string / `"native"` | — | Leave movement and resize native (default), or opt in to crew_carry: workers carry the intact window during moves and stretch its edges during resize. Allowed: `native`, `crew_carry`. |
+| `window:movement:options:construction:variant` | string / `"native"` | — | Leave movement and resize native, or choose how Construction moves a window: carry it with workers, lift it with a crane, or relocate its pieces. All three use workers to resize the intact window. Allowed: `native`, `crew_carry`, `crane`, `piece_by_piece`. |
 | `window:movement:options:smoke:reform` | float / `0.48` | 0.15–1.5 | Time scale in seconds for moving smoke to condense back into the exact window after movement stops. |
 | `window:movement:options:smoke:settle_speed` | float / `1` | 0.1–2 | Speed multiplier for the smoke body's expansion and condensation after movement or resizing stops. One preserves the reform time scale; higher values reform faster and lower values linger. Opening and closing durations are unchanged. |
 | `window:movement:options:smoke:mass` | float / `0.45` | 0.15–1 | Size of the moving smoke body as a fraction of the window's width and height. One keeps roughly the window's footprint; smaller values contract a moving window into a denser mass that expands back when it stops. |

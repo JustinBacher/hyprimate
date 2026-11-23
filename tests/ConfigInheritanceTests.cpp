@@ -153,13 +153,21 @@ int main() try {
     assert(near(readConfig(values).workspace.rotation.duration, 0.1));
     // Unset globals must retain each transition's historical default.
     if (!near(config.construction.open.duration, 0.62)) return 1;
+    if (!near(config.construction.close.duration, 0.85)) return 1;
     if (config.construction.movement.variant != Variant::Native) return 1;
     set("window:options:construction:duration", 2.25F);
     if (!near(readConfig(values).construction.open.duration, 2.25)) return 1;
     set("window:open:options:construction:duration", 1.75F);
     if (!near(readConfig(values).construction.open.duration, 1.75)) return 1;
+    if (!near(readConfig(values).construction.close.duration, 2.25)) return 1;
+    set("window:close:options:construction:duration", 0.97F);
+    if (!near(readConfig(values).construction.close.duration, 0.97)) return 1;
     set("window:movement:options:construction:variant", std::string("crew_carry"));
     if (readConfig(values).construction.movement.variant != Variant::CrewCarry) return 1;
+    set("window:movement:options:construction:variant", std::string("crane"));
+    if (readConfig(values).construction.movement.variant != Variant::Crane) return 1;
+    set("window:movement:options:construction:variant", std::string("piece_by_piece"));
+    if (readConfig(values).construction.movement.variant != Variant::PieceByPiece) return 1;
     set("window:movement:options:construction:variant", std::string("unsupported"));
     if (readConfig(values).construction.movement.variant != Variant::Native) return 1;
     assert(near(config.paper.open.duration, 0.6));

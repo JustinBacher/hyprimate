@@ -16,6 +16,20 @@ bool translated(Box a, Box b) noexcept {
     return a.x != b.x || a.y != b.y;
 }
 
+bool overlaps(Box a, Box b) noexcept {
+    return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
+bool same_box(Box a, Box b) noexcept {
+    return !translated(a, b) && !size_changed(a, b);
+}
+
+bool touches_other_output(Box box, Box owner, std::span<const Box> outputs) noexcept {
+    return std::ranges::any_of(outputs, [&](Box output) {
+        return is_usable(output) && !same_box(output, owner) && overlaps(box, output);
+    });
+}
+
 bool valid_interval(double seconds) noexcept {
     return std::isfinite(seconds) && seconds >= 0;
 }
@@ -59,13 +73,15 @@ bool MotionSite::admits(const animation::Motion &motion) noexcept {
 }
 
 MotionSite::Kind MotionSite::kind() const noexcept {
-    if (std::holds_alternative<studies::IntactTransport>(m_model)) return Kind::Carry;
+    if (std::holds_alternative<studies::IntactTransport>(m_model))
+        return m_variant == TransportVariant::Crane ? Kind::Crane : Kind::Carry;
     if (std::holds_alternative<studies::EdgeStretch>(m_model)) return Kind::Resize;
+    if (std::holds_alternative<studies::PieceRelocation>(m_model)) return Kind::Pieces;
     return Kind::None;
 }
 
 animation::Frame MotionSite::advance(const animation::Step &step) noexcept {
-    if (m_done) return {};
+    if (m_done || m_variant == TransportVariant::Native) return {};
     const auto finish = [this](bool interrupted = false) noexcept {
         m_done = true;
         m_batch.count = 0;
@@ -100,12 +116,42 @@ animation::Frame MotionSite::advance(const animation::Step &step) noexcept {
     if (resize && !moving_grab) {
         next = Kind::Resize;
     } else if (move || (resize && moving_grab)) {
-        // During a move grab, incidental configure changes update the carry's geometry,
-        // not the crew assignment. A real resize grab still wins on any size change.
+        // During a move grab, incidental configures do not enlist an edge crew. Intact
+        // transport can follow the new size; a cut load has incompatible source geometry.
         if (step.resize_held && previous != Kind::Resize) return finish();
-        if (!step.resize_held) next = Kind::Carry;
+        if (!step.resize_held) {
+            switch (m_variant) {
+                case TransportVariant::Crane: next = Kind::Crane; break;
+                case TransportVariant::CrewCarry: next = Kind::Carry; break;
+                case TransportVariant::PieceByPiece:
+                    if (resize) return finish(true);
+                    next = Kind::Pieces;
+                    break;
+                case TransportVariant::Native: return finish();
+            }
+        }
     }
     if (next == Kind::None) return finish();
+
+    const bool alternate = next == Kind::Crane || next == Kind::Pieces;
+    const auto owner = step.visible_output_owner.value_or(step.screen);
+    const auto outputs = step.visible_outputs;
+    if (alternate) {
+        // The host can cull by the native body before looking at transformed bounds.
+        if (!is_usable(owner) || !overlaps(step.body, owner) ||
+            touches_other_output(step.capture, owner, outputs) ||
+            (step.visible_output_owner && std::ranges::none_of(outputs, [&](Box output) {
+                return same_box(output, owner);
+            })) ||
+            (previous == next && !same_box(owner, m_output_owner))) {
+            return finish(true);
+        }
+        if (next == Kind::Pieces &&
+            (!overlaps(from, owner) || touches_other_output(from, owner, outputs))) {
+            return finish(true);
+        }
+        m_output_owner = owner;
+    }
 
     const auto area = is_usable(step.work_area) ? step.work_area : step.screen;
     // A quiet output may go arbitrarily long without a sample. The first measured
@@ -123,19 +169,31 @@ animation::Frame MotionSite::advance(const animation::Step &step) noexcept {
         model.step({.body = step.body, .work_area = area, .elapsed = step.elapsed,
             .sample_seconds = measured, .held = step.resize_held});
         active = model.active();
+    } else if (next == Kind::Pieces) {
+        auto *model = std::get_if<studies::PieceRelocation>(&m_model);
+        if (!model) {
+            model = &m_model.emplace<studies::PieceRelocation>();
+            model->reset(from, m_seed);
+        }
+        model->step(step.body, step.elapsed, moving_grab);
+        active = model->active();
     } else {
         auto *model = std::get_if<studies::IntactTransport>(&m_model);
+        const auto crane_owner = next == Kind::Crane ? std::optional{owner} : std::nullopt;
+        const auto crane_outputs = crane_owner ? outputs : std::span<const Box>{};
         if (!model) {
-            model = &m_model.emplace<studies::IntactTransport>(studies::IntactTransportKind::CrewCarry, m_seed);
+            const auto transport = next == Kind::Crane ? studies::IntactTransportKind::Crane :
+                studies::IntactTransportKind::CrewCarry;
+            model = &m_model.emplace<studies::IntactTransport>(transport, m_seed);
             auto acquisition = step;
             acquisition.motion->from_body = from;
             acquisition.motion->body = step.body;
             acquisition.motion->workspace_shifted = false;
             acquisition.motion->resized = resize;
             acquisition.motion->sample_seconds = measured;
-            model->step(acquisition);
-        } else {
-            model->step(step);
+            if (!model->step(acquisition, crane_outputs, crane_owner)) return finish(true);
+        } else if (!model->step(step, crane_outputs, crane_owner)) {
+            return finish(true);
         }
         active = model->active();
     }
@@ -145,9 +203,19 @@ animation::Frame MotionSite::advance(const animation::Step &step) noexcept {
     m_capture = step.capture;
     m_monitor = step.monitor;
     m_workspace = step.workspace;
-    const auto bounds = emit_motion_batch(m_batch, m_body, m_capture,
-        std::get_if<studies::IntactTransport>(&m_model), std::get_if<studies::EdgeStretch>(&m_model));
+    Box bounds;
+    if (next == Kind::Pieces) {
+        bounds = emit_piece_batch(m_batch, m_body, m_capture, std::get<studies::PieceRelocation>(m_model));
+    } else if (next == Kind::Crane) {
+        bounds = emit_crane_batch(m_batch, m_body, m_capture, std::get<studies::IntactTransport>(m_model));
+    } else {
+        bounds = emit_motion_batch(m_batch, m_body, m_capture,
+            std::get_if<studies::IntactTransport>(&m_model), std::get_if<studies::EdgeStretch>(&m_model));
+    }
     if (!is_usable(bounds) || !m_batch.count || m_batch.overflow) return finish(true);
+    if (alternate && touches_other_output(
+            {bounds.x + m_capture.x, bounds.y + m_capture.y, bounds.w, bounds.h}, owner, outputs))
+        return finish(true);
     return {.running = true, .bounds = bounds, .native_presentation = is_capture_identity(m_batch, m_capture)};
 }
 

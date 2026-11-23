@@ -29,6 +29,7 @@
 #include "StyleTypes.hpp"
 #include "WindowAnimations.hpp"
 #include "WindowAnimationPass.hpp"
+#include "animations/construction/ConstructionRenderer.hpp"
 #include "workspace/WorkspaceCaptureScope.hpp"
 
 namespace {
@@ -72,6 +73,49 @@ namespace {
             }
         }
         return count == 1 ? found : nullptr;
+    }
+
+    bool capture_or_replay(const Render::CRenderContext &ctx) {
+        return ctx.readOnlyEffects() || ctx.m_renderingCapture || ctx.m_renderingSnapshot ||
+            WorkspaceCaptureScope::for_context(ctx) != nullptr ||
+            WorkspaceCaptureScope::is_destination_live(ctx);
+    }
+
+    bool physical_monitor(const Render::CRenderContext &ctx, const PHLMONITOR &monitor) {
+        return monitor && ctx.active() && ctx.m_mode == Render::RENDER_MODE_NORMAL &&
+            ctx.m_data.pMonitor.lock() == monitor && !capture_or_replay(ctx);
+    }
+
+    bool supported_close_effects(const Desktop::SFadeoutRenderEffects &effects) {
+        return effects.dimAroundAlpha == 0.F && !effects.preBlur && !effects.textureBlur.enabled;
+    }
+
+    bool same_box(const hyprimate::Box &a, const hyprimate::Box &b) {
+        return a.x == b.x && a.y == b.y && a.w == b.w && a.h == b.h;
+    }
+
+    hyprimate::Box monitor_box(const PHLMONITOR &monitor) {
+        const auto box = monitor->logicalBox();
+        return {box.x, box.y, box.w, box.h};
+    }
+
+    bool same_extent(const Vector2D &extent, const hyprimate::Vec2 &expected) {
+        return extent.x == expected.x && extent.y == expected.y;
+    }
+
+    bool usable_monitor_image(const SP<Render::IFramebuffer> &image, const hyprimate::Vec2 &extent) {
+        if (!image || !same_extent(image->m_size, extent)) { return false; }
+        const auto texture = image->getTexture();
+        return texture && texture->m_texID != 0 && same_extent(texture->m_size, extent);
+    }
+
+    hyprimate::Box clip_monitor(const hyprimate::Box &box, const hyprimate::Vec2 &extent) {
+        if (!hyprimate::is_usable(box) || !std::isfinite(box.x + box.w) || !std::isfinite(box.y + box.h)) {
+            return {};
+        }
+        const double X = std::max(0., box.x);
+        const double Y = std::max(0., box.y);
+        return {X, Y, std::min(extent.x, box.x + box.w) - X, std::min(extent.y, box.y + box.h) - Y};
     }
 
 
@@ -139,15 +183,32 @@ namespace {
 }  // namespace
 
 
+void CloseRenderGuard::physical_failure(Render::CRenderContext &ctx) const {
+    if (public_close_only && handle && renderer.valid() && model.valid() && physical_monitor(ctx, monitor)) {
+        animations->interrupt_public_close(*handle);
+    }
+}
+
+void CloseRenderGuard::physical_presented(Render::CRenderContext &ctx, bool submitted) const {
+    if (public_close_only && handle && renderer.valid() && model.valid() && physical_monitor(ctx, monitor)) {
+        animations->confirm_public_close_presented(*handle, hyprimate::animation::Clock::now(), submitted);
+    }
+}
+
 bool CloseRenderGuard::valid(Render::CRenderContext &ctx, bool require_native) const {
     if (!renderer.valid() || !model.valid()) { return false; }
-    const bool CAPTURE = ctx.readOnlyEffects() || ctx.m_renderingCapture || ctx.m_renderingSnapshot ||
-        WorkspaceCaptureScope::for_context(ctx) != nullptr ||
-        WorkspaceCaptureScope::is_destination_live(ctx);
-    const auto ALLOWED = [&](bool private_content) {
-        return ctx.shouldRenderContent(private_content) && (!CAPTURE || !private_content);
+    const auto deny = [&] {
+        if (!require_native) { physical_failure(ctx); }
+        return false;
     };
-    if (!ALLOWED(no_screen_share)) { return false; }
+    if (public_close_only && (!port->session_unlocked() || !monitor || ctx.m_data.pMonitor.lock() != monitor)) {
+        return deny();
+    }
+    const bool CAPTURE = capture_or_replay(ctx);
+    const auto ALLOWED = [&](bool private_content) {
+        return ctx.shouldRenderContent(private_content) && (!(public_close_only || CAPTURE) || !private_content);
+    };
+    if (!ALLOWED(no_screen_share)) { return deny(); }
     const auto ID = native ? port->fadeout_identity(native) : fadeout;
     if (native) {
         const auto SOURCE = native->source();
@@ -155,18 +216,26 @@ bool CloseRenderGuard::valid(Render::CRenderContext &ctx, bool require_native) c
         if (!ALLOWED(SOURCE.noScreenShare) || native->monitor().lock() != monitor ||
             (WORKSPACE && WORKSPACE != workspace) ||
             Render::sceneFadeoutPlane(Render::eSceneMode::MONITOR, native->plane(), SOURCE.pinned) != plane) {
-            return false;
+            return deny();
+        }
+        if (public_close_only && (WORKSPACE != workspace || !supported_close_effects(native->effects()))) {
+            return deny();
         }
     }
     const bool NATIVE_LIVE = native && !native->done() &&
         std::ranges::any_of(Desktop::fadingOutState()->fadeouts(),
             [&](const auto &value) { return value.get() == native.get(); });
     if (require_native && !NATIVE_LIVE) { return false; }
-    return hyprimate::animation::close_association_valid(*animations, *port, handle, fadeout, ID, NATIVE_LIVE,
+    const bool ALLOWED_ASSOCIATION = hyprimate::animation::close_association_valid(
+        *animations, *port, handle, fadeout, ID, NATIVE_LIVE,
         [&](const auto &view) {
             return (view.ownership == hyprimate::animation::CloseStart::Owned || NATIVE_LIVE) &&
-                view.monitor == port->monitor_identity(monitor) && ALLOWED(view.no_screen_share);
+                view.monitor == port->monitor_identity(monitor) && ALLOWED(view.no_screen_share) &&
+                (!public_close_only || (view.public_close_only && monitor->m_scale == view.scale &&
+                    same_extent(monitor->m_transformedSize, view.image_size) &&
+                    view.workspace == port->workspace_identity(workspace)));
         });
+    return ALLOWED_ASSOCIATION || deny();
 }
 CAnimationCloseRenderer *CAnimationCloseRenderer::s_active = nullptr;
 
@@ -196,6 +265,7 @@ bool CAnimationCloseRenderer::install(std::string &error) {
     }
 
     m_records.reserve(16);
+    m_snapshots.reserve(16);
     s_active = this;
     m_create_hook = HyprlandAPI::createFunctionHook(
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): Hook SDK requires a void* destination address.
@@ -219,6 +289,7 @@ bool CAnimationCloseRenderer::install(std::string &error) {
 
 void CAnimationCloseRenderer::unhook() {
     m_callbacks.invalidate();
+    m_snapshots.clear();
     if (s_active == this) { s_active = nullptr; }
     // Hooks come down first so no new trampoline call can reach this object.
     // removeFunctionHook unhooks (if active) and releases the host-owned hook.
@@ -265,6 +336,81 @@ std::optional<hyprimate::animation::Handle> CAnimationCloseRenderer::pending_for
     return window ? m_animations.pending_for(m_port.identity(PHLWINDOWREF{window})) : std::nullopt;
 }
 
+void CAnimationCloseRenderer::note_monitor_snapshot(
+    const PHLWINDOW &window, const PHLMONITOR &monitor, Render::CRenderContext &ctx) {
+    using namespace hyprimate::animation;
+    if (!ctx.active() || ctx.m_mode != Render::RENDER_MODE_FULL_FAKE || !ctx.m_renderingSnapshot ||
+        ctx.m_renderingCapture || ctx.readOnlyEffects() || WorkspaceCaptureScope::for_context(ctx) ||
+        WorkspaceCaptureScope::is_destination_live(ctx) || !monitor ||
+        ctx.m_data.pMonitor.lock() != monitor || !ctx.m_data.outFB || !m_port.session_unlocked()) {
+        return;
+    }
+    const auto PENDING = pending_for(window);
+    if (!PENDING) { return; }
+    const auto EXPECTED = m_animations.pending_public_close(*PENDING);
+    if (!EXPECTED) { return; }
+    std::erase_if(m_snapshots, [&](const Snapshot &receipt) {
+        return receipt.pending == *PENDING || receipt.producer.expired() ||
+            !m_animations.pending_public_close(receipt.pending);
+    });
+    if (m_snapshots.size() >= 16) { return; }
+
+    // Stock makeSnapshotFB renders the monitor presentation (not workspace-neutral
+    // coordinates) to outFB. As with its close-event observation, keep facts only.
+    const auto OBSERVED = m_port.observe(PHLWINDOWREF{window});
+    const auto &place = EXPECTED->place;
+    if (!OBSERVED || !OBSERVED->mapped || OBSERVED->no_screen_share || OBSERVED->fullscreen ||
+        OBSERVED->monitor != m_port.monitor_identity(monitor) || OBSERVED->monitor != place.monitor ||
+        OBSERVED->workspace != place.workspace || OBSERVED->pinned != place.pinned ||
+        OBSERVED->scale != EXPECTED->scale || !same_box(OBSERVED->screen, place.screen) ||
+        !same_box(OBSERVED->body, place.body) || !same_box(OBSERVED->capture, place.capture) ||
+        OBSERVED->body.w < 5. || OBSERVED->body.h < 5.) { // renderWindow clamps the surface to 5x5.
+        return;
+    }
+    const auto &capture = OBSERVED->capture;
+    const double X = OBSERVED->workspace_offset.x + OBSERVED->floating_offset.x - OBSERVED->screen.x;
+    const double Y = OBSERVED->workspace_offset.y + OBSERVED->floating_offset.y - OBSERVED->screen.y;
+    const double SCALE = OBSERVED->scale;
+    const hyprimate::Box SOURCE{(capture.x + X) * SCALE, (capture.y + Y) * SCALE,
+        capture.w * SCALE, capture.h * SCALE};
+    const hyprimate::Vec2 EXTENT{monitor->m_transformedSize.x, monitor->m_transformedSize.y};
+    if (!same_box(SOURCE, EXPECTED->source_device) || !hyprimate::is_usable(clip_monitor(SOURCE, EXTENT)) ||
+        !same_extent(ctx.m_data.outFB->m_size, EXTENT)) {
+        return;
+    }
+    m_snapshots.push_back({.pending = *PENDING, .producer = WP<Render::IFramebuffer>{ctx.m_data.outFB},
+        .monitor = monitor, .screen = OBSERVED->screen, .extent = EXTENT,
+        .transform = static_cast<std::uint32_t>(monitor->m_transform)});
+}
+
+void CAnimationCloseRenderer::begin_monitor_frame(const PHLMONITOR &monitor, Render::CRenderContext &ctx) {
+    if (!physical_monitor(ctx, monitor)) { return; }
+    for (auto &record : m_records) {
+        if (record.monitor.lock() != monitor) { continue; }
+        const auto VIEW = m_animations.dying_view_for(record.fadeout);
+        record.awaiting_physical_queue = VIEW && VIEW->public_close_only;
+    }
+}
+
+void CAnimationCloseRenderer::finish_monitor_frame(const PHLMONITOR &monitor, Render::CRenderContext &ctx) {
+    if (!physical_monitor(ctx, monitor)) { return; }
+    const auto CALLBACK = callback_ticket();
+    const auto MODEL = m_animations.callback_ticket();
+    while (CALLBACK.valid() && MODEL.valid()) {
+        const auto FOUND = std::ranges::find_if(m_records, [&](const Record &record) {
+            return record.awaiting_physical_queue && record.monitor.lock() == monitor;
+        });
+        if (FOUND == m_records.end()) { return; }
+        FOUND->awaiting_physical_queue = false;
+        const auto VIEW = m_animations.dying_view_for(FOUND->fadeout);
+        // No scene was attempted for a damage-free frame. In a damaged frame a
+        // missing plane (e.g. workspace switch) must not leave native suppressed.
+        if (VIEW && VIEW->public_close_only && !ctx.m_data.finalDamage.empty()) {
+            m_animations.interrupt_public_close(VIEW->handle);
+        }
+    }
+}
+
 void CAnimationCloseRenderer::on_fadeout_created(
     const PHLWINDOW &window, const SP<Desktop::CWindowFadeout> &created,
     hyprimate::animation::Handle pending) {
@@ -279,6 +425,24 @@ void CAnimationCloseRenderer::on_fadeout_created(
     auto facts = FADEOUT != 0 ? m_port.fadeout_facts(FADEOUT).value_or(FadeoutFacts{}) : FadeoutFacts{};
     facts.now = Clock::now();
     const auto IMAGE = created ? created->framebuffer(Render::eSceneMode::MONITOR) : nullptr;
+    if (const auto EXPECTED = m_animations.pending_public_close(pending)) {
+        const auto FOUND = std::ranges::find(m_snapshots, pending, &Snapshot::pending);
+        const auto SNAPSHOT = FOUND == m_snapshots.end() ? std::optional<Snapshot>{} : std::optional{*FOUND};
+        if (FOUND != m_snapshots.end()) { m_snapshots.erase(FOUND); }
+        const auto MONITOR = created ? created->monitor().lock() : PHLMONITOR{};
+        if (!SNAPSHOT || !MONITOR || SNAPSHOT->monitor.lock() != MONITOR ||
+            !same_box(SNAPSHOT->screen, monitor_box(MONITOR)) ||
+            SNAPSHOT->transform != static_cast<std::uint32_t>(MONITOR->m_transform) ||
+            !same_extent(MONITOR->m_transformedSize, SNAPSHOT->extent) ||
+            SNAPSHOT->producer.lock() != IMAGE || !usable_monitor_image(IMAGE, SNAPSHOT->extent) ||
+            !CConstructionRenderer::supports_snapshot(*IMAGE) ||
+            !m_port.session_unlocked() || facts.no_screen_share || facts.workspace != EXPECTED->place.workspace ||
+            created->source().type != Desktop::eFadeoutSource::WINDOW ||
+            !supported_close_effects(created->effects())) {
+            m_animations.interrupt_public_close(pending);
+            return;
+        }
+    }
     // Publish before binding can suppress native drawing or call back into this renderer.
     // No vector reference or iterator survives bind_fadeout; nested creation may grow it.
     const bool INSERTED = created && FADEOUT != 0 &&
@@ -433,7 +597,7 @@ void CAnimationCloseRenderer::draw_item(Render::CRenderContext &ctx, const PHLMO
         .animations = &m_animations, .port = &m_port, .native = item.fadeout,
         .monitor = monitor, .workspace = item.workspace, .plane = item.plane,
         .fadeout = item.fadeout_id, .handle = FOUND ? std::optional{FOUND->handle} : std::nullopt,
-        .no_screen_share = FOUND && FOUND->no_screen_share};
+        .no_screen_share = FOUND && FOUND->no_screen_share, .public_close_only = FOUND && FOUND->public_close_only};
     // Do not turn a stale owned item into native content after association removal.
     if (item.view && (!FOUND || FOUND->handle != item.view->handle)) { return; }
     const auto SUBMIT = [&](UP<IPassElement> content) {
@@ -441,10 +605,17 @@ void CAnimationCloseRenderer::draw_item(Render::CRenderContext &ctx, const PHLMO
     };
     if (FOUND) {
         const auto IMAGE = m_port.fadeout_image(FOUND->handle);
+        const auto bounds = FOUND->public_close_only ?
+            clip_monitor(FOUND->bounds_device, FOUND->image_size) : FOUND->bounds_device;
+        if (FOUND->public_close_only &&
+            (!usable_monitor_image(IMAGE, FOUND->image_size) || !hyprimate::is_usable(bounds))) {
+            guard.physical_failure(ctx);
+            return;
+        }
         if (IMAGE && IMAGE->getTexture()) {
-            const auto EFFECTS = item.fadeout ? item.fadeout->effects() : Desktop::SFadeoutRenderEffects{};
-            submit_close([&] { return guard.valid(ctx); }, [&] {
-                const auto &bounds = FOUND->bounds_device;
+            const auto EFFECTS = item.fadeout && !FOUND->public_close_only ?
+                item.fadeout->effects() : Desktop::SFadeoutRenderEffects{};
+            const bool QUEUED = submit_close([&] { return guard.valid(ctx); }, [&] {
                 return makeUnique<CWindowAnimationPass>(CWindowAnimationPass::SData{
                     .resources = &m_port.canvas_resources(),
                     .animations = &m_animations,
@@ -459,11 +630,19 @@ void CAnimationCloseRenderer::draw_item(Render::CRenderContext &ctx, const PHLMO
                     .image_origin = {},
                     .image_size = FOUND->image_size,
                     .scale = FOUND->scale,
-                    .alpha = FOUND->alpha,
+                    // Stock MONITOR capture already premultiplied these host alpha channels.
+                    .alpha = FOUND->public_close_only ? 1.F : FOUND->alpha,
                     .monitor = FOUND->monitor,
                     .damage = native.damage(),
                     .close_guard = guard});
-            }, [&] { native.draw_backdrop(EFFECTS, guard); }, SUBMIT);
+            }, [&] {
+                if (!FOUND->public_close_only) { native.draw_backdrop(EFFECTS, guard); }
+            }, SUBMIT);
+            if (FOUND->public_close_only && QUEUED && guard.renderer.valid() && guard.model.valid() &&
+                physical_monitor(ctx, monitor)) {
+                const auto RECORD = std::ranges::find(m_records, item.fadeout_id, &Record::fadeout);
+                if (RECORD != m_records.end()) { RECORD->awaiting_physical_queue = false; }
+            }
             return;
         }
     }

@@ -267,12 +267,19 @@ void CPluginRuntime::Impl::render_stage(const Event::SRenderStageEvent &event) {
     } else if (event.stage == RENDER_PRE_WINDOW && event.context) {
         auto &ctx = event.context->get();
         if (const auto WINDOW = ctx.m_data.currentWindow.lock()) {
+            if (m_close_available && ctx.m_renderingSnapshot) {
+                m_close->note_monitor_snapshot(WINDOW, event.monitor, ctx);
+            }
             CHyprAnimationCanvas canvas{ctx, m_port.canvas_resources()};
-            m_animations.before_window(m_port.identity(PHLWINDOWREF{WINDOW}), canvas);
+            m_animations.before_window(m_port.identity(PHLWINDOWREF{WINDOW}), canvas, MONITOR, m_frame);
         }
     } else if (event.stage == RENDER_POST_WINDOWS && event.context) {
         CHyprAnimationCanvas canvas{event.context->get(), m_port.canvas_resources()};
         m_animations.after_windows(MONITOR, canvas);
+    } else if (m_close_available && event.stage == RENDER_BEGIN && event.context) {
+        m_close->begin_monitor_frame(event.monitor, event.context->get());
+    } else if (m_close_available && event.stage == RENDER_LAST_MOMENT && event.context) {
+        m_close->finish_monitor_frame(event.monitor, event.context->get());
     } else if (event.stage == RENDER_POST && m_animations.needs_frame(MONITOR)) {
         event.monitor->scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_ANIMATION);
     }

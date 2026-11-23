@@ -64,8 +64,10 @@ namespace hyprimate::construction::studies {
       public:
         explicit IntactTransport(IntactTransportKind kind, std::uint64_t seed) noexcept;
 
-        // Output rectangles are borrowed only for this step. An omitted list uses Step::screen.
-        void step(const animation::Step &step, std::span<const Box> outputs = {}) noexcept;
+        // An owner constrains a mapped crane to one drawable apron and an exposed exit.
+        // Returns false only when that mapped route cannot be used; no owner preserves the study.
+        bool step(const animation::Step &step, std::span<const Box> outputs = {},
+            std::optional<Box> owner = {}) noexcept;
         [[nodiscard]] bool active() const noexcept {
             return m_active;
         }
@@ -124,9 +126,10 @@ namespace hyprimate::construction::studies {
         void place_crew(Box apron) noexcept;
         void advance_crew(
             double dt, Vec2 velocity, bool working, bool regrab, bool resizing) noexcept;
-        void advance_crane(double dt,
+        bool advance_crane(double dt,
             Box apron,
             std::span<const Box> outputs,
+            bool mapped,
             Vec2 velocity,
             bool working,
             bool fresh,

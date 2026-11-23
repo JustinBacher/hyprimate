@@ -7,6 +7,7 @@
 #include <limits>
 #include <memory>
 #include <new>
+#include <span>
 #include <type_traits>
 
 #include <png.h>
@@ -46,6 +47,35 @@ void instance_attribute(GLuint location, GLint components, GLenum type, GLboolea
     glVertexAttribDivisor(location, 1);
 }
 
+bool valid_attachment(GLuint image, GLuint output_texture) noexcept {
+    if (!image || !output_texture || image == output_texture ||
+        glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE ||
+        !gl::framebuffer_attachment_is(GL_COLOR_ATTACHMENT0, output_texture))
+        return false;
+    GLint alpha = 0;
+    glGetFramebufferAttachmentParameteriv(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+        GL_FRAMEBUFFER_ATTACHMENT_ALPHA_SIZE, &alpha);
+    if (alpha < 8) return false;
+    GLint component_type = 0, encoding = 0;
+    glGetFramebufferAttachmentParameteriv(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+        GL_FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE, &component_type);
+    glGetFramebufferAttachmentParameteriv(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+        GL_FRAMEBUFFER_ATTACHMENT_COLOR_ENCODING, &encoding);
+    return (component_type == GL_UNSIGNED_NORMALIZED || component_type == GL_FLOAT) &&
+        encoding == GL_LINEAR;
+}
+
+struct ClearLayer {
+    const bool dither = glIsEnabled(GL_DITHER) == GL_TRUE;
+    ClearLayer() {
+        // Preserve exact identity pixels on integer-aligned SDR output.
+        if (dither) glDisable(GL_DITHER);
+        constexpr std::array<float, 4> CLEAR{};
+        glClearBufferfv(GL_COLOR, 0, CLEAR.data());
+    }
+    ~ClearLayer() { if (dither) glEnable(GL_DITHER); }
+};
+
 }  // namespace
 
 std::optional<CConstructionMaterial::View> CConstructionMaterial::prepare_view(
@@ -62,9 +92,8 @@ std::optional<CConstructionMaterial::View> CConstructionMaterial::prepare_view(
 
     const double X = t.source.x - t.image_origin.x, Y = t.source.y - t.image_origin.y;
     const double LEFT = std::max(0.0, X), TOP = std::max(0.0, Y);
-    const double RIGHT = std::min(t.image_size.x, X + t.source.w);
-    const double BOTTOM = std::min(t.image_size.y, Y + t.source.h);
-    if (!(RIGHT > LEFT && BOTTOM > TOP)) return std::nullopt;
+    const double RIGHT = std::min({t.image_size.x, X + t.source.w, X + t.capture.w * t.scale});
+    const double BOTTOM = std::min({t.image_size.y, Y + t.source.h, Y + t.capture.h * t.scale});
 
     // Select actual texel centers in the half-open authorized intersection, not a half-pixel
     // gutter on every panel (or on a fractional source edge). This rules out foreign padding
@@ -73,7 +102,10 @@ std::optional<CConstructionMaterial::View> CConstructionMaterial::prepare_view(
     const double FIRST_Y = std::ceil(TOP - 0.5) + 0.5;
     const double LAST_X = std::ceil(RIGHT - 0.5) - 0.5;
     const double LAST_Y = std::ceil(BOTTOM - 0.5) - 0.5;
-    if (LAST_X < FIRST_X || LAST_Y < FIRST_Y) return std::nullopt;
+    const bool HAS_CROP = RIGHT > LEFT && BOTTOM > TOP && LAST_X >= FIRST_X && LAST_Y >= FIRST_Y;
+    if (!HAS_CROP && !t.allow_empty_crop) return std::nullopt;
+    const Box LOCAL{(LEFT - X) / t.scale, (TOP - Y) / t.scale,
+        (RIGHT - LEFT) / t.scale, (BOTTOM - TOP) / t.scale};
 
     const double PIVOT_X = (t.body.x - t.capture.x) + t.body.w * 0.5;
     const double PIVOT_Y = (t.body.y - t.capture.y) + t.body.h * 0.5;
@@ -101,19 +133,21 @@ std::optional<CConstructionMaterial::View> CConstructionMaterial::prepare_view(
             static_cast<float>(Y_SIGN * (2 * CANVAS_Y / t.canvas.h - 1)),
             static_cast<float>(2 * t.scale / t.canvas.w),
             static_cast<float>(Y_SIGN * 2 * t.scale / t.canvas.h)},
-        .crop = {static_cast<float>((LEFT - X) / t.scale), static_cast<float>((TOP - Y) / t.scale),
-            static_cast<float>((RIGHT - X) / t.scale), static_cast<float>((BOTTOM - Y) / t.scale)},
+        .crop = HAS_CROP ? std::array{static_cast<float>(LOCAL.x), static_cast<float>(LOCAL.y),
+            static_cast<float>((RIGHT - X) / t.scale), static_cast<float>((BOTTOM - Y) / t.scale)} :
+            std::array<float, 4>{},
         .client_map = {static_cast<float>(X), static_cast<float>(Y),
             static_cast<float>(t.scale), static_cast<float>(t.scale)},
-        .sample_bounds = {static_cast<float>(FIRST_X), static_cast<float>(FIRST_Y),
-            static_cast<float>(LAST_X), static_cast<float>(LAST_Y)},
+        .sample_bounds = HAS_CROP ? std::array{static_cast<float>(FIRST_X), static_cast<float>(FIRST_Y),
+            static_cast<float>(LAST_X), static_cast<float>(LAST_Y)} : std::array<float, 4>{},
         .inverse_image = {static_cast<float>(1 / t.image_size.x),
             static_cast<float>(1 / t.image_size.y)},
         .texel_grid = texel_grid,
+        .authorized_local_crop = HAS_CROP ? std::optional{LOCAL} : std::nullopt,
         .rgbx = t.image_rgbx};
     if (!finite(VIEW.pivot) || !finite(VIEW.canvas) || !finite(VIEW.crop) ||
         !finite(VIEW.client_map) || !finite(VIEW.sample_bounds) ||
-        VIEW.crop[0] >= VIEW.crop[2] || VIEW.crop[1] >= VIEW.crop[3] ||
+        (HAS_CROP && (VIEW.crop[0] >= VIEW.crop[2] || VIEW.crop[1] >= VIEW.crop[3])) ||
         VIEW.canvas[2] <= 0 || VIEW.canvas[3] == 0 || VIEW.pivot[2] <= 0 ||
         VIEW.client_map[2] <= 0 || VIEW.inverse_image[0] <= 0 || VIEW.inverse_image[1] <= 0)
         return std::nullopt;
@@ -182,10 +216,11 @@ bool CConstructionMaterial::initialize(GLuint program) noexcept {
         .texel_grid = glGetUniformLocation(program, "u_texel_grid"),
         .rgbx = glGetUniformLocation(program, "u_rgbx"),
         .image = glGetUniformLocation(program, "u_image"),
-        .atlas = glGetUniformLocation(program, "u_atlas")};
+        .atlas = glGetUniformLocation(program, "u_atlas"),
+        .mesh = glGetUniformLocation(program, "u_mesh")};
     if (std::min({m_uniforms.pivot, m_uniforms.canvas, m_uniforms.crop, m_uniforms.client_map,
             m_uniforms.sample_bounds, m_uniforms.inverse_image, m_uniforms.rgbx,
-            m_uniforms.texel_grid, m_uniforms.image, m_uniforms.atlas}) < 0)
+            m_uniforms.texel_grid, m_uniforms.image, m_uniforms.atlas, m_uniforms.mesh}) < 0)
         return false;
 
     glGenVertexArrays(1, &m_vao);
@@ -224,61 +259,133 @@ bool CConstructionMaterial::initialize(GLuint program) noexcept {
     return true;
 }
 
-bool CConstructionMaterial::draw(const ConstructionBatch &batch, const View &view, GLuint image,
-    GLuint output_texture) const noexcept {
-    if (!m_program || !image || !output_texture || image == output_texture || batch.overflow ||
-        batch.count > batch.quads.size() ||
-        glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE ||
-        !gl::framebuffer_attachment_is(GL_COLOR_ATTACHMENT0, output_texture))
-        return false;
-    GLint alpha = 0;
-    glGetFramebufferAttachmentParameteriv(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-        GL_FRAMEBUFFER_ATTACHMENT_ALPHA_SIZE, &alpha);
-    if (alpha < 8) return false;
-    GLint component_type = 0, encoding = 0;
-    glGetFramebufferAttachmentParameteriv(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-        GL_FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE, &component_type);
-    glGetFramebufferAttachmentParameteriv(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-        GL_FRAMEBUFFER_ATTACHMENT_COLOR_ENCODING, &encoding);
-    if ((component_type != GL_UNSIGNED_NORMALIZED && component_type != GL_FLOAT) ||
-        encoding != GL_LINEAR)
-        return false;
+bool CConstructionMaterial::initialize_close() noexcept {
+    using Frame = construction::studies::RegionalClose::Frame;
+    using IndexFace = construction::studies::RegionalClose::SourceTriangle;
+    static_assert(sizeof(IndexFace) == 3 * sizeof(GLushort));
+    static_assert(sizeof(MeshVertex) == 5 * sizeof(float));
+    if (m_close_vao) return true;
 
-    // Preserve exact identity pixels on integer-aligned SDR output. No host dither state leaks.
-    const bool DITHER = glIsEnabled(GL_DITHER) == GL_TRUE;
-    if (DITHER) glDisable(GL_DITHER);
-    constexpr std::array<float, 4> CLEAR{};
-    glClearBufferfv(GL_COLOR, 0, CLEAR.data());
-    if (batch.count != 0) {
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-        glUseProgram(m_program);
-        glUniform3fv(m_uniforms.pivot, 1, view.pivot.data());
-        glUniform4fv(m_uniforms.canvas, 1, view.canvas.data());
-        glUniform4fv(m_uniforms.crop, 1, view.crop.data());
-        glUniform4fv(m_uniforms.client_map, 1, view.client_map.data());
-        glUniform4fv(m_uniforms.sample_bounds, 1, view.sample_bounds.data());
-        glUniform2fv(m_uniforms.inverse_image, 1, view.inverse_image.data());
-        glUniform3iv(m_uniforms.texel_grid, 1, view.texel_grid.data());
-        glUniform1i(m_uniforms.rgbx, view.rgbx ? 1 : 0);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, image);
-        glBindSampler(0, m_client_sampler);
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, m_atlas);
-        glBindSampler(1, 0);
-        glBindVertexArray(m_vao);
-        glBindBuffer(GL_ARRAY_BUFFER, m_instances);
-        glBufferSubData(GL_ARRAY_BUFFER, 0,
-            static_cast<GLsizeiptr>(batch.count * sizeof(ConstructionQuad)), batch.quads.data());
-        // Primitive order is the batch's paint order across every material variant.
-        glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, static_cast<GLsizei>(batch.count));
+    glGenVertexArrays(1, &m_close_vao);
+    glGenBuffers(1, &m_close_vertices);
+    glGenBuffers(1, &m_close_indices);
+    if (!m_close_vao || !m_close_vertices || !m_close_indices) {
+        release_close();
+        return false;
     }
-    if (DITHER) glEnable(GL_DITHER);
+    glBindVertexArray(m_close_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, m_close_vertices);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_close_indices);
+    if (!gl::allocate_buffer(GL_ARRAY_BUFFER, Frame::MAX_VERTICES * sizeof(MeshVertex),
+            nullptr, GL_STREAM_DRAW) ||
+        !gl::allocate_buffer(GL_ELEMENT_ARRAY_BUFFER, Frame::MAX_TRIANGLES * sizeof(IndexFace),
+            nullptr, GL_STREAM_DRAW)) {
+        release_close();
+        return false;
+    }
+    m_close_upload.reset(new (std::nothrow) MeshVertex[Frame::MAX_VERTICES]);
+    if (!m_close_upload) {
+        release_close();
+        return false;
+    }
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), nullptr);
+    glEnableVertexAttribArray(3);
+    // NOLINTNEXTLINE(performance-no-int-to-ptr,cppcoreguidelines-pro-type-reinterpret-cast)
+    glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+        reinterpret_cast<const void *>(offsetof(MeshVertex, source)));
     return true;
 }
 
+void CConstructionMaterial::bind_view(const View &view, GLuint image) const noexcept {
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    glUseProgram(m_program);
+    glUniform3fv(m_uniforms.pivot, 1, view.pivot.data());
+    glUniform4fv(m_uniforms.canvas, 1, view.canvas.data());
+    glUniform4fv(m_uniforms.crop, 1, view.crop.data());
+    glUniform4fv(m_uniforms.client_map, 1, view.client_map.data());
+    glUniform4fv(m_uniforms.sample_bounds, 1, view.sample_bounds.data());
+    glUniform2fv(m_uniforms.inverse_image, 1, view.inverse_image.data());
+    glUniform3iv(m_uniforms.texel_grid, 1, view.texel_grid.data());
+    glUniform1i(m_uniforms.rgbx, view.rgbx ? 1 : 0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, image);
+    glBindSampler(0, m_client_sampler);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, m_atlas);
+    glBindSampler(1, 0);
+}
+
+void CConstructionMaterial::draw_instances(const ConstructionBatch &batch) const noexcept {
+    glUniform1i(m_uniforms.mesh, 0);
+    glBindVertexArray(m_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, m_instances);
+    glBufferSubData(GL_ARRAY_BUFFER, 0,
+        static_cast<GLsizeiptr>(batch.count * sizeof(ConstructionQuad)), batch.quads.data());
+    // Primitive order is the batch's paint order across every material variant.
+    glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, static_cast<GLsizei>(batch.count));
+}
+
+bool CConstructionMaterial::draw(const ConstructionBatch &batch, const View &view, GLuint image,
+    GLuint output_texture) const noexcept {
+    if (!m_program || batch.overflow || batch.count > batch.quads.size() ||
+        !view.authorized_local_crop || !valid_attachment(image, output_texture))
+        return false;
+    const ClearLayer CLEAR;
+    if (batch.count != 0) {
+        bind_view(view, image);
+        draw_instances(batch);
+    }
+    return true;
+}
+
+bool CConstructionMaterial::draw_close(const construction::studies::RegionalClose::Frame &frame,
+    const ConstructionBatch &effects, const View &view, GLuint image, GLuint output_texture) noexcept {
+    const auto faces = frame.source_faces();
+    if (effects.overflow || effects.count > effects.quads.size() ||
+        std::ranges::any_of(std::span{effects.quads}.first(effects.count),
+            [](const ConstructionQuad &quad) { return quad.surface == ConstructionSurface::Client; }) ||
+        ((!faces.empty() || effects.count != 0) && (!m_program || !view.authorized_local_crop)) ||
+        !valid_attachment(image, output_texture) || (!faces.empty() && !initialize_close()))
+        return false;
+
+    const ClearLayer CLEAR;
+    if (faces.empty() && effects.count == 0) return true;
+    bind_view(view, faces.empty() ? 0 : image);
+    if (!faces.empty()) {
+        const auto vertices = frame.source_vertices();
+        bool identity = true;
+        for (std::size_t i = 0; i < vertices.size(); ++i) {
+            const auto &[source, position] = vertices[i];
+            m_close_upload[i] = {{static_cast<float>(position.x), static_cast<float>(position.y),
+                static_cast<float>(position.z)}, {static_cast<float>(source.x), static_cast<float>(source.y)}};
+            identity = identity && position.x == source.x && position.y == source.y && position.z == 0;
+        }
+        // Preserve source-over in stable publication order where two poses overlap.
+        // Depth rejection or replacement would hide the earlier print through a cutout.
+        glUniform1i(m_uniforms.mesh, identity ? 2 : 1);
+        glBindVertexArray(m_close_vao);
+        glBindBuffer(GL_ARRAY_BUFFER, m_close_vertices);
+        glBufferSubData(GL_ARRAY_BUFFER, 0,
+            static_cast<GLsizeiptr>(vertices.size() * sizeof(MeshVertex)), m_close_upload.get());
+        glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(faces.size_bytes()), faces.data());
+        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(faces.size() * 3), GL_UNSIGNED_SHORT, nullptr);
+    }
+    if (effects.count != 0) draw_instances(effects);
+    return true;
+}
+
+void CConstructionMaterial::release_close() noexcept {
+    if (m_close_vao) glDeleteVertexArrays(1, &m_close_vao);
+    if (m_close_vertices) glDeleteBuffers(1, &m_close_vertices);
+    if (m_close_indices) glDeleteBuffers(1, &m_close_indices);
+    m_close_vao = m_close_vertices = m_close_indices = 0;
+    m_close_upload.reset();
+}
+
 void CConstructionMaterial::release() noexcept {
+    release_close();
     glDeleteSamplers(1, &m_client_sampler);
     glDeleteTextures(1, &m_atlas);
     glDeleteVertexArrays(1, &m_vao);

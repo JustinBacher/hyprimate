@@ -1,6 +1,6 @@
 # Construction: installation study
 
-Construction is an experimental window style. It opens windows with a miniature crew. Movement and resize stay native unless explicitly enabled for the isolated trial below. Closing stays native; Construction never acquires a fadeout. The plugin default remains `liquid`.
+Construction is an experimental window style. A miniature crew builds the opening, optional transport and resize follow Hyprland's geometry, and closing uses regional implosion. The plugin default remains `liquid`; Construction movement defaults to `native`.
 
 ## Art and reproduction
 
@@ -42,9 +42,28 @@ This is compatibility evidence for windows protected before opening on the teste
 
 ## Movement, resize and closing studies
 
-For a disposable trial, select `window.style = "construction"`, keep `window.movement.enabled = true`, and set `window.movement.options.construction.variant = "crew_carry"`. A translation calls in the carrying crew; a resize recruits workers at the changing edges of the intact window. Neither drives Hyprland's client geometry. Set the variant back to `"native"` to keep just the opening. Crane transport, piece relocation and regional implosion are not live alternatives.
+Select `window.style = "construction"`. With `window.movement.enabled = true`, choose a `window.movement.options.construction.variant`:
+
+| Variant | Translation | Resize |
+|---|---|---|
+| `native` (default) | Hyprland | Hyprland |
+| `crew_carry` | A crew supports the intact window | Workers stretch the intact window |
+| `crane` | A crane lifts the window on two corner cables, then detaches and drives off | Same intact stretch; no crane |
+| `piece_by_piece` | Workers carry regions of the live window to its changing destination; the gaps stay empty | Same intact stretch; no detached pieces |
+
+None of these variants moves the actual client or queues pointer updates. Opening stays worker-only. `window.close.enabled` controls the implosion separately; its duration is `window.close.options.construction.duration` (seconds). A localized flash leads a staggered collapse through a connected image surface, not a replay of opening in reverse.
+
+Hyprland chooses which output draws a window from its native rectangle, not from the extent of the animated artwork. The mapped crane therefore needs a route to an exposed display edge. Transport that would strand the artwork on an output which cannot draw it falls back to native; the plugin does not cache another display's client pixels to extend the trip.
+
+Closing during a posed movement or opening requires a matching physical draw and a snapshot that contains the print being carried. An attached crane, unsupported scene color or blur, and print posed into view from outside the snapshot stay on Hyprland's native close. Once crane transport has finished, the ordinary regional close is eligible again.
 
 The paired movement test uses a public synthetic client, a private pointer and a nested stock compositor. With the matching host under `build/upstream-stock-948ac1ab/` and the plugin under `build/construction-live-motion-01/obj/`, run `python3 -B tests/nested/construction_motion_evidence.py --sealed-sha256 <plugin-sha256> --take take-02` (choose an unused take number). Each scale and behavior has a native control, an animated recording, geometry traces and a decoded pixel comparison. These recordings do not validate protected-window capture.
+
+Installed-package evidence (`0.57.0`, `0aa6745f`): `build/construction-remaining-01/take-06` contains public 1× and 1.5× paired crane, piece relocation, idle close and interrupted-opening close recordings. The terminal frames reproduce the corresponding native window or empty wallpaper. `oracle-attribution.json` explains two timing flags using the original observations; it does not replace the raw verdict. `take-07` exercises two adjacent outputs: the crane drives off the exposed outer edge, and cross-output piece transport yields to native. See `hold-interval-analysis.json` for the physical pause across the marker change. These runs do not certify capture privacy, driver allocation failure, or high-refresh frame pacing on the installed desktop.
+
+To exercise the three remaining behaviors on the installed package ABI, build the matching plugin at `build/construction-remaining-01/obj/hyprimate.so`. The installed-ABI fixture requires hashes of `/usr/bin/Hyprland`, `/usr/bin/hyprctl`, and the package's `libaquamarine.so.0.15.1` in `build/construction-remaining-01/installed-host.sha256`, plus the timestamp-enabled test recorder at `build/construction-remaining-01/wf-recorder`. Run `python3 -B tests/nested/construction_motion_evidence.py --installed-abi --sealed-sha256 <plugin-sha256> --take take-NN` with an unused take number. It starts private KWin and Hyprland instances in a disposable namespace, without the desktop's Wayland or IPC sockets. Output includes a native control and normal-speed review videos for each effect at 1× and 1.5×.
+
+Add `--seam` for the adjacent-output trial or `--close-alpha` for a non-unit native fade at handoff. In `take-08`, effective pixel opacity was 0.342 before close and 0.344 on the first aligned Construction frame; applying the host fade twice would have reduced it to approximately 0.117.
 
 On stock `948ac1ab`, both variants passed at 1× and 1.5× (`build/construction-live-motion-01/take-02/`). Each used a continuous pointer grab with a pause and reversal. During the grab the client changed its test marker. At release the workers cleared, the vacated window footprint returned to wallpaper, and the settled output matched the paired native control with zero differing pixels. The resize trial grabbed the top-left corner and kept the opposite corner fixed.
 
@@ -57,4 +76,4 @@ Set-down and crew exit are separate: after pointer release, the carry window's i
 | `EdgeStretch` | The authoritative resize rectangle, with workers pushing or pulling its edges. No subdivision. |
 | `RegionalClose` | A connected deformation of the faces visible when closing began. A local cue starts a staggered regional collapse. Draw authorization and crop restrict the source geometry each time it is requested. |
 
-`IntactTransport` (crew only) and `EdgeStretch` feed the live renderer. The table describes model output, not four live registrations. The models keep no client images or GL resources. The renderer borrows the current transform input for that draw; it does not retain an image for a later move, resize or close.
+The models keep no client images or GL resources. Movement borrows only the current transform input. Closing hands off the source regions and poses currently visible, not a saved opening image; an idle window contributes one intact face. The renderer borrows the host's retained close image under the existing fadeout identity and draw guards. If that image cannot be acquired, or protection or lock state forbids acquisition, the effect does not take ownership of the native fadeout.

@@ -14,6 +14,9 @@ target_sources(hyprimate-core PRIVATE
     ${construction_dir}/ConstructionCrew.cpp
     ${construction_dir}/studies/IntactTransport.cpp
     ${construction_dir}/studies/EdgeStretch.cpp
+    ${construction_dir}/studies/PieceRelocation.cpp
+    ${construction_dir}/studies/RegionalClose.cpp
+    ${construction_dir}/ConstructionCloseSite.cpp
     ${construction_dir}/ConstructionMotionArt.cpp
     ${construction_dir}/ConstructionMotionSite.cpp)
 target_sources(hyprimate PRIVATE
@@ -32,20 +35,20 @@ if(BUILD_TESTING)
     endfunction()
     add_construction_test(construction-site-tests tests/ConstructionSiteTests.cpp)
     add_construction_test(construction-motion-art-tests tests/ConstructionMotionArtTests.cpp)
+    add_construction_test(construction-transport-art-tests tests/ConstructionTransportArtTests.cpp)
     add_construction_test(construction-motion-site-tests tests/ConstructionMotionSiteTests.cpp)
     add_construction_test(construction-intact-transport-tests studies/tests/IntactTransportTests.cpp)
     add_construction_test(construction-edge-stretch-tests studies/tests/EdgeStretchTests.cpp)
-    # These models remain test-only; neither can acquire a live window.
-    add_construction_test(construction-piece-relocation-tests studies/tests/PieceRelocationTests.cpp
-        ${construction_dir}/studies/PieceRelocation.cpp)
-    add_construction_test(construction-regional-close-tests studies/tests/RegionalCloseTests.cpp
-        ${construction_dir}/studies/RegionalClose.cpp)
+    add_construction_test(construction-piece-relocation-tests studies/tests/PieceRelocationTests.cpp)
+    add_construction_test(construction-regional-close-tests studies/tests/RegionalCloseTests.cpp)
+    add_construction_test(construction-publication-tests tests/ConstructionPublicationTests.cpp)
+    add_construction_test(construction-close-site-tests tests/ConstructionCloseSiteTests.cpp)
     add_executable(construction-material-tests
         ${construction_dir}/tests/ConstructionMaterialTests.cpp
         ${construction_dir}/ConstructionMaterial.cpp ${construction_header})
     target_include_directories(construction-material-tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/tests ${CONFIG_GENERATED_DIR})
-    target_link_libraries(construction-material-tests PRIVATE PkgConfig::TEST_EGL PNG::PNG)
+    target_link_libraries(construction-material-tests PRIVATE hyprimate-core PkgConfig::TEST_EGL PNG::PNG)
     add_test(NAME construction-material-tests COMMAND construction-material-tests)
     add_test(NAME construction-material-es30-tests COMMAND construction-material-tests --require-es30)
     set_tests_properties(construction-material-tests construction-material-es30-tests

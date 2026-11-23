@@ -469,3 +469,15 @@ std::span<const MonitorId> CHyprWindowPort::monitors_overlapping(const hyprimate
     }
     return m_overlapping;
 }
+
+std::span<const hyprimate::Box> CHyprWindowPort::visible_outputs(hyprimate::Vec2 presentation_offset) {
+    m_visible_outputs.clear();
+    for (const auto &monitor : State::monitorState()->monitors()) {
+        if (!monitor || !monitor->m_dpmsStatus) { continue; }
+        auto box = box_of(monitor->logicalBox());
+        box.x -= presentation_offset.x;
+        box.y -= presentation_offset.y;
+        if (hyprimate::is_usable(box)) { m_visible_outputs.push_back(box); }
+    }
+    return m_visible_outputs;
+}

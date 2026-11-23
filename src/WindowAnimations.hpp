@@ -46,7 +46,7 @@ class CWindowAnimations<Port, StyleList<Styles...>> {
     void close(WindowId window_id, Clock::time_point now);
     void bind_fadeout(WindowId window_id, const FadeoutFacts &fadeout, Port::RetainedImage image);
     void frame(const FrameStamp &stamp);
-    void before_window(WindowId window_id, Canvas &canvas);
+    void before_window(WindowId window_id, Canvas &canvas, MonitorId render_monitor = 0, FrameId render_frame = 0);
     void before_windows(MonitorId monitor, Canvas &canvas);
     void after_windows(MonitorId monitor, Canvas &canvas);
     bool needs_frame(MonitorId monitor) const;
@@ -55,6 +55,10 @@ class CWindowAnimations<Port, StyleList<Styles...>> {
     bool active(Handle handle) const;
     std::optional<Frame> view(Handle handle) const;
     std::optional<Handle> pending_for(WindowId window_id) const;
+    // Frozen placement for checking the snapshot producer before retaining pixels.
+    std::optional<PendingPublicClose> pending_public_close(Handle handle) const;
+    void interrupt_public_close(Handle handle);
+    void confirm_public_close_presented(Handle handle, Clock::time_point now, bool submitted);
     std::span<const DyingView> dying_views() const;
     // Allocation-free value lookup for reentrant close-renderer collection.
     std::optional<DyingView> dying_view_for(std::uint64_t fadeout) const;
@@ -91,6 +95,7 @@ class CWindowAnimations<Port, StyleList<Styles...>> {
         WorkspaceId workspace = 0;
         Clock::time_point last_step, pending_since;
         FrameId last_frame = 0;
+        FrameId publication_frame = 0;
         std::size_t stall_count = 0;
         std::uint64_t fadeout = 0;
         double captured_scale = 1;
@@ -106,6 +111,9 @@ class CWindowAnimations<Port, StyleList<Styles...>> {
         bool stepped = false;
         CloseStart ownership = CloseStart::Declined;
         bool no_screen_share = false;
+        bool tracks_mapped_publication = false;
+        bool public_close_only = false;
+        bool awaiting_close_presentation = false;
         bool retained_no_screen_share = false;
     };
     template<class Function> bool visit(Handle handle, Function &&function);
@@ -147,6 +155,9 @@ class CWindowAnimations<Port, StyleList<Styles...>> {
     void present_mapped(Tracked &window, Record &entry, const Observation &observation);
     void frame_mapped(Tracked &window, const FrameStamp &stamp);
     bool refresh_fadeout(Record &entry);
+    static Step dying_step(const Record &entry, double elapsed);
+    void damage_dying(Record &entry);
+    bool public_close_revoked(Record &entry);
     void frame_dying(Record &entry, const FrameStamp &stamp);
     Port &m_port;
     Resources &m_resources;

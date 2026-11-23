@@ -57,6 +57,8 @@ struct Step {
     bool pinned = false;
     WindowId window = 0;  // Stable through movement-only style acquisitions; no window reference.
     bool resize_held = false;  // A stationary pointer can still be holding a resize edge.
+    std::span<const Box> visible_outputs{};  // Mapped advance only, borrowed in unoffset body coordinates.
+    std::optional<Box> visible_output_owner{};  // Owner screen in the same coordinates as visible_outputs.
 };
 struct Effects {
     std::optional<Box> drive_body;

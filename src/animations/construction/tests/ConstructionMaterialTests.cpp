@@ -2,6 +2,7 @@
 #include <array>
 #include <cstdio>
 #include <cstdlib>
+#include <memory>
 #include <string_view>
 #include <vector>
 
@@ -11,6 +12,7 @@
 #include "animations/construction/ConstructionMaterial.hpp"
 #include "animations/construction/ConstructionProgram.hpp"
 #include "animations/construction/ConstructionShaders.hpp"
+#include "animations/construction/studies/RegionalClose.hpp"
 #include "gl/RawGlState.hpp"
 #include "gl/Storage.hpp"
 
@@ -357,6 +359,160 @@ void main() { color = texture(u_image, uv); }
     CHECK(glGetError() == GL_NO_ERROR);
 }
 
+void check_retained_regional_close(CConstructionMaterial &material, GLuint image, GLuint target,
+    GLuint framebuffer) {
+    using Close = construction::studies::RegionalClose;
+    Shadow shadow;
+    const SConstructionTarget placement{.canvas = {0, 1, WIDTH, HEIGHT},
+        .source = {-3.25, 2.25, 18, 14},
+        .body = {199, 80, 12, 9},
+        .capture = {198, 79, 14.4, 11.2},
+        .image_origin = {}, .image_size = {WIDTH, HEIGHT}, .scale = 1.25,
+        .allow_empty_crop = true};
+    const auto view = CConstructionMaterial::prepare_view(placement);
+    CHECK(view && view->authorized_local_crop);
+    if (!view || !view->authorized_local_crop) return;
+
+    // Like the monitor snapshot's RPT_EXPORT target, logical top lives at low GL rows.
+    // Rasterize a colored print into a whole-output texture, with distinct off-crop
+    // poison pixels to detect leaks and an upper-left marker to detect either axis flip.
+    constexpr Pixel POISON{255, 0, 255, 255};
+    constexpr Pixel UPPER{48, 12, 3, 128}, LOWER{5, 19, 85, 128}, MARKER{0, 96, 7, 128};
+    constexpr Pixel EFFECT{242, 220, 32, 255}, CLEAR{};
+    GLuint snapshot_fbo = 0, ambient_vao = 0, ambient_ebo = 0;
+    glGenFramebuffers(1, &snapshot_fbo);
+    glGenVertexArrays(1, &ambient_vao);
+    glGenBuffers(1, &ambient_ebo);
+    {
+        gl::CRawGlState<2, Shadow> state(
+            {.viewport_width = WIDTH, .viewport_height = HEIGHT, .framebuffer = snapshot_fbo}, shadow);
+        glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, image, 0);
+        CHECK(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+        const auto paint = [](Pixel pixel) {
+            const std::array<float, 4> rgba{pixel[0] / 255.f, pixel[1] / 255.f,
+                pixel[2] / 255.f, pixel[3] / 255.f};
+            glClearBufferfv(GL_COLOR, 0, rgba.data());
+        };
+        paint(POISON);
+        glEnable(GL_SCISSOR_TEST);
+        glScissor(0, 2, 15, 14);
+        paint(LOWER);
+        glScissor(0, 2, 15, 5);
+        paint(UPPER);
+        glScissor(0, 2, 4, 3);
+        paint(MARKER);
+    }
+    glDeleteFramebuffers(1, &snapshot_fbo);
+
+    const Box local{0, 0, placement.capture.w, placement.capture.h};
+    const std::array visible{Close::VisibleFace::flat(local)};
+    Close model;
+    CHECK(model.start(local, visible, 42, 1));
+    const auto frame = std::make_unique_for_overwrite<Close::Frame>();
+    model.emit({*view->authorized_local_crop, true}, *frame);
+    CHECK(!frame->source_faces().empty());
+    ConstructionBatch effects;
+    effects.add({.origin = {8, 4, 0}, .u = {2, 0, 0}, .v = {0, 2, 0},
+        .uv = {}, .tint = EFFECT, .surface = ConstructionSurface::Solid});
+
+    glBindVertexArray(ambient_vao);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ambient_ebo);
+    glEnable(GL_DEPTH_TEST);
+    const auto draw = [&](const ConstructionBatch &overlays, unsigned fail_allocation = 0) {
+        Pixels pixels;
+        {
+            gl::CRawGlState<2, Shadow> state(
+                {.viewport_width = WIDTH, .viewport_height = HEIGHT, .framebuffer = framebuffer}, shadow);
+            if (fail_allocation) {
+                gl_harness::FailAllocation fault(gl_harness::Allocation::buffer, fail_allocation);
+                CHECK(!material.draw_close(*frame, overlays, *view, image, target));
+            } else {
+                CHECK(material.draw_close(*frame, overlays, *view, image, target));
+            }
+            glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+        }
+        GLint index = -1;
+        glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &index);
+        CHECK(index == static_cast<GLint>(ambient_ebo) && glIsEnabled(GL_DEPTH_TEST));
+        return pixels;
+    };
+    (void)draw(effects, 1);
+    (void)draw(effects, 2);
+    const auto initial = draw(effects);
+    for (int row = 0; row < HEIGHT; ++row) {
+        for (int x = 0; x < WIDTH; ++x) {
+            const int snapshot_y = row + 1;
+            Pixel expected = CLEAR;
+            if (x < 15 && snapshot_y >= 2 && snapshot_y < 16) {
+                expected = snapshot_y < 7 ? UPPER : LOWER;
+                if (x < 4 && snapshot_y < 5) expected = MARKER;
+                if (x >= 7 && x < 9 && snapshot_y >= 7 && snapshot_y < 10) expected = EFFECT;
+            }
+            CHECK(initial[row * WIDTH + x] == expected);
+        }
+    }
+
+    {
+        gl::CRawGlState<2, Shadow> state(
+            {.viewport_width = WIDTH, .viewport_height = HEIGHT, .framebuffer = framebuffer}, shadow);
+        effects.add(front(0, WIDTH, HEIGHT));
+        CHECK(!material.draw_close(*frame, effects, *view, image, target));
+        Pixels unchanged;
+        glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, unchanged.data());
+        CHECK(unchanged == initial);
+    }
+
+    // Place a fragment center just inside the fractional right crop edge. Its linear
+    // footprint would include the purple texel at x=15 unless the last tap is clamped.
+    auto shifted = visible;
+    shifted[0].origin.x -= .1;
+    Close translated;
+    CHECK(translated.start(local, shifted, 42, 1));
+    translated.emit({*view->authorized_local_crop, true}, *frame);
+    effects.count = 0;
+    const auto filtered_edge = draw(effects);
+    CHECK(filtered_edge[5 * WIDTH + 14] == UPPER);
+    CHECK(filtered_edge[5 * WIDTH + 15] == CLEAR);
+
+    // Two disjoint source rectangles with coincident poses. The later, lower print
+    // must still show the earlier print through its alpha, in publication order.
+    std::array folded{Close::VisibleFace::flat(Box{6, 1, 2, 2}),
+        Close::VisibleFace::flat(Box{6, 5, 2, 2})};
+    folded[1].origin.y = folded[0].origin.y;
+    Close overlapping;
+    CHECK(overlapping.start(local, folded, 42, 1));
+    overlapping.emit({*view->authorized_local_crop, true}, *frame);
+    const auto overlap = draw(effects)[3 * WIDTH + 5];
+    constexpr Pixel EXPECTED_OVERLAP{29, 25, 86, 192}; // LOWER over UPPER.
+    for (std::size_t i = 0; i < overlap.size(); ++i)
+        CHECK(std::abs(int(overlap[i]) - int(EXPECTED_OVERLAP[i])) <= 1);
+
+    model.advance(.21);
+    model.advance(.21);
+    model.emit({*view->authorized_local_crop, true}, *frame, false);
+    CHECK(frame->source_faces().size() > 2);
+    const auto bent = draw(effects);
+    CHECK(bent != initial);
+    CHECK(std::ranges::count_if(bent, [](Pixel pixel) { return pixel[3] == 128; }) > 30);
+    CHECK(std::ranges::all_of(bent, [&](Pixel pixel) {
+        // Source-over can raise alpha at a fold, but cannot raise the straight red
+        // ratio beyond the known print palette. An off-crop magenta tap would.
+        return int(pixel[0]) * 128 <= (int(UPPER[0]) + 1) * int(pixel[3]);
+    }));
+
+    model.cancel();
+    model.emit({*view->authorized_local_crop, true}, *frame);
+    CHECK(std::ranges::all_of(draw(effects), [&](Pixel pixel) { return pixel == CLEAR; }));
+    auto offscreen = placement;
+    offscreen.source.x = -18.25;
+    const auto offscreen_view = CConstructionMaterial::prepare_view(offscreen);
+    CHECK(offscreen_view && !offscreen_view->authorized_local_crop);
+    glDisable(GL_DEPTH_TEST);
+    glBindVertexArray(0);
+    glDeleteBuffers(1, &ambient_ebo);
+    glDeleteVertexArrays(1, &ambient_vao);
+}
+
 GLuint check_program_retry() {
     using namespace construction_shader;
     constexpr const char *INVALID = "#version 300 es\nthis is not GLSL\n";
@@ -413,6 +569,7 @@ int main(int argc, char **argv) {
     }
     check_pixels(material,textures[0],textures[1],framebuffer, 1.0, true);
     check_pixels(material,textures[0],textures[1],framebuffer, 1.25, true);
+    check_retained_regional_close(material, textures[0], textures[1], framebuffer);
     check_pixels(material,textures[0],textures[1],framebuffer, 1.25, false);
     check_identity_transfer(material);
     { gl::CRawGlState<2, Shadow> state({},shadow); material.release(); }

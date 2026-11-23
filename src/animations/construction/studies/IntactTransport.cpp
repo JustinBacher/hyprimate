@@ -278,6 +278,17 @@ namespace hyprimate::construction::studies {
             return *edge - side * front;
         }
 
+        bool exposed_exit(Box owner, double old_floor, double floor, int side,
+            std::span<const Box> outputs) noexcept {
+            const double top = std::min(old_floor, floor) +
+                               std::min(CHASSIS.y, STOWED_PIN.y - BOOM_FRINGE) - RASTER_FRINGE;
+            const double last_y = std::max(old_floor, floor) + bottom(TRACK_SHADOW) + RASTER_FRINGE;
+            return std::ranges::none_of(outputs, [&](Box out) {
+                return usable(out) && out.y < last_y && bottom(out) > top &&
+                       (side == 1 ? out.x < owner.x : right(out) > right(owner));
+            });
+        }
+
         // Bounded critically damped pursuit. Evaluating the closed form avoids substep debt.
         void follow(double &value,
             double &speed,
@@ -325,7 +336,8 @@ namespace hyprimate::construction::studies {
             body, origin(body) + (Vec2{body.w, body.h} - u - v) * .5 - Vec2{0, lift}, u, v, lift};
     }
 
-    void IntactTransport::step(const animation::Step &step, std::span<const Box> outputs) noexcept {
+    bool IntactTransport::step(const animation::Step &step, std::span<const Box> outputs,
+        std::optional<Box> owner) noexcept {
         const Box previous = m_face.source;
         const Box body = m_face.source = usable(step.body) ? step.body : Box{};
         const bool scope_changed = m_observed && step.workspace != m_workspace;
@@ -346,7 +358,7 @@ namespace hyprimate::construction::studies {
             length(shift) > 1.5 * std::max({from.w, from.h, body.w, body.h})) {
             reset();
             pose_face(0, 0);
-            return;
+            return true;
         }
 
         const double dt = step.elapsed;
@@ -375,14 +387,14 @@ namespace hyprimate::construction::studies {
         const bool fresh = !m_active;
         if (fresh && !work) {
             pose_face(0, 0);
-            return;
+            return true;
         }
         if (outputs.empty()) outputs = std::span<const Box>{&step.screen, 1};
-        const Box apron = nearest_output(body, outputs);
+        const Box apron = owner ? *owner : nearest_output(body, outputs);
         if (!usable(apron)) {
             reset();
             pose_face(0, 0);
-            return;
+            return !owner;
         }
 
         const bool regrab = work && !m_working;
@@ -413,10 +425,14 @@ namespace hyprimate::construction::studies {
             if (fresh || (work && (moved || resized) && m_crew_count < MAX_BEARERS))
                 place_crew(apron);
             advance_crew(dt, velocity, work, regrab, resized);
-        } else {
-            advance_crane(dt, apron, outputs, velocity, work, fresh, pickup_started, resized);
+        } else if (!advance_crane(dt, apron, outputs, owner.has_value(), velocity, work, fresh,
+                       pickup_started, resized)) {
+            reset();
+            pose_face(0, 0);
+            return false;
         }
         if (!m_active) reset();
+        return true;
     }
 
     Vec2 IntactTransport::Bearer::station(Box body) const noexcept {
@@ -816,9 +832,10 @@ namespace hyprimate::construction::studies {
         m_active = work || any || m_pressure > 0;
     }
 
-    void IntactTransport::advance_crane(double dt,
+    bool IntactTransport::advance_crane(double dt,
         Box apron,
         std::span<const Box> outputs,
+        bool mapped,
         Vec2 velocity,
         bool work,
         bool fresh,
@@ -827,21 +844,33 @@ namespace hyprimate::construction::studies {
         const Box body = m_face.source;
         auto &crane = m_crane;
         if (fresh) crane.home_bottom = bottom(body);
-        const Rail rail = rail_for(body, crane.home_bottom, apron, outputs);
+        const auto rail_outputs = mapped ? std::span<const Box>{&apron, 1} : outputs;
+        const Rail rail = rail_for(body, crane.home_bottom, apron, rail_outputs);
+        const auto allowed = [&](int side) {
+            return !mapped || exposed_exit(apron, fresh ? rail.floor : crane.base.y, rail.floor, side, outputs);
+        };
         if (fresh) {
             const auto option = [&](int side, double room) {
                 const double station = crane_station(rail, body, side).x;
-                const double exit = exit_base(rail.floor, side, outputs).value_or(station);
+                const double exit = exit_base(rail.floor, side, rail_outputs).value_or(station);
                 return std::pair{std::min(room, 145.0), -std::abs(station - exit)};
             };
-            crane.side =
-                option(-1, rail.right - right(body)) > option(1, body.x - rail.left) ? -1 : 1;
-            crane.base = {exit_base(rail.floor, crane.side, outputs)
+            const bool left = allowed(1), right_side = allowed(-1);
+            if (!left && !right_side) return false;
+            const auto left_score = option(1, body.x - rail.left);
+            const auto right_score = option(-1, rail.right - right(body));
+            const bool prefer_right = mapped && outputs.size() > 1 ? right_score.second > left_score.second :
+                                      right_score > left_score;
+            crane.side = right_side && (!left || prefer_right) ? -1 : 1;
+            crane.base = {exit_base(rail.floor, crane.side, rail_outputs)
                               .value_or(crane_station(rail, body, crane.side).x),
                 rail.floor};
             crane.pin = stowed_pin(crane.base, crane.side);
             crane.aim = {body.x + .5 * body.w, body.y - 160};
             crane.anchor = {{{body.x, body.y}, {right(body), body.y}}};
+        } else if (!allowed(crane.side)) {
+            // Never turn a retreating or regrabbed rig into an unsafe exit or teleport it.
+            return false;
         }
         const int side = crane.side;
         Vec2 station = crane_station(rail, body, side);
@@ -888,14 +917,13 @@ namespace hyprimate::construction::studies {
         } else {
             departing = true;
             crane.base_v.y = 0;
-            const auto exit = exit_base(crane.base.y, side, outputs);
+            const auto exit = exit_base(crane.base.y, side, rail_outputs);
             if (!exit || side * (crane.base.x - *exit) <= 0) {
                 m_active = false;
                 pose_face(0, 0);
-                return;
+                return true;
             }
-            // Keep driving across gaps; reaching an empty pixel at the seam is not leaving the
-            // outputs.
+            // The unconstrained study can drive across gaps; a mapped exit uses its owner only.
             station = {*exit - side * 12, crane.base.y};
         }
 
@@ -974,6 +1002,7 @@ namespace hyprimate::construction::studies {
                     join(pose.bounds, swept_bounds(crane.pin, mid, 1)), swept_bounds(mid, end, 1));
             }
         }
+        return true;
     }
 
 }  // namespace hyprimate::construction::studies

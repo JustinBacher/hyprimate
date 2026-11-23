@@ -80,11 +80,15 @@ namespace hyprimate::construction::studies {
             // two polygons of at most seven vertices (triangle intersect rectangle).
             static constexpr std::size_t MAX_CELLS = MAX_COLUMNS * MAX_ROWS;
             static constexpr std::size_t BORDER_CELLS = 2 * (MAX_COLUMNS + MAX_ROWS);
+
+          public:
             static constexpr std::size_t MAX_VERTICES =
                 MAX_CELLS + MAX_VISIBLE_FACES * (MAX_COLUMNS + MAX_ROWS + 1) + 14 * BORDER_CELLS;
             static constexpr std::size_t MAX_TRIANGLES = 2 * MAX_CELLS + 10 * BORDER_CELLS;
             static_assert(
                 MAX_VERTICES < (1U << 16U));  // Leave one index unassigned for the row cache.
+
+          private:
             std::array<Vertex, MAX_VERTICES> m_vertices;
             std::array<SourceTriangle, MAX_TRIANGLES> m_faces;
             std::array<Worker, 2> m_crew{};

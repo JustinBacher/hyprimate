@@ -19,6 +19,7 @@ uniform vec3 u_pivot;        // Capture-local projection center and reciprocal f
 uniform vec4 u_canvas;       // NDC at the pivot and NDC units per logical pixel.
 uniform vec4 u_crop;         // Authorized image edges in capture-local logical pixels.
 uniform vec4 u_client_map;   // Capture-local logical coordinates -> image-relative device pixels.
+uniform int u_mesh;         // 0: instanced quad; 1: indexed close; 2: indexed close at identity.
 
 out vec2 v_uv;
 flat out vec4 v_tint;
@@ -28,7 +29,23 @@ flat out int v_on_texel_grid;
 const uint CLIENT = 1u;
 const vec2 CORNERS[4] = vec2[4](vec2(0, 0), vec2(1, 0), vec2(0, 1), vec2(1, 1));
 
+vec4 project_point(vec3 p) {
+    float w = 1.0 - p.z * u_pivot.z;
+    // Homogeneous w keeps UV interpolation perspective-correct for both streams.
+    return vec4(u_canvas.xy * w + (p.xy - u_pivot.xy) * u_canvas.zw, 0, w);
+}
+
 void main() {
+    if (u_mesh != 0) {
+        // The indexed stream binds just posed xyz and the already clipped source xy.
+        v_uv = u_client_map.xy + a_uv.xy * u_client_map.zw;
+        v_tint = vec4(1);
+        v_surface = CLIENT;
+        v_on_texel_grid = int(u_mesh == 2);
+        gl_Position = project_point(a_origin);
+        return;
+    }
+
     vec2 corner = CORNERS[gl_VertexID];
     vec2 uv = a_uv.xy + corner * a_uv.zw;
     v_tint = a_tint;
@@ -53,10 +70,7 @@ void main() {
             v_on_texel_grid = 1;
     }
     v_uv = uv;
-    vec3 p = a_origin + corner.x * a_u + corner.y * a_v;
-    float w = 1.0 - p.z * u_pivot.z;
-    // Keep w homogeneous so interpolated UVs follow the tilted face, not its screen box.
-    gl_Position = vec4(u_canvas.xy * w + (p.xy - u_pivot.xy) * u_canvas.zw, 0, w);
+    gl_Position = project_point(a_origin + corner.x * a_u + corner.y * a_v);
 }
 )GLSL");
 

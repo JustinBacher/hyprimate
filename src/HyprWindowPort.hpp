@@ -79,6 +79,7 @@ class CHyprWindowPort {
     [[nodiscard]] std::optional<hyprimate::animation::ScreenFacts> monitor_facts(
         hyprimate::animation::MonitorId monitor_id) const;
     std::span<const hyprimate::animation::MonitorId> monitors_overlapping(const hyprimate::Box &box);
+    [[nodiscard]] std::span<const hyprimate::Box> visible_outputs(hyprimate::Vec2 presentation_offset);
 
   private:
     Canvas::Resources m_canvas_resources;
@@ -93,6 +94,7 @@ class CHyprWindowPort {
     std::uint64_t m_next_fadeout = 1;
     std::vector<Visual> m_visuals;
     std::vector<hyprimate::Box> m_neighbours, m_obstacles;
+    std::vector<hyprimate::Box> m_visible_outputs;
     std::vector<hyprimate::animation::MonitorId> m_overlapping;
     std::vector<std::uint64_t> m_suppressed;
     HyprWindowAnimations *m_module = nullptr;

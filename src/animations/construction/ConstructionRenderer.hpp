@@ -5,7 +5,11 @@
 #include "WindowAnimationFacts.hpp"
 
 class CHyprAnimationCanvas;
-namespace hyprimate { struct ConstructionBatch; }
+namespace Render { class IFramebuffer; }
+namespace hyprimate {
+    struct ConstructionBatch;
+    namespace construction { class CloseSite; }
+}
 
 class CConstructionRenderer {
   public:
@@ -16,8 +20,13 @@ class CConstructionRenderer {
     CConstructionRenderer(CConstructionRenderer &&) = delete;
     CConstructionRenderer &operator=(CConstructionRenderer &&) = delete;
 
+    // Metadata only: before retain/suppress, the host separately proves identity and placement.
+    [[nodiscard]] static bool supports_snapshot(Render::IFramebuffer &snapshot);
+
     [[nodiscard]] bool draw(const hyprimate::ConstructionBatch &batch, hyprimate::Box body,
         hyprimate::Box capture, const hyprimate::animation::Draw<CHyprAnimationCanvas> &draw);
+    [[nodiscard]] bool draw(const hyprimate::construction::CloseSite &site,
+        const hyprimate::animation::Draw<CHyprAnimationCanvas> &draw);
 
   private:
     struct Impl;

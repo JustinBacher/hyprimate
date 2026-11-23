@@ -9,6 +9,7 @@
 #include "ConstructionArt.hpp"
 #include "studies/EdgeStretch.hpp"
 #include "studies/IntactTransport.hpp"
+#include "studies/PieceRelocation.hpp"
 
 namespace hyprimate::construction {
 namespace {
@@ -293,6 +294,224 @@ void paint_stretch(Paint &paint, const studies::EdgeStretch &stretch, Box captur
         paint_arm(paint, 0, actor.arms[0], actor.arms[0].glove, facing, color, vest, true);
     }
 }
+
+Vec3 flat(Vec2 p) noexcept { return {p.x, p.y, 0}; }
+
+bool has_scene_outset(Box body, Box capture) noexcept {
+    return std::max({body.x, body.y, capture.w - right(body), capture.h - bottom(body)}) > MAX_TRIM;
+}
+
+void atlas_box(Paint &paint, Part part, Box box, int facing, Tint color = WHITE) noexcept {
+    const Vec3 x{facing * box.w / 56, 0, 0}, y{0, box.h / 56, 0};
+    const Vec3 corner{facing == 1 ? box.x : right(box), box.y, 0};
+    paint.atlas(part, corner + x * (part.pivot.x - 4) + y * (part.pivot.y - 4), x, y, color);
+}
+
+Vec3 normal(Vec3 delta) noexcept { return unit({-delta.y, delta.x, 0}, {}); }
+
+void ribbon(Paint &paint, Vec3 from, Vec3 to, Vec3 width, Tint color) noexcept {
+    paint.add(paint.local(from - width * .5), to - from, width, color);
+}
+
+void stroke(Paint &paint, Vec3 from, Vec3 to, double width, Tint color) noexcept {
+    ribbon(paint, from, to, normal(to - from) * width, color);
+}
+
+void paint_boom(Paint &paint, const studies::CarryCranePose &rig) noexcept {
+    constexpr Tint OUTLINE{34, 49, 58, 255}, GOLD{226, 164, 65, 255}, LIGHT{255, 212, 115, 255},
+        STEEL{144, 178, 177, 255};
+    const Vec3 heel = flat(rig.heel), collar = flat(rig.collar), nose = flat(rig.nose), sheave = flat(rig.sheave);
+    const Vec3 side = normal(collar - heel) * 5.5;
+    // Twin chords and diagonal bracing keep the heel readable as an open lattice against the desktop.
+    const double span = length(collar - heel);
+    const int cells = 1 + static_cast<int>(std::clamp(span / 32, 0., 7.));
+    Vec3 previous = heel - side;
+    for (int i = 1; i <= cells; ++i) {
+        const Vec3 next = mix(heel, collar, static_cast<double>(i) / cells) + side * (i % 2 ? 1 : -1);
+        stroke(paint, previous, next, 3, OUTLINE);
+        stroke(paint, previous, next, 1.5, GOLD);
+        previous = next;
+    }
+    stroke(paint, heel - side, collar - side, 4, OUTLINE);
+    stroke(paint, heel + side, collar + side, 4, OUTLINE);
+    stroke(paint, heel - side, collar - side, 2, LIGHT);
+    stroke(paint, heel + side, collar + side, 2, GOLD);
+    stroke(paint, collar, nose, 9, OUTLINE);
+    stroke(paint, collar, nose, 5, GOLD);
+    stroke(paint, nose, sheave, 6, OUTLINE);
+    stroke(paint, nose, sheave, 3, STEEL);
+    const Vec3 ram_base = flat(rig.ram_base), ram_tip = flat(rig.ram_tip), ram_rod = mix(ram_base, ram_tip, .57);
+    stroke(paint, ram_base, ram_tip, 4, OUTLINE);
+    stroke(paint, ram_base, ram_rod, 6, OUTLINE);
+    stroke(paint, ram_base, ram_rod, 3.5, GOLD);
+    stroke(paint, ram_rod, ram_tip, 2, STEEL);
+}
+
+void paint_crane(Paint &paint, const studies::IntactTransport &crane, Box body, Box capture) noexcept {
+    const auto &face = crane.face();
+    const auto &rig = *crane.crane();
+    const Box cap{0, 0, capture.w, capture.h};
+    const bool separate_backdrop = has_scene_outset(body, capture);
+    if (separate_backdrop) paint.backdrop(body);
+
+    atlas_box(paint, CONTACT_SHADOW, rig.track_shadow, 1, tint(WHITE, .70));
+    if (face.lift > 0) {
+        const Box shadow = crane.load_shadow();
+        if (is_usable(shadow))
+            paint.add(paint.local({shadow.x, shadow.y, 0}), {shadow.w, 0, 0}, {0, shadow.h, 0},
+                tint({14, 21, 28, 255}, .32 * face.lift / 2.8), ConstructionSurface::Shadow);
+        const Vec3 origin = paint.local(flat(face.origin)), u = flat(face.u), v = flat(face.v);
+        paint.add(origin + v, u, {0, .85 * face.lift, 0}, {74, 64, 53, 255});
+        if (separate_backdrop) {
+            paint.client(body, origin, u, v);
+        } else {
+            const Vec3 dx = u * (1 / body.w), dy = v * (1 / body.h);
+            paint.client(cap, origin - dx * body.x - dy * body.y, dx * cap.w, dy * cap.h);
+        }
+    } else {
+        paint.identity(separate_backdrop ? body : cap);
+    }
+
+    // The crawler is in the foreground, including when the apron fits only inside the facade.
+    // Put the cab over the boom heel, and the sheave bearing over both cable roots.
+    atlas_box(paint, COUNTERWEIGHT, rig.ballast, rig.facing);
+    atlas_box(paint, CHASSIS, rig.chassis, rig.facing);
+    paint_boom(paint, rig);
+    atlas_box(paint, CAB, rig.cab, rig.facing);
+    for (std::size_t i = 0; i < rig.wheels.size(); ++i) {
+        const Vec3 hub = flat(rig.wheels[i]);
+        paint.atlas(FASTENER, hub, {.17, 0, 0}, {0, .17, 0}, tint({210, 231, 249, 255}, .92));
+        stroke(paint, hub, flat(rig.tread_marks[i]), 1.35, {220, 233, 224, 255});
+    }
+    const double cab_x = rig.cab.x + rig.cab.w * (rig.facing == 1 ? .58 : .42);
+    const Vec3 lever{cab_x, rig.cab.y + rig.cab.h * .68, 0};
+    stroke(paint, lever, lever + Vec3{rig.facing * std::lerp(-2., 5., rig.lever), -6, 0}, 1.6, {239, 197, 107, 255});
+
+    for (std::size_t i = 0; i < rig.wire_count; ++i) {
+        const auto &wire = rig.wires[i];
+        const Vec3 root = flat(wire.sheave), middle = flat(wire.midpoint), end = flat(wire.end);
+        if (end.x == root.x && end.y == root.y) continue;
+        constexpr Tint CABLE{79, 103, 119, 255};
+        const Vec3 width = normal(end - root) * wire.width;
+        if (wire.taut || middle.y == (root.y + end.y) * .5) {
+            ribbon(paint, root, end, width, CABLE);
+        } else {
+            // A shared cross-section joins the slack segments with no crack or doubled line.
+            ribbon(paint, root, middle, width, CABLE);
+            ribbon(paint, middle, end, width, CABLE);
+        }
+    }
+    paint.atlas(SHEAVE, flat(rig.sheave), {.38, 0, 0}, {0, .38, 0}, WHITE);
+}
+
+void paint_piece_worker(Paint &paint, const studies::PieceRelocation::Worker &worker, unsigned variant) noexcept {
+    const double height = worker.height, facing = worker.facing;
+    const Tint color = tint(WHITE, worker.visibility), vest = tint(VESTS[variant % VESTS.size()], worker.visibility);
+    const auto leg = [&](unsigned i) {
+        const auto &l = worker.legs[i];
+        const Vec3 ankle = l.tip - Vec3{0, .0042 * height * (BOOTS[i].tip.y + .25 - BOOTS[i].pivot.y), 0};
+        paint_boot(paint, i, ankle, height, facing, 0, color);
+        paint.link(THIGHS[i], l.root, l.joint, facing, color);
+        paint.link(SHINS[i], l.joint, ankle, facing, color);
+    };
+    const auto arm = [&](unsigned i) {
+        const auto &a = worker.arms[i];
+        // The study's hand tip is a contact socket, not a wrist. Put the painted palm
+        // there and start the forearm at the elbow, shortening the cutout to the wrist.
+        constexpr double PALM = .76;
+        const Vec3 delta = a.tip - a.joint;
+        const double distance = length(delta);
+        const Vec3 to_palm = distance > 0 ? delta * std::min(.055 * height / distance, .5) : Vec3{};
+        const Vec3 wrist = a.tip - to_palm;
+        paint.link(SLEEVES[i], a.root, a.joint, facing, i == 0 ? vest : color);
+        paint.link(FOREARMS[i], a.joint, wrist, facing, color);
+        paint_hand(paint, wrist, wrist + to_palm * (1 / PALM), facing, color);
+    };
+    leg(1);
+    arm(1);
+    leg(0);
+    paint_upper_body(paint, worker.pelvis, worker.neck, worker.head, height, facing, vest);
+    arm(0);
+}
+
+void paint_piece_face(Paint &paint, const studies::PieceRelocation::Face &face, Box body,
+    Box local_body, Box capture, bool separate_backdrop) noexcept {
+    const Box source = face.source;
+    // The model tiles the body in double precision. Allow only roundoff at a shared outer edge.
+    const double x_eps = 2 * std::numeric_limits<double>::epsilon() * body.w;
+    const double y_eps = 2 * std::numeric_limits<double>::epsilon() * body.h;
+    if (!valid_box(source) || source.x < 0 || source.y < 0 ||
+        right(source) > body.w + x_eps || bottom(source) > body.h + y_eps) {
+        paint.reject();
+        return;
+    }
+    const double left = local_body.x + source.x, top = local_body.y + source.y;
+    const double far = local_body.x + std::min(body.w, right(source));
+    const double bottom_edge = local_body.y + std::min(body.h, bottom(source));
+    // Ordinary trim belongs to its nearest outer piece, never a flat rectangle underneath.
+    // Oversized scene outsets instead stay outside the body at identity, as in crew carry.
+    const double x0 = !separate_backdrop && source.x == 0 ? 0 : left;
+    const double y0 = !separate_backdrop && source.y == 0 ? 0 : top;
+    const double x1 = !separate_backdrop && right(source) >= body.w - x_eps ? capture.w : far;
+    const double y1 = !separate_backdrop && bottom(source) >= body.h - y_eps ? capture.h : bottom_edge;
+    const Box crop{x0, y0, x1 - x0, y1 - y0};
+    if (face.origin.x == body.x + source.x && face.origin.y == body.y + source.y && face.origin.z == 0 &&
+        face.u.x == source.w && face.u.y == 0 && face.u.z == 0 &&
+        face.v.x == 0 && face.v.y == source.h && face.v.z == 0) {
+        paint.identity(crop);
+    } else {
+        const Vec3 u = face.u * (1 / source.w), v = face.v * (1 / source.h);
+        paint.client(crop, paint.local(face.origin) + u * (x0 - left) + v * (y0 - top), u * crop.w, v * crop.h);
+    }
+}
+
+void paint_pieces(Paint &paint, const studies::PieceRelocation &model, Box body, Box local_body, Box capture) noexcept {
+    using Pieces = studies::PieceRelocation;
+    const bool separate_backdrop = has_scene_outset(local_body, capture);
+    if (separate_backdrop) paint.backdrop(local_body);
+    // Each model publication groups a piece's rectangular faces and its crew. Keep the
+    // model's far-to-near order, interleaving that crew ahead of its piece but behind
+    // any nearer one, so later loads can naturally occlude earlier workers.
+    struct Crew {
+        std::size_t start = 0, count = 0;
+    };
+    std::array<Crew, Pieces::MAX_FACES> crews{};
+    const auto workers = model.workers();
+    for (std::size_t i = 0; i < workers.size();) {
+        const std::size_t first = i, piece = workers[i].piece;
+        if (piece >= crews.size()) {
+            paint.reject();
+            return;
+        }
+        while (++i < workers.size() && workers[i].piece == piece) {}
+        crews[piece] = {first, i - first};
+    }
+    const auto faces = model.faces();
+    for (std::size_t i = 0; i < faces.size(); ++i) {
+        const auto &face = faces[i];
+        paint_piece_face(paint, face, body, local_body, capture, separate_backdrop);
+        const auto piece = face.piece;
+        if (piece >= crews.size()) {
+            paint.reject();
+            return;
+        }
+        if (i + 1 < faces.size() && faces[i + 1].piece == piece) continue;
+        const auto [start, count] = crews[piece];
+        for (std::size_t j = 0; j < count; ++j) {
+            const auto &worker = workers[start + j];
+            if (visible(worker.visibility)) paint_piece_worker(paint, worker, static_cast<unsigned>(piece + j));
+        }
+    }
+}
+
+Box begin_transport(ConstructionBatch &batch, Box body, Box capture) noexcept {
+    batch.count = 0;
+    batch.overflow = false;
+    if (!valid_box(body) || !valid_box(capture)) return {};
+    const Box local{body.x - capture.x, body.y - capture.y, body.w, body.h};
+    if (local.x < 0 || local.y < 0 || right(local) > capture.w || bottom(local) > capture.h) return {};
+    return local;
+}
 }  // namespace
 
 Box emit_motion_batch(ConstructionBatch &batch, Box body, Box capture,
@@ -308,6 +527,24 @@ Box emit_motion_batch(ConstructionBatch &batch, Box body, Box capture,
     Paint paint(batch, local, capture);
     if (carry) paint_carry(paint, *carry, local, capture);
     else paint_stretch(paint, *stretch, capture);
+    return paint.finish();
+}
+
+Box emit_crane_batch(ConstructionBatch &batch, Box body, Box capture,
+    const studies::IntactTransport &crane) noexcept {
+    const Box local = begin_transport(batch, body, capture);
+    if (!is_usable(local) || !crane.active() || !crane.crane() || !same_box(crane.face().source, body)) return {};
+    Paint paint(batch, local, capture);
+    paint_crane(paint, crane, local, capture);
+    return paint.finish();
+}
+
+Box emit_piece_batch(ConstructionBatch &batch, Box body, Box capture,
+    const studies::PieceRelocation &pieces) noexcept {
+    const Box local = begin_transport(batch, body, capture);
+    if (!is_usable(local) || !pieces.active() || !same_box(pieces.body(), body)) return {};
+    Paint paint(batch, local, capture);
+    paint_pieces(paint, pieces, body, local, capture);
     return paint.finish();
 }
 }  // namespace hyprimate::construction

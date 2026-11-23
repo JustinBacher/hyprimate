@@ -39,6 +39,13 @@ def installation_print(context, width, height, spec):
     context.rectangle(x, y, 10, 28)
     context.rectangle(x + 10, y + 18, 21, 10)
     context.fill()
+    # Optional public fixture marks: no change to ordinary opening specimens.
+    for rgb, u, v in spec.get('evidence_marks', ()):
+        context.set_source_rgb(*(c / 255 for c in rgb))
+        x, y = round(width*u), round(height*v)
+        context.rectangle(x, y, 13, 9)
+        context.rectangle(x+3, y+9, 5, 7)
+        context.fill()
     if spec.get('_painted') != generation:
         print(json.dumps(dict(id=spec['id'], generation=generation, width=width, height=height,
                               painted_monotonic_ns=time.monotonic_ns())), flush=True)

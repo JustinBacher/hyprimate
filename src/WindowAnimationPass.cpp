@@ -20,7 +20,10 @@ CWindowAnimationPass::~CWindowAnimationPass() {
 }
 
 std::vector<UP<IPassElement>> CWindowAnimationPass::draw(Render::CRenderContext &ctx) {
-    if (!m_data.image_owner.ensure_current()) return {};
+    if (!m_data.image_owner.ensure_current()) {
+        if (m_data.close_guard) { m_data.close_guard->physical_failure(ctx); }
+        return {};
+    }
     const auto valid = [&] { return !m_data.close_guard || m_data.close_guard->valid(ctx); };
     with_guarded_display(valid, [&](const auto &guard_display) {
         if (m_data.animations == nullptr || m_data.resources == nullptr || !m_data.image ||
@@ -32,7 +35,10 @@ std::vector<UP<IPassElement>> CWindowAnimationPass::draw(Render::CRenderContext 
             .scale = m_data.scale, .alpha = m_data.alpha, .real_pass = true, .monitor = m_data.monitor,
             .frame = m_data.frame};
         const auto composite = [&] {
-            if (!canvas.layer()) { return; }
+            if (!canvas.layer()) {
+                if (m_data.close_guard) { m_data.close_guard->physical_presented(ctx, false); }
+                return;
+            }
             Render::GL::CHyprOpenGLImpl::STextureRenderData texture_data{};
             texture_data.damage = &m_data.damage;
             texture_data.a = m_data.alpha;
@@ -41,6 +47,7 @@ std::vector<UP<IPassElement>> CWindowAnimationPass::draw(Render::CRenderContext 
             const hyprimate::gl::NativeMeshSamplers SAMPLERS;
             Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, canvas.layer()->getTexture(),
                 CBox{box.x, box.y, box.w, box.h}, sheet_canvas_quad(), texture_data);
+            if (m_data.close_guard) { m_data.close_guard->physical_presented(ctx, true); }
         };
         if (m_data.retained_tail) {
             m_data.animations->display_tail(m_data.handle, DRAW, m_data.no_screen_share, [&] { guard_display(composite); });

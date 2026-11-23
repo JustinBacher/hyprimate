@@ -1,4 +1,6 @@
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <limits>
 
 #include "Check.hpp"
@@ -292,6 +294,170 @@ void invalid_facts_handoff_without_a_stale_batch() {
         CHECK(site.batch().count == 0);
     }
 }
+
+void alternate_transport_yields_to_an_intact_resize() {
+    const Box moved{HOME.x + 35, HOME.y, HOME.w, HOME.h};
+    const Box enlarged{moved.x - 20, moved.y - 10, moved.w + 20, moved.h + 10};
+    MotionSite native(42, TransportVariant::Native);
+    CHECK(!native.advance(first(HOME, moved)).running && native.batch().count == 0);
+    for (auto variant : {TransportVariant::Crane, TransportVariant::PieceByPiece}) {
+        MotionSite site(42, variant);
+        CHECK(site.advance(first(HOME, moved)).running);
+        CHECK(site.kind() == (variant == TransportVariant::Crane ? MotionSite::Kind::Crane : MotionSite::Kind::Pieces));
+        const auto resize = resizing(first(moved, enlarged));
+        const auto frame = site.advance(resize);
+        intact_publication(site, frame, resize, true);
+        CHECK(site.kind() == MotionSite::Kind::Resize && frame.native_presentation);
+        completes_after_release(site, enlarged);
+    }
+}
+
+void crane_uses_the_exposed_owner_edge_before_handoff() {
+    // A visible neighbor blocks the shorter left exit even across the gap.
+    constexpr std::array outputs{Box{-520, 0, 400, 900}, SCREEN};
+    const Box moved{HOME.x + 35, HOME.y, HOME.w, HOME.h};
+    MotionSite site(42, TransportVariant::Crane);
+    auto press = first(HOME, moved);
+    press.visible_output_owner = SCREEN;
+    press.visible_outputs = outputs;
+    intact_publication(site, site.advance(press), press, false);
+    auto pause = tick(moved);
+    pause.visible_output_owner = SCREEN;
+    pause.visible_outputs = outputs;
+    bool posed = false;
+    for (int i = 0; i < 520; ++i) {
+        intact_publication(site, site.advance(pause), pause, false);
+        posed |= std::any_of(site.batch().quads.begin(), site.batch().quads.begin() + site.batch().count,
+            [](const ConstructionQuad &quad) { return quad.surface == ConstructionSurface::Client && !identity(quad); });
+    }
+    CHECK(posed);
+
+    auto reverse = first(moved, HOME);
+    reverse.visible_output_owner = SCREEN;
+    reverse.visible_outputs = outputs;
+    intact_publication(site, site.advance(reverse), reverse, false);
+    auto release = tick(HOME, false);
+    release.visible_output_owner = SCREEN;
+    release.visible_outputs = outputs;
+    bool seated_at_outer_edge = false;
+    for (int i = 0; i < 720; ++i) {
+        const auto frame = site.advance(release);
+        CHECK(!frame.interrupted);
+        if (!frame.running) {
+            CHECK(seated_at_outer_edge && site.batch().count == 0);
+            return;
+        }
+        const bool identity_face = std::all_of(site.batch().quads.begin(), site.batch().quads.begin() + site.batch().count,
+            [](const ConstructionQuad &quad) { return quad.surface != ConstructionSurface::Client || identity(quad); });
+        const auto left = release.capture.x + frame.bounds.x;
+        const auto right = left + frame.bounds.w;
+        seated_at_outer_edge |= identity_face && site.batch().count > 1 &&
+            left > outputs.front().x + outputs.front().w && right > SCREEN.w - 12;
+    }
+    CHECK(false);  // A completed departure stops scheduling.
+}
+
+void crane_declines_a_blocked_route_and_does_not_switch_after_acquisition() {
+    constexpr Box left{-450, 0, 400, 900}, right{1490, 0, 400, 900};
+    constexpr std::array blocked{left, SCREEN, right};
+    constexpr std::array only_right_open{left, SCREEN}, only_left_open{SCREEN, right};
+    const Box moved{HOME.x + 35, HOME.y, HOME.w, HOME.h};
+    auto press = first(HOME, moved);
+    press.visible_output_owner = SCREEN;
+    press.visible_outputs = blocked;
+    MotionSite surrounded(42, TransportVariant::Crane);
+    const auto declined = surrounded.advance(press);
+    CHECK(declined.interrupted && !declined.running && surrounded.batch().count == 0);
+
+    press.visible_outputs = only_right_open;
+    MotionSite changed(42, TransportVariant::Crane);
+    CHECK(changed.advance(press).running);
+    auto release = tick(moved, false);
+    release.visible_output_owner = SCREEN;
+    release.visible_outputs = only_left_open;
+    const auto stopped = changed.advance(release);
+    CHECK(stopped.interrupted && !stopped.running && changed.batch().count == 0);
+}
+
+void piece_relocation_declines_cross_output_coverage_before_painting() {
+    constexpr std::array outputs{Box{-800, 0, 800, 900}, SCREEN};
+    const Box outside{-700, HOME.y, HOME.w, HOME.h};
+    const Box moved{50, HOME.y, HOME.w, HOME.h};
+    const Box straddling{-30, HOME.y, HOME.w, HOME.h};
+    for (const auto &start : {first(outside, moved), first(straddling, moved), first(moved, straddling)}) {
+        auto press = start;
+        press.visible_output_owner = SCREEN;
+        press.visible_outputs = outputs;
+        MotionSite site(42, TransportVariant::PieceByPiece);
+        const auto stopped = site.advance(press);
+        CHECK(stopped.interrupted && !stopped.running && site.batch().count == 0);
+    }
+
+    MotionSite site(42, TransportVariant::PieceByPiece);
+    auto press = first(HOME, moved);
+    press.visible_output_owner = SCREEN;
+    press.visible_outputs = outputs;
+    CHECK(site.advance(press).running);
+    auto drag = first(moved, straddling);
+    drag.visible_output_owner = SCREEN;
+    drag.visible_outputs = outputs;
+    CHECK(!site.advance(drag).running && site.batch().count == 0);
+}
+
+void piece_relocation_retargets_and_seats_the_current_image() {
+    const Box away{HOME.x + 205, HOME.y + 46, HOME.w, HOME.h};
+    MotionSite site(42, TransportVariant::PieceByPiece);
+    CHECK(site.advance(first(HOME, away)).running);
+    bool split_and_displaced = false, reassembled = false;
+    const auto inspect = [&](const Step &step, Frame frame) {
+        CHECK(frame.running && !frame.interrupted && site.kind() == MotionSite::Kind::Pieces);
+        CHECK(same(site.body(), step.body) && same(site.capture(), step.capture));
+        std::size_t displaced = 0, faces = 0;
+        double covered = 0;
+        for (std::size_t i = 0; i < site.batch().count; ++i) {
+            const auto &quad = site.batch().quads[i];
+            if (quad.surface != ConstructionSurface::Client) continue;
+            const auto [l, t, w, h] = quad.uv;
+            CHECK(l >= 0 && t >= 0 && w > 0 && h > 0);
+            CHECK(l + w <= step.capture.w + 1e-4 && t + h <= step.capture.h + 1e-4);
+            const auto overlap_w = std::max(0.0, std::min(double(l + w), HOME.w + 6) - std::max(double(l), 6.0));
+            const auto overlap_h = std::max(0.0, std::min(double(t + h), HOME.h + 4) - std::max(double(t), 4.0));
+            if (overlap_w > 0 && overlap_h > 0) {
+                covered += overlap_w * overlap_h;
+                ++faces;
+                displaced += !identity(quad);
+            }
+        }
+        CHECK(std::abs(covered - HOME.w * HOME.h) < .25);
+        split_and_displaced |= faces > 1 && displaced > 0;
+        reassembled |= !step.held && displaced == 0;
+    };
+    Box body = away;
+    for (int i = 0; i < 150; ++i) {
+        if (i == 26 || i == 51 || i == 78) {
+            const auto target = same(body, HOME) ? away : HOME;
+            const auto reverse = first(body, target);
+            inspect(reverse, site.advance(reverse));
+            body = target;
+        } else {
+            const auto held = tick(body);
+            inspect(held, site.advance(held));
+        }
+    }
+    CHECK(split_and_displaced);
+    const auto released = tick(body, false);
+    for (int i = 0; i < 720; ++i) {
+        const auto frame = site.advance(released);
+        CHECK(!frame.interrupted);
+        if (!frame.running) {
+            CHECK(reassembled && site.batch().count == 0);
+            CHECK(!site.advance(first(body, away)).running);
+            return;
+        }
+        inspect(released, frame);
+    }
+    CHECK(false);
+}
 }  // namespace
 
 int main() {
@@ -300,4 +466,9 @@ int main() {
     quiet_resize_and_held_move_with_incidental_configure();
     workspace_motion_admission_and_single_crew_switching();
     invalid_facts_handoff_without_a_stale_batch();
+    alternate_transport_yields_to_an_intact_resize();
+    crane_uses_the_exposed_owner_edge_before_handoff();
+    crane_declines_a_blocked_route_and_does_not_switch_after_acquisition();
+    piece_relocation_declines_cross_output_coverage_before_painting();
+    piece_relocation_retargets_and_seats_the_current_image();
 }

@@ -51,6 +51,11 @@ struct FadeoutFacts {
     bool alive = false, blurred = false, image_available = false;
     bool no_screen_share = false;
 };
+struct PendingPublicClose {
+    Place place;
+    Box source_device;
+    double scale = 1;
+};
 struct DyingView {
     Handle handle;
     MonitorId monitor = 0;
@@ -62,6 +67,7 @@ struct DyingView {
     double scale = 1;
     float alpha = 1;
     bool workspace_bound = false, no_screen_share = false;
+    bool public_close_only = false;
 };
 template<class P> concept WindowPort = requires(P &port, const P &constant,
     P::WindowRef window, WindowId window_id, MonitorId monitor, Handle handle,

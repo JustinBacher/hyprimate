@@ -25,11 +25,15 @@ struct Settings {
     double speed = 1;
     bool operator==(const Settings &) const = default;
 };
+enum class Publication { Unknown, Partial, Blank, Native };
+struct CropProof { Box crop, source; double scale; };
 struct State {
     std::uint64_t seed = 0;
     double progress = 0;
     bool closing = false;
     std::shared_ptr<int> lifetime = std::make_shared<int>(1);
+    Publication publication = Publication::Unknown;
+    std::optional<CropProof> reject_crop{};
 };
 struct Log {
     int opens = 0, closes = 0, ends = 0, prepares = 0;
@@ -54,6 +58,13 @@ struct Log {
     bool release = false, snap = false, alpha = false, running = true, tail = false, backdrop = false;
     bool native_presentation = false;
     CloseStart close_result = CloseStart::Owned;
+    Frame initial_close{.running = true, .bounds = {2, 3, 20, 18}};
+    std::optional<Step> initial_close_step;
+    int close_initializations = 0;
+    bool require_publication = false;
+    Publication next_publication = Publication::Partial;
+    Publication closed_publication = Publication::Unknown;
+    std::optional<CropProof> reject_crop{};
     std::function<void()> during_draw;
 };
 template<config::Style Kind> struct TestStyle {
@@ -65,8 +76,9 @@ template<config::Style Kind> struct TestStyle {
         ResourcesBase<State, Settings, Prepared>::AnimationPool animations;
     };
     static constexpr auto KIND = Kind;
-    static constexpr bool FIXED_CLOSE_PLACEMENT = false;
+    static constexpr bool FIXED_CLOSE_PLACEMENT = Kind == config::Style::Paper;
     static constexpr bool NATIVE_PROTECTED_MAPPED = Kind == config::Style::Paper;
+    static constexpr bool PUBLIC_CLOSE_ONLY = Kind == config::Style::Paper;
     static constexpr bool DRAWS_UNDER_BLUR = false;
     static Prepared prepare_settings(const Settings &settings) { return settings; }
     static State start(const Resources & /*resources*/, std::uint64_t seed) { return {.seed = seed}; }
@@ -94,7 +106,35 @@ template<config::Style Kind> struct TestStyle {
         resources.log.close_progress = state.progress;
         resources.log.close_seed = state.seed;
         state.closing = true;
+        resources.log.closed_publication = state.publication;
+        state.reject_crop = resources.log.reject_crop;
+        if (resources.log.require_publication && state.publication == Publication::Unknown) {
+            return CloseStart::Declined;
+        }
         return resources.log.close_result;
+    }
+    static Frame initial_close_frame(State &, const Step &step, Resources &resources) noexcept
+        requires (PUBLIC_CLOSE_ONLY) {
+        ++resources.log.close_initializations;
+        resources.log.initial_close_step = step;
+        return resources.log.initial_close;
+    }
+    static void invalidate_mapped_publication(State &state, Resources &) noexcept requires (PUBLIC_CLOSE_ONLY) {
+        state.publication = Publication::Unknown;
+    }
+    static void mapped_native_publication(State &state, Box, Box, Box, double, Resources &) noexcept
+        requires (PUBLIC_CLOSE_ONLY) {
+        state.publication = Publication::Native;
+    }
+    static bool accepts_close_crop(const State &state, Box crop, Box source, double scale) noexcept
+        requires (PUBLIC_CLOSE_ONLY) {
+        if (!state.reject_crop) { return true; }
+        const auto &expected = *state.reject_crop;
+        CHECK(crop.x == expected.crop.x && crop.y == expected.crop.y &&
+            crop.w == expected.crop.w && crop.h == expected.crop.h);
+        CHECK(source.x == expected.source.x && source.y == expected.source.y &&
+            source.w == expected.source.w && source.h == expected.source.h && scale == expected.scale);
+        return false;
     }
     static void end(State & /*state*/, Resources &resources, End why) noexcept {
         ++resources.log.ends;
@@ -113,6 +153,12 @@ template<config::Style Kind> struct TestStyle {
         if (resources.log.during_draw) { resources.log.during_draw(); }
         CHECK(!LIFETIME.expired());
         if (!LIFETIME.expired()) { CHECK(state.seed == SEED); }
+        if constexpr (PUBLIC_CLOSE_ONLY) {
+            if (!state.closing && resources.log.draw_succeeds && draw.real_pass && draw.monitor == 1 &&
+                !draw.canvas->captures_pixels()) {
+                state.publication = resources.log.next_publication;
+            }
+        }
         return resources.log.draw_succeeds;
     }
     struct Screen {
@@ -919,6 +965,340 @@ void refused_retention_keeps_native() {
     CHECK(!fixture.module.suppresses(810));
 }
 
+void public_only_close_leaves_restricted_fadeouts_native() {
+    enum class Stop { PrivateAtClose, PrivateAtBind, PrivateImage, LockedAtBind };
+    for (const auto stop : {Stop::PrivateAtClose, Stop::PrivateAtBind, Stop::PrivateImage, Stop::LockedAtBind}) {
+        Fixture f;
+        f.policy.style = Other::KIND;
+        f.module.configure(f.policy);
+        f.window(1);
+        f.frame(1);
+        const auto handle = f.handle();
+        f.port.windows.at(1).no_screen_share = stop == Stop::PrivateAtClose;
+        f.module.close(1, f.port.now);
+        CHECK(f.module.pending_for(1).has_value() == (stop != Stop::PrivateAtClose));
+        f.port.windows.at(1).no_screen_share = stop == Stop::PrivateAtBind;
+        f.port.unlocked = stop != Stop::LockedAtBind;
+        auto fade = f.fade(814);
+        fade.no_screen_share = stop == Stop::PrivateImage;
+        f.module.bind_fadeout(1, fade, {.id = 21});
+        CHECK(!f.module.active(handle));
+        CHECK(!f.module.dying_view_for(814));
+        CHECK(f.port.suppress_requests == 0);
+        CHECK(!f.port.find_visuals(handle));
+    }
+    for (const bool lock : {false, true}) {
+        Fixture f;
+        f.policy.style = Other::KIND;
+        f.module.configure(f.policy);
+        f.window(1);
+        f.frame(1);
+        const auto handle = f.handle();
+        f.module.close(1, f.port.now);
+        auto fade = f.fade(814);
+        f.module.bind_fadeout(1, fade, {.id = 21});
+        CHECK(f.module.dying_view_for(814).has_value());
+        f.port.unlocked = !lock;
+        fade.no_screen_share = !lock;
+        f.port.fadeouts[814] = fade;
+        f.frame(1);
+        CHECK(!f.module.active(handle));
+        CHECK(!f.module.suppresses(814));
+        CHECK(!f.port.find_visuals(handle));
+    }
+}
+
+void public_close_publishes_first_frame_at_bind() {
+    for (const bool mapped_effect : {false, true}) {
+        Fixture f;
+        f.policy.style = Other::KIND;
+        f.module.configure(f.policy);
+        auto &log = f.resources.get<Other>().log;
+        f.window(1, 1, mapped_effect);
+        auto &window = f.port.windows.at(1);
+        window.screen = {45, 34, 800, 600};
+        window.workspace_offset = {10, 20};
+        window.floating_offset = {-3, 4};
+        window.scale = 1.25;
+        f.frame(1);
+        f.module.close(1, f.port.now);
+        const auto HANDLE = f.module.pending_for(1);
+        CHECK(HANDLE);
+        if (!HANDLE) { continue; }
+        const auto PENDING = f.module.pending_public_close(*HANDLE);
+        CHECK(PENDING && PENDING->place.capture.x == 95 && PENDING->place.screen.x == 45 &&
+            PENDING->source_device.x == 71.25 && PENDING->source_device.y == 106.25 && PENDING->scale == 1.25);
+        CHECK(log.close_initializations == 0);
+        f.frame(1, 0.32); // A pending snapshot can take longer than the style's stall threshold.
+        auto fade = f.fade(815);
+        fade.scale = window.scale;
+        f.port.fadeouts[815] = fade;
+        f.module.bind_fadeout(1, fade, {.id = 15});
+        CHECK(f.module.suppresses(815));
+        CHECK(!f.module.pending_public_close(*HANDLE));
+        CHECK(log.close_initializations == 1);
+        CHECK(log.initial_close_step && log.initial_close_step->dying && log.initial_close_step->elapsed == 0 &&
+            !log.initial_close_step->stalled && log.initial_close_step->body.x == 100 &&
+            log.initial_close_step->capture.y == 95 && log.initial_close_step->screen.x == 38 &&
+            log.initial_close_step->screen.y == 10 && log.initial_close_step->screen.w == 800);
+        const auto FIRST = f.module.dying_view_for(815);
+        CHECK(FIRST && FIRST->public_close_only && FIRST->bounds_device.x == 73.75 &&
+            FIRST->bounds_device.y == 110 && FIRST->bounds_device.w == 25 && FIRST->bounds_device.h == 22.5);
+        FakeCanvas canvas;
+        const FakeCanvas::Image IMAGE{.id = 15};
+        const Draw<FakeCanvas> DRAW{.canvas = &canvas, .image = &IMAGE, .source = {}, .output = {},
+            .canvas_box = {}, .image_origin = {}, .image_size = IMAGE.size, .real_pass = true};
+        const auto STEP_COUNT = log.steps.size();
+        f.frame(1, 0.09); // Stock render.pre runs before the first physical composite.
+        CHECK(log.steps.size() == STEP_COUNT);
+        canvas.rendering_capture = true;
+        CHECK(f.module.draw(*HANDLE, DRAW));
+        canvas.rendering_capture = false;
+        auto stale = *HANDLE;
+        ++stale.generation;
+        f.module.confirm_public_close_presented(stale, f.port.now, true);
+        f.frame(2, 0.09);
+        f.frame(1, 0.09);
+        CHECK(log.steps.size() == STEP_COUNT);
+        const auto STILL_FIRST = f.module.dying_view_for(815);
+        CHECK(STILL_FIRST && STILL_FIRST->bounds_device.w == 25);
+        canvas.draws.clear();
+        CHECK(f.module.draw(*HANDLE, DRAW) && canvas.draws == std::vector<int>{15});
+        f.module.confirm_public_close_presented(*HANDLE, f.port.now, true);
+        CHECK(!f.port.damage_log.empty());
+        if (!f.port.damage_log.empty()) {
+            const auto &damage = f.port.damage_log.back();
+            CHECK(damage.x == 104 && damage.y == 122 && damage.w == 20 && damage.h == 18);
+        }
+        f.module.bind_fadeout(1, fade, {.id = 15});
+        CHECK(log.close_initializations == 1);
+        f.frame(1);
+        CHECK(!log.steps.empty());
+        if (!log.steps.empty()) {
+            const auto &step = log.steps.back();
+            CHECK(step.dying && !step.stalled && std::abs(step.elapsed - 0.016) < 1e-8 &&
+                step.screen.x == 38 && step.screen.y == 10);
+        }
+    }
+}
+
+void public_close_blank_completion_is_not_native_fallback() {
+    for (const bool interrupted : {false, true}) {
+        Fixture f;
+        f.policy.style = Other::KIND;
+        f.module.configure(f.policy);
+        auto &log = f.resources.get<Other>().log;
+        log.initial_close = {.interrupted = interrupted};
+        f.window(1);
+        f.frame(1);
+        const auto HANDLE = f.handle();
+        f.module.close(1, f.port.now);
+        const auto FADE = f.fade(816);
+        f.module.bind_fadeout(1, FADE, {.id = 16});
+        CHECK(log.close_initializations == 1);
+        CHECK(log.last_end == (interrupted ? End::Interrupted : End::Completed));
+        CHECK(!f.module.active(HANDLE) && !f.module.dying_view_for(816));
+        CHECK(f.port.find_visuals(HANDLE) == nullptr);
+        CHECK(f.port.suppress_requests == (interrupted ? 0 : 1));
+        f.module.interrupt_public_close(HANDLE); // A stale pass must not clear a valid tombstone.
+        f.module.bind_fadeout(1, FADE, {.id = 16});
+        f.frame(1);
+        CHECK(log.close_initializations == 1 && log.ends == 1);
+        CHECK(f.module.suppresses(816) == !interrupted);
+        CHECK(f.port.suppressed.contains(816) == !interrupted);
+        f.module.native_finished(816);
+        CHECK(!f.module.suppresses(816) && !f.port.suppressed.contains(816));
+    }
+}
+
+void public_close_rejects_unproven_sources_before_initialization() {
+    enum class Source { BadPlacement, IncorrectWorkspace, RefusedRetention, ProducerMismatch, TooLate };
+    for (const auto source : {Source::BadPlacement, Source::IncorrectWorkspace, Source::RefusedRetention,
+             Source::ProducerMismatch, Source::TooLate}) {
+        Fixture f;
+        f.policy.style = Other::KIND;
+        f.module.configure(f.policy);
+        auto &log = f.resources.get<Other>().log;
+        f.window(1);
+        f.frame(1);
+        const auto HANDLE = f.handle();
+        if (source == Source::BadPlacement) { f.port.windows.at(1).workspace_offset.x = std::nan(""); }
+        f.module.interrupt_public_close(HANDLE); // A mapped generation isn't a close.
+        CHECK(f.module.active(HANDLE));
+        f.module.close(1, f.port.now);
+        auto stale = HANDLE;
+        ++stale.generation;
+        CHECK(!f.module.pending_public_close(stale));
+        f.module.interrupt_public_close(stale);
+        CHECK(f.module.pending_public_close(HANDLE));
+        if (source == Source::ProducerMismatch) { f.module.interrupt_public_close(HANDLE); }
+        if (source == Source::TooLate) { f.port.advance(1.1); }
+        auto fade = f.fade(817);
+        if (source == Source::IncorrectWorkspace) { fade.workspace_bound = true; fade.workspace = 2; }
+        f.port.refuse_retention = source == Source::RefusedRetention;
+        f.module.bind_fadeout(1, fade, {.id = 17});
+        CHECK(log.close_initializations == 0 && log.last_end == End::Interrupted);
+        CHECK(!f.module.active(HANDLE) && !f.module.pending_for(1) && !f.module.dying_view_for(817));
+        CHECK(f.port.find_visuals(HANDLE) == nullptr);
+        CHECK(f.port.suppress_requests == 0 && !f.module.suppresses(817));
+        f.port.refuse_retention = false;
+        f.module.bind_fadeout(1, f.fade(817), {.id = 17});
+        CHECK(log.close_initializations == 0 && !f.module.suppresses(817));
+    }
+    Fixture other_style;
+    other_style.window(1);
+    other_style.frame(1);
+    const auto HANDLE = other_style.handle();
+    other_style.module.close(1, other_style.port.now);
+    CHECK(!other_style.module.pending_public_close(HANDLE));
+    other_style.module.interrupt_public_close(HANDLE);
+    CHECK(other_style.module.pending_for(1) == HANDLE);
+    other_style.module.bind_fadeout(1, other_style.fade(817), {.id = 17});
+    other_style.module.interrupt_public_close(HANDLE);
+    CHECK(other_style.module.active(HANDLE) && other_style.module.suppresses(817));
+}
+
+void public_close_interrupts_only_on_physical_draw_failure_or_revocation() {
+    enum class Failure { Draw, Lock, Private, MissingOwner };
+    for (const auto failure : {Failure::Draw, Failure::Lock, Failure::Private, Failure::MissingOwner}) {
+        Fixture f;
+        f.policy.style = Other::KIND;
+        f.module.configure(f.policy);
+        auto &log = f.resources.get<Other>().log;
+        f.window(1);
+        f.frame(1);
+        const auto HANDLE = f.handle();
+        f.module.close(1, f.port.now);
+        f.module.bind_fadeout(1, f.fade(818), {.id = 18});
+        CHECK(f.module.suppresses(818));
+        FakeCanvas canvas;
+        const FakeCanvas::Image IMAGE{.id = 18};
+        const Draw<FakeCanvas> DRAW{.canvas = &canvas, .image = &IMAGE, .source = {}, .output = {},
+            .canvas_box = {}, .image_origin = {}, .image_size = IMAGE.size, .real_pass = true};
+        if (failure == Failure::Draw) {
+            log.draw_succeeds = false;
+            canvas.rendering_capture = true;
+            CHECK(!f.module.draw(HANDLE, DRAW)); // Capture can use PassKind::Live, but cannot cancel.
+            CHECK(f.module.suppresses(818));
+            canvas.rendering_capture = false;
+        } else {
+            log.during_draw = [&] {
+                if (failure == Failure::Lock) { f.port.unlocked = false; }
+                if (failure == Failure::Private) { f.port.fadeouts.at(818).no_screen_share = true; }
+            };
+        }
+        f.port.scheduled.clear();
+        f.port.damage_log.clear();
+        if (failure == Failure::MissingOwner) { f.module.interrupt_public_close(HANDLE); }
+        else { CHECK(!f.module.draw(HANDLE, DRAW)); }
+        CHECK(log.last_end == End::Interrupted && log.ends == 1);
+        CHECK(!f.module.active(HANDLE) && !f.module.dying_view_for(818));
+        CHECK(!f.module.suppresses(818) && !f.port.suppressed.contains(818));
+        CHECK(f.port.find_visuals(HANDLE) == nullptr && !f.port.damage_log.empty());
+        CHECK(f.port.scheduled == std::vector<MonitorId>{1});
+        f.port.unlocked = true;
+        f.port.fadeouts.at(818).no_screen_share = false;
+        f.module.bind_fadeout(1, f.fade(818), {.id = 18});
+        CHECK(!f.module.draw(HANDLE, DRAW) && !f.module.suppresses(818));
+    }
+}
+
+void public_close_uses_latest_physical_mapped_outcome() {
+    enum class Last { Bypass, FailedMaterial, ReplayAndPopup, Native, ModelNativeOnly };
+    for (const auto receipt : {Publication::Partial, Publication::Blank}) {
+        for (const auto last : {Last::Bypass, Last::FailedMaterial, Last::ReplayAndPopup,
+                 Last::Native, Last::ModelNativeOnly}) {
+            Fixture f;
+            f.policy.style = Other::KIND;
+            f.module.configure(f.policy);
+            auto &log = f.resources.get<Other>().log;
+            log.require_publication = true;
+            log.next_publication = receipt;
+            f.window(1);
+            f.frame(1);
+            const auto HANDLE = f.handle();
+            FakeCanvas canvas;
+            const FakeCanvas::Image IMAGE{.id = 19};
+            Draw<FakeCanvas> draw{.canvas = &canvas, .image = &IMAGE, .source = {}, .output = {},
+                .canvas_box = {}, .image_origin = {}, .image_size = IMAGE.size, .real_pass = true, .monitor = 1};
+            f.module.before_window(1, canvas, 1, 30);
+            CHECK(f.module.draw(HANDLE, draw));
+            f.module.before_window(1, canvas, 1, 30); // Same-frame duplicate popup notification.
+            f.module.before_window(1, canvas, 2, 31); // Secondary monitor.
+            canvas.rendering_snapshot = true;
+            f.module.before_window(1, canvas, 1, 32);
+            canvas.rendering_snapshot = false;
+            canvas.destination_live = true;
+            f.module.before_window(1, canvas, 1, 33);
+            log.draw_succeeds = false;
+            CHECK(!f.module.draw(HANDLE, draw)); // A failed destination capture cannot clear it.
+            canvas.destination_live = false;
+            draw.monitor = 2;
+            CHECK(!f.module.draw(HANDLE, draw)); // Nor can a failed neighboring-output submission.
+            draw.monitor = 1;
+            if (last == Last::Bypass) { f.module.before_window(1, canvas, 1, 34); }
+            if (last == Last::FailedMaterial) { CHECK(!f.module.draw(HANDLE, draw)); }
+            if (last == Last::Native || last == Last::ModelNativeOnly) {
+                log.native_presentation = true;
+                f.frame(1);
+                if (last == Last::Native) { f.module.before_window(1, canvas, 1, 34); }
+            }
+            f.module.close(1, f.port.now);
+            const bool UNKNOWN = last == Last::Bypass || last == Last::FailedMaterial;
+            const auto EXPECTED = UNKNOWN ? Publication::Unknown : last == Last::Native ? Publication::Native : receipt;
+            CHECK(log.closed_publication == EXPECTED);
+            CHECK(f.module.pending_for(1).has_value() == !UNKNOWN);
+            if (UNKNOWN) {
+                f.module.bind_fadeout(1, f.fade(819), {.id = 19});
+                CHECK(!f.module.active(HANDLE) && !f.module.suppresses(819));
+            }
+        }
+    }
+}
+
+void public_close_crop_is_validated_before_retention() {
+    Fixture f;
+    f.policy.style = Other::KIND;
+    f.module.configure(f.policy);
+    auto &log = f.resources.get<Other>().log;
+    f.window(1);
+    auto &window = f.port.windows.at(1);
+    window.body = window.goal_body = {-5, 25, 100, 80};
+    window.capture = {-10, 20, 110, 90};
+    window.scale = 1.25;
+    f.frame(1);
+    const auto HANDLE = f.handle();
+    log.reject_crop = CropProof{.crop = {10, 0, 80, 68}, .source = {-12.5, 25, 137.5, 112.5}, .scale = 1.25};
+    f.module.close(1, f.port.now);
+    auto fade = f.fade(820);
+    fade.scale = 1.25;
+    fade.image_size = {100, 110};
+    f.port.fail_bind = true; // Reaching the retain call would throw.
+    f.module.bind_fadeout(1, fade, {.id = 20});
+    CHECK(log.close_initializations == 0 && log.last_end == End::Interrupted);
+    CHECK(!f.module.active(HANDLE) && !f.module.suppresses(820) && f.port.suppress_requests == 0);
+}
+
+void public_close_hold_releases_without_a_physical_composite() {
+    for (const bool no_layer : {false, true}) {
+        Fixture f;
+        f.policy.style = Other::KIND;
+        f.module.configure(f.policy);
+        auto &log = f.resources.get<Other>().log;
+        f.window(1);
+        f.frame(1);
+        const auto HANDLE = f.handle();
+        f.module.close(1, f.port.now);
+        f.module.bind_fadeout(1, f.fade(821), {.id = 21});
+        CHECK(f.module.suppresses(821));
+        if (no_layer) { f.module.confirm_public_close_presented(HANDLE, f.port.now, false); }
+        else { f.frame(1, STALL_WINDOW_SECONDS + 0.01); }
+        CHECK(log.last_end == End::Interrupted && !f.module.active(HANDLE) && !f.module.suppresses(821));
+        f.module.confirm_public_close_presented(HANDLE, f.port.now, true);
+        CHECK(!f.module.active(HANDLE) && !f.module.suppresses(821));
+    }
+}
+
 void retained_close_privacy_is_monotonic() {
     enum class PrivateSource { BindObservation, Fadeout, LaterRefresh };
     for (const auto MODE : {CloseStart::Owned, CloseStart::Native}) {
@@ -1384,6 +1764,14 @@ int main() try {
     opening_movement_and_settlement(); settled_opening_edge_survives_until_close();
     seated_interval_uses_native_surfaces_before_slot_end();
     protected_window_keeps_native_presentation();
+    public_only_close_leaves_restricted_fadeouts_native();
+    public_close_publishes_first_frame_at_bind();
+    public_close_blank_completion_is_not_native_fallback();
+    public_close_rejects_unproven_sources_before_initialization();
+    public_close_interrupts_only_on_physical_draw_failure_or_revocation();
+    public_close_uses_latest_physical_mapped_outcome();
+    public_close_crop_is_validated_before_retention();
+    public_close_hold_releases_without_a_physical_composite();
     new_opening_attempt_clears_previous_edge();
     disabled_open_and_move(); monitor_frames_and_reattach();
     close_continuity_and_association(); close_timeout_invalid_and_fresh(); invalidation_and_restore();
