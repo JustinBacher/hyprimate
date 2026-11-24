@@ -77,11 +77,11 @@ namespace hyprimate::animation {
     }
     template <class Port, class... Styles>
     template <class Function>
-    bool CWindowAnimations<Port, StyleList<Styles...>>::selected(Function &&function) {
+    bool CWindowAnimations<Port, StyleList<Styles...>>::selected(config::Style kind, Function &&function) {
         bool found = false;
         (
             [&] {
-                if (m_policy.style == Styles::KIND) {
+                if (kind == Styles::KIND) {
                     std::forward<Function>(function).template operator()<Styles>(
                         m_resources.template get<Styles>());
                     found = true;
@@ -138,7 +138,9 @@ namespace hyprimate::animation {
             .opening_edge = std::nullopt,
             .monitor = observation.monitor,
             .workspace = observation.workspace,
-            .pinned = observation.pinned};
+            .pinned = observation.pinned,
+            .scale = observation.scale,
+            .fullscreen = observation.fullscreen};
     }
     template <class Port, class... Styles>
     void CWindowAnimations<Port, StyleList<Styles...>>::track(Port::WindowRef window) {
@@ -154,9 +156,9 @@ namespace hyprimate::animation {
     }
     template <class Port, class... Styles>
     std::optional<Handle> CWindowAnimations<Port, StyleList<Styles...>>::acquire(
-        Tracked &tracked_window, const Observation &observation, std::uint64_t seed) {
+        Tracked &tracked_window, const Observation &observation, std::uint64_t seed, config::Style kind) {
         std::optional<Handle> result;
-        selected([&]<class Style>(auto &resources) {
+        selected(kind, [&]<class Style>(auto &resources) {
             const perf::CpuScope PROFILE{profile_key(Style::KIND), perf::Phase::Setup};
             const auto POOL_HANDLE = resources.animations.emplace(
                 std::in_place, [&] { return Style::start(resources, seed); });
@@ -168,13 +170,34 @@ namespace hyprimate::animation {
                 constexpr bool TRACKS_PUBLICATION = requires(typename Style::State &state) {
                     Style::invalidate_mapped_publication(state, resources);
                 };
+                constexpr bool PUBLIC_MAPPED_ONLY = [] {
+                    if constexpr (requires { Style::PUBLIC_MAPPED_ONLY; }) {
+                        return Style::PUBLIC_MAPPED_ONLY;
+                    }
+                    return false;
+                }();
+                constexpr bool ALLOWS_MAPPED_BLUR = [] {
+                    if constexpr (requires { Style::DRAWS_MAPPED_UNDER_BLUR; }) {
+                        return Style::DRAWS_MAPPED_UNDER_BLUR;
+                    }
+                    return true;
+                }();
+                constexpr bool PRESERVE_ON_RELOAD = [] {
+                    if constexpr (requires { Style::PRESERVE_ON_RELOAD; }) {
+                        return Style::PRESERVE_ON_RELOAD;
+                    }
+                    return false;
+                }();
                 m_entries.push_back(Record{.origin = tracked_window.id,
                     .monitor = observation.monitor,
                     .workspace = observation.workspace,
                     .last_step = {},
                     .pending_since = {},
                     .handle = ENTRY_HANDLE,
-                    .tracks_mapped_publication = TRACKS_PUBLICATION});
+                    .tracks_mapped_publication = TRACKS_PUBLICATION,
+                    .public_mapped_only = PUBLIC_MAPPED_ONLY,
+                    .allows_mapped_blur = ALLOWS_MAPPED_BLUR,
+                    .preserve_on_reload = PRESERVE_ON_RELOAD});
             } catch (...) {
                 m_port.release_visuals(ENTRY_HANDLE);
                 auto *slot = resources.animations.get(POOL_HANDLE);
@@ -265,6 +288,7 @@ namespace hyprimate::animation {
             release_drive(*window);
             m_port.detach_transformer(window->window);
             window->handle.reset();
+            window->exclusive_open_goal.reset();
         }
         InFlightDraw *deferred = nullptr;
         for (auto *flight = m_draws; flight != nullptr; flight = flight->previous) {
@@ -319,7 +343,8 @@ namespace hyprimate::animation {
         for (std::size_t index = m_entries.size(); index > 0; --index) {
             const auto ITEM = m_entries[index - 1];
             if ((ITEM.life == Life::Mapped &&
-                    (SELECTION_CHANGED || !policy.enabled || policy.inert)) ||
+                    ((SELECTION_CHANGED && !ITEM.preserve_on_reload) ||
+                        !policy.enabled || policy.inert || (ITEM.preserve_on_reload && !policy.opening))) ||
                 (ITEM.life != Life::Mapped && STOP_CLOSES)) {
                 end(ITEM.handle, End::Interrupted);
             }
@@ -407,9 +432,19 @@ namespace hyprimate::animation {
             }
             return;
         }
+        const auto KIND = m_policy.close_style.value_or(m_policy.style);
+        if (window->handle && window->handle->style != KIND) {
+            end(*window->handle, End::Interrupted);
+            observation = m_port.observe(window->window);
+            if (!observation || !observation->mapped || observation->fullscreen ||
+                !is_usable(observation->capture) || !is_usable(observation->body) ||
+                !std::isfinite(observation->scale) || observation->scale <= 0) {
+                return;
+            }
+        }
         auto handle = window->handle;
         if (!handle) {
-            handle = acquire(*window, *observation, 0);
+            handle = acquire(*window, *observation, 0, KIND);
         }
         if (!handle) {
             return;
@@ -429,7 +464,8 @@ namespace hyprimate::animation {
         visit(*handle, [&]<class Style>(auto &slot, auto &resources) {
             if constexpr (requires { Style::PUBLIC_CLOSE_ONLY; }) {
                 public_only = Style::PUBLIC_CLOSE_ONLY;
-                if (public_only && (observation->no_screen_share || !m_port.session_unlocked())) {
+                if (public_only && (observation->no_screen_share || !m_port.session_unlocked() ||
+                    observation->window != window->id || m_port.identity(window->window) != window->id)) {
                     return;
                 }
             }
@@ -489,6 +525,7 @@ namespace hyprimate::animation {
             fadeout.monitor != entry->monitor ||
             (entry->public_close_only &&
                 (entry->no_screen_share || observation->no_screen_share || fadeout.no_screen_share ||
+                    observation->window != entry->origin || m_port.identity(window->window) != entry->origin ||
                     !m_port.session_unlocked() || !is_usable(entry->source_device) ||
                     (fadeout.workspace_bound && fadeout.workspace != entry->workspace))) ||
             observation->scale != entry->captured_scale ||
@@ -505,28 +542,28 @@ namespace hyprimate::animation {
         }
         const bool INITIALIZE_CLOSE = entry->public_close_only && entry->ownership == CloseStart::Owned;
         if (INITIALIZE_CLOSE) {
-            bool crop_allowed = true;
-            visit(CURRENT_HANDLE, [&]<class Style>(const auto &slot, const auto &) {
+            bool source_allowed = true;
+            visit(CURRENT_HANDLE, [&]<class Style>(auto &slot, auto &) {
+                const auto &source = entry->source_device;
+                const auto SCALE = entry->captured_scale;
                 if constexpr (requires { Style::accepts_close_crop(slot.state, Box{}, Box{}, 1.0); }) {
-                    const auto &source = entry->source_device;
-                    const auto SCALE = entry->captured_scale;
                     const double LEFT = std::clamp(-source.x, 0.0, source.w);
                     const double TOP = std::clamp(-source.y, 0.0, source.h);
                     const double RIGHT = std::clamp(fadeout.image_size.x - source.x, LEFT, source.w);
                     const double BOTTOM = std::clamp(fadeout.image_size.y - source.y, TOP, source.h);
                     const Box CROP{LEFT / SCALE, TOP / SCALE, (RIGHT - LEFT) / SCALE, (BOTTOM - TOP) / SCALE};
                     static_assert(noexcept(Style::accepts_close_crop(slot.state, CROP, source, SCALE)));
-                    crop_allowed = Style::accepts_close_crop(slot.state, CROP, source, SCALE);
+                    source_allowed = Style::accepts_close_crop(slot.state, CROP, source, SCALE);
                 }
             });
-            if (!crop_allowed) {
+            if (!source_allowed) {
                 end(CURRENT_HANDLE, End::Interrupted);
                 return;
             }
         }
         bool retained = false;
         try {
-            retained = m_port.bind_fadeout(CURRENT_HANDLE, fadeout.fadeout, std::move(image));
+            retained = m_port.bind_fadeout(CURRENT_HANDLE, fadeout.fadeout, image);
         } catch (...) {
             end(CURRENT_HANDLE, End::Interrupted);
             throw;
@@ -535,12 +572,22 @@ namespace hyprimate::animation {
             end(CURRENT_HANDLE, End::Interrupted);
             return;
         }
+        entry = record(CURRENT_HANDLE);
+        if (entry == nullptr) return;
         if (INITIALIZE_CLOSE) {
             entry->last_step = fadeout.now;
             entry->last_frame = 0;
             entry->stall_count = 0;
             const auto STEP = dying_step(*entry, 0);
             visit(CURRENT_HANDLE, [&]<class Style>(auto &slot, auto &resources) {
+                if constexpr (requires { Style::bind_close_source(slot.state, entry->source_device, image); }) {
+                    static_assert(noexcept(Style::bind_close_source(slot.state, entry->source_device, image)));
+                    if (!m_port.session_unlocked() ||
+                        !Style::bind_close_source(slot.state, entry->source_device, image)) {
+                        entry->current = {.interrupted = true};
+                        return;
+                    }
+                }
                 if constexpr (requires { Style::PUBLIC_CLOSE_ONLY; }) {
                     if constexpr (Style::PUBLIC_CLOSE_ONLY) {
                         static_assert(noexcept(Style::initial_close_frame(slot.state, STEP, resources)));
@@ -702,6 +749,13 @@ namespace hyprimate::animation {
         return observation;
     }
     template <class Port, class... Styles>
+    bool CWindowAnimations<Port, StyleList<Styles...>>::public_mapped_source_allowed(
+        const Tracked &window, const Observation &observation) const {
+        return observation.window == window.id && observation.mapped && !observation.hidden &&
+               observation.workspace_visible && !observation.no_screen_share &&
+               m_port.tail_source_allowed(window.window, window.id, true);
+    }
+    template <class Port, class... Styles>
     bool CWindowAnimations<Port, StyleList<Styles...>>::begin_mapped(
         Tracked &window, const Observation &observation, const std::optional<Motion> &motion) {
         const bool OPENING = observation.animating_in && !window.opening_seen;
@@ -709,25 +763,31 @@ namespace hyprimate::animation {
             window.opening_edge.reset();
         }
         window.opening_seen = observation.animating_in;
-        if (observation.no_screen_share) {
-            bool native_only = false;
-            selected([&]<class Style>(auto &) {
+        bool open_override = OPENING && m_policy.opening && m_policy.enabled && !m_policy.inert &&
+                             m_policy.open_style.has_value();
+        const auto OPEN_KIND = m_policy.open_style.value_or(m_policy.style);
+        const auto mapped_allowed = [&](config::Style kind) {
+            bool allowed = true;
+            selected(kind, [&]<class Style>(auto &) {
+                if constexpr (requires { Style::PUBLIC_MAPPED_ONLY; }) {
+                    if (Style::PUBLIC_MAPPED_ONLY) {
+                        allowed = public_mapped_source_allowed(window, observation);
+                    }
+                }
                 if constexpr (requires { Style::NATIVE_PROTECTED_MAPPED; }) {
-                    native_only = Style::NATIVE_PROTECTED_MAPPED;
+                    allowed &= !Style::NATIVE_PROTECTED_MAPPED || !observation.no_screen_share;
+                }
+                if constexpr (requires { Style::DRAWS_MAPPED_UNDER_BLUR; }) {
+                    allowed = allowed &&
+                        (Style::DRAWS_MAPPED_UNDER_BLUR || !m_port.mapped_blur_required(window.window));
                 }
             });
-            if (native_only) {
-                if (window.handle) {
-                    end(*window.handle, End::Interrupted);
-                }
-                return false;
-            }
-        }
-        bool acquired = false;
-        if (!window.handle && m_policy.enabled && !m_policy.inert) {
+            return allowed;
+        };
+        const auto base_moves = [&] {
             bool moves = false;
-            if (motion && m_policy.movement) {
-                selected([&]<class Style>(auto &resources) {
+            if (motion && m_policy.movement && m_policy.enabled && !m_policy.inert) {
+                selected(m_policy.style, [&]<class Style>(auto &resources) {
                     if constexpr (requires { Style::moves(*motion, resources); }) {
                         moves = Style::moves(*motion, resources);
                     } else {
@@ -735,11 +795,47 @@ namespace hyprimate::animation {
                     }
                 });
             }
-            if ((OPENING && m_policy.opening) || moves) {
-                acquired = acquire(window, observation, ++m_seed).has_value();
+            return moves;
+        };
+        const auto independent_motion = [&](const Box &opening_goal) {
+            // Ignore native pop-in/slide interpolation toward the original layout
+            // goal, not an actual drag, workspace slide or layout retarget.
+            return motion && (observation.held || observation.resize_held ||
+                motion->workspace_shifted || !detail::same_box(observation.goal_body, opening_goal) ||
+                (!observation.layout_animated &&
+                    !(window.previous && window.previous->layout_animated)));
+        };
+        open_override = open_override && mapped_allowed(OPEN_KIND);
+        bool exclusive_open = false;
+        if (open_override) {
+            selected(OPEN_KIND, [&]<class Style>(auto &) {
+                if constexpr (requires { Style::EXCLUSIVE_OPEN; }) {
+                    exclusive_open = Style::EXCLUSIVE_OPEN;
+                }
+            });
+            if (exclusive_open && window.previous &&
+                independent_motion(window.previous->goal_body) && base_moves()) {
+                open_override = false;
             }
         }
-        if (window.handle && OPENING && m_policy.opening && m_policy.enabled && !m_policy.inert) {
+        if (window.handle) {
+            if (!mapped_allowed(window.handle->style) ||
+                (open_override && window.handle->style != OPEN_KIND) ||
+                (window.exclusive_open_goal && independent_motion(*window.exclusive_open_goal) &&
+                    base_moves())) {
+                // Both styles require their own raster/geometry contract. Hand off
+                // the current sample rather than chaining incompatible transformers.
+                end(*window.handle, End::Interrupted);
+            }
+        }
+        const auto KIND = open_override ? OPEN_KIND : m_policy.style;
+        const bool TRY_OPEN = OPENING && m_policy.opening && m_policy.enabled && !m_policy.inert &&
+                              (open_override || (!m_policy.open_style && mapped_allowed(KIND)));
+        bool acquired = false;
+        if (!window.handle && TRY_OPEN) {
+            acquired = acquire(window, observation, ++m_seed, KIND).has_value();
+        }
+        if (window.handle && TRY_OPEN) {
             const auto CURRENT_HANDLE = *window.handle;
             Effects effects;
             bool accepted = false;
@@ -752,9 +848,15 @@ namespace hyprimate::animation {
             if ((!accepted && acquired) || (accepted && !apply(window, observation, effects))) {
                 end(CURRENT_HANDLE, End::Interrupted);
             } else if (accepted) {
+                if (exclusive_open) {
+                    window.exclusive_open_goal = observation.goal_body;
+                }
                 window.opening_edge = effects.opening_edge;
                 return true;
             }
+        }
+        if (!window.handle && base_moves() && mapped_allowed(m_policy.style)) {
+            acquire(window, observation, ++m_seed, m_policy.style);
         }
         return false;
     }
@@ -891,7 +993,9 @@ namespace hyprimate::animation {
             .workspace = observation->workspace,
             .pinned = observation->pinned,
             .window = window.id,
-            .resize_held = observation->resize_held};
+            .resize_held = observation->resize_held,
+            .scale = observation->scale,
+            .fullscreen = observation->fullscreen};
         Effects effects;
         const bool HAD_TAIL = entry->current.tail;
         if (is_usable(entry->footprint)) {
@@ -969,7 +1073,9 @@ namespace hyprimate::animation {
             .dying = true,
             .monitor = entry.monitor,
             .workspace = place.workspace,
-            .pinned = place.pinned};
+            .pinned = place.pinned,
+            .scale = place.scale,
+            .fullscreen = place.fullscreen};
     }
     template <class Port, class... Styles>
     void CWindowAnimations<Port, StyleList<Styles...>>::damage_dying(Record &entry) {
@@ -1240,6 +1346,16 @@ namespace hyprimate::animation {
             }
             return false;
         }
+        const bool PUBLIC_MAPPED = entry->life == Life::Mapped && entry->public_mapped_only;
+        const auto mapped_source_allowed = [&] {
+            const auto *window = tracked(entry->origin);
+            const auto observation = window != nullptr ? m_port.observe(window->window) : std::nullopt;
+            return observation && public_mapped_source_allowed(*window, *observation) &&
+                (entry->allows_mapped_blur || !m_port.mapped_blur_required(window->window));
+        };
+        if (PUBLIC_MAPPED && !mapped_source_allowed()) {
+            return false;
+        }
         const auto CALLBACK = callback_ticket();
         auto isolated_draw = draw_info;
         if (isolated_draw.monitor == 0) {
@@ -1282,7 +1398,8 @@ namespace hyprimate::animation {
         if (!is_usable(entry->current.bounds)) {
             return true;
         }
-        isolated_draw.real_pass = REAL_PASS;
+        isolated_draw.real_pass = REAL_PASS && (!PUBLIC_MAPPED ||
+            (!draw_info.canvas->captures_pixels() && isolated_draw.monitor == entry->monitor));
         bool drawn = false;
         InFlightDraw flight{*this, handle};
         visit(handle, [&]<class Style>(auto &slot, auto &resources) {
@@ -1331,6 +1448,12 @@ namespace hyprimate::animation {
         if (current == nullptr ||
             (current->life == Life::Mapped && current->current.native_presentation)) {
             return false;
+        }
+        if (PUBLIC_MAPPED) {
+            entry = current;
+            if (!mapped_source_allowed()) {
+                return false;
+            }
         }
         if (PUBLIC_OWNED) {
             const bool REVOKED = public_close_revoked(*current);
@@ -1584,7 +1707,15 @@ namespace hyprimate::animation {
     }
     template <class Port, class... Styles>
     void CWindowAnimations<Port, StyleList<Styles...>>::end_all() {
-        m_callbacks.invalidate();
+        reset(false);
+    }
+    template <class Port, class... Styles>
+    void CWindowAnimations<Port, StyleList<Styles...>>::reset(bool preserve_pinned) {
+        const bool HAS_PINNED = preserve_pinned &&
+            std::ranges::any_of(m_entries, [](const auto &entry) { return entry.preserve_on_reload; });
+        if (!HAS_PINNED) {
+            m_callbacks.invalidate();
+        }
         for (const auto &[monitor, frame] : m_screen_frames) {
             if (!needs_frame(monitor)) {
                 continue;
@@ -1594,13 +1725,20 @@ namespace hyprimate::animation {
             }
             m_port.schedule(monitor);
         }
-        while (!m_entries.empty()) {
-            end(m_entries.back().handle, End::Interrupted);
+        for (std::size_t index = m_entries.size(); index > 0; --index) {
+            const auto &entry = m_entries[index - 1];
+            if (!preserve_pinned || !entry.preserve_on_reload) {
+                end(entry.handle, End::Interrupted);
+            }
         }
-        for (const auto FADEOUT : m_tombstones) {
-            m_port.suppress_native(FADEOUT, false);
+        // Completed owned closes still hide the native fade. A config reload
+        // cannot resurrect one; only native completion or an explicit stop can.
+        if (!preserve_pinned) {
+            for (const auto FADEOUT : m_tombstones) {
+                m_port.suppress_native(FADEOUT, false);
+            }
+            m_tombstones.clear();
         }
-        m_tombstones.clear();
         (
             [&] {
                 if constexpr (requires(Styles::Resources &resources) {
@@ -1614,9 +1752,11 @@ namespace hyprimate::animation {
     }
     template <class Port, class... Styles>
     void CWindowAnimations<Port, StyleList<Styles...>>::reload() {
-        detach_transformers();
-        end_all();
+        reset(true);
         for (auto &window : m_tracked) {
+            if (window.handle) {
+                continue;
+            }
             window.previous = m_port.observe(window.window);
             window.previous_sample = {};
             window.opening_seen = window.previous && window.previous->animating_in;

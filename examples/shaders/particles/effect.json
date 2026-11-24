@@ -1,0 +1,110 @@
+{
+  "version": 1,
+  "events": [
+    "open",
+    "close"
+  ],
+  "bounds": [
+    0.1,
+    0.1,
+    0.1,
+    0.1
+  ],
+  "buffers": {
+    "particles": {
+      "bytes": 2048,
+      "ping_pong": true,
+      "lifetime": "persistent"
+    },
+    "physics": {
+      "bytes": 16,
+      "data": [
+        0,
+        0.15,
+        0.2,
+        0
+      ]
+    }
+  },
+  "meshes": {
+    "seeds": {
+      "primitive": "points",
+      "count": 128
+    },
+    "points": {
+      "primitive": "points",
+      "count": 128,
+      "attributes": [
+        {
+          "location": 0,
+          "buffer": "particles.read",
+          "components": 4,
+          "stride": 16
+        }
+      ]
+    },
+    "quads": {
+      "primitive": "triangles",
+      "count": 6,
+      "instances": 128,
+      "attributes": [
+        {
+          "location": 0,
+          "buffer": "particles.read",
+          "components": 4,
+          "stride": 16,
+          "divisor": 1
+        }
+      ]
+    }
+  },
+  "passes": [
+    {
+      "name": "seed",
+      "phase": "initialize",
+      "vertex": "seed.vert",
+      "mesh": "seeds",
+      "feedback": {
+        "buffer": "particles.write",
+        "varyings": [
+          "nextState"
+        ]
+      }
+    },
+    {
+      "name": "integrate",
+      "phase": "update",
+      "vertex": "integrate.vert",
+      "mesh": "points",
+      "blocks": {
+        "Physics": "physics"
+      },
+      "feedback": {
+        "buffer": "particles.write",
+        "varyings": [
+          "nextState"
+        ]
+      }
+    },
+    {
+      "name": "window",
+      "phase": "render",
+      "fragment": "window.frag",
+      "outputs": [
+        "output"
+      ]
+    },
+    {
+      "name": "particles",
+      "phase": "render",
+      "vertex": "particles.vert",
+      "fragment": "particles.frag",
+      "mesh": "quads",
+      "outputs": [
+        "output"
+      ],
+      "blend": "premultiplied",
+      "clear": false
+    }
+  ]
+}

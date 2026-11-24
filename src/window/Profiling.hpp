@@ -18,6 +18,7 @@ namespace hyprimate::animation {
             case Bubble: return {perf::Domain::Window, "bubble", operation};
             case Smoke: return {perf::Domain::Window, "smoke", operation};
             case Burn: return {perf::Domain::Window, "burn", operation};
+            case Shader: return {perf::Domain::Window, "shader", operation};
             case Construction: return {perf::Domain::Window, "construction", operation};
         }
         return {perf::Domain::Window, "unknown", operation};

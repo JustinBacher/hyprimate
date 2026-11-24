@@ -100,6 +100,12 @@ def validate(settings):
                 raise ValueError(f'{path}: string default must be one of the non-empty string choices')
         elif kind == 'string' and not isinstance(default, str):
             raise ValueError(f'{path}: string default must be text')
+        if 'internal_choices' in item:
+            internal = item['internal_choices']
+            if (kind != 'string' or 'choices' not in item or not isinstance(internal, list)
+                    or not internal or not all(isinstance(c, str) and SEGMENT.fullmatch(c) for c in internal)
+                    or len(set(internal)) != len(internal) or set(internal) & set(item['choices'])):
+                raise ValueError(f'{path}: internal_choices must be distinct private string enum names')
         if kind == 'set':
             choices, all_keyword = item['choices'], item['all']
             if (not isinstance(choices, list) or not 1 <= len(choices) <= 8
@@ -249,6 +255,7 @@ def enums(settings):
             continue
         name = enum_name(item)
         if name in found and (found[name]['type'] != item['type'] or found[name]['choices'] != item['choices']
+                              or found[name].get('internal_choices') != item.get('internal_choices')
                               or (item['type'] == 'set' and found[name]['all'] != item['all'])):
             raise ValueError(f'{item["path"]}: enum {name} is already declared with other choices or type')
         found.setdefault(name, item)
@@ -319,7 +326,8 @@ def settings_header(settings):
         out.append('')
     for name, item in enum_items.items():
         choices = (', '.join(f'{pascal(c)} = {1 << i}' for i, c in enumerate(item['choices']))
-                   if item['type'] == 'set' else ', '.join(pascal(c) for c in item['choices']))
+                   if item['type'] == 'set' else
+                   ', '.join(pascal(c) for c in item['choices'] + item.get('internal_choices', [])))
         out.append(f'enum class {name} : std::uint8_t {{ {choices} }};')
         if name == 'WorkspaceStyle':
             values = ', '.join(f'WorkspaceStyle::{pascal(choice)}' for choice in item['choices'])

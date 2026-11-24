@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "events": [
+    "open",
+    "close"
+  ],
+  "bounds": [
+    0.08,
+    0.08,
+    0.08,
+    0.08
+  ],
+  "parameters": {
+    "diffusion": {
+      "type": "float",
+      "default": 0.2,
+      "min": 0,
+      "max": 0.24
+    }
+  },
+  "textures": {
+    "heat": {
+      "format": "rgba8",
+      "scale": 0.25,
+      "ping_pong": true,
+      "lifetime": "persistent",
+      "filter": "nearest"
+    }
+  },
+  "passes": [
+    {
+      "name": "seed",
+      "phase": "initialize",
+      "fragment": "seed.frag",
+      "outputs": [
+        "heat.write"
+      ]
+    },
+    {
+      "name": "diffuse",
+      "phase": "update",
+      "fragment": "diffuse.frag",
+      "inputs": {
+        "previous": "heat.read"
+      },
+      "outputs": [
+        "heat.write"
+      ],
+      "iterations": 4
+    },
+    {
+      "name": "compose",
+      "phase": "render",
+      "fragment": "compose.frag",
+      "inputs": {
+        "heatMap": "heat.read"
+      },
+      "outputs": [
+        "output"
+      ]
+    }
+  ]
+}

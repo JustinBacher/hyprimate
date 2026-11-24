@@ -62,8 +62,8 @@ bool construction_source_fits(const Desktop::View::CWindow &window) {
 // depending on call order, and remains valid through preceding transformers.
 class CAnimationTransformer::CContentSourcePass final : public IPassElement {
   public:
-    CContentSourcePass(ContentSource &source, CRenderPass &pass)
-        : m_source(source), m_pass(pass), m_next(source.passes) {
+    CContentSourcePass(ContentSource &source, CRenderPass &pass, bool supported)
+        : m_source(source), m_pass(pass), m_supported(supported), m_next(source.passes) {
         if (m_next) { m_next->m_previous = this; }
         source.passes = this;
     }
@@ -77,8 +77,8 @@ class CAnimationTransformer::CContentSourcePass final : public IPassElement {
     CContentSourcePass(CContentSourcePass &&) = delete;
     CContentSourcePass &operator=(CContentSourcePass &&) = delete;
     std::vector<UP<IPassElement>> draw(CRenderContext &ctx) override {
-        m_source.framebuffer = ctx.m_data.currentFB;
-        m_source.context = &ctx;
+        m_source.framebuffer = m_supported ? ctx.m_data.currentFB : SP<IFramebuffer>{};
+        m_source.context = m_supported ? &ctx : nullptr;
         return {};
     }
     bool needsLiveBlur(CRenderContext &) override { return false; }
@@ -92,6 +92,7 @@ class CAnimationTransformer::CContentSourcePass final : public IPassElement {
   private:
     ContentSource &m_source;
     CRenderPass &m_pass;
+    const bool m_supported;
     CContentSourcePass *m_next = nullptr, *m_previous = nullptr;
 };
 
@@ -106,10 +107,17 @@ CAnimationTransformer::~CAnimationTransformer() {
     while (m_content_source.passes) { m_content_source.passes->remove(); }
 }
 
-void CAnimationTransformer::preWindowRender(CRenderContext &ctx, CSurfacePassElement::SRenderData *) {
-    if (m_handle.style != hyprimate::config::Style::Construction) { return; }
+void CAnimationTransformer::preWindowRender(CRenderContext &ctx, CSurfacePassElement::SRenderData *data) {
+    if (m_handle.style != hyprimate::config::Style::Construction &&
+        m_handle.style != hyprimate::config::Style::Shader) {
+        return;
+    }
     auto &pass = IHyprRenderer::currentPass(ctx);
-    IHyprRenderer::addPassElement(ctx, makeUnique<CContentSourcePass>(m_content_source, pass));
+    // The shader ABI has color, not Hyprland's separate geometric blur
+    // coverage. Reject the exact host presentation if it wants that matte.
+    const bool SUPPORTED = m_handle.style != hyprimate::config::Style::Shader ||
+        (data && data->pWindow && !data->pWindow->shouldBlur(data->workspacePresentation));
+    IHyprRenderer::addPassElement(ctx, makeUnique<CContentSourcePass>(m_content_source, pass, SUPPORTED));
 }
 
 bool CAnimationTransformer::active() const {
@@ -145,6 +153,12 @@ SWindowTransformBuffer CAnimationTransformer::transform(CRenderContext &ctx,
         !input.framebuffer || !input.framebuffer->getTexture()) {
         return input;
     }
+    if (m_handle.style == hyprimate::config::Style::Shader &&
+        input.framebuffer != ctx.m_data.currentFB) {
+        // Only expose the host's isolated window raster, never an unverified
+        // output supplied by a preceding transformer.
+        return {.framebuffer = input.framebuffer, .box = input.box, .success = false};
+    }
     const double SCALE = context.monitor->m_scale;
     if (!std::isfinite(SCALE) || SCALE <= 0.0 || context.currentBox.empty()) {
         return input;
@@ -162,9 +176,15 @@ SWindowTransformBuffer CAnimationTransformer::transform(CRenderContext &ctx,
     if (CANVAS.empty() || SOURCE.empty() || SIZE.x <= 0 || SIZE.y <= 0) {
         return input;
     }
-    const bool BLUR_MASK = m_handle.style == hyprimate::config::Style::Construction &&
+    const bool CONTENT_RECEIPT = m_handle.style == hyprimate::config::Style::Construction ||
+                                 m_handle.style == hyprimate::config::Style::Shader;
+    const bool BLUR_MASK = CONTENT_RECEIPT &&
         (m_content_source.context != &ctx ||
             m_content_source.framebuffer.lock() != ctx.m_data.currentFB);
+    if (BLUR_MASK && m_handle.style == hyprimate::config::Style::Shader) {
+        // Keep the untransformed content and matte together on fallback.
+        return {.framebuffer = input.framebuffer, .box = input.box, .success = false};
+    }
     CHyprAnimationCanvas canvas{ctx, m_port.canvas_resources(), BLUR_MASK};
     const hyprimate::perf::GpuScope GPU_PROFILE{profile_key(m_handle.style)};
     const Draw<CHyprAnimationCanvas> DRAW{.canvas = &canvas,

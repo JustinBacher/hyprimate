@@ -73,6 +73,10 @@ namespace hyprimate::animation::test {
         std::vector<QueuedTail> queued_tails;
         std::map<WindowId, Observation> windows;
         std::set<WindowId> unobservable;
+        std::set<WindowId> blurred_windows;
+        [[nodiscard]] bool mapped_blur_required(WindowRef window) const {
+            return blurred_windows.contains(window);
+        }
         std::map<MonitorId, ScreenFacts> monitors;
         std::map<std::uint64_t, FadeoutFacts> fadeouts;
         std::map<WindowId, Handle> transformers;

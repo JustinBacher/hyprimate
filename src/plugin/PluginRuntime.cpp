@@ -1,5 +1,7 @@
 #include <algorithm>
+#include <array>
 #include <chrono>
+#include <concepts>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -60,7 +62,7 @@ class CPluginRuntime::Impl {
     Impl &operator=(Impl &&) = delete;
 
   private:
-    void configure();
+    void configure(bool refresh_effects = false);
     void update_inert();
     void warm_style();
     void configure_workspace();
@@ -223,12 +225,31 @@ void CPluginRuntime::Impl::notify(const std::string &text) const {
     HyprlandAPI::addNotification(m_handle, text, CHyprColor(1.F, 0.35F, 0.2F, 1.F), 10000.F);
 }
 
-void CPluginRuntime::Impl::configure() {
+void CPluginRuntime::Impl::configure(bool refresh_effects) {
     m_warm_pending = !m_warmed_style || *m_warmed_style != m_config.style;
-    m_resources.for_each([&]<class Style>(auto &) {
-        m_animations.template update_settings<Style>(Style::settings(m_config));
+    std::array<std::optional<hyprimate::config::Style>, 2> event_styles;
+    m_resources.for_each([&]<class Style>(auto &resources) {
+        if constexpr (requires { Style::refresh(resources, Style::requests(m_config), refresh_effects); }) {
+            const auto errors = Style::refresh(resources, Style::requests(m_config), refresh_effects);
+            for (std::size_t index = 0; index < errors.size(); ++index) {
+                if (!errors[index].empty()) {
+                    notify(std::string{"[hyprimate] external effect "} +
+                        (index == 0 ? "open: " : "close: ") + errors[index]);
+                }
+            }
+        } else {
+            m_animations.template update_settings<Style>(Style::settings(m_config));
+        }
+        if constexpr (requires { Style::event_overrides(resources); }) {
+            const auto overrides = Style::event_overrides(resources);
+            for (std::size_t index = 0; index < overrides.size(); ++index) {
+                if (overrides[index]) event_styles[index] = Style::KIND;
+            }
+        }
     });
     m_animations.configure({.style = m_config.style,
+        .open_style = event_styles[0],
+        .close_style = event_styles[1],
         .enabled = m_config.enabled,
         .inert = m_inert,
         .opening = m_config.open.enabled,
@@ -273,7 +294,7 @@ void CPluginRuntime::Impl::reload() {
     m_workspace->clear();
     configure_workspace();
     m_animations.reload();
-    configure();
+    configure(true);
     restore_scanout();
 }
 

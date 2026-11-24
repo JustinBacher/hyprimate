@@ -7,5 +7,6 @@
 #include "window/construction/ConstructionStyle.hpp"
 #include "window/liquid/LiquidStyle.hpp"
 #include "window/paper/PaperStyle.hpp"
+#include "window/shader/ShaderStyle.hpp"
 #include "window/smoke/SmokeStyle.hpp"
 #include "window/swarm/SwarmStyle.hpp"

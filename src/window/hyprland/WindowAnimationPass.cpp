@@ -24,6 +24,12 @@ CWindowAnimationPass::~CWindowAnimationPass() {
 }
 
 std::vector<UP<IPassElement>> CWindowAnimationPass::draw(Render::CRenderContext &ctx) {
+    if (m_data.blur && m_data.handle.style == hyprimate::config::Style::Shader) {
+        // Shader closes decline blur before snapshot ownership; never sample
+        // arbitrary shader color as a scalar coverage matte even on stale work.
+        if (m_data.close_guard) { m_data.close_guard->physical_failure(ctx); }
+        return {};
+    }
     if (!m_data.image_owner.ensure_current()) {
         if (m_data.close_guard) { m_data.close_guard->physical_failure(ctx); }
         return {};

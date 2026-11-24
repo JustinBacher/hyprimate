@@ -177,35 +177,10 @@ hl.config({
                 },
                 enabled = true,
                 style = "liquid",
-                movement = {
-                    options = {
-                        burn = {
-                            smoke_density = 0.22,
-                        },
-                        construction = {
-                            variant = "crew_carry",
-                        },
-                        smoke = {
-                            reform = 0.48,
-                            settle_speed = 1,
-                            mass = 0.45,
-                            roundness = 0.7,
-                        },
-                    },
-                    enabled = true,
-                    workspace_movement = true,
-                },
-                close = {
-                    options = {
-                        burn = {
-                            closing_style = "curl",
-                            debris_direction = "natural",
-                            curl_intensity = 0.8,
-                        },
-                    },
-                    enabled = true,
-                },
                 open = {
+                    effect = "",
+                    effect_parameters = "{}",
+                    effect_duration = 600,
                     enabled = true,
                     options = {
                         paper = {
@@ -223,6 +198,37 @@ hl.config({
                             linger = 0.5,
                         },
                     },
+                },
+                close = {
+                    effect = "",
+                    effect_parameters = "{}",
+                    effect_duration = 600,
+                    options = {
+                        burn = {
+                            closing_style = "curl",
+                            debris_direction = "natural",
+                            curl_intensity = 0.8,
+                        },
+                    },
+                    enabled = true,
+                },
+                movement = {
+                    options = {
+                        burn = {
+                            smoke_density = 0.22,
+                        },
+                        construction = {
+                            variant = "crew_carry",
+                        },
+                        smoke = {
+                            reform = 0.48,
+                            settle_speed = 1,
+                            mass = 0.45,
+                            roundness = 0.7,
+                        },
+                    },
+                    enabled = true,
+                    workspace_movement = true,
                 },
             },
             workspace = {
@@ -409,7 +415,13 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `workspace:options:cube:inside_out:cube_tilt` | float / `0` | -20–20 | Mid-turn tilt in degrees. Positive angles tip the workspace face up; zero keeps it level. |
 | `workspace:options:cube:inside_out:zoom` | float / `0.45` | 0–1 | Fraction of the safe camera retreat inside the room at mid-turn; 1 uses the full safe distance. |
 | `window:enabled` | boolean / `true` | — | Enable window movement, opening and closing effects. When false, none of these effects run. |
-| `window:style` | string / `"liquid"` | — | Choose the material for movement, opening and closing. Liquid deforms the edges; paper crumples into a ball, flutters or glides while moving and folds while resizing; cloth drapes and flutters; swarm breaks the window into creature-shaped pieces; bubble inflates a soap film, sloshes while moving and bursts on close; smoke gathers, unravels into flowing content-coloured volumes while moving, reforms at rest and dissipates on close; burn opens through the wallpaper, scorches it during movement and consumes the printed window on close. Construction builds with miniature workers, offers optional transport and intact resize, and closes with a regional implosion. Invalid names are rejected. Allowed: `liquid`, `paper`, `cloth`, `swarm`, `bubble`, `smoke`, `burn`, `construction`. |
+| `window:style` | string / `"liquid"` | — | Choose the built-in style for movement and for transitions without an external effect override. Allowed: `liquid`, `paper`, `cloth`, `swarm`, `bubble`, `smoke`, `burn`, `construction`. |
+| `window:open:effect` | string / `""` | — | Path to a native GLES shader effect manifest for window opening. Empty uses window.style. |
+| `window:close:effect` | string / `""` | — | Path to a native GLES shader effect manifest for window closing. Empty uses window.style. |
+| `window:open:effect_parameters` | string / `"{}"` | — | JSON object overriding the opening effect's declared parameters. |
+| `window:close:effect_parameters` | string / `"{}"` | — | JSON object overriding the closing effect's declared parameters. |
+| `window:open:effect_duration` | float / `600` | 0–60000 | Opening effect duration in milliseconds. Zero uses the compositor's native opening. |
+| `window:close:effect_duration` | float / `600` | 0–60000 | Closing effect duration in milliseconds. Zero uses the compositor's native closing. |
 | `window:options:construction:worker_size` | float / `1` | 0–2 | Worker size multiplier for opening, movement, resizing and closing. Workers scale with the window's shorter dimension; 1 is normal size, 0 hides the people, and 2 doubles their size. |
 | `window:options:burn:variation` | float / `0.7` | 0–1 | Irregularity of the combustion front, from even propagation to strongly uneven burning. |
 | `window:options:burn:fragment_density` | float / `0.55` | 0–1 | Relative emission of detached printed fragments. Zero disables them. |

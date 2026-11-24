@@ -101,6 +101,7 @@ namespace hyprimate::animation {
             Clock::time_point previous_sample{};
             std::optional<Handle> handle;
             std::optional<Edge> opening_edge;
+            std::optional<Box> exclusive_open_goal{};
             bool opening_seen = false;
             bool expired = false;
             bool driven = false;
@@ -134,6 +135,9 @@ namespace hyprimate::animation {
             bool tracks_mapped_publication = false;
             bool public_close_only = false;
             bool awaiting_close_presentation = false;
+            bool public_mapped_only = false;
+            bool allows_mapped_blur = true;
+            bool preserve_on_reload = false;
             bool retained_no_screen_share = false;
             MonitorId profile_monitor = 0;
             std::uint64_t profile_generation = 0;
@@ -143,7 +147,7 @@ namespace hyprimate::animation {
         template <class Function>
         bool visit(Handle handle, Function &&function) const;
         template <class Function>
-        bool selected(Function &&function);
+        bool selected(config::Style kind, Function &&function);
         Tracked *tracked(WindowId window_id);
         const Tracked *tracked(WindowId window_id) const;
         Record *record(Handle handle);
@@ -172,8 +176,10 @@ namespace hyprimate::animation {
         };
         void finish_draw(InFlightDraw &flight);
         std::optional<Handle> acquire(
-            Tracked &tracked, const Observation &observation, std::uint64_t seed);
+            Tracked &tracked, const Observation &observation, std::uint64_t seed, config::Style kind);
         void end(Handle handle, End why);
+        void reset(bool preserve_pinned);
+        bool public_mapped_source_allowed(const Tracked &window, const Observation &observation) const;
         void release_drive(Tracked &tracked);
         bool apply(Tracked &tracked, const Observation &observation, const Effects &effects);
         static Place place(const Observation &observation, Neighbourhood near, std::uint64_t seed);

@@ -166,6 +166,11 @@ std::optional<Observation> CHyprWindowPort::observe(const WindowRef &ref) const 
     result.no_screen_share = WINDOW->m_ruleApplicator->noScreenShare().valueOrDefault();
     return result;
 }
+bool CHyprWindowPort::mapped_blur_required(const WindowRef &ref) {
+    const auto WINDOW = ref.lock();
+    return !WINDOW || !WINDOW->mapped() || !WINDOW->wlSurface() ||
+           WINDOW->shouldBlur(WINDOW->presentation().renderPresentation(Render::eSceneMode::MONITOR));
+}
 bool CHyprWindowPort::session_unlocked() {
     return g_pSessionLockManager && !g_pSessionLockManager->isSessionLocked();
 }
@@ -392,13 +397,23 @@ std::optional<RetainedFrame<CHyprWindowPort::Canvas>> CHyprWindowPort::retained_
         .frame = cache->frame};
 }
 bool CHyprWindowPort::bind_fadeout(
-    Handle handle, [[maybe_unused]] std::uint64_t fadeout, RetainedImage image) {
+    Handle handle, std::uint64_t fadeout, RetainedImage image) {
     auto &cache = visual_cache(handle);
     // Fadeout creation can finish outside a render frame. Its framebuffer is a
     // Hyprland snapshot, so verify that compositor context before retaining it.
     const hyprimate::gl::ScopedCompositorContext CONTEXT{};
     if (!CONTEXT || !image || !image->getTexture() || !cache.fadeout_owner.ensure_current()) {
         return false;
+    }
+    if (handle.style == SShaderModule::KIND) {
+        const auto found = std::ranges::find_if(m_fadeouts, [fadeout](const auto &item) {
+            return item.id == fadeout;
+        });
+        const auto native = found == m_fadeouts.end() ? nullptr : found->object.lock();
+        if (!session_unlocked() || !native || native->done() || native->source().noScreenShare ||
+            native->framebuffer(Render::eSceneMode::MONITOR) != image) {
+            return false;
+        }
     }
     hyprimate::gl::release_native(cache.fadeout_image, cache.fadeout_owner);
     cache.fadeout_image = std::move(image);

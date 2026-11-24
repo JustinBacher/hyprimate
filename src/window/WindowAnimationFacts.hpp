@@ -21,6 +21,7 @@ namespace hyprimate::animation {
 
     struct Policy {
         config::Style style{};
+        std::optional<config::Style> open_style{}, close_style{};
         bool enabled = false, inert = false;
         bool opening = false, movement = false, closing = false, workspace_movement = false;
         bool close_available = false;
@@ -38,6 +39,8 @@ namespace hyprimate::animation {
         MonitorId monitor = 0;
         WorkspaceId workspace = 0;
         bool pinned = false;
+        double scale = 1;
+        bool fullscreen = false;
     };
     struct Motion {
         Box from_body, from_capture, body, capture;
@@ -64,6 +67,8 @@ namespace hyprimate::animation {
         // Mapped advance only, borrowed in unoffset body coordinates.
         std::span<const Box> visible_outputs{};
         std::optional<Box> visible_output_owner{};  // Owner screen in the same coordinates.
+        double scale = 1;
+        bool fullscreen = false;
     };
     struct Effects {
         std::optional<Box> drive_body;

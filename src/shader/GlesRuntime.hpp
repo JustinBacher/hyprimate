@@ -1,0 +1,97 @@
+#pragma once
+
+#include <array>
+#include <cstdint>
+#include <memory>
+#include <string>
+
+#include <GLES3/gl3.h>
+
+#include "Package.hpp"
+
+namespace hyprimate::shader {
+    struct Frame {
+        std::uint64_t tick = 0, seed = 0;
+        Event event = Event::Open;
+        float progress = 0, elapsed = 0, delta = 0, duration = 0;
+        float width = 1, height = 1, scale = 1;
+        float pointer_x = 0.5F, pointer_y = 0.5F;
+        bool pointer_valid = false, fullscreen = false;
+    };
+    struct Source {
+        GLuint texture = 0;
+        unsigned width = 0, height = 0;
+        // Physical dimensions of the backing texture, not of the captured rectangle.
+        // Normalized source rectangle in the borrowed texture; top-first.
+        std::array<float, 4> uv{0, 0, 1, 1};
+    };
+    struct Target {
+        GLuint framebuffer = 0, texture = 0;
+        unsigned width = 0, height = 0;
+        // Window-normalized coordinates covered by this target.
+        std::array<float, 4> domain{0, 0, 1, 1};
+        // Pixel origin in color attachment zero. The caller guarantees this
+        // region is inside the backing framebuffer. Clears are clipped to it.
+        GLint origin_x = 0, origin_y = 0;
+        // Private pooled targets must not retain another draw's pixels. Clear
+        // once before the first final pass unless that pass already clears.
+        bool clear_before_render = false;
+    };
+    struct Statistics {
+        std::uint64_t allocations = 0, allocated_bytes = 0;
+        std::uint64_t update_passes = 0, render_passes = 0, draws = 0;
+        std::uint64_t initialize_passes = 0;
+        std::uint64_t upload_bytes = 0, copy_bytes = 0;
+    };
+    using GlProc = void (GL_APIENTRYP)();
+    using GlResolver = GlProc (*)(const char *);
+
+    // All GPU operations, including destruction/release, require the caller's
+    // owning GLES context current and a clean GL error flag. Abandon instead on
+    // context loss. An initialized Instance pins its prepared Program generation.
+    class Program {
+      public:
+        Program();
+        ~Program();
+        Program(const Program &) = delete;
+        Program &operator=(const Program &) = delete;
+        // Transfer a package into the immutable prepared generation. The resolver
+        // is required when the host exposes indexed draw-buffer state.
+        bool initialize(Package package, const Values &values, std::string &error,
+            GlResolver resolver = nullptr);
+        void release() noexcept;
+        void abandon() noexcept;
+        const Package &package() const;
+        // Counters describe preparation of the current generation. Allocations
+        // include short-lived one-texel format probes; upload_bytes counts data
+        // transferred from the CPU, not probe storage.
+        const Statistics &statistics() const noexcept;
+      private:
+        friend class Instance;
+        struct Impl;
+        std::shared_ptr<Impl> m_impl;
+    };
+    class Instance {
+      public:
+        Instance();
+        ~Instance();
+        Instance(const Instance &) = delete;
+        Instance &operator=(const Instance &) = delete;
+        // Allocates once for capture pixel dimensions. Changing dimensions resets
+        // simulation and replays initialization; unchanged dimensions reuse storage.
+        bool initialize(Program &program, unsigned width, unsigned height, std::string &error);
+        // CPU timing only. Older/repeated tick IDs are ignored; pending delta accumulates.
+        void advance(const Frame &frame) noexcept;
+        // Initializes/updates only on an authorized live execution. Read-only
+        // capture rendering never consumes a pending tick or mutates persistent state.
+        // Capture uses the last committed frame's uniforms and simulation state.
+        bool render(const Source &source, const Target &target, bool advance_simulation,
+            std::string &error);
+        void release() noexcept;
+        void abandon() noexcept;
+        const Statistics &statistics() const noexcept;
+      private:
+        struct Impl;
+        std::unique_ptr<Impl> m_impl;
+    };
+}  // namespace hyprimate::shader

@@ -114,6 +114,41 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --             window = {
 --                 enabled = true,
 --                 style = "liquid",
+--                 open = {
+--                     effect = "",
+--                     effect_parameters = "{}",
+--                     effect_duration = 600,
+--                     enabled = true,
+--                     options = {
+--                         paper = {
+--                             unfold_tension = 0.62,
+--                             crease_persistence = 0.62,
+--                         },
+--                         bubble = {
+--                             count = 140,
+--                             birth_rate = 1,
+--                             size_variation = 0.75,
+--                             growth_variation = 0.6,
+--                             interaction = 1,
+--                             damping = 1,
+--                             buoyancy = 1,
+--                             linger = 0.5,
+--                         },
+--                     },
+--                 },
+--                 close = {
+--                     effect = "",
+--                     effect_parameters = "{}",
+--                     effect_duration = 600,
+--                     options = {
+--                         burn = {
+--                             closing_style = "curl",
+--                             debris_direction = "natural",
+--                             curl_intensity = 0.8,
+--                         },
+--                     },
+--                     enabled = true,
+--                 },
 --                 options = {
 --                     construction = {
 --                         worker_size = 1,
@@ -188,35 +223,6 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                     },
 --                     enabled = true,
 --                     workspace_movement = true,
---                 },
---                 close = {
---                     options = {
---                         burn = {
---                             closing_style = "curl",
---                             debris_direction = "natural",
---                             curl_intensity = 0.8,
---                         },
---                     },
---                     enabled = true,
---                 },
---                 open = {
---                     enabled = true,
---                     options = {
---                         paper = {
---                             unfold_tension = 0.62,
---                             crease_persistence = 0.62,
---                         },
---                         bubble = {
---                             count = 140,
---                             birth_rate = 1,
---                             size_variation = 0.75,
---                             growth_variation = 0.6,
---                             interaction = 1,
---                             damping = 1,
---                             buoyancy = 1,
---                             linger = 0.5,
---                         },
---                     },
 --                 },
 --             },
 --         },

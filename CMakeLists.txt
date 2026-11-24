@@ -167,7 +167,7 @@ if(BUILD_TESTING)
     # Surfaceless EGL for the GL material tests any Style may add.
     pkg_check_modules(TEST_EGL REQUIRED IMPORTED_TARGET egl glesv2)
 endif()
-set(HYPRIMATE_STYLES liquid paper cloth swarm bubble smoke burn construction)
+set(HYPRIMATE_STYLES liquid paper cloth swarm bubble smoke burn construction shader)
 foreach(style IN LISTS HYPRIMATE_STYLES)
     include(src/window/${style}/Style.cmake)
 endforeach()

@@ -37,6 +37,8 @@ namespace {
         std::shared_ptr<int> lifetime = std::make_shared<int>(1);
         Publication publication = Publication::Unknown;
         std::optional<CropProof> reject_crop{};
+        bool allow_source_bind = true;
+        double pinned_speed = 1;
     };
     struct Log {
         int opens = 0, closes = 0, ends = 0, prepares = 0;
@@ -70,6 +72,9 @@ namespace {
         Publication closed_publication = Publication::Unknown;
         std::optional<CropProof> reject_crop{};
         std::function<void()> during_draw;
+        double drawn_speed = 0;
+        bool accepts_resize = false;
+        bool bind_succeeds = true;
     };
     template <config::Style Kind>
     struct TestStyle {
@@ -81,15 +86,22 @@ namespace {
             ResourcesBase<State, Settings, Prepared>::AnimationPool animations;
         };
         static constexpr auto KIND = Kind;
-        static constexpr bool FIXED_CLOSE_PLACEMENT = Kind == config::Style::Paper;
-        static constexpr bool NATIVE_PROTECTED_MAPPED = Kind == config::Style::Paper;
-        static constexpr bool PUBLIC_CLOSE_ONLY = Kind == config::Style::Paper;
+        static constexpr bool FIXED_CLOSE_PLACEMENT = Kind == config::Style::Paper || Kind == config::Style::Shader;
+        static constexpr bool PUBLIC_CLOSE_ONLY = Kind == config::Style::Paper || Kind == config::Style::Shader;
+        static constexpr bool NATIVE_PROTECTED_MAPPED = PUBLIC_CLOSE_ONLY;
+        static constexpr bool PUBLIC_MAPPED_ONLY = Kind == config::Style::Shader;
+        static constexpr bool PRESERVE_ON_RELOAD = Kind == config::Style::Shader;
+        static constexpr bool EXCLUSIVE_OPEN = Kind == config::Style::Shader;
+        static constexpr bool DRAWS_MAPPED_UNDER_BLUR = !EXCLUSIVE_OPEN;
         static constexpr bool DRAWS_UNDER_BLUR = false;
         static Prepared prepare_settings(const Settings &settings) {
             return settings;
         }
-        static State start(const Resources & /*resources*/, std::uint64_t seed) {
-            return {.seed = seed};
+        static State start(const Resources &resources, std::uint64_t seed) {
+            return {.seed = seed, .pinned_speed = resources.prepared.speed};
+        }
+        static bool moves(const Motion &motion, const Resources &resources) noexcept {
+            return motion.translated || (resources.log.accepts_resize && motion.resized);
         }
         static bool open(
             State & /*state*/, const Place & /*place*/, Resources &resources, Effects &effects) {
@@ -121,10 +133,15 @@ namespace {
             state.closing = true;
             resources.log.closed_publication = state.publication;
             state.reject_crop = resources.log.reject_crop;
+            state.allow_source_bind = resources.log.bind_succeeds;
             if (resources.log.require_publication && state.publication == Publication::Unknown) {
                 return CloseStart::Declined;
             }
             return resources.log.close_result;
+        }
+        static bool bind_close_source(State &state, Box, const FakeCanvas::Image &image) noexcept
+            requires(PUBLIC_MAPPED_ONLY) {
+            return image.id > 0 && state.allow_source_bind;
         }
         static Frame initial_close_frame(State &, const Step &step, Resources &resources) noexcept
             requires(PUBLIC_CLOSE_ONLY) {
@@ -158,6 +175,7 @@ namespace {
             resources.log.events.push_back(7);
         }
         static bool draw(State &state, const Draw<FakeCanvas> &draw, Resources &resources) {
+            resources.log.drawn_speed = state.pinned_speed;
             if (draw.real_pass) {
                 ++resources.log.real_draws;
             }
@@ -223,7 +241,8 @@ namespace {
     };
     using Style = TestStyle<config::Style::Liquid>;
     using Other = TestStyle<config::Style::Paper>;
-    using List = StyleList<Style, Other>;
+    using Effect = TestStyle<config::Style::Shader>;
+    using List = StyleList<Style, Other, Effect>;
     using Module = CWindowAnimations<FakeWindowPort, List>;
 
     struct Fixture {
@@ -253,6 +272,7 @@ namespace {
             module.configure(policy);
             module.update_settings<Style>({1});
             module.update_settings<Other>({1});
+            module.update_settings<Effect>({2});
         }
         ~Fixture() {
             module.end_all();
@@ -306,6 +326,236 @@ namespace {
             return facts;
         }
     };
+
+    void opening_override_pins_settings_and_yields_to_native_movement() {
+        Fixture f;
+        f.policy.open_style = Effect::KIND;
+        f.log().accepts_resize = true;
+        f.module.configure(f.policy);
+        f.window(1);
+        f.frame(1);
+        const auto handle = f.handle();
+        CHECK(handle.style == Effect::KIND);
+        CHECK(f.log().opens == 0 && f.resources.get<Effect>().log.opens == 1);
+
+        f.module.reload();
+        f.module.update_settings<Effect>({3});
+        f.module.configure(f.policy);
+        CHECK(f.handle() == handle && f.module.active(handle));
+        FakeCanvas canvas;
+        FakeCanvas::Image image{.id = 19};
+        CHECK(f.module.draw(handle, {.canvas = &canvas, .image = &image, .real_pass = true}));
+        CHECK(f.resources.get<Effect>().log.drawn_speed == 2);
+        CHECK(f.resources.get<Effect>().log.real_draws == 1);
+        canvas.destination_live = true;
+        CHECK(f.module.draw(handle, {.canvas = &canvas, .image = &image, .real_pass = true}));
+        CHECK(f.resources.get<Effect>().log.real_draws == 1);
+        canvas.destination_live = false;
+        CHECK(f.module.draw(handle, {.canvas = &canvas, .image = &image, .real_pass = true, .monitor = 2}));
+        CHECK(f.resources.get<Effect>().log.real_draws == 1);
+
+        // The host's own opening geometry is not a separate layout event.
+        auto &window = f.port.windows.at(1);
+        window.layout_animated = true;
+        window.body.w -= 5;
+        window.capture.w -= 5;
+        f.frame(1);
+        CHECK(f.handle() == handle && f.module.active(handle));
+        CHECK(f.log().steps.empty());
+
+        // A one-sample resize during the long opening must reach the selected
+        // movement style immediately, not be swallowed by its previous owner.
+        window.goal_body.w += 20;
+        const double PREVIOUS_WIDTH = window.body.w;
+        window.body.w += 10;
+        window.capture.w += 10;
+        f.frame(1);
+        CHECK(!f.module.active(handle));
+        CHECK(f.handle().style == Style::KIND && f.log().opens == 0);
+        CHECK(f.log().steps.size() == 1 && f.log().steps.back().motion &&
+            f.log().steps.back().motion->resized &&
+            f.log().steps.back().motion->from_body.w == PREVIOUS_WIDTH &&
+            f.log().steps.back().motion->body.w == PREVIOUS_WIDTH + 10);
+        CHECK(f.resources.get<Effect>().log.last_end == End::Interrupted);
+        f.module.close(1, f.port.now);
+        CHECK(f.module.pending_for(1) && f.module.pending_for(1)->style == Style::KIND);
+    }
+
+    void opening_override_yields_to_a_single_drag_sample() {
+        Fixture f;
+        f.policy.open_style = Effect::KIND;
+        f.module.configure(f.policy);
+        f.window(1);
+        f.frame(1);
+        const auto effect = f.handle();
+        auto &window = f.port.windows.at(1);
+        window.held = true;
+        window.body.x += 10;
+        window.capture.x += 10;
+        f.frame(1);
+        CHECK(!f.module.active(effect) && f.handle().style == Style::KIND);
+        CHECK(f.log().steps.size() == 1 && f.log().steps.back().held &&
+            f.log().steps.back().motion && f.log().steps.back().motion->translated);
+        window.held = false;
+        f.frame(1);
+        CHECK(f.resources.get<Effect>().log.opens == 1);
+    }
+
+    void closing_override_replaces_mapped_state_and_restores_native_on_failure() {
+        Fixture f;
+        f.policy.close_style = Effect::KIND;
+        f.module.configure(f.policy);
+        f.window(1);
+        f.frame(1);
+        const auto opened = f.handle();
+        CHECK(opened.style == Style::KIND);
+        f.module.close(1, f.port.now);
+        const auto pending = f.module.pending_for(1);
+        CHECK(pending && pending->style == Effect::KIND && !f.module.active(opened));
+        if (!pending) return;
+        const auto facts = f.fade(51);
+        f.module.bind_fadeout(1, facts, {51});
+        CHECK(f.module.suppresses(51));
+        f.module.reload();
+        CHECK(f.module.suppresses(51));
+        auto &effect_log = f.resources.get<Effect>().log;
+        effect_log.draw_succeeds = false;
+        CHECK(effect_log.steps.empty());
+        FakeCanvas canvas;
+        FakeCanvas::Image image{.id = 51};
+        canvas.pass_kind = PassKind::WorkspaceSource;
+        CHECK(!f.module.draw(*pending, {.canvas = &canvas, .image = &image, .real_pass = true}));
+        CHECK(f.module.suppresses(51));
+        CHECK(effect_log.real_draws == 0 && effect_log.steps.empty());
+        canvas.pass_kind = PassKind::Live;
+        effect_log.draw_succeeds = true;
+        CHECK(f.module.draw(*pending, {.canvas = &canvas, .image = &image, .real_pass = true}));
+        CHECK(f.module.suppresses(51));
+        effect_log.draw_succeeds = false;
+        CHECK(!f.module.draw(*pending, {.canvas = &canvas, .image = &image, .real_pass = true}));
+        CHECK(!f.module.suppresses(51) && !f.module.active(*pending));
+    }
+
+    void completed_override_close_stays_suppressed_across_reload() {
+        for (const bool finish_natively : {false, true}) {
+            Fixture f;
+            f.policy.close_style = Effect::KIND;
+            f.module.configure(f.policy);
+            f.window(1, 1, false);
+            f.module.close(1, f.port.now);
+            const auto handle = f.module.pending_for(1);
+            CHECK(handle.has_value());
+            if (!handle) continue;
+            f.module.bind_fadeout(1, f.fade(54), {54});
+            f.module.confirm_public_close_presented(*handle, f.port.now, true);
+            f.resources.get<Effect>().log.running = false;
+            f.frame(1);
+            CHECK(!f.module.active(*handle) && f.module.suppresses(54));
+            f.module.reload();
+            f.module.configure(f.policy);
+            CHECK(f.module.suppresses(54) && f.port.suppressed.contains(54));
+            if (finish_natively) {
+                f.module.native_finished(54);
+            } else {
+                f.policy.closing = false;
+                f.module.configure(f.policy);
+            }
+            CHECK(!f.module.suppresses(54) && !f.port.suppressed.contains(54));
+        }
+    }
+
+    void external_effect_declines_unsupported_blur_before_ownership() {
+        Fixture f;
+        f.policy.open_style = Effect::KIND;
+        f.policy.close_style = Effect::KIND;
+        f.module.configure(f.policy);
+        f.window(1);
+        f.port.blurred_windows.insert(1);
+        f.frame(1);
+        CHECK(!f.port.transformers.contains(1));
+        CHECK(f.resources.get<Effect>().log.opens == 0);
+
+        f.window(2);
+        f.frame(1);
+        const auto handle = f.handle(2);
+        f.port.blurred_windows.insert(2);
+        FakeCanvas canvas;
+        FakeCanvas::Image image{.id = 55};
+        CHECK(!f.module.draw(handle, {.canvas = &canvas, .image = &image, .real_pass = true}));
+        CHECK(canvas.draws.empty());
+
+        f.module.close(1, f.port.now);
+        auto fade = f.fade(55);
+        fade.blurred = true;
+        f.module.bind_fadeout(1, fade, {55});
+        CHECK(!f.module.suppresses(55));
+        CHECK(f.resources.get<Effect>().log.close_initializations == 0);
+    }
+
+    void external_effect_checks_privacy_at_entry_bind_and_draw() {
+        Fixture f;
+        f.policy.open_style = Effect::KIND;
+        f.policy.close_style = Effect::KIND;
+        f.module.configure(f.policy);
+        f.window(1);
+        f.port.windows.at(1).no_screen_share = true;
+        f.frame(1);
+        CHECK(!f.port.transformers.contains(1));
+        f.module.close(1, f.port.now);
+        CHECK(!f.module.pending_for(1));
+
+        f.window(2);
+        f.frame(1);
+        const auto opened = f.handle(2);
+        f.port.windows.at(2).no_screen_share = true;
+        FakeCanvas canvas;
+        FakeCanvas::Image image{.id = 52};
+        CHECK(!f.module.draw(opened, {.canvas = &canvas, .image = &image, .real_pass = true}));
+        CHECK(f.resources.get<Effect>().log.real_draws == 0);
+        f.port.windows.at(2).no_screen_share = false;
+        f.port.windows.at(2).window = 3;  // reused identity must not expose the replacement's pixels
+        CHECK(!f.module.draw(opened, {.canvas = &canvas, .image = &image, .real_pass = true}));
+        f.port.windows.at(2).window = 2;
+        f.module.close(2, f.port.now);
+        CHECK(f.module.pending_for(2).has_value());
+        f.port.windows.at(2).no_screen_share = true;
+        f.module.bind_fadeout(2, f.fade(52), {52});
+        CHECK(!f.module.suppresses(52));
+
+        f.window(4);
+        f.resources.get<Effect>().log.bind_succeeds = false;
+        f.module.close(4, f.port.now);
+        CHECK(f.module.pending_for(4).has_value());
+        f.module.bind_fadeout(4, f.fade(53), {53});
+        CHECK(!f.module.suppresses(53));
+        CHECK(!f.module.pending_for(4));
+    }
+
+    void locked_close_replay_does_not_mutate_owned_shutdown() {
+        Fixture f;
+        f.policy.close_style = Effect::KIND;
+        f.module.configure(f.policy);
+        f.window(1, 1, false);
+        f.module.close(1, f.port.now);
+        const auto handle = f.module.pending_for(1);
+        CHECK(handle.has_value());
+        if (!handle) return;
+        f.module.bind_fadeout(1, f.fade(56), {56});
+        CHECK(f.module.suppresses(56));
+
+        f.port.unlocked = false;
+        FakeCanvas canvas;
+        canvas.destination_live = true;
+        FakeCanvas::Image image{.id = 56};
+        const Draw<FakeCanvas> draw{.canvas = &canvas, .image = &image, .real_pass = true};
+        CHECK(!f.module.draw(*handle, draw));
+        CHECK(f.module.suppresses(56) && f.module.active(*handle));
+        CHECK(canvas.draws.empty());
+        canvas.destination_live = false;
+        CHECK(!f.module.draw(*handle, draw));
+        CHECK(!f.module.suppresses(56) && !f.module.active(*handle));
+        CHECK(canvas.draws.empty());
+    }
 
     void seated_interval_uses_native_surfaces_before_slot_end() {
         Fixture f;
@@ -2438,6 +2688,13 @@ namespace {
     }
 }  // namespace
 int main() try {
+    opening_override_pins_settings_and_yields_to_native_movement();
+    opening_override_yields_to_a_single_drag_sample();
+    closing_override_replaces_mapped_state_and_restores_native_on_failure();
+    completed_override_close_stays_suppressed_across_reload();
+    external_effect_declines_unsupported_blur_before_ownership();
+    external_effect_checks_privacy_at_entry_bind_and_draw();
+    locked_close_replay_does_not_mutate_owned_shutdown();
     opening_movement_and_settlement();
     settled_opening_edge_survives_until_close();
     seated_interval_uses_native_surfaces_before_slot_end();
