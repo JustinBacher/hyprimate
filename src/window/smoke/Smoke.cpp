@@ -322,12 +322,10 @@ namespace hyprimate {
         m_frame.variation = m_params.variation;
         // Noise fields move away from a shared pattern only as far as variation allows.
         m_frame.seed = m_seed * m_params.variation;
-        const bool FOLLOW_DRAG = params.follow_pointer && pointer_drag && !TRANSITION && !m_closed;
-        if (!params.follow_pointer) {
-            m_frame.drag_follow = 0;
-        }
-        if (FOLLOW_DRAG) {
-            m_frame.drag_follow = 1;
+        const double DRAG_FOLLOW = safe_param(params.drag_follow, 0.0, 0.0, 1.0);
+        const bool FOLLOW_DRAG = DRAG_FOLLOW > 0 && pointer_drag && !TRANSITION && !m_closed;
+        m_frame.drag_follow = FOLLOW_DRAG ? DRAG_FOLLOW : std::min(m_frame.drag_follow, DRAG_FOLLOW);
+        if (FOLLOW_DRAG && DRAG_FOLLOW == 1.0) {
             m_frame.carry = {};
             m_carry_velocity = {};
             m_layout_pending = {};
@@ -342,7 +340,7 @@ namespace hyprimate {
         m_accumulator += std::min(elapsed, STALL_SECONDS);
         while (m_accumulator + 1e-10 >= STEP) {
             if (!FOLLOW_DRAG) {
-                m_frame.drag_follow = std::max(0.0, m_frame.drag_follow - STEP / 0.12);
+                m_frame.drag_follow = std::max(0.0, m_frame.drag_follow - DRAG_FOLLOW * (STEP / 0.12));
             }
             const Vec2 DELTA = mul(m_pending, STEP / m_accumulator);
             const double RESIZE_DELTA = m_resize_pending * STEP / m_accumulator;
@@ -477,6 +475,8 @@ namespace hyprimate {
     SmokeFrame Smoke::frame(Vec2 size) const noexcept {
         auto result = m_frame;
         result.size = safe_size(size);
+        // Attenuate visible layout carry, not the underlying spring state.
+        result.carry = mul(result.carry, 1.0 - result.drag_follow);
         // The window is drawn where it is now, including translation the fixed substeps have
         // not consumed yet. Anchoring the fluid there keeps world-fixed smoke still on screen;
         // anchoring it to the last substep would shake all of it along the drag by up to a

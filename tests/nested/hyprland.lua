@@ -272,7 +272,7 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                             variant = "crew_carry",
 --                         },
 --                         smoke = {
---                             drag_follow = "original",
+--                             drag_follow = 0,
 --                             trail_length = 0,
 --                             trail_lifetime = 0,
 --                             trail_thickness = 1,

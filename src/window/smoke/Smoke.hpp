@@ -41,7 +41,7 @@ namespace hyprimate {
         double dispersal = 0;  // closing: outward breakup and accelerated decay
         double fade = 0;       // residual smoke visibility once nothing feeds the fluid
         double mass = 0;       // 0 resting window shape, 1 fully contracted moving body
-        double drag_follow = 0;  // 1 while pointer-held, then fades back to free smoke
+        double drag_follow = 0;  // active attachment weight, fades back to free smoke on release
         double contraction = 0;  // body shrink rate in 1/s; negative while expanding
         double settle = 0;       // reforming after motion: strength of wisps peeling off the body
         double mass_size = 0.45;
@@ -90,7 +90,7 @@ namespace hyprimate {
         std::uint32_t color = 0;
         double density = 1;
         double variation = 0.5;
-        bool follow_pointer = false;
+        double drag_follow = 0;
     };
 
     // World-space extent of the fluid around the window centre. The margin bounds the wake.

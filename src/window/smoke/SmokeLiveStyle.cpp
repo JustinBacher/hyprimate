@@ -68,7 +68,7 @@ hyprimate::animation::Frame SSmokeModule::advance(State &state,
         smoke.drive({now.x + now.w * 0.5 - before.x - before.w * 0.5,
                         now.y + now.h * 0.5 - before.y - before.h * 0.5},
             motion.layout_animated && !motion.workspace_moving &&
-                !(POINTER_DRAG && resources.prepared.movement.follow_pointer),
+                !(POINTER_DRAG && resources.prepared.movement.drag_follow == 1.0),
             {now.w - before.w, now.h - before.h});
     }
     auto params = smoke.opening() ? resources.prepared.opening : resources.prepared.movement;
@@ -132,7 +132,7 @@ SSmokeModule::Prepared SSmokeModule::prepare_settings(const Settings &settings) 
         .color = settings.shared.color,
         .density = settings.shared.density,
         .variation = settings.shared.variation,
-        .follow_pointer = movement.dragFollow == hyprimate::config::DragFollow::Current,
+        .drag_follow = movement.dragFollow,
     };
     auto opening = PARAMS;
     opening.turbulence = settings.open.turbulence;

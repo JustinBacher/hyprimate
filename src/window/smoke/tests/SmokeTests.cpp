@@ -138,7 +138,7 @@ namespace {
     void grabbed_body_tracks_turns_without_carry() {
         Smoke smoke;
         smoke.drive({120, 0}, true);
-        const SmokeParams PARAMS{.follow_pointer = true};
+        const SmokeParams PARAMS{.drag_follow = 1};
         smoke.advance(1.0 / 120, SIZE);
         for (int i = 0; i < 60; ++i) {
             const Vec2 delta = i < 30 ? Vec2{12, 0} : Vec2{0, -12};
@@ -156,15 +156,25 @@ namespace {
         CHECK(std::hypot(released.offset.x, released.offset.y) < 8);
     }
 
-    void original_drag_keeps_the_unattached_body() {
-        Smoke original;
+    void drag_follow_interpolates_body_offset_and_layout_carry() {
+        Smoke original, halfway;
+        const SmokeParams PARTIAL{.drag_follow = 0.5};
         for (int i = 0; i < 60; ++i) {
-            original.drive(i < 40 ? Vec2{12, 0} : Vec2{0, -12});
+            const Vec2 delta = i < 40 ? Vec2{12, 0} : Vec2{0, -12};
+            original.drive(delta, true);
+            halfway.drive(delta, true);
             original.advance(1.0 / 120, SIZE, {}, true);
+            halfway.advance(1.0 / 120, SIZE, PARTIAL, true);
         }
-        // On a turn, an unattached body coasts across the old heading and lags the new one.
-        const auto offset = smoke_body(original.frame(SIZE)).offset;
-        CHECK(offset.x > 10 && offset.y > 10);
+        const auto legacy = original.frame(SIZE);
+        const auto partial = halfway.frame(SIZE);
+        const auto legacy_offset = smoke_body(legacy).offset;
+        const auto partial_offset = smoke_body(partial).offset;
+        // The original body coasts across the old heading and lags the new one.
+        CHECK(legacy_offset.x > 10 && legacy_offset.y > 10);
+        CHECK(std::abs(partial_offset.x - 0.5 * legacy_offset.x) < 1e-9);
+        CHECK(std::abs(partial_offset.y - 0.5 * legacy_offset.y) < 1e-9);
+        CHECK(legacy.carry.y > 50 && std::abs(partial.carry.y - 0.5 * legacy.carry.y) < 1e-9);
     }
 
     void automatic_trail_lifetime_matches_original_amount_curve() {
@@ -396,7 +406,7 @@ int main() {
     disabled_movement_and_stop_transition();
     first_layout_move_retains_visible_carry();
     grabbed_body_tracks_turns_without_carry();
-    original_drag_keeps_the_unattached_body();
+    drag_follow_interpolates_body_offset_and_layout_carry();
     automatic_trail_lifetime_matches_original_amount_curve();
     explicit_trail_reach_expands_the_damage_bounds();
     movement_contracts_and_reforms_the_body();
