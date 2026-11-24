@@ -16,7 +16,15 @@ Hyprimate is a [Hyprland](https://hyprland.org/) plugin that animates windows as
 
 ## Installation
 
-hyprimate currently targets **Hyprland 0.57.0**. Other versions have not been verified. You'll need `hyprpm`, matching Hyprland development headers, CMake, Ninja, and a C++26-capable compiler, along with hyprpm's dependencies. Rebuild the plugin after updating Hyprland.
+Hyprimate has been tested against **Hyprland 0.57.0**; the [Nix flake](flake.nix) pins **0.57.2** and builds against that version. For hyprpm, use development headers that match your running Hyprland build, and rebuild the plugin after updating Hyprland.
+
+`hyprpm` builds the plugin from source. In addition to [hyprpm's own prerequisites](https://wiki.hypr.land/Plugins/Using-Plugins/), the build needs:
+
+- CMake 3.25+, Ninja, a C++26-capable compiler, and `pkg-config`.
+- The matching `Hyprland` executable plus `nm` and `ldd` for the post-link import check.
+- nlohmann/json 3.11+ headers, libpng, OpenGL ES 3 and EGL (including development headers), and Lua headers and libraries matching Hyprland's Lua ABI.
+
+On Arch Linux, the library packages are `nlohmann-json`, `libpng`, `libglvnd`, and `lua`. Some are already installed with Hyprland. Python is only needed for development and tests; Jolt is no longer used.
 
 Add the project's Git repository with hyprpm, then enable and load the plugin:
 

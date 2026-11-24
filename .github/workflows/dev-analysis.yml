@@ -24,7 +24,9 @@ jobs:
           - build-profile --core-only
     steps:
       - name: Install dependencies
-        run: pacman -Syu --noconfirm git cmake ninja clang llvm cppcheck valgrind python hyprland mesa libglvnd
+        run: >-
+          pacman -Syu --noconfirm git cmake ninja clang llvm cppcheck valgrind python
+          hyprland mesa libglvnd libpng lua nlohmann-json
       - uses: actions/checkout@v4
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - run: python3 tools/dev.py ${{ matrix.command }}

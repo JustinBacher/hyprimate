@@ -15,10 +15,12 @@ jobs:
     container: archlinux:base-devel
     steps:
       - name: Install dependencies
-        run: pacman -Syu --noconfirm git cmake ninja clang llvm python hyprland mesa libglvnd
+        run: >-
+          pacman -Syu --noconfirm git cmake ninja clang llvm python
+          hyprland mesa libglvnd libpng lua nlohmann-json
       - uses: actions/checkout@v4
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - run: python3 tools/dev.py doctor
+      - run: python3 tools/dev.py doctor --for check
       - run: python3 tools/dev.py check
       - uses: actions/upload-artifact@v4
         if: always()
