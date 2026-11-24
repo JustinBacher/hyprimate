@@ -13,8 +13,11 @@ namespace hyprimate::shader {
         EnvironmentInputs inputs;
         SP<Render::ITexture> original;
     };
-    WindowEnvironment window_environment(Render::CRenderContext &ctx, const Environment &request,
+    WindowEnvironment window_environment(Render::CRenderContext &ctx,
+        const Environment &request,
         const std::array<float, 4> &physical_box);
-    void emit_environment(Render::CRenderContext &ctx, const Environment &request,
-        std::uint64_t window, GLuint texture);
+    void emit_environment(Render::CRenderContext &ctx,
+        const Environment &request,
+        std::uint64_t window,
+        GLuint texture);
 }  // namespace hyprimate::shader

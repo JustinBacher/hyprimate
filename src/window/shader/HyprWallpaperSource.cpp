@@ -1,5 +1,3 @@
-#include "shader/HyprWallpaperSource.hpp"
-
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -15,6 +13,8 @@
 #include <hyprland/src/protocols/LayerShell.hpp>
 #include <hyprland/src/protocols/core/Compositor.hpp>
 
+#include "shader/HyprWallpaperSource.hpp"
+
 namespace hyprimate::shader {
     namespace {
         bool positive_size(const Vector2D &size) {
@@ -23,8 +23,10 @@ namespace hyprimate::shader {
 
         bool is_wallpaper_texture(const SP<Render::ITexture> &texture) {
             return texture && texture->ok() && !texture->isDMA() &&
-                texture->m_transform == HYPRUTILS_TRANSFORM_NORMAL && positive_size(texture->m_size) &&
-                (texture->m_type == Render::TEXTURE_RGBX || texture->m_type == Render::TEXTURE_RGBA);
+                   texture->m_transform == HYPRUTILS_TRANSFORM_NORMAL &&
+                   positive_size(texture->m_size) &&
+                   (texture->m_type == Render::TEXTURE_RGBX ||
+                       texture->m_type == Render::TEXTURE_RGBA);
         }
 
         bool compatible_sdr(const NColorManagement::PImageDescription &source,
@@ -33,10 +35,11 @@ namespace hyprimate::shader {
             if (!source || !target || source->needsCM(target)) return false;
             const auto &image = source->value();
             return (image.transferFunction == CM_TRANSFER_FUNCTION_SRGB ||
-                    image.transferFunction == CM_TRANSFER_FUNCTION_GAMMA22) &&
-                image.transferFunctionPower == 1.F && !image.isWindows && !image.icc.present &&
-                image.rawICC.empty() && image.getPrimaries() == NColorPrimaries::BT709 &&
-                image.luminances == SImageDescription::SPCLuminances{} && image.maxCLL == 0 && image.maxFALL == 0;
+                       image.transferFunction == CM_TRANSFER_FUNCTION_GAMMA22) &&
+                   image.transferFunctionPower == 1.F && !image.isWindows && !image.icc.present &&
+                   image.rawICC.empty() && image.getPrimaries() == NColorPrimaries::BT709 &&
+                   image.luminances == SImageDescription::SPCLuminances{} && image.maxCLL == 0 &&
+                   image.maxFALL == 0;
         }
 
         bool solid(const SSurfaceState &state) {
@@ -49,24 +52,31 @@ namespace hyprimate::shader {
             if (state.size.x > LIMIT || state.size.y > LIMIT) {
                 return false;
             }
-            const pixman_box32_t BOX{.x1 = 0, .y1 = 0,
+            const pixman_box32_t BOX{.x1 = 0,
+                .y1 = 0,
                 .x2 = static_cast<int32_t>(std::ceil(state.size.x)),
                 .y2 = static_cast<int32_t>(std::ceil(state.size.y))};
-            return pixman_region32_contains_rectangle(state.opaque.pixman(), &BOX) == PIXMAN_REGION_IN;
+            return pixman_region32_contains_rectangle(state.opaque.pixman(), &BOX) ==
+                   PIXMAN_REGION_IN;
         }
 
         bool covers_output(const CBox &box, const Vector2D &output) {
-            return box.x <= 0 && box.y <= 0 && box.x + box.w >= output.x && box.y + box.h >= output.y;
+            return box.x <= 0 && box.y <= 0 && box.x + box.w >= output.x &&
+                   box.y + box.h >= output.y;
         }
 
         OriginalWallpaper stock_wallpaper(const PHLMONITOR &monitor) {
-            static const auto DISABLED = CConfigValue<Config::INTEGER>("misc:disable_hyprland_logo");
-            static const auto NO_SPLASH = CConfigValue<Config::INTEGER>("misc:disable_splash_rendering");
+            static const auto DISABLED =
+                CConfigValue<Config::INTEGER>("misc:disable_hyprland_logo");
+            static const auto NO_SPLASH =
+                CConfigValue<Config::INTEGER>("misc:disable_splash_rendering");
             const auto &texture = monitor->m_background;
-            if (*DISABLED != 0 || (*NO_SPLASH == 0 && monitor->m_splash) || !monitor->m_backgroundOpacity ||
-                monitor->m_backgroundOpacity->isBeingAnimated() || monitor->m_backgroundOpacity->value() != 1.F ||
-                !is_wallpaper_texture(texture) || !compatible_sdr(texture->m_imageDescription ?
-                    texture->m_imageDescription : NColorManagement::getDefaultImageDescription(),
+            if (*DISABLED != 0 || (*NO_SPLASH == 0 && monitor->m_splash) ||
+                !monitor->m_backgroundOpacity || monitor->m_backgroundOpacity->isBeingAnimated() ||
+                monitor->m_backgroundOpacity->value() != 1.F || !is_wallpaper_texture(texture) ||
+                !compatible_sdr(texture->m_imageDescription
+                                    ? texture->m_imageDescription
+                                    : NColorManagement::getDefaultImageDescription(),
                     monitor->workBufferImageDescription())) {
                 return {};
             }
@@ -80,18 +90,21 @@ namespace hyprimate::shader {
             const double SPAN_X = std::min(output.x / (image.x * COVER), 1.0);
             const double SPAN_Y = std::min(output.y / (image.y * COVER), 1.0);
             return {.texture = texture,
-                .uv = {static_cast<float>((1.0 - SPAN_X) * 0.5), static_cast<float>((1.0 - SPAN_Y) * 0.5),
-                    static_cast<float>(SPAN_X), static_cast<float>(SPAN_Y)},
+                .uv = {static_cast<float>((1.0 - SPAN_X) * 0.5),
+                    static_cast<float>((1.0 - SPAN_Y) * 0.5),
+                    static_cast<float>(SPAN_X),
+                    static_cast<float>(SPAN_Y)},
                 .owner = {}};
         }
 
-        std::optional<std::array<float, 4>> layer_uv(
-            const Monitor::CMonitor &monitor, const Desktop::View::CLayerSurface &layer,
+        std::optional<std::array<float, 4>> layer_uv(const Monitor::CMonitor &monitor,
+            const Desktop::View::CLayerSurface &layer,
             const SSurfaceState &state) {
             // Mirror getTexBox()/drawSurface() for an untransformed layer root:
             // global animated placement, integer monitor origin, then scaled/rounded.
             using Desktop::View::IGeometric;
-            const auto POS = layer.position(IGeometric::GEOMETRIC_CURRENT) -
+            const auto POS =
+                layer.position(IGeometric::GEOMETRIC_CURRENT) -
                 Vector2D{std::trunc(monitor.m_position.x), std::trunc(monitor.m_position.y)};
             CBox draw{POS, layer.size(IGeometric::GEOMETRIC_CURRENT)};
             CBox clip{{}, monitor.m_size};
@@ -113,9 +126,10 @@ namespace hyprimate::shader {
             }
 
             const auto &viewport = state.viewport;
-            const bool SCALE_UNAWARE = SCALE != 1.F &&
-                (std::ceil(SCALE) == state.scale || !viewport.hasDestination);
-            static const auto EXPAND = CConfigValue<Config::INTEGER>("render:expand_undersized_textures");
+            const bool SCALE_UNAWARE =
+                SCALE != 1.F && (std::ceil(SCALE) == state.scale || !viewport.hasDestination);
+            static const auto EXPAND =
+                CConfigValue<Config::INTEGER>("render:expand_undersized_textures");
             if (*EXPAND != 0 && !SCALE_UNAWARE) {
                 auto expected = viewport.hasSource ? viewport.source.size() : draw.size();
                 if (viewport.hasDestination) {
@@ -135,11 +149,14 @@ namespace hyprimate::shader {
                 source.scale(state.scale);
                 if (source != CBox{{}, buffer}) return std::nullopt;
             }
-            return std::array{static_cast<float>(-draw.x / draw.w), static_cast<float>(-draw.y / draw.h),
-                static_cast<float>(output.x / draw.w), static_cast<float>(output.y / draw.h)};
+            return std::array{static_cast<float>(-draw.x / draw.w),
+                static_cast<float>(-draw.y / draw.h),
+                static_cast<float>(output.x / draw.w),
+                static_cast<float>(output.y / draw.h)};
         }
 
-        bool source_matches(const CWLSurfaceResource &surface, const Render::ITexture &texture,
+        bool source_matches(const CWLSurfaceResource &surface,
+            const Render::ITexture &texture,
             const NColorManagement::PImageDescription &target) {
             // Match native precedence: texture metadata, surface metadata, then
             // the compositor's untagged-source transfer function.
@@ -147,19 +164,21 @@ namespace hyprimate::shader {
                 return compatible_sdr(texture.m_imageDescription, target);
             }
             if (surface.m_colorManagement) {
-                return compatible_sdr(target, target) && surface.m_colorManagement->imageDescription() == target->value();
+                return compatible_sdr(target, target) &&
+                       surface.m_colorManagement->imageDescription() == target->value();
             }
             return compatible_sdr(NColorManagement::getDefaultImageDescription(), target);
         }
 
         OriginalWallpaper layer_wallpaper(const PHLMONITOR &monitor, const PHLLS &layer) {
             const auto &rules = layer->m_ruleApplicator;
-            if (layer->m_monitor != monitor || layer->m_layer != ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND ||
-                !rules || rules->noScreenShare().valueOrDefault() || rules->dimAround().valueOrDefault() ||
+            if (layer->m_monitor != monitor ||
+                layer->m_layer != ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND || !rules ||
+                rules->noScreenShare().valueOrDefault() || rules->dimAround().valueOrDefault() ||
                 layer->shouldBlur() || !layer->acceptsInput() ||
                 layer->alpha()[Desktop::View::LS_ALPHA_FADE]->value() != 1.F ||
-                layer->positionAnimation()->isBeingAnimated() || layer->sizeAnimation()->isBeingAnimated() ||
-                layer->popupMappedTreeSize() != 0) {
+                layer->positionAnimation()->isBeingAnimated() ||
+                layer->sizeAnimation()->isBeingAnimated() || layer->popupMappedTreeSize() != 0) {
                 return {};
             }
 
@@ -167,7 +186,8 @@ namespace hyprimate::shader {
             const auto SURFACE = view ? view->resource() : nullptr;
             if (!SURFACE || !SURFACE->m_mapped || !SURFACE->m_role ||
                 SURFACE->m_role->role() != SURFACE_ROLE_LAYER_SHELL ||
-                std::ranges::any_of(SURFACE->m_subsurfaces, [](const auto &child) { return !child.expired(); }) ||
+                std::ranges::any_of(
+                    SURFACE->m_subsurfaces, [](const auto &child) { return !child.expired(); }) ||
                 view->m_alphaModifier != 1.F || view->m_overallOpacity != 1.F ||
                 !view->m_visibleRegion.empty() || view->m_hasBackgroundEffect) {
                 return {};
@@ -186,7 +206,8 @@ namespace hyprimate::shader {
                 return {};
             }
             const auto UV = layer_uv(*monitor, *layer, state);
-            return UV ? OriginalWallpaper{.texture = texture, .uv = *UV, .owner = SURFACE} : OriginalWallpaper{};
+            return UV ? OriginalWallpaper{.texture = texture, .uv = *UV, .owner = SURFACE}
+                      : OriginalWallpaper{};
         }
     }  // namespace
 
@@ -194,11 +215,13 @@ namespace hyprimate::shader {
         return static_cast<bool>(texture);
     }
 
-    OriginalWallpaper original_wallpaper(const PHLMONITOR &monitor, std::string_view source_namespace) {
+    OriginalWallpaper original_wallpaper(
+        const PHLMONITOR &monitor, std::string_view source_namespace) {
         static const auto XP_MODE = CConfigValue<Config::INTEGER>("render:xp_mode");
         if (!monitor || !monitor->m_output || !monitor->m_enabled || !monitor->m_dpmsStatus ||
-            monitor->isMirror() || !g_pSessionLockManager || g_pSessionLockManager->isSessionLocked() ||
-            *XP_MODE != 0 || !positive_size(monitor->m_size) || !positive_size(monitor->m_transformedSize) ||
+            monitor->isMirror() || !g_pSessionLockManager ||
+            g_pSessionLockManager->isSessionLocked() || *XP_MODE != 0 ||
+            !positive_size(monitor->m_size) || !positive_size(monitor->m_transformedSize) ||
             !(monitor->m_scale > 0.F) || !std::isfinite(monitor->m_scale)) {
             return {};
         }
@@ -206,13 +229,14 @@ namespace hyprimate::shader {
         const auto &fadeouts = Desktop::fadingOutState();
         if (!fadeouts || std::ranges::any_of(fadeouts->fadeouts(), [&](const auto &fadeout) {
                 return fadeout && fadeout->monitor() == monitor &&
-                    fadeout->plane() == Desktop::FADEOUT_PLANE_LAYER_BACKGROUND;
+                       fadeout->plane() == Desktop::FADEOUT_PLANE_LAYER_BACKGROUND;
             })) {
             return {};
         }
 
         PHLLS selected;
-        for (const auto &entry : monitor->m_layerSurfaceLayers[ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND]) {
+        for (const auto &entry :
+            monitor->m_layerSurfaceLayers[ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND]) {
             const auto LAYER = entry.lock();
             if (!LAYER || !LAYER->mapped()) {
                 continue;

@@ -22,9 +22,15 @@ namespace hyprimate::shader {
         DisturbanceAtlas() = default;
         DisturbanceAtlas(const DisturbanceAtlas &) = delete;
         DisturbanceAtlas &operator=(const DisturbanceAtlas &) = delete;
-        ~DisturbanceAtlas() { reset(); }
-        std::uint64_t copied_bytes() const noexcept { return m_copied_bytes; }
-        std::uint64_t uploaded_bytes() const noexcept { return m_uploaded_bytes; }
+        ~DisturbanceAtlas() {
+            reset();
+        }
+        std::uint64_t copied_bytes() const noexcept {
+            return m_copied_bytes;
+        }
+        std::uint64_t uploaded_bytes() const noexcept {
+            return m_uploaded_bytes;
+        }
 
         void reset() noexcept {
             const gl::ScopedCompositorContext context{m_owner};
@@ -39,15 +45,16 @@ namespace hyprimate::shader {
 
         void put(std::uint64_t frame, std::uint64_t id, GLuint source) {
             if (!frame || !id || !source || !m_owner.ensure_current()) return;
-            const auto slot = std::ranges::find_if(m_slots, [&](const Slot &entry) {
-                return entry.id == id;
-            });
-            auto candidate = slot == m_slots.end() ? std::ranges::min_element(m_slots, {}, &Slot::frame) : slot;
+            const auto slot =
+                std::ranges::find_if(m_slots, [&](const Slot &entry) { return entry.id == id; });
+            auto candidate =
+                slot == m_slots.end() ? std::ranges::min_element(m_slots, {}, &Slot::frame) : slot;
             if (candidate->frame == frame) return;
             const Bindings bindings;
             if (!prepare(bindings)) return;
             glBindFramebuffer(GL_READ_FRAMEBUFFER, m_read);
-            glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, source, 0);
+            glFramebufferTexture2D(
+                GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, source, 0);
             if (glCheckFramebufferStatus(GL_READ_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
                 glBindFramebuffer(GL_DRAW_FRAMEBUFFER, name(m_mailbox));
                 const auto x = int(candidate - m_slots.begin());
@@ -64,7 +71,9 @@ namespace hyprimate::shader {
 
         GLuint gather(std::uint64_t frame, std::span<const std::uint64_t> ids) {
             if (frame < 2 || ids.empty() || !m_mailbox || !m_owner.ensure_current()) return 0;
-            const auto active = [&](const Slot &slot) { return slot.id && slot.frame == frame - 1; };
+            const auto active = [&](const Slot &slot) {
+                return slot.id && slot.frame == frame - 1;
+            };
             if (std::ranges::none_of(m_slots, active)) return 0;
             const Bindings bindings;
             if (!prepare(bindings)) return 0;
@@ -73,16 +82,22 @@ namespace hyprimate::shader {
                 const gl::ClientPixelUnpack unpack;
                 constexpr std::array<std::uint8_t, MAX_INTERACTIONS * 4> ZERO{};
                 glBindTexture(GL_TEXTURE_2D, m_batch->getTexture()->m_texID);
-                glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, MAX_INTERACTIONS, 1, GL_RGBA,
-                    GL_UNSIGNED_BYTE, ZERO.data());
+                glTexSubImage2D(GL_TEXTURE_2D,
+                    0,
+                    0,
+                    0,
+                    MAX_INTERACTIONS,
+                    1,
+                    GL_RGBA,
+                    GL_UNSIGNED_BYTE,
+                    ZERO.data());
                 m_uploaded_bytes += ZERO.size();
             }
             glBindFramebuffer(GL_READ_FRAMEBUFFER, name(m_mailbox));
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, name(m_batch));
             for (std::size_t i = 0; i < ids.size(); ++i) {
-                const auto position = std::ranges::find_if(m_slots, [&](const Slot &slot) {
-                    return active(slot) && slot.id == ids[i];
-                });
+                const auto position = std::ranges::find_if(
+                    m_slots, [&](const Slot &slot) { return active(slot) && slot.id == ids[i]; });
                 if (position == m_slots.end()) continue;
                 const auto x = int(position - m_slots.begin()), y = int(i);
                 glBlitFramebuffer(x, 0, x + 1, 1, y, 0, y + 1, 1, GL_COLOR_BUFFER_BIT, GL_NEAREST);
@@ -98,7 +113,9 @@ namespace hyprimate::shader {
       private:
         using Image = SP<Render::IFramebuffer>;
         std::uint64_t m_copied_bytes = 0, m_uploaded_bytes = 0;
-        struct Slot { std::uint64_t frame = 0, id = 0; };
+        struct Slot {
+            std::uint64_t frame = 0, id = 0;
+        };
         struct Bindings {
             GLint read = 0, draw = 0;
             GLboolean scissor = GL_FALSE;
@@ -111,8 +128,10 @@ namespace hyprimate::shader {
             ~Bindings() {
                 glBindFramebuffer(GL_READ_FRAMEBUFFER, GLuint(read));
                 glBindFramebuffer(GL_DRAW_FRAMEBUFFER, GLuint(draw));
-                if (scissor) glEnable(GL_SCISSOR_TEST);
-                else glDisable(GL_SCISSOR_TEST);
+                if (scissor)
+                    glEnable(GL_SCISSOR_TEST);
+                else
+                    glDisable(GL_SCISSOR_TEST);
             }
         };
         static GLuint name(const Image &image) {
@@ -120,8 +139,11 @@ namespace hyprimate::shader {
             return fb ? fb->getFBID() : 0;
         }
         static Image allocate() {
-            auto image = gl::retain_native(g_pHyprRenderer->createFB("hyprimate disturbance atlas"));
-            if (!image || !gl::allocate_framebuffer(*image, MAX_INTERACTIONS, 1, DRM_FORMAT_ABGR8888)) return {};
+            auto image =
+                gl::retain_native(g_pHyprRenderer->createFB("hyprimate disturbance atlas"));
+            if (!image ||
+                !gl::allocate_framebuffer(*image, MAX_INTERACTIONS, 1, DRM_FORMAT_ABGR8888))
+                return {};
             return image;
         }
         bool prepare(const Bindings &) {

@@ -20,5 +20,6 @@ namespace hyprimate::shader {
 
     // Resolve again at each synchronous draw; do not retain the texture across draws.
     // An empty namespace selects only the compositor's stock wallpaper.
-    OriginalWallpaper original_wallpaper(const PHLMONITOR &monitor, std::string_view source_namespace);
+    OriginalWallpaper original_wallpaper(
+        const PHLMONITOR &monitor, std::string_view source_namespace);
 }  // namespace hyprimate::shader

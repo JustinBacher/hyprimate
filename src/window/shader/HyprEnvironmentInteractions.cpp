@@ -63,6 +63,11 @@ namespace hyprimate::shader {
             bool destroyed = false;
             bool workspace_known = false;
             bool priority = false, held = false;
+
+            [[nodiscard]] bool contributed() const {
+                return std::ranges::any_of(outputs,
+                    [](const OutputHistory &history) { return history.interaction_delivered; });
+            }
         };
 
         struct OutputEpoch {
@@ -91,8 +96,8 @@ namespace hyprimate::shader {
         }
 
         bool overlaps(const Box &lhs, const Box &rhs) {
-            return lhs.x < rhs.x + rhs.w && rhs.x < lhs.x + lhs.w &&
-                   lhs.y < rhs.y + rhs.h && rhs.y < lhs.y + lhs.h;
+            return lhs.x < rhs.x + rhs.w && rhs.x < lhs.x + lhs.w && lhs.y < rhs.y + rhs.h &&
+                   rhs.y < lhs.y + lhs.h;
         }
 
         Box sweep_box(const Box &previous, const Box &current) {
@@ -107,7 +112,8 @@ namespace hyprimate::shader {
             return lhs.x == rhs.x && lhs.y == rhs.y && lhs.w == rhs.w && lhs.h == rhs.h;
         }
 
-        Box presented_body(const PHLWINDOW &window, const Render::SWindowRenderPresentation &presentation) {
+        Box presented_body(
+            const PHLWINDOW &window, const Render::SWindowRenderPresentation &presentation) {
             const auto body = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
             return {body.x + presentation.workspaceOffset.x + presentation.floatingOffset.x,
                 body.y + presentation.workspaceOffset.y + presentation.floatingOffset.y,
@@ -136,7 +142,6 @@ namespace hyprimate::shader {
             return window && window->m_ruleApplicator &&
                    window->m_ruleApplicator->noScreenShare().valueOrDefault();
         }
-
 
         std::array<float, 4> normalized(const Box &box, const Box &output) {
             return {static_cast<float>((box.x - output.x) / output.w),
@@ -231,8 +236,8 @@ namespace hyprimate::shader {
             }
 
             const auto output_box_native = monitor->logicalBox();
-            const Box output_box{output_box_native.x, output_box_native.y,
-                output_box_native.w, output_box_native.h};
+            const Box output_box{
+                output_box_native.x, output_box_native.y, output_box_native.w, output_box_native.h};
             const auto now = Clock::now();
             const auto &windows = Desktop::windowState()->windows();
 
@@ -253,18 +258,27 @@ namespace hyprimate::shader {
                 const auto owner = window->m_monitor.lock();
                 std::optional<Snapshot> snapshot;
                 if (owner) {
-                    const auto presentation = window->presentation().renderPresentation(Render::eSceneMode::MONITOR);
+                    const auto presentation =
+                        window->presentation().renderPresentation(Render::eSceneMode::MONITOR);
                     if (visible_for_monitor(window, owner, presentation)) {
                         const auto body = presented_body(window, presentation);
                         if (usable_box(body)) {
-                            snapshot = Snapshot{body, PHLWORKSPACEREF{window->m_workspace},
-                                PHLMONITORREF{owner}};
+                            snapshot = Snapshot{
+                                body, PHLWORKSPACEREF{window->m_workspace}, PHLMONITORREF{owner}};
                         }
                     }
                 }
                 if (!snapshot) {
                     if (track && !track->closed) {
-                        *track = {};
+                        if (track->contributed()) {
+                            // A still-live client can become protected while hidden or
+                            // after moving to an inactive workspace. Keep only its
+                            // revocable identity, never bridge the invisible trajectory.
+                            invalidate(*track);
+                            track->open_pending = track->held = false;
+                        } else {
+                            *track = {};
+                        }
                     }
                     continue;
                 }
@@ -294,12 +308,12 @@ namespace hyprimate::shader {
                 const auto prior_workspace = track->workspace.lock();
                 const auto owner_monitor = snapshot->owner.lock();
                 const auto prior_owner = track->owner.lock();
-                const bool workspace_changed = track->workspace_known &&
-                    prior_workspace != workspace;
-                const bool held_seam_transfer = workspace_changed && held &&
-                    prior_workspace && workspace && prior_workspace->visible() &&
-                    workspace->visible() && prior_owner && owner_monitor &&
-                    prior_owner->m_enabled && owner_monitor->m_enabled &&
+                const bool workspace_changed =
+                    track->workspace_known && prior_workspace != workspace;
+                const bool held_seam_transfer =
+                    workspace_changed && held && prior_workspace && workspace &&
+                    prior_workspace->visible() && workspace->visible() && prior_owner &&
+                    owner_monitor && prior_owner->m_enabled && owner_monitor->m_enabled &&
                     prior_owner != owner_monitor;
                 if (workspace_changed && !held_seam_transfer) {
                     invalidate(*track);
@@ -320,7 +334,8 @@ namespace hyprimate::shader {
                 }
                 const Box previous = history->previous_valid ? history->previous : snapshot->body;
                 const bool moved = !same_box(previous, snapshot->body);
-                const bool resized = previous.w != snapshot->body.w || previous.h != snapshot->body.h;
+                const bool resized =
+                    previous.w != snapshot->body.w || previous.h != snapshot->body.h;
                 const bool opening = track->open_pending && !history->open_delivered;
                 const bool active_motion = held || native_move || native_resize || moved;
                 track->held = held;
@@ -339,23 +354,25 @@ namespace hyprimate::shader {
                 }
 
                 if (emit && batch.count < MAX_INTERACTIONS) {
-                    const Box travel = history->previous_valid ? sweep_box(previous, snapshot->body) : snapshot->body;
+                    const Box travel = history->previous_valid ? sweep_box(previous, snapshot->body)
+                                                               : snapshot->body;
                     if (overlaps(travel, output_box)) {
                         const auto current = normalized(snapshot->body, output_box);
                         const auto old = normalized(previous, output_box);
                         auto &record = batch.records[batch.count];
                         record[0] = current;
                         record[1] = old;
-                        const double seconds = history->previous_valid
-                            ? std::chrono::duration<double>(now - history->sampled).count()
-                            : 0.0;
+                        const double seconds =
+                            history->previous_valid
+                                ? std::chrono::duration<double>(now - history->sampled).count()
+                                : 0.0;
                         if (seconds > 0 && std::isfinite(seconds)) {
                             for (std::size_t i = 0; i < 4; ++i) {
                                 record[2][i] = static_cast<float>((current[i] - old[i]) / seconds);
                             }
                         }
-                        record[3] = {static_cast<float>(event), 1.F,
-                            track->opaque_id, held ? 1.F : 0.F};
+                        record[3] = {
+                            static_cast<float>(event), 1.F, track->opaque_id, held ? 1.F : 0.F};
                         batch.windows[batch.count] = track->token;
                         history->interaction_delivered = true;
                         ++batch.count;
@@ -400,8 +417,7 @@ namespace hyprimate::shader {
             }
             Track *candidate = nullptr;
             for (auto &track : m_tracks) {
-                if (track.held || track.closed || std::ranges::any_of(track.outputs,
-                        [](const OutputHistory &history) { return history.interaction_delivered; })) {
+                if (track.held || track.closed || track.contributed()) {
                     // A live contributor must stay tracked until its privacy policy
                     // can no longer revoke already-persisted simulation data.
                     continue;
@@ -473,6 +489,10 @@ namespace hyprimate::shader {
                 track->priority = true;
                 track->held = false;
                 track->last_active_sample = m_sample_serial;
+                invalidate(*track);
+                for (auto &output : track->outputs) {
+                    output.open_delivered = output.close_delivered = false;
+                }
                 track->workspace = PHLWORKSPACEREF{window->m_workspace};
                 track->workspace_known = true;
                 track->owner = PHLMONITORREF{window->m_monitor.lock()};
@@ -505,7 +525,8 @@ namespace hyprimate::shader {
             const auto owner = window->m_monitor.lock();
             track->owner = PHLMONITORREF{owner};
             if (window->mapped() && !window->isHidden() && owner) {
-                const auto presentation = window->presentation().renderPresentation(Render::eSceneMode::MONITOR);
+                const auto presentation =
+                    window->presentation().renderPresentation(Render::eSceneMode::MONITOR);
                 if (visible_for_monitor(window, owner, presentation)) {
                     track->close_body = presented_body(window, presentation);
                     track->close_body_valid = usable_box(track->close_body);
@@ -607,21 +628,20 @@ namespace hyprimate::shader {
                 }
                 auto &record = batch.records[batch.count];
                 const auto current = normalized(track.close_body, output_box);
-                const auto previous = history->previous_valid
-                    ? normalized(history->previous, output_box)
-                    : current;
+                const auto previous =
+                    history->previous_valid ? normalized(history->previous, output_box) : current;
                 record[0] = current;
                 record[1] = previous;
-                const double seconds = history->previous_valid
-                    ? std::chrono::duration<double>(now - history->sampled).count()
-                    : 0.0;
+                const double seconds =
+                    history->previous_valid
+                        ? std::chrono::duration<double>(now - history->sampled).count()
+                        : 0.0;
                 if (seconds > 0 && std::isfinite(seconds)) {
                     for (std::size_t i = 0; i < 4; ++i) {
                         record[2][i] = static_cast<float>((current[i] - previous[i]) / seconds);
                     }
                 }
-                record[3] = {static_cast<float>(Event::Close), 1.F,
-                    track.opaque_id, 0.F};
+                record[3] = {static_cast<float>(Event::Close), 1.F, track.opaque_id, 0.F};
                 batch.windows[batch.count] = track.token;
                 history->interaction_delivered = true;
                 ++batch.count;
@@ -647,8 +667,8 @@ namespace hyprimate::shader {
                     if (!overlaps(track.close_body, output)) {
                         continue;
                     }
-                    const auto found = std::find_if(track.outputs.begin(), track.outputs.end(),
-                        [&](const auto &history) {
+                    const auto found = std::find_if(
+                        track.outputs.begin(), track.outputs.end(), [&](const auto &history) {
                             return history.used && history.monitor.lock() == monitor;
                         });
                     if (found == track.outputs.end() || !found->close_delivered) {
@@ -677,10 +697,13 @@ namespace hyprimate::shader {
     }
 
     HyprEnvironmentInteractions::~HyprEnvironmentInteractions() = default;
-    HyprEnvironmentInteractions::HyprEnvironmentInteractions(HyprEnvironmentInteractions &&) noexcept = default;
-    HyprEnvironmentInteractions &HyprEnvironmentInteractions::operator=(HyprEnvironmentInteractions &&) noexcept = default;
+    HyprEnvironmentInteractions::HyprEnvironmentInteractions(
+        HyprEnvironmentInteractions &&) noexcept = default;
+    HyprEnvironmentInteractions &HyprEnvironmentInteractions::operator=(
+        HyprEnvironmentInteractions &&) noexcept = default;
 
-    HyprEnvironmentInteractions::Batch HyprEnvironmentInteractions::collect(const PHLMONITOR &monitor) {
+    HyprEnvironmentInteractions::Batch HyprEnvironmentInteractions::collect(
+        const PHLMONITOR &monitor) {
         return m_impl->collect(monitor);
     }
 
