@@ -5,6 +5,7 @@ float noise3(vec3 p) { return texture(u_noise, (p + .5) / 32.0).r; }
 // Previous fluid coordinates: resizing changes the domain without stretching detached
 // wisps or throwing away their velocity and density.
 uniform vec2 u_previous_domain, u_domain_scale, u_resize_rate;
+uniform vec3 u_drag_motion;  // actual window displacement (logical px), followed by drag strength
 vec2 previousUV(vec2 uv, vec2 shift) { return (uv - .5) * u_domain_scale + .5 + shift; }
 
 // Opening and closing (see SmokeFrame): how far the body is the travelling head, its velocity,
@@ -67,6 +68,16 @@ float bodyDistance(vec2 rel) {
 }
 // Size against which body turbulence is measured.
 float bodyScale() { return max(2.0 * min(u_body_half.x, u_body_half.y), 48.0); }
+// Full attachment through the rounded body's core, feathering to ordinary world-space flow.
+float dragAttachment(vec2 rel) {
+    float feather = max(.18 * bodyScale(), 4.0);
+    return 1.0 - smoothstep(-feather, feather, bodyDistance(rel));
+}
+float dragRetention(vec2 rel, vec2 displacement) {
+    float destination = dragAttachment(rel) * u_drag_motion.z;
+    float source = dragAttachment(rel + u_drag_motion.xy - displacement) * u_drag_motion.z;
+    return 1.0 - max(source - destination, 0.0);
+}
 
 // Content resolves only inside the growing head and where live smoke has gathered.
 // The last part of the clock settles any remaining thin pockets into the exact surface.

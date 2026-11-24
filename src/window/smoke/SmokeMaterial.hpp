@@ -63,6 +63,7 @@ class CSmokeField {
     std::size_t m_velocity = VelocityA, m_dye = DyeA, m_age = AgeA, m_pressure = PressureA;
     double m_time = 0, m_smoke = 0;
     hyprimate::Vec2 m_centre;  // world position of the grid centre at the last step
+    hyprimate::Vec2 m_position;  // window position at the last simulated frame
     hyprimate::Vec2 m_domain, m_size, m_resize_rate;
     bool m_primed = false;
 };
@@ -110,6 +111,7 @@ class CSmokeMaterial {
         Half,
         Carry,
         WindowVelocity,
+        DragMotion,
         Source,
         Size,
         TextureOrigin,
@@ -153,7 +155,7 @@ class CSmokeMaterial {
     };
     void use(Program program) const;
     // Uniforms every pass reads from the frame: motion, scrolling and the body shape.
-    void motion(Program program, const hyprimate::SmokeFrame &frame) const;
+    void motion(Program program, const hyprimate::SmokeFrame &frame, hyprimate::Vec2 drag_delta) const;
     static void pass(GLuint target);
     // Writes the density and its age together.
     static void pass(GLuint target, GLuint age);

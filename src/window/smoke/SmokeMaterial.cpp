@@ -58,6 +58,7 @@ bool CSmokeMaterial::initialize(const SSmokePrograms &programs) {
         "u_half",
         "u_carry",
         "u_velocity",
+        "u_drag_motion",
         "u_source",
         "u_size",
         "u_tex_origin",
@@ -171,7 +172,8 @@ void CSmokeMaterial::use(Program program) const {
     glUniform1i(uniforms[PredictedAgeField], 6);
 }
 
-void CSmokeMaterial::motion(Program program, const hyprimate::SmokeFrame &frame) const {
+void CSmokeMaterial::motion(
+    Program program, const hyprimate::SmokeFrame &frame, hyprimate::Vec2 drag_delta) const {
     const auto F = [](double value) { return static_cast<GLfloat>(value); };
     const auto &u = m_uniforms[program];
     // Only the composite draws solid pixels; the fluid still follows the growing head.
@@ -181,6 +183,7 @@ void CSmokeMaterial::motion(Program program, const hyprimate::SmokeFrame &frame)
     glUniform2f(u[Carry], F(frame.carry.x), F(frame.carry.y));
     glUniform2f(u[WindowVelocity], F(frame.velocity.x), F(frame.velocity.y));
     glUniform2f(u[Lag], F(frame.lag.x), F(frame.lag.y));
+    glUniform3f(u[DragMotion], F(drag_delta.x), F(drag_delta.y), F(frame.drag_follow));
     glUniform2f(u[Position], F(frame.position.x), F(frame.position.y));
     glUniform2f(u[Offset], F(frame.offset.x), F(frame.offset.y));
     glUniform2f(u[BodyHalf], F(BODY.half.x), F(BODY.half.y));
@@ -322,6 +325,7 @@ bool CSmokeMaterial::simulate(CSmokeField &field,
         field.m_smoke = frame.smoke;
         field.m_centre = {
             .x = frame.position.x + frame.offset.x, .y = frame.position.y + frame.offset.y};
+        field.m_position = frame.position;
         field.m_domain = DOMAIN;
         field.m_size = frame.size;
         RESTORE();
@@ -331,6 +335,8 @@ bool CSmokeMaterial::simulate(CSmokeField &field,
     const auto F = [](double value) { return static_cast<GLfloat>(value); };
     const hyprimate::Vec2 CENTRE{
         .x = frame.position.x + frame.offset.x, .y = frame.position.y + frame.offset.y};
+    const hyprimate::Vec2 DRAG_DELTA{.x = frame.position.x - field.m_position.x,
+        .y = frame.position.y - field.m_position.y};
     const hyprimate::Vec2 SHIFT{.x = (CENTRE.x - field.m_centre.x) / field.m_domain.x,
         .y = (CENTRE.y - field.m_centre.y) / field.m_domain.y};
     const double ELAPSED = frame.time - field.m_time;
@@ -355,7 +361,7 @@ bool CSmokeMaterial::simulate(CSmokeField &field,
         glUniform2f(u[DomainScale], F(DOMAIN.x / field.m_domain.x), F(DOMAIN.y / field.m_domain.y));
         glUniform2f(u[ResizeRate], F(field.m_resize_rate.x), F(field.m_resize_rate.y));
         glUniform2f(u[Half], F(frame.size.x * 0.5), F(frame.size.y * 0.5));
-        motion(program, frame);
+        motion(program, frame, DRAG_DELTA);
         glUniform1f(u[Dt], F(DT));
         glUniform1f(u[PreviousSmoke], F(field.m_smoke));
         glUniform1f(u[Presence], F(frame.presence));
@@ -422,6 +428,7 @@ bool CSmokeMaterial::simulate(CSmokeField &field,
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
     field.m_time = frame.time;
     field.m_smoke = frame.smoke;
+    field.m_position = frame.position;
     field.m_centre = CENTRE;
     field.m_domain = DOMAIN;
     field.m_size = frame.size;
@@ -437,6 +444,10 @@ void CSmokeMaterial::draw(const CSmokeField &field,
         return;
     }
     const auto F = [](double value) { return static_cast<GLfloat>(value); };
+    const hyprimate::Vec2 DRAG_DELTA = field.m_primed
+                                           ? hyprimate::Vec2{.x = frame.position.x - field.m_position.x,
+                                                 .y = frame.position.y - field.m_position.y}
+                                           : hyprimate::Vec2{};
     use(Composite);
     glBindVertexArray(m_vao);
     bind(GL_TEXTURE1, GL_TEXTURE_3D, m_noise);
@@ -457,7 +468,7 @@ void CSmokeMaterial::draw(const CSmokeField &field,
     glUniform2f(u[Logical], F(frame.size.x), F(frame.size.y));
     glUniform2f(u[Domain], F(DOMAIN.x), F(DOMAIN.y));
     glUniform2f(u[Grid], F(std::max(field.m_width, 1)), F(std::max(field.m_height, 1)));
-    motion(Composite, frame);
+    motion(Composite, frame, DRAG_DELTA);
     if (field.m_primed) {
         glUniform2f(u[Offset],
             F(field.m_centre.x - frame.position.x),

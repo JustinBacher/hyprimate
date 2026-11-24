@@ -60,7 +60,13 @@ void main() {
 
     vec2 texel = 1.0 / u_grid;
     vec2 guv = (w - u_offset) / u_domain + .5;
-    vec4 dye = texture(u_dye, guv);
+    float retained = 1.0;
+    if (u_drag_motion.z > 0.0 && u_mass > 0.0 && dot(u_drag_motion.xy, u_drag_motion.xy) > 0.0) {
+        float attached = dragAttachment(rel) * u_drag_motion.z;
+        guv -= u_drag_motion.xy * attached / u_domain;
+        retained = dragRetention(rel, u_drag_motion.xy * attached);
+    }
+    vec4 dye = texture(u_dye, guv) * retained;
     vec4 smoke = vec4(0.0);
     vec2 fluid = vec2(0.0);
     if (dye.a > .002) {
@@ -92,7 +98,7 @@ void main() {
         fibres = smoothstep(.22, .78, fibres * .25);
         float thin = 1.0 - smoothstep(.15, 1.3, dye.a);
         // Ageing smoke is drawn out into ever finer strands as it thins away.
-        float aged = smoothstep(.3, .9, texture(u_age, guv).r / dye.a / max(u_life, .05));
+        float aged = smoothstep(.3, .9, texture(u_age, guv).r * retained / dye.a / max(u_life, .05));
         float density = dye.a * mix(1.0, .2 + 1.6 * fibres, min(.3 + .55 * thin + .3 * aged, 1.0));
         // The fluid ends at its domain, which travels with the window. Smoke thins out across
         // a ragged, world-anchored band before that edge, so no straight cut shows however

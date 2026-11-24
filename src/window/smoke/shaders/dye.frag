@@ -27,14 +27,21 @@ vec4 materialAt(vec2 luv, float spread) {
 void main() {
     vec2 texel = 1.0 / u_grid;
     vec2 uv = gl_FragCoord.xy * texel;
+    vec2 rel = (uv - .5) * u_domain + u_offset - u_carry;
     // MacCormack correction of the predicted transport, limited to the departure cell's
     // range so filaments stay crisp without ringing. The velocity is already scrolled.
-    vec2 v = texture(u_velocity_field, uv).xy +
-        gatherDrift((uv - .5) * u_domain + u_offset - u_carry, u_half);
-    vec2 source = previousUV(uv, u_shift) - u_dt * v / u_previous_domain;
+    vec2 v = texture(u_velocity_field, uv).xy + gatherDrift(rel, u_half);
+    vec2 displacement = u_dt * v;
+    float retained = 1.0;
+    if (u_drag_motion.z > 0.0 && u_mass > 0.0 && dot(u_drag_motion.xy, u_drag_motion.xy) > 0.0) {
+        float attached = dragAttachment(rel) * u_drag_motion.z;
+        displacement = mix(displacement, u_drag_motion.xy, attached);
+        retained = dragRetention(rel, displacement);
+    }
+    vec2 source = previousUV(uv, u_shift) - displacement / u_previous_domain;
     vec4 predicted = texture(u_predicted, uv);
     vec4 dye = predicted + .5 * (texture(u_dye, previousUV(uv, u_shift)) -
-        texture(u_predicted, uv + u_dt * v / u_domain));
+        texture(u_predicted, uv + displacement / u_domain));
     ivec2 base = ivec2(floor(source * u_grid - .5));
     ivec2 last = ivec2(u_grid) - 1;
     vec4 a = texelFetch(u_dye, clamp(base, ivec2(0), last), 0);
@@ -45,19 +52,18 @@ void main() {
     // The age is carried by the same scheme, so the ratio of the two is the age of whatever
     // smoke arrived here, including each fragment that has split off from older smoke.
     float ageMass = texture(u_predicted_age, uv).r + .5 * (texture(u_age, previousUV(uv, u_shift)).r -
-        texture(u_predicted_age, uv + u_dt * v / u_domain).r);
+        texture(u_predicted_age, uv + displacement / u_domain).r);
     float ageA = texelFetch(u_age, clamp(base, ivec2(0), last), 0).r;
     float ageB = texelFetch(u_age, clamp(base + ivec2(1, 0), ivec2(0), last), 0).r;
     float ageC = texelFetch(u_age, clamp(base + ivec2(0, 1), ivec2(0), last), 0).r;
     float ageD = texelFetch(u_age, clamp(base + ivec2(1, 1), ivec2(0), last), 0).r;
     ageMass = clamp(ageMass, min(min(ageA, ageB), min(ageC, ageD)), max(max(ageA, ageB), max(ageC, ageD)));
     vec2 inbounds = step(vec2(0.0), source) * step(source, vec2(1.0));
-    dye *= inbounds.x * inbounds.y;
+    dye *= inbounds.x * inbounds.y * retained;
     float lifetime = max(u_life, .05);
-    float age = clamp(ageMass * inbounds.x * inbounds.y / max(dye.a, 1e-4), 0.0, 1.6 * lifetime);
+    float age = clamp(ageMass * inbounds.x * inbounds.y * retained / max(dye.a, 1e-4), 0.0, 1.6 * lifetime);
 
     vec2 w = (uv - .5) * u_domain + u_offset;
-    vec2 rel = w - u_carry;
     vec2 wuv = rel / (2.0 * u_half) + .5;
     // Window content mapped onto the body: the moving window contracts into it, and a head
     // carries a scattered miniature of the window's colours.
