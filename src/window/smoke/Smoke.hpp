@@ -39,6 +39,7 @@ namespace hyprimate {
         double dispersal = 0;  // closing: outward breakup and accelerated decay
         double fade = 0;       // residual smoke visibility once nothing feeds the fluid
         double mass = 0;       // 0 resting window shape, 1 fully contracted moving body
+        double drag_follow = 0;  // 1 while pointer-held, then fades back to free smoke
         double contraction = 0;  // body shrink rate in 1/s; negative while expanding
         double settle = 0;       // reforming after motion: strength of wisps peeling off the body
         double mass_size = 0.45;
@@ -57,6 +58,7 @@ namespace hyprimate {
         double wind = 0;       // signed strength of the circulation around the head
         Vec2 edge_point;       // entering smoke streams in across the screen edge here
         Vec2 edge_dir;         // unit, from the window toward that edge; zero for none
+        std::uint32_t color = 0;
         double density = 1;
         double variation = 0.5;
         // Solid source shape at close start, until the material is mapped to the window.
@@ -80,6 +82,7 @@ namespace hyprimate {
         double settle_speed = 1;
         double mass = 0.45;
         double roundness = 0.7;
+        std::uint32_t color = 0;
         double density = 1;
         double variation = 0.5;
     };
@@ -101,7 +104,8 @@ namespace hyprimate {
         void seed(std::uint64_t value) noexcept;
         void begin(Transition direction, double duration, Vec2 size, SmokeRoute route = {}) noexcept;
         void drive(Vec2 translation, bool layout_animated = false, Vec2 size_change = {}) noexcept;
-        void advance(double elapsed, Vec2 size, SmokeParams params = {}) noexcept;
+        void advance(
+            double elapsed, Vec2 size, SmokeParams params = {}, bool pointer_drag = false) noexcept;
         void reset() noexcept;
         void stop_motion() noexcept;
         [[nodiscard]] bool active() const noexcept;

@@ -135,6 +135,26 @@ namespace {
         CHECK(!smoke.active());
     }
 
+    void grabbed_body_tracks_turns_without_carry() {
+        Smoke smoke;
+        smoke.drive({120, 0}, true);
+        smoke.advance(1.0 / 120, SIZE);
+        for (int i = 0; i < 60; ++i) {
+            const Vec2 delta = i < 30 ? Vec2{12, 0} : Vec2{0, -12};
+            smoke.drive(delta, true);
+            smoke.advance(1.0 / 120, SIZE, {}, true);
+            const auto frame = smoke.frame(SIZE);
+            const auto body = smoke_body(frame);
+            CHECK(frame.carry.x == 0 && frame.carry.y == 0);
+            CHECK(body.offset.x == 0 && body.offset.y == 0);
+        }
+        const auto grabbed = smoke.frame(SIZE);
+        CHECK(grabbed.mass > 0.5 && grabbed.offset.y > 0);
+        smoke.advance(1.0 / 120, SIZE);
+        const auto released = smoke_body(smoke.frame(SIZE));
+        CHECK(std::hypot(released.offset.x, released.offset.y) < 8);
+    }
+
     // Moving contracts the window into its body; stopping expands it back to the exact window.
     void movement_contracts_and_reforms_the_body() {
         Smoke smoke;
@@ -344,6 +364,7 @@ int main() {
     bounds_cover_window_and_wake();
     disabled_movement_and_stop_transition();
     first_layout_move_retains_visible_carry();
+    grabbed_body_tracks_turns_without_carry();
     movement_contracts_and_reforms_the_body();
     settle_speed_changes_reform_without_changing_entry_or_transitions();
     resizing_unravels_without_inventing_translation();

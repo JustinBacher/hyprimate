@@ -149,6 +149,7 @@ class CSmokeMaterial {
         Wind,
         EdgePoint,
         EdgeDir,
+        Tint,
         Density,
         Variation,
         UniformCount

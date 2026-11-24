@@ -66,7 +66,7 @@ hyprimate::animation::Frame SSmokeModule::advance(State &state,
         const auto &before = motion.from_capture;
         smoke.drive({now.x + now.w * 0.5 - before.x - before.w * 0.5,
                         now.y + now.h * 0.5 - before.y - before.h * 0.5},
-            motion.layout_animated && !motion.workspace_moving,
+            motion.layout_animated && !motion.workspace_moving && !step.held,
             {now.w - before.w, now.h - before.h});
     }
     auto params = smoke.opening() ? resources.prepared.opening : resources.prepared.movement;
@@ -77,7 +77,10 @@ hyprimate::animation::Frame SSmokeModule::advance(State &state,
         params.strength = 0;
     }
     const hyprimate::Vec2 size{step.capture.w, step.capture.h};
-    smoke.advance(std::min(step.elapsed, hyprimate::STALL_SECONDS), size, params);
+    smoke.advance(std::min(step.elapsed, hyprimate::STALL_SECONDS),
+        size,
+        params,
+        !step.dying && step.movement_enabled && step.held);
     if (!smoke.active()) {
         return {};
     }
@@ -124,6 +127,7 @@ SSmokeModule::Prepared SSmokeModule::prepare_settings(const Settings &settings) 
         .settle_speed = movement.settleSpeed,
         .mass = movement.mass,
         .roundness = movement.roundness,
+        .color = settings.shared.color,
         .density = settings.shared.density,
         .variation = settings.shared.variation,
     };

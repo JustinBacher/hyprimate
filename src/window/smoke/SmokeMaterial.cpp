@@ -96,6 +96,7 @@ bool CSmokeMaterial::initialize(const SSmokePrograms &programs) {
         "u_wind",
         "u_edge_point",
         "u_edge_dir",
+        "u_tint",
         "u_density",
         "u_variation"};
     for (std::size_t p = 0; p < ProgramCount; ++p) {
@@ -468,6 +469,10 @@ void CSmokeMaterial::draw(const CSmokeField &field,
     glUniform2f(u[Logical], F(frame.size.x), F(frame.size.y));
     glUniform2f(u[Domain], F(DOMAIN.x), F(DOMAIN.y));
     glUniform2f(u[Grid], F(std::max(field.m_width, 1)), F(std::max(field.m_height, 1)));
+    const auto CHANNEL = [color = frame.color](unsigned int shift) {
+        return static_cast<GLfloat>((color >> shift) & 0xFFU) / 255.F;
+    };
+    glUniform4f(u[Tint], CHANNEL(16), CHANNEL(8), CHANNEL(0), CHANNEL(24));
     motion(Composite, frame, DRAG_DELTA);
     if (field.m_primed) {
         glUniform2f(u[Offset],

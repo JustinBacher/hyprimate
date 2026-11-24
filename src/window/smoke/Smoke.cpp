@@ -86,6 +86,7 @@ namespace hyprimate {
         } else if (!m_frame.close_source_body) {
             m_frame.close_source_body = smoke_body(m_frame);
         }
+        m_frame.drag_follow = 0;
         m_duration = std::isfinite(duration) && duration > 0.0
                          ? duration
                          : (direction == Transition::Open ? 1.4 : 1.6);
@@ -290,7 +291,7 @@ namespace hyprimate {
         m_frame.offset = add(m_frame.offset, mul(head, follow * transit));
     }
 
-    void Smoke::advance(double elapsed, Vec2 size, SmokeParams params) noexcept {
+    void Smoke::advance(double elapsed, Vec2 size, SmokeParams params, bool pointer_drag) noexcept {
         m_frame.size = safe_size(size);
         m_params.strength = safe_param(params.strength, 0.85, 0.0, 1.5);
         m_params.turbulence = safe_param(params.turbulence, 0.65, 0.0, 1.0);
@@ -299,6 +300,7 @@ namespace hyprimate {
         m_params.settle_speed = safe_param(params.settle_speed, 1.0, 0.1, 2.0);
         m_params.mass = safe_param(params.mass, 0.45, 0.05, 1.0);
         m_params.roundness = safe_param(params.roundness, 0.7, 0.0, 1.0);
+        m_params.color = params.color;
         m_params.density = safe_param(params.density, 1.0, 0.0, 4.0);
         m_params.variation = safe_param(params.variation, 0.5, 0.0, 1.0);
         m_frame.turbulence = m_params.turbulence;
@@ -306,10 +308,18 @@ namespace hyprimate {
         m_frame.life = smoke_life(m_params.trail);
         m_frame.mass_size = m_params.mass;
         m_frame.mass_roundness = m_params.roundness;
+        m_frame.color = m_params.color;
         m_frame.density = m_params.density;
         m_frame.variation = m_params.variation;
         // Noise fields move away from a shared pattern only as far as variation allows.
         m_frame.seed = m_seed * m_params.variation;
+        const bool FOLLOW_DRAG = pointer_drag && !m_opening && !m_closing && !m_closed;
+        if (FOLLOW_DRAG) {
+            m_frame.drag_follow = 1;
+            m_frame.carry = {};
+            m_carry_velocity = {};
+            m_layout_pending = {};
+        }
         if (!std::isfinite(elapsed) || elapsed <= 0 || m_closed) {
             return;
         }
@@ -319,6 +329,9 @@ namespace hyprimate {
         const double REFORM = m_params.reform / m_params.settle_speed;
         m_accumulator += std::min(elapsed, STALL_SECONDS);
         while (m_accumulator + 1e-10 >= STEP) {
+            if (!FOLLOW_DRAG) {
+                m_frame.drag_follow = std::max(0.0, m_frame.drag_follow - STEP / 0.12);
+            }
             const Vec2 DELTA = mul(m_pending, STEP / m_accumulator);
             const double RESIZE_DELTA = m_resize_pending * STEP / m_accumulator;
             m_resize_pending = std::max(0.0, m_resize_pending - RESIZE_DELTA);
@@ -476,9 +489,11 @@ namespace hyprimate {
         SmokeBody body;
         body.half = blend(WINDOW, TARGET.half, MASS);
         body.radius = TARGET.corner * MASS;
-        // Accelerating leaves the body behind the window; braking lets it run on, then settle.
+        // Free motion lags during acceleration and runs on while braking. A grabbed
+        // body follows the window directly; its detached smoke still has inertia.
         const double LIMIT = 0.35 * std::min(WINDOW.x, WINDOW.y);
-        body.offset = mul(limit(mul(sub(frame.lag, frame.velocity), 0.1), LIMIT), MASS);
+        body.offset =
+            mul(limit(mul(sub(frame.lag, frame.velocity), 0.1), LIMIT), MASS * (1.0 - frame.drag_follow));
         const double SPEED = length(frame.lag);
         if (SPEED > 1e-6) {
             body.stretch = mul(frame.lag, 0.5 * smoothstep(60.0, 1600.0, SPEED) * MASS / SPEED);

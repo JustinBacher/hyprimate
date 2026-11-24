@@ -6,6 +6,7 @@ precision highp sampler3D;
 uniform sampler2D u_window, u_dye, u_velocity_field, u_age;
 uniform vec2 u_origin, u_source, u_size, u_tex_origin, u_tex_size;  // device pixels
 uniform vec2 u_logical, u_domain, u_grid, u_carry, u_velocity, u_position, u_offset;  // logical
+uniform vec4 u_tint;
 uniform float u_time, u_seed, u_smoke, u_fade, u_life;
 out vec4 frag;
 
@@ -113,6 +114,7 @@ void main() {
         vec3 colour = dye.rgb / dye.a;
         float luma = dot(colour, vec3(.299, .587, .114));
         colour = mix(vec3(luma), colour, .85);
+        colour = mix(colour, u_tint.rgb, .8 * u_tint.a);
         colour *= .45 + .45 * shadow + .4 * diffuse * shadow;
         float alpha = (1.0 - exp(-density * 2.3 * thickness)) * u_fade;
         smoke = vec4(colour * alpha, alpha);

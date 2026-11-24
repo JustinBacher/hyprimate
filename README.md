@@ -119,6 +119,7 @@ hl.config({
                         trail = 0.65,
                         -- duration = 1400,
                         -- direction = "inside",
+                        color = 0x00000000,
                         density = 1,
                         variation = 0.5,
                     },
@@ -493,6 +494,7 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `window:options:swarm:settling` | float / `0.5` | 0–1 | How quickly swarm creatures regroup and merge back into the window. Lower values make them mill about longer. |
 | `window:options:swarm:wander` | float / `0.5` | 0–1 | How much swarm creatures wander and hesitate while travelling. Zero makes them follow their routes steadily. |
 | `window:options:swarm:variation` | float / `0.5` | 0–1 | Variation in each swarm creature's speed, grip and route curvature. Zero makes them travel straight and alike. |
+| `window:options:smoke:color` | color / `0x00000000` | — | Base tint for the smoke body and wisps when moving, opening and closing, in ARGB. Opaque tint supplies 80% of the colour; the window supplies the rest. Alpha scales tint strength, not smoke opacity. Zero alpha keeps the window-derived colour. |
 | `window:options:smoke:density` | float / `1` | 0.25–2 | Optical thickness of the smoke body when moving, opening and closing. Higher values build a denser, more layered interior while thin outer smoke stays translucent; lower values give a lighter, wispier body. |
 | `window:options:smoke:variation` | float / `0.5` | 0–1 | Randomness of smoke between windows and animations: where smoke gathers or leaves, how it turns and swirls, and how its density and wisps vary. Zero makes every animation alike while the smoke still moves naturally. Configured directions are always respected. |
 | `window:movement:enabled` | boolean / `true` | — | Deform windows while they move. This does not affect opening or closing effects. |

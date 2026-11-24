@@ -113,6 +113,49 @@ namespace {
         return sum;
     }
 
+    void test_smoke_tint(Harness &harness) {
+        harness.upload(Image(TW * TH, Pixel{255, 0, 0, 255}));
+        harness.frame = {};
+        harness.frame.size = {TW, TH};
+        CSmokeField field;
+        const Image REST = harness.render(field);
+        harness.frame.color = 0xFF0000FF;
+        CHECK(harness.render(field) == REST);
+
+        harness.frame.color = 0;
+        harness.convert(field);
+        const Image UNTINTED = harness.render(field);
+        harness.frame.color = 0x000000FF;
+        CHECK(harness.render(field) == UNTINTED);
+        harness.frame.color = 0x800000FF;
+        const Image HALF_TINT = harness.render(field);
+        harness.frame.color = 0xFF0000FF;
+        const Image TINTED = harness.render(field);
+
+        // Compare only smoke outside the window, including low-alpha wisps.
+        int untinted_blue = 0, half_blue = 0, tinted_blue = 0, tinted_red = 0;
+        bool same_opacity = true;
+        for (int y = 0; y < H; ++y) {
+            for (int x = 0; x < W; ++x) {
+                if (x >= 40 && x < 40 + TW && y >= 68 && y < 68 + TH)
+                    continue;
+                const auto base = at(UNTINTED, x, y);
+                const auto half = at(HALF_TINT, x, y);
+                const auto full = at(TINTED, x, y);
+                same_opacity &= base[3] == half[3] && base[3] == full[3];
+                untinted_blue += base[2];
+                half_blue += half[2];
+                tinted_blue += full[2];
+                tinted_red += full[0];
+            }
+        }
+        CHECK(same_opacity);
+        CHECK(untinted_blue < half_blue && half_blue < tinted_blue);
+        CHECK(tinted_red > 0 && tinted_red < tinted_blue);
+        field.release();
+        harness.frame = {};
+    }
+
     void test_stationary_close_keeps_solid_content_in_place(Harness &harness) {
         const hyprimate::Vec2 SIZE{TW, TH};
         for (const auto ROUTE : {hyprimate::SmokeRoute{},
@@ -354,6 +397,48 @@ namespace {
         }
     }
 
+    void test_dragged_core_tracks_between_steps(Harness &harness) {
+        CSmokeField field;
+        const auto origin = harness.target.source_pos;
+        harness.target.source_pos = {120, 68};
+        harness.frame = {};
+        harness.frame.size = {TW, TH};
+        harness.frame.mass = 1;
+        harness.frame.drag_follow = 1;
+        harness.convert(field);
+        const auto core_opacity = [&](const Image &image, hyprimate::Vec2 position) {
+            const int X = static_cast<int>(position.x) + TW / 2;
+            const int Y = static_cast<int>(position.y) + TH / 2;
+            int sum = 0;
+            for (int y = Y - 4; y <= Y + 4; ++y) {
+                for (int x = X - 4; x <= X + 4; ++x)
+                    sum += at(image, x, y)[3];
+            }
+            return sum;
+        };
+        const auto start = harness.target.source_pos;
+        const int BEFORE = core_opacity(harness.render(field), start);
+        CHECK(BEFORE > 5000);
+        harness.frame.position.x += 55;
+        harness.target.source_pos.x += 55;
+        const Image BETWEEN = harness.render(field);
+        CHECK(core_opacity(BETWEEN, harness.target.source_pos) > 0.85 * BEFORE);
+        CHECK(core_opacity(BETWEEN, start) < 0.30 * BEFORE);
+        harness.frame.time += 1.0 / 120;
+        const Image STEPPED = harness.render(field);
+        CHECK(core_opacity(STEPPED, harness.target.source_pos) > 0.75 * BEFORE);
+        CHECK(core_opacity(STEPPED, start) < 0.40 * BEFORE);
+
+        // A perpendicular change of direction follows the next observed drag sample.
+        harness.frame.position.y += 45;
+        harness.target.source_pos.y += 45;
+        harness.frame.time += 1.0 / 120;
+        CHECK(core_opacity(harness.render(field), harness.target.source_pos) > 0.65 * BEFORE);
+        field.release();
+        harness.target.source_pos = origin;
+        harness.frame = {};
+    }
+
     void test_substep(Harness &harness) {
         // A display frame between fluid substeps draws the stepped smoke where the world has
         // it: moving the window without stepping must not carry detached smoke along with it.
@@ -372,6 +457,8 @@ namespace {
                 harness.render(field);
             }
             const Image STEPPED = harness.render(field);
+            harness.frame.drag_follow = 1;
+            harness.frame.mass = 1;
             harness.frame.position.x += 5;
             harness.target.source_pos.x += 5;
             const Image BETWEEN = harness.render(field);
@@ -605,6 +692,7 @@ int main(int argc, char **argv) {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        test_smoke_tint(h);
         h.upload(pixels);
         h.frame.size = {TW, TH};
         h.frame.seed = 0.37;
@@ -701,6 +789,7 @@ int main(int argc, char **argv) {
         test_resize(h, capture);
 
         test_wake(h);
+        test_dragged_core_tracks_between_steps(h);
 
         test_substep(h);
 

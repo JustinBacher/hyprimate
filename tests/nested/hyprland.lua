@@ -221,6 +221,7 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                         variation = 0.5,
 --                     },
 --                     smoke = {
+--                         color = 0x00000000,
 --                         density = 1,
 --                         variation = 0.5,
 --                     },
