@@ -584,6 +584,7 @@ namespace hyprimate::shader {
         Frame frame{};
         Image black;
         std::optional<Extent> initialized_size;
+        std::optional<bool> last_direct;
     };
 
     SceneShader::SceneShader(std::shared_ptr<SceneProgram> program)
@@ -655,12 +656,20 @@ namespace hyprimate::shader {
         const Box box{0, 0, double(size->width), double(size->height)};
         constexpr std::array<float, 4> FULL{0, 0, 1, 1};
         const auto &input_encoding = workspace ? source : encoding;
+        const auto report = [&](bool direct) {
+            if (!live || state.last_direct == direct) return;
+            state.last_direct = direct;
+            LOG(Log::DEBUG, "[hyprimate] shader {} final={} width={} height={}",
+                workspace ? "workspace" : "wallpaper", direct ? "direct" : "pooled",
+                size->width, size->height);
+        };
         if (prepared.program.can_composite_direct()) {
             ClipList clips;
             bool submitted = false;
             if (const auto target = direct_target(ctx, input_encoding, box, *size, FULL, clips, submitted)) {
                 const bool drawn = state.instance.render(input, *target, live, error);
                 if (!drawn && submitted) LOG(Log::WARN, "[hyprimate] direct scene submission failed: {}", error);
+                if (drawn && submitted) report(true);
                 return drawn || submitted;
             }
         }
@@ -683,6 +692,7 @@ namespace hyprimate::shader {
         data.damage = ctx.m_data.damage;
         data.useProvidedDamage = true;
         g_pHyprRenderer->draw(ctx, data, data.damage);
+        report(false);
         return true;
     }
 }  // namespace hyprimate::shader

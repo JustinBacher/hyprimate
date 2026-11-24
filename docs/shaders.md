@@ -306,12 +306,12 @@ without a copy. A close with incomplete offscreen source pixels is declined.
 
 Paired private KWin/Hyprland measurements on an RTX 5060 Ti at 1280×960,
 with a 440×300 client and blur disabled, showed median GPU close scopes of
-11.07→2.53 µs for Fade, 24.06→18.69 µs for Diffusion, and 18.37→18.37 µs for
+11.07→2.46 µs for Fade, 24.06→18.62 µs for Diffusion, and 18.37→18.24 µs for
 Particles. Particles needs more than one final draw, so its native composition
 remains. The scope includes Hyprimate's close pass, not the whole compositor.
 See [before](../build/shader-integration/frame-control-before/),
-[after](../build/shader-integration/frame-control-after/), and the
-[four-resolution executor run](../build/shader-integration/executor.jsonl).
+[after](../build/shader-integration/scene-proven/paired-after/), and the
+[four-resolution executor run](../build/shader-integration/scene-proven/executor.jsonl).
 4K Diffusion used 4.15 MB of mutable storage and five draws per step. The
 executor did not allocate or upload after warm-up in these measurements.
 
@@ -324,10 +324,10 @@ window effects. See `build/shader-integration/nested-{720,1080,1440,2160}/`
 for per-effect p50, p95, p99, and maximum wall times.
 The private wallpaper renderer scheduled zero frames during a 350 ms quiet
 interval after reaching its finite endpoint, versus 21 frames for the
-continuous effect at 60 Hz (0.31 ms renderer CPU wall p95 at 800×600).
+continuous effect at 60 Hz (0.40 ms renderer CPU wall p95 at 800×600).
 
 Preparation is still synchronous for changed packages; only the compositor
-thread owns the context. In the paired nested run, package parse and validation
+thread owns the context. In the initial paired nested run, package parse and validation
 took approximately 0.15–0.59 ms, and changed GPU preparation took up to
 28.30 ms. Reusing identical content and parameter values skipped GPU
 preparation; reload callbacks in that sample took 0.37–1.23 ms for cache hits
@@ -352,6 +352,12 @@ movement and resizing, workspace reversal, live privacy revocation and session
 lock, and plugin unload/reload. The second checks wallpaper ordering, finite
 and continuous presentation, and recreation and removal of a rotated,
 fractionally scaled virtual output. Both retain screenshots and numeric checks.
+Private compositor logs record `shader workspace final=direct` and
+`shader wallpaper final=direct` for the primary output, and
+`shader wallpaper final=pooled` for the rotated output. The checks also
+compare the full exterior of deformed blur frames and verify that a reversal
+frame contains visible content from both captured workspaces.
+
 Pass `--interactive` to the first runner to also drive held move and resize
 grabs directly against the private Wayland socket (requires NumPy for the shared
 input fixture).

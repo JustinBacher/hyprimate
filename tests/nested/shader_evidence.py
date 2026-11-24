@@ -428,8 +428,24 @@ void main() {
     paint = (x + w // 2, y + 20, x + 3 * w // 4, y + h // 4)
     glass = (x + w // 2, y + 2 * h // 5, x + 3 * w // 4, y + 3 * h // 5)
     old_edge = (x + 4, y + h // 4, x + w // 10, y + 3 * h // 4)
+    # +0.28 clip-space offset across the declared 1.5-window-wide target.
+    # Check the entire exterior, allowing the host's pixel rounding.
+    left = round(x + .14 * 1.5 * w)
+    expected = (left, y, left + w, y + h)
+
+    def check_deformed_matte(frame, event):
+        delta = ImageChops.difference(frame, baseline)
+        changed = delta.point(lambda value: 255 if value > 2 else 0).getbbox()
+        if changed is None or any(abs(a - b) > 2 for a, b in zip(changed, expected)):
+            raise RuntimeError(('unexpected full-frame deformation extent', event, expected, changed))
+        for edge in (left + 2, left + w - 7):
+            band = (edge, glass[1], edge + 5, glass[3])
+            if difference(frame, baseline, band) < 3:
+                raise RuntimeError(('missing transparent coverage near a deformed edge', event, band))
+
     time.sleep(1.05)
     opening = snap('shader-blur-deformed-open')
+    check_deformed_matte(opening, 'open')
     metrics['blur-open-color-bias'] = color_bias(opening, paint, 'green')
     metrics['blur-open-transparent-band'] = difference(opening, baseline, glass)
     metrics['blur-open-original-edge-error'] = maximum_difference(opening, baseline, old_edge)
@@ -440,6 +456,7 @@ void main() {
     close_client('shader-blur')
     time.sleep(.35)
     closing = snap('shader-blur-deformed-close')
+    check_deformed_matte(closing, 'close')
     metrics['blur-close-color-bias'] = color_bias(closing, paint, 'magenta')
     metrics['blur-close-transparent-band'] = difference(closing, baseline, glass)
     if metrics['blur-close-color-bias'] < 20 or metrics['blur-close-transparent-band'] < 2:
@@ -714,7 +731,7 @@ void main() {
     time.sleep(.7)
     two = stable_scene('workspace-two')
     workspace(1)
-    open_client('workspace-one')
+    workspace_window = client_box(open_client('workspace-one'))
     time.sleep(.7)
     one = stable_scene('workspace-one')
     workspace_manifest = ROOT / 'examples/shaders/workspace/effect.json'
@@ -740,6 +757,10 @@ void main() {
     for frame in (outward, reversed_frame):
         if difference(one, frame, wallpaper_region) > 3:
             raise RuntimeError('workspace shader lost the captured native background')
+    if (difference(one, outward, workspace_window) < 1.5 or
+            min(difference(one, reversed_frame, workspace_window),
+                difference(two, reversed_frame, workspace_window)) < 1.5):
+        raise RuntimeError('workspace shader did not visibly blend the two client regions')
     current_ws = json.loads(hc('-j', 'activeworkspace'))['id']
     settled = stable_scene('workspace-reversed-settled')
     if current_ws != 1 or difference(one, settled) > .7 or difference(one, two) < .4:
