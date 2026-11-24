@@ -1,5 +1,14 @@
 #pragma once
 
+namespace hyprimate::cloth::hinge_angle {
+    // Odd-power coefficients of the Taylor series of asin through x^11.
+    inline constexpr float C3 = 1.0F / 6;
+    inline constexpr float C5 = 3.0F / 40;
+    inline constexpr float C7 = 5.0F / 112;
+    inline constexpr float C9 = 35.0F / 1152;
+    inline constexpr float C11 = 63.0F / 2816;
+}  // namespace hyprimate::cloth::hinge_angle
+
 #if defined(__SSE2__)
 
 #include <cstddef>
@@ -120,8 +129,16 @@ namespace hyprimate::cloth::simd {
         const __m128 cosine = _mm_div_ps(
             dot(left_normal, right_normal), _mm_sqrt_ps(select(invalid, one, area_product)));
         const __m128 abs_cosine = _mm_min_ps(one, _mm_andnot_ps(sign_bit, cosine));
-        const __m128 magnitude = _mm_mul_ps(_mm_sqrt_ps(_mm_sub_ps(one, abs_cosine)),
-            _mm_sub_ps(_mm_set1_ps(pi / 2), _mm_mul_ps(_mm_set1_ps(.175394F), abs_cosine)));
+        using namespace hinge_angle;
+        const __m128 s = _mm_mul_ps(_mm_sub_ps(one, abs_cosine), _mm_set1_ps(.5F));
+        __m128 series = _mm_set1_ps(C11);
+        series = _mm_add_ps(_mm_set1_ps(C9), _mm_mul_ps(s, series));
+        series = _mm_add_ps(_mm_set1_ps(C7), _mm_mul_ps(s, series));
+        series = _mm_add_ps(_mm_set1_ps(C5), _mm_mul_ps(s, series));
+        series = _mm_add_ps(_mm_set1_ps(C3), _mm_mul_ps(s, series));
+        series = _mm_add_ps(one, _mm_mul_ps(s, series));
+        const __m128 half_sine = _mm_sqrt_ps(s);
+        const __m128 magnitude = _mm_mul_ps(_mm_add_ps(half_sine, half_sine), series);
         const __m128 sign = select(_mm_cmplt_ps(dot(cross(right_normal, left_normal), edge), zero),
             _mm_set1_ps(-1.0F),
             one);

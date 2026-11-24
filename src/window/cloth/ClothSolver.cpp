@@ -13,7 +13,6 @@
 #endif
 
 #include "window/cloth/ClothHingeSimd.hpp"
-#include "window/cloth/ClothSolveOrder.hpp"
 #include "window/cloth/ClothSolver.hpp"
 
 namespace hyprimate::cloth {
@@ -25,7 +24,6 @@ namespace hyprimate::cloth {
         constexpr float BEND_ALPHA = 1.2F * INVERSE_STEP_SQUARED;
         constexpr float PI = 3.14159265358979323846F;
         constexpr std::size_t GRID = SHEET_CELLS + 1;
-        constexpr std::size_t SEAM = 13;
 
         // Divide all three coordinates at once, without replacing division with a
         // rounded reciprocal. The unused lane carries no simulation state.
@@ -41,29 +39,17 @@ namespace hyprimate::cloth {
 #endif
         }
 
-        // Preserve the signed angle and float reduction order of the reference cloth.
+        // Evaluate acos(c) as 2 asin(sqrt((1 - c) / 2)) for absolute cosine c.
         [[gnu::always_inline]] inline float angle(
             Point edge, Point left, Point right, float product) noexcept {
             const float COSINE = dot(left, right) / std::sqrt(product);
             const float ABS_COSINE = std::min(std::abs(COSINE), 1.0F);
-            const float MAGNITUDE =
-                std::sqrt(1 - ABS_COSINE) * ((PI / 2) - (.175394F * ABS_COSINE));
+            using namespace hinge_angle;
+            const float S = (1 - ABS_COSINE) * .5F;
+            const float SERIES = 1 + S * (C3 + S * (C5 + S * (C7 + S * (C9 + S * C11))));
+            const float MAGNITUDE = (2 * std::sqrt(S)) * SERIES;
             const float SIGN = dot(cross(right, left), edge) < 0 ? -1.0F : 1.0F;
             return SIGN * (COSINE < 0 ? PI - MAGNITUDE : MAGNITUDE);
-        }
-
-        std::size_t island(std::size_t vertex) noexcept {
-            const char LABEL = SOLVE_ISLANDS[vertex];
-            return static_cast<std::size_t>(LABEL <= '9' ? LABEL - '0' : LABEL - 'a' + 10);
-        }
-
-        template <typename Vertices>
-        std::size_t constraint_island(const Vertices &vertices) noexcept {
-            const auto FIRST = island(vertices.front());
-            return std::ranges::all_of(
-                       vertices, [&](auto vertex) { return island(vertex) == FIRST; })
-                       ? FIRST
-                       : SEAM;
         }
 
         struct Contact {
@@ -308,17 +294,13 @@ namespace hyprimate::cloth {
             }
             const auto SECOND = halfEdges[i++];
             const auto DELTA = static_cast<std::size_t>(FIRST.high - FIRST.low);
-            const unsigned TIP_BIT = DELTA == 1 ? 1 : DELTA == STRIDE - 1 ? 2 : 4;
-            const bool DESCENDING =
-                (static_cast<unsigned>(HINGE_TIP_ORDER[FIRST.low] - '0') & TIP_BIT) != 0;
-            const auto LOW_TIP = std::min(FIRST.tip, SECOND.tip);
-            const auto HIGH_TIP = std::max(FIRST.tip, SECOND.tip);
-            const auto LEFT_TIP = DESCENDING ? HIGH_TIP : LOW_TIP;
-            const auto RIGHT_TIP = DESCENDING ? LOW_TIP : HIGH_TIP;
+            // Orient the hinge by vertex index, independent of the half-edge sort's ties.
+            const auto LEFT_TIP = std::min(FIRST.tip, SECOND.tip);
+            const auto RIGHT_TIP = std::max(FIRST.tip, SECOND.tip);
             if (DELTA == STRIDE - 1) {
-                ADD_EDGE(LOW_TIP,
-                    HIGH_TIP,
-                    std::sqrt(lengthSquared(REST_POINT(LOW_TIP) - REST_POINT(HIGH_TIP))));
+                ADD_EDGE(LEFT_TIP,
+                    RIGHT_TIP,
+                    std::sqrt(lengthSquared(REST_POINT(LEFT_TIP) - REST_POINT(RIGHT_TIP))));
             }
             if (m_inverseMasses[LEFT_TIP] > 0 || m_inverseMasses[RIGHT_TIP] > 0) {
                 const auto LEFT_VECTOR = REST_POINT(LEFT_TIP) - ORIGIN;
@@ -331,6 +313,7 @@ namespace hyprimate::cloth {
             }
         }
         make_attachments(edges);
+        // Define the serial order before leveling: the second diagonal follows its cell.
         std::ranges::sort(edges, {}, [](const Edge &edge) {
             const auto [LOW, HIGH] = edge.vertices;
             const bool OTHER_DIAGONAL = static_cast<std::size_t>(HIGH - LOW) == GRID + 1;
@@ -343,57 +326,45 @@ namespace hyprimate::cloth {
             return std::tuple{
                 *std::ranges::min_element(hinge.vertices), hinge.vertices[0], hinge.vertices[1]};
         });
-        m_edges = make_batches(std::move(edges));
-        m_hinges = make_batches(std::move(hinges));
+        std::vector<std::size_t> levels;
+        m_edges = make_batches(std::move(edges), levels);
+        m_hinges = make_batches(std::move(hinges), levels);
     }
 
     template <typename Constraint>
-    Solver::Batches<Constraint> Solver::make_batches(std::vector<Constraint> constraints) const {
-        const auto GROUP = [](const Constraint &constraint) {
-            return constraint_island(constraint.vertices);
-        };
-        std::ranges::stable_sort(constraints, {}, GROUP);
+    Solver::Batches<Constraint> Solver::make_batches(
+        std::vector<Constraint> constraints, std::vector<std::size_t> &levels) {
         Batches<Constraint> result;
         result.constraints.resize(constraints.size());
-        std::vector<std::size_t> sizes;
-        std::vector<std::size_t> levels;
-        std::size_t first = 0;
-        for (std::size_t group = 0; group <= SEAM; ++group) {
-            std::size_t last = first;
-            while (last < constraints.size() && GROUP(constraints[last]) == group) {
-                ++last;
+        levels.clear();
+        levels.reserve(constraints.size());
+
+        // An ordered level must follow every earlier constraint sharing any of its vertices.
+        std::array<std::size_t, SHEET_GRID_VERTICES> next_level{};
+        for (const auto &constraint : constraints) {
+            std::size_t level = 0;
+            for (auto vertex : constraint.vertices) {
+                level = std::max(level, next_level[vertex]);
             }
-            // Each level preserves the order of conflicting constraints and can run in parallel.
-            std::array<std::size_t, SHEET_GRID_VERTICES> last_level{};
-            sizes.clear();
-            levels.clear();
-            levels.reserve(last - first);
-            for (std::size_t i = first; i < last; ++i) {
-                std::size_t level = 0;
-                for (auto vertex : constraints[i].vertices) {
-                    level = std::max(level, last_level[vertex]);
-                }
-                for (auto vertex : constraints[i].vertices) {
-                    last_level[vertex] = level + 1;
-                }
-                if (level == sizes.size()) {
-                    sizes.push_back(0);
-                }
-                ++sizes[level];
-                levels.push_back(level);
+            for (auto vertex : constraint.vertices) {
+                next_level[vertex] = level + 1;
             }
-            auto offset = first;
-            for (auto &size : sizes) {
-                const auto END = offset + size;
-                size = offset;
-                offset = END;
-                result.ends.push_back(END);
+            if (level == result.ends.size()) {
+                result.ends.push_back(1);
+            } else {
+                ++result.ends[level];
             }
-            for (std::size_t i = first; i < last; ++i) {
-                result.constraints[sizes[levels[i - first]]++] = constraints[i];
-            }
-            result.groups[group + 1] = result.ends.size();
-            first = last;
+            levels.push_back(level);
+        }
+
+        // Reuse the counts as write cursors. Input-order placement preserves level ties
+        // (and thus SIMD lane packing) and leaves each cursor at its exclusive end.
+        std::size_t offset = 0;
+        for (auto &cursor : result.ends) {
+            offset += std::exchange(cursor, offset);
+        }
+        for (std::size_t i = 0; i < constraints.size(); ++i) {
+            result.constraints[result.ends[levels[i]]++] = constraints[i];
         }
         return result;
     }
@@ -450,25 +421,12 @@ namespace hyprimate::cloth {
                 m_attachments.push_back({pin[i], static_cast<Index>(i), distance[i]});
             }
         }
-        const auto GROUP = [](const Attachment &attachment) {
-            return constraint_island(std::array{attachment.pin, attachment.vertex});
-        };
-        std::ranges::stable_sort(m_attachments, {}, GROUP);
-        std::size_t end = 0;
-        for (std::size_t group = 0; group <= SEAM; ++group) {
-            while (end < m_attachments.size() && GROUP(m_attachments[end]) == group) {
-                ++end;
-            }
-            m_attachment_groups[group + 1] = end;
-        }
     }
 
-    void Solver::solve_edges(std::size_t group) noexcept {
-        const auto FIRST = m_edges.groups[group];
-        const auto LAST = m_edges.groups[group + 1];
-        std::size_t index = FIRST == 0 ? 0 : m_edges.ends[FIRST - 1];
-        for (std::size_t batch = FIRST; batch < LAST; ++batch) {
-            for (const auto END = m_edges.ends[batch]; index < END; ++index) {
+    void Solver::solve_edges() noexcept {
+        std::size_t index = 0;
+        for (const auto END : m_edges.ends) {
+            for (; index < END; ++index) {
                 const auto &edge = m_edges.constraints[index];
                 const auto [LOW, HIGH] = edge.vertices;
                 const auto DELTA = m_positions[HIGH] - m_positions[LOW];
@@ -485,12 +443,9 @@ namespace hyprimate::cloth {
         }
     }
 
-    void Solver::solve_hinges(std::size_t group) noexcept {
-        const auto FIRST = m_hinges.groups[group];
-        const auto LAST = m_hinges.groups[group + 1];
-        std::size_t index = FIRST == 0 ? 0 : m_hinges.ends[FIRST - 1];
-        for (std::size_t batch = FIRST; batch < LAST; ++batch) {
-            const auto END = m_hinges.ends[batch];
+    void Solver::solve_hinges() noexcept {
+        std::size_t index = 0;
+        for (const auto END : m_hinges.ends) {
 #if defined(__SSE2__)
             // Hinges in one level share no vertices. Never pack across levels.
             for (; END - index >= 4; index += 4) {
@@ -551,10 +506,8 @@ namespace hyprimate::cloth {
         }
     }
 
-    void Solver::solve_attachments(std::size_t group) noexcept {
-        const auto FIRST = m_attachment_groups[group];
-        const auto LAST = m_attachment_groups[group + 1];
-        for (const auto &constraint : std::span(m_attachments).subspan(FIRST, LAST - FIRST)) {
+    void Solver::solve_attachments() noexcept {
+        for (const auto &constraint : m_attachments) {
             const auto ANCHOR = m_positions[constraint.pin];
             auto &position = m_positions[constraint.vertex];
             const auto DELTA = position - ANCHOR;
@@ -610,11 +563,9 @@ namespace hyprimate::cloth {
                 m_previous[i] = m_positions[i];
                 m_positions[i] += velocity * DT;
             }
-            for (std::size_t group = 0; group <= SEAM; ++group) {
-                solve_hinges(group);
-                solve_edges(group);
-                solve_attachments(group);
-            }
+            solve_hinges();
+            solve_edges();
+            solve_attachments();
             for (std::size_t i = 0; i < m_positions.size(); ++i) {
                 if (m_inverseMasses[i] == 0) {
                     continue;

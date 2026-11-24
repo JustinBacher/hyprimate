@@ -48,7 +48,6 @@
           mkdir -p "$out/share/hyprimate/sprites"
           install -Dm644 -t "$out/share/hyprimate/sprites" \
             ../src/window/swarm/sprites/{bird,cat,spider}.png
-          install -Dm644 ../src/window/cloth/Jolt-MIT.txt "$out/share/licenses/hyprimate/Jolt-MIT.txt"
           runHook postInstall
         '';
       };

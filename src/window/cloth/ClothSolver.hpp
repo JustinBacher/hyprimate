@@ -130,18 +130,17 @@ namespace hyprimate::cloth {
         };
         template <typename Constraint>
         struct Batches {
-            static constexpr std::size_t GROUP_COUNT = 14;
             std::vector<Constraint> constraints;
-            std::vector<std::size_t> ends;
-            std::array<std::size_t, GROUP_COUNT + 1> groups{};
+            std::vector<std::size_t> ends;  // exclusive end of each conflict-free level
         };
 
         template <typename Constraint>
-        Batches<Constraint> make_batches(std::vector<Constraint> constraints) const;
+        static Batches<Constraint> make_batches(
+            std::vector<Constraint> constraints, std::vector<std::size_t> &levels);
         void make_attachments(const std::vector<Edge> &edges);
-        void solve_hinges(std::size_t group) noexcept;
-        void solve_edges(std::size_t group) noexcept;
-        void solve_attachments(std::size_t group) noexcept;
+        void solve_hinges() noexcept;
+        void solve_edges() noexcept;
+        void solve_attachments() noexcept;
 
         std::array<Point, SHEET_GRID_VERTICES> m_positions, m_velocities, m_previous;
         std::array<float, SHEET_GRID_VERTICES> m_inverseMasses;
@@ -150,7 +149,6 @@ namespace hyprimate::cloth {
         // One conflict-free batch: every attachment writes a distinct dynamic vertex and
         // reads only that vertex and a pin that stays immutable throughout the batch.
         std::vector<Attachment> m_attachments;
-        std::array<std::size_t, Batches<Edge>::GROUP_COUNT + 1> m_attachment_groups{};
         Box m_broad_bounds;
     };
 }  // namespace hyprimate::cloth

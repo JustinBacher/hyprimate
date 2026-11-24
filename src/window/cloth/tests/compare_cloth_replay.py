@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare a fixed public-API cloth replay to the frozen Jolt display reference."""
+"""Compare a public-API cloth replay to the frozen display reference."""
 import csv
 import gzip
 import math
