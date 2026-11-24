@@ -95,14 +95,14 @@ bool CBubbleRenderer::warm_up() {
 // NOLINTNEXTLINE(readability-function-cognitive-complexity): GL capture, drawing and restoration
 // must retain their order.
 SP<Render::IFramebuffer> CBubbleRenderer::render(
-    Render::CRenderContext &ctx, const SBubbleDraw &draw) {
+    Render::CRenderContext &ctx, const hyprimate::BubbleFrame &frame, const SBubbleDraw &draw) {
     if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL ||
         (!draw.on_glass && (!draw.window || (draw.window->m_texID == 0U) ||
                                (draw.window->m_type != Render::TEXTURE_RGBA &&
                                    draw.window->m_type != Render::TEXTURE_RGBX) ||
                                (!(draw.texture_size.x >= 1) || !(draw.texture_size.y >= 1)))) ||
         (!(draw.canvas.x > 0) || !(draw.canvas.y > 0) || !(draw.source.w > 0) ||
-            !(draw.source.h > 0) || !(draw.frame.size.x > 0) || !(draw.frame.size.y > 0))) {
+            !(draw.source.h > 0) || !(frame.size.x > 0) || !(frame.size.y > 0))) {
         return nullptr;
     }
     if (!m_owner.ensure_current()) return nullptr;
@@ -155,13 +155,13 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
                 .y = 1.0 / WALLPAPER->m_size.y,
             };
         }
-        m_material.draw_membranes(draw.frame, TARGET, images);
+        m_material.draw_membranes(frame, TARGET, images);
         glEnable(GL_BLEND);
         glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
         if (draw.on_glass) {
             m_material.draw_particles(std::span{draw.glass_particles}.first(
                                           std::min(draw.glass_count, draw.glass_particles.size())),
-                draw.frame.size,
+                frame.size,
                 TARGET,
                 true);
             if (draw.wake) {
@@ -169,18 +169,18 @@ SP<Render::IFramebuffer> CBubbleRenderer::render(
             }
         } else {
             const auto SHELL_COUNT = hyprimate::bubble_particles(
-                draw.frame.shell, std::span{m_particles}.first(hyprimate::K_BUBBLE_MAX_PARTICLES));
-            const auto WINDOW_COUNT = hyprimate::bubble_particles(draw.frame.window,
+                frame.shell, std::span{m_particles}.first(hyprimate::K_BUBBLE_MAX_PARTICLES));
+            const auto WINDOW_COUNT = hyprimate::bubble_particles(frame.window,
                 std::span{m_particles}
                     .subspan(SHELL_COUNT)
                     .first(hyprimate::K_BUBBLE_MAX_PARTICLES));
             m_material.draw_particles(std::span{m_particles}.first(SHELL_COUNT + WINDOW_COUNT),
-                draw.frame.size,
+                frame.size,
                 TARGET,
                 false);
-            m_material.draw_microbubbles(std::span{draw.frame.micro}.first(std::min(
-                                             draw.frame.micro_count, draw.frame.micro.size())),
-                draw.frame.size,
+            m_material.draw_microbubbles(
+                std::span{frame.micro}.first(std::min(frame.micro_count, frame.micro.size())),
+                frame.size,
                 TARGET);
         }
     }
@@ -193,8 +193,8 @@ std::vector<UP<IPassElement>> CBubblePassElement::draw(Render::CRenderContext &c
     constexpr hyprimate::perf::Key KEY{hyprimate::perf::Domain::Window, "bubble", "shared"};
     const hyprimate::perf::CpuScope CPU_PROFILE{KEY, hyprimate::perf::Phase::Draw};
     const hyprimate::perf::GpuScope GPU_PROFILE{KEY};
-    const auto LAYER =
-        m_data.renderer ? m_data.renderer->render(ctx, m_data.draw) : SP<Render::IFramebuffer>{};
+    const auto LAYER = m_data.renderer ? m_data.renderer->render(ctx, m_data.frame, m_data.draw)
+                                       : SP<Render::IFramebuffer>{};
     Render::GL::CHyprOpenGLImpl::STextureRenderData texture_data{};
     texture_data.damage = &m_data.damage;
     texture_data.a = 1.F;

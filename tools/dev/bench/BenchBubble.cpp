@@ -22,7 +22,7 @@ namespace {
         double sum = 0;
         for (int i = 0; i < 90; ++i) {
             bubble.advance(FRAME);
-            const BubbleFrame FRAME_OUT = bubble.frame(SIZE);
+            const auto &FRAME_OUT = bubble.frame(SIZE);
             sum += surface_sum(FRAME_OUT) + bubble.bounds(SIZE).w;
         }
         return sum;
@@ -36,7 +36,7 @@ namespace {
         double sum = 0;
         for (int i = 0; i < 80; ++i) {
             bubble.advance(FRAME);
-            const BubbleFrame FRAME_OUT = bubble.frame(SIZE);
+            const auto &FRAME_OUT = bubble.frame(SIZE);
             sum += surface_sum(FRAME_OUT);
             sum += static_cast<double>(bubble_particles(FRAME_OUT.window, particles));
             sum += static_cast<double>(bubble_impacts(FRAME_OUT.window, impacts));

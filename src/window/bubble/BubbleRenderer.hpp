@@ -18,7 +18,6 @@
 struct SBubbleDraw {
     SP<Render::ITexture> window;
     SP<SBubbleWallpaper> wallpaper;
-    hyprimate::BubbleFrame frame;
     Vector2D canvas;
     CBox source;
     hyprimate::Vec2 texture_origin;
@@ -39,7 +38,9 @@ class CBubbleRenderer {
     CBubbleRenderer &operator=(const CBubbleRenderer &) = delete;
     CBubbleRenderer(CBubbleRenderer &&) = delete;
     CBubbleRenderer &operator=(CBubbleRenderer &&) = delete;
-    SP<Render::IFramebuffer> render(Render::CRenderContext &ctx, const SBubbleDraw &draw);
+    // The projected frame is borrowed only during this synchronous draw.
+    SP<Render::IFramebuffer> render(
+        Render::CRenderContext &ctx, const hyprimate::BubbleFrame &frame, const SBubbleDraw &draw);
     // Compiles the material ahead of the first bubble. Compilation takes long enough to read as a
     // frame stall, which would otherwise cancel the opening that first needs it. Safe to call
     // often; only the first successful call does work.
@@ -60,6 +61,7 @@ class CBubblePassElement final : public IPassElement {
     struct SData {
         SP<CBubbleRenderer> renderer;
         SBubbleDraw draw;
+        hyprimate::BubbleFrame frame;
         CBox box;
         double scale = 1.0;
         CRegion damage;

@@ -212,7 +212,7 @@ void CBubbleVestige::queue_wake(Render::CRenderContext &ctx,
     }
     CBubblePassElement::SData data;
     data.renderer = renderer;
-    data.draw.frame.size = {.x = BOUNDS.w, .y = BOUNDS.h};
+    data.frame.size = {.x = BOUNDS.w, .y = BOUNDS.h};
     data.draw.canvas = CLIPPED.size();
     data.draw.source = SOURCE;
     data.draw.output_origin = {.x = CLIPPED.x, .y = CLIPPED.y};
@@ -258,7 +258,7 @@ void CBubbleVestige::queue(Render::CRenderContext &ctx,
         }
         CBubblePassElement::SData data;
         data.renderer = renderer;
-        data.draw.frame.size = {.x = bounds.w, .y = bounds.h};
+        data.frame.size = {.x = bounds.w, .y = bounds.h};
         data.draw.canvas = CLIPPED.size();
         data.draw.source = SOURCE;
         data.draw.output_origin = {.x = CLIPPED.x, .y = CLIPPED.y};

@@ -75,7 +75,7 @@ namespace hyprimate {
         BubbleSurface shell{};
         double seed = 0;
         // Opening companions: small soap bubbles in frame coordinates, drawn with the same
-        // material as the movement's microbubbles. Fixed capacity; nothing persists after settling.
+        // material as movement's microbubbles. Only the count prefixes below are projected.
         std::array<BubbleMicro, kBubbleFormationCapacity> formation{};
         std::size_t formation_count = 0;
         // Microbubbles riding the window's film, in frame coordinates.
@@ -154,16 +154,25 @@ namespace hyprimate {
         // The movement still disturbs the window's film.
         [[nodiscard]] bool stirred() const;
         [[nodiscard]] const BubbleMotion &motion() const;
+        // Drops movement emissions without changing the prepared geometry.
         void clear_emissions();
-        [[nodiscard]] BubbleFrame frame(Vec2 size) const;
+        // Returns a borrowed frame, refreshed in place for each exact size and geometry revision.
+        // Copy it to retain a snapshot; a later projection may overwrite this object. Invalid
+        // sizes return an immutable empty frame.
+        [[nodiscard]] const BubbleFrame &frame(Vec2 size) const;
         // Contains every drawn surface pixel and every particle (ligaments and perspective
         // included).
         [[nodiscard]] Box bounds(Vec2 size) const;
 
       private:
         void apply_motion(BubbleFrame &frame) const;
+        void project(Vec2 size, BubbleFrame &frame) const;
+        void invalidate_geometry() noexcept;
 
-        BubbleFrame m_initial{};
+        mutable BubbleFrame m_prepared{};
+        mutable Vec2 m_prepared_size{};
+        mutable bool m_geometry_dirty = true;
+        BubbleSurface m_close_window{};
         Vec2 m_size{};
         double m_duration = 0;
         double m_elapsed = 0;
@@ -174,6 +183,8 @@ namespace hyprimate {
         bool m_active = false;
         bool m_opening = false;
         bool m_closed = false;
+        bool m_close_from_opening = false;
+        bool m_close_motion_frozen = false;
         BubbleFormation m_formation{};
         BubbleMotion m_motion{};
     };

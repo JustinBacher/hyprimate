@@ -20,12 +20,25 @@ namespace hyprimate {
                    size.x <= LIMIT && size.y <= LIMIT;
         }
 
-        BubbleFrame neutral(Vec2 size) {
-            BubbleFrame frame{};
+        void initialize_frame(BubbleFrame &frame, Vec2 size) {
             frame.size = size;
+            frame.window = {};
             frame.window.half_size = {.x = size.x * .5, .y = size.y * .5};
             frame.window.visibility = 1;
-            return frame;
+            frame.shell = {};
+            frame.seed = 0;
+            frame.formation_count = 0;
+            frame.micro_count = 0;
+        }
+
+        void apply_motion_to_formation(
+            BubbleFrame &frame, Vec2 half_size, const BubbleDeformation &deformation) {
+            for (auto &satellite : std::span(frame.formation).first(frame.formation_count)) {
+                if (satellite.visibility > 0) {
+                    satellite.centre = satellite.anchor =
+                        bubble_motion_point(half_size, deformation, satellite.centre);
+                }
+            }
         }
 
         void update_rupture(BubbleSurface &surface) {
@@ -167,27 +180,44 @@ namespace hyprimate {
             reset();
             return;
         }
+        if (m_close_motion_frozen) {
+            m_motion.reset();
+            m_close_motion_frozen = false;
+        }
+        m_close_from_opening = false;
         const bool FROM_OPENING = direction == Transition::Close && m_active && m_opening;
-        // A close takes over the film as it is: mid-opening, or still deformed by movement.
-        const bool INHERIT = FROM_OPENING || (direction == Transition::Close && m_motion.stirred());
-        const auto START = INHERIT ? frame(size) : neutral(size);
-        const double MATERIAL_SEED = FROM_OPENING ? START.seed : unit_draw(seed);
+        const bool FREEZE_MOTION = direction == Transition::Close && m_motion.stirred() &&
+                                   (!FROM_OPENING || m_formation.landed());
+        const bool INHERIT = FROM_OPENING || FREEZE_MOTION;
+        BubbleSurface START_WINDOW{};
+        double START_SEED = 0;
+        if (INHERIT) {
+            const auto &START = frame(size);
+            START_WINDOW = START.window;
+            START_SEED = START.seed;
+        } else {
+            START_WINDOW.half_size = {.x = size.x * .5, .y = size.y * .5};
+            START_WINDOW.visibility = 1;
+        }
+        const double MATERIAL_SEED = FROM_OPENING ? START_SEED : unit_draw(seed);
         const double SPOT_X = (.16 + (.12 * unit_draw(seed))) * (unit_draw(seed) < .5 ? -1 : 1);
         const double SPOT_Y = (.12 + (.12 * unit_draw(seed))) * (unit_draw(seed) < .5 ? -1 : 1);
-        m_initial = START;
+        m_close_window = direction == Transition::Close ? START_WINDOW : BubbleSurface{};
+        m_close_from_opening = direction == Transition::Close && FROM_OPENING;
+        m_close_motion_frozen = direction == Transition::Close && FREEZE_MOTION;
         m_size = size;
         m_duration = duration.seconds;
         m_elapsed = 0;
         m_seed = MATERIAL_SEED;
         m_rupture = {.x = SPOT_X, .y = SPOT_Y};
         m_flow = 0;
-        // A closing window no longer moves; its deformation now lives in the close's start frame.
-        if (direction == Transition::Close) {
+        // A closing window no longer moves; retain only movement that contributed to its snapshot.
+        if (direction == Transition::Close && !m_close_motion_frozen) {
             m_motion.reset();
         }
-        if (direction == Transition::Close && m_initial.window.visibility > 0 &&
-            !m_initial.window.closing) {
-            start_rupture(m_initial.window,
+        if (direction == Transition::Close && m_close_window.visibility > 0 &&
+            !m_close_window.closing) {
+            start_rupture(m_close_window,
                 m_rupture,
                 static_cast<std::uint64_t>(m_seed * 0x1p53),
                 RuptureDuration{m_duration},
@@ -199,6 +229,7 @@ namespace hyprimate {
             m_formation.begin(size, seed, formation);
         }
         m_closed = false;
+        invalidate_geometry();
     }
 
     void Bubble::advance(double elapsed) {
@@ -215,7 +246,13 @@ namespace hyprimate {
             m_elapsed = m_duration;
             m_active = false;
             m_closed = !m_opening;
+            if (m_close_motion_frozen) {
+                m_motion.reset();
+                m_close_motion_frozen = false;
+                m_close_from_opening = false;
+            }
         }
+        invalidate_geometry();
     }
 
     void Bubble::advance(double elapsed, Vec2 size, Box body, const BubbleMotionParams &params) {
@@ -237,19 +274,30 @@ namespace hyprimate {
             m_flow +=
                 std::min(elapsed, STALL_SECONDS) * (.6 + std::min(m_motion.speed() / 800, 3.0));
         }
+        invalidate_geometry();
     }
 
     void Bubble::reset() {
-        m_initial = {};
+        if (m_close_motion_frozen) {
+            m_motion.reset();
+        }
+        m_close_motion_frozen = false;
+        m_close_from_opening = false;
         m_formation = {};
         m_size = {};
         m_duration = m_elapsed = m_seed = 0;
         m_rupture = {};
         m_active = m_opening = m_closed = false;
+        invalidate_geometry();
     }
 
     void Bubble::drive(Vec2 displacement, bool carried) {
+        if (m_close_motion_frozen || !std::isfinite(displacement.x) ||
+            !std::isfinite(displacement.y) || (displacement.x == 0 && displacement.y == 0)) {
+            return;
+        }
         m_motion.drive(displacement, carried);
+        invalidate_geometry();
     }
 
     void Bubble::seed_motion(std::uint64_t seed) {
@@ -257,7 +305,14 @@ namespace hyprimate {
     }
 
     void Bubble::stop_motion() {
+        if (m_close_motion_frozen) {
+            return;
+        }
+        const bool WAS_STIRRED = m_motion.stirred();
         m_motion.reset();
+        if (WAS_STIRRED) {
+            invalidate_geometry();
+        }
     }
 
     bool Bubble::landed() const {
@@ -265,10 +320,14 @@ namespace hyprimate {
     }
 
     bool Bubble::stirred() const {
-        return m_motion.stirred();
+        return !m_close_motion_frozen && m_motion.stirred();
     }
 
     const BubbleMotion &Bubble::motion() const {
+        if (m_close_motion_frozen) {
+            static const BubbleMotion EMPTY{};
+            return EMPTY;
+        }
         return m_motion;
     }
 
@@ -294,12 +353,7 @@ namespace hyprimate {
             shape.wave_sin[index] += MOVING.wave_sin[index];
         }
         shape.buds = MOVING.buds;
-        for (auto &satellite : std::span(frame.formation).first(frame.formation_count)) {
-            if (satellite.visibility > 0) {
-                satellite.centre = satellite.anchor =
-                    bubble_motion_point(window.half_size, MOVING, satellite.centre);
-            }
-        }
+        apply_motion_to_formation(frame, window.half_size, MOVING);
         window.transparency = m_transparency;
         const Vec2 CORE = m_motion.core();
         window.core = {.x = window.core.x + CORE.x, .y = window.core.y + CORE.y};
@@ -320,33 +374,61 @@ namespace hyprimate {
         return m_closed;
     }
 
-    BubbleFrame Bubble::frame(Vec2 size) const {
-        if (!usable(size)) {
-            return {};
-        }
-        BubbleFrame result_frame = neutral(size);
+    void Bubble::invalidate_geometry() noexcept {
+        m_geometry_dirty = true;
+    }
+
+    void Bubble::project(Vec2 size, BubbleFrame &frame) const {
+        initialize_frame(frame, size);
         if (!m_active) {
             if (m_closed) {
-                result_frame.window.visibility = 0;
+                frame.window.visibility = 0;
             } else {
-                apply_motion(result_frame);
+                apply_motion(frame);
             }
-            return result_frame;
+            return;
         }
-        result_frame.seed = m_seed;
+        frame.seed = m_seed;
         if (m_opening) {
-            m_formation.writeFrame(result_frame);
-            result_frame.window.transparency = m_transparency;
+            m_formation.writeFrame(frame);
+            if (frame.formation_count == BUBBLE_FOAM_CAPACITY + 1) {
+                for (std::size_t index = 0; index < BUBBLE_FOAM_CAPACITY; ++index) {
+                    auto &satellite = frame.formation[index];
+                    if (satellite.visibility <= 0) {
+                        satellite = {};
+                        satellite.visibility = 0;
+                    }
+                }
+            }
+            frame.window.transparency = m_transparency;
             // Movement joins a physically landed film without replacing its residual modes.
             if (m_formation.landed()) {
-                apply_motion(result_frame);
+                apply_motion(frame);
             }
-            return result_frame;
+            return;
         }
         const double PROGRESS = std::clamp(m_elapsed / m_duration, 0.0, 1.0);
-        result_frame = m_initial;
-        result_frame.size = size;
-        result_frame.seed = m_seed;
+        if (m_close_from_opening) {
+            frame.size = m_size;
+            m_formation.writeFrame(frame);
+            if (m_close_motion_frozen) {
+                apply_motion_to_formation(frame, frame.window.half_size, m_motion.deformation());
+            }
+            if (frame.formation_count == BUBBLE_FOAM_CAPACITY + 1) {
+                for (std::size_t index = 0; index < BUBBLE_FOAM_CAPACITY; ++index) {
+                    auto &satellite = frame.formation[index];
+                    if (satellite.visibility <= 0) {
+                        satellite = {};
+                        satellite.visibility = 0;
+                    }
+                }
+            }
+        }
+        if (m_close_motion_frozen) {
+            frame.micro_count = m_motion.microbubbles(frame.micro);
+        }
+        frame.size = size;
+        frame.window = m_close_window;
         const double SCALE_X = size.x / m_size.x;
         const double SCALE_Y = size.y / m_size.y;
         const double SCALE = std::min(SCALE_X, SCALE_Y);
@@ -402,10 +484,9 @@ namespace hyprimate {
             surface.flow += m_elapsed;
             update_rupture(surface);
         };
-        CLOSE(result_frame.window, false);
-        CLOSE(result_frame.shell, true);
-        for (auto &satellite :
-            std::span(result_frame.formation).first(result_frame.formation_count)) {
+        CLOSE(frame.window, false);
+        CLOSE(frame.shell, true);
+        for (auto &satellite : std::span(frame.formation).first(frame.formation_count)) {
             satellite.centre = {
                 .x = satellite.centre.x * SCALE_X, .y = satellite.centre.y * SCALE_Y};
             satellite.anchor = {
@@ -416,7 +497,7 @@ namespace hyprimate {
             satellite.visibility *= 1 - smoothstep(.15, .30, PROGRESS);
         }
         // Microbubbles on the window's film burst with it.
-        for (auto &microbubble : std::span(result_frame.micro).first(result_frame.micro_count)) {
+        for (auto &microbubble : std::span(frame.micro).first(frame.micro_count)) {
             microbubble.centre = {
                 .x = microbubble.centre.x * SCALE_X,
                 .y = microbubble.centre.y * SCALE_Y,
@@ -427,14 +508,27 @@ namespace hyprimate {
             };
             microbubble.collapse = std::max(microbubble.collapse, smoothstep(0, .25, PROGRESS));
         }
-        return result_frame;
+    }
+
+    const BubbleFrame &Bubble::frame(Vec2 size) const {
+        if (!usable(size)) {
+            static const BubbleFrame INVALID{};
+            return INVALID;
+        }
+        if (!m_geometry_dirty && m_prepared_size.x == size.x && m_prepared_size.y == size.y) {
+            return m_prepared;
+        }
+        project(size, m_prepared);
+        m_prepared_size = size;
+        m_geometry_dirty = false;
+        return m_prepared;
     }
 
     Box Bubble::bounds(Vec2 size) const {
         if (!usable(size) || m_closed) {
             return {};
         }
-        const auto FRAME = frame(size);
+        const auto &FRAME = frame(size);
         // Each membrane's box around where it is drawn; a carried film is offset from the window.
         const auto EXTENT = [](const BubbleSurface &surface) {
             double reach = std::hypot(surface.motion.drag.x, surface.motion.drag.y);

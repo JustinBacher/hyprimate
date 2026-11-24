@@ -158,15 +158,15 @@ bool SBubbleModule::draw(State &state,
         return false;
     }
     const hyprimate::Vec2 SIZE{.x = draw.source.w / draw.scale, .y = draw.source.h / draw.scale};
-    const auto FRAME = state.bubble.frame(SIZE);
+    const auto &FRAME = state.bubble.frame(SIZE);
     const auto &renderer = draw.canvas->pass() == hyprimate::animation::PassKind::Live
                                ? resources.renderer
                                : resources.scratch_renderer;
     draw.canvas->layer() = renderer->render(draw.canvas->context(),
+        FRAME,
         SBubbleDraw{
             .window = (*draw.image)->getTexture(),
             .wallpaper = draw.backdrop != nullptr ? *draw.backdrop : SP<SBubbleWallpaper>{},
-            .frame = FRAME,
             .canvas = {draw.canvas_box.w, draw.canvas_box.h},
             .source = {draw.source.x, draw.source.y, draw.source.w, draw.source.h},
             .texture_origin = draw.image_origin,
