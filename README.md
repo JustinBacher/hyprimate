@@ -312,6 +312,7 @@ hl.config({
                 effect = "",
                 effect_parameters = "{}",
                 effect_duration = 0,
+                source_namespace = "",
             },
         },
     },
@@ -438,6 +439,7 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `wallpaper:effect` | string / `""` | — | Path to a native GLES wallpaper manifest. Empty keeps the native background. |
 | `wallpaper:effect_parameters` | string / `"{}"` | — | JSON object overriding declared wallpaper shader parameters. |
 | `wallpaper:effect_duration` | int / `0` | 0–60000 | Milliseconds of wallpaper simulation before holding the final frame. Zero runs continuously. |
+| `wallpaper:source_namespace` | string / `""` | — | Exact layer-shell BACKGROUND namespace allowed as a shader wallpaper source. Empty allows only the unobscured stock wallpaper. |
 | `window:enabled` | boolean / `true` | — | Enable window movement, opening and closing effects. When false, none of these effects run. |
 | `window:style` | string / `"liquid"` | — | Choose the built-in style for movement and for transitions without an external effect override. Allowed: `liquid`, `paper`, `cloth`, `swarm`, `bubble`, `smoke`, `burn`, `construction`. |
 | `window:open:effect` | string / `""` | — | Path to a native GLES shader effect manifest for window opening. Empty uses window.style. |

@@ -214,6 +214,42 @@ void main() { color = hypr_sample_source(hypr_window_uv()); }
         return package;
     }
 
+    void environment_borrows_only_nonaliased_images_and_clears_old_batches() {
+        auto package = simple(R"(
+layout(location=0) out vec4 color;
+void main() {
+    // Deliberately read an unused element: a reused linked program may not
+    // contain geometry from another instance or output.
+    color = vec4(hypr_sample_wallpaper_original(vec2(.5)).r,
+        hypr_interactions[4].x, float(hypr_interaction_count) * .25, 1.0);
+}
+)");
+        package.events = {Event::Wallpaper};
+        package.environment.original = true;
+        package.environment.interactions = true;
+        package.environment.settle_ms = 500;
+        Program program;
+        Instance instance, other;
+        std::string error;
+        if (!checked(program.initialize(std::move(package), {}, error, eglGetProcAddress), error) ||
+            !checked(instance.initialize(program, 1, 1, error), error) ||
+            !checked(other.initialize(program, 1, 1, error), error)) return;
+        Layers images{1, 1};
+        std::array<Interaction, 2> records{};
+        records[1][0][0] = .5F;
+        images.source.environment.original = images.source.texture;
+        images.source.environment.interactions = records;
+        CHECK(checked(instance.render(images.source, images.target, true, error), error));
+        CHECK(near(pixel(images.target, 0, 0), {255, 128, 128, 255}));
+        images.source.environment.interactions = {};
+        images.source.environment.original = 0;
+        CHECK(checked(other.render(images.source, images.target, true, error), error));
+        CHECK(near(pixel(images.target, 0, 0), {0, 0, 0, 255}));
+        images.source.environment.original = images.target.texture;
+        CHECK(!other.render(images.source, images.target, true, error));
+        CHECK(near(pixel(images.target, 0, 0), {0, 0, 0, 255}));
+    }
+
     void source_subrect_orientation_and_aliases() {
         const Pixel border{255, 0, 255, 255};
         const Pixel a{40, 10, 0, 128}, b{0, 60, 10, 96}, c{0, 0, 120, 160}, d{20, 20, 20, 64};
@@ -369,6 +405,16 @@ void main() {
     color = hypr_sample_destination(hypr_uv) * .5;
 }
 )");
+        auto overlay = raster("overlay", R"(
+layout(location=0) out vec4 color;
+void main() {
+    if (hypr_uv.x > .75) discard;
+    color = vec4(0.0, 0.0, .25, .5);
+}
+)");
+        overlay.blend = true;
+        overlay.clear = false;
+        package.passes.push_back(std::move(overlay));
         const Pixel green{0, 128, 0, 255};
         layers.source.destination_texture = texture(1, 1, &green);
         if (checked(program.initialize(std::move(package), {}, error, eglGetProcAddress), error) &&
@@ -378,7 +424,7 @@ void main() {
             CHECK(!instance.render(alias, target, true, error));
             CHECK(near(pixel(layers.target, 1, 1), {80, 0, 0, 255}));
             CHECK(checked(instance.render(layers.source, target, true, error), error));
-            CHECK(near(pixel(layers.target, 1, 1), {40, 64, 0, 255}));
+            CHECK(near(pixel(layers.target, 1, 1), {20, 32, 64, 255}));
             CHECK(near(pixel(layers.target, 2, 1), {80, 0, 0, 255}));
             CHECK(near(pixel(layers.target, 4, 2), {80, 0, 0, 255}));
         }
@@ -1216,6 +1262,7 @@ int main(int argc, char **argv) {
         return 77;
     }
     source_subrect_orientation_and_aliases();
+    environment_borrows_only_nonaliased_images_and_clears_old_batches();
     borrowed_target_origin_clips_draw_and_clear();
     in_place_presentation_blends_only_damaged_pixels();
     multipass_ticks_resize_and_independent_instances();

@@ -47,18 +47,21 @@ float windowHeat(vec2 point, vec2 outputSize) {
 
         // The emitter adds to the native interaction; it is never required.
         float weight = hypr_disturbances_available ? texelFetch(hypr_disturbances, ivec2(i, 0), 0).r : 0.0;
-        heat = max(heat, stamp * event.y * (0.85 + 0.90 * weight));
+        heat = min(1.0, heat + stamp * event.y * (0.85 + 0.90 * weight));
     }
     return heat;
 }
 
 void main() {
+    if (hypr_progress >= 1.0) {
+        color = encodeHeat(vec2(0.0));
+        return;
+    }
     ivec2 cell = ivec2(hypr_uv * hypr_target_size);
     vec2 stored = decodeHeat(texelFetch(previousHeat, cell, 0));
     vec2 outputSize = max(hypr_output_size, vec2(1.0));
     float contact = windowHeat(hypr_uv * outputSize, outputSize);
-    // Embers cool quickly; scorch survives the settle interval and continues
-    // healing on later updates, without scheduling idle wallpaper frames.
+    // Hot embers cool quickly; residual scorch fades to exact neutral at sleep.
     vec2 cooled = max(stored - max(hypr_delta, 0.0) * vec2(0.92, 0.14), 0.0);
     color = encodeHeat(max(cooled, vec2(contact, 0.68 * contact)));
 }

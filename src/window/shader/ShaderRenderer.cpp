@@ -22,6 +22,7 @@
 #include "gl/NativeFramebuffer.hpp"
 #include "gl/NativeResource.hpp"
 #include "shader/GlesRuntime.hpp"
+#include "shader/HyprEnvironment.hpp"
 #include "shader/SceneShader.hpp"
 
 namespace hyprimate::shader {
@@ -504,6 +505,21 @@ namespace hyprimate::shader {
 
         const auto domain = relative(draw.canvas_box, draw.source);
         const bool live = draw.real_pass && !draw.canvas->captures_pixels() && !matte;
+        const auto &request = m_impl->program->program.package().environment;
+        if (request.used() && draw.canvas->captures_pixels()) {
+            return fail(error, "environment-aware window presentation is not available in a workspace capture");
+        }
+        WindowEnvironment environment;
+        if (request.used()) {
+            environment = window_environment(ctx, request,
+                {float(draw.source.x), float(draw.source.y), float(draw.source.w), float(draw.source.h)});
+            source.environment = environment.inputs;
+        }
+        const auto emit = [&] {
+            if (live && request.emit) {
+                emit_environment(ctx, request, draw.window, m_impl->instance.exported_texture(*request.emit));
+            }
+        };
         if (closing && live && draw.alpha == 1.F && draw.canvas->direct_allowed() &&
             m_impl->program->program.can_composite_direct()) {
             ClipList clips;
@@ -514,6 +530,7 @@ namespace hyprimate::shader {
                 if (!drawn && !submitted) return false;
                 if (!drawn) LOG(Log::WARN, "[hyprimate] direct close submission failed: {}", error);
                 draw.canvas->direct_presented();
+                if (drawn) emit();
                 if (!m_impl->direct_reported && live && !target->clips.empty()) {
                     m_impl->direct_reported = true;
                     LOG(Log::DEBUG, "[hyprimate] shader close final=direct width={} height={}",
@@ -543,6 +560,7 @@ namespace hyprimate::shader {
             return fail(error, "shader work buffer aliases the scene attachment");
         }
         if (!m_impl->instance.render(source, *target, live, error)) return false;
+        emit();
         draw.canvas->layer() = std::move(layer);
         return true;
     }
@@ -552,6 +570,10 @@ namespace hyprimate::shader {
         std::shared_ptr<WindowProgram> prepared;
         Event event = Event::Wallpaper;
     };
+
+    const Environment &scene_environment(const SceneProgram &program) noexcept {
+        return program.prepared->program.package().environment;
+    }
 
     std::shared_ptr<SceneProgram> prepare_scene_program(Event event, const std::string &path,
         const std::string &parameters, std::string &error) {
@@ -583,6 +605,7 @@ namespace hyprimate::shader {
         Instance instance;
         Frame frame{};
         Image black;
+        Image publication;
         std::optional<Extent> initialized_size;
         std::optional<bool> last_direct;
     };
@@ -591,19 +614,34 @@ namespace hyprimate::shader {
         : m_impl(std::make_unique<Impl>(std::move(program))) {}
 
     SceneShader::~SceneShader() {
+        if (scene_environment(*m_impl->program).used()) {
+            const auto &stats = m_impl->instance.statistics();
+            LOG(Log::DEBUG, "[hyprimate] environment retire update={} draw={} upload_bytes={} allocated={} allocations={}",
+                stats.update_passes, stats.draws, stats.upload_bytes, stats.allocated_bytes, stats.allocations);
+        }
         const auto &owner = m_impl->program->prepared->owner;
         const gl::ScopedCompositorContext context{owner};
         if (context) m_impl->instance.release();
         else m_impl->instance.abandon();
         gl::release_native(m_impl->black, owner);
+        gl::release_native(m_impl->publication, owner);
     }
 
     void SceneShader::advance(const Frame &frame) noexcept {
         if (frame.tick > m_impl->frame.tick) m_impl->frame = frame;
     }
 
+    GLuint SceneShader::environment_state() const noexcept {
+        const auto &environment = scene_environment(*m_impl->program);
+        return environment.state ? m_impl->instance.exported_texture(*environment.state) : 0;
+    }
+
+    const Image &SceneShader::published_wallpaper() const noexcept {
+        return m_impl->publication;
+    }
+
     bool SceneShader::draw(Render::CRenderContext &ctx, const Image &source, const Image &destination,
-        std::string &error, bool authoritative) {
+        std::string &error, bool authoritative, const EnvironmentInputs &environment) {
         auto &state = *m_impl;
         auto &prepared = *state.program->prepared;
         const auto monitor = ctx.m_data.pMonitor.lock();
@@ -646,7 +684,7 @@ namespace hyprimate::shader {
         const auto dst = workspace ? lease(destination) : black;
         if (!src || !dst) return fail(error, "invalid scene shader source lease");
         const Source input{.texture = src, .width = workspace ? size->width : 1U,
-            .height = workspace ? size->height : 1U, .destination_texture = dst};
+            .height = workspace ? size->height : 1U, .destination_texture = dst, .environment = environment};
         if (size != state.initialized_size) {
             if (!live || !state.instance.initialize(state.program->prepared->program,
                     size->width, size->height, error)) return false;
@@ -656,6 +694,7 @@ namespace hyprimate::shader {
         const Box box{0, 0, double(size->width), double(size->height)};
         constexpr std::array<float, 4> FULL{0, 0, 1, 1};
         const auto &input_encoding = workspace ? source : encoding;
+        const bool publish = scene_environment(*state.program).publish;
         const auto report = [&](bool direct) {
             if (!live || state.last_direct == direct) return;
             state.last_direct = direct;
@@ -663,7 +702,7 @@ namespace hyprimate::shader {
                 workspace ? "workspace" : "wallpaper", direct ? "direct" : "pooled",
                 size->width, size->height);
         };
-        if (prepared.program.can_composite_direct()) {
+        if (!publish && prepared.program.can_composite_direct()) {
             ClipList clips;
             bool submitted = false;
             if (const auto target = direct_target(ctx, input_encoding, box, *size, FULL, clips, submitted)) {
@@ -673,11 +712,35 @@ namespace hyprimate::shader {
                 return drawn || submitted;
             }
         }
-        if (!monitor->resources() || !input_encoding->imageDescription()) {
-            return fail(error, "no compositor scene work buffer owner");
-        }
         Image layer;
-        {
+        if (publish) {
+            const auto want = input_encoding->imageDescription();
+            const auto format = alpha_format(input_encoding->m_drmFormat);
+            if (state.publication && (!want || !state.publication->imageDescription() ||
+                    state.publication->imageDescription()->value() != want->value() ||
+                    state.publication->m_drmFormat != format || state.publication->m_size != monitor->m_transformedSize)) {
+                gl::release_native(state.publication, prepared.owner);
+            }
+            if (!state.publication && live) {
+                const auto bytes = std::uint64_t(size->width) * size->height *
+                    (format == DRM_FORMAT_ABGR16161616F ? 8 : 4);
+                if (state.instance.statistics().allocated_bytes + bytes > MAX_INSTANCE_BYTES) {
+                    return fail(error, "published wallpaper and simulation exceed the instance budget");
+                }
+                const gl::FramebufferAllocationState allocation;
+                auto publication = g_pHyprRenderer->createFB("hyprimate published wallpaper");
+                if (!publication || !want ||
+                    !gl::allocate_framebuffer(*publication, size->width, size->height, format)) {
+                    return fail(error, "cannot allocate published wallpaper");
+                }
+                publication->setImageDescription(want);
+                state.publication = std::move(publication);
+            }
+            layer = state.publication;
+        } else {
+            if (!monitor->resources() || !input_encoding->imageDescription()) {
+                return fail(error, "no compositor scene work buffer owner");
+            }
             const gl::FramebufferAllocationState allocation;
             layer = monitor->resources()->getUnusedWorkBuffer(alpha_format(input_encoding->m_drmFormat),
                 input_encoding->imageDescription(), monitor->m_transformedSize);
@@ -685,7 +748,7 @@ namespace hyprimate::shader {
         }
         const auto target = private_target(layer, *size, FULL);
         if (!target || layer == encoding || layer == source || layer == destination ||
-            !state.instance.render(input, *target, live, error)) return false;
+            ((!publish || live) && !state.instance.render(input, *target, live, error))) return false;
         CTexPassElement::SRenderData data;
         data.tex = layer->getTexture();
         data.box = {box.x, box.y, box.w, box.h};

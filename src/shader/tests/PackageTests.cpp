@@ -183,11 +183,46 @@ void meshes_and_feedback() {
     j["meshes"]["points"]["indices"]={0,1,4};check(!f.load(j),"index out of range");
     j["meshes"]["points"].erase("indices");j["meshes"]["points"]["count"]=100;j["meshes"]["points"]["instances"]=4;j["meshes"]["points"]["attributes"][0]["divisor"]=1;check(bool(f.load(j)),"instanced fetch uses divisor rather than vertex count");
 }
+
+void environment_contracts() {
+    Fixture f;
+    f.file("simple.frag", "layout(location=0) out vec4 color; void main(){color=vec4(0.0);}");
+    Json wallpaper = {
+        {"version", 1}, {"events", {"wallpaper"}},
+        {"environment", {{"original", true}, {"interactions", true}, {"settle_ms", 600},
+                         {"publish", true}, {"channel", "weather"}, {"state", "height.read"}}},
+        {"textures", {{"height", {{"format", "rgba8"}, {"scale", .25}, {"ping_pong", true}}}}},
+        {"passes", Json::array({raster("evolve", "update", "height.write"),
+                                raster("compose", "render", "output")})}};
+    check(bool(f.load(wallpaper)), "wallpaper may publish and export a persistent update result");
+    auto bad = wallpaper; bad["environment"]["processed"] = true;
+    check(!f.load(bad), "a wallpaper cannot sample its processed output");
+    bad = wallpaper; bad["environment"]["state"] = "height.write";
+    check(!f.load(bad), "only committed ping sides can be exported");
+    bad = wallpaper; bad["passes"][0]["phase"] = "initialize";
+    check(!f.load(bad), "only update-produced resources can be exported");
+    bad = wallpaper; bad["events"].push_back("move");
+    check(!f.load(bad), "one package must not share a wallpaper and window scope");
+
+    Json window = {
+        {"version", 1}, {"events", {"move"}},
+        {"environment", {{"processed", true}, {"channel", "weather"}, {"sample_state", true},
+                         {"emit", "signal"}}},
+        {"textures", {{"signal", {{"format", "rgba8"}, {"width", 1}, {"height", 1}}}}},
+        {"passes", Json::array({raster("emit_signal", "update", "signal"),
+                                raster("compose", "render", "output")})}};
+    check(bool(f.load(window)), "window can emit and read matching state in separate phases");
+    bad = window; bad["textures"]["signal"]["width"] = 2;
+    check(!f.load(bad), "an emitter may not export a larger texture");
+    bad = window; bad["environment"].erase("channel");
+    check(!f.load(bad), "coordination cannot use an implicit channel");
+}
 } // namespace
 int main() {
     try {
         shorthand_and_abi();strict_schema();parameters();dependencies();assets_and_buffers();meshes_and_feedback();
         precision_and_transient_initialization();
+        environment_contracts();
         std::cout << "PackageTests passed\n";return 0;
     } catch(const std::exception &error) {std::cerr << "PackageTests: " << error.what() << '\n';return 1;}
 }

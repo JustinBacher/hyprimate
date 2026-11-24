@@ -13,6 +13,7 @@ namespace hyprimate::shader {
     std::shared_ptr<SceneProgram> prepare_scene_program(
         Event event, const std::string &path, const std::string &parameters, std::string &error);
 
+    const Environment &scene_environment(const SceneProgram &program) noexcept;
     // The caller owns and revalidates the provenance of both endpoint leases.
     // A wallpaper has no endpoint leases; it receives only transparent black.
     class SceneShader {
@@ -24,11 +25,14 @@ namespace hyprimate::shader {
         SceneShader(const SceneShader &) = delete;
         SceneShader &operator=(const SceneShader &) = delete;
         void advance(const Frame &frame) noexcept;
+        GLuint environment_state() const noexcept;
+        const SP<Render::IFramebuffer> &published_wallpaper() const noexcept;
         bool draw(Render::CRenderContext &ctx,
             const SP<Render::IFramebuffer> &source,
             const SP<Render::IFramebuffer> &destination,
             std::string &error,
-            bool authoritative = true);
+            bool authoritative = true,
+            const EnvironmentInputs &environment = {});
 
       private:
         struct Impl;

@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <optional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -21,7 +22,7 @@ namespace hyprimate::shader {
     enum class ValueType { Float, Int, Bool, Vec2, Vec3, Vec4 };
     enum class Primitive { Points, Lines, Triangles, TriangleStrip };
     enum class Side { Single, Read, Write };
-    enum class ResourceKind { Source, Output, Texture, Buffer, Destination };
+    enum class ResourceKind { Source, Output, Texture, Buffer, Destination, Original, Processed, EnvironmentState, Disturbances };
     struct Ref {
         ResourceKind kind = ResourceKind::Source;
         std::uint16_t index = 0;
@@ -95,12 +96,25 @@ namespace hyprimate::shader {
         bool transform_feedback = false, clear = true, blend = false;
         bool operator==(const Pass &) const = default;
     };
+    inline constexpr unsigned MAX_INTERACTIONS = 24;
+    struct Environment {
+        bool original = false, processed = false, interactions = false, publish = false;
+        bool sample_state = false;
+        unsigned settle_ms = 0;
+        std::string channel;
+        std::optional<Ref> state, emit;
+        bool operator==(const Environment &) const = default;
+        bool used() const noexcept {
+            return original || processed || interactions || publish || sample_state || state || emit;
+        }
+    };
     struct Package {
         std::string path;
         std::vector<Event> events{Event::Open, Event::Close};
         // Fractions of the capture size, added left/top/right/bottom.
         std::array<float, 4> bounds{};
         bool blur_mask = false;
+        Environment environment;
         std::vector<Parameter> parameters;
         std::vector<Texture> textures;
         std::vector<Buffer> buffers;

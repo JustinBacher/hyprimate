@@ -9,5 +9,8 @@ void main() {
         return;
     }
     float activity = hypr_event < 2 ? 4.0 * progress * (1.0 - progress) : 1.0 - progress;
-    color = vec4(source.rgb * mix(vec3(1.0), tint, 0.45 * activity), source.a) * coverage;
+    vec2 uv = hypr_environment_uv(hypr_window_uv());
+    float heat = hypr_environment_state_available && hypr_inside_output(uv)
+        ? textureLod(hypr_environment_state, uv, 0.0).r : 0.0;
+    color = vec4(source.rgb * mix(vec3(1.0), tint, 0.45 * activity + .25 * heat), source.a) * coverage;
 }

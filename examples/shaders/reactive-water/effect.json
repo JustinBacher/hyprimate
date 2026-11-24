@@ -9,6 +9,6 @@
   "passes": [
     {"name": "initialize_wave", "phase": "initialize", "fragment": "initialize.frag", "outputs": ["wave.write"], "clear": false},
     {"name": "advance_wave", "phase": "update", "fragment": "update.frag", "inputs": {"previousWave": "wave.read"}, "outputs": ["wave.write"], "iterations": 2, "clear": false},
-    {"name": "compose_ripples", "phase": "render", "fragment": "compose.frag", "inputs": {"waveState": "wave.read"}, "outputs": ["output"]}
+    {"name": "compose_ripples", "phase": "render", "fragment": "compose.frag", "inputs": {"waveState": "wave.read"}, "outputs": ["output"], "blend": "premultiplied", "clear": false}
   ]
 }

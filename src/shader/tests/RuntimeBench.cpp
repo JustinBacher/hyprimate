@@ -20,7 +20,8 @@ namespace {
     using QueryResult = void (*)(GLuint, GLenum, GLuint64 *);
     constexpr GLenum TIME_ELAPSED = 0x88BF, GPU_DISJOINT = 0x8FBB;
 
-    bool run(const std::filesystem::path &path, unsigned width, unsigned height) {
+    bool run(const std::filesystem::path &path, unsigned width, unsigned height,
+        std::string_view workload = "window", unsigned active_count = 0) {
         const auto parse_start = Clock::now();
         auto loaded = hyprimate::shader::load_package(path.string());
         if (!loaded) {
@@ -65,9 +66,28 @@ namespace {
         glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textures[1], 0);
         if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) return false;
-        const hyprimate::shader::Source source{textures[0], width, height};
+        using namespace hyprimate::shader;
+        Source source{textures[0], width, height};
+        std::array<Interaction, MAX_INTERACTIONS> records{};
+        const bool wallpaper = program.package().environment.original;
+        const bool settled = workload == "settled";
+        const bool tail = workload == "tail";
+        const auto set_batch = [&](unsigned count, unsigned step) {
+            for (unsigned i = 0; i < count; ++i) {
+                const auto x = float((step + i * 11) % 70) * .01F;
+                const auto y = float(i % 3) * .16F + .27F;
+                records[i] = {{{x, y, .28F, .32F}, {x - .01F, y, .28F, .32F},
+                    {.6F, 0, 0, 0}, {2.F, 1.F, float(i + 1), 1.F}}};
+            }
+            source.environment.interactions = std::span{records}.first(count);
+        };
+        if (wallpaper) {
+            source.environment.original = source.texture;
+            source.environment.output_size = {float(width), float(height)};
+        }
         const hyprimate::shader::Target target{framebuffer, textures[1], width, height};
         hyprimate::shader::Frame frame;
+        frame.event = wallpaper ? Event::Wallpaper : Event::Open;
         frame.width = static_cast<float>(width);
         frame.height = static_cast<float>(height);
         frame.duration = 3;
@@ -79,7 +99,8 @@ namespace {
         for (unsigned i = 0; i < 8; ++i) {
             frame.tick = i + 1;
             frame.elapsed += frame.delta;
-            frame.progress = frame.elapsed / frame.duration;
+            frame.progress = settled ? 1.F : frame.elapsed / frame.duration;
+            set_batch(tail ? 3 : active_count, i);
             instance.advance(frame);
             const auto submit_start = Clock::now();
             if (!instance.render(source, target, true, error)) { success = false; break; }
@@ -101,9 +122,10 @@ namespace {
         for (unsigned i = 0; success && i < FRAMES; ++i) {
             ++frame.tick;
             frame.elapsed += frame.delta;
-            frame.progress = std::min(frame.elapsed / frame.duration, 0.95F);
-            instance.advance(frame);
-            success = instance.render(source, target, true, error);
+            frame.progress = settled ? 1.F : std::min(frame.elapsed / frame.duration, 0.95F);
+            set_batch(active_count, i + 8);
+            if (!settled) instance.advance(frame);
+            success = instance.render(source, target, !settled, error);
         }
         const auto submitted = Clock::now();
         if (timer) end(TIME_ELAPSED);
@@ -124,6 +146,8 @@ namespace {
             path.parent_path().filename().c_str(), width, height, FRAMES, submit_us, completed_us);
         if (timer && !disjoint) std::printf("\"gpu_us_per_frame\":%.3f,", static_cast<double>(gpu_ns) / (1000 * FRAMES));
         else std::printf("\"gpu_us_per_frame\":null,");
+        std::printf("\"workload\":\"%.*s\",\"interactions\":%u,", static_cast<int>(workload.size()),
+            workload.data(), active_count);
         auto us = [](Clock::duration duration) { return std::chrono::duration<double, std::micro>(duration).count(); };
         std::printf("\"parse_us\":%.3f,\"prepare_us\":%.3f,\"allocate_us\":%.3f,\"first_submit_us\":%.3f,",
             us(compile_start - parse_start), us(allocation_start - compile_start),
@@ -146,7 +170,9 @@ namespace {
     }
 }
 
-int main() {
+int main(int argc, char **argv) {
+    const bool environment = argc == 2 && std::string_view(argv[1]) == "--environment";
+    if (argc > 1 && !environment) return EXIT_FAILURE;
     gl_harness::CContext context;
     if (!context.valid()) return 77;
     std::fprintf(stderr, "GL_VENDOR=%s\nGL_RENDERER=%s\nGL_VERSION=%s\n",
@@ -154,6 +180,18 @@ int main() {
     bool success = true;
     for (const auto &[width, height] : {std::pair{1280U, 720U}, std::pair{1920U, 1080U},
              std::pair{2560U, 1440U}, std::pair{3840U, 2160U}}) {
+        if (environment) {
+            if (height == 720) continue;
+            for (const auto *name : {"reactive-water", "reactive-burn"}) {
+                const auto path = std::filesystem::path{HYPRIMATE_SHADER_EXAMPLES} / name / "effect.json";
+                const std::array workloads{std::pair{"one", 1U}, std::pair{"multiple", 8U},
+                    std::pair{"tail", 0U}, std::pair{"continuous", 0U}, std::pair{"settled", 0U}};
+                for (const auto &[label, count] : workloads) {
+                    success = run(path, width, height, label, count) && success;
+                }
+            }
+            continue;
+        }
         for (const auto *name : {"fade", "diffusion", "particles"}) {
             success = run(std::filesystem::path{HYPRIMATE_SHADER_EXAMPLES} / name / "effect.json",
                           width, height) && success;

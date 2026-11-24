@@ -5,7 +5,7 @@
 #include <string_view>
 
 namespace hyprimate::perf {
-    enum class Domain { Window, Workspace };
+    enum class Domain { Window, Workspace, Wallpaper };
     enum class GpuStatus { NoContext, Unsupported, Available, Disjoint };
     enum class Phase { Setup, Update, Draw, Worker };
 

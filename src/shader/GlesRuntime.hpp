@@ -22,6 +22,13 @@ namespace hyprimate::shader {
         float direction = 0;
         bool held = false, settling = false;
     };
+    using Interaction = std::array<std::array<float, 4>, 4>;
+    struct EnvironmentInputs {
+        GLuint original = 0, processed = 0, state = 0, disturbances = 0;
+        std::array<float, 2> output_size{}, output_origin{};
+        std::array<float, 4> output_rect{0, 0, 1, 1}, original_uv{0, 0, 1, 1};
+        std::span<const Interaction> interactions{};
+    };
     struct Source {
         GLuint texture = 0;
         unsigned width = 0, height = 0;
@@ -30,6 +37,7 @@ namespace hyprimate::shader {
         std::array<float, 4> uv{0, 0, 1, 1};
         GLuint destination_texture = 0;
         std::array<float, 4> destination_uv{0, 0, 1, 1};
+        EnvironmentInputs environment{};
     };
     struct Clip {
         GLint x, y;
@@ -106,6 +114,8 @@ namespace hyprimate::shader {
         // Capture uses the last committed frame's uniforms and simulation state.
         bool render(const Source &source, const Target &target, bool advance_simulation,
             std::string &error);
+        // Borrowed until this instance is advanced, resized, or destroyed.
+        GLuint exported_texture(Ref resource) const noexcept;
         void release() noexcept;
         void abandon() noexcept;
         const Statistics &statistics() const noexcept;

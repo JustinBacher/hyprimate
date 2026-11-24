@@ -3,11 +3,13 @@
 #include <memory>
 #include <string>
 
+class CHyprWindowPort;
+
 namespace hyprimate::shader {
     // Owns the monitor listeners and native background passes for one plugin runtime.
     class ShaderWallpaper {
       public:
-        ShaderWallpaper();
+        explicit ShaderWallpaper(CHyprWindowPort &port);
         ~ShaderWallpaper();
         ShaderWallpaper(const ShaderWallpaper &) = delete;
         ShaderWallpaper &operator=(const ShaderWallpaper &) = delete;
@@ -16,7 +18,8 @@ namespace hyprimate::shader {
 
         // Empty path restores native wallpaper. Zero duration runs continuously.
         // A failed replacement leaves the current program and output states intact.
-        void configure(const std::string &path, const std::string &parameters, int duration_ms);
+        void configure(const std::string &path, const std::string &parameters, int duration_ms,
+            const std::string &source_namespace);
         void shutdown();
 
       private:

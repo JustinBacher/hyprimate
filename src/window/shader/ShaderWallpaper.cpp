@@ -14,10 +14,18 @@
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/render/pass/PassElement.hpp>
 #include <hyprland/src/state/MonitorState.hpp>
+#include <hyprland/src/workspace/HLWorkspace.hpp>
 
+#include "perf/GpuTimer.hpp"
+#include "perf/LiveProfiler.hpp"
+#include "perf/MonitorIdentity.hpp"
 #include "shader/GlesRuntime.hpp"
+#include "shader/HyprEnvironment.hpp"
+#include "shader/HyprEnvironmentInteractions.hpp"
+#include "shader/HyprWallpaperSource.hpp"
 #include "shader/SceneShader.hpp"
 #include "shader/ShaderWallpaper.hpp"
+#include "window/shader/DisturbanceAtlas.hpp"
 #include "workspace/WorkspaceCaptureScope.hpp"
 
 namespace hyprimate::shader {
@@ -25,6 +33,8 @@ namespace hyprimate::shader {
         using Clock = std::chrono::steady_clock;
         constexpr const char *PASS_NAME = "hyprimate-shader-wallpaper";
 
+        constexpr perf::Key PROFILE{perf::Domain::Wallpaper, "shader", "environment"};
+        std::string_view source_namespace;
         bool usable_output(const PHLMONITOR &monitor) {
             return monitor && monitor->m_output && monitor->m_enabled && monitor->m_dpmsStatus &&
                    !monitor->isMirror() && monitor->m_transformedSize.x > 0 &&
@@ -72,7 +82,7 @@ namespace hyprimate::shader {
         }
 
         struct Geometry {
-            Vector2D logical, pixels;
+            Vector2D logical, pixels, position;
             float scale;
             wl_output_transform transform;
             bool operator==(const Geometry &) const = default;
@@ -81,18 +91,25 @@ namespace hyprimate::shader {
         Geometry geometry_for(const PHLMONITOR &monitor) {
             return {.logical = monitor->m_size,
                 .pixels = monitor->m_transformedSize,
+                .position = monitor->m_position,
                 .scale = monitor->m_scale,
                 .transform = monitor->m_transform};
+        }
+
+        EnvironmentInputs environment_coordinates(const PHLMONITOR &monitor) {
+            return {.output_size = {float(monitor->m_size.x), float(monitor->m_size.y)},
+                .output_origin = {float(monitor->m_position.x), float(monitor->m_position.y)}};
         }
 
         struct Output {
             Output(const PHLMONITOR &target,
                 const std::shared_ptr<SceneProgram> &prepared,
-                double seconds)
+                double seconds, HyprEnvironmentInteractions *interactions)
                 : monitor(target),
                   program(prepared),
                   duration(seconds),
-                  seed(static_cast<std::uint64_t>(target->m_id) + 1) {
+                  seed(static_cast<std::uint64_t>(target->m_id) + 1),
+                  collector(interactions) {
             }
 
             PHLMONITORREF monitor;
@@ -109,9 +126,58 @@ namespace hyprimate::shader {
             bool queued = false;
             bool drawn = false;
             bool redraw_next = false;
+            HyprEnvironmentInteractions *collector = nullptr;
+            PHLWORKSPACEREF workspace, special;
+            WP<CWLSurfaceResource> original_owner;
+            WP<Render::ITexture> original_texture;
+            std::array<float, 4> original_uv{};
+            bool has_original = false;
+            double remaining = 0;
+            std::uint64_t epoch = 0;
+            std::optional<DisturbanceAtlas> atlas;
+
+            void reset_environment() {
+                shader.reset();
+                if (atlas && atlas->gpu_bytes()) {
+                    LOG(Log::DEBUG, "[hyprimate] environment mailbox storage={} uploaded={} copied={}",
+                        atlas->gpu_bytes(), atlas->uploaded_bytes(), atlas->copied_bytes());
+                }
+                atlas.reset();
+                last.reset();
+                tick = 0;
+                elapsed = remaining = 0;
+                failed = false;
+                drawn = false;
+            }
+
+            bool update_scope(const PHLMONITOR &target) {
+                if (workspace.lock() == target->m_activeWorkspace &&
+                    special.lock() == target->m_activeSpecialWorkspace) return false;
+                reset_environment();
+                workspace = target->m_activeWorkspace;
+                special = target->m_activeSpecialWorkspace;
+                return true;
+            }
+
+            [[nodiscard]] bool matches_original(const OriginalWallpaper &original) const {
+                return has_original == bool(original) && original_owner == original.owner &&
+                    original_texture.lock() == original.texture && original_uv == original.uv;
+            }
+
+            bool source_changed(const OriginalWallpaper &original) {
+                if (matches_original(original)) return false;
+                reset_environment();
+                has_original = bool(original);
+                original_owner = original.owner;
+                original_texture = original.texture;
+                original_uv = original.uv;
+                return true;
+            }
 
             [[nodiscard]] bool can_replay(const PHLMONITOR &target) const {
-                return shader && !failed && geometry == geometry_for(target);
+                // Environmental inputs are scoped to the authoritative output,
+                // never to an offscreen workspace capture.
+                return shader && !scene_environment(*program).used() && !failed && geometry == geometry_for(target);
             }
 
             void resize(const Geometry &next) {
@@ -119,45 +185,45 @@ namespace hyprimate::shader {
                     return;
                 }
                 geometry = next;
-                shader.reset();
-                last.reset();
-                elapsed = 0;
-                tick = 0;
-                failed = false;
+                reset_environment();
             }
 
             [[nodiscard]] bool running() const {
+                if (collector && duration > 0) return remaining > 0;
                 return duration == 0 || elapsed < duration;
             }
 
-            void advance() {
-                if (!running()) {
-                    return;
+            void advance(bool disturbed) {
+                const auto now = Clock::now();
+                const double delta = last ? std::max(0., std::chrono::duration<double>(now - *last).count()) : 0.;
+                const double settle = scene_environment(*program).settle_ms * .001;
+                if (collector && duration > 0) {
+                    remaining = disturbed ? settle : std::max(0., remaining - delta);
+                    elapsed = settle - remaining;
+                } else if (running() && last) {
+                    elapsed = duration > 0 ? std::min(elapsed + delta, duration) : elapsed + delta;
                 }
-                const auto NOW = Clock::now();
-                const double PREVIOUS = elapsed;
-                if (last) {
-                    elapsed += std::chrono::duration<double>(NOW - *last).count();
-                    if (duration > 0) {
-                        elapsed = std::min(elapsed, duration);
-                    }
-                }
-                last = NOW;
-                if (tick != 0 && elapsed == PREVIOUS) {
-                    return;
-                }
-                shader->advance(Frame{.tick = ++tick,
-                    .seed = seed,
-                    .event = Event::Wallpaper,
-                    .progress = duration > 0 ? static_cast<float>(elapsed / duration) : 0.0F,
-                    .elapsed = static_cast<float>(elapsed),
-                    .delta = static_cast<float>(elapsed - PREVIOUS),
-                    .duration = static_cast<float>(duration),
-                    .width = static_cast<float>(geometry->logical.x),
-                    .height = static_cast<float>(geometry->logical.y),
+                const bool update = tick == 0 || disturbed || (last && delta > 0);
+                last = running() ? std::optional{now} : std::nullopt;
+                if (!update) return;
+                const double phase_duration = collector && duration > 0 ? settle : duration;
+                shader->advance(Frame{.tick = ++tick, .seed = seed, .event = Event::Wallpaper,
+                    .progress = phase_duration > 0 ? float(elapsed / phase_duration) : 0.F,
+                    .elapsed = float(elapsed), .delta = float(delta), .duration = float(phase_duration),
+                    .width = float(geometry->logical.x), .height = float(geometry->logical.y),
                     .scale = geometry->scale});
             }
         };
+        using Outputs = std::vector<std::shared_ptr<Output>>;
+        Outputs *active_outputs = nullptr;
+
+        Output *environment_output(const PHLMONITOR &monitor) {
+            if (!active_outputs) return nullptr;
+            const auto item = std::ranges::find_if(*active_outputs, [&](const auto &output) {
+                return output->monitor.lock() == monitor;
+            });
+            return item != active_outputs->end() ? item->get() : nullptr;
+        }
 
         class WallpaperPass final : public IPassElement {
           public:
@@ -167,7 +233,7 @@ namespace hyprimate::shader {
 
             std::vector<UP<IPassElement>> draw(Render::CRenderContext &ctx) override {
                 const auto OUTPUT = m_output.lock();
-                if (!OUTPUT || OUTPUT->failed || ctx.m_data.damage.empty() ||
+                if (!OUTPUT || OUTPUT->failed || (ctx.m_data.damage.empty() && !undiscardable(ctx)) ||
                     !ctx.m_data.renderModif.modifs.empty()) {
                     return {};
                 }
@@ -189,17 +255,44 @@ namespace hyprimate::shader {
                     return {};
                 }
 
+                const perf::CpuScope cpu{PROFILE, perf::Phase::Draw};
+                const perf::GpuScope gpu{PROFILE};
                 std::string error;
                 try {
+                    const auto &request = scene_environment(*OUTPUT->program);
+                    if (request.used()) OUTPUT->redraw_next |= OUTPUT->update_scope(MONITOR);
+                    const auto original = request.original ? original_wallpaper(MONITOR, source_namespace)
+                                                           : OriginalWallpaper{};
+                    if (request.original) {
+                        OUTPUT->redraw_next |= OUTPUT->source_changed(original);
+                        if (!original) return {};
+                    }
+                    std::optional<HyprEnvironmentInteractions::Batch> batch;
+                    auto inputs = request.used() ? environment_coordinates(MONITOR) : EnvironmentInputs{};
+                    if (original) {
+                        inputs.original = original.texture->m_texID;
+                        inputs.original_uv = original.uv;
+                    }
+                    if (OUTPUT->collector) {
+                        batch.emplace(OUTPUT->collector->collect(MONITOR));
+                        if (batch->reset) {
+                            OUTPUT->reset_environment();
+                            OUTPUT->redraw_next = true;
+                        }
+                        inputs.interactions = std::span{batch->records}.first(batch->count);
+                        if (OUTPUT->atlas) {
+                            inputs.disturbances = OUTPUT->atlas->gather(OUTPUT->epoch,
+                                std::span{batch->windows}.first(batch->count));
+                        }
+                    }
                     if (!OUTPUT->shader) {
                         OUTPUT->shader.emplace(OUTPUT->program);
                     }
-                    OUTPUT->advance();
-                    // The background below is only a compositing fallback. Do not
-                    // pass it, any layers, or the current framebuffer as shader input.
-                    if (OUTPUT->shader->draw(ctx, {}, {}, error)) {
+                    OUTPUT->advance(batch && batch->count != 0);
+                    if (OUTPUT->shader->draw(ctx, {}, {}, error, true, inputs)) {
+                        if (perf::enabled()) perf::touch(PROFILE, perf::monitor_identity(MONITOR));
                         OUTPUT->drawn = true;
-                        OUTPUT->redraw_next = OUTPUT->running();
+                        OUTPUT->redraw_next |= OUTPUT->running();
                         return {};
                     }
                     log_fallback(MONITOR->m_name, error);
@@ -225,6 +318,12 @@ namespace hyprimate::shader {
             }
             ePassElementType type() override {
                 return EK_CUSTOM;
+            }
+            bool undiscardable(Render::CRenderContext & /*ctx*/) override {
+                const auto output = m_output.lock();
+                if (!output || m_replay) return false;
+                const auto &request = scene_environment(*output->program);
+                return request.interactions || request.publish || request.state.has_value();
             }
             // Do not mark any pixels opaque: the shader may have alpha, be culled,
             // or fail. Native background elements must remain available below it.
@@ -256,9 +355,57 @@ namespace hyprimate::shader {
         }
     }  // namespace
 
+    WindowEnvironment window_environment(Render::CRenderContext &ctx, const Environment &request,
+        const std::array<float, 4> &physical_box) {
+        WindowEnvironment result;
+        const auto monitor = ctx.m_data.pMonitor.lock();
+        if (!eligible(ctx, monitor)) return result;
+        result.inputs = environment_coordinates(monitor);
+        const auto size = monitor->m_transformedSize;
+        result.inputs.output_rect = {physical_box[0] / float(size.x), physical_box[1] / float(size.y),
+            physical_box[2] / float(size.x), physical_box[3] / float(size.y)};
+        const auto original = request.original ? original_wallpaper(monitor, source_namespace)
+                                               : OriginalWallpaper{};
+        if (original) {
+            result.inputs.original = original.texture->m_texID;
+            result.inputs.original_uv = original.uv;
+            result.original = original.texture;
+        }
+        if (!request.processed && !request.sample_state) return result;
+        const auto *output = environment_output(monitor);
+        if (!output || !output->drawn || !output->shader || output->failed) return result;
+        const auto &published = scene_environment(*output->program);
+        if (output->workspace.lock() != monitor->m_activeWorkspace ||
+            output->special.lock() != monitor->m_activeSpecialWorkspace) return result;
+        if (published.original) {
+            const auto lease = request.original ? original : original_wallpaper(monitor, source_namespace);
+            if (!lease || !output->matches_original(lease)) return result;
+        }
+        if (request.processed) {
+            const auto &image = output->shader->published_wallpaper();
+            if (image && image->getTexture()) result.inputs.processed = image->getTexture()->m_texID;
+        }
+        if (request.sample_state && request.channel == published.channel) {
+            result.inputs.state = output->shader->environment_state();
+        }
+        return result;
+    }
+
+    void emit_environment(Render::CRenderContext &ctx, const Environment &request,
+        std::uint64_t window, GLuint texture) {
+        const auto monitor = ctx.m_data.pMonitor.lock();
+        if (!active_outputs || !eligible(ctx, monitor)) return;
+        auto *output = environment_output(monitor);
+        if (!output || !output->drawn || !output->collector || output->failed ||
+            scene_environment(*output->program).channel != request.channel) return;
+        if (!output->atlas) output->atlas.emplace();
+        output->atlas->put(output->epoch, window, texture);
+    }
+
     class ShaderWallpaper::Impl {
       public:
-        Impl() {
+        explicit Impl(CHyprWindowPort &port) : m_port(port) {
+            active_outputs = &m_outputs;
             // Register before the runtime's window styles. Their wallpaper
             // backdrop copies and marks must run above this pass after reloads too.
             m_stage = ::Event::bus()->m_events.render.stage.listen(
@@ -271,13 +418,23 @@ namespace hyprimate::shader {
         ~Impl() {
             m_stage.reset();
             stop();
+            active_outputs = nullptr;
+            source_namespace = {};
         }
         Impl(const Impl &) = delete;
         Impl &operator=(const Impl &) = delete;
         Impl(Impl &&) = delete;
         Impl &operator=(Impl &&) = delete;
 
-        void configure(const std::string &path, const std::string &parameters, int duration_ms) {
+        void configure(const std::string &path, const std::string &parameters, int duration_ms,
+            const std::string &namespace_name) {
+            const bool source_changed = m_namespace != namespace_name;
+            if (source_changed) {
+                m_namespace = namespace_name;
+                source_namespace = m_namespace;
+                for (const auto &out : m_outputs) out->reset_environment();
+                redraw_outputs();
+            }
             if (path.empty()) {
                 stop();
                 return;
@@ -310,6 +467,10 @@ namespace hyprimate::shader {
             }
             remove_queued();
             m_outputs.clear();
+            m_interactions.reset();
+            if (scene_environment(*program).interactions) {
+                m_interactions.emplace(m_port);
+            }
             m_program = std::move(program);
             m_duration = SECONDS;
             if (State::monitorState()) {
@@ -330,11 +491,13 @@ namespace hyprimate::shader {
             if (!monitor || !monitor->m_output || find(monitor) != m_outputs.end()) {
                 return;
             }
-            auto output = std::make_shared<Output>(monitor, m_program, m_duration);
+            auto output = std::make_shared<Output>(monitor, m_program, m_duration,
+                m_interactions ? &*m_interactions : nullptr);
             output->dpms =
                 monitor->m_events.dpmsChanged.listen([weak = std::weak_ptr<Output>{output}] {
                     if (const auto OUTPUT = weak.lock()) {
-                        OUTPUT->last.reset();
+                        if (OUTPUT->collector) OUTPUT->reset_environment();
+                        else OUTPUT->last.reset();
                         redraw(OUTPUT->monitor.lock());
                     }
                 });
@@ -379,6 +542,7 @@ namespace hyprimate::shader {
                 return;
             }
             if (event.stage == RENDER_BEGIN) {
+                ++out->epoch;
                 out->queued = out->drawn = out->redraw_next = false;
                 return;
             }
@@ -397,13 +561,21 @@ namespace hyprimate::shader {
         void listen() {
             auto &events = ::Event::bus()->m_events;
             m_pre_checks = events.render.preChecks.listen([this](const PHLMONITOR &monitor) {
-                // A solitary client can take the direct-scanout path and skip render stages.
-                if (usable_output(monitor) && monitor->m_solitaryClient.expired()) {
-                    return;
+                auto *out = environment_output(monitor);
+                if (!out || !unlocked()) return;
+                const auto &request = scene_environment(*out->program);
+                if (!monitor) return;
+                if (request.used() && usable_output(monitor)) {
+                    bool dirty = out->update_scope(monitor);
+                    if (request.original) dirty |= out->source_changed(original_wallpaper(monitor, source_namespace));
+                    if (out->collector && out->collector->privacy_changed(monitor)) {
+                        out->reset_environment();
+                        dirty = true;
+                    }
+                    if (dirty) redraw(monitor);
                 }
-                if (const auto ENTRY = find(monitor); ENTRY != m_outputs.end()) {
-                    (*ENTRY)->last.reset();
-                }
+                // A solitary client can bypass the native background scene.
+                if (!usable_output(monitor) || !monitor->m_solitaryClient.expired()) out->last.reset();
             });
             m_added = events.monitor.added.listen([this](const PHLMONITOR &monitor) {
                 attach(monitor);
@@ -424,8 +596,10 @@ namespace hyprimate::shader {
             if (g_pSessionLockManager) {
                 const auto CHANGE = [this] {
                     for (const auto &out : m_outputs) {
-                        out->last.reset();
+                        if (scene_environment(*out->program).used()) out->reset_environment();
+                        else out->last.reset();
                     }
+                    if (m_interactions) m_interactions->clear();
                     redraw_outputs();
                 };
                 m_lock = g_pSessionLockManager->m_events.lock.listen(CHANGE);
@@ -444,24 +618,29 @@ namespace hyprimate::shader {
             }
             remove_queued();
             m_outputs.clear();
+            m_interactions.reset();
             m_program.reset();
             redraw_outputs();
         }
 
         std::shared_ptr<SceneProgram> m_program;
         double m_duration = 0;
-        std::vector<std::shared_ptr<Output>> m_outputs;
+        CHyprWindowPort &m_port;
+        std::optional<HyprEnvironmentInteractions> m_interactions;
+        std::string m_namespace;
+        Outputs m_outputs;
         CHyprSignalListener m_stage, m_pre_checks, m_added, m_removed, m_lock, m_unlock;
     };
 
-    ShaderWallpaper::ShaderWallpaper() : m_impl(std::make_unique<Impl>()) {
+    ShaderWallpaper::ShaderWallpaper(CHyprWindowPort &port) : m_impl(std::make_unique<Impl>(port)) {
     }
     ShaderWallpaper::~ShaderWallpaper() = default;
 
     void ShaderWallpaper::configure(
-        const std::string &path, const std::string &parameters, int duration_ms) {
+        const std::string &path, const std::string &parameters, int duration_ms,
+        const std::string &namespace_name) {
         if (m_impl) {
-            m_impl->configure(path, parameters, duration_ms);
+            m_impl->configure(path, parameters, duration_ms, namespace_name);
         }
     }
 

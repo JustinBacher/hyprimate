@@ -401,7 +401,9 @@ namespace hyprimate::perf {
         for (std::size_t i = 0; i < data.row_count; ++i) {
             if (i) out << ',';
             const auto &row = data.rows[i];
-            out << "{\"domain\":" << quoted(row.domain == Domain::Window ? "window" : "workspace")
+            const auto domain = row.domain == Domain::Window ? "window" :
+                row.domain == Domain::Workspace ? "workspace" : "wallpaper";
+            out << "{\"domain\":" << quoted(domain)
                 << ",\"style\":" << quoted(row.style.data()) << ",\"operation\":" << quoted(row.operation.data())
                 << ",\"cpu\":{";
             for (std::size_t p = 0; p < PHASES.size(); ++p) {

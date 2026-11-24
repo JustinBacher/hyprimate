@@ -118,6 +118,7 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                 effect = "",
 --                 effect_parameters = "{}",
 --                 effect_duration = 0,
+--                 source_namespace = "",
 --             },
 --             window = {
 --                 enabled = true,

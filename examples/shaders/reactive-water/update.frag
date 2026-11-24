@@ -15,9 +15,21 @@ float windowImpulse(vec2 point, vec2 outputSize) {
         float band = 1.0 - smoothstep(1.0, 19.0, abs(current));
         float direction = event.x == 0.0 ? 1.0 : -1.0;
         if (event.x >= 2.0) {
-            float previous = boxDistance(point, hypr_interactions[record + 1] * outputSize.xyxy);
+            vec4 before = hypr_interactions[record + 1] * outputSize.xyxy;
+            vec4 after = hypr_interactions[record] * outputSize.xyxy;
+            float previous = boxDistance(point, before);
             band = max(band, 1.0 - smoothstep(1.0, 19.0, abs(previous)));
             direction = clamp((previous - current) / 16.0, -1.0, 1.0);
+            vec2 origin = before.xy + before.zw * 0.5;
+            vec2 span = after.xy + after.zw * 0.5 - origin;
+            float travel = dot(span, span);
+            if (event.x == 2.0 && travel > 1.0) {
+                float along = clamp(dot(point - origin, span) / travel, 0.0, 1.0);
+                float wake = (1.0 - smoothstep(3.0, 15.0, length(point - origin - along * span)))
+                           * smoothstep(20.0, 80.0, sqrt(travel));
+                direction = mix(direction, 1.0, wake);
+                band = max(band, wake);
+            }
         }
         impulse += band * direction * event.y;
     }

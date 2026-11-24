@@ -16,6 +16,8 @@ endforeach()
 target_sources(hyprimate PRIVATE
     src/window/shader/ShaderLiveStyle.cpp
     src/window/shader/ShaderRenderer.cpp
+    src/window/shader/HyprEnvironmentInteractions.cpp
+    src/window/shader/HyprWallpaperSource.cpp
     src/window/shader/ShaderWallpaper.cpp)
 target_link_libraries(hyprimate PRIVATE shader-gles)
 

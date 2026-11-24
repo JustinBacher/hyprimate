@@ -376,6 +376,26 @@ void validate(const Package &p) {
     require(!p.events.empty() && p.events.size()<=6,"invalid events");
     std::set<Event> events;
     for(auto e:p.events) require(e>=Event::Open && e<=Event::Wallpaper && events.insert(e).second,"invalid or duplicate event");
+    const auto &env = p.environment;
+    const bool wallpaper = events.contains(Event::Wallpaper);
+    if (env.used() || !env.channel.empty() || env.settle_ms) {
+        require(!events.contains(Event::Workspace) && (!wallpaper || events.size() == 1),
+            "environment resources require a window or a wallpaper-only package");
+        require((!env.interactions && !env.publish && !env.state && env.settle_ms == 0) || wallpaper,
+            "environment publishing and interactions require a wallpaper package");
+        require(!wallpaper || (!env.sample_state && !env.processed && !env.emit),
+            "wallpaper cannot sample its own output or emit to itself");
+        require(env.settle_ms <= 60000 && (!env.interactions || env.settle_ms > 0),
+            "reactive wallpaper requires a bounded positive settle_ms");
+        require(!env.settle_ms || env.interactions, "settle_ms requires interactions");
+        require(!(env.state || env.emit || env.sample_state) || !env.channel.empty(),
+            "environment state and emissions require a channel");
+        if (!env.channel.empty()) {
+            named(env.channel);
+            require(env.channel.size() <= 64 && (env.interactions || env.state || env.emit || env.sample_state),
+                "invalid or unused environment channel");
+        }
+    }
     for(float bound:p.bounds) require(std::isfinite(bound) && bound>=0 && bound<=2,"bounds must be in [0,2]");
     require(p.parameters.size()<=MAX_PARAMETERS && p.textures.size()<=MAX_TEXTURES && p.buffers.size()<=MAX_BUFFERS && p.meshes.size()<=MAX_MESHES && !p.passes.empty() && p.passes.size()<=MAX_PASSES,"package count limit exceeded");
     std::set<std::string> names,parameters,mesh_names,pass_names;
@@ -402,6 +422,23 @@ void validate(const Package &p) {
         bytes+=b.bytes*(b.ping_pong?2:1);
     }
     require(bytes<=MAX_INSTANCE_BYTES,"instance storage exceeds 128 MiB");
+    const auto validate_export = [&](Ref ref, bool impulse) {
+        require(ref.kind == ResourceKind::Texture && ref.index < p.textures.size(),
+            "environment export requires a declared texture");
+        const auto &t = p.textures[ref.index];
+        require(t.image.empty() && t.lifetime == Lifetime::Persistent &&
+            ref.side == (t.ping_pong ? Side::Read : Side::Single),
+            "environment export requires a readable persistent texture");
+        require(!impulse || (t.size.width == 1 && t.size.height == 1 && t.format == Format::RGBA8),
+            "environment emission requires a 1x1 RGBA8 texture");
+        require(std::ranges::any_of(p.passes, [&](const Pass &pass) {
+            return pass.phase == Phase::Update && std::ranges::any_of(pass.outputs, [&](Ref out) {
+                return out.kind == ref.kind && out.index == ref.index;
+            });
+        }), "environment export requires an update producer");
+    };
+    if (env.state) validate_export(*env.state, false);
+    if (env.emit) validate_export(*env.emit, true);
     auto info=[&](Ref ref) -> std::pair<bool,Lifetime> {
         bool ping=false; Lifetime life=Lifetime::Persistent;
         switch(ref.kind) {
@@ -499,7 +536,7 @@ std::expected<Package,std::string> load_package(const std::string &path) {
     try {
         Package package; const auto file=std::filesystem::absolute(expand(path)).lexically_normal();package.path=file.string();
         const auto root=parse(read_file(file,65536));
-        fields(root,{"version","events","bounds","blur_mask","helpers","parameters","textures","buffers","meshes","fragment","passes"});
+        fields(root,{"version","events","bounds","blur_mask","helpers","parameters","textures","buffers","meshes","fragment","passes","environment"});
         require(natural(root.at("version"),SPEC_VERSION,SPEC_VERSION)==SPEC_VERSION,"unsupported version");
         if(root.contains("events")) {
             array(root.at("events"),6);package.events.clear();
@@ -519,7 +556,22 @@ std::expected<Package,std::string> load_package(const std::string &path) {
                 package.parameters.push_back(std::move(parameter));
             }
         }
-        resources(package,root,file.parent_path());meshes(package,root);passes(package,root,file.parent_path());validate(package);
+        resources(package,root,file.parent_path());meshes(package,root);passes(package,root,file.parent_path());
+        if (root.contains("environment")) {
+            const auto &e = root.at("environment");
+            fields(e,{"original","processed","interactions","publish","settle_ms","channel","state","sample_state","emit"});
+            auto &env = package.environment;
+            for (auto [key, member] : {std::pair{"original", &Environment::original},
+                     {"processed", &Environment::processed}, {"interactions", &Environment::interactions},
+                     {"publish", &Environment::publish}, {"sample_state", &Environment::sample_state}}) {
+                if (e.contains(key)) env.*member = boolean(e.at(key));
+            }
+            if (e.contains("settle_ms")) env.settle_ms = natural(e.at("settle_ms"), 1, 60000);
+            if (e.contains("channel")) env.channel = text(e.at("channel"));
+            if (e.contains("state")) env.state = reference(package, e.at("state"));
+            if (e.contains("emit")) env.emit = reference(package, e.at("emit"));
+        }
+        validate(package);
         return package;
     } catch(const std::exception &error) {return std::unexpected("package "+path+": "+error.what());}
 }
@@ -579,6 +631,39 @@ vec4 hypr_sample_source(vec2 uv) {
     return textureLod(hypr_destination, hypr_destination_uv.xy + uv * hypr_destination_uv.zw, 0.0);
 }
 )";
+    const auto &env = package.environment;
+    if (env.used()) source += R"(
+uniform vec2 hypr_output_size, hypr_output_origin;
+uniform vec4 hypr_output_rect;
+vec2 hypr_environment_uv(vec2 windowUv) { return hypr_output_rect.xy + windowUv * hypr_output_rect.zw; }
+bool hypr_inside_output(vec2 uv) {
+    return all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0)));
+}
+)";
+    if (env.original) source += R"(
+uniform sampler2D hypr_wallpaper_original;
+uniform bool hypr_wallpaper_original_available;
+uniform vec4 hypr_wallpaper_uv;
+vec4 hypr_sample_wallpaper_original(vec2 uv) {
+    if (!hypr_wallpaper_original_available || !hypr_inside_output(uv)) return vec4(0.0);
+    vec2 imageUv = hypr_wallpaper_uv.xy + uv * hypr_wallpaper_uv.zw;
+    return hypr_inside_output(imageUv) ? textureLod(hypr_wallpaper_original, imageUv, 0.0) : vec4(0.0);
+}
+)";
+    if (env.processed) source += R"(
+uniform sampler2D hypr_wallpaper_processed;
+uniform bool hypr_wallpaper_processed_available;
+vec4 hypr_sample_wallpaper_processed(vec2 uv) {
+    if (!hypr_wallpaper_processed_available || !hypr_inside_output(uv)) return vec4(0.0);
+    return textureLod(hypr_wallpaper_processed, uv, 0.0);
+}
+)";
+    if (env.sample_state) source += "uniform sampler2D hypr_environment_state; uniform bool hypr_environment_state_available;\n";
+    if (env.interactions) {
+        source += "uniform int hypr_interaction_count; uniform vec4 hypr_interactions[" +
+            std::to_string(MAX_INTERACTIONS * 4) + "];\n";
+        if (!env.channel.empty()) source += "uniform sampler2D hypr_disturbances; uniform bool hypr_disturbances_available;\n";
+    }
     constexpr std::array<std::string_view,6> types{"float","int","bool","vec2","vec3","vec4"};
     for(const auto &p:package.parameters) {const auto type=static_cast<unsigned>(p.initial.type);if(type<types.size())source+="uniform "+std::string(types[type])+" "+p.name+";\n";}
     source+="#line 1\n";source.append(body);return source;

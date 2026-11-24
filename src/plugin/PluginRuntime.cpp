@@ -91,7 +91,7 @@ class CPluginRuntime::Impl {
     std::unique_ptr<CAnimationCloseRenderer> m_close;
     std::unique_ptr<CHyprglassCompat> m_glass;
     std::unique_ptr<CWorkspaceAnimation> m_workspace;
-    hyprimate::shader::ShaderWallpaper m_wallpaper;
+    hyprimate::shader::ShaderWallpaper m_wallpaper{m_port};
     std::optional<hyprimate::config::SWallpaperSettings> m_wallpaper_request;
     std::unique_ptr<hyprimate::perf::RuntimeProfiler> m_profiler;
     CHyprSignalListener m_open, m_close_event, m_destroy, m_pre_checks, m_pre, m_stage;
@@ -293,7 +293,8 @@ void CPluginRuntime::Impl::configure_workspace(bool force) {
 void CPluginRuntime::Impl::configure_wallpaper(bool force) {
     const auto &options = m_config.wallpaper;
     if (force || m_wallpaper_request != options) {
-        m_wallpaper.configure(options.effect, options.effectParameters, options.effectDuration);
+        m_wallpaper.configure(options.effect, options.effectParameters, options.effectDuration,
+            options.sourceNamespace);
         m_wallpaper_request = options;
     }
 }

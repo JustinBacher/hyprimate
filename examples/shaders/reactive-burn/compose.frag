@@ -8,9 +8,10 @@ void main() {
         return;
     }
     vec2 state = decodeHeat(textureLod(heatState, hypr_uv, 0.0));
-    float scorch = smoothstep(0.015, 0.65, state.y);
+    float settle = 1.0 - smoothstep(0.38, 1.0, hypr_progress);
+    float scorch = settle * smoothstep(0.015, 0.65, state.y);
     vec3 charred = wallpaper.rgb * mix(vec3(1.0), vec3(0.38, 0.22, 0.15), scorch);
-    float glow = smoothstep(0.025, 0.75, state.x);
+    float glow = settle * smoothstep(0.025, 0.75, state.x);
     vec3 ember = mix(vec3(0.85, 0.14, 0.025), vec3(1.0, 0.67, 0.15), glow);
     color = vec4(mix(charred, wallpaper.a * ember, 0.58 * glow), wallpaper.a);
 }

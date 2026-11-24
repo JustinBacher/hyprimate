@@ -45,6 +45,7 @@ namespace hyprimate::shader {
             bool previous_valid = false;
             bool open_delivered = false;
             bool close_delivered = false;
+            bool interaction_delivered = false;
         };
 
         struct Track {
@@ -356,6 +357,7 @@ namespace hyprimate::shader {
                         record[3] = {static_cast<float>(event), 1.F,
                             track->opaque_id, held ? 1.F : 0.F};
                         batch.windows[batch.count] = track->token;
+                        history->interaction_delivered = true;
                         ++batch.count;
                         if (opening) {
                             history->open_delivered = true;
@@ -389,7 +391,7 @@ namespace hyprimate::shader {
 
         Track *free_track(bool priority) {
             for (auto &track : m_tracks) {
-                if (!track.used || (track.closed && track.destroyed)) {
+                if (!track.used) {
                     return &track;
                 }
             }
@@ -398,7 +400,10 @@ namespace hyprimate::shader {
             }
             Track *candidate = nullptr;
             for (auto &track : m_tracks) {
-                if (track.held || track.closed) {
+                if (track.held || track.closed || std::ranges::any_of(track.outputs,
+                        [](const OutputHistory &history) { return history.interaction_delivered; })) {
+                    // A live contributor must stay tracked until its privacy policy
+                    // can no longer revoke already-persisted simulation data.
                     continue;
                 }
                 if (!track.priority) {
@@ -618,6 +623,7 @@ namespace hyprimate::shader {
                 record[3] = {static_cast<float>(Event::Close), 1.F,
                     track.opaque_id, 0.F};
                 batch.windows[batch.count] = track.token;
+                history->interaction_delivered = true;
                 ++batch.count;
                 history->close_delivered = true;
                 history->previous = track.close_body;
