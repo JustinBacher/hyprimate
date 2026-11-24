@@ -192,9 +192,6 @@ def run_scan_build(args) -> Report:
             cfg = ["scan-build", "--use-analyzer=" + (tool_path("clang") or "clang"), "cmake", "-S", wrapper_cmake,
                    "-B", directory, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=RelWithDebInfo",
                    f"-DHYPRIMATE_SOURCE_DIR={ROOT}"]
-            jolt = ROOT / "build" / "_deps" / "joltphysics-src"
-            if jolt.exists():
-                cfg += [f"-DFETCHCONTENT_SOURCE_DIR_JOLTPHYSICS={jolt}", "-DFETCHCONTENT_FULLY_DISCONNECTED=ON"]
             result = run(cfg, log=BUILD_ROOT / "logs" / "scan-build-configure.log")
             if result.returncode:
                 raise ToolError("scan-build configure failed:\n" + tail(result.stdout))

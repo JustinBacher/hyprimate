@@ -21,41 +21,6 @@ if(BUILD_TESTING)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
 endif()
 
-# Jolt Physics drives the cloth animations. Only the library is built, single precision, statically into the plugin;
-# its compute backends (GPU hair), debug renderer, profiler and floating-point exceptions stay off: an FP trap or a
-# debug hook inside the compositor would take the session down.
-include(FetchContent)
-set(JPH_USE_VK OFF CACHE BOOL "" FORCE)
-set(JPH_USE_DX12 OFF CACHE BOOL "" FORCE)
-set(JPH_USE_MTL OFF CACHE BOOL "" FORCE)
-set(JPH_USE_CPU_COMPUTE OFF CACHE BOOL "" FORCE)
-set(DEBUG_RENDERER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)
-set(PROFILER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)
-set(FLOATING_POINT_EXCEPTIONS_ENABLED OFF CACHE BOOL "" FORCE)
-set(ENABLE_OBJECT_STREAM OFF CACHE BOOL "" FORCE)
-set(ENABLE_ALL_WARNINGS OFF CACHE BOOL "" FORCE)
-set(ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
-set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
-set(JPH_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-# A compositor plugin must not raise SIGILL on CPUs without AVX2 (Jolt picks AVX-512 first when it is on).
-set(USE_AVX512 OFF CACHE BOOL "" FORCE)
-set(USE_AVX OFF CACHE BOOL "" FORCE)
-set(USE_AVX2 OFF CACHE BOOL "" FORCE)
-set(USE_LZCNT OFF CACHE BOOL "" FORCE)
-set(USE_TZCNT OFF CACHE BOOL "" FORCE)
-set(USE_F16C OFF CACHE BOOL "" FORCE)
-set(USE_FMADD OFF CACHE BOOL "" FORCE)
-set(USE_SSE4_1 ON CACHE BOOL "" FORCE)
-set(USE_SSE4_2 ON CACHE BOOL "" FORCE)
-FetchContent_Declare(JoltPhysics
-    URL https://github.com/jrouwe/JoltPhysics/archive/refs/tags/v5.6.0.tar.gz
-    URL_HASH SHA256=6e069ee0172478cc78182047aac87e5310ba14a67a53348ae14cc37801fd3f8e
-    SOURCE_SUBDIR Build
-    SYSTEM
-)
-FetchContent_MakeAvailable(JoltPhysics)
-
-# Keep project warnings out of Jolt's already-configured subdirectory.
 add_compile_options(
     -Wall -Wextra -Wpedantic
     -Wunused-function -Wunused-variable
@@ -104,7 +69,6 @@ add_library(hyprimate-core STATIC
     src/perf/LiveProfiler.cpp
 )
 target_include_directories(hyprimate-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(hyprimate-core PRIVATE Jolt)
 target_compile_options(hyprimate-core PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>:-fno-gnu-unique>)
 
 add_library(hyprimate SHARED
@@ -130,8 +94,8 @@ add_library(hyprimate SHARED
 set_target_properties(hyprimate PROPERTIES PREFIX "" INTERPROCEDURAL_OPTIMIZATION FALSE)
 add_dependencies(hyprimate generate-config)
 target_include_directories(hyprimate PRIVATE ${CONFIG_GENERATED_DIR})
-target_link_libraries(hyprimate PRIVATE PkgConfig::HYPRLAND Jolt hyprimate-core ${CMAKE_DL_LIBS})
-# Keep Jolt's symbols out of the plugin's dynamic symbol table, so they cannot bind to another copy in the process.
+target_link_libraries(hyprimate PRIVATE PkgConfig::HYPRLAND hyprimate-core ${CMAKE_DL_LIBS})
+# Internal static libraries must not interpose on symbols in the compositor process.
 target_link_options(hyprimate PRIVATE -Wl,--exclude-libs,ALL)
 # GNU-unique inline statics otherwise make dlclose retain stale plugin code.
 target_compile_options(hyprimate PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>:-fno-gnu-unique>)

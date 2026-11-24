@@ -443,7 +443,7 @@ namespace {
 
     void movement_publication_recovery() {
         // A gap shorter than the stall bound must recover even when the compositor posts targets
-        // faster than Jolt.
+        // faster than the solver can process them.
         for (const int REFRESH_RATE : {120, 360, 1000}) {
             const double STEP_SECONDS = 1.0 / REFRESH_RATE;
             ClothFlutter cloth;
@@ -1283,8 +1283,7 @@ int main() {
         movement_gravity_control();
         movement_retuning();
     }
-    // Shutdown must join a currently paused worker before unregistering Jolt, even with a model
-    // reference retained.
+    // Shutdown must join a currently paused worker even with a model reference retained.
     ClothFlutter survivor;
     {
         const ClothPhysics PHYSICS;

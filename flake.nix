@@ -11,15 +11,6 @@
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
       host = hyprland.packages.${system}.hyprland;
-      joltArchive = pkgs.fetchurl {
-        url = "https://github.com/jrouwe/JoltPhysics/archive/refs/tags/v5.6.0.tar.gz";
-        hash = "sha256-bgae4BckeMx4GCBHqsh+UxC6FKZ6UzSK4UzDeAH9P44=";
-      };
-      joltSource = pkgs.runCommand "joltphysics-5.6.0-source" { } ''
-        mkdir -p "$out"
-        tar -xzf ${joltArchive} --strip-components=1 -C "$out"
-        test -f "$out/Build/CMakeLists.txt"
-      '';
       hyprlandElf = "${host}/bin/.Hyprland-wrapped";
       hyprimate = host.stdenv.mkDerivation {
         pname = "hyprimate";
@@ -45,8 +36,6 @@
         cmakeBuildType = "RelWithDebInfo";
         cmakeFlags = [
           "-DBUILD_TESTING=OFF"
-          "-DFETCHCONTENT_SOURCE_DIR_JOLTPHYSICS=${joltSource}"
-          "-DFETCHCONTENT_FULLY_DISCONNECTED=ON"
           # The checker needs the compositor ELF, not its launcher.
           "-DHYPRLAND_EXECUTABLE=${hyprlandElf}"
           "-DHYPRIMATE_SPRITE_DIR=${builtins.placeholder "out"}/share/hyprimate/sprites"
@@ -59,6 +48,7 @@
           mkdir -p "$out/share/hyprimate/sprites"
           install -Dm644 -t "$out/share/hyprimate/sprites" \
             ../src/window/swarm/sprites/{bird,cat,spider}.png
+          install -Dm644 ../src/window/cloth/Jolt-MIT.txt "$out/share/licenses/hyprimate/Jolt-MIT.txt"
           runHook postInstall
         '';
       };
@@ -72,7 +62,6 @@
       devShells.${system}.default = (pkgs.mkShell.override { stdenv = host.stdenv; }) {
         inputsFrom = [ hyprimate ];
         packages = [ host pkgs.jq pkgs.python3 ];
-        HYPRIMATE_JOLT_SOURCE = "${joltSource}";
         HYPRIMATE_HYPRLAND_ELF = hyprlandElf;
         HYPRIMATE_HYPRLAND_BIN = "${host}/bin";
       };

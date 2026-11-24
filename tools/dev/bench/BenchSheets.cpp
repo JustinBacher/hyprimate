@@ -1,4 +1,4 @@
-// Cloth (Jolt) and swarm workloads. Cloth recording runs on a worker thread, so its wall time is
+// Cloth and swarm workloads. Cloth recording runs on a worker thread, so its wall time is
 // dominated by the simulation and is reported as threaded.
 #include <memory>
 
@@ -110,7 +110,7 @@ namespace {
 
 namespace bench {
     void register_sheets(Registry &registry) {
-        registry.push_back({"cloth.record_open", "Jolt cloth open recording (worker thread, wall time)", 1, cloth_record, true});
+        registry.push_back({"cloth.record_open", "Cloth open recording (worker thread, wall time)", 1, cloth_record, true});
         registry.push_back({"cloth.playback", "Cloth recording playback + frame()", 90, cloth_playback});
         registry.push_back({"cloth.unshaded_mesh", "Unshaded mesh projection into reusable buffers", 90, cloth_unshaded_mesh});
         registry.push_back({"swarm.open", "Swarm 250 agents opening", 120, swarm_open});

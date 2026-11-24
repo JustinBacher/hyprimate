@@ -26,9 +26,9 @@ namespace hyprimate {
         Box screen;  // physical monitor boundary, including reserved areas, in logical pixels
     };
 
-    // Shared owners of Jolt's process-wide state and worker reaper. The last owner's shutdown
-    // stops and joins every admitted simulation before destroying Jolt. Releasing/cancelling a
-    // cloth only requests stop; joining and recording destruction happen on the reaper.
+    // Shared owners of the worker registry. The last owner's shutdown stops and joins every
+    // admitted simulation. Releasing/cancelling a cloth only requests stop; joining and
+    // recording destruction happen on the reaper.
     class ClothPhysics {
       public:
         ClothPhysics();

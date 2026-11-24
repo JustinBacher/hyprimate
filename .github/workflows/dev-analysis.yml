@@ -27,11 +27,6 @@ jobs:
         run: pacman -Syu --noconfirm git cmake ninja clang llvm cppcheck valgrind python hyprland mesa libglvnd
       - uses: actions/checkout@v4
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - name: Cache Jolt download
-        uses: actions/cache@v4
-        with:
-          path: build/dev/_jolt-src
-          key: jolt-v5.6.0
       - run: python3 tools/dev.py ${{ matrix.command }}
       - uses: actions/upload-artifact@v4
         if: always()

@@ -140,19 +140,10 @@ def configure(profile: str, *, label: str | None = None, source: Path | None = N
     if spec.ldflags:
         flags = " ".join(spec.ldflags)
         args += [f"-DCMAKE_EXE_LINKER_FLAGS={flags}", f"-DCMAKE_SHARED_LINKER_FLAGS={flags}"]
-    # Jolt is pinned by hash in the root CMakeLists.txt; reuse an existing download instead of fetching again.
-    cache = BUILD_ROOT / "_jolt-src"
-    for candidate in (source / "build" / "_deps" / "joltphysics-src", ROOT / "build" / "_deps" / "joltphysics-src", cache):
-        if (candidate / "Build" / "CMakeLists.txt").exists():
-            args += [f"-DFETCHCONTENT_SOURCE_DIR_JOLTPHYSICS={candidate}", "-DFETCHCONTENT_FULLY_DISCONNECTED=ON"]
-            break
     args += list(extra)
     result = run(args, log=directory.parent / "logs" / f"configure-{directory.name}.log", env=wrapper_env)
     if result.returncode:
         raise ToolError(f"cmake configure failed for profile {profile}:\n{tail(result.stdout)}")
-    fetched = directory / "_deps" / "joltphysics-src"
-    if not cache.exists() and (fetched / "Build" / "CMakeLists.txt").exists():
-        shutil.copytree(fetched, cache)  # one download shared by every profile (and cacheable in CI)
     return directory
 
 

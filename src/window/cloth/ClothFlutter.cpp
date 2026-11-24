@@ -18,44 +18,12 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+
 #include "perf/LiveProfiler.hpp"
-
-// Jolt's base header must precede its dependent headers.
-// clang-format off
-#include <Jolt/Jolt.h>
-// clang-format on
-
-#include <Jolt/Core/Array.h>
-#include <Jolt/Core/Core.h>
-#include <Jolt/Core/Factory.h>
-#include <Jolt/Core/IssueReporting.h>
-#include <Jolt/Core/JobSystemSingleThreaded.h>
-#include <Jolt/Core/Memory.h>
-#include <Jolt/Core/Reference.h>
-#include <Jolt/Core/TempAllocator.h>
-#include <Jolt/Math/Quat.h>
-#include <Jolt/Physics/Body/BodyCreationSettings.h>
-#include <Jolt/Physics/Body/MotionType.h>
-#include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
-#include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayerInterfaceTable.h>
-#include <Jolt/Physics/Collision/BroadPhase/ObjectVsBroadPhaseLayerFilterTable.h>
-#include <Jolt/Physics/Collision/ObjectLayer.h>
-#include <Jolt/Physics/Collision/ObjectLayerPairFilterTable.h>
-#include <Jolt/Physics/Collision/Shape/BoxShape.h>
-#include <Jolt/Physics/Constraints/SliderConstraint.h>
-#include <Jolt/Physics/Constraints/TwoBodyConstraint.h>
-#include <Jolt/Physics/EActivation.h>
-#include <Jolt/Physics/EPhysicsUpdateError.h>
-#include <Jolt/Physics/PhysicsSettings.h>
-#include <Jolt/Physics/PhysicsSystem.h>
-#include <Jolt/Physics/SoftBody/SoftBodyCreationSettings.h>
-#include <Jolt/Physics/SoftBody/SoftBodyMotionProperties.h>
-#include <Jolt/Physics/SoftBody/SoftBodySharedSettings.h>
-#include <Jolt/Physics/SoftBody/SoftBodyVertex.h>
-#include <Jolt/RegisterTypes.h>
-
 #include "shared/Core.hpp"
 #include "window/cloth/ClothFlutter.hpp"
+#include "window/cloth/ClothPocket.hpp"
+#include "window/cloth/ClothSolver.hpp"
 #include "window/shared/SheetFrame.hpp"
 
 namespace hyprimate {
@@ -68,7 +36,7 @@ namespace hyprimate {
         constexpr double RADIUS = 0.002;
         constexpr double FALLBACK_LENGTH = 0.18;
         constexpr int MAX_OBSTACLES = 32;
-        constexpr float CLOTH_INV_MASS = 4.0F, STRETCH_COMPLIANCE = 4e-6F, BEND_COMPLIANCE = 1.2F;
+        constexpr float CLOTH_INV_MASS = 4.0F;
         constexpr std::uint64_t BASE_SEED = 0xC1074F1A77E2ULL;
         // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables): Workers share this
         // test pause flag.
@@ -87,9 +55,10 @@ namespace hyprimate {
         constexpr double OPEN_AIR_DRAG =
             4.0;  // per simulated second, on the velocity along the local normal
 
-        // NOLINTNEXTLINE(modernize-avoid-variadic-functions): Jolt Trace requires a C variadic
-        // callback.
-        void silent_trace([[maybe_unused]] const char *format, ...) {
+        cloth::Point to_point(Vec3 point) noexcept {
+            return {static_cast<float>(point.x),
+                static_cast<float>(point.y),
+                static_cast<float>(point.z)};
         }
         Vec3 add(Vec3 left, Vec3 right) noexcept {
             return {.x = left.x + right.x, .y = left.y + right.y, .z = left.z + right.z};
@@ -127,7 +96,7 @@ namespace hyprimate {
         }
         // A curtain has enough material across its width to form vertical folds. Integrate
         // unit-length tangents so gathering spends width in depth without pre-stretching the mesh.
-        // Jolt, not a display warp, unfolds this drape.
+        // The cloth solve, not a display warp, unfolds this drape.
         SheetGrid curtain_grid() noexcept {
             std::array<Vec2, GRID> header{};
             auto *previous = header.begin();
@@ -163,7 +132,7 @@ namespace hyprimate {
         }
         bool valid_box(const Box &box) noexcept {
             // Logical desktop geometry is far smaller than these bounds. Reject values that cannot
-            // safely pass through float Jolt collision geometry and pixel-space projection, even
+            // safely pass through float collision geometry and pixel-space projection, even
             // when the original doubles are finite.
             return std::isfinite(box.x) && std::isfinite(box.y) && std::isfinite(box.w) &&
                    std::isfinite(box.h) && std::abs(box.x) <= 1e9 && std::abs(box.y) <= 1e9 &&
@@ -505,9 +474,12 @@ namespace hyprimate {
                             done->worker.join();
                         }
                         {
-                            const perf::CpuScope PROFILE{{perf::Domain::Window, "cloth",
-                                done->live ? "move" :
-                                    (done->kind == Transition::Close ? "close" : "open")},
+                            const perf::CpuScope PROFILE{
+                                {perf::Domain::Window,
+                                    "cloth",
+                                    done->live
+                                        ? "move"
+                                        : (done->kind == Transition::Close ? "close" : "open")},
                                 perf::Phase::Worker};
                             done.reset();  // Free the recording off the playback thread.
                         }
@@ -525,28 +497,26 @@ namespace hyprimate {
         // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables): Physics lifetime owns
         // the shared worker reaper.
         std::unique_ptr<Registry> s_registry;
-        // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables): Serializes Jolt
-        // ownership and worker admission.
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables): Serializes worker
+        // runtime ownership and admission.
         std::mutex s_lifecycle_mutex;
         // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables): Protected by
         // s_lifecycle_mutex.
         unsigned s_physics_owners = 0;
 
-        bool outside(const Run &run, const JPH::Array<JPH::SoftBodyVertex> &vertices) noexcept {
+        bool outside(const Run &run, std::span<const cloth::Point> positions) noexcept {
             const double WIDTH = run.window.w;
             const double HEIGHT = run.window.h;
             const double LENGTH_SCALE = std::sqrt(WIDTH * HEIGHT);
             const double FOCAL_LENGTH = 3 * LENGTH_SCALE;
             // NOLINTNEXTLINE(readability-use-anyofallof): GCC native algorithm alternatives add
             // setup and branch work.
-            for (const auto &vertex : vertices) {
-                const double SCALE =
-                    FOCAL_LENGTH / std::max(0.25 * FOCAL_LENGTH,
-                                       FOCAL_LENGTH - (vertex.mPosition.GetZ() * LENGTH_SCALE));
-                const double POS_X =
-                    run.window.x + (WIDTH / 2) + (vertex.mPosition.GetX() * WIDTH * SCALE);
-                const double POS_Y = run.window.y + (HEIGHT / 2) +
-                                     (((-vertex.mPosition.GetY() * HEIGHT) - (HEIGHT / 2)) * SCALE);
+            for (const auto position : positions) {
+                const double SCALE = FOCAL_LENGTH / std::max(0.25 * FOCAL_LENGTH,
+                                                        FOCAL_LENGTH - (position.z * LENGTH_SCALE));
+                const double POS_X = run.window.x + (WIDTH / 2) + (position.x * WIDTH * SCALE);
+                const double POS_Y =
+                    run.window.y + (HEIGHT / 2) + (((-position.y * HEIGHT) - (HEIGHT / 2)) * SCALE);
                 if ((run.edge == Edge::Bottom && POS_Y <= run.screen.y + run.screen.h) ||
                     (run.edge == Edge::Top && POS_Y >= run.screen.y) ||
                     (run.edge == Edge::Left && POS_X >= run.screen.x) ||
@@ -556,48 +526,33 @@ namespace hyprimate {
             }
             return true;
         }
-        bool record(Run &run, int frame, const JPH::Array<JPH::SoftBodyVertex> &vertices) noexcept {
+        bool record(Run &run,
+            int frame,
+            std::span<const cloth::Point> positions,
+            std::span<const cloth::Point> velocities) noexcept {
             const double TRAVEL = std::hypot(run.travel.x, run.travel.y);
             const double POSITION_LIMIT = 16 + TRAVEL + (GRAVITY * run.length * run.length) +
                                           (run.max_initial_speed * run.length);
             const double VELOCITY_LIMIT = 50 + (8 * TRAVEL / run.length) +
                                           (3 * GRAVITY * run.length) +
                                           (1.5 * run.max_initial_speed);
-            for (const auto &soft_vertex : vertices) {
-                if (!std::isfinite(soft_vertex.mPosition.GetX()) ||
-                    !std::isfinite(soft_vertex.mPosition.GetY()) ||
-                    !std::isfinite(soft_vertex.mPosition.GetZ()) ||
-                    !std::isfinite(soft_vertex.mVelocity.GetX()) ||
-                    !std::isfinite(soft_vertex.mVelocity.GetY()) ||
-                    !std::isfinite(soft_vertex.mVelocity.GetZ()) ||
-                    std::max({
-                        std::abs(soft_vertex.mPosition.GetX()),
-                        std::abs(soft_vertex.mPosition.GetY()),
-                        std::abs(soft_vertex.mPosition.GetZ()),
-                    }) > POSITION_LIMIT ||
-                    std::max({
-                        std::abs(soft_vertex.mVelocity.GetX()),
-                        std::abs(soft_vertex.mVelocity.GetY()),
-                        std::abs(soft_vertex.mVelocity.GetZ()),
-                    }) > VELOCITY_LIMIT) {
+            const auto bounded = [](cloth::Point point, double limit) {
+                return std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z) &&
+                       std::abs(point.x) <= limit && std::abs(point.y) <= limit &&
+                       std::abs(point.z) <= limit;
+            };
+            auto &samples = run.samples[static_cast<std::size_t>(frame)];
+            for (std::size_t i = 0; i < positions.size(); ++i) {
+                const auto p = positions[i];
+                const auto v = velocities[i];
+                if (!bounded(p, POSITION_LIMIT) || !bounded(v, VELOCITY_LIMIT)) {
                     return false;
                 }
-            }
-            auto &samples = run.samples[static_cast<std::size_t>(frame)];
-            auto *sample_it = samples.begin();
-            for (const auto &vertex : vertices) {
-                auto &sample = *sample_it;
-                ++sample_it;
-                sample.position.x = vertex.mPosition.GetX();
-                sample.position.y = vertex.mPosition.GetY();
-                sample.position.z = vertex.mPosition.GetZ();
-                sample.velocity.x = vertex.mVelocity.GetX();
-                sample.velocity.y = vertex.mVelocity.GetY();
-                sample.velocity.z = vertex.mVelocity.GetZ();
+                samples[i] = {.position = {p.x, p.y, p.z}, .velocity = {v.x, v.y, v.z}};
             }
             if (run.kind == Transition::Close &&
                 run.outside_frame.load(std::memory_order_relaxed) == run.frames &&
-                outside(run, vertices)) {
+                outside(run, positions)) {
                 run.outside_frame.store(frame, std::memory_order_release);
             }
             run.recorded.store(frame + 1, std::memory_order_release);
@@ -608,174 +563,38 @@ namespace hyprimate {
             double flutter = 0;
             double phase_a = 0, phase_b = 0, freq_a = 0;
         };
-        // Invisible samples carry an effective header-column mass. The soft body follows their
-        // solved positions, but does not feed forces back: this is a reduced-coupling model of a
-        // continuous sleeve.
-        class Pocket {
-            class BroadFilter final : public JPH::ObjectVsBroadPhaseLayerFilter {
-                [[nodiscard]] bool ShouldCollide([[maybe_unused]] JPH::ObjectLayer object_layer,
-                    [[maybe_unused]] JPH::BroadPhaseLayer broad_phase_layer) const override {
-                    return false;
-                }
-            };
-
-          public:
-            explicit Pocket(
-                const Run &run, const JPH::Array<JPH::SoftBodyVertex> *current = nullptr)
-                : pairs(1), broad_phase(1, 1) {
-                using namespace JPH;
-                broad_phase.MapObjectToBroadPhaseLayer(0, BroadPhaseLayer(0));
-                system.Init(GRID, 0, 1, 1, broad_phase, object_vs_broad_phase, pairs);
-                // Signed neighbour limits prevent tunnelling or sample swapping under abrupt
-                // reversal.
-                PhysicsSettings physics = system.GetPhysicsSettings();
-                physics.mBaumgarte = 1.0F;
-                physics.mNumVelocitySteps = 64;
-                physics.mNumPositionSteps = 64;
-                system.SetPhysicsSettings(physics);
-                system.SetGravity(JPH::Vec3::sZero());
-                auto &bodies = system.GetBodyInterfaceNoLock();
-                // Shapes provide effective header masses, not rendered hardware or collision-based
-                // exclusion.
-                const RefConst<Shape> SHAPE = new BoxShape(JPH::Vec3(HALF_WIDTH, .01F, .01F), 0.0F);
-                const auto *start_point = run.start.begin();
-                const auto *speed = run.velocity.begin();
-                auto *body_id = ids.begin();
-                auto *constraint = constraints.begin();
-                auto *neighbour = neighbours.begin();
-                const auto *previous_id = ids.begin();
+        cloth::Solver make_solver(const Run &run, const SheetGrid &rest) {
+            std::array<cloth::Point, SHEET_GRID_VERTICES> positions, velocities;
+            std::array<float, SHEET_GRID_VERTICES> inverse_masses;
+            for (int j = 0; j < GRID; ++j) {
+                const float INV_MASS = Run::pinned(j) ? 0 : cloth_inverse_mass(j);
                 for (int i = 0; i < GRID; ++i) {
-                    const float POS_X =
-                        std::clamp(current != nullptr ? (*current)[i].mPosition.GetX()
-                                                      : static_cast<float>(start_point[i].x),
-                            -LIMIT,
-                            LIMIT);
-                    BodyCreationSettings creation(
-                        SHAPE, RVec3(POS_X, 0, 0), Quat::sIdentity(), EMotionType::Dynamic, 0);
-                    creation.mOverrideMassProperties = EOverrideMassProperties::CalculateInertia;
-                    creation.mMassPropertiesOverride.mMass = MASS;
-                    creation.mGravityFactor = 0;
-                    creation.mLinearDamping = 0;
-                    creation.mFriction = 0;
-                    creation.mAllowSleeping = false;
-                    creation.mMaxLinearVelocity = 8;
-                    *body_id = bodies.CreateAndAddBody(creation, EActivation::Activate);
-                    if (body_id->IsInvalid()) {
-                        return;
-                    }
-                    const float VELOCITY =
-                        current != nullptr
-                            ? (*current)[i].mVelocity.GetX()
-                            : static_cast<float>(speed[i].x * run.movement.springiness);
-                    bodies.SetLinearVelocity(*body_id, JPH::Vec3(VELOCITY, 0, 0));
-                    SliderConstraintSettings slider;
-                    slider.mPoint1 = slider.mPoint2 = RVec3(POS_X, 0, 0);
-                    slider.mLimitsMin = -LIMIT - POS_X;
-                    slider.mLimitsMax = LIMIT - POS_X;
-                    *constraint = bodies.CreateConstraint(&slider, BodyID(), *body_id);
-                    if (*constraint == nullptr) {
-                        return;
-                    }
-                    system.AddConstraint(*constraint++);
-                    if (i > 0) {
-                        SliderConstraintSettings spacing;
-                        spacing.mPoint1 =
-                            bodies.GetPosition(*previous_id) + RVec3(2 * HALF_WIDTH, 0, 0);
-                        spacing.mPoint2 = RVec3(POS_X, 0, 0);
-                        spacing.mLimitsMin = 0;
-                        spacing.mLimitsMax = 1;
-                        *neighbour = bodies.CreateConstraint(&spacing, *previous_id++, *body_id);
-                        if (*neighbour == nullptr) {
-                            return;
-                        }
-                        system.AddConstraint(*neighbour++);
-                    }
-                    ++body_id;
-                }
-                ready = true;
-            }
-            Pocket(const Pocket &) = delete;
-            Pocket &operator=(const Pocket &) = delete;
-            Pocket(Pocket &&) = delete;
-            Pocket &operator=(Pocket &&) = delete;
-
-            ~Pocket() {
-                auto &bodies = system.GetBodyInterfaceNoLock();
-                for (const auto &constraint : neighbours) {
-                    if (constraint != nullptr) {
-                        system.RemoveConstraint(constraint);
-                    }
-                }
-                for (const auto &constraint : constraints) {
-                    if (constraint != nullptr) {
-                        system.RemoveConstraint(constraint);
-                    }
-                }
-                for (const auto &body_id : ids) {
-                    if (!body_id.IsInvalid()) {
-                        bodies.RemoveBody(body_id);
-                        bodies.DestroyBody(body_id);
-                    }
+                    const auto VERTEX = index(i, j);
+                    positions[VERTEX] = to_point(run.start[VERTEX]);
+                    velocities[VERTEX] = to_point(run.velocity[VERTEX]);
+                    inverse_masses[VERTEX] = INV_MASS;
                 }
             }
+            return cloth::Solver(rest, positions, velocities, inverse_masses);
+        }
 
-            bool update(double acceleration,
-                JPH::TempAllocator &temp,
-                double rod_velocity,
-                JPH::JobSystem &jobs,
-                double quiet,
-                double springiness) {
-                const auto SPRINGINESS = static_cast<float>(springiness);
-                auto &bodies = system.GetBodyInterfaceNoLock();
-                // Reinforce the trailing end by up to 4x; blend through zero speed when stopping or
-                // reversing.
-                const float DIRECTION =
-                    static_cast<float>(std::clamp(rod_velocity / .05, -1.0, 1.0));
-                const float TRAILING = .5F * std::abs(DIRECTION);
-                int body_index = 0;
-                for (const auto &body_id : ids) {
-                    const float POS_X = bodies.GetPosition(body_id).GetX();
-                    const auto REST =
-                        static_cast<float>((static_cast<double>(body_index++) / SHEET_CELLS) - .5);
-                    const float VELOCITY = bodies.GetLinearVelocity(body_id).GetX();
-                    // A distributed lengthwise spring restores the sleeve during travel, not only
-                    // after it stops. Jolt integrates the spring force; spring damping controls the
-                    // rebound without sliding friction.
-                    const float EFFECTIVE_SPRING = SPRING * (4 - (3 * SPRINGINESS)) *
-                                                   (1 + (3 * (TRAILING - (DIRECTION * REST))));
-                    const float EFFECTIVE_DAMPING = DAMPING * std::sqrt(EFFECTIVE_SPRING / SPRING);
-                    const auto FORCE =
-                        static_cast<float>((-MASS * acceleration * SPRINGINESS) +
-                                           ((EFFECTIVE_SPRING + (quiet * 8)) * (REST - POS_X)) -
-                                           (EFFECTIVE_DAMPING * VELOCITY));
-                    bodies.AddForce(body_id, JPH::Vec3(FORCE, 0, 0));
-                }
-                return system.Update(static_cast<float>(STEP_SECONDS), 1, &temp, &jobs) ==
-                       JPH::EPhysicsUpdateError::None;
+        ClothPocket make_pocket(const Run &run,
+            std::span<const cloth::Point> positions = {},
+            std::span<const cloth::Point> velocities = {}) noexcept {
+            ClothPocket::Samples x, vx;
+            for (std::size_t i = 0; i < x.size(); ++i) {
+                x[i] = positions.empty() ? static_cast<float>(run.start[i].x) : positions[i].x;
+                vx[i] = velocities.empty()
+                            ? static_cast<float>(run.velocity[i].x * run.movement.springiness)
+                            : velocities[i].x;
             }
+            return ClothPocket{x, vx};
+        }
 
-            float position(int column) {
-                return system.GetBodyInterfaceNoLock().GetPosition(ids[column]).GetX();
-            }
-            bool valid() const {
-                return ready;
-            }
-
-          private:
-            static constexpr float MASS = 1.0F, SPRING = 48.0F, DAMPING = 4.0F;
-            static constexpr float HALF_WIDTH = .002F, LIMIT = .5F - HALF_WIDTH;
-            JPH::ObjectLayerPairFilterTable pairs;
-            JPH::BroadPhaseLayerInterfaceTable broad_phase;
-            BroadFilter object_vs_broad_phase;
-            JPH::PhysicsSystem system;
-            std::array<JPH::BodyID, GRID> ids{};
-            std::array<JPH::Ref<JPH::TwoBodyConstraint>, GRID> constraints{};
-            std::array<JPH::Ref<JPH::TwoBodyConstraint>, GRID - 1> neighbours{};
-            bool ready = false;
-        };
-
-        bool publish_movement(
-            Run &run, double time, const JPH::Array<JPH::SoftBodyVertex> &vertices) {
+        bool publish_movement(Run &run,
+            double time,
+            std::span<const cloth::Point> positions,
+            std::span<const cloth::Point> velocities) {
             const unsigned HEAD = run.output_head.load(std::memory_order_relaxed);
             if (HEAD - run.output_tail.load(std::memory_order_acquire) == Run::OUTPUT_CAPACITY) {
                 run.overflow.store(true, std::memory_order_release);
@@ -784,29 +603,27 @@ namespace hyprimate {
             auto &snapshot = run.snapshots.at(HEAD % Run::OUTPUT_CAPACITY);
             snapshot.time = time;
             snapshot.rigid_velocity = run.snapshot_rigid_velocity;
-            std::size_t vertex_index = 0;
-            auto *sample_it = snapshot.values.begin();
-            for (const auto &vertex : vertices) {
-                const auto POSITION = vertex.mPosition;
-                const auto VELOCITY = vertex.mVelocity;
+            for (std::size_t i = 0; i < positions.size(); ++i) {
+                const auto POSITION = positions[i];
+                const auto VELOCITY = velocities[i];
                 // Header vertices follow the rod directly; only the free panel uses the partial
                 // inertial rebase.
                 const auto &frame_velocity =
-                    vertex_index < GRID ? run.snapshot_rigid_velocity : run.publish_velocity;
-                if (!std::isfinite(POSITION.GetX()) || !std::isfinite(POSITION.GetY()) ||
-                    !std::isfinite(POSITION.GetZ()) || !std::isfinite(VELOCITY.GetX()) ||
-                    !std::isfinite(VELOCITY.GetY()) || !std::isfinite(VELOCITY.GetZ())) {
+                    i < GRID ? run.snapshot_rigid_velocity : run.publish_velocity;
+                if (!std::isfinite(POSITION.x) || !std::isfinite(POSITION.y) ||
+                    !std::isfinite(POSITION.z) || !std::isfinite(VELOCITY.x) ||
+                    !std::isfinite(VELOCITY.y) || !std::isfinite(VELOCITY.z)) {
                     return false;
                 }
-                auto &sample = *sample_it;
-                ++sample_it;
-                sample.position.x = POSITION.GetX();
-                sample.position.y = POSITION.GetY();
-                sample.position.z = POSITION.GetZ();
-                sample.velocity.x = static_cast<float>(VELOCITY.GetX() + frame_velocity.x);
-                sample.velocity.y = static_cast<float>(VELOCITY.GetY() + frame_velocity.y);
-                sample.velocity.z = static_cast<float>(VELOCITY.GetZ() + frame_velocity.z);
-                ++vertex_index;
+                snapshot.values[i] = {
+                    .position = {POSITION.x, POSITION.y, POSITION.z},
+                    .velocity =
+                        {
+                            static_cast<float>(VELOCITY.x + frame_velocity.x),
+                            static_cast<float>(VELOCITY.y + frame_velocity.y),
+                            static_cast<float>(VELOCITY.z + frame_velocity.z),
+                        },
+                };
             }
             run.output_head.store(HEAD + 1, std::memory_order_release);
             run.recorded.fetch_add(1, std::memory_order_release);
@@ -817,19 +634,9 @@ namespace hyprimate {
         // calls and publication ordering.
         void simulate_movement(Run &run, double phase) {
             std::optional<perf::CpuScope> setup_profile{std::in_place,
-                perf::Key{perf::Domain::Window, "cloth", "move"}, perf::Phase::Worker};
-            using namespace JPH;
-            constexpr ObjectLayer CLOTH = 0;
-            const ObjectLayerPairFilterTable PAIRS(1);
-            BroadPhaseLayerInterfaceTable broad_phase(1, 1);
-            broad_phase.MapObjectToBroadPhaseLayer(CLOTH, BroadPhaseLayer(0));
-            const ObjectVsBroadPhaseLayerFilterTable OBJECT_VS_BROAD_PHASE(
-                broad_phase, 1, PAIRS, 1);
-            TempAllocatorImpl temp(std::size_t{8} * 1024 * 1024);
-            JobSystemSingleThreaded jobs(cMaxPhysicsJobs);
-            PhysicsSystem system;
-            system.Init(1, 0, 32, 32, broad_phase, OBJECT_VS_BROAD_PHASE, PAIRS);
-            system.SetGravity(JPH::Vec3(0, static_cast<float>(-GRAVITY * run.movement.gravity), 0));
+                perf::Key{perf::Domain::Window, "cloth", "move"},
+                perf::Phase::Worker};
+            cloth::StepSettings settings{.speedCap = 20};
             const auto STOPPED = [&] { return run.stop.stop_requested(); };
             if (STOPPED()) {
                 return;
@@ -840,78 +647,15 @@ namespace hyprimate {
             for (auto &pleat : pleats) {
                 pleat = std::sin((8 * std::numbers::pi * column++ / SHEET_CELLS) + phase);
             }
-            const Ref<SoftBodySharedSettings> SETTINGS = new SoftBodySharedSettings;
-            std::size_t vertex_index = 0;
-            for (const auto REST_POSITION : REST) {
-                SETTINGS->mVertices.emplace_back(Float3(static_cast<float>(REST_POSITION.x),
-                                                     static_cast<float>(REST_POSITION.y),
-                                                     0),
-                    Float3(0, 0, 0),
-                    vertex_index < GRID
-                        ? 0.0F
-                        : cloth_inverse_mass(static_cast<int>(vertex_index / GRID)));
-                ++vertex_index;
-            }
-            for (int j = 0; j < SHEET_CELLS; ++j) {
-                for (int i = 0; i < SHEET_CELLS; ++i) {
-                    const auto TOP_LEFT = static_cast<uint32>(index(i, j));
-                    const auto TOP_RIGHT = static_cast<uint32>(index(i + 1, j));
-                    const auto BOTTOM_LEFT = static_cast<uint32>(index(i, j + 1));
-                    const auto BOTTOM_RIGHT = static_cast<uint32>(index(i + 1, j + 1));
-                    SETTINGS->AddFace(
-                        SoftBodySharedSettings::Face(TOP_LEFT, BOTTOM_LEFT, TOP_RIGHT));
-                    SETTINGS->AddFace(
-                        SoftBodySharedSettings::Face(TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT));
-                }
-            }
-            const SoftBodySharedSettings::VertexAttributes ATTRIBUTES(STRETCH_COMPLIANCE,
-                STRETCH_COMPLIANCE,
-                BEND_COMPLIANCE,
-                SoftBodySharedSettings::ELRAType::GeodesicDistance);
-            SETTINGS->CreateConstraints(
-                &ATTRIBUTES, 1, SoftBodySharedSettings::EBendType::Dihedral);
-            SETTINGS->Optimize();
-            if (STOPPED()) {
-                return;
-            }
-            SoftBodyCreationSettings creation(SETTINGS, RVec3::sZero(), Quat::sIdentity(), CLOTH);
-            creation.mUpdatePosition = false;
-            creation.mAllowSleeping = false;
-            creation.mNumIterations = 8;
-            creation.mLinearDamping = 2;
-            creation.mMaxLinearVelocity = 20;
-            auto &bodies = system.GetBodyInterfaceNoLock();
-            const BodyID BODY_ID = bodies.CreateAndAddSoftBody(creation, EActivation::Activate);
-            if (BODY_ID.IsInvalid()) {
-                return;
-            }
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): CreateAndAddSoftBody
-            // guarantees soft-body motion; Jolt has no typed accessor.
-            auto *motion = static_cast<SoftBodyMotionProperties *>(
-                system.GetBodyLockInterfaceNoLock().TryGetBody(BODY_ID)->GetMotionProperties());
-            auto &vertices = motion->GetVertices();
-            auto *vertex = vertices.begin();
-            const auto *velocity = run.velocity.begin();
-            for (const auto POSITION : run.start) {
-                const auto VELOCITY = *velocity++;
-                vertex->mPosition = JPH::Vec3(static_cast<float>(POSITION.x),
-                    static_cast<float>(POSITION.y),
-                    static_cast<float>(POSITION.z));
-                vertex++->mVelocity = JPH::Vec3(static_cast<float>(VELOCITY.x),
-                    static_cast<float>(VELOCITY.y),
-                    static_cast<float>(VELOCITY.z));
-            }
-            std::optional<Pocket> pocket;
+            auto solver = make_solver(run, REST);
+            const auto positions = solver.positions();
+            const auto velocities = solver.velocities();
+            std::optional<ClothPocket> pocket;
             if (run.movement.springiness > 0) {
-                pocket.emplace(run);
+                pocket.emplace(make_pocket(run));
             }
-            if (pocket && !pocket->valid()) {
-                bodies.RemoveBody(BODY_ID);
-                bodies.DestroyBody(BODY_ID);
-                return;
-            }
-            bool good = publish_movement(run, -STEP_SECONDS, vertices) &&
-                        publish_movement(run, 0, vertices);
+            bool good = publish_movement(run, -STEP_SECONDS, positions, velocities) &&
+                        publish_movement(run, 0, positions, velocities);
             Run::Target previous{.time = 0, .box = run.window};
             Box box = run.window;
             double time = 0;
@@ -935,12 +679,9 @@ namespace hyprimate {
                     {perf::Domain::Window, "cloth", "move"}, perf::Phase::Worker};
                 run.input_tail.store(TAIL + 1, std::memory_order_release);
                 const ClothMovementParams &movement = TARGET.movement;
-                system.SetGravity(JPH::Vec3(0, static_cast<float>(-GRAVITY * movement.gravity), 0));
+                settings.gravity = static_cast<float>(-GRAVITY * movement.gravity);
                 if (!pocket && movement.springiness > 0) {
-                    pocket.emplace(run, &vertices);
-                    if (!pocket->valid()) {
-                        break;
-                    }
+                    pocket.emplace(make_pocket(run, positions, velocities));
                 }
                 while (time + STEP_SECONDS <= TARGET.time + 1e-10 && good && !STOPPED()) {
                     const double NEXT_TIME = time + STEP_SECONDS;
@@ -979,55 +720,50 @@ namespace hyprimate {
                         GAIN * (ROD_VELOCITY - previous_rod_velocity) / STEP_SECONDS;
                     previous_rod_velocity = ROD_VELOCITY;
                     if (pocket &&
-                        !pocket->update(
-                            ACCELERATION, temp, ROD_VELOCITY, jobs, SETTLE, movement.springiness)) {
+                        !pocket->update(ACCELERATION, ROD_VELOCITY, SETTLE, movement.springiness)) {
                         good = false;
                         break;
                     }
-                    const double LENGTH_SCALE = std::sqrt(NEXT.w * NEXT.h);
-                    motion->SetLinearDamping(static_cast<float>(2 + (9 * SETTLE)));
+                    const double OLD_DEPTH = std::sqrt(box.w * box.h);
+                    const double NEW_DEPTH = std::sqrt(NEXT.w * NEXT.h);
+                    settings.damping = static_cast<float>(2 + (9 * SETTLE));
                     const double GUST = std::sin(phase + (NEXT_TIME * 7));
-                    auto *movement_vertex = vertices.begin();
                     const auto *rest_position = REST.begin();
                     const auto *start_position = run.start.begin();
                     for (int j = 0; j < GRID; ++j) {
+                        const double DOWN = static_cast<double>(j) / SHEET_CELLS;
+                        const double RESPONSE = cloth_inverse_mass(j) / CLOTH_INV_MASS;
+                        const double SPRING = 4 + (30 * (1 - DOWN) * (1 - DOWN)) + (120 * SETTLE);
                         const auto *pleat = pleats.begin();
                         for (int i = 0; i < GRID; ++i) {
-                            auto &vertex = *movement_vertex;
-                            ++movement_vertex;
-                            auto position = vertex.mPosition;
+                            const auto VERTEX = index(i, j);
+                            auto &position = positions[VERTEX];
+                            auto &velocity = velocities[VERTEX];
                             if (j != 0) {
-                                position = JPH::Vec3(
+                                position = {
                                     static_cast<float>(
-                                        (box.x + (box.w / 2) + (position.GetX() * box.w) - NEXT.x -
+                                        (box.x + (box.w / 2) + (position.x * box.w) - NEXT.x -
                                             (NEXT.w / 2) + ((1 - GAIN) * DELTA_X)) /
                                         NEXT.w),
                                     static_cast<float>(
-                                        ((GAIN * DELTA_Y) + (position.GetY() * box.h)) / NEXT.h),
-                                    static_cast<float>(
-                                        position.GetZ() * std::sqrt(box.w * box.h) / LENGTH_SCALE));
+                                        ((GAIN * DELTA_Y) + (position.y * box.h)) / NEXT.h),
+                                    static_cast<float>(position.z * OLD_DEPTH / NEW_DEPTH),
+                                };
                             }
-                            auto velocity = vertex.mVelocity;
-                            velocity =
-                                JPH::Vec3(static_cast<float>(velocity.GetX() * box.w / NEXT.w),
-                                    static_cast<float>(velocity.GetY() * box.h / NEXT.h),
-                                    static_cast<float>(
-                                        velocity.GetZ() * std::sqrt(box.w * box.h) / LENGTH_SCALE));
+                            velocity = {
+                                static_cast<float>(velocity.x * box.w / NEXT.w),
+                                static_cast<float>(velocity.y * box.h / NEXT.h),
+                                static_cast<float>(velocity.z * OLD_DEPTH / NEW_DEPTH),
+                            };
                             const auto REST_POS = *rest_position++;
                             const Vec3 OLD_OFFSET = sub(*start_position++, REST_POS);
-                            const JPH::Vec3 DESIRED(
-                                static_cast<float>(REST_POS.x + (OLD_OFFSET.x * INHERITED)),
-                                static_cast<float>(REST_POS.y + (OLD_OFFSET.y * INHERITED)),
-                                static_cast<float>(OLD_OFFSET.z * INHERITED));
-                            if (j == 0) {
-                                const float POS_X = pocket ? pocket->position(i) : DESIRED.GetX();
-                                velocity = (JPH::Vec3(POS_X, 0, 0) - position) /
-                                           static_cast<float>(STEP_SECONDS);
+                            const auto DESIRED =
+                                to_point(add(REST_POS, mul(OLD_OFFSET, INHERITED)));
+                            if (Run::pinned(j)) {
+                                const float POS_X = pocket ? pocket->position(i) : DESIRED.x;
+                                velocity =
+                                    (cloth::Point{POS_X, 0, 0} - position) / cloth::Solver::kTick;
                             } else {
-                                const double DOWN = static_cast<double>(j) / SHEET_CELLS;
-                                const double RESPONSE = vertex.mInvMass / CLOTH_INV_MASS;
-                                const double SPRING =
-                                    4 + (30 * (1 - DOWN) * (1 - DOWN)) + (120 * SETTLE);
                                 velocity += (DESIRED - position) *
                                             static_cast<float>(SPRING * RESPONSE * STEP_SECONDS);
                                 const double DRIVE = std::min(SPEED, 3.0) * movement.strength;
@@ -1036,40 +772,28 @@ namespace hyprimate {
                                 const double PRESSURE = *pleat *
                                                         (16 + (8 * movement.flutter * GUST)) *
                                                         (.3 + (.7 * DOWN));
-                                velocity += JPH::Vec3(0,
-                                    0,
-                                    static_cast<float>(RESPONSE * DRIVE * PRESSURE * STEP_SECONDS));
+                                velocity.z +=
+                                    static_cast<float>(RESPONSE * DRIVE * PRESSURE * STEP_SECONDS);
                             }
-                            vertex.mPosition = position;
-                            vertex.mVelocity = velocity;
                             ++pleat;
                         }
                     }
-                    if (system.Update(static_cast<float>(STEP_SECONDS), 1, &temp, &jobs) !=
-                        EPhysicsUpdateError::None) {
-                        good = false;
-                        break;
-                    }
-                    // Keep Jolt's solved pose and velocity together. Clamping vertices back toward
-                    // the flat panel breaks its constraints and clips inertial upward folds.
+                    solver.step(settings);
+                    // Preserve the solved pose and velocity together to retain upward folds.
                     box = NEXT;
                     time = NEXT_TIME;
-                    good = publish_movement(run, time, vertices);
+                    good = publish_movement(run, time, positions, velocities);
                 }
                 previous = TARGET;
             }
-            bodies.RemoveBody(BODY_ID);
-            bodies.DestroyBody(BODY_ID);
         }
 
         // NOLINTNEXTLINE(readability-function-cognitive-complexity): Splitting risks per-vertex
         // calls and neighbor update ordering.
         void simulate(Run &run, const SimInput &input) {
-            const perf::Key KEY{perf::Domain::Window, "cloth",
-                run.kind == Transition::Close ? "close" : "open"};
-            std::optional<perf::CpuScope> setup_profile{
-                std::in_place, KEY, perf::Phase::Worker};
-            using namespace JPH;
+            const perf::Key KEY{
+                perf::Domain::Window, "cloth", run.kind == Transition::Close ? "close" : "open"};
+            std::optional<perf::CpuScope> setup_profile{std::in_place, KEY, perf::Phase::Worker};
             const auto STOPPED = [&] { return run.stop.stop_requested(); };
             const auto WAIT_PUBLICATION = [&] {
                 while (s_pause.load(std::memory_order_acquire) &&
@@ -1089,50 +813,36 @@ namespace hyprimate {
             if (setup_profile->session() != 0) {
                 perf::resource_sample(KEY,
                     sizeof(Run) + static_cast<std::uint64_t>(run.frames) * sizeof(Run::Frame),
-                    0, setup_profile->session());
+                    0,
+                    setup_profile->session());
             }
-            constexpr ObjectLayer STATIC = 0;
-            constexpr ObjectLayer CLOTH = 1;
-            constexpr ObjectLayer LAYERS = 2;
-            ObjectLayerPairFilterTable pairs(LAYERS);
-            pairs.EnableCollision(STATIC, CLOTH);
-            BroadPhaseLayerInterfaceTable broad_phase(LAYERS, 2);
-            broad_phase.MapObjectToBroadPhaseLayer(STATIC, BroadPhaseLayer(0));
-            broad_phase.MapObjectToBroadPhaseLayer(CLOTH, BroadPhaseLayer(1));
-            const ObjectVsBroadPhaseLayerFilterTable OBJECT_VS_BROAD_PHASE(
-                broad_phase, 2, pairs, LAYERS);
-            TempAllocatorImpl temp(std::size_t{8} * 1024 * 1024);
-            JobSystemSingleThreaded jobs(cMaxPhysicsJobs);
-            PhysicsSystem system;
             if (STOPPED()) {
                 return;
             }
-            system.Init(
-                MAX_OBSTACLES + 4, 0, 1024, 1024, broad_phase, OBJECT_VS_BROAD_PHASE, pairs);
-            system.SetGravity(JPH::Vec3(0, static_cast<float>(-GRAVITY), 0));
-            BodyInterface &bodies = system.GetBodyInterfaceNoLock();
-            const auto ADD_BOX = [&](JPH::Vec3 half, JPH::Vec3 centre) {
-                bodies.CreateAndAddBody(BodyCreationSettings(new BoxShape(half, 0.0F),
-                                            RVec3(centre),
-                                            Quat::sIdentity(),
-                                            EMotionType::Static,
-                                            STATIC),
-                    EActivation::DontActivate);
+            std::array<cloth::Obstacle, MAX_OBSTACLES> boxes;
+            for (std::size_t i = 0; i < input.obstacles.size(); ++i) {
+                const auto &obstacle = input.obstacles[i];
+                boxes[i] = {
+                    to_point(
+                        {obstacle.x + (obstacle.w / 2), obstacle.y + (obstacle.h / 2), -.485F}),
+                    to_point({obstacle.w / 2, obstacle.h / 2, .515F})};
+            }
+            cloth::StepSettings settings{
+                .gravity = static_cast<float>(-GRAVITY),
+                .damping = 1.5F,
+                .speedCap = static_cast<float>(std::max(500.0,
+                    (1.5 * run.max_initial_speed) +
+                        (8 * std::hypot(run.travel.x, run.travel.y) / run.length))),
+                .boxes = std::span(boxes).first(input.obstacles.size()),
+                // The initially flat sheet must not start embedded by its radius.
+                .backing = {{0, 0, 1}, 1.F + static_cast<float>(-1 - (2 * RADIUS))},
+                .radius = static_cast<float>(RADIUS),
+                .friction = std::sqrt(0.3F * 0.2F),
             };
-            ADD_BOX(JPH::Vec3(100, 100, 1), JPH::Vec3(0, 0, static_cast<float>(-1 - (2 * RADIUS))));
-            for (const Box &obstacle : input.obstacles) {
-                ADD_BOX(JPH::Vec3(static_cast<float>(obstacle.w / 2),
-                            static_cast<float>(obstacle.h / 2),
-                            0.515F),
-                    JPH::Vec3(static_cast<float>(obstacle.x + (obstacle.w / 2)),
-                        static_cast<float>(obstacle.y + (obstacle.h / 2)),
-                        -0.485F));
-            }
-            if (STOPPED()) {
-                return;
-            }
-            const Ref<SoftBodySharedSettings> SETTINGS = new SoftBodySharedSettings;
             const SheetGrid REST = rest_grid();
+            auto solver = make_solver(run, REST);
+            const auto positions = solver.positions();
+            const auto velocities = solver.velocities();
             std::array<double, GRID> gust_columns{};
             if (input.flutter > 0) {
                 int column = 0;
@@ -1141,138 +851,62 @@ namespace hyprimate {
                         std::sin((8 * std::numbers::pi * column++ / SHEET_CELLS) + input.phase_a);
                 }
             }
-            // Keep the wall behind the exact display plane: a flat, fully free sheet must not start
-            // embedded by its radius.
-            const auto *rest_position = REST.begin();
-            for (int j = 0; j < GRID; ++j) {
-                for (int i = 0; i < GRID; ++i) {
-                    const Vec3 &rest_point = *rest_position++;
-                    SETTINGS->mVertices.emplace_back(Float3(static_cast<float>(rest_point.x),
-                                                         static_cast<float>(rest_point.y),
-                                                         static_cast<float>(rest_point.z)),
-                        Float3(0, 0, 0),
-                        Run::pinned(j) ? 0.0F : cloth_inverse_mass(j));
-                }
-            }
-            for (int j = 0; j < SHEET_CELLS; ++j) {
-                for (int i = 0; i < SHEET_CELLS; ++i) {
-                    const auto TOP_LEFT = static_cast<uint32>(index(i, j));
-                    const auto TOP_RIGHT = static_cast<uint32>(index(i + 1, j));
-                    const auto BOTTOM_LEFT = static_cast<uint32>(index(i, j + 1));
-                    const auto BOTTOM_RIGHT = static_cast<uint32>(index(i + 1, j + 1));
-                    SETTINGS->AddFace(
-                        SoftBodySharedSettings::Face(TOP_LEFT, BOTTOM_LEFT, TOP_RIGHT));
-                    SETTINGS->AddFace(
-                        SoftBodySharedSettings::Face(TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT));
-                }
-            }
-            const SoftBodySharedSettings::VertexAttributes ATTRIBUTES(STRETCH_COMPLIANCE,
-                STRETCH_COMPLIANCE,
-                BEND_COMPLIANCE,
-                SoftBodySharedSettings::ELRAType::GeodesicDistance);
-            SETTINGS->CreateConstraints(
-                &ATTRIBUTES, 1, SoftBodySharedSettings::EBendType::Dihedral);
-            SETTINGS->Optimize();
             if (STOPPED()) {
                 return;
-            }
-            SoftBodyCreationSettings creation(SETTINGS, RVec3::sZero(), Quat::sIdentity(), CLOTH);
-            creation.mUpdatePosition = false;
-            creation.mAllowSleeping = false;
-            creation.mNumIterations = 8;
-            creation.mVertexRadius = static_cast<float>(RADIUS);
-            creation.mLinearDamping = 1.5F;
-            creation.mFriction = 0.3F;
-            creation.mMaxLinearVelocity = static_cast<float>(std::max(500.0,
-                (1.5 * run.max_initial_speed) +
-                    (8 * std::hypot(run.travel.x, run.travel.y) / run.length)));
-            creation.mFacesDoubleSided = true;
-            const BodyID BODY_ID = bodies.CreateAndAddSoftBody(creation, EActivation::Activate);
-            if (BODY_ID.IsInvalid()) {
-                return;
-            }
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): CreateAndAddSoftBody
-            // guarantees soft-body motion; Jolt has no typed accessor.
-            auto *motion = static_cast<SoftBodyMotionProperties *>(
-                system.GetBodyLockInterfaceNoLock().TryGetBody(BODY_ID)->GetMotionProperties());
-            auto &vertices = motion->GetVertices();
-            auto *vertex = vertices.begin();
-            const auto *velocity = run.velocity.begin();
-            for (const auto POSITION : run.start) {
-                const auto VELOCITY = *velocity++;
-                vertex->mPosition = JPH::Vec3(static_cast<float>(POSITION.x),
-                    static_cast<float>(POSITION.y),
-                    static_cast<float>(POSITION.z));
-                vertex++->mVelocity = JPH::Vec3(static_cast<float>(VELOCITY.x),
-                    static_cast<float>(VELOCITY.y),
-                    static_cast<float>(VELOCITY.z));
             }
             setup_profile.reset();
             if (run.kind == Transition::Open) {
                 // A level, gathered sleeve compresses the first material rows. Relax that sewn
-                // pocket with Jolt on the worker before publishing frame zero, instead of
-                // displaying its initial constraint correction.
-                motion->SetLinearDamping(8);
+                // pocket on the worker before publishing frame zero, instead of displaying its
+                // initial constraint correction.
+                settings.damping = 8;
                 for (int step = 0; step < 24; ++step) {
                     const perf::CpuScope PROFILE{
                         {perf::Domain::Window, "cloth", "open"}, perf::Phase::Worker};
-                    if (!WAIT_PUBLICATION() ||
-                        system.Update(static_cast<float>(STEP_SECONDS), 1, &temp, &jobs) !=
-                            EPhysicsUpdateError::None) {
-                        bodies.RemoveBody(BODY_ID);
-                        bodies.DestroyBody(BODY_ID);
+                    if (!WAIT_PUBLICATION()) {
                         return;
                     }
+                    solver.step(settings);
                 }
-                for (auto &vertex : vertices) {
-                    vertex.mVelocity = JPH::Vec3::sZero();
-                }
-                motion->SetLinearDamping(1.5F);
+                std::ranges::fill(velocities, cloth::Point{});
+                settings.damping = 1.5F;
             }
             setup_profile.emplace(KEY, perf::Phase::Worker);
-            std::optional<Pocket> pocket;
+            std::optional<ClothPocket> pocket;
             if (run.kind == Transition::Close && run.movement.springiness > 0) {
-                pocket.emplace(run);
-                if (!pocket->valid()) {
-                    bodies.RemoveBody(BODY_ID);
-                    bodies.DestroyBody(BODY_ID);
-                    return;
-                }
+                pocket.emplace(make_pocket(run));
             }
-            if (!record(run, 0, vertices)) {
-                bodies.RemoveBody(BODY_ID);
-                bodies.DestroyBody(BODY_ID);
+            if (!record(run, 0, positions, velocities)) {
                 return;
             }
             const auto OPEN_AIR_DRAG_FACTOR =
                 static_cast<float>(1 - std::exp(-OPEN_AIR_DRAG * STEP_SECONDS));
             setup_profile.reset();
             for (int step = 1; step < run.frames && WAIT_PUBLICATION(); ++step) {
-                const perf::CpuScope PROFILE{{perf::Domain::Window, "cloth",
-                    run.kind == Transition::Close ? "close" : "open"}, perf::Phase::Worker};
+                const perf::CpuScope PROFILE{{perf::Domain::Window,
+                                                 "cloth",
+                                                 run.kind == Transition::Close ? "close" : "open"},
+                    perf::Phase::Worker};
                 const double TIME = (step - 1) * STEP_SECONDS;
                 if (pocket) {
                     const double PROGRESS =
                         std::clamp((TIME + STEP_SECONDS) / run.length, 0.0, 1.0);
                     const double ROD_VELOCITY = run.travel.x * 30 * PROGRESS * PROGRESS *
                                                 (1 - PROGRESS) * (1 - PROGRESS) / run.length;
-                    if (!pocket->update(0, temp, ROD_VELOCITY, jobs, 0, run.movement.springiness)) {
+                    if (!pocket->update(0, ROD_VELOCITY, 0, run.movement.springiness)) {
                         break;
                     }
                 }
                 if (run.kind == Transition::Open) {
-                    motion->SetLinearDamping(
-                        static_cast<float>(1.5 + (8 * smoothstep(0.65, 0.95, TIME / run.length))));
+                    settings.damping =
+                        static_cast<float>(1.5 + (8 * smoothstep(0.65, 0.95, TIME / run.length)));
                 }
                 const double HEADER_SPREAD =
                     run.kind == Transition::Open
                         ? smoothstep(0, .72, (TIME + STEP_SECONDS) / run.length)
                         : 0;
-                // Jolt initializes this fixed-size vertex array from the 57-by-57 rest grid.
-                using Vertex = std::remove_reference_t<decltype(*vertices.begin())>;
-                const std::mdspan<Vertex, std::extents<std::size_t, GRID, GRID>> VERTEX_GRID{
-                    &*vertices.begin()};
-                auto *step_vertex = vertices.begin();
+                const std::mdspan<const cloth::Point, std::extents<std::size_t, GRID, GRID>>
+                    GRID_POS{positions.data()};
                 const auto *step_start = run.start.begin();
                 const auto *step_rest = REST.begin();
                 for (int j = 0; j < GRID; ++j) {
@@ -1283,8 +917,8 @@ namespace hyprimate {
                             : 0;
                     const auto *gust = gust_columns.begin();
                     for (int i = 0; i < GRID; ++i) {
-                        auto &vertex = *step_vertex;
-                        ++step_vertex;
+                        const auto VERTEX = index(i, j);
+                        auto &velocity = velocities[VERTEX];
                         const Vec3 &start = *step_start++;
                         const Vec3 &rest = *step_rest++;
                         if (Run::pinned(j)) {
@@ -1307,46 +941,41 @@ namespace hyprimate {
                                             (run.velocity.front().y * INHERITED_TIME);
                                 target.z = 0;
                             }
-                            const JPH::Vec3 TARGET_POS(static_cast<float>(target.x),
-                                static_cast<float>(target.y),
-                                static_cast<float>(target.z));
-                            vertex.mVelocity =
-                                (TARGET_POS - vertex.mPosition) / static_cast<float>(STEP_SECONDS);
+                            velocity =
+                                (to_point(target) - positions[VERTEX]) / cloth::Solver::kTick;
                         } else if (run.kind == Transition::Open || input.flutter > 0) {
                             const auto VERTEX_AT = [&](int column, int row) {
-                                return VERTEX_GRID[row, column].mPosition;
+                                return GRID_POS[row, column];
                             };
                             const auto TANGENT_X = VERTEX_AT(std::min(i + 1, SHEET_CELLS), j) -
                                                    VERTEX_AT(std::max(i - 1, 0), j);
                             const auto TANGENT_Y = VERTEX_AT(i, std::min(j + 1, SHEET_CELLS)) -
                                                    VERTEX_AT(i, std::max(j - 1, 0));
-                            const auto NORMAL =
-                                TANGENT_X.Cross(TANGENT_Y).NormalizedOr(JPH::Vec3::sAxisZ());
+                            const auto CROSS = cloth::cross(TANGENT_X, TANGENT_Y);
+                            const float LENGTH_SQUARED = cloth::lengthSquared(CROSS);
+                            const auto NORMAL = LENGTH_SQUARED > 0
+                                                    ? CROSS / std::sqrt(LENGTH_SQUARED)
+                                                    : cloth::Point{0, 0, 1};
                             if (run.kind == Transition::Open) {
-                                vertex.mVelocity -=
-                                    NORMAL * (vertex.mVelocity.Dot(NORMAL) * OPEN_AIR_DRAG_FACTOR);
+                                velocity -=
+                                    NORMAL * (cloth::dot(velocity, NORMAL) * OPEN_AIR_DRAG_FACTOR);
                             }
                             if (input.flutter > 0) {
                                 const double WAVE = *gust * ROW_GUST;
-                                vertex.mVelocity +=
-                                    NORMAL * static_cast<float>(5 * input.flutter * WAVE *
-                                                                STEP_SECONDS * NORMAL.GetZ() *
-                                                                (vertex.mInvMass / CLOTH_INV_MASS));
+                                velocity += NORMAL *
+                                            static_cast<float>(
+                                                5 * input.flutter * WAVE * STEP_SECONDS * NORMAL.z *
+                                                (cloth_inverse_mass(j) / CLOTH_INV_MASS));
                             }
                         }
                         ++gust;
                     }
                 }
-                if (system.Update(static_cast<float>(STEP_SECONDS), 1, &temp, &jobs) !=
-                    EPhysicsUpdateError::None) {
-                    break;
-                }
-                if (!record(run, step, vertices)) {
+                solver.step(settings);
+                if (!record(run, step, positions, velocities)) {
                     break;
                 }
             }
-            bodies.RemoveBody(BODY_ID);
-            bodies.DestroyBody(BODY_ID);
         }
     }  // namespace
 
@@ -1356,22 +985,7 @@ namespace hyprimate {
             ++s_physics_owners;
             return;
         }
-        auto registry = std::make_unique<Registry>();
-        JPH::RegisterDefaultAllocator();
-        JPH::Trace = silent_trace;
-        auto factory = std::make_unique<JPH::Factory>();
-        JPH::Factory::sInstance = factory.get();
-        try {
-            JPH::RegisterTypes();
-        } catch (...) {
-            JPH::UnregisterTypes();
-            JPH::Factory::sInstance = nullptr;
-            throw;
-        }
-        // NOLINTNEXTLINE(cppcoreguidelines-owning-memory): Jolt's singleton survives until the last
-        // owner shuts down.
-        (void)factory.release();
-        s_registry = std::move(registry);
+        s_registry = std::make_unique<Registry>();
         s_physics_owners = 1;
     }
     ClothPhysics::~ClothPhysics() {
@@ -1381,11 +995,6 @@ namespace hyprimate {
         }
         s_registry.reset();
         s_pause.store(false, std::memory_order_release);
-        JPH::UnregisterTypes();
-        // NOLINTNEXTLINE(cppcoreguidelines-owning-memory): Jolt's singleton is deleted after
-        // workers join and types unregister.
-        delete JPH::Factory::sInstance;
-        JPH::Factory::sInstance = nullptr;
     }
     void ClothPhysics::pause_workers_for_testing(bool pause, int after_snapshots_count) noexcept {
         s_pause_after.store(std::max(0, after_snapshots_count), std::memory_order_relaxed);

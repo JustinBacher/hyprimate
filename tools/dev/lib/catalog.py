@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from .common import ROOT, tool_path, tool_version
+from .common import tool_path, tool_version
 
 # name -> (executable, version args, install hint)
 TOOLS: dict[str, tuple[str, tuple[str, ...], str]] = {
@@ -80,9 +80,5 @@ def system_checks() -> list[dict]:
     checks.append({"check": "hyprland-dev-headers", "value": pkg.stdout.strip() or None,
                    "note": "pkg-config hyprland (needed to configure the project at all)",
                    "found": pkg.returncode == 0})
-    jolt = ROOT / "build" / "_deps" / "joltphysics-src" / "Build" / "CMakeLists.txt"
-    checks.append({"check": "jolt-source-cache", "value": str(jolt.parent.parent) if jolt.exists() else None,
-                   "found": jolt.exists(),
-                   "note": "optional: reused to avoid re-downloading Jolt; otherwise CMake fetches the pinned tarball"})
     checks.append({"check": "cpus", "value": os.cpu_count(), "note": ""})
     return checks

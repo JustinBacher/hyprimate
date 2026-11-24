@@ -93,7 +93,7 @@ new violations fail while existing ones are listed.
 * **cppcheck**: `tools/check_unused.sh` unchanged. Findings of `missingIncludeSystem`/`checkersReport` are configuration
   noise and excluded from the baseline.
 * **scan-build** (Clang Static Analyzer): `analyze --only scan-build`. The build tree is configured under scan-build's
-  compiler wrappers (the real flags), analyzes `hyprimate-core` and `hyprimate` from a clean state, excludes Jolt, and
+  compiler wrappers (the real flags), analyzes `hyprimate-core` and `hyprimate` from a clean state, and
   writes HTML to `build/dev/reports/scan-build-html/`. `clang-analyzer-*` is also part of the clang-tidy policy, so
   scan-build mostly adds path-sensitive depth; expect overlap and treat it as advisory.
 * **include-what-you-use**: `analyze --only iwyu` runs `iwyu_tool.py` on the compilation database and writes
@@ -119,7 +119,7 @@ in the JSON, plus machine metadata (CPU, governor, load) and noise warnings.
 What they are not: these are CPU-side model costs of the Hyprland-independent code, in a tight loop with warm caches.
 They are not frame times, not compositor performance, and say nothing about GPU work. `cloth.record_open` measures a
 worker-thread simulation as wall time and is always reported `inconclusive` in comparisons. Allocation counts cover C++
-`operator new` only (Jolt's allocator and `malloc` callers need heaptrack).
+`operator new` only (use heaptrack for direct `malloc` callers).
 `cloth.unshaded_mesh` isolates construction of the unlit vertex buffer from a fixed projected sheet. It does not include recording, depth sorting or GPU submission.
 
 Comparing: `bench run --name before`, change code, `bench run --name after`, then
@@ -127,6 +127,10 @@ Comparing: `bench run --name before`, change code, `bench run --name after`, the
 `regression` need a median change ≥ 3% (`--threshold`), Mann-Whitney p < 0.01 and sample noise (coefficient of variation) ≤ 10% (`--noise-cv`); a large but unsupported shift is
 `inconclusive`; otherwise `no-measurable-change`. Use a quiet machine (governor `performance`, low load); `dev.py` warns
 when it is not. Interleave rather than run sequentially if you suspect drift: `compare-codegen --run-bench` does.
+
+The [cloth replay](../../src/window/cloth/tests/ClothReplay.md) compares displayed motion,
+contact response and handoff continuity against frozen reference traces. It is separate
+from both the model throughput benchmark and the live compositor profiler.
 
 ## Live per-style profiling
 
@@ -227,7 +231,7 @@ here and has no performance evidence either way; scenario `geometry.edge_resolve
 
 `coverage` builds with `-fprofile-instr-generate -fcoverage-mapping` (clang), runs every test executable with
 per-process profile files, merges them, and writes `build/dev/reports/coverage/` (`summary.txt`, `summary.json`,
-`coverage.lcov`, `html/`). Excluded: Jolt and other `_deps`, system headers, generated headers, test sources. No
+`coverage.lcov`, `html/`). Excluded: `_deps`, system headers, generated headers, test sources. No
 threshold is enforced; `--update-baseline` records an informational baseline and later runs print the delta. Limits:
 source-based coverage of `src/` only as reached by the standalone tests; plugin glue is absent; branch coverage counts
 compiler-visible branches including template instantiations, so figures are not comparable with gcov.
@@ -237,7 +241,6 @@ compiler-visible branches including template instantiations, so figures are not 
 * `tool error: required tool not found`: run `doctor --for COMMAND` and install the named package.
 * `cmake configure failed`: `pkg-config hyprland` must resolve (the root project requires it); see
   `build/dev/logs/configure-*.log`.
-* Jolt: reused from `build/_deps/joltphysics-src`, else downloaded once (hash pinned) to `build/dev/_jolt-src`.
 * ASan false positives from Mesa/EGL in the material tests: rerun with `--exclude material` and report the library, do not
   suppress project findings.
 * Benchmarks noisy: set the CPU governor to `performance`, close other workloads, raise `--samples`.

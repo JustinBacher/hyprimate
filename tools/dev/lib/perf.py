@@ -101,8 +101,8 @@ def cmd_memory_profile(args) -> int:
         print(f"{row['scenario']:<26} {row['allocations_per_run']:>8} allocs  {row['bytes_per_run'] / 1024:>10.1f} KiB  "
               f"{row['allocations_per_frame']:>8.2f}/frame")
     report.add("allocation-counters", "pass", rows=rows, file=str(counters_json.relative_to(ROOT)),
-               summary="exact operator new counts per scripted workload (C++ allocations only; Jolt's own allocator "
-                       "and malloc() callers are not counted, use heaptrack for those)")
+               summary="exact operator new counts per scripted workload (C++ allocations only; "
+                       "use heaptrack for direct malloc() callers)")
     if tool_path("heaptrack") is None or tool_path("heaptrack_print") is None:
         report.add("heaptrack", "unavailable", summary="heaptrack not installed; allocation counters above are the fallback")
         return report.write(require_tools=args.require_all)
