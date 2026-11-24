@@ -57,9 +57,126 @@ initialized instance per output. `wallpaper.effect_duration = 0` runs
 continuously while visible; a positive duration in milliseconds holds the last
 frame without scheduling more redraws. The pass renders over native background
 content and below bottom layers and windows. Alpha reveals the native background.
-The shader never receives desktop pixels: both samplers see transparent black.
-Authorized workspace captures can replay the last completed wallpaper state
-without advancing it. No Niri integration is included.
+The window/endpoint samplers are still transparent black on wallpaper; the
+explicit environment resources below are separate. Authorized workspace
+captures can replay procedural wallpapers without advancing them. No Niri
+integration is included.
+
+## Original and reactive wallpaper
+
+Version 1 packages opt in with an optional `environment` object. Window
+effects can use just `{"environment":{"original":true}}`. A reactive
+wallpaper does not require any Hyprimate window effect to be enabled:
+
+```lua
+hl.config({plugin={hyprimate={wallpaper={
+    source_namespace="my-wallpaper", -- exact layer-shell BACKGROUND namespace
+    effect="/absolute/path/to/reactive-water/effect.json",
+    effect_duration=1,              -- positive selects reactive finite mode
+}}}})
+```
+
+An empty `source_namespace` permits only the unobscured stock Hyprland image.
+An explicit namespace permits one eligible, opaque, output-covering
+BACKGROUND root in standard SDR. The host texture must be a normal 2D image
+created from copied/synchronous content, not a leased DMA-BUF. Its current
+identity, placement and privacy rule are checked when sampled. Popup or
+subsurface trees, another BACKGROUND root or fadeout, private layers, custom
+color transforms, and unsupported buffer or viewport geometry are declined.
+Bottom, top and overlay layers are never inputs. The plugin does not read or
+publish the composed desktop, and never makes a screenshot to get wallpaper.
+When original is unavailable a source-aware wallpaper leaves native rendering
+alone. Window helper lookups return transparent black and availability is false.
+For an accepted native texture, `textureSize(hypr_wallpaper_original, 0)`
+reports its physical texel dimensions. The UV affine accounts for the host's
+stock image crop.
+When a root or its lease is replaced, the simulation restarts. A producer
+that paints new pixels into the same accepted SHM texture simply changes the
+next sample; it does not reset the simulation on every repaint.
+
+| `environment` key | Allowed on | Contract |
+| --- | --- | --- |
+| `original` | Window, wallpaper | Read-only original wallpaper and its UV affine |
+| `processed` | Window | Read-only result explicitly published by the current wallpaper |
+| `interactions`, `settle_ms` | Wallpaper | Bounded window interaction batch; positive 1–60000 ms idle tail |
+| `publish` | Wallpaper | Render the shader image into a private output-sized texture and composite it natively; write the complete processed image if consumers expect it |
+| `channel`, `state` | Wallpaper | Named channel and optional readable state (e.g. `"height.read"`); only a mutable persistent texture produced in update can be exported |
+| `channel`, `sample_state` | Window | Read the currently committed output state on the matching channel |
+| `channel`, `emit` | Window | Export a persistent update-produced 1×1 RGBA8 texture; all four normalized channels are defined by the pair of packages |
+
+The original sampler is `hypr_wallpaper_original` with `hypr_wallpaper_uv`
+(origin and span in backing texture UV). The processed sampler is
+`hypr_wallpaper_processed` with a full-output domain.
+It is the package's premultiplied layer, not a copy of the layers under it:
+transparent pixels remain transparent. A publisher can include the original
+image itself, as the burn example does, to expose a complete processed image.
+Prefer `hypr_sample_wallpaper_original(uv)` and
+`hypr_sample_wallpaper_processed(uv)`:
+out-of-bounds and missing inputs are transparent black. Raw samplers must test
+their `*_available` flag. Normalized coordinates are top-first in the output's
+display orientation; `hypr_output_origin` and `hypr_output_size` are global
+logical origin and logical size. `hypr_environment_uv(windowUv)` maps a
+window-normalized sample through `hypr_output_rect` into the normalized
+output; pass it `hypr_window_uv()` to account for expanded bounds. Output
+scale is `hypr_scale` and the physical size of the *current attachment* is
+`hypr_target_size` (which may be a reduced simulation size). The host owns
+physical output transforms and composition.
+
+`hypr_interaction_count` is at most 24. Each record uses four consecutive
+`vec4` elements in `hypr_interactions`: current and preceding output-normalized
+client-body rectangles (xy, width, height), their per-second normalized
+velocity, and (event, strength, opaque ID, held). Event values are open=0,
+close=1, move=2, resize=3. Rectangle differences give movement and resize
+direction. They describe native presented bounds, not layout goals, exact
+surface quads or shader-deformed vertices. Positions may be outside [0,1];
+the receiving output clips the result. Sweep between the rectangles to cover
+large frame-to-frame movement. Opening/closing are geometry impulses, not
+queries for the progress or duration of the active animation. No titles,
+application IDs, pixels or client handles are delivered. The closing impulse
+carries geometry only; a destroyed client does not retire an existing trail.
+A queued closing impulse is dropped if that output changes workspace
+composition before the simulation can receive it.
+The host tracks at most 24 clients across 32 outputs. At saturation, excess
+clients may not be admitted; a still-live contributor is not evicted in a
+way that would prevent revocation of data it already contributed.
+
+The wallpaper pass gathers the batch before updating; following native
+window draws consume the newly committed `hypr_environment_state` and
+processed wallpaper. Emissions are copied into an output-owned bounded atlas
+and are visible on the **next** authoritative output frame, at the matching
+interaction index in `hypr_disturbances`; test `hypr_disturbances_available`
+and use `texelFetch(hypr_disturbances, ivec2(index,0), 0)`. The blank slot is
+zero. No package writes another's attachments or samples the active scene
+target. A window must have an admitted interaction on the receiving frame;
+emissions by themselves do not wake a wallpaper or create an event.
+Window packages may read environmental textures only in render passes, never
+in initialize/update. Workspace captures use native window presentation for
+those packages. These boundaries prevent an active window from accumulating
+pixels derived from an older or newly protected environment.
+
+An environment instance belongs to an output's current workspace composition
+and prepared wallpaper generation. It persists after individual windows
+stop or die. It never migrates to a new output or workspace. Workspace
+changes, output geometry changes, source replacement/revocation, lock, and
+protection changes discard affected state rather than resample or transfer
+it. Content-identical package reloads preserve the generation. Workspace
+snapshots use native wallpaper for environment-enabled packages, not a new
+simulation or a published environment from another workspace. Capture and
+blur replay never publish disturbances or consume updates. Output removal
+and plugin shutdown drop state in the owning host context.
+
+In continuous mode (`effect_duration=0`), time advances with authoritative
+output frames. A finite reactive package wakes on a batch, sets
+`hypr_progress` back to zero for a new disturbance, then reaches one at
+`settle_ms` without GPU readback. Use progress=1 to author exact neutral
+behavior. Native damage/capture may still render committed state without
+simulating. Arbitrary shader output can extend over the whole output, so
+running simulations schedule full output damage; absence of an environment
+request adds no collector, atlas, or extra pass.
+
+See [refraction](../examples/shaders/refraction/), [reactive water](../examples/shaders/reactive-water/),
+[reactive burn](../examples/shaders/reactive-burn/), and the matching
+[environment emitter](../examples/shaders/environment-emitter/).
 
 ## Native blur
 
@@ -273,10 +390,12 @@ image over a rectangular or missing blur. The native helper still produces its
 own undeformed matte for the fallback case.
 
 Close, wallpaper and workspace presentation can write the native scene target
-directly if the final pass uses the runtime fullscreen triangle, is the last
-and only final draw, and doesn't use `gl_FragCoord`. The target must have matching
-color encoding and no mirror attachment, output transform, or active render
-modifier. Blur closes and other unsupported presentations use an isolated
+directly when all final draws are consecutive, the first replaces transparent
+storage with a non-overdrawing fullscreen triangle or uses source-over, and
+later draws use premultiplied source-over without clearing. Final shaders that
+use `gl_FragCoord` stay isolated. The target must have matching color
+encoding and no mirror attachment, output transform, active render modifier,
+or required group opacity. Blur closes and other unsupported presentations use an isolated
 result followed by the native texture compositor. Workspace captures are
 leased separately from the presentation target, and close still isolates the
 approved crop of a monitor-sized snapshot before arbitrary GLSL can sample it.
@@ -289,13 +408,27 @@ is 15.82 MiB per draw; FP16 doubles it. These are estimates, not measured VRAM
 traffic: compression, cache hits, damage and tile behavior change physical
 bandwidth. Required simulation and capture passes are additional.
 
+Hyprland queues the stock image and BACKGROUND roots before emitting
+[`RENDER_POST_WALLPAPER`](https://github.com/hyprwm/Hyprland/blob/0aa6745f705f2c4b0a5004eb019ef76e5bbdb426/src/render/Renderer.cpp#L1186-L1270),
+and only then queues bottom layers, native blur and windows. The environmental
+pass uses that boundary: borrow the original → update owned ping-pong textures
+→ render into the native target if eligible and not publishing. Publication
+adds an owned output-sized attachment followed by native composition; later
+windows sample the attachment, never the active scene. This is one additional
+full write/sample pair at full damage, plus its clear. Coordinated 1×1 signals
+use GPU blits (4 bytes per cell copy) and at most 192 bytes of atlas storage
+per output, not a fullscreen pass per window.
+
 The normal untransformed close path is therefore isolated snapshot crop →
 shader → native scene, instead of isolated crop → shader work buffer → native
 texture pass. A mapped window remains native raster → shader work buffer →
 native texture pass. With shader blur, color and coverage are both inputs to
 the host's composition. On stock 0.57, staging coverage before publishing
 the color also means drawing the rounded input instead of waiting for the
-host's later matte callback.
+host's later matte callback. An arbitrary package's color and matte do not
+necessarily sample the same input: the matte samples rounded native coverage
+instead of the window color. The plugin does not fuse them through MRT or
+replace native background acquisition.
 
 The host's [MONITOR close snapshot](https://github.com/hyprwm/Hyprland/blob/0aa6745f705f2c4b0a5004eb019ef76e5bbdb426/src/render/Renderer.cpp#L3366-L3423) is a separate GPU framebuffer, not a client
 buffer lease, so client teardown does not invalidate it. Its dimensions are
@@ -307,8 +440,9 @@ without a copy. A close with incomplete offscreen source pixels is declined.
 Paired private KWin/Hyprland measurements on an RTX 5060 Ti at 1280×960,
 with a 440×300 client and blur disabled, showed median GPU close scopes of
 11.07→2.46 µs for Fade, 24.06→18.62 µs for Diffusion, and 18.37→18.24 µs for
-Particles. Particles needs more than one final draw, so its native composition
-remains. The scope includes Hyprimate's close pass, not the whole compositor.
+Particles. Those historical numbers used the pooled Particles path; the
+current runtime can composite its ordered source-over draws directly. The
+scope includes Hyprimate's close pass, not the whole compositor.
 See [before](../build/shader-integration/frame-control-before/),
 [after](../build/shader-integration/scene-proven/paired-after/), and the
 [four-resolution executor run](../build/shader-integration/scene-proven/executor.jsonl).
@@ -326,6 +460,37 @@ The private wallpaper renderer scheduled zero frames during a 350 ms quiet
 interval after reaching its finite endpoint, versus 21 frames for the
 continuous effect at 60 Hz (0.40 ms renderer CPU wall p95 at 800×600).
 
+Two matched 1280×960 closing runs compared `866c59dde2` and this runtime:
+
+| Close GPU median, µs | Baseline repetitions | Current repetitions |
+| --- | ---: | ---: |
+| Fade | 2.62–3.52 | 2.46–2.53 |
+| Diffusion | 18.82–20.86 | 18.82–19.14 |
+| Particles | 17.09–20.19 | 8.45 |
+
+The reactive water package also ran twice on 1080p, 1440p and 4K native
+targets. Three moving quarter-output-width/height clients drove the
+multi-window workload. The full output is shaded; simulations use a quarter
+of each dimension. The wallpaper GPU scopes exclude other native passes:
+
+| Primary output | Simulation | Multi-window GPU median, µs | Multi-window submission median, µs |
+| --- | ---: | ---: | ---: |
+| 1080p | 480×270 | 56.5–57.7 | 96.9–100.0 |
+| 1440p | 640×360 | 91.7–92.0 | 96.7–100.7 |
+| 4K | 960×540 | 199.2–199.6 | 104.1–107.2 |
+
+Water uses two simulation draws plus one direct final draw at full damage,
+two ping-pong allocations totaling 1.04/1.84/4.15 MB, and at most 3072 bytes of
+interaction uniform uploads per active update. The original is borrowed, with
+zero explicit texture-copy bytes. The native traces showed zero frames in
+each 600 ms configured-idle and settled interval, and 90–91 renderer
+invocations across two outputs in 750 ms in continuous mode. During the
+multi-window run, the renderer wall-time p95 was 0.59–0.77 ms; the longest
+sample was 0.84 ms. These are not GPU completion or presentation times. See
+`build/shader-environment/{baseline-*,after-*,*-release-*}/` for measurements,
+and `build/shader-environment/executor-final-environment.jsonl` for isolated
+GLES workloads. These figures do not establish cross-vendor performance.
+
 Preparation is still synchronous for changed packages; only the compositor
 thread owns the context. In the initial paired nested run, package parse and validation
 took approximately 0.15–0.59 ms, and changed GPU preparation took up to
@@ -333,6 +498,10 @@ took approximately 0.15–0.59 ms, and changed GPU preparation took up to
 preparation; reload callbacks in that sample took 0.37–1.23 ms for cache hits
 versus up to 29.39 ms with changed content. These are CPU wall intervals, not
 physical GPU allocation or presentation timestamps.
+Environmental package preparation is also synchronous. The private runs
+recorded up to 59 ms of GLES preparation on a driver-cold package. Cache
+hits skipped GLES preparation. The renderer does not create a second context
+or pause for compilation during ordinary interactions.
 
 Keep simulation textures small, use ping-pong handles instead of copies, batch instances, and avoid full-resolution scratch passes unless the effect actually needs them. Initialization/compilation/reflection is separate from rendering. Production execution does not read simulation state back to the CPU or call `glFinish`. Statistics expose allocations, upload/copy bytes, pass counts and draws for profiling.
 
@@ -345,6 +514,8 @@ new artifact directory:
 ```sh
 python3 tests/nested/shader_evidence.py build/shader-window-evidence --plugin build/hyprimate.so
 python3 tests/nested/wallpaper_evidence.py build/shader-wallpaper-evidence --plugin build/hyprimate.so
+python3 tests/nested/environment_evidence.py build/shader-environment-evidence --plugin build/hyprimate.so
+EGL_PLATFORM=surfaceless build/shader-runtime-bench --environment
 ```
 
 The first runner covers mapped and closing shader effects, shape-aware blur,
@@ -357,6 +528,19 @@ Private compositor logs record `shader workspace final=direct` and
 `shader wallpaper final=pooled` for the rotated output. The checks also
 compare the full exterior of deformed blur frames and verify that a reversal
 frame contains visible content from both captured workspaces.
+The environmental runner uses a dedicated SHM BACKGROUND root on each output,
+observes pixels outside the window bounds, checks the GPU mailbox and output
+draw receipts, and records image comparisons under `measurements.json`.
+For renderer timings, build the test-only probe against the pinned Hyprland
+headers and run a profile without screenshot capture:
+
+```sh
+g++ -std=c++26 -fPIC -shared $(pkg-config --cflags hyprland) \
+    tests/nested/ShaderFrameProbe.cpp -o build/frame-probe.so
+HYPRIMATE_FRAME_PROBE=build/frame-probe.so \
+    python3 tests/nested/environment_evidence.py build/shader-environment-profile \
+    --plugin build/hyprimate.so --profile --size 1920 1080
+```
 
 Pass `--interactive` to the first runner to also drive held move and resize
 grabs directly against the private Wayland socket (requires NumPy for the shared

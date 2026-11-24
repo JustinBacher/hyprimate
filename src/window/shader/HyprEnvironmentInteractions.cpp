@@ -39,13 +39,19 @@ namespace hyprimate::shader {
 
         struct OutputHistory {
             PHLMONITORREF monitor;
+            PHLWORKSPACEREF close_workspace, close_special;
             Box previous;
             Clock::time_point sampled{};
             bool used = false;
             bool previous_valid = false;
             bool open_delivered = false;
-            bool close_delivered = false;
+            bool close_pending = false;
             bool interaction_delivered = false;
+
+            [[nodiscard]] bool can_deliver_close(const PHLMONITOR &target) const {
+                return close_pending && close_workspace.lock() == target->m_activeWorkspace &&
+                       close_special.lock() == target->m_activeSpecialWorkspace;
+            }
         };
 
         struct Track {
@@ -491,7 +497,7 @@ namespace hyprimate::shader {
                 track->last_active_sample = m_sample_serial;
                 invalidate(*track);
                 for (auto &output : track->outputs) {
-                    output.open_delivered = output.close_delivered = false;
+                    output.open_delivered = output.close_pending = false;
                 }
                 track->workspace = PHLWORKSPACEREF{window->m_workspace};
                 track->workspace_known = true;
@@ -518,6 +524,9 @@ namespace hyprimate::shader {
             track->closed = true;
             track->destroyed = false;
             track->close_body_valid = false;
+            for (auto &history : track->outputs) {
+                history.close_pending = false;
+            }
             track->priority = true;
             track->held = false;
             track->last_active_sample = m_sample_serial;
@@ -532,6 +541,23 @@ namespace hyprimate::shader {
                     track->close_body_valid = usable_box(track->close_body);
                     track->workspace = PHLWORKSPACEREF{window->m_workspace};
                     track->workspace_known = true;
+                    if (track->close_body_valid) {
+                        for (const auto &monitor : State::monitorState()->monitors()) {
+                            if (!usable_output(monitor)) {
+                                continue;
+                            }
+                            const auto native = monitor->logicalBox();
+                            const Box output{native.x, native.y, native.w, native.h};
+                            if (!overlaps(track->close_body, output)) {
+                                continue;
+                            }
+                            if (auto *history = output_for(*track, monitor)) {
+                                history->close_workspace = monitor->m_activeWorkspace;
+                                history->close_special = monitor->m_activeSpecialWorkspace;
+                                history->close_pending = true;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -549,11 +575,18 @@ namespace hyprimate::shader {
             }
         }
 
-        OutputHistory *output_for(Track &track, const PHLMONITOR &monitor) {
+        OutputHistory *find_output(Track &track, const PHLMONITOR &monitor) {
             for (auto &output : track.outputs) {
                 if (output.used && output.monitor.lock() == monitor) {
                     return &output;
                 }
+            }
+            return nullptr;
+        }
+
+        OutputHistory *output_for(Track &track, const PHLMONITOR &monitor) {
+            if (auto *found = find_output(track, monitor)) {
+                return found;
             }
             for (auto &output : track.outputs) {
                 if (!output.used || output.monitor.expired()) {
@@ -616,11 +649,12 @@ namespace hyprimate::shader {
                     track = {};
                     continue;
                 }
-                auto *history = output_for(track, monitor);
-                if (!history) {
-                    continue;
-                }
-                if (history->close_delivered || !overlaps(track.close_body, output_box)) {
+                auto *history = find_output(track, monitor);
+                if (!history || !history->can_deliver_close(monitor) ||
+                    !overlaps(track.close_body, output_box)) {
+                    if (history) {
+                        history->close_pending = false;
+                    }
                     continue;
                 }
                 if (batch.count == MAX_INTERACTIONS) {
@@ -645,7 +679,7 @@ namespace hyprimate::shader {
                 batch.windows[batch.count] = track.token;
                 history->interaction_delivered = true;
                 ++batch.count;
-                history->close_delivered = true;
+                history->close_pending = false;
                 history->previous = track.close_body;
                 history->sampled = now;
                 history->previous_valid = true;
@@ -657,25 +691,12 @@ namespace hyprimate::shader {
                 if (!track.used || !track.closed || !track.destroyed) {
                     continue;
                 }
-                bool pending = false;
-                for (const auto &monitor : State::monitorState()->monitors()) {
-                    if (!usable_output(monitor)) {
-                        continue;
-                    }
-                    const auto native = monitor->logicalBox();
-                    const Box output{native.x, native.y, native.w, native.h};
-                    if (!overlaps(track.close_body, output)) {
-                        continue;
-                    }
-                    const auto found = std::find_if(
-                        track.outputs.begin(), track.outputs.end(), [&](const auto &history) {
-                            return history.used && history.monitor.lock() == monitor;
-                        });
-                    if (found == track.outputs.end() || !found->close_delivered) {
-                        pending = true;
-                        break;
-                    }
-                }
+                // Never carry a queued close to another workspace or a new output.
+                const bool pending = std::ranges::any_of(track.outputs, [](const auto &history) {
+                    const auto monitor = history.monitor.lock();
+                    return history.close_pending && usable_output(monitor) &&
+                           history.can_deliver_close(monitor);
+                });
                 if (!pending) {
                     track = {};
                 }
