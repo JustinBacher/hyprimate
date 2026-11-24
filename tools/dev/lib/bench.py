@@ -54,6 +54,19 @@ def prepare_bench(label: str | None = None, source: Path | None = None, cxxflags
     return bench_binary(directory)
 
 
+def publish_run(report: Report, out: Path, data: dict, env: dict, status: str) -> int:
+    out.parent.mkdir(parents=True, exist_ok=True)
+    data["environment"] = env
+    out.write_text(json.dumps(data, indent=1))
+    warnings = noise_warnings(env)
+    for line in warnings:
+        print(f"warning: {line}", file=sys.stderr)
+    report.add("bench", status, results=str(out.relative_to(ROOT)), noise_warnings=warnings,
+               summary=f"{len(data['scenarios'])} scenarios; "
+                       + ("a scenario is nondeterministic" if status == "fail" else "deterministic"))
+    return report.write()
+
+
 def cmd_bench_run(args) -> int:
     report = Report("bench-run")
     try:
@@ -73,16 +86,8 @@ def cmd_bench_run(args) -> int:
         report.add("bench", "tool_failed", summary="benchmark produced no results", output=tail(result.stdout))
         return report.write()
     data = json.loads(out.read_text())
-    data["environment"] = env
-    out.write_text(json.dumps(data, indent=1))
-    warnings = noise_warnings(env)
-    for line in warnings:
-        print(f"warning: {line}", file=sys.stderr)
     status = "fail" if result.returncode == 1 else "tool_failed" if result.returncode else "pass"
-    report.add("bench", status, results=str(out.relative_to(ROOT)), noise_warnings=warnings,
-               summary=f"{len(data['scenarios'])} scenarios; "
-                       + ("a scenario is nondeterministic" if result.returncode == 1 else "deterministic"))
-    return report.write()
+    return publish_run(report, out, data, env, status)
 
 
 # ------------------------------------------------------------------------------------ comparison
@@ -117,7 +122,20 @@ def mann_whitney_p(a: list[float], b: list[float]) -> float:
 
 
 def compare_scenario(base: dict, cand: dict, threshold: float, alpha: float, noise_cv: float) -> dict:
+    timer = base.get("timer")
+    native = timer is not None or cand.get("timer") is not None
+    if native and (timer != cand.get("timer") or base.get("windows") != cand.get("windows")):
+        return {"name": base["name"], "verdict": "incompatible",
+                "note": "different profiler metrics or window counts"}
     a, b = base["ns_per_run"], cand["ns_per_run"]
+    if native:
+        result = {"name": base["name"], "timer": timer}
+        if not base["deterministic"] or not cand["deterministic"]:
+            return result | {"verdict": "inconclusive", "note": "nondeterministic workload"}
+        if base["checksum"] != cand["checksum"]:
+            return result | {"verdict": "behavior-changed"}
+        if min(len(a), len(b)) < 8:
+            return result | {"verdict": "inconclusive", "note": "fewer than 8 batches per side"}
     med_a, med_b = statistics.median(a), statistics.median(b)
     ratio = med_b / med_a if med_a else float("nan")
     p = mann_whitney_p(a, b)
@@ -133,11 +151,15 @@ def compare_scenario(base: dict, cand: dict, threshold: float, alpha: float, noi
         verdict = "inconclusive"  # large median shift the samples do not support
     else:
         verdict = "no-measurable-change"
-    return {"name": base["name"], "verdict": verdict, "median_ratio": round(ratio, 4), "p_value": round(p, 5),
-            "baseline_median_us_per_frame": round(med_a / base["frames"] / 1e3, 3),
-            "candidate_median_us_per_frame": round(med_b / cand["frames"] / 1e3, 3), "noise_cv": round(cv, 3),
-            "allocations": [base["allocations"], cand["allocations"]],
-            "alloc_bytes": [base["alloc_bytes"], cand["alloc_bytes"]]}
+    statistics_row = {"name": base["name"], "verdict": verdict, "median_ratio": round(ratio, 4),
+                      "p_value": round(p, 5), "noise_cv": round(cv, 3),
+                      "allocations": [base["allocations"], cand["allocations"]],
+                      "alloc_bytes": [base["alloc_bytes"], cand["alloc_bytes"]]}
+    if native:
+        return statistics_row | {"timer": timer, "baseline_median_us": round(med_a / 1e3, 3),
+                                 "candidate_median_us": round(med_b / 1e3, 3)}
+    return statistics_row | {"baseline_median_us_per_frame": round(med_a / base["frames"] / 1e3, 3),
+                             "candidate_median_us_per_frame": round(med_b / cand["frames"] / 1e3, 3)}
 
 
 def compare_files(base_path: Path, cand_path: Path, threshold: float = 0.03, alpha: float = 0.01,
@@ -158,14 +180,19 @@ def cmd_bench_compare(args) -> int:
         report.add("bench-compare", "tool_failed", summary=f"cannot read results: {error}")
         return report.write()
     for row in rows:
-        if "median_ratio" in row:
+        if "timer" in row and "median_ratio" in row:
+            print(f"{row['name']:<26} {row['verdict']:<22} x{row['median_ratio']:.3f}  p={row['p_value']:.4f}  "
+                  f"{row['baseline_median_us']:.2f}->{row['candidate_median_us']:.2f} us ({row['timer']})")
+        elif "median_ratio" in row:
             print(f"{row['name']:<26} {row['verdict']:<22} x{row['median_ratio']:.3f}  p={row['p_value']:.4f}  "
                   f"{row['baseline_median_us_per_frame']:.2f}->{row['candidate_median_us_per_frame']:.2f} us/frame  "
                   f"allocs {row['allocations'][0]}->{row['allocations'][1]}")
         else:
-            print(f"{row['name']:<26} {row['verdict']}")
+            detail = row.get("note") if row["verdict"] != "unmatched" else None
+            print(f"{row['name']:<26} {row['verdict']}" + (f" ({detail})" if detail else ""))
     verdicts = {r["verdict"] for r in rows}
-    status = "fail" if verdicts & {"regression", "behavior-changed"} else "advisory" if "inconclusive" in verdicts else "pass"
+    status = ("fail" if verdicts & {"regression", "behavior-changed"}
+              else "advisory" if verdicts & {"inconclusive", "incompatible"} else "pass")
     counts = {v: sum(1 for r in rows if r["verdict"] == v) for v in sorted(verdicts)}
     report.add("bench-compare", status, rows=rows, counts=counts,
                threshold_percent=args.threshold, alpha=args.alpha,

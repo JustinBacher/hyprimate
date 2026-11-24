@@ -11,13 +11,18 @@ Exit codes: 0 ok (advisories allowed) | 1 blocking finding (defect, regression) 
 from __future__ import annotations
 
 import argparse
+import json
+import statistics
 import sys
+import tempfile
 from pathlib import Path
+from subprocess import SubprocessError
+from time import perf_counter_ns
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "dev"))
 
-from lib import bench, codegen, perf, runtime, static  # noqa: E402
-from lib.common import EXIT_TOOL, ToolError  # noqa: E402
+from lib import bench, codegen, compositor_bench, perf, runtime, static  # noqa: E402
+from lib.common import BUILD_ROOT, EXIT_TOOL, Report, ToolError, build, configure, tail  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -84,9 +89,15 @@ def build_parser() -> argparse.ArgumentParser:
     q = bsub.add_parser("run", help="build and run the benchmark suite; write build/dev/bench/NAME.json")
     q.add_argument("--name", default="latest")
     q.add_argument("--filter")
-    q.add_argument("--samples", type=int, default=30)
-    q.add_argument("--warmup", type=int, default=5)
-    q.set_defaults(func=bench.cmd_bench_run)
+    q.add_argument("--samples", type=int, help="batches per scenario (core: 30; native: 2 for determinism smoke)")
+    q.add_argument("--warmup", type=int, help="unmeasured batches per scenario (core: 5; native: 0)")
+    q.add_argument("--windows", type=int, choices=(4, 16), default=16,
+                   help="simultaneous native close animations in windows.many (default 16)")
+    q.epilog = ("Native timing uses existing compositor profiler scopes. Private-session wall includes startup, "
+                "fixture control and waiting, excludes building, and is not the performance statistic. "
+                "Burn and Planet visual witnesses use grim and Pillow. "
+                "For performance comparisons use at least eight batches per side on a quiet machine.")
+    q.set_defaults(func=run_bench)
     q = bsub.add_parser("compare", help="compare two result files")
     q.add_argument("baseline")
     q.add_argument("candidate")
@@ -95,6 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("--noise-cv", type=float, default=0.10)
     q.set_defaults(func=bench.cmd_bench_compare)
     q = bsub.add_parser("list", help="list scenarios")
+    q.add_argument("--filter")
     q.set_defaults(func=list_scenarios)
 
     p = sub.add_parser("compare-codegen", help="baseline-vs-candidate binary comparison (sections, symbols, functions, ABI)")
@@ -112,9 +124,118 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def list_scenarios(_args) -> int:
+def prepare_native_bench() -> Path:
+    directory = configure("default")
+    result = build(directory, ["hyprimate-bench", "hyprimate"])
+    if result.returncode:
+        raise ToolError(f"native benchmark failed to build:\n{tail(result.stdout, 40)}")
+    return bench.bench_binary(directory)
+
+
+def measure_compositor(binary: Path, scenario: str, args) -> dict:
+    started = perf_counter_ns()
+    samples, warmups = [], []
+    with compositor_bench.CompositorBench(binary, args.windows) as compositor:
+        for index in range(args.warmup + args.samples):
+            receipt = compositor.sample(scenario)
+            (warmups if index < args.warmup else samples).append(receipt)
+
+    checksums = [sample["checksum"] for sample in samples]
+    warmup_checksums = [sample["checksum"] for sample in warmups]
+    timings = [sample["ns_per_run"] for sample in samples]
+    deterministic = len(set(checksums + warmup_checksums)) == 1
+    row = {
+        "name": scenario,
+        "deterministic": deterministic, "checksum": checksums[0],
+        "allocations": None, "alloc_bytes": None,
+        "ns_per_run": timings,
+        "timer": samples[0]["scope_metric"],
+        "wall_ns": perf_counter_ns() - started,
+        "script_wall_ns_per_run": [sample["runner_wall_ns"] for sample in samples],
+        "checksums": checksums, "warmup_checksums": warmup_checksums,
+        "semantic_workloads": [sample["semantic"] for sample in samples],
+        "warmup_semantic_workloads": [sample["semantic"] for sample in warmups],
+        "samples": args.samples, "warmup": args.warmup,
+        "profiler_reports": [sample["profile"] for sample in samples],
+    }
+    if scenario == "windows.many":
+        row["windows"] = args.windows
+    return row
+
+
+def run_native_bench(args, selected) -> int:
+    start = perf_counter_ns()
+    report = Report("bench-run")
+    try:
+        native = argparse.Namespace(samples=2 if args.samples is None else args.samples,
+                                    warmup=0 if args.warmup is None else args.warmup, windows=args.windows)
+        if native.samples < 2 or native.warmup < 0:
+            raise ToolError("native benchmarks need at least two batches and a nonnegative warmup")
+        binary = prepare_native_bench()
+        build_wall_ns = perf_counter_ns() - start
+        core_filter = ["--filter", args.filter] if args.filter else []
+        listed = bench.run([binary, "--list", *core_filter], quiet=True)
+        if listed.returncode:
+            raise ToolError(f"could not list core benchmark scenarios: {tail(listed.stdout)}")
+        environment = bench.environment()
+        scenarios = []
+        failed = False
+        if listed.stdout.strip():
+            with tempfile.TemporaryDirectory(prefix="hyprimate-core-bench-") as scratch:
+                path = Path(scratch) / "core.json"
+                core = bench.run([binary, "--samples", 30 if args.samples is None else args.samples,
+                                  "--warmup", 5 if args.warmup is None else args.warmup,
+                                  "--json", path, *core_filter], log=BUILD_ROOT / "logs" / "bench-run.log")
+                print(core.stdout, end="")
+                if core.returncode not in (0, 1):
+                    raise ToolError(f"core benchmark exited with status {core.returncode}")
+                scenarios = json.loads(path.read_text())["scenarios"]
+                failed = core.returncode == 1
+
+        for scenario in selected:
+            row = measure_compositor(binary, scenario, native)
+            scenarios.append(row)
+            failed |= not row["deterministic"]
+            tag = "" if row["deterministic"] else " CHECKSUM MISMATCH"
+            smoke = " (determinism smoke)" if native.samples < 8 else ""
+            print(f"{scenario}: {row['timer']} median {statistics.median(row['ns_per_run']) / 1e6:.3f} ms; "
+                  f"private-session wall {row['wall_ns'] / 1e9:.3f} s; {native.samples} batches{smoke}{tag}",
+                  flush=True)
+        output = bench.BENCH_DIR / f"{args.name}.json"
+        data = {"schema": 1, "scenarios": scenarios, "build_wall_ns": build_wall_ns,
+                "runner_wall_ns": perf_counter_ns() - start}
+        if listed.stdout.strip():
+            data["warmup"] = 5 if args.warmup is None else args.warmup
+        return bench.publish_run(report, output, data, environment, "fail" if failed else "pass")
+    except (ToolError, RuntimeError, OSError, ValueError, SubprocessError) as error:
+        report.add("bench", "tool_failed", summary=str(error))
+    return report.write()
+
+
+def run_bench(args) -> int:
+    selected = [scenario for scenario in compositor_bench.SCENARIOS
+                if not args.filter or args.filter in scenario]
+    if selected:
+        return run_native_bench(args, selected)
+    args.samples = 30 if args.samples is None else args.samples
+    args.warmup = 5 if args.warmup is None else args.warmup
+    try:
+        return bench.cmd_bench_run(args)
+    except (RuntimeError, ValueError, SubprocessError) as error:
+        raise ToolError(str(error)) from error
+
+
+def list_scenarios(args) -> int:
     binary = bench.prepare_bench()
-    print(bench.run([binary, "--list"], quiet=True).stdout, end="")
+    core_filter = ["--filter", args.filter] if args.filter else []
+    listed = bench.run([binary, "--list", *core_filter], quiet=True)
+    if listed.returncode:
+        raise ToolError(f"could not list core benchmark scenarios: {tail(listed.stdout)}")
+    if listed.stdout:
+        print(listed.stdout, end="")
+    for scenario, description in compositor_bench.SCENARIOS.items():
+        if not args.filter or args.filter in scenario:
+            print(f"{scenario:<28}    native    {description}")
     return 0
 
 
