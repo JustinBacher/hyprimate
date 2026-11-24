@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "events": ["open", "close", "move", "resize"],
+  "blur_mask": true,
+  "environment": {"original": true, "processed": true},
+  "parameters": {
+    "bend": {"type": "float", "default": 28.0, "min": 0.0, "max": 96.0}
+  },
+  "fragment": "refraction.frag"
+}

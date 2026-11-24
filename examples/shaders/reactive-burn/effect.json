@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "events": ["wallpaper"],
+  "environment": {
+    "original": true, "interactions": true, "settle_ms": 1400,
+    "channel": "burn", "state": "heat.read", "publish": true
+  },
+  "helpers": ["heat.glsl"],
+  "textures": {
+    "heat": {"format": "rgba8", "scale": 0.25, "ping_pong": true, "filter": "linear"}
+  },
+  "passes": [
+    {"name": "initialize_heat", "phase": "initialize", "fragment": "initialize.frag", "outputs": ["heat.write"], "clear": false},
+    {"name": "advance_heat", "phase": "update", "fragment": "update.frag", "inputs": {"previousHeat": "heat.read"}, "outputs": ["heat.write"], "clear": false},
+    {"name": "compose_burn", "phase": "render", "fragment": "compose.frag", "inputs": {"heatState": "heat.read"}, "outputs": ["output"]}
+  ]
+}

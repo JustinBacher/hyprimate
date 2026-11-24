@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "events": ["wallpaper"],
+  "environment": {"original": true, "interactions": true, "settle_ms": 1400},
+  "helpers": ["wave.glsl"],
+  "textures": {
+    "wave": {"format": "rgba8", "scale": 0.25, "ping_pong": true, "filter": "linear"}
+  },
+  "passes": [
+    {"name": "initialize_wave", "phase": "initialize", "fragment": "initialize.frag", "outputs": ["wave.write"], "clear": false},
+    {"name": "advance_wave", "phase": "update", "fragment": "update.frag", "inputs": {"previousWave": "wave.read"}, "outputs": ["wave.write"], "iterations": 2, "clear": false},
+    {"name": "compose_ripples", "phase": "render", "fragment": "compose.frag", "inputs": {"waveState": "wave.read"}, "outputs": ["output"]}
+  ]
+}

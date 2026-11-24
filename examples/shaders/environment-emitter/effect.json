@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "events": ["open", "close", "move", "resize"],
+  "blur_mask": true,
+  "environment": {"channel": "burn", "emit": "signal", "sample_state": true},
+  "parameters": {
+    "tint": {"type": "vec3", "default": [1.0, 0.62, 0.30], "min": 0.0, "max": 1.0}
+  },
+  "textures": {
+    "signal": {"format": "rgba8", "width": 1, "height": 1}
+  },
+  "passes": [
+    {"name": "emit_signal", "phase": "update", "fragment": "signal.frag", "outputs": ["signal"], "clear": false},
+    {"name": "compose_window", "phase": "render", "fragment": "window.frag", "outputs": ["output"]}
+  ]
+}
