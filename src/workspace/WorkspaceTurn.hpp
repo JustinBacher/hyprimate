@@ -75,6 +75,43 @@ namespace hyprimate::workspace {
         int capture_depth = 0;
         int mutation_depth = 0;
     };
+
+    struct StagedMutationFacts {
+        bool ready = false;
+        bool same_lifecycle = false;
+        bool same_turn = false;
+        bool same_revision = false;
+    };
+    constexpr bool staged_mutation_current(const StagedMutationFacts &facts) {
+        return facts.ready && facts.same_lifecycle && facts.same_turn && facts.same_revision;
+    }
+    inline bool configured_transition_available(
+        bool settings_enabled, bool external_effect, double built_in_duration) {
+        return settings_enabled &&
+               (external_effect || (std::isfinite(built_in_duration) && built_in_duration > 0));
+    }
+
+    struct LatchedShaderFacts {
+        bool active = false;
+        bool has_program = false;
+        bool usable = false;
+    };
+    constexpr bool preserve_latched_shader_pair(const LatchedShaderFacts &facts) {
+        return facts.active && facts.has_program && facts.usable;
+    }
+
+    struct DestinationAdmissionFacts {
+        bool new_pair_admitted = false;
+        bool active_pair = false;
+        std::int64_t requested = 0;
+        std::int64_t source = 0;
+        std::int64_t destination = 0;
+    };
+    constexpr bool transition_destination_allowed(const DestinationAdmissionFacts &facts) {
+        return facts.new_pair_admitted ||
+               (facts.active_pair &&
+                   (facts.requested == facts.source || facts.requested == facts.destination));
+    }
     struct QueueFacts {
         bool monitor = false;
         int capture_depth = 0;
@@ -172,8 +209,11 @@ namespace hyprimate::workspace {
             }
         }
 
-        void begin(
-            Composition before, Composition after, double base_duration, Transition::Curve curve) {
+        void begin(Composition before,
+            Composition after,
+            double base_duration,
+            Transition::Curve curve,
+            std::optional<Direction> native_direction = std::nullopt) {
             invalidate_frame();
             const auto revision = m_revision;
             preserve_logical_hop(before, after);
@@ -210,8 +250,8 @@ namespace hyprimate::workspace {
                 cancel("invalid-duration");
                 return;
             }
-            const auto DIRECTION =
-                direction_between(from->numbered, after.numbered, from->special, after.special);
+            const auto DIRECTION = native_direction.value_or(
+                direction_between(from->numbered, after.numbered, from->special, after.special));
             m_duration = DURATION;
             m_curve = std::move(curve);
             if (!m_active) {

@@ -154,6 +154,33 @@ int main() try {
            near(config.workspace.cube.solid.zoom, 0.25));
     assert(near(config.workspace.cube.insideOut.cubeTilt, 0) &&
            near(config.workspace.cube.insideOut.zoom, 0.45));
+    assert(config.workspace.lava.variant == LavaVariant::CrustPlates);
+    assert(config.workspace.lava.windowBehavior == LavaWindowBehavior::MeltWithWorkspace);
+    assert(near(config.workspace.lava.viscosity, .72) &&
+           near(config.workspace.lava.coolingRate, .80) &&
+           near(config.workspace.lava.crustAmount, .68) &&
+           near(config.workspace.lava.glowIntensity, .55));
+    assert(near(config.workspace.lava.detailPreservation, .75) &&
+           near(config.workspace.lava.trailSmear, .35) &&
+           near(config.workspace.lava.edgeDrip, .15) && near(config.workspace.lava.ashAmount, .08));
+    assert(near(config.workspace.lava.coolingFlow.leadingBulge, .45) &&
+           near(config.workspace.lava.coolingFlow.trailingStretch, .40) &&
+           near(config.workspace.lava.coolingFlow.moltenTurbulence, .30));
+    assert(near(config.workspace.lava.basaltFlow.crustThickness, .75) &&
+           near(config.workspace.lava.basaltFlow.fissureWidth, .28) &&
+           near(config.workspace.lava.basaltFlow.emberVisibility, .12) &&
+           near(config.workspace.lava.basaltFlow.massDensity, .80));
+    assert(near(config.workspace.lava.pahoehoe.ropeStrength, .65) &&
+           near(config.workspace.lava.pahoehoe.foldScale, .50) &&
+           near(config.workspace.lava.pahoehoe.rippleSpeed, .40) &&
+           near(config.workspace.lava.pahoehoe.surfaceRoll, .55));
+    assert(near(config.workspace.lava.crustPlates.plateSize, .55) &&
+           near(config.workspace.lava.crustPlates.plateRigidity, .70) &&
+           near(config.workspace.lava.crustPlates.seamGlow, .60) &&
+           near(config.workspace.lava.crustPlates.plateDrift, .35) &&
+           near(config.workspace.lava.crustPlates.plateCompression, .25) &&
+           near(config.workspace.lava.crustPlates.submeltVisibility, .45));
+    const auto initialLava = config.workspace.lava;
     set("workspace:style", std::string("cube"));
     set("workspace:options:cube:variant", std::string("inside_out"));
     set("workspace:options:cube:duration", 4250.0F);
@@ -174,6 +201,38 @@ int main() try {
     assert(near(readConfig(values).workspace.cube.duration, 0));
     set("workspace:options:cube:variant", std::string("unsupported"));
     assert(readConfig(values).workspace.cube.variant == CubeVariant::Solid);
+    set("workspace:style", std::string("lava"));
+    set("workspace:options:lava:variant", std::string("cooling_flow"));
+    config = readConfig(values);
+    assert(config.workspace.style == WorkspaceStyle::Lava && config.style == Style::Liquid);
+    assert(config.workspace.lava.variant == LavaVariant::CoolingFlow);
+    assert(config.workspace.lava.coolingFlow == initialLava.coolingFlow);
+    set("workspace:options:lava:variant", std::string("basalt_flow"));
+    set("workspace:options:lava:window_behavior", std::string("burn_up"));
+    set("workspace:options:lava:viscosity", 2.0F);
+    set("workspace:options:lava:basalt_flow:fissure_width", -1.0F);
+    set("workspace:options:lava:basalt_flow:ember_visibility",
+        std::numeric_limits<float>::quiet_NaN());
+    set("workspace:options:lava:basalt_flow:mass_density", std::numeric_limits<float>::infinity());
+    config = readConfig(values);
+    assert(config.workspace.style == WorkspaceStyle::Lava &&
+           config.workspace.lava.variant == LavaVariant::BasaltFlow);
+    assert(config.workspace.lava.windowBehavior == LavaWindowBehavior::BurnUp);
+    assert(near(config.workspace.lava.viscosity, 1));
+    assert(near(config.workspace.lava.basaltFlow.fissureWidth, 0));
+    assert(near(config.workspace.lava.basaltFlow.emberVisibility, 0));
+    assert(near(config.workspace.lava.basaltFlow.massDensity, 0));
+    assert(config.workspace.lava.coolingFlow == initialLava.coolingFlow);
+    assert(config.workspace.lava.pahoehoe == initialLava.pahoehoe);
+    assert(config.workspace.lava.crustPlates == initialLava.crustPlates);
+    set("workspace:options:lava:variant", std::string("pahoehoe"));
+    assert(readConfig(values).workspace.lava.variant == LavaVariant::Pahoehoe);
+    set("workspace:options:lava:variant", std::string("crust_plates"));
+    assert(readConfig(values).workspace.lava.variant == LavaVariant::CrustPlates);
+    set("workspace:options:lava:variant", std::string("unknown"));
+    assert(readConfig(values).workspace.lava.variant == LavaVariant::CrustPlates);
+    set("workspace:options:lava:window_behavior", std::string("unknown"));
+    assert(readConfig(values).workspace.lava.windowBehavior == LavaWindowBehavior::MeltWithWorkspace);
     set("workspace:style", std::string("planet_hop"));
     set("workspace:options:planet_hop:window_mode", std::string("floating"));
     set("workspace:options:planet_hop:overlay_mode", std::string("hud"));

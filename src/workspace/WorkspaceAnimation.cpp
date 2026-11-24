@@ -3,11 +3,14 @@
 #include <bit>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <functional>
+#include <initializer_list>
 #include <limits>
 #include <optional>
+#include <span>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -17,6 +20,7 @@
 #include <hyprland/protocols/wlr-layer-shell-unstable-v1.hpp>
 #include <hyprland/src/animation/AnimationManager.hpp>
 #include <hyprland/src/animation/WorkspaceAnimationController.hpp>
+#include <hyprland/src/config/shared/animation/AnimationTree.hpp>
 #include <hyprland/src/debug/log/Logger.hpp>
 #include <hyprland/src/desktop/rule/layerRule/LayerRuleApplicator.hpp>
 #include <hyprland/src/desktop/rule/windowRule/WindowRuleApplicator.hpp>
@@ -535,6 +539,7 @@ class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
         std::shared_ptr<hyprimate::workspace::WorkspaceTurn<TurnPort>> turn;
         std::uint64_t revision = 0;
         std::uint64_t lifecycle = 0;
+        std::optional<Direction> native_direction = std::nullopt;
     };
     Composition composition(const PHLMONITOR &monitor, bool ordered = false) {
         const auto NUMBER = numbered(monitor->m_activeWorkspace);
@@ -586,6 +591,7 @@ class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
     void configure(const hyprimate::config::SWorkspaceSettings &settings, bool force);
     template <class Style>
     void configure_style(bool enabled, Style::Resources &resources);
+    bool request_enabled();
     void pre_checks(const PHLMONITOR &monitor);
     void pre_render(const PHLMONITOR &monitor);
     void remove_monitor(const PHLMONITOR &monitor);
@@ -594,7 +600,19 @@ class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
     std::vector<Snapshot> snapshot(std::initializer_list<PHLMONITOR> monitors);
     void finish(std::vector<Snapshot> &snapshots);
     void mutate(const std::vector<PHLMONITOR> &monitors, const std::function<void()> &original);
-    bool suppresses(const PHLMONITOR &monitor) const;
+    Snapshot *staged_mutation(const PHLMONITOR &monitor);
+    bool burn_window_planes_allowed(const PHLMONITOR &monitor, bool special_request = false) const;
+    bool special_workspace_in_native_scene() const;
+    void decline_burn_transition(std::initializer_list<PHLMONITOR> monitors);
+    bool transition_destination_allowed(const PHLMONITOR &monitor,
+        const PHLWORKSPACE &normal,
+        const PHLWORKSPACE &special);
+    bool transition_destination_allowed(const PHLMONITOR &monitor, std::int64_t identity);
+    void cancel_transition(const PHLMONITOR &monitor);
+    void decline_all_burn_transitions();
+    bool latched_shader_turn(const std::shared_ptr<MonitorState> &entry);
+    bool has_latched_shader_turn();
+    void expire_unlatched_turns();
     void capture_gesture(const PHLMONITOR &monitor);
     void clear_gesture();
     bool queue(Render::CRenderContext &ctx, const PHLMONITOR &monitor, const Time::steady_tp &now);
@@ -700,7 +718,9 @@ class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
         });
     }
     bool m_uses_wallpaper = false;
+    bool m_native_direction = false;
     bool m_layered = false;
+    bool m_window_planes = false;
     bool m_individual_windows = false;
     bool m_native_hud = false;
     bool m_uses_previews = false;
@@ -737,7 +757,7 @@ class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
     SP<Render::IFramebuffer> m_capture_wallpaper;
     int m_capture_depth = 0;
     int m_mutation_depth = 0;
-    std::vector<PHLMONITORREF> m_suppressed;
+    std::span<Snapshot> m_mutation_snapshots;
     PHLMONITORREF m_gesture_monitor;
     std::vector<std::shared_ptr<MonitorState>> m_states;
     std::vector<PHLMONITORREF> m_ready_monitors;
@@ -1117,15 +1137,39 @@ namespace {
         if (function == nullptr) {
             return;
         }
-        if (manager == nullptr || !manager->m_turns.enabled() || !workspace ||
+        const auto MONITOR = self->m_self.lock();
+        const auto PREVIOUS = workspace && workspace->type() == Workspace::eWorkspaceType::SPECIAL
+                                  ? workspace->m_monitor.lock()
+                                  : PHLMONITOR{};
+        const bool SPECIAL_TARGET =
+            workspace && workspace->type() == Workspace::eWorkspaceType::SPECIAL;
+        if (manager != nullptr && manager->m_window_planes &&
+            (!manager->burn_window_planes_allowed(MONITOR, SPECIAL_TARGET) ||
+                (PREVIOUS && !manager->burn_window_planes_allowed(PREVIOUS, SPECIAL_TARGET)))) {
+            if (SPECIAL_TARGET || manager->special_workspace_in_native_scene()) {
+                manager->decline_all_burn_transitions();
+            } else {
+                manager->decline_burn_transition({MONITOR, PREVIOUS});
+            }
+            function(self, workspace, internal, no_mouse_move, no_focus);
+            return;
+        }
+        if (manager != nullptr && workspace) {
+            const auto &NORMAL =
+                SPECIAL_TARGET ? self->m_activeWorkspace : workspace;
+            const auto &SPECIAL =
+                SPECIAL_TARGET ? workspace : self->m_activeSpecialWorkspace;
+            if (!manager->transition_destination_allowed(MONITOR, NORMAL, SPECIAL)) {
+                manager->cancel_transition(MONITOR);
+                function(self, workspace, internal, no_mouse_move, no_focus);
+                return;
+            }
+        }
+        if (manager == nullptr || !manager->request_enabled() || !workspace ||
             workspace == self->m_activeWorkspace || workspace == self->m_activeSpecialWorkspace) {
             function(self, workspace, internal, no_mouse_move, no_focus);
             return;
         }
-        const auto MONITOR = self->m_self.lock();
-        const auto PREVIOUS = workspace->type() == Workspace::eWorkspaceType::SPECIAL
-                                  ? workspace->m_monitor.lock()
-                                  : PHLMONITOR{};
         manager->mutate({MONITOR, PREVIOUS},
             [&] { function(self, workspace, internal, no_mouse_move, no_focus); });
     }
@@ -1136,13 +1180,30 @@ namespace {
         if (function == nullptr) {
             return;
         }
-        if (manager == nullptr || !manager->m_turns.enabled() ||
+        const auto MONITOR = self->m_self.lock();
+        const auto PREVIOUS = workspace ? workspace->m_monitor.lock() : PHLMONITOR{};
+        if (manager != nullptr && manager->m_window_planes &&
+            (!manager->burn_window_planes_allowed(MONITOR, workspace != nullptr) ||
+                (PREVIOUS && !manager->burn_window_planes_allowed(PREVIOUS, workspace != nullptr)))) {
+            if (workspace || manager->special_workspace_in_native_scene()) {
+                manager->decline_all_burn_transitions();
+            } else {
+                manager->decline_burn_transition({MONITOR, PREVIOUS});
+            }
+            function(self, workspace, no_focus);
+            return;
+        }
+        if (manager != nullptr &&
+            !manager->transition_destination_allowed(MONITOR, self->m_activeWorkspace, workspace)) {
+            manager->cancel_transition(MONITOR);
+            function(self, workspace, no_focus);
+            return;
+        }
+        if (manager == nullptr || !manager->request_enabled() ||
             workspace == self->m_activeSpecialWorkspace) {
             function(self, workspace, no_focus);
             return;
         }
-        const auto MONITOR = self->m_self.lock();
-        const auto PREVIOUS = workspace ? workspace->m_monitor.lock() : PHLMONITOR{};
         manager->mutate({MONITOR, PREVIOUS}, [&] { function(self, workspace, no_focus); });
     }
 
@@ -1157,11 +1218,33 @@ namespace {
         if (function == nullptr) {
             return;
         }
-        if (manager == nullptr || !manager->m_turns.enabled()) {
+        const auto OLD_MONITOR = workspace ? workspace->m_monitor.lock() : PHLMONITOR{};
+        const bool SPECIAL_TARGET =
+            workspace && workspace->type() == Workspace::eWorkspaceType::SPECIAL;
+        if (manager != nullptr && manager->m_window_planes &&
+            (!manager->burn_window_planes_allowed(OLD_MONITOR, SPECIAL_TARGET) ||
+                !manager->burn_window_planes_allowed(monitor, SPECIAL_TARGET))) {
+            if (SPECIAL_TARGET || manager->special_workspace_in_native_scene()) {
+                manager->decline_all_burn_transitions();
+            } else {
+                manager->decline_burn_transition({OLD_MONITOR, monitor});
+            }
             function(self, workspace, monitor, no_warp, carry_focus, replace);
             return;
         }
-        const auto OLD_MONITOR = workspace ? workspace->m_monitor.lock() : PHLMONITOR{};
+        if (manager != nullptr && !manager->m_admit_turns) {
+            const auto *OLD_TURN = manager->turn(OLD_MONITOR);
+            const auto *NEW_TURN = manager->turn(monitor);
+            if ((OLD_TURN && OLD_TURN->active()) || (NEW_TURN && NEW_TURN->active())) {
+                manager->decline_burn_transition({OLD_MONITOR, monitor});
+                function(self, workspace, monitor, no_warp, carry_focus, replace);
+                return;
+            }
+        }
+        if (manager == nullptr || !manager->request_enabled()) {
+            function(self, workspace, monitor, no_warp, carry_focus, replace);
+            return;
+        }
         manager->mutate({OLD_MONITOR, monitor},
             [&] { function(self, workspace, monitor, no_warp, carry_focus, replace); });
     }
@@ -1173,7 +1256,27 @@ namespace {
         if (function == nullptr) {
             return;
         }
-        if (manager == nullptr || !manager->m_turns.enabled()) {
+        if (manager != nullptr && manager->m_window_planes &&
+            (!manager->burn_window_planes_allowed(first) ||
+                !manager->burn_window_planes_allowed(second))) {
+            if (manager->special_workspace_in_native_scene()) {
+                manager->decline_all_burn_transitions();
+            } else {
+                manager->decline_burn_transition({first, second});
+            }
+            function(self, first, second);
+            return;
+        }
+        if (manager != nullptr && !manager->m_admit_turns) {
+            const auto *FIRST_TURN = manager->turn(first);
+            const auto *SECOND_TURN = manager->turn(second);
+            if ((FIRST_TURN && FIRST_TURN->active()) || (SECOND_TURN && SECOND_TURN->active())) {
+                manager->decline_burn_transition({first, second});
+                function(self, first, second);
+                return;
+            }
+        }
+        if (manager == nullptr || !manager->request_enabled()) {
             function(self, first, second);
             return;
         }
@@ -1185,7 +1288,7 @@ namespace {
         bool left,
         bool instant,
         std::optional<std::string> style) {
-        const auto *manager = active();
+        auto *manager = active();
         auto function = original<AnimateFn>(manager != nullptr ? manager->m_animate_hook : nullptr);
         if (function == nullptr) {
             return;
@@ -1193,9 +1296,51 @@ namespace {
         // Still let Hyprland establish its incoming/outgoing workspace state and callbacks.
         // Suppressing the call entirely leaves previously hidden workspaces transparent or
         // offset; instant completion avoids a competing native animation.
-        const bool SUPPRESSED =
-            manager != nullptr &&
-            manager->suppresses(workspace ? workspace->m_monitor.lock() : PHLMONITOR{});
+        const auto MONITOR = workspace ? workspace->m_monitor.lock() : PHLMONITOR{};
+        auto *staged = manager != nullptr && workspace
+                           ? manager->staged_mutation(MONITOR)
+                           : nullptr;
+        if (manager != nullptr && manager->m_window_planes &&
+            !manager->burn_window_planes_allowed(
+                MONITOR, workspace && workspace->type() == Workspace::eWorkspaceType::SPECIAL)) {
+            if ((workspace && workspace->type() == Workspace::eWorkspaceType::SPECIAL) ||
+                manager->special_workspace_in_native_scene()) {
+                manager->decline_all_burn_transitions();
+            } else {
+                manager->decline_burn_transition({MONITOR});
+            }
+            staged = nullptr;
+        }
+        const bool INCOMING = type == Animation::Workspace::ANIMATION_TYPE_IN;
+        if (staged != nullptr && !instant && manager->m_native_direction &&
+            (INCOMING || !staged->native_direction)) {
+            std::string_view effective_style;
+            if (style) {
+                effective_style = *style;
+            } else if (const auto &TREE = Config::animationTree()) {
+                const bool SPECIAL = workspace->type() == Workspace::eWorkspaceType::SPECIAL;
+                const char *leaf = INCOMING ? "workspacesIn" : "workspacesOut";
+                if (SPECIAL) {
+                    leaf = INCOMING ? "specialWorkspaceIn" : "specialWorkspaceOut";
+                }
+                const auto NODE = TREE->getAnimationPropertyConfig(leaf);
+                const auto VALUES = NODE ? NODE->pValues.lock() : nullptr;
+                if (VALUES) {
+                    effective_style = VALUES->internalStyle;
+                }
+            }
+            staged->native_direction =
+                hyprimate::workspace::animation_direction(left, effective_style);
+        }
+        if (staged != nullptr) {
+            staged = manager->staged_mutation(MONITOR);
+        }
+        if (manager != nullptr && MONITOR &&
+            !manager->transition_destination_allowed(MONITOR, manager->composition_id(MONITOR))) {
+            manager->cancel_transition(MONITOR);
+            staged = nullptr;
+        }
+        const bool SUPPRESSED = staged != nullptr;
         if (manager != nullptr && manager->m_turns.enabled() && !SUPPRESSED && !instant &&
             manager->m_mutation_depth == 0 && manager->m_capture_depth == 0 && workspace) {
             LOG(Log::DEBUG,
@@ -1203,7 +1348,7 @@ namespace {
                 workspace->addressableName(),
                 static_cast<int>(type));
         }
-        function(workspace, type, left, instant || SUPPRESSED, style);
+        function(workspace, type, left, instant || SUPPRESSED, std::move(style));
     }
 
     void hook_render(Render::IHyprRenderer *renderer,
@@ -1249,7 +1394,7 @@ namespace {
         if (function == nullptr) {
             return false;
         }
-        if (manager != nullptr && manager->m_turns.enabled()) {
+        if (manager != nullptr && manager->request_enabled()) {
             manager->capture_gesture(monitor);
         }
         const auto gesture_revision = manager ? manager->m_gesture_revision : 0;
@@ -2052,6 +2197,60 @@ void CWorkspaceAnimation::Impl::shutdown() {
     m_begin_render = nullptr;
 }
 
+bool CWorkspaceAnimation::Impl::request_enabled() {
+    if (m_native_direction && m_last_settings && m_last_settings->enabled && m_capture_depth == 0 &&
+        m_mutation_depth == 0 && m_style_draw_depth == 0) {
+        // Native animation settings can change without a plugin config callback.
+        // Refresh once at request admission, never in the output-frame loop.
+        const auto KEEP_ALIVE = shared_from_this();
+        m_styles.for_each([&]<class Style>(auto &resources) {
+            if constexpr (requires { Style::refresh_timing(resources); }) {
+                if (Style::KIND == m_style_kind && Style::refresh_timing(resources)) {
+                    m_settings_changed = true;
+                    configure(*m_last_settings, false);
+                }
+            }
+        });
+        return active() == this && m_turns.enabled();
+    }
+    return m_turns.enabled();
+}
+
+bool CWorkspaceAnimation::Impl::latched_shader_turn(
+    const std::shared_ptr<MonitorState> &entry) {
+    if (!entry) {
+        return false;
+    }
+    const auto MONITOR = entry->monitor.lock();
+    const auto *ACTIVE_TURN = turn(MONITOR);
+    return hyprimate::workspace::preserve_latched_shader_pair({.active =
+            ACTIVE_TURN && ACTIVE_TURN->active(),
+        .has_program = entry->effect_program != nullptr,
+        .usable = !entry->effect_declined});
+}
+
+bool CWorkspaceAnimation::Impl::has_latched_shader_turn() {
+    return std::ranges::any_of(
+        m_states, [&](const auto &entry) { return latched_shader_turn(entry); });
+}
+
+void CWorkspaceAnimation::Impl::expire_unlatched_turns() {
+    for (std::size_t index = 0; index < m_states.size();) {
+        const auto ENTRY = m_states[index];
+        if (latched_shader_turn(ENTRY)) {
+            ++index;
+            continue;
+        }
+        const auto MONITOR = ENTRY->monitor.lock();
+        if (MONITOR) {
+            erase_state(MONITOR);
+            damage(MONITOR);
+        } else {
+            m_states.erase(m_states.begin() + static_cast<std::ptrdiff_t>(index));
+        }
+    }
+}
+
 void CWorkspaceAnimation::Impl::configure(
     const hyprimate::config::SWorkspaceSettings &requested, bool force) {
     const auto keep_alive = shared_from_this();
@@ -2125,17 +2324,26 @@ void CWorkspaceAnimation::Impl::configure(
         if (m_lifecycle != lifecycle) {
             return;
         }
-        const bool ENABLED =
-            settings.enabled && (m_effect_program || resources.settings.prepared.duration > 0.0);
+        const bool ENABLED = hyprimate::workspace::configured_transition_available(
+            settings.enabled,
+            m_effect_program != nullptr && m_effect_duration > 0.0,
+            resources.settings.prepared.duration);
+        const bool PRESERVE_LATCHED_SHADER =
+            settings.enabled && !ENABLED &&
+            (!Style::needs_individual_windows(resources) || m_window_hook) &&
+            (!Style::uses_native_hud(resources) || m_layer_hook) && has_latched_shader_turn();
         if (PREVIOUS != resources.settings.last || m_style_kind != Style::KIND ||
-            !settings.enabled) {
+            !settings.enabled || (m_turns.enabled() && !ENABLED && !PRESERVE_LATCHED_SHADER)) {
             clear();
             if (m_lifecycle != lifecycle + 1) {
                 return;
             }
             lifecycle = m_lifecycle;
+        } else if (PRESERVE_LATCHED_SHADER) {
+            // Shader-only entries retain their latched program/timing; all others can
+            // no longer complete under the native configuration and must fall back.
+            expire_unlatched_turns();
         }
-        m_layered = Style::LAYERED;
         m_travel = Style::travel(resources);
         m_max_frame_gap = hyprimate::STALL_SECONDS;
         if constexpr (requires { Style::max_frame_gap(resources); }) {
@@ -2179,8 +2387,14 @@ void CWorkspaceAnimation::Impl::configure_style(bool enabled, Style::Resources &
         m_invalid_curve.reset();
     }
     m_style_kind = Style::KIND;
-    m_uses_wallpaper = Style::USES_WALLPAPER;
-    const auto &prepared = resources.settings.prepared;
+    const bool WINDOW_PLANES = hyprimate::workspace::needs_window_planes<Style>(resources);
+    m_layered = Style::LAYERED || WINDOW_PLANES;
+    m_window_planes = WINDOW_PLANES;
+    m_uses_wallpaper = Style::USES_WALLPAPER || WINDOW_PLANES;
+    m_native_direction = false;
+    if constexpr (requires { Style::USES_NATIVE_DIRECTION; }) {
+        m_native_direction = Style::USES_NATIVE_DIRECTION;
+    }
     const auto RESOLVE =
         [&](std::string_view requested_curve) -> hyprimate::workspace::Transition::Curve {
         auto &manager = Animation::mgr();
@@ -2230,14 +2444,15 @@ void CWorkspaceAnimation::Impl::configure_style(bool enabled, Style::Resources &
             return static_cast<double>(CURVE->getYForPoint(static_cast<float>(progress)));
         };
     };
-    const double duration = m_effect_program ? m_effect_duration : prepared.duration;
+    const double duration =
+        m_effect_program ? m_effect_duration : resources.settings.prepared.duration;
     const double registry_duration = std::isfinite(duration) && duration > 0.0
                                          ? duration
                                          : (m_states.empty() ? 0.0 : m_turns.duration());
     m_turns.configure(enabled,
         static_cast<std::uint64_t>(Style::KIND),
         registry_duration,
-        prepared.curve,
+        resources.settings.prepared.curve,
         m_settings_changed,
         RESOLVE);
     if (m_lifecycle != lifecycle) {
@@ -2571,6 +2786,13 @@ bool CWorkspaceAnimation::Impl::capture(MonitorState &entry,
     const auto KEY = profile_key();
     const hyprimate::workspace::ProfileCpuScope CPU{KEY, hyprimate::perf::Phase::Setup};
     const hyprimate::workspace::ProfileAttribution ATTRIBUTION{KEY};
+    // Full-monitor special-workspace effects are baked into native pixels, not this
+    // window-only plane. Fall back until both the special workspace and its fade settle.
+    if (m_window_planes &&
+        !burn_window_planes_allowed(monitor,
+            workspace && workspace->type() == Workspace::eWorkspaceType::SPECIAL)) {
+        return false;
+    }
     if (!safe_scene() || !workspace || !ensure_buffers(entry, monitor)) {
         return false;
     }
@@ -3079,6 +3301,11 @@ void CWorkspaceAnimation::Impl::finish(std::vector<Snapshot> &snapshots) {
             continue;
         }
         const auto AFTER = composition(item.monitor, true);
+        if (!m_admit_turns &&
+            !transition_destination_allowed(item.monitor, AFTER.identity)) {
+            cancel_transition(item.monitor);
+            continue;
+        }
         if (item.composition.identity != AFTER.identity) {
             // Internal switches and placement swaps bypass startAnimation entirely.
             // A previously hidden incoming workspace can still have zero alpha or
@@ -3107,7 +3334,8 @@ void CWorkspaceAnimation::Impl::finish(std::vector<Snapshot> &snapshots) {
                 }
             }
         }
-        active_turn->begin(item.composition, AFTER, entry->base_duration, entry->curve);
+        active_turn->begin(
+            item.composition, AFTER, entry->base_duration, entry->curve, item.native_direction);
         if (turn(item.monitor) != active_turn.get() || item.lifecycle != m_lifecycle ||
             active_turn->revision() != item.revision + 1) {
             continue;
@@ -3150,12 +3378,6 @@ void CWorkspaceAnimation::Impl::mutate(
             before.push_back(std::move(one.front()));
         }
     }
-    m_suppressed.clear();
-    for (const auto &item : before) {
-        if (item.ready) {
-            m_suppressed.emplace_back(item.monitor);
-        }
-    }
     struct MutationDepth {
         Impl *owner;
         explicit MutationDepth(Impl &value) : owner(&value) {
@@ -3167,24 +3389,114 @@ void CWorkspaceAnimation::Impl::mutate(
         MutationDepth &operator=(MutationDepth &&) = delete;
         ~MutationDepth() {
             --owner->m_mutation_depth;
-            owner->m_suppressed.clear();
+            owner->m_mutation_snapshots = {};
         }
     };
     const MutationDepth DEPTH{*this};
+    m_mutation_snapshots = std::span<Snapshot>{before};
     original();
-    m_suppressed.clear();
+    m_mutation_snapshots = {};
     finish(before);
 }
 
-bool CWorkspaceAnimation::Impl::suppresses(const PHLMONITOR &monitor) const {
-    return monitor && std::ranges::any_of(m_suppressed,
-                          [&](const auto &candidate) { return candidate.lock() == monitor; });
+CWorkspaceAnimation::Impl::Snapshot *CWorkspaceAnimation::Impl::staged_mutation(
+    const PHLMONITOR &monitor) {
+    const auto FOUND = std::ranges::find_if(
+        m_mutation_snapshots, [&](const Snapshot &item) { return item.monitor == monitor; });
+    if (FOUND == m_mutation_snapshots.end()) {
+        return nullptr;
+    }
+    const auto *current = turn(monitor);
+    if (!hyprimate::workspace::staged_mutation_current({.ready = FOUND->ready,
+            .same_lifecycle = FOUND->lifecycle == m_lifecycle,
+            .same_turn = FOUND->turn && current == FOUND->turn.get(),
+            .same_revision = current != nullptr && current->revision() == FOUND->revision})) {
+        return nullptr;
+    }
+    return &*FOUND;
+}
+
+bool CWorkspaceAnimation::Impl::transition_destination_allowed(
+    const PHLMONITOR &monitor, std::int64_t identity) {
+    const auto *ACTIVE_TURN = turn(monitor);
+    return hyprimate::workspace::transition_destination_allowed({.new_pair_admitted =
+            m_admit_turns,
+        .active_pair = ACTIVE_TURN && ACTIVE_TURN->active(),
+        .requested = identity,
+        .source = ACTIVE_TURN ? ACTIVE_TURN->source().identity : 0,
+        .destination = ACTIVE_TURN ? ACTIVE_TURN->destination().identity : 0});
+}
+
+bool CWorkspaceAnimation::Impl::transition_destination_allowed(const PHLMONITOR &monitor,
+    const PHLWORKSPACE &normal,
+    const PHLWORKSPACE &special) {
+    return transition_destination_allowed(monitor, m_compositions.get(normal, special));
+}
+
+void CWorkspaceAnimation::Impl::cancel_transition(const PHLMONITOR &monitor) {
+    if (monitor && (turn(monitor) != nullptr || state(monitor) != nullptr)) {
+        erase_state(monitor);
+        damage(monitor);
+    }
+}
+
+bool CWorkspaceAnimation::Impl::special_workspace_in_native_scene() const {
+    return std::ranges::any_of(
+        State::Workspace::state()->workspaces(), [](const auto &weak) {
+            const auto workspace = weak.lock();
+            return workspace && workspace->type() == Workspace::eWorkspaceType::SPECIAL &&
+                   hyprimate::workspace::special_workspace_in_native_scene(
+                       workspace->m_alpha->value(), workspace->m_alpha->isBeingAnimated());
+        });
+}
+
+bool CWorkspaceAnimation::Impl::burn_window_planes_allowed(
+    const PHLMONITOR &monitor, bool special_request) const {
+    if (!m_window_planes) {
+        return true;
+    }
+    const bool ACTIVE_SPECIAL = monitor && monitor->m_activeSpecialWorkspace;
+    const float DIM_VALUE =
+        monitor && monitor->m_specialDim ? monitor->m_specialDim->value() : 0.F;
+    const float DIM_GOAL =
+        monitor && monitor->m_specialDim ? monitor->m_specialDim->goal() : 0.F;
+    const float BLUR_VALUE =
+        monitor && monitor->m_specialBlur ? monitor->m_specialBlur->value() : 0.F;
+    const float BLUR_GOAL =
+        monitor && monitor->m_specialBlur ? monitor->m_specialBlur->goal() : 0.F;
+    const bool SPECIAL_RENDERING = !special_request && !ACTIVE_SPECIAL && DIM_VALUE == 0.F &&
+                                   DIM_GOAL == 0.F && BLUR_VALUE == 0.F && BLUR_GOAL == 0.F &&
+                                   special_workspace_in_native_scene();
+    return hyprimate::workspace::window_plane_capture_allowed({.required = true,
+        .active_special = ACTIVE_SPECIAL,
+        .special_rendering = SPECIAL_RENDERING,
+        .dim_value = DIM_VALUE,
+        .dim_goal = DIM_GOAL,
+        .blur_value = BLUR_VALUE,
+        .blur_goal = BLUR_GOAL,
+        .special_request = special_request});
+}
+void CWorkspaceAnimation::Impl::decline_burn_transition(
+    std::initializer_list<PHLMONITOR> monitors) {
+    for (const auto &monitor : monitors) {
+        cancel_transition(monitor);
+    }
+}
+
+void CWorkspaceAnimation::Impl::decline_all_burn_transitions() {
+    for (const auto &monitor : State::monitorState()->monitors()) {
+        cancel_transition(monitor);
+    }
 }
 
 void CWorkspaceAnimation::Impl::capture_gesture(const PHLMONITOR &monitor) {
     const auto keep_alive = shared_from_this();
     const auto gesture_revision = ++m_gesture_revision;
     if (m_capture_depth != 0 || !m_turns.enabled() || !monitor) {
+        return;
+    }
+    if (m_window_planes && !burn_window_planes_allowed(monitor)) {
+        decline_burn_transition({monitor});
         return;
     }
     auto captured = snapshot({monitor});
@@ -3271,6 +3583,10 @@ void CWorkspaceAnimation::Impl::pre_render(const PHLMONITOR &monitor) {
     if (!monitor || m_capture_depth != 0) {
         return;
     }
+    if (m_window_planes && !burn_window_planes_allowed(monitor)) {
+        decline_burn_transition({monitor});
+        return;
+    }
     const auto *slot = state_slot(monitor);
     if (!slot) {
         return;
@@ -3326,6 +3642,10 @@ bool CWorkspaceAnimation::Impl::queue(
         return false;
     }
     const auto keep_alive = shared_from_this();
+    if (m_window_planes && !burn_window_planes_allowed(monitor)) {
+        decline_burn_transition({monitor});
+        return false;
+    }
     const auto *slot = state_slot(monitor);
     const auto entry = slot ? *slot : nullptr;
     const auto active_turn = m_turns.pin(monitor_key(monitor));
@@ -3688,7 +4008,7 @@ void CWorkspaceAnimation::Impl::clear() {
     ++m_lifecycle;
     ++m_gesture_revision;
     const auto states = std::exchange(m_states, {});
-    m_suppressed.clear();
+    m_mutation_snapshots = {};
     m_gesture_monitor.reset();
     m_turns.clear();
     for (const auto &entry : states) {

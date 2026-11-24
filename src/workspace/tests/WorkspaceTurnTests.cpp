@@ -77,6 +77,50 @@ namespace {
         CHECK(direction_between({}, 1, false, false) == Direction::Forward);
         CHECK(direction_between(2, 1, false, true) == Direction::Forward);
         CHECK(direction_between(1, 2, true, false) == Direction::Backward);
+        CHECK(configured_transition_available(true, true, 0.0));
+        CHECK(configured_transition_available(true, false, 0.6));
+        CHECK(!configured_transition_available(true, false, 0.0));
+        CHECK(!configured_transition_available(false, true, 0.6));
+        // A shader-only admitted pair survives loss of new-transition availability.
+        CHECK(preserve_latched_shader_pair(
+            {.active = true, .has_program = true, .usable = true}));
+        CHECK(!preserve_latched_shader_pair(
+            {.active = false, .has_program = true, .usable = true}));
+        CHECK(!preserve_latched_shader_pair(
+            {.active = true, .has_program = false, .usable = true}));
+        CHECK(!preserve_latched_shader_pair(
+            {.active = true, .has_program = true, .usable = false}));
+        // Without new admission, only a still-active pair's two endpoints may be reused.
+        CHECK(transition_destination_allowed(
+            {.new_pair_admitted = true, .active_pair = true, .requested = 3, .source = 1,
+                .destination = 2}));
+        CHECK(transition_destination_allowed(
+            {.new_pair_admitted = false, .active_pair = true, .requested = 1, .source = 1,
+                .destination = 2}));
+        CHECK(transition_destination_allowed(
+            {.new_pair_admitted = false, .active_pair = true, .requested = 2, .source = 1,
+                .destination = 2}));
+        CHECK(!transition_destination_allowed(
+            {.new_pair_admitted = false, .active_pair = true, .requested = 3, .source = 1,
+                .destination = 2}));
+        CHECK(!transition_destination_allowed(
+            {.new_pair_admitted = false, .active_pair = false, .requested = 1, .source = 1,
+                .destination = 2}));
+        CHECK(staged_mutation_current(
+            {.ready = true, .same_lifecycle = true, .same_turn = true, .same_revision = true}));
+        CHECK(!staged_mutation_current(
+            {.ready = false, .same_lifecycle = true, .same_turn = true, .same_revision = true}));
+        CHECK(!staged_mutation_current(
+            {.ready = true, .same_lifecycle = false, .same_turn = true, .same_revision = true}));
+        CHECK(!staged_mutation_current(
+            {.ready = true, .same_lifecycle = true, .same_turn = false, .same_revision = true}));
+        CHECK(!staged_mutation_current(
+            {.ready = true, .same_lifecycle = true, .same_turn = true, .same_revision = false}));
+        CHECK(animation_direction(true, "slide right") == Direction::Forward);
+        CHECK(animation_direction(false, "slide left") == Direction::Backward);
+        CHECK(animation_direction(true, "slide top") == Direction::Backward);
+        CHECK(animation_direction(false, "slide bottom") == Direction::Forward);
+        CHECK(animation_direction(true, "slide") == Direction::Forward);
         fixture.start();
         CHECK(fixture.turn.direction() == Direction::Forward);
         fixture.turn.cancel();
@@ -91,6 +135,46 @@ namespace {
         CHECK(fixture.turn.stage(WITH_SPECIAL));
         fixture.turn.begin(WITH_SPECIAL, fixture.a, 1.0, LINEAR);
         CHECK(fixture.turn.direction() == Direction::Backward);
+        fixture.turn.cancel();
+        CHECK(fixture.turn.stage(fixture.a));
+        fixture.turn.begin(fixture.a, fixture.b, 1.0, LINEAR, Direction::Backward);
+        CHECK(fixture.turn.direction() == Direction::Backward);
+    }
+
+    void latched_shader_pair_lands_after_effect_disable() {
+        Fixture fixture;
+        WorkspaceTurns<int, FakeWorkspacePort> turns;
+        const auto RESOLVE = [](std::string_view) -> Transition::Curve { return LINEAR; };
+        turns.configure(true, 1, .6, "curve", true, RESOLVE);
+        const auto ACTIVE = turns.get(1, fixture.port);
+        CHECK(ACTIVE->stage(fixture.a));
+        ACTIVE->begin(fixture.a, fixture.b, turns.duration(), turns.curve());
+        ACTIVE->frame(fixture.b, 0.0);
+        CHECK(ACTIVE->drawable());
+        ACTIVE->presented(true);
+
+        CHECK(!configured_transition_available(true, false, 0.0));
+        CHECK(preserve_latched_shader_pair(
+            {.active = ACTIVE->active(), .has_program = true, .usable = true}));
+        // configure_style retains the registry duration while the latched entry exists.
+        turns.configure(true, 1, turns.duration(), "curve", true, RESOLVE);
+        CHECK(turns.enabled());
+        CHECK(ACTIVE->active());
+        for (int frame = 0; frame < 16 && ACTIVE->active(); ++frame) {
+            fixture.port.advance(.1);
+            ACTIVE->frame(fixture.b, .1);
+            if (ACTIVE->drawable()) {
+                ACTIVE->presented(true);
+            }
+        }
+        CHECK(!ACTIVE->active());
+        CHECK(fixture.port.landings == 1);
+
+        turns.remove(1);
+        turns.configure(true, 1, 0.0, "curve", true, RESOLVE);
+        CHECK(!turns.enabled());
+        CHECK(!decltype(fixture.turn)::intercept_mutation({.enabled = turns.enabled()}));
+        CHECK(turns.find(1) == nullptr);
     }
 
     void snapshot_endpoints_are_reused_through_reversal() {
@@ -1267,6 +1351,7 @@ namespace {
 
 int main() {
     identity_and_direction();
+    latched_shader_pair_lands_after_effect_disable();
     capture_plan_tests::run();
     returning_to_destination_discards_pending();
     repeated_endpoint_keeps_the_visual_timeline();

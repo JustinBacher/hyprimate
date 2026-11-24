@@ -28,6 +28,26 @@ namespace hyprimate::workspace::test::capture_plan_tests {
         }
     };
 
+    inline void burn_window_planes_reject_special_effects() {
+        CHECK(window_plane_capture_allowed({.required = true}));
+        CHECK(!window_plane_capture_allowed({.required = true, .active_special = true}));
+        // The active pointer and monitor effects may be clear while a special OUT still renders.
+        CHECK(special_workspace_in_native_scene(.5F, false));
+        CHECK(special_workspace_in_native_scene(0.F, true));
+        CHECK(!special_workspace_in_native_scene(0.F, false));
+        CHECK(!window_plane_capture_allowed({.required = true, .special_rendering = true}));
+        CHECK(!window_plane_capture_allowed({.required = true, .dim_value = 1.F}));
+        CHECK(!window_plane_capture_allowed({.required = true, .dim_goal = 1.F}));
+        CHECK(!window_plane_capture_allowed({.required = true, .blur_value = 1.F}));
+        CHECK(!window_plane_capture_allowed({.required = true, .blur_goal = 1.F}));
+        CHECK(!window_plane_capture_allowed({.required = true, .special_request = true}));
+        // Once the special surface and both monitor-wide effects have settled, Lava resumes.
+        CHECK(window_plane_capture_allowed({.required = true}));
+        CHECK(window_plane_capture_allowed(
+            {.required = false, .active_special = true, .special_rendering = true, .dim_value = 1.F,
+                .dim_goal = 1.F, .blur_value = 1.F, .blur_goal = 1.F, .special_request = true}));
+    }
+
     inline CaptureWindowFacts window(CapturePixelBounds bounds) {
         return {.present = true,
             .mapped = true,
@@ -410,6 +430,7 @@ namespace hyprimate::workspace::test::capture_plan_tests {
         invalid_crop_geometry();
         invalid_boundaries_keep_native_drawing();
         privacy_and_frozen_buffers();
+        burn_window_planes_reject_special_effects();
         native_failures_and_inactive_capture();
     }
 

@@ -35,6 +35,26 @@ namespace hyprimate::workspace {
                !facts.protected_content && !facts.invalid_fadeout;
     }
 
+    struct WindowPlaneCaptureFacts {
+        bool required = false;
+        bool active_special = false;
+        bool special_rendering = false;  // A special surface can paint across output boundaries.
+        float dim_value = 0.F;
+        float dim_goal = 0.F;
+        float blur_value = 0.F;
+        float blur_goal = 0.F;
+        bool special_request = false;
+    };
+    constexpr bool special_workspace_in_native_scene(float alpha, bool animating) {
+        return alpha > 0.F || animating;
+    }
+    constexpr bool window_plane_capture_allowed(const WindowPlaneCaptureFacts &facts) {
+        return !facts.required ||
+               !(facts.active_special || facts.special_rendering || facts.dim_value != 0.F ||
+                   facts.dim_goal != 0.F || facts.blur_value != 0.F || facts.blur_goal != 0.F ||
+                   facts.special_request);
+    }
+
     // beginRender has transferred a full-fake session to us. Native callbacks
     // may invalidate it: never submit or abort a replacement on the reusable context.
     template <class Owns, class Build, class Submit, class Abort>

@@ -77,7 +77,7 @@ class ConfigGeneratorTests(unittest.TestCase):
 
     def test_supported_roots_and_workspace_shape(self):
         paths = {item['path'] for item in SCHEMA}
-        self.assertEqual({path.split('.')[0] for path in paths}, {'window', 'workspace'})
+        self.assertEqual({path.split('.')[0] for path in paths}, {'window', 'workspace', 'wallpaper'})
         self.assertEqual({path for path in paths if path.startswith('workspace.options.rotation.')},
                          {'workspace.options.rotation.duration', 'workspace.options.rotation.curve',
                           'workspace.options.rotation.gap_fill_style', 'workspace.options.rotation.gap_fill_color',
@@ -85,7 +85,7 @@ class ConfigGeneratorTests(unittest.TestCase):
                           'workspace.options.rotation.keep_overlays_static'})
         items = {item['path']: item for item in SCHEMA}
         self.assertIs(items['workspace.enabled']['default'], False)
-        self.assertEqual(items['workspace.style']['choices'], ['rotation', 'planet_hop', 'cube'])
+        self.assertEqual(items['workspace.style']['choices'], ['rotation', 'planet_hop', 'cube', 'lava'])
         self.assertEqual(items['workspace.style']['default'], 'rotation')
         duration = items['workspace.options.rotation.duration']
         self.assertEqual((duration['default'], duration['min']), (600, 0))
@@ -105,11 +105,11 @@ class ConfigGeneratorTests(unittest.TestCase):
 
     def test_workspace_and_window_styles_have_independent_enums_and_validators(self):
         header = GEN.settings_header(SCHEMA) + GEN.config_header(SCHEMA)
-        self.assertIn('enum class WorkspaceStyle : std::uint8_t { Rotation, PlanetHop, Cube };', header)
+        self.assertIn('enum class WorkspaceStyle : std::uint8_t { Rotation, PlanetHop, Cube, Lava };', header)
         self.assertIn('WorkspaceStyle style{};', header)
         self.assertIn('Style style{};', header)
         window_styles = ['liquid', 'paper', 'cloth', 'swarm', 'bubble', 'smoke', 'burn', 'construction']
-        workspace_styles = ['rotation', 'planet_hop', 'cube']
+        workspace_styles = ['rotation', 'planet_hop', 'cube', 'lava']
         for path, accepted, rejected in [('workspace.style', workspace_styles, window_styles),
                                          ('window.style', window_styles, workspace_styles),
                                          ('workspace.options.cube.variant',
@@ -146,13 +146,44 @@ class ConfigGeneratorTests(unittest.TestCase):
         header = GEN.settings_header(SCHEMA + [other])
         self.assertIn('enum class RotationGapFillStyle : std::uint8_t { Morph, Background, Wallpaper, Still };', header)
         self.assertIn('enum class OtherGapFillStyle : std::uint8_t { Solid, Clear };', header)
-        self.assertIn('inline constexpr std::array WORKSPACE_STYLES{WorkspaceStyle::Rotation, WorkspaceStyle::PlanetHop, WorkspaceStyle::Cube};', header)
+        self.assertIn('inline constexpr std::array WORKSPACE_STYLES{WorkspaceStyle::Rotation, WorkspaceStyle::PlanetHop, WorkspaceStyle::Cube, WorkspaceStyle::Lava};', header)
         styles = [dict(item) for item in SCHEMA]
         selection = next(item for item in styles if item['path'] == 'workspace.style')
         selection['choices'] = ['rotation', 'other']
         expanded = GEN.settings_header(styles + [other])
         self.assertIn('inline constexpr std::array WORKSPACE_STYLES{WorkspaceStyle::Rotation, WorkspaceStyle::Other};',
                       expanded)
+
+    def test_lava_options_are_scoped_and_normalized(self):
+        prefix = 'workspace.options.lava.'
+        items = {item['path'].removeprefix(prefix): item for item in SCHEMA
+                 if item['path'].startswith(prefix)}
+        variant = items.pop('variant')
+        self.assertEqual(variant['choices'],
+                         ['cooling_flow', 'basalt_flow', 'pahoehoe', 'crust_plates'])
+        self.assertEqual(variant['default'], 'crust_plates')
+        behavior = items.pop('window_behavior')
+        self.assertEqual((behavior['type'], behavior['choices'], behavior['default']),
+                         ('string', ['melt_with_workspace', 'burn_up'], 'melt_with_workspace'))
+        defaults = {
+            'viscosity': .72, 'cooling_rate': .80, 'crust_amount': .68, 'glow_intensity': .55,
+            'detail_preservation': .75, 'trail_smear': .35, 'edge_drip': .15, 'ash_amount': .08,
+            'cooling_flow.leading_bulge': .45, 'cooling_flow.trailing_stretch': .40,
+            'cooling_flow.molten_turbulence': .30,
+            'basalt_flow.crust_thickness': .75, 'basalt_flow.fissure_width': .28,
+            'basalt_flow.ember_visibility': .12, 'basalt_flow.mass_density': .80,
+            'pahoehoe.rope_strength': .65, 'pahoehoe.fold_scale': .50,
+            'pahoehoe.ripple_speed': .40, 'pahoehoe.surface_roll': .55,
+            'crust_plates.plate_size': .55, 'crust_plates.plate_rigidity': .70,
+            'crust_plates.seam_glow': .60, 'crust_plates.plate_drift': .35,
+            'crust_plates.plate_compression': .25, 'crust_plates.submelt_visibility': .45,
+        }
+        self.assertEqual({name: item['default'] for name, item in items.items()}, defaults)
+        for name, item in items.items():
+            with self.subTest(name=name):
+                self.assertEqual((item['type'], item['min'], item['max']), ('float', 0, 1))
+        self.assertFalse(any(item.get('inherited') or item.get('optional')
+                             for item in SCHEMA if item['path'].startswith(prefix)))
 
     def test_planet_hop_contract(self):
         items = {item['path'].removeprefix('workspace.options.planet_hop.'): item

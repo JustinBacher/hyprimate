@@ -70,14 +70,22 @@ for style in "${styles[@]}"; do
     [[ -n $before_pos && -n $after_pos && $before_pos != "$after_pos" ]] || { echo "$style: window did not move" >&2; exit 1; }
     if (( ! workspace_checked )); then
         # Cross the native capture/renderer seam for each workspace presentation.
-        for study in rotation planet_hop cube:solid cube:inside_out; do
+        for study in rotation planet_hop cube:solid cube:inside_out lava:cooling_flow lava:basalt_flow lava:pahoehoe lava:crust_plates lava:burn_up; do
             workspace_style=${study%%:*}
             options=''
             if [[ $study == cube:* ]]; then
                 options=", options = { cube = { variant = \"${study#*:}\" } }"
+            elif [[ $study == lava:* ]]; then
+                lava_variant=${study#lava:}
+                window_behavior=melt_with_workspace
+                if [[ $lava_variant == burn_up ]]; then
+                    lava_variant=crust_plates
+                    window_behavior=burn_up
+                fi
+                options=", options = { lava = { variant = \"$lava_variant\", window_behavior = \"$window_behavior\" } }"
             fi
             result=$(hc eval "hl.config({ plugin = { hyprimate = { workspace = { enabled = true, style = \"$workspace_style\" $options } } } })")
-            [[ $result == ok ]] || { echo "$workspace_style settings rejected: $result" >&2; exit 1; }
+            [[ $result == ok ]] || { echo "$study settings rejected: $result" >&2; exit 1; }
             for workspace in 2 1; do
                 result=$(hc dispatch "hl.dsp.focus({ workspace = $workspace })")
                 [[ $result == ok ]] || { echo "workspace $workspace switch failed: $result" >&2; exit 1; }
@@ -130,12 +138,12 @@ for style in "${styles[@]}"; do
                 monitor=field("monitor"); src=field("before"); dst=field("after"); pending=1
             }
             /\[hyprimate\] workspace presented / && pending && field("monitor")==monitor &&
-                field("source")==src && field("destination")==dst && field("style")==((count<2) ? "rotation" : (count<4) ? "planet_hop" : "cube") {
+                field("source")==src && field("destination")==dst && field("style")==((count<2) ? "rotation" : (count<4) ? "planet_hop" : (count<8) ? "cube" : "lava") {
                 pending=0; count++
             }
-            END { if (count!=8 || pending) { print "expected eight request-matched workspace presentations; found " count+0 > "/dev/stderr"; exit 1 } }
+            END { if (count!=18 || pending) { print "expected 18 request-matched workspace presentations; found " count+0 > "/dev/stderr"; exit 1 } }
         ' "$compositor_log"
-        echo "rotation, planet_hop and both cube variants: plugin presented 1 -> 2 -> 1"
+        echo "rotation, planet_hop, both cube variants and all Lava variants (including burn_up): plugin presented 1 -> 2 -> 1"
         workspace_checked=1
     fi
     echo "$style: open, move and close passed"

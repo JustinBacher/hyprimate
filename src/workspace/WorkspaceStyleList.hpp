@@ -5,6 +5,7 @@
 
 #include "shared/WindowStyleList.hpp"
 #include "workspace/cube/CubeStyle.hpp"
+#include "workspace/lava/LavaStyle.hpp"
 #include "workspace/planet_hop/PlanetHopStyle.hpp"
 #include "workspace/rotation/RotationStyle.hpp"
 
@@ -38,6 +39,15 @@ namespace hyprimate::workspace {
             Style::draw(resources, context, frame, progress, direction, matching)
         } -> std::same_as<bool>;
     };
+    // Some styles need pre/post-window capture planes only for selected options.
+    template <class Style>
+    bool needs_window_planes(const typename Style::Resources &resources) {
+        if constexpr (requires { Style::needs_window_planes(resources); }) {
+            return Style::needs_window_planes(resources);
+        }
+        return false;
+    }
+
 
     template <class... Styles>
     struct UniqueResources : std::true_type {};
@@ -72,6 +82,6 @@ namespace hyprimate::workspace {
         }
     };
 
-    using WorkspaceStyles = animation::StyleList<RotationStyle, PlanetHopStyle, CubeStyle>;
+    using WorkspaceStyles = animation::StyleList<RotationStyle, PlanetHopStyle, CubeStyle, LavaStyle>;
     static_assert(WorkspaceStyleCoverage<WorkspaceStyles>::valid());
 }  // namespace hyprimate::workspace

@@ -311,6 +311,43 @@ hl.config({
                             zoom = 0.45,
                         },
                     },
+                    lava = {
+                        variant = "crust_plates",
+                        window_behavior = "melt_with_workspace",
+                        viscosity = 0.72,
+                        cooling_rate = 0.8,
+                        crust_amount = 0.68,
+                        glow_intensity = 0.55,
+                        detail_preservation = 0.75,
+                        trail_smear = 0.35,
+                        edge_drip = 0.15,
+                        ash_amount = 0.08,
+                        cooling_flow = {
+                            leading_bulge = 0.45,
+                            trailing_stretch = 0.4,
+                            molten_turbulence = 0.3,
+                        },
+                        basalt_flow = {
+                            crust_thickness = 0.75,
+                            fissure_width = 0.28,
+                            ember_visibility = 0.12,
+                            mass_density = 0.8,
+                        },
+                        pahoehoe = {
+                            rope_strength = 0.65,
+                            fold_scale = 0.5,
+                            ripple_speed = 0.4,
+                            surface_roll = 0.55,
+                        },
+                        crust_plates = {
+                            plate_size = 0.55,
+                            plate_rigidity = 0.7,
+                            seam_glow = 0.6,
+                            plate_drift = 0.35,
+                            plate_compression = 0.25,
+                            submelt_visibility = 0.45,
+                        },
+                    },
                 },
             },
             wallpaper = {
@@ -325,6 +362,8 @@ hl.config({
 ```
 
 Use `hyprimate` under `plugin` in `hl.config`; the matching `hyprctl` keys begin with `plugin:hyprimate:`. Each nested Lua table maps to colon-separated key segments.
+
+For Lava, set `workspace.enabled = true` and `workspace.style = "lava"`. Under `workspace.options.lava`, `variant` selects the material and `window_behavior` selects whether windows melt with the desktop or burn away. The eight shared numeric controls apply to every material; only the subtable named by `variant` is active. See [Lava](docs/lava.md) for examples and capture limits.
 
 Style settings under `window.options.<style>` are shared; set `window.<animation>.options.<style>` to override one animation. When a shared setting is unset, each animation uses its own default. Shared values are clamped to the receiving animation’s range. Example lines with differing animation defaults are commented out to preserve them.
 
@@ -389,7 +428,7 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `window:options:liquid:splash` | boolean / animation defaults: `true` | — | Show a small edge-liquid splash where a window closes. When false, it closes without liquid. |
 | `window:options:cloth:side` | string / animation defaults: `"auto"` | — | Cloth exit edge: the side of appearance (auto), nearest valid edge, opening origin, or a fixed edge. Invalid preferred edges fall back to the normal edge selection. Allowed: `auto`, `nearest`, `origin`, `top`, `bottom`, `left`, `right`. |
 | `workspace:enabled` | boolean / `false` | — | Enable workspace transition effects independently of window effects. |
-| `workspace:style` | string / `"rotation"` | — | Choose the workspace transition style. Invalid names are rejected. Allowed: `rotation`, `planet_hop`, `cube`. |
+| `workspace:style` | string / `"rotation"` | — | Choose the workspace transition style. Invalid names are rejected. Allowed: `rotation`, `planet_hop`, `cube`, `lava`. |
 | `workspace:effect` | string / `""` | — | Path to a native GLES shader transition manifest. Empty uses workspace.style. |
 | `workspace:effect_parameters` | string / `"{}"` | — | JSON object overriding declared workspace shader parameters. |
 | `workspace:effect_duration` | float / `600` | 0–60000 | External workspace transition time in milliseconds. Zero uses the built-in workspace style. |
@@ -441,6 +480,33 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `workspace:options:cube:solid:zoom` | float / `0.25` | 0–1 | Extra camera retreat at mid-turn, measured in workspace widths. |
 | `workspace:options:cube:inside_out:cube_tilt` | float / `0` | -20–20 | Mid-turn tilt in degrees. Positive angles tip the workspace face up; zero keeps it level. |
 | `workspace:options:cube:inside_out:zoom` | float / `0.45` | 0–1 | Fraction of the safe camera retreat inside the room at mid-turn; 1 uses the full safe distance. |
+| `workspace:options:lava:variant` | string / `"crust_plates"` | — | Choose one Lava surface model. Only its matching subtable affects the transition. Allowed: `cooling_flow`, `basalt_flow`, `pahoehoe`, `crust_plates`. |
+| `workspace:options:lava:window_behavior` | string / `"melt_with_workspace"` | — | Melt the complete scene as one slab, or burn away visible app-window pixels while the rest of the desktop melts. Allowed: `melt_with_workspace`, `burn_up`. |
+| `workspace:options:lava:viscosity` | float / `0.72` | 0–1 | Make the flowing workspace look thicker and more cohesive. |
+| `workspace:options:lava:cooling_rate` | float / `0.8` | 0–1 | Control how quickly the visible surface cools over the course of travel. |
+| `workspace:options:lava:crust_amount` | float / `0.68` | 0–1 | Increase the coverage of cooled crust relative to exposed melt. |
+| `workspace:options:lava:glow_intensity` | float / `0.55` | 0–1 | Brighten the hot material visible between cooler regions. |
+| `workspace:options:lava:detail_preservation` | float / `0.75` | 0–1 | Keep desktop details more legible through the molten surface. |
+| `workspace:options:lava:trail_smear` | float / `0.35` | 0–1 | Draw desktop detail into longer streaks behind the flow. |
+| `workspace:options:lava:edge_drip` | float / `0.15` | 0–1 | Increase the sag and dripping of the molten edge. |
+| `workspace:options:lava:ash_amount` | float / `0.08` | 0–1 | Add dark ash flecks to the cooling surface. |
+| `workspace:options:lava:cooling_flow:leading_bulge` | float / `0.45` | 0–1 | Round out the advancing front of the cooling flow. |
+| `workspace:options:lava:cooling_flow:trailing_stretch` | float / `0.4` | 0–1 | Pull the rear of the cooling flow into a longer tail. |
+| `workspace:options:lava:cooling_flow:molten_turbulence` | float / `0.3` | 0–1 | Increase local warping within the molten flow. |
+| `workspace:options:lava:basalt_flow:crust_thickness` | float / `0.75` | 0–1 | Thicken the dark basalt surface around fissures. |
+| `workspace:options:lava:basalt_flow:fissure_width` | float / `0.28` | 0–1 | Widen cracks in the basalt crust. |
+| `workspace:options:lava:basalt_flow:ember_visibility` | float / `0.12` | 0–1 | Make hot embers more visible in the basalt. |
+| `workspace:options:lava:basalt_flow:mass_density` | float / `0.8` | 0–1 | Give the basalt flow a denser, heavier appearance. |
+| `workspace:options:lava:pahoehoe:rope_strength` | float / `0.65` | 0–1 | Emphasize the rope-like ridges on the flowing surface. |
+| `workspace:options:lava:pahoehoe:fold_scale` | float / `0.5` | 0–1 | Set the size of individual rope folds. |
+| `workspace:options:lava:pahoehoe:ripple_speed` | float / `0.4` | 0–1 | Advance the surface ripples further during the same workspace travel. |
+| `workspace:options:lava:pahoehoe:surface_roll` | float / `0.55` | 0–1 | Increase the rolling deformation of the folded surface. |
+| `workspace:options:lava:crust_plates:plate_size` | float / `0.55` | 0–1 | Set the size of individual crust plates. |
+| `workspace:options:lava:crust_plates:plate_rigidity` | float / `0.7` | 0–1 | Keep imagery on each moving plate more rigid. |
+| `workspace:options:lava:crust_plates:seam_glow` | float / `0.6` | 0–1 | Brighten the hot seams between plates. |
+| `workspace:options:lava:crust_plates:plate_drift` | float / `0.35` | 0–1 | Increase the relative displacement of neighboring plates. |
+| `workspace:options:lava:crust_plates:plate_compression` | float / `0.25` | 0–1 | Increase how tightly the plates press together during flow. |
+| `workspace:options:lava:crust_plates:submelt_visibility` | float / `0.45` | 0–1 | Reveal more of the molten layer beneath the plates. |
 | `wallpaper:effect` | string / `""` | — | Path to a native GLES wallpaper manifest. Empty keeps the native background. |
 | `wallpaper:effect_parameters` | string / `"{}"` | — | JSON object overriding declared wallpaper shader parameters. |
 | `wallpaper:effect_duration` | int / `0` | 0–60000 | Milliseconds of wallpaper simulation before holding the final frame. Zero runs continuously. |

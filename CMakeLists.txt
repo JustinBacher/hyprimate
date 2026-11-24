@@ -171,7 +171,7 @@ set(HYPRIMATE_STYLES liquid paper cloth swarm bubble smoke burn construction sha
 foreach(style IN LISTS HYPRIMATE_STYLES)
     include(src/window/${style}/Style.cmake)
 endforeach()
-set(HYPRIMATE_WORKSPACE_STYLES rotation planet_hop cube)
+set(HYPRIMATE_WORKSPACE_STYLES rotation planet_hop cube lava)
 foreach(style IN LISTS HYPRIMATE_WORKSPACE_STYLES)
     include(src/workspace/${style}/Style.cmake)
 endforeach()
