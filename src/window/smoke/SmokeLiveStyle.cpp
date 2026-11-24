@@ -124,7 +124,7 @@ SSmokeModule::Prepared SSmokeModule::prepare_settings(const Settings &settings) 
         .trail = movement.trail,
         .trail_length = movement.trailLength,
         .trail_lifetime = movement.trailLifetime / 1000.0,
-        .trail_girth = movement.trailGirth,
+        .trail_thickness = movement.trailThickness,
         .reform = movement.reform,
         .settle_speed = movement.settleSpeed,
         .mass = movement.mass,

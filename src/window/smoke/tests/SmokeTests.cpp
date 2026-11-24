@@ -138,11 +138,12 @@ namespace {
     void grabbed_body_tracks_turns_without_carry() {
         Smoke smoke;
         smoke.drive({120, 0}, true);
+        const SmokeParams PARAMS{.follow_pointer = true};
         smoke.advance(1.0 / 120, SIZE);
         for (int i = 0; i < 60; ++i) {
             const Vec2 delta = i < 30 ? Vec2{12, 0} : Vec2{0, -12};
             smoke.drive(delta, true);
-            smoke.advance(1.0 / 120, SIZE, {}, true);
+            smoke.advance(1.0 / 120, SIZE, PARAMS, true);
             const auto frame = smoke.frame(SIZE);
             const auto body = smoke_body(frame);
             CHECK(frame.carry.x == 0 && frame.carry.y == 0);
@@ -150,21 +151,30 @@ namespace {
         }
         const auto grabbed = smoke.frame(SIZE);
         CHECK(grabbed.mass > 0.5 && grabbed.offset.y > 0);
-        smoke.advance(1.0 / 120, SIZE);
+        smoke.advance(1.0 / 120, SIZE, PARAMS);
         const auto released = smoke_body(smoke.frame(SIZE));
         CHECK(std::hypot(released.offset.x, released.offset.y) < 8);
     }
 
     void original_drag_keeps_the_unattached_body() {
         Smoke original;
-        const SmokeParams PARAMS{.follow_pointer = false};
         for (int i = 0; i < 60; ++i) {
             original.drive(i < 40 ? Vec2{12, 0} : Vec2{0, -12});
-            original.advance(1.0 / 120, SIZE, PARAMS, true);
+            original.advance(1.0 / 120, SIZE, {}, true);
         }
         // On a turn, an unattached body coasts across the old heading and lags the new one.
         const auto offset = smoke_body(original.frame(SIZE)).offset;
         CHECK(offset.x > 10 && offset.y > 10);
+    }
+
+    void automatic_trail_lifetime_matches_original_amount_curve() {
+        Smoke smoke;
+        for (const auto &sample : {Vec2{0.0, 0.55}, Vec2{0.65, 0.94}, Vec2{1.0, 1.15}}) {
+            smoke.advance(1.0 / 120, SIZE, {.trail = sample.x});
+            CHECK(std::abs(smoke.frame(SIZE).life - sample.y) < 1e-9);
+        }
+        smoke.advance(1.0 / 120, SIZE, {.trail = 1.0, .trail_lifetime = 0.2});
+        CHECK(std::abs(smoke.frame(SIZE).life - 0.2) < 1e-9);
     }
 
     void explicit_trail_reach_expands_the_damage_bounds() {
@@ -387,6 +397,7 @@ int main() {
     first_layout_move_retains_visible_carry();
     grabbed_body_tracks_turns_without_carry();
     original_drag_keeps_the_unattached_body();
+    automatic_trail_lifetime_matches_original_amount_curve();
     explicit_trail_reach_expands_the_damage_bounds();
     movement_contracts_and_reforms_the_body();
     settle_speed_changes_reform_without_changing_entry_or_transitions();

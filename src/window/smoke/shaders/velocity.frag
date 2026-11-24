@@ -161,8 +161,8 @@ void main() {
         float behind = smoothstep(.2, .9, dot(normalize(q + vec2(1e-4)), -heading));
         float zone = smoothstep(0.0, .1 * scale, sd) * (1.0 - smoothstep(.4 * scale, 2.0 * scale, sd));
         float kick = noise3(vec3(world / extent * 2.2, u_time * 1.6 + u_seed * 9.0)) * 2.0 - 1.0;
-        float girth = u_transit <= 0.0 ? u_trail_girth : 1.0;
-        v += u_dt * side * kick * speed * 6.0 * zone * behind * moving * massed * girth;
+        float thickness = u_transit <= 0.0 ? u_trail_thickness : 1.0;
+        v += u_dt * side * kick * speed * 6.0 * zone * behind * moving * massed * thickness;
     }
     // Loose smoke develops motion of its own as it ages, whatever the window does. Shortly
     // after leaving the body it is wound up into eddies; the flow carries those eddies with

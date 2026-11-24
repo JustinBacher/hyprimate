@@ -35,7 +35,7 @@ namespace hyprimate {
         double trail = 0.65;
         double life = 0.94;      // seconds after wake smoke leaves the body
         double trail_length = 0;  // logical pixels beyond the body; zero uses the automatic reach
-        double trail_girth = 1;   // multiplier for the width of shed smoke
+        double trail_thickness = 1;  // multiplier for the width of shed smoke
         double gather = 0;     // opening: strength of loose streams converging on the window
         double cohesion = 0;   // pull of loose smoke back into the window rectangle
         double dispersal = 0;  // closing: outward breakup and accelerated decay
@@ -81,8 +81,8 @@ namespace hyprimate {
         double turbulence = 0.65;
         double trail = 0.65;
         double trail_length = 0;
-        double trail_lifetime = 0.94;  // seconds
-        double trail_girth = 1;
+        double trail_lifetime = 0;  // seconds; zero derives the lifetime from trail amount
+        double trail_thickness = 1;
         double reform = 0.48;
         double settle_speed = 1;
         double mass = 0.45;
@@ -90,7 +90,7 @@ namespace hyprimate {
         std::uint32_t color = 0;
         double density = 1;
         double variation = 0.5;
-        bool follow_pointer = true;
+        bool follow_pointer = false;
     };
 
     // World-space extent of the fluid around the window centre. The margin bounds the wake.

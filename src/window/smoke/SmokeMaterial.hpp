@@ -129,7 +129,7 @@ class CSmokeMaterial {
         Turbulence,
         Trail,
         TrailLength,
-        TrailGirth,
+        TrailThickness,
         Life,
         Gather,
         Fade,

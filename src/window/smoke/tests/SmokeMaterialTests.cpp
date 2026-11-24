@@ -382,8 +382,7 @@ namespace {
                 }
             }
             CHECK(passes[1] > 100000 && passes[5] < passes[1]);
-            const int CLEAR = static_cast<int>(
-                std::ceil(60.0 * 1.1 * hyprimate::SmokeParams{}.trail_lifetime));
+            const int CLEAR = static_cast<int>(std::ceil(60.0 * 1.1 * harness.frame.life));
             long rest = 0;
             for (int i = 0; i < CLEAR; ++i) {
                 rest = AWAY(STEP(0));
@@ -441,8 +440,8 @@ namespace {
         const auto baseline = run({});
         const auto short_reach = run({.trail_length = 35});
         const auto brief = run({.trail_lifetime = 0.1});
-        const auto narrow = run({.trail_girth = 0.25});
-        const auto broad = run({.trail_girth = 2.5});
+        const auto narrow = run({.trail_thickness = 0.25});
+        const auto broad = run({.trail_thickness = 2.5});
         CHECK(baseline.distant_opacity > 10000);
         CHECK(short_reach.distant_opacity < 0.1 * baseline.distant_opacity);
         CHECK(baseline.lingering_opacity > 3000);

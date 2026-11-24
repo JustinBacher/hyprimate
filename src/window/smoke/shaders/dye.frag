@@ -167,19 +167,19 @@ void main() {
         float rear = dot(q / max(u_body_half, vec2(1.0)), -heading);
         float edge = .3 * scale;
         float aperture = 1.0;
-        if (u_transit <= 0.0 && u_trail_girth != 1.0) {
+        if (u_transit <= 0.0 && u_trail_thickness != 1.0) {
             vec2 side = vec2(-heading.y, heading.x);
             float across = abs(dot(q, side));
             float spread = dot(abs(side), u_body_half);
-            if (u_trail_girth < 1.0) {
+            if (u_trail_thickness < 1.0) {
                 // Narrow the rear cross-section without disturbing the body that feeds it.
-                float width = (spread + edge) * u_trail_girth;
-                aperture = 1.0 - smoothstep(width, width + .15 * scale * u_trail_girth, across);
+                float width = (spread + edge) * u_trail_thickness;
+                aperture = 1.0 - smoothstep(width, width + .15 * scale * u_trail_thickness, across);
             } else {
                 // Widen the shedding aperture and its outer layer, still only around the shell.
                 float width = spread + edge;
-                aperture = 1.0 - smoothstep(width, width + .15 * scale, across / u_trail_girth);
-                edge *= mix(1.0, u_trail_girth, smoothstep(.15 * spread, .85 * spread, across));
+                aperture = 1.0 - smoothstep(width, width + .15 * scale, across / u_trail_thickness);
+                edge *= mix(1.0, u_trail_thickness, smoothstep(.15 * spread, .85 * spread, across));
             }
         }
         float band = aperture * smoothstep(-.12 * scale, .02 * scale, sd) *

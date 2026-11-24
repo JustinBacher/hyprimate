@@ -88,7 +88,7 @@ namespace hyprimate {
         }
         m_frame.drag_follow = 0;
         m_frame.trail_length = 0;
-        m_frame.trail_girth = 1;
+        m_frame.trail_thickness = 1;
         m_duration = std::isfinite(duration) && duration > 0.0
                          ? duration
                          : (direction == Transition::Open ? 1.4 : 1.6);
@@ -308,11 +308,13 @@ namespace hyprimate {
         m_frame.turbulence = m_params.turbulence;
         m_frame.trail = m_params.trail;
         const bool TRANSITION = m_opening || m_closing;
-        // Transition smoke keeps its existing response to the shared trail amount.
-        m_frame.life = TRANSITION ? 0.55 + 0.6 * m_params.trail
-                                  : safe_param(params.trail_lifetime, 0.94, 0.1, 4.0);
+        const double LEGACY_LIFE = 0.55 + 0.6 * m_params.trail;
+        m_frame.life = !TRANSITION && params.trail_lifetime > 0
+                           ? safe_param(params.trail_lifetime, LEGACY_LIFE, 0.1, 4.0)
+                           : LEGACY_LIFE;
         m_frame.trail_length = TRANSITION ? 0 : safe_param(params.trail_length, 0.0, 0.0, 2400.0);
-        m_frame.trail_girth = TRANSITION ? 1 : safe_param(params.trail_girth, 1.0, 0.25, 2.5);
+        m_frame.trail_thickness =
+            TRANSITION ? 1 : safe_param(params.trail_thickness, 1.0, 0.25, 2.5);
         m_frame.mass_size = m_params.mass;
         m_frame.mass_roundness = m_params.roundness;
         m_frame.color = m_params.color;

@@ -70,7 +70,7 @@ float bodyDistance(vec2 rel) { return bodyLocalDistance(bodyLocal(rel)); }
 // Size against which body turbulence is measured.
 float bodyScale() { return max(2.0 * min(u_body_half.x, u_body_half.y), 48.0); }
 
-uniform float u_trail_length, u_trail_girth;
+uniform float u_trail_length, u_trail_thickness;
 bool finiteWake() { return u_trail_length > 0.0 && u_transit <= 0.0; }
 // The detached wake feathers over the last quarter of its reach in logical pixels. Its
 // envelope doesn't rotate when the window turns: only the attached shell uses the stretch.

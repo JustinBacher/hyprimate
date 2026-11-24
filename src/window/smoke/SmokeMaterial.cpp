@@ -76,7 +76,7 @@ bool CSmokeMaterial::initialize(const SSmokePrograms &programs) {
         "u_turbulence",
         "u_trail",
         "u_trail_length",
-        "u_trail_girth",
+        "u_trail_thickness",
         "u_life",
         "u_gather",
         "u_fade",
@@ -186,7 +186,7 @@ void CSmokeMaterial::motion(
     glUniform2f(u[Carry], F(frame.carry.x), F(frame.carry.y));
     glUniform2f(u[WindowVelocity], F(frame.velocity.x), F(frame.velocity.y));
     glUniform1f(u[TrailLength], F(frame.trail_length));
-    glUniform1f(u[TrailGirth], F(frame.trail_girth));
+    glUniform1f(u[TrailThickness], F(frame.trail_thickness));
     glUniform2f(u[Lag], F(frame.lag.x), F(frame.lag.y));
     glUniform3f(u[DragMotion], F(drag_delta.x), F(drag_delta.y), F(frame.drag_follow));
     glUniform2f(u[Position], F(frame.position.x), F(frame.position.y));

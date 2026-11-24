@@ -232,10 +232,10 @@ hl.config({
                             variant = "crew_carry",
                         },
                         smoke = {
-                            drag_follow = "current",
+                            drag_follow = "original",
                             trail_length = 0,
-                            trail_lifetime = 940,
-                            trail_girth = 1,
+                            trail_lifetime = 0,
+                            trail_thickness = 1,
                             reform = 0.48,
                             settle_speed = 1,
                             mass = 0.45,
@@ -570,10 +570,10 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `window:movement:enabled` | boolean / `true` | — | Deform windows while they move. This does not affect opening or closing effects. |
 | `window:movement:workspace_movement` | boolean / `true` | — | Let workspace slides trigger movement effects. When false, ordinary movement, opening and closing are unaffected. |
 | `window:movement:options:construction:variant` | string / `"crew_carry"` | — | Choose how Construction moves a window: carry it with workers (default), lift it with a crane, or relocate its pieces. All three use workers to resize the intact window. Native explicitly opts out of movement and resize effects. Allowed: `native`, `crew_carry`, `crane`, `piece_by_piece`. |
-| `window:movement:options:smoke:drag_follow` | string / `"current"` | — | Current anchors the smoke core to the drag while loose smoke trails; original lets the body lag and coast as before. Allowed: `current`, `original`. |
+| `window:movement:options:smoke:drag_follow` | string / `"original"` | — | Current anchors the smoke core to the drag while loose smoke trails; original lets the body lag and coast as before. Allowed: `current`, `original`. |
 | `window:movement:options:smoke:trail_length` | float / `0` | 0–2400 | Maximum wake distance beyond the smoke body in logical pixels. Zero uses the automatic reach. |
-| `window:movement:options:smoke:trail_lifetime` | float / `940` | 100–4000 | Lifetime of emitted wake smoke in milliseconds, independent of reach. |
-| `window:movement:options:smoke:trail_girth` | float / `1` | 0.25–2.5 | Width multiplier for the emitted wake, not the solid main smoke body. |
+| `window:movement:options:smoke:trail_lifetime` | float / `0` | 0–4000 | Lifetime of emitted wake smoke in milliseconds. Zero restores the original amount-based lifetime (550–1150 ms, 940 ms with the default trail amount). Positive overrides have a 100 ms minimum; configured values from 1 to 99 ms are clamped to 100 ms. |
+| `window:movement:options:smoke:trail_thickness` | float / `1` | 0.25–2.5 | Wake width multiplier, not the solid main smoke body. One is neutral. |
 | `window:movement:options:smoke:reform` | float / `0.48` | 0.15–1.5 | Time scale in seconds for moving smoke to condense back into the exact window after movement stops. |
 | `window:movement:options:smoke:settle_speed` | float / `1` | 0.1–2 | Speed multiplier for the smoke body's expansion and condensation after movement or resizing stops. One preserves the reform time scale; higher values reform faster and lower values linger. Opening and closing durations are unchanged. |
 | `window:movement:options:smoke:mass` | float / `0.45` | 0.15–1 | Size of the moving smoke body as a fraction of the window's width and height. One keeps roughly the window's footprint; smaller values contract a moving window into a denser mass that expands back when it stops. |
