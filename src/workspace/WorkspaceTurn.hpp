@@ -3,12 +3,14 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -216,6 +218,7 @@ namespace hyprimate::workspace {
                 m_source = before;
                 m_destination = after;
                 m_active = m_transition.begin(DIRECTION, DURATION, m_curve);
+                start_presentation_clock(DURATION);
                 m_destination_ready = false;
             } else if (!m_presented) {
                 if (after.identity == m_source.identity) {
@@ -225,6 +228,7 @@ namespace hyprimate::workspace {
                 m_destination = after;
                 m_pending.reset();
                 m_transition.begin(DIRECTION, DURATION, m_curve);
+                start_presentation_clock(DURATION);
                 m_destination_ready = false;
             } else if (after.identity == m_source.identity ||
                        after.identity == m_destination.identity) {
@@ -286,6 +290,7 @@ namespace hyprimate::workspace {
                 if (!sample_transition(revision, [&](Transition &next) { next.advance(STEP); })) {
                     return;
                 }
+                m_elapsed += STEP;
                 // Sampled completion is provisional until the endpoint was actually
                 // drawn. A request between pre-render and draw still uses the last visible frame.
                 if (!m_transition.active() &&
@@ -299,6 +304,25 @@ namespace hyprimate::workspace {
                         cancel();
                         return;
                     }
+                    if constexpr (requires {
+                                      m_port->next_pair(m_source.endpoint(), m_pending->endpoint());
+                                  }) {
+                        const auto &landed =
+                            m_transition.target_destination() ? m_destination : m_source;
+                        auto next = m_port->next_pair(landed.endpoint(), m_pending->endpoint());
+                        if (m_revision != revision) {
+                            return;
+                        }
+                        if (next) {
+                            auto &[duration, curve] = *next;
+                            if (!std::isfinite(duration) || duration <= 0.0 || !curve) {
+                                cancel();
+                                return;
+                            }
+                            m_duration = duration;
+                            m_curve = std::move(curve);
+                        }
+                    }
                     if (m_transition.target_destination()) {
                         m_port->swap_slots();
                         std::swap(m_source_blend, m_destination_blend);
@@ -311,6 +335,7 @@ namespace hyprimate::workspace {
                     m_presented = false;
                     m_destination_ready = false;
                     m_transition.begin(m_pending_direction, m_duration, m_curve);
+                    start_presentation_clock(m_duration);
                 }
             }
             bool captured = true;
@@ -344,12 +369,22 @@ namespace hyprimate::workspace {
         }
 
         enum class Presentation { Skipped, Cancelled, Displayed, FirstDisplay };
-        // The style writes offscreen. Only the final display callback may expose those pixels.
-        // Renderer calls can synchronously replace the turn; don't keep a turn reference across
-        // one.
-        template <class Resolve, class Render, class Display>
+        struct PresentationSample {
+            std::uint64_t generation;
+            std::uint64_t tick;
+            double progress;
+            double elapsed;
+            double delta;
+            double duration;
+            Direction direction;
+        };
+        // The built-in style writes offscreen. An optional alternate display may
+        // submit directly, but may decline only before changing the output.
+        // Renderer calls can replace the turn; re-resolve before using it again.
+        template <class Resolve, class Render, class Display, class Alternate = std::nullptr_t>
         static Presentation draw_queued(
-            std::uint64_t ticket, Resolve resolve, Render render, Display display) {
+            std::uint64_t ticket, Resolve resolve, Render render, Display display,
+            Alternate alternate = nullptr) {
             auto *turn = ticket ? resolve() : nullptr;
             if (!turn || turn->m_queued != ticket || !turn->drawable()) {
                 return Presentation::Skipped;
@@ -387,26 +422,51 @@ namespace hyprimate::workspace {
             if (!turn) {
                 return result;
             }
-            bool rendered = false;
-            try {
-                rendered = render(turn->progress(), turn->direction());
-            } catch (...) {
-                // Re-resolve below: the throwing callback may have installed a newer turn.
-            }
-            turn = ALLOWED(CURRENT());
-            if (!turn) {
-                return result;
-            }
-            if (!rendered) {
-                turn->presented(false);
-                return Presentation::Cancelled;
-            }
             bool displayed = false;
-            try {
-                displayed = display();
-            } catch (...) {
-                // Submission may already have touched the output; never replay it.
-                displayed = false;
+            if constexpr (!std::is_same_v<Alternate, std::nullptr_t>) {
+                try {
+                    displayed = alternate(PresentationSample{
+                        .generation = turn->m_generation,
+                        .tick = turn->m_presented_frames + 1,
+                        .progress = turn->progress(),
+                        .elapsed = turn->m_elapsed,
+                        .delta = turn->m_elapsed - turn->m_presented_elapsed,
+                        .duration = turn->m_pair_duration,
+                        .direction = turn->direction()});
+                } catch (...) {
+                    // As with display(), never replay a submission that may have
+                    // touched the output.
+                    if (auto *current = CURRENT()) {
+                        current->cancel("workspace-display");
+                        return Presentation::Cancelled;
+                    }
+                    return result;
+                }
+                if (!displayed && !(turn = ALLOWED(CURRENT()))) {
+                    return result;
+                }
+            }
+            if (!displayed) {
+                bool rendered = false;
+                try {
+                    rendered = render(turn->progress(), turn->direction());
+                } catch (...) {
+                    // Re-resolve below: the throwing callback may have installed a newer turn.
+                }
+                turn = ALLOWED(CURRENT());
+                if (!turn) {
+                    return result;
+                }
+                if (!rendered) {
+                    turn->presented(false);
+                    return Presentation::Cancelled;
+                }
+                try {
+                    displayed = display();
+                } catch (...) {
+                    // Submission may already have touched the output; never replay it.
+                    displayed = false;
+                }
             }
             turn = CURRENT();
             if (turn != nullptr) {
@@ -446,6 +506,8 @@ namespace hyprimate::workspace {
                 return;
             }
             m_presented = true;
+            ++m_presented_frames;
+            m_presented_elapsed = m_elapsed;
             m_last_presented = m_transition.motion();
             m_port->damage();
         }
@@ -617,6 +679,13 @@ namespace hyprimate::workspace {
         }
 
       private:
+        void start_presentation_clock(double duration) {
+            ++m_generation;
+            m_presented_frames = 0;
+            m_elapsed = m_presented_elapsed = 0.0;
+            m_pair_duration = duration;
+        }
+
         template <class Sample>
         bool sample_transition(std::uint64_t revision, Sample sample) {
             // Keep the last committed timeline available to a nested gesture/retarget.
@@ -701,6 +770,9 @@ namespace hyprimate::workspace {
             m_port->release_blend(kind);
         }
         bool should_refresh(CaptureKind kind) {
+            if (m_port->reuse_captures()) {
+                return false;
+            }
             const double BOUNDARY = std::clamp(m_port->live_boundary(), 0.0, 1.0);
             const bool REFRESH = progress() <= BOUNDARY || (kind == CaptureKind::DestinationLive &&
                                                                progress() >= 1.0 - BOUNDARY);
@@ -790,6 +862,11 @@ namespace hyprimate::workspace {
         std::optional<double> m_retarget_time;
         Transition::Curve m_curve;
         double m_duration = 0.0;
+        std::uint64_t m_generation = 0;
+        std::uint64_t m_presented_frames = 0;
+        double m_elapsed = 0.0;
+        double m_presented_elapsed = 0.0;
+        double m_pair_duration = 0.0;
         std::int64_t m_staged_identity = 0;
         bool m_active = false;
         bool m_presented = false;

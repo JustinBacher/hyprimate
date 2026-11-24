@@ -347,6 +347,44 @@ void main() {
         CHECK(glGetError() == GL_NO_ERROR);
     }
 
+    void in_place_presentation_blends_only_damaged_pixels() {
+        Layers layers(6, 4);
+        constexpr std::array<GLfloat, 4> underlay{80.F / 255, 0, 0, 1};
+        glClearBufferfv(GL_COLOR, 0, underlay.data());
+        auto target = layers.target;
+        target.origin_x = 1;
+        target.origin_y = 1;
+        target.width = 4;
+        target.height = 2;
+        const std::array clips{Clip{1, 1, 1, 2}, Clip{4, 2, 1, 1}};
+        target.clips = clips;
+        target.composite = true;
+        Program program;
+        Instance instance;
+        std::string error;
+        auto package = simple(R"(
+layout(location=0) out vec4 color;
+void main() {
+    if (hypr_uv.x > .75) discard;
+    color = hypr_sample_destination(hypr_uv) * .5;
+}
+)");
+        const Pixel green{0, 128, 0, 255};
+        layers.source.destination_texture = texture(1, 1, &green);
+        if (checked(program.initialize(std::move(package), {}, error, eglGetProcAddress), error) &&
+            checked(instance.initialize(program, 4, 2, error), error)) {
+            auto alias = layers.source;
+            alias.destination_texture = target.texture;
+            CHECK(!instance.render(alias, target, true, error));
+            CHECK(near(pixel(layers.target, 1, 1), {80, 0, 0, 255}));
+            CHECK(checked(instance.render(layers.source, target, true, error), error));
+            CHECK(near(pixel(layers.target, 1, 1), {40, 64, 0, 255}));
+            CHECK(near(pixel(layers.target, 2, 1), {80, 0, 0, 255}));
+            CHECK(near(pixel(layers.target, 4, 2), {80, 0, 0, 255}));
+        }
+        glDeleteTextures(1, &layers.source.destination_texture);
+    }
+
     Package diffusion() {
         Package package;
         package.textures = {
@@ -451,6 +489,23 @@ void main() {
         CHECK(a.statistics().allocations == 0);
         CHECK(!a.render(layers.source, layers.target, true, error));
         CHECK(glGetError() == GL_NO_ERROR);
+    }
+
+    void fixed_simulation_storage_survives_source_resize() {
+        Layers layers(4, 4);
+        auto package = diffusion();
+        package.textures[0].size = {2, 2};
+        package.textures[1].size = package.textures[2].size = {4, 4};
+        Program program;
+        Instance instance;
+        std::string error;
+        if (!checked(program.initialize(std::move(package), {}, error, eglGetProcAddress), error) ||
+            !checked(instance.initialize(program, 4, 4, error), error)) return;
+        instance.advance({.tick = 1, .delta = 40.F / 255});
+        CHECK(checked(instance.render(layers.source, layers.target, true, error), error));
+        CHECK(checked(instance.initialize(program, 6, 8, error), error));
+        CHECK(checked(instance.render(layers.source, layers.target, false, error), error));
+        CHECK(near(pixel(layers.target, 2, 2), {59, 76, 40, 255}));
     }
 
     void mrt_dimensions_are_checked_after_capture_size_resolution() {
@@ -1162,7 +1217,9 @@ int main(int argc, char **argv) {
     }
     source_subrect_orientation_and_aliases();
     borrowed_target_origin_clips_draw_and_clear();
+    in_place_presentation_blends_only_damaged_pixels();
     multipass_ticks_resize_and_independent_instances();
+    fixed_simulation_storage_survives_source_resize();
     mrt_dimensions_are_checked_after_capture_size_resolution();
     render_only_failure_preserves_committed_and_pending_simulation();
     feedback_instancing_uniform_blocks_and_host_state();

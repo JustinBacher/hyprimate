@@ -4,9 +4,10 @@ Hyprimate loads declarative effect packages written for **OpenGL ES 3.0 and GLSL
 
 There is no Burn My Windows compatibility layer, JavaScript runtime, compute shader support, shader translation, Vulkan backend, or private EGL context. Ported effects must adapt their source, helper functions, parameters, assets, and setup to this specification. No third-party effects are bundled.
 
-## Select opening and closing effects
+## Select effects independently
 
-Existing `window.style` and all native style options retain their meaning. External effects independently override opening and closing, not movement or resizing:
+`window.style` remains the built-in style. The `window.open`, `window.close`,
+`window.move` and `window.resize` blocks each accept a separate external effect:
 
 ```lua
 hl.config({ plugin = { hyprimate = { window = {
@@ -20,16 +21,66 @@ hl.config({ plugin = { hyprimate = { window = {
         effect = "/absolute/path/to/another/effect.json",
         effect_duration = 900,
     },
+    move = { effect = "/absolute/path/to/move/effect.json", effect_duration = 350 },
+    resize = { effect = "/absolute/path/to/resize/effect.json", effect_duration = 350 },
 } } } })
 ```
 
-An empty `effect` selects the existing native style for that event. Existing `enabled` switches still apply. Parameters are a JSON object, checked against the selected package; unknown parameters and wrong types are errors. Reload configuration to reread a package at an unchanged path. A failed replacement must not invalidate an existing valid prepared effect or an active animation. Errors identify the package/pass and are reported without repeatedly compiling every draw.
+An empty `effect` uses the existing built-in style. `effect_duration = 0`
+disables that external effect. `window.movement.enabled` gates both move and
+resize; opening and closing have their own enable switches. Parameters are a
+strictly typed JSON object. Reload configuration to reread assets and GLSL at
+an unchanged path. A failed replacement retains the last valid selection.
+An active instance pins its program and parameters. Content-identical prepared
+generations reuse linked programs and immutable GPU assets in the same context.
 
-Mapped presentation has one owner. An eligible native move or resize interrupts an external opening effect and hands the same motion sample to the configured built-in style; the motion is not discarded or deferred until the shader finishes. Hyprland's native opening fade remains active so a failed shader draw can return to the correct native raster.
+Mapped presentation has one owner. A tracked move or resize interrupts opening
+and hands the current sample to that event's selected effect or built-in style.
+A live resize grab takes precedence over movement; outside a grab, a sample
+that changes client-body dimensions is a resize. During ongoing motion progress
+is zero. After release/idle it advances from zero to one over `effect_duration`;
+continued motion of the same kind reuses the active instance. Changing the kind
+or closing ends that instance. Shader opening leaves Hyprland's native fade
+active; its alpha is already in the borrowed raster.
 
-The current integration conservatively declines external effects when native background blur could require an independent geometric matte. Shader RGB is never treated as blur coverage, and the runtime never disables your blur configuration automatically. A fading window can qualify for blur even if its client image is otherwise opaque. Use a native per-window no-blur rule, or explicitly disable native blur, to opt that window into external effects. Correct shader-aware blur coverage is not implemented.
+`workspace.effect`, `workspace.effect_parameters` and `workspace.effect_duration`
+select a transition when `workspace.enabled` is true. The selected native style
+supplies its curve and capture/HUD policy and remains the fallback. The two
+authorized endpoint images are captured once per pair. Reversal reuses them
+and reverses progress instead of swapping sampler bindings. These are snapshots,
+not live feeds; changes on the desktop appear at the next pair or on native
+handoff. Endpoints use capture-local blur; a native-cache capture cannot be
+borrowed by a shader. Native fallback restores the style's normal capture policy.
 
-The specification recognizes `open`, `close`, `move`, `resize`, `workspace`, and `wallpaper` event declarations. **Only opening and closing are currently integrated with Hyprland.** Declaring another event does not install that integration. No Niri integration is included.
+`wallpaper.effect` and `wallpaper.effect_parameters` select one independently
+initialized instance per output. `wallpaper.effect_duration = 0` runs
+continuously while visible; a positive duration in milliseconds holds the last
+frame without scheduling more redraws. The pass renders over native background
+content and below bottom layers and windows. Alpha reveals the native background.
+The shader never receives desktop pixels: both samplers see transparent black.
+Authorized workspace captures can replay the last completed wallpaper state
+without advancing it. No Niri integration is included.
+
+## Native blur
+
+For a window package that can draw its own coverage, declare `"blur_mask": true`.
+Hyprland still generates, selects, damages and composes the background blur.
+Hyprimate renders the package's render phase a second time with `hypr_blur_mask`
+set and with `hypr_source` replaced by the native rounded rectangle (red = 1
+inside, red = 0 outside). Reuse the same vertex deformation, sampling offsets,
+discard conditions and animation opacity; output `vec4(weight)`, where red is
+the blur coverage in [0,1]. For premultiplied blending this also supplies the
+coverage alpha. Do not copy RGB decoration, glows or particle tint into red.
+Fully transparent glass can still have nonzero weight. For a dissolve, remove
+mask coverage where the window disappears. Initialization and update do not
+run during the mask replay; persistent textures and buffers belong to the main
+color simulation, not a second simulation.
+
+Packages without this explicit contract use the native presentation when
+the window requires blur. Blur is not inferred from color alpha. Custom
+vertex deformation and expanded bounds work only if the package draws matching
+coverage and declares sufficient bounds. Native policy may further restrict
+blur, and protected content never becomes a shader source.
 
 ## Minimal package
 
@@ -47,7 +98,10 @@ void main() {
 }
 ```
 
-The runtime supplies the vertex shader and fullscreen triangle. It does not allocate an internal full-resolution image for this simple pass. Hyprland's window-transform hook requires a pooled result framebuffer; the reusable GLES executor itself can render into a caller-provided target directly.
+The runtime supplies the vertex shader and fullscreen triangle. The GLES
+executor can render an eligible final pass directly into a caller-provided
+target; the mapped-window transformer still has to return a result texture
+to stock Hyprland 0.57.
 
 Paths to source files, helpers, PNG images, and binary buffers are relative to the manifest directory. A manifest path starting with `~/` expands against `HOME`; other relative manifest paths use the compositor's working directory. There is no environment-variable interpolation or shell execution. Files must be regular files. Unknown fields, duplicate keys, unsupported versions, and incompatible declarations are rejected.
 
@@ -74,10 +128,20 @@ Sources omit `#version` and standard runtime declarations. Hyprimate prepends `#
 | `hypr_domain` | vec4 | Window-normalized origin and extent covered by the target |
 | `hypr_iteration` | int | Zero-based iteration within this pass |
 | `hypr_iterations` | int | Number of iterations of this pass |
+| `hypr_geometry`, `hypr_previous_geometry` | vec4 | Current and preceding presented client-body `(x, y, width, height)` in logical pixels; subtract to obtain the geometry delta |
+| `hypr_velocity` | vec4 | Change in the geometry components per second; zero while settling or without an interval |
+| `hypr_held`, `hypr_settling` | bool | Matching pointer grab and settling phase for move/resize |
+| `hypr_direction` | float | Workspace travel direction (`-1` or `+1`); zero when unused |
+| `hypr_destination`, `hypr_destination_uv` | sampler2D, vec4 | Second authorized workspace image and its UV rectangle; transparent on wallpaper |
+| `hypr_blur_mask` | bool | Render-phase replay to produce native blur coverage, not color |
 
 `hypr_uv` spans [0,1] across the current target, with texture row zero treated as the top. `hypr_window_uv()` maps it through `hypr_domain`; it can be negative or exceed one for expanded final bounds. Intermediate texture passes use a [0,0,1,1] domain.
 
 `hypr_sample_source(uv)` samples window-normalized coordinates, respecting the source subrectangle and texel centers, and returns transparent black outside [0,1]. It is available in vertex shaders too, using explicit level zero sampling. Source images and shader output use **premultiplied alpha**. `hypr_unpremultiply()` and `hypr_premultiply()` are provided for straight-color arithmetic. Auxiliary PNG assets are raw RGBA samples; apply the appropriate alpha convention yourself.
+
+`hypr_sample_destination(uv)` samples the other workspace endpoint. Direction
+denotes the orientation of the pinned pair, not the sign of the progress
+derivative. The source and destination samplers never bind the current scene.
 
 Shading language syntax is native ES 3.00: use `texture`, explicit fragment outputs, and ordinary vertex inputs. No legacy `texture2D`, Cogl variables, imported shader-language aliases, or upstream helper collection is injected. `helpers` is an optional list of GLSL files, prepended in order; helpers use the same native interface.
 
@@ -163,7 +227,14 @@ See [the particle example](../examples/shaders/particles/effect.json): a feedbac
 
 `bounds` is `[left, top, right, bottom]`, fractional margins relative to the original capture dimensions. It defaults to zero. Each component must be between zero and two. Expanded bounds feed native damage tracking and result-target allocation; they do not enlarge the source texture or grant access to neighboring desktop content.
 
-Immutable compiled programs and assets are separate from mutable instance state. Concurrent animations never share writable simulation textures or buffers. Existing compatible storage is reused across repeated draws. Resizing changes resource dimensions, clears/reset state, and replays initialization; effects must not assume that state survives a size change. Interruption and teardown retire owned objects only while the owning compositor context is usable, or abandon lost-context handles without calling into a dead context.
+Immutable compiled programs and assets are separate from mutable instance state.
+Concurrent animations never share writable simulation textures or buffers. A
+resize preserves state if all resolved attachment dimensions still match (in
+particular if the package uses fixed dimensions and buffers). Otherwise
+replacement storage is allocated transactionally, reset, and initialized
+again. Output geometry changes recreate a wallpaper instance for that output.
+Context-owned resources are retired only while the owning compositor context
+is usable; lost-context handles are abandoned without GL calls.
 
 The reusable executor accepts borrowed source textures and final render targets. The compositor integration is responsible for source provenance, permissions, session state, resource lifetime, coordinate conversion, damage, and host rendering-state preservation. A full-monitor snapshot must not be exposed as a window sampler: when an exclusive window texture is unavailable, the integration must GPU-crop approved content before exposing it, even though this requires a copy. The runtime never grants arbitrary compositor texture handles to packages.
 
@@ -171,7 +242,12 @@ An owned close is declined before native suppression if the retained snapshot do
 
 The GLES target interface also accepts a nonzero framebuffer-region origin. Viewport and scissor constrain both clearing and drawing to that region, preserving surrounding compositor pixels. `hypr_target_size` and `hypr_uv` remain region-local; GLSL `gl_FragCoord` retains actual framebuffer coordinates.
 
-The caller marks private pooled targets with `Target::clear_before_render`. The executor initializes only the target region before its first final pass, combining this with that pass's declared clear when possible. Later compositing passes retain earlier results. Hyprland always enables this for its private effect work buffers: `clear:false`, blending, or shader `discard` cannot reveal another work-buffer user's old pixels. An explicitly initialized in-place target may instead preserve its caller-provided contents.
+The caller marks private pooled targets with `Target::clear_before_render`.
+The executor initializes the target region before its first final pass,
+combining this with that pass's clear when possible. Later passes may preserve
+earlier results. Blending or `discard` cannot expose a previous lease's
+pixels. Direct presentation instead blends over the already rendered native
+scene and never clears it; disjoint damage scissors preserve untouched tiles.
 
 ## Budgets and failure behavior
 
@@ -183,10 +259,99 @@ Malformed source/metadata, unsupported formats, allocation failures, invalid dep
 
 - `src/shader/Package.*`: native specification, loading, parameter validation, source assembly, resources and pass ordering; no compositor or EGL dependencies.
 - `src/shader/GlesRuntime.*`: reusable GLES3 execution within the caller's context; no compositor or EGL ownership.
-- `src/window/shader/`: Hyprland event and rendering integration using its existing lifecycle and framebuffer pool.
+- `src/window/shader/` and `src/shader/{SceneShader,ShaderWallpaper}.hpp`: native presentation bridges. The reusable package and execution files do not own compositor or EGL lifetimes.
 
 A future compositor integration must be implemented against its native renderer and ownership rules. These modules do not assume that Niri can reuse Hyprland's capture or hook architecture.
+
+On Hyprland 0.57, [`IElementRenderer::drawTransformedWindow`](https://github.com/hyprwm/Hyprland/blob/0aa6745f705f2c4b0a5004eb019ef76e5bbdb426/src/render/ElementRenderer.cpp#L693-L846) renders a mapped
+window and optional rounded blur source into work buffers, invokes the plugin
+with those buffers bound, and unconditionally composites the returned image
+with the host texture pass. No public transformer method can take over that
+composition. For opted-in blur the plugin prepares both results before
+publishing either, so a failed matte draw cannot leave a transformed color
+image over a rectangular or missing blur. The native helper still produces its
+own undeformed matte for the fallback case.
+
+Close, wallpaper and workspace presentation can write the native scene target
+directly if the final pass uses the runtime fullscreen triangle, is the last
+and only final draw, and doesn't use `gl_FragCoord`. The target must have matching
+color encoding and no mirror attachment, output transform, or active render
+modifier. Blur closes and other unsupported presentations use an isolated
+result followed by the native texture compositor. Workspace captures are
+leased separately from the presentation target, and close still isolates the
+approved crop of a monitor-sized snapshot before arbitrary GLSL can sample it.
+
+Each eliminated RGBA8 result avoids a pooled attachment of `4 × width × height`
+bytes, a clear, a final effect write to that attachment and a compositor
+sampling/composition pass. A full write plus one full sample is `8 × width ×
+height` nominal attachment bytes before counting the clear. At 1920×1080 that
+is 15.82 MiB per draw; FP16 doubles it. These are estimates, not measured VRAM
+traffic: compression, cache hits, damage and tile behavior change physical
+bandwidth. Required simulation and capture passes are additional.
+
+The normal untransformed close path is therefore isolated snapshot crop →
+shader → native scene, instead of isolated crop → shader work buffer → native
+texture pass. A mapped window remains native raster → shader work buffer →
+native texture pass. With shader blur, color and coverage are both inputs to
+the host's composition. On stock 0.57, staging coverage before publishing
+the color also means drawing the rounded input instead of waiting for the
+host's later matte callback.
+
+The host's [MONITOR close snapshot](https://github.com/hyprwm/Hyprland/blob/0aa6745f705f2c4b0a5004eb019ef76e5bbdb426/src/render/Renderer.cpp#L3366-L3423) is a separate GPU framebuffer, not a client
+buffer lease, so client teardown does not invalidate it. Its dimensions are
+the entire output, not the window. Retaining the framebuffer is insufficient
+to restrict arbitrary GLSL sampling to the approved crop; the bounded crop is
+still needed. An image already equal to the approved rectangle is borrowed
+without a copy. A close with incomplete offscreen source pixels is declined.
+
+Paired private KWin/Hyprland measurements on an RTX 5060 Ti at 1280×960,
+with a 440×300 client and blur disabled, showed median GPU close scopes of
+11.07→2.53 µs for Fade, 24.06→18.69 µs for Diffusion, and 18.37→18.37 µs for
+Particles. Particles needs more than one final draw, so its native composition
+remains. The scope includes Hyprimate's close pass, not the whole compositor.
+See [before](../build/shader-integration/frame-control-before/),
+[after](../build/shader-integration/frame-control-after/), and the
+[four-resolution executor run](../build/shader-integration/executor.jsonl).
+4K Diffusion used 4.15 MB of mutable storage and five draws per step. The
+executor did not allocate or upload after warm-up in these measurements.
+
+The same 440×300 client was also tested on nested 720p, 1080p, 1440p, and
+4K outputs. Native renderer CPU wall time from `RENDER_PRE` to
+`RENDER_POST` had a p95 of 0.36–0.40 ms without an external effect and
+0.80–1.28 ms across the three external effects. These results do not include
+GPU completion, buffer commit, or scanout, and do not represent fullscreen
+window effects. See `build/shader-integration/nested-{720,1080,1440,2160}/`
+for per-effect p50, p95, p99, and maximum wall times.
+The private wallpaper renderer scheduled zero frames during a 350 ms quiet
+interval after reaching its finite endpoint, versus 21 frames for the
+continuous effect at 60 Hz (0.31 ms renderer CPU wall p95 at 800×600).
+
+Preparation is still synchronous for changed packages; only the compositor
+thread owns the context. In the paired nested run, package parse and validation
+took approximately 0.15–0.59 ms, and changed GPU preparation took up to
+28.30 ms. Reusing identical content and parameter values skipped GPU
+preparation; reload callbacks in that sample took 0.37–1.23 ms for cache hits
+versus up to 29.39 ms with changed content. These are CPU wall intervals, not
+physical GPU allocation or presentation timestamps.
 
 Keep simulation textures small, use ping-pong handles instead of copies, batch instances, and avoid full-resolution scratch passes unless the effect actually needs them. Initialization/compilation/reflection is separate from rendering. Production execution does not read simulation state back to the CPU or call `glFinish`. Statistics expose allocations, upload/copy bytes, pass counts and draws for profiling.
 
 Build dependencies for this runtime are the existing GLES3/libpng stack plus the header-only `nlohmann_json` CMake package (3.11+). Focused verification targets are `shader-package-tests` and `shader-gles-tests`; `shader-runtime-bench` runs the original developer packages through the production executor. Measurements must distinguish CPU submission from GPU execution and exclude initialization unless explicitly reported.
+
+The private nested integration runners load the specified build artifact and use
+their own compositor sockets, home, configuration, and outputs. Give each run a
+new artifact directory:
+
+```sh
+python3 tests/nested/shader_evidence.py build/shader-window-evidence --plugin build/hyprimate.so
+python3 tests/nested/wallpaper_evidence.py build/shader-wallpaper-evidence --plugin build/hyprimate.so
+```
+
+The first runner covers mapped and closing shader effects, shape-aware blur,
+movement and resizing, workspace reversal, live privacy revocation and session
+lock, and plugin unload/reload. The second checks wallpaper ordering, finite
+and continuous presentation, and recreation and removal of a rotated,
+fractionally scaled virtual output. Both retain screenshots and numeric checks.
+Pass `--interactive` to the first runner to also drive held move and resize
+grabs directly against the private Wayland socket (requires NumPy for the shared
+input fixture).

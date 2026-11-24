@@ -28,6 +28,7 @@ namespace hyprimate::workspace {
         { Style::needs_individual_windows(resources) } -> std::same_as<bool>;
         { Style::uses_native_hud(resources) } -> std::same_as<bool>;
         { Style::uses_workspace_previews(resources) } -> std::same_as<bool>;
+        { Style::options(settings) == Style::options(settings) } -> std::same_as<bool>;
         { Style::prepare(resources, settings) } -> std::same_as<void>;
         { resources.settings.prepared.duration } -> std::convertible_to<double>;
         { resources.settings.prepared.curve } -> std::convertible_to<std::string_view>;

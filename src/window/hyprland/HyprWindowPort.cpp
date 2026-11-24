@@ -456,6 +456,7 @@ std::optional<FadeoutFacts> CHyprWindowPort::fadeout_facts(std::uint64_t fadeout
         facts.blurred = FADEOUT->effects().textureBlur.enabled;
         facts.image_available = static_cast<bool>(TEXTURE);
         facts.no_screen_share = FADEOUT->source().noScreenShare;
+        facts.pre_blur = FADEOUT->effects().preBlur.has_value();
         return facts;
     }
     return std::nullopt;

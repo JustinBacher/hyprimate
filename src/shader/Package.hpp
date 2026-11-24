@@ -21,7 +21,7 @@ namespace hyprimate::shader {
     enum class ValueType { Float, Int, Bool, Vec2, Vec3, Vec4 };
     enum class Primitive { Points, Lines, Triangles, TriangleStrip };
     enum class Side { Single, Read, Write };
-    enum class ResourceKind { Source, Output, Texture, Buffer };
+    enum class ResourceKind { Source, Output, Texture, Buffer, Destination };
     struct Ref {
         ResourceKind kind = ResourceKind::Source;
         std::uint16_t index = 0;
@@ -38,10 +38,12 @@ namespace hyprimate::shader {
         std::string name;
         Value initial;
         double minimum = -3.402823466e+38F, maximum = 3.402823466e+38F;
+        bool operator==(const Parameter &) const = default;
     };
     struct Size {
         unsigned width = 0, height = 0;
         float scale = 1;
+        bool operator==(const Size &) const = default;
     };
     struct Texture {
         std::string name;
@@ -51,6 +53,7 @@ namespace hyprimate::shader {
         bool ping_pong = false, linear = false, repeat = false;
         unsigned image_width = 0, image_height = 0;
         std::vector<std::uint8_t> image;
+        bool operator==(const Texture &) const = default;
     };
     struct Buffer {
         std::string name;
@@ -59,10 +62,12 @@ namespace hyprimate::shader {
         bool ping_pong = false;
         // Float32 data or raw file bytes; runtime zero-fills the remaining tail.
         std::vector<std::uint8_t> initial;
+        bool operator==(const Buffer &) const = default;
     };
     struct Attribute {
         unsigned location = 0, components = 0, stride = 0, offset = 0, divisor = 0;
         Ref buffer;
+        bool operator==(const Attribute &) const = default;
     };
     struct Mesh {
         std::string name;
@@ -70,10 +75,12 @@ namespace hyprimate::shader {
         unsigned count = 3, instances = 1;
         std::vector<Attribute> attributes;
         std::vector<std::uint32_t> indices;
+        bool operator==(const Mesh &) const = default;
     };
     struct Binding {
         std::string name;
         Ref resource;
+        bool operator==(const Binding &) const = default;
     };
     struct Pass {
         std::string name;
@@ -86,17 +93,20 @@ namespace hyprimate::shader {
         int mesh = -1;
         unsigned iterations = 1;
         bool transform_feedback = false, clear = true, blend = false;
+        bool operator==(const Pass &) const = default;
     };
     struct Package {
         std::string path;
         std::vector<Event> events{Event::Open, Event::Close};
         // Fractions of the capture size, added left/top/right/bottom.
         std::array<float, 4> bounds{};
+        bool blur_mask = false;
         std::vector<Parameter> parameters;
         std::vector<Texture> textures;
         std::vector<Buffer> buffers;
         std::vector<Mesh> meshes;
         std::vector<Pass> passes;
+        bool operator==(const Package &) const = default;
         bool supports(Event event) const noexcept;
     };
     using Values = std::vector<Value>;

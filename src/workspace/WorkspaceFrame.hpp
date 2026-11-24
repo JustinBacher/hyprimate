@@ -41,6 +41,8 @@ namespace hyprimate::workspace {
         WorkspaceLayer top;
         std::shared_ptr<std::vector<WorkspaceFloating>> floating;
         bool layered = false;
+        // Only composites rendered with a capture-local blur cache may be shader inputs.
+        bool shader_readable = false;
         std::shared_ptr<const WorkspaceCapture> previous;
         // At most one immutable prior generation; never a linked history.
         double live_mix = 1.0;

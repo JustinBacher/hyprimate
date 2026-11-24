@@ -1,6 +1,7 @@
 #include "window/shader/ShaderRenderer.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <optional>
 #include <utility>
@@ -13,10 +14,15 @@
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/render/SceneResources.hpp>
 #include <hyprland/src/render/gl/GLFramebuffer.hpp>
+#include <hyprland/src/render/pass/ClearPassElement.hpp>
+#include <hyprland/src/render/pass/RectPassElement.hpp>
+#include <hyprland/src/render/pass/TexPassElement.hpp>
 
 #include "gl/CompositorContext.hpp"
 #include "gl/NativeFramebuffer.hpp"
+#include "gl/NativeResource.hpp"
 #include "shader/GlesRuntime.hpp"
+#include "shader/SceneShader.hpp"
 
 namespace hyprimate::shader {
     namespace {
@@ -64,6 +70,81 @@ namespace hyprimate::shader {
             return image ? dynamic_cast<Render::GL::CGLFramebuffer *>(image.get()) : nullptr;
         }
 
+        using Clock = std::chrono::steady_clock;
+        auto micros(Clock::time_point start, Clock::time_point end = Clock::now()) {
+            return std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        }
+
+        bool same_encoding(const Image &a, const Image &b) {
+            if (!a || !b) return false;
+            // A normalized XBGR8888 scene has opaque destination alpha. Its
+            // RGB channels have the same encoding as ABGR8888 snapshot RGB.
+            if (a->m_drmFormat != b->m_drmFormat &&
+                !(a->m_drmFormat == DRM_FORMAT_XBGR8888 && b->m_drmFormat == DRM_FORMAT_ABGR8888) &&
+                !(a->m_drmFormat == DRM_FORMAT_XRGB8888 && b->m_drmFormat == DRM_FORMAT_ABGR8888)) {
+                return false;
+            }
+            const auto left = a->imageDescription(), right = b->imageDescription();
+            return left && right && left->value() == right->value();
+        }
+
+        DRMFormat alpha_format(DRMFormat format) {
+            switch (format) {
+                case DRM_FORMAT_XBGR8888:
+                case DRM_FORMAT_XRGB8888: return DRM_FORMAT_ABGR8888;
+                case DRM_FORMAT_XBGR2101010:
+                case DRM_FORMAT_XRGB2101010: return DRM_FORMAT_ABGR2101010;
+                default: return format;
+            }
+        }
+
+        using ClipList = std::array<Clip, 16>;
+        std::optional<Target> direct_target(Render::CRenderContext &ctx, const Image &encoding,
+            const Box &box, Extent size, const std::array<float, 4> &domain, ClipList &clips,
+            bool &submitted) {
+            const auto &data = ctx.m_data;
+            const auto monitor = data.pMonitor.lock();
+            const auto &target = data.currentFB;
+            auto *fb = gl_framebuffer(target);
+            if (!monitor || !fb || !target->isAllocated() || target->getMirrorTexture() ||
+                !same_encoding(target, encoding) || monitor->m_transform != WL_OUTPUT_TRANSFORM_NORMAL ||
+                (data.projectionType != Render::RPT_MONITOR && data.projectionType != Render::RPT_OUTPUT) ||
+                monitor->m_transformedSize != target->m_size ||
+                (data.renderModif.enabled && !data.renderModif.modifs.empty()) ||
+                box.x != std::floor(box.x) || box.y != std::floor(box.y) ||
+                !encloses(Box{0, 0, target->m_size.x, target->m_size.y}, box)) return std::nullopt;
+            const auto id = fb->getFBID();
+            const auto texture = target->getTexture();
+            if (!id || !texture || !texture->m_texID) return std::nullopt;
+            auto damage = data.damage.copy().intersect(box.x, box.y, box.w, box.h);
+            if (!data.clipBox.empty()) damage.intersect(CRegion{data.clipBox});
+            unsigned count = 0;
+            damage.forEachRect([&](const pixman_box32_t &rect) {
+                if (count < clips.size()) {
+                    clips[count] = {rect.x1, rect.y1, rect.x2 - rect.x1, rect.y2 - rect.y1};
+                }
+                ++count;
+            });
+            if (count > clips.size()) return std::nullopt;
+            return Target{.framebuffer = id, .texture = texture->m_texID,
+                .width = size.width, .height = size.height, .domain = domain,
+                .origin_x = static_cast<GLint>(box.x), .origin_y = static_cast<GLint>(box.y),
+                .clips = std::span(clips).first(count), .composite = true, .submitted = &submitted};
+        }
+
+        std::optional<Target> private_target(const Image &layer, Extent size,
+            const std::array<float, 4> &domain, bool blur_mask = false) {
+            auto *fb = gl_framebuffer(layer);
+            if (!fb || !layer->isAllocated() || layer->getMirrorTexture()) return std::nullopt;
+            const auto tex = layer->getTexture();
+            const auto id = fb->getFBID();
+            if (!id || !tex || !tex->m_texID || tex->m_type != Render::TEXTURE_RGBA ||
+                tex->m_size != Vector2D(double(size.width), double(size.height))) return std::nullopt;
+            return Target{.framebuffer = id, .texture = tex->m_texID,
+                .width = size.width, .height = size.height, .domain = domain,
+                .clear_before_render = true, .blur_mask = blur_mask};
+        }
+
         // Blits ignore blend/color masks. Preserve only the bindings and scissor
         // that this copy changes; an ordinary drawing bracket would overwrite
         // indexed host blend/mask state unnecessarily.
@@ -97,10 +178,12 @@ namespace hyprimate::shader {
 
         gl::CompositorContextOwner owner;
         Program program;
+        Values values;
     };
 
     std::shared_ptr<WindowProgram> prepare_window_program(Event event, const std::string &path,
         const std::string &parameters, std::string &error) {
+        const auto start = Clock::now();
         auto package = load_package(path);
         if (!package) {
             error = std::move(package.error());
@@ -115,10 +198,23 @@ namespace hyprimate::shader {
             error = std::move(values.error());
             return {};
         }
+        const auto parsed = Clock::now();
+        // Path is diagnostic metadata, not part of the prepared GPU generation.
+        package->path.clear();
         const gl::ScopedCompositorContext context;
         if (!context) {
             error = "no usable compositor GLES context";
             return {};
+        }
+        static std::vector<std::weak_ptr<WindowProgram>> cache;
+        std::erase_if(cache, [](const auto &entry) { return entry.expired(); });
+        for (const auto &entry : cache) {
+            if (auto old = entry.lock(); old && old->owner.ensure_current() &&
+                old->values == *values && old->program.package() == *package) {
+                LOG(Log::DEBUG, "[hyprimate] shader preparation parse_us={} gpu_us=0 reused=true",
+                    micros(start, parsed));
+                return old;
+            }
         }
         auto program = std::make_shared<WindowProgram>();
         if (!program->owner.ensure_current()) {
@@ -128,7 +224,15 @@ namespace hyprimate::shader {
         if (!program->program.initialize(std::move(*package), *values, error, eglGetProcAddress)) {
             return {};
         }
+        program->values = std::move(*values);
+        cache.emplace_back(program);
+        LOG(Log::DEBUG, "[hyprimate] shader preparation parse_us={} gpu_us={} reused=false",
+            micros(start, parsed), micros(parsed));
         return program;
+    }
+
+    bool window_program_supports_blur(const std::shared_ptr<WindowProgram> &program) noexcept {
+        return program && program->program.package().blur_mask;
     }
 
     struct WindowRenderer::Impl {
@@ -142,6 +246,9 @@ namespace hyprimate::shader {
         GLuint close_image_name = 0, close_copy = 0;
         Box close_box{};
         Source close_source{};
+        Image close_matte;
+        CBox close_matte_box{};
+        bool direct_reported = false;
     };
 
     WindowRenderer::WindowRenderer(std::shared_ptr<WindowProgram> program)
@@ -151,9 +258,11 @@ namespace hyprimate::shader {
         const gl::ScopedCompositorContext context{m_impl->program->owner};
         if (context) {
             m_impl->instance.release();
+            m_impl->close_matte.reset();
             if (m_impl->close_copy) glDeleteTextures(1, &m_impl->close_copy);
         } else {
             m_impl->instance.abandon();
+            gl::release_native(m_impl->close_matte, m_impl->program->owner);
         }
     }
 
@@ -161,6 +270,10 @@ namespace hyprimate::shader {
         const auto &pad = m_impl->program->program.package().bounds;
         return {capture.x - pad[0] * capture.w, capture.y - pad[1] * capture.h,
             capture.w * (1 + pad[0] + pad[2]), capture.h * (1 + pad[1] + pad[3])};
+    }
+
+    bool WindowRenderer::supports_blur() const noexcept {
+        return window_program_supports_blur(m_impl->program);
     }
 
     bool WindowRenderer::resize(const Box &capture, double scale, std::string &error) {
@@ -171,8 +284,15 @@ namespace hyprimate::shader {
         if (size == m_impl->size) return true;
         const gl::ScopedCompositorContext context{m_impl->program->owner};
         if (!context) return fail(error, "compositor GLES context changed");
+        const auto start = Clock::now();
+        const bool first = !m_impl->size;
         if (!m_impl->instance.initialize(m_impl->program->program, size->width, size->height, error)) {
             return false;
+        }
+        if (first) {
+            const auto &stats = m_impl->instance.statistics();
+            LOG(Log::DEBUG, "[hyprimate] shader instance allocate_us={} allocations={} bytes={}",
+                micros(start), stats.allocations, stats.allocated_bytes);
         }
         m_impl->size = size;
         return true;
@@ -305,6 +425,10 @@ namespace hyprimate::shader {
         }
         const auto output_size = extent(draw.canvas_box.w, draw.canvas_box.h);
         if (!output_size) return fail(error, "shader output dimensions exceed limits");
+        const bool matte = draw.canvas->blur_mask();
+        if (matte && !supports_blur()) return fail(error, "package does not declare a blur mask");
+        const Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
+        const auto state = ctx.saveDrawState();
 
         Source source;
         if (closing) {
@@ -324,9 +448,80 @@ namespace hyprimate::shader {
             }
             source = {image->m_texID, size->width, size->height, relative(draw.source, backing)};
         }
+        Image mapped_shape;
+        if (matte) {
+            const auto box = draw.canvas->blur_box();
+            if (box.empty()) return fail(error, "missing native blur geometry");
+            auto &shape = closing ? m_impl->close_matte : mapped_shape;
+            if (!shape || box != m_impl->close_matte_box) {
+                const Render::GL::CFramebufferBindingGuard mask_bindings{g_pHyprRenderer->glBackend()};
+                const auto mask_state = ctx.saveDrawState();
+                if (!shape && closing) {
+                    constexpr std::size_t RGBA_BYTES = 4;
+                    const auto bytes = std::size_t(source.width) * source.height *
+                        (input->m_drmFormat == DRM_FORMAT_ABGR16161616F ? 8 : 4) *
+                        (m_impl->close_copy ? 1 : 0) + std::size_t(source.width) * source.height * RGBA_BYTES;
+                    if (bytes + m_impl->instance.statistics().allocated_bytes > MAX_INSTANCE_BYTES) {
+                        return fail(error, "closing source and blur geometry exceed shader storage budget");
+                    }
+                    auto owned = g_pHyprRenderer->createFB("hyprimate closing blur geometry");
+                    if (!owned || !gl::allocate_framebuffer(*owned, static_cast<int>(source.width),
+                            static_cast<int>(source.height), DRM_FORMAT_ABGR8888)) {
+                        return fail(error, "cannot allocate closing blur geometry");
+                    }
+                    shape = std::move(owned);
+                } else if (!closing) {
+                    shape = gl::get_work_buffer(ctx, image->m_size);
+                }
+                if (!shape || shape == input || shape == ctx.m_data.currentFB ||
+                    !shape->getTexture() || shape->getMirrorTexture()) {
+                    return fail(error, "cannot isolate shader blur geometry");
+                }
+                g_pHyprRenderer->bindFB(ctx, shape);
+                ctx.m_data.fbSize = shape->m_size;
+                ctx.m_data.damage = CRegion{CBox{{}, shape->m_size}};
+                ctx.m_data.clipBox = {};
+                ctx.m_data.renderModif = {};
+                ctx.m_data.transformDamage = false;
+                g_pHyprRenderer->setProjectionType(ctx, Render::RPT_EXPORT);
+                const Vector2D origin{draw.source.x - double(source.uv[0]) * source.width,
+                    draw.source.y - double(source.uv[1]) * source.height};
+                g_pHyprRenderer->draw(ctx, CClearPassElement::SClearData{CHyprColor(0, 0, 0, 1)});
+                CRectPassElement::SRectData rect{};
+                rect.box = box.copy().translate(-origin);
+                rect.color = CHyprColor(1, 1, 1, 1);
+                rect.round = static_cast<int>(draw.canvas->mask_rounding());
+                rect.roundingPower = static_cast<float>(draw.canvas->mask_rounding_power());
+                g_pHyprRenderer->draw(ctx, rect, ctx.m_data.damage);
+                if (glGetError() != GL_NO_ERROR) {
+                    shape.reset();
+                    return fail(error, "native shader blur geometry draw failed");
+                }
+                if (closing) m_impl->close_matte_box = box;
+            }
+            source.texture = shape->getTexture()->m_texID;
+        }
 
-        const Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
-        const auto state = ctx.saveDrawState();
+        const auto domain = relative(draw.canvas_box, draw.source);
+        const bool live = draw.real_pass && !draw.canvas->captures_pixels() && !matte;
+        if (closing && live && draw.alpha == 1.F && draw.canvas->direct_allowed() &&
+            m_impl->program->program.can_composite_direct()) {
+            ClipList clips;
+            bool submitted = false;
+            if (const auto target = direct_target(ctx, input, draw.canvas_box, *output_size,
+                    domain, clips, submitted)) {
+                const bool drawn = m_impl->instance.render(source, *target, true, error);
+                if (!drawn && !submitted) return false;
+                if (!drawn) LOG(Log::WARN, "[hyprimate] direct close submission failed: {}", error);
+                draw.canvas->direct_presented();
+                if (!m_impl->direct_reported && live && !target->clips.empty()) {
+                    m_impl->direct_reported = true;
+                    LOG(Log::DEBUG, "[hyprimate] shader close final=direct width={} height={}",
+                        target->width, target->height);
+                }
+                return true;
+            }
+        }
         const Vector2D size{static_cast<double>(output_size->width), static_cast<double>(output_size->height)};
         Image layer;
         if (closing) {
@@ -339,28 +534,155 @@ namespace hyprimate::shader {
         } else {
             layer = gl::get_work_buffer(ctx, size);
         }
-        auto *framebuffer = gl_framebuffer(layer);
-        if (!framebuffer || layer == input || layer == ctx.m_data.currentFB || !layer->isAllocated()) {
+        const auto target = private_target(layer, *output_size, domain, matte);
+        if (!target || layer == input || layer == ctx.m_data.currentFB) {
             return fail(error, "no independent compositor work framebuffer for shader output");
         }
-        const auto texture = layer->getTexture();
         const auto current = ctx.m_data.currentFB ? ctx.m_data.currentFB->getTexture() : nullptr;
-        if (!texture || !texture->m_texID || texture->m_type != Render::TEXTURE_RGBA ||
-            texture->m_texID == source.texture || (current && current->m_texID == texture->m_texID) ||
-            texture->m_size != size) {
-            return fail(error, "unexpected native shader output framebuffer texture");
+        if (current && current->m_texID == target->texture) {
+            return fail(error, "shader work buffer aliases the scene attachment");
         }
-        const auto id = framebuffer->getFBID();
-        if (!id) return fail(error, "missing compositor work framebuffer binding");
-        const Target target{
-            .framebuffer = id, .texture = texture->m_texID,
-            .width = output_size->width, .height = output_size->height,
-            .domain = relative(draw.canvas_box, draw.source),
-            .clear_before_render = true,
-        };
-        const bool live = draw.real_pass && !draw.canvas->captures_pixels() && !draw.canvas->blur_mask();
-        if (!m_impl->instance.render(source, target, live, error)) return false;
+        if (!m_impl->instance.render(source, *target, live, error)) return false;
         draw.canvas->layer() = std::move(layer);
+        return true;
+    }
+
+    class SceneProgram {
+      public:
+        std::shared_ptr<WindowProgram> prepared;
+        Event event = Event::Wallpaper;
+    };
+
+    std::shared_ptr<SceneProgram> prepare_scene_program(Event event, const std::string &path,
+        const std::string &parameters, std::string &error) {
+        if (event != Event::Workspace && event != Event::Wallpaper) {
+            fail(error, "not a scene shader event");
+            return {};
+        }
+        auto program = prepare_window_program(event, path, parameters, error);
+        if (!program) return {};
+        if (std::ranges::any_of(program->program.package().bounds, [](float pad) { return pad != 0; })) {
+            fail(error, "scene shader bounds must fit the output");
+            return {};
+        }
+        static std::vector<std::weak_ptr<SceneProgram>> cache;
+        std::erase_if(cache, [](const auto &entry) { return entry.expired(); });
+        for (const auto &entry : cache) {
+            if (auto old = entry.lock(); old && old->event == event && old->prepared == program) {
+                return old;
+            }
+        }
+        auto prepared = std::make_shared<SceneProgram>(SceneProgram{std::move(program), event});
+        cache.emplace_back(prepared);
+        return prepared;
+    }
+
+    struct SceneShader::Impl {
+        explicit Impl(std::shared_ptr<SceneProgram> shader) : program(std::move(shader)) {}
+        std::shared_ptr<SceneProgram> program;
+        Instance instance;
+        Frame frame{};
+        Image black;
+        std::optional<Extent> initialized_size;
+    };
+
+    SceneShader::SceneShader(std::shared_ptr<SceneProgram> program)
+        : m_impl(std::make_unique<Impl>(std::move(program))) {}
+
+    SceneShader::~SceneShader() {
+        const auto &owner = m_impl->program->prepared->owner;
+        const gl::ScopedCompositorContext context{owner};
+        if (context) m_impl->instance.release();
+        else m_impl->instance.abandon();
+        gl::release_native(m_impl->black, owner);
+    }
+
+    void SceneShader::advance(const Frame &frame) noexcept {
+        if (frame.tick > m_impl->frame.tick) m_impl->frame = frame;
+    }
+
+    bool SceneShader::draw(Render::CRenderContext &ctx, const Image &source, const Image &destination,
+        std::string &error, bool authoritative) {
+        auto &state = *m_impl;
+        auto &prepared = *state.program->prepared;
+        const auto monitor = ctx.m_data.pMonitor.lock();
+        const auto encoding = ctx.m_data.currentFB;
+        const bool workspace = state.program->event == Event::Workspace;
+        const bool live = authoritative && !ctx.readOnlyEffects();
+        if (!monitor || !encoding || !ctx.active() || !ctx.shouldRenderContent(false) ||
+            !prepared.owner.ensure_current() || !g_pHyprRenderer ||
+            (workspace && (!live || !source || !destination))) {
+            return fail(error, "unavailable compositor scene shader context");
+        }
+        const auto size = extent(monitor->m_transformedSize.x, monitor->m_transformedSize.y);
+        if (!size || (workspace && !same_encoding(source, destination))) {
+            return fail(error, "incompatible scene shader endpoint dimensions or color encoding");
+        }
+        const auto lease = [&](const Image &image) -> GLuint {
+            const auto tex = image ? image->getTexture() : nullptr;
+            return tex && tex->m_texID && tex->m_type == Render::TEXTURE_RGBA &&
+                tex->m_transform == HYPRUTILS_TRANSFORM_NORMAL && !image->getMirrorTexture() &&
+                tex->m_size == monitor->m_transformedSize ? tex->m_texID : 0;
+        };
+        const Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
+        if (!workspace && !state.black && live) {
+            auto black = g_pHyprRenderer->createFB("hyprimate empty wallpaper input");
+            if (!black || !gl::allocate_framebuffer(*black, 1, 1, DRM_FORMAT_ABGR8888)) {
+                return fail(error, "cannot allocate isolated wallpaper input");
+            }
+            const Render::GL::CFramebufferBindingGuard clear_bindings{g_pHyprRenderer->glBackend()};
+            const auto saved = ctx.saveDrawState();
+            g_pHyprRenderer->bindFB(ctx, black);
+            ctx.m_data.fbSize = {1, 1};
+            ctx.m_data.damage = CRegion{0, 0, 1, 1};
+            ctx.m_data.clipBox = {};
+            ctx.m_data.transformDamage = false;
+            g_pHyprRenderer->draw(ctx, CClearPassElement::SClearData{CHyprColor(0, 0, 0, 0)});
+            state.black = std::move(black);
+        }
+        const auto black = state.black ? state.black->getTexture()->m_texID : 0;
+        const auto src = workspace ? lease(source) : black;
+        const auto dst = workspace ? lease(destination) : black;
+        if (!src || !dst) return fail(error, "invalid scene shader source lease");
+        const Source input{.texture = src, .width = workspace ? size->width : 1U,
+            .height = workspace ? size->height : 1U, .destination_texture = dst};
+        if (size != state.initialized_size) {
+            if (!live || !state.instance.initialize(state.program->prepared->program,
+                    size->width, size->height, error)) return false;
+            state.initialized_size = size;
+        }
+        if (live) state.instance.advance(state.frame);
+        const Box box{0, 0, double(size->width), double(size->height)};
+        constexpr std::array<float, 4> FULL{0, 0, 1, 1};
+        const auto &input_encoding = workspace ? source : encoding;
+        if (prepared.program.can_composite_direct()) {
+            ClipList clips;
+            bool submitted = false;
+            if (const auto target = direct_target(ctx, input_encoding, box, *size, FULL, clips, submitted)) {
+                const bool drawn = state.instance.render(input, *target, live, error);
+                if (!drawn && submitted) LOG(Log::WARN, "[hyprimate] direct scene submission failed: {}", error);
+                return drawn || submitted;
+            }
+        }
+        if (!monitor->resources() || !input_encoding->imageDescription()) {
+            return fail(error, "no compositor scene work buffer owner");
+        }
+        Image layer;
+        {
+            const gl::FramebufferAllocationState allocation;
+            layer = monitor->resources()->getUnusedWorkBuffer(alpha_format(input_encoding->m_drmFormat),
+                input_encoding->imageDescription(), monitor->m_transformedSize);
+            if (ctx.sceneResources()) layer = ctx.sceneResources()->prepareWorkBuffer(std::move(layer));
+        }
+        const auto target = private_target(layer, *size, FULL);
+        if (!target || layer == encoding || layer == source || layer == destination ||
+            !state.instance.render(input, *target, live, error)) return false;
+        CTexPassElement::SRenderData data;
+        data.tex = layer->getTexture();
+        data.box = {box.x, box.y, box.w, box.h};
+        data.damage = ctx.m_data.damage;
+        data.useProvidedDamage = true;
+        g_pHyprRenderer->draw(ctx, data, data.damage);
         return true;
     }
 }  // namespace hyprimate::shader

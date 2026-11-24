@@ -31,6 +31,7 @@
 #include "gl/NativeResource.hpp"
 #include "perf/LiveProfiler.hpp"
 #include "perf/RuntimeProfiler.hpp"
+#include "shader/ShaderWallpaper.hpp"
 #include "window/WindowAnimations.hpp"
 #include "window/Profiling.hpp"
 #include "window/hyprland/AnimationCloseRenderer.hpp"
@@ -65,7 +66,8 @@ class CPluginRuntime::Impl {
     void configure(bool refresh_effects = false);
     void update_inert();
     void warm_style();
-    void configure_workspace();
+    void configure_workspace(bool force = false);
+    void configure_wallpaper(bool force = false);
     void reload();
     void render_pre(const PHLMONITOR &monitor);
     void render_stage(const Event::SRenderStageEvent &event);
@@ -89,6 +91,8 @@ class CPluginRuntime::Impl {
     std::unique_ptr<CAnimationCloseRenderer> m_close;
     std::unique_ptr<CHyprglassCompat> m_glass;
     std::unique_ptr<CWorkspaceAnimation> m_workspace;
+    hyprimate::shader::ShaderWallpaper m_wallpaper;
+    std::optional<hyprimate::config::SWallpaperSettings> m_wallpaper_request;
     std::unique_ptr<hyprimate::perf::RuntimeProfiler> m_profiler;
     CHyprSignalListener m_open, m_close_event, m_destroy, m_pre_checks, m_pre, m_stage;
     CHyprSignalListener m_reload, m_config_refresh, m_monitor_layout, m_monitor_removed;
@@ -115,6 +119,7 @@ CPluginRuntime::Impl::Impl(HANDLE handle) : m_handle(handle) {
     }
     m_glass = std::make_unique<CHyprglassCompat>(m_handle, m_animations, m_port);
     configure_workspace();
+    configure_wallpaper();
     configure();
 
     m_open = Event::bus()->m_events.window.openLate.listen([this](const PHLWINDOW &window) {
@@ -167,6 +172,7 @@ CPluginRuntime::Impl::Impl(HANDLE handle) : m_handle(handle) {
         m_config = hyprimate::config::readConfig(m_values);
         update_inert();
         configure_workspace();
+        configure_wallpaper();
         configure();
     });
     for (const auto &window : Desktop::windowState()->windows()) {
@@ -210,6 +216,7 @@ CPluginRuntime::Impl::~Impl() {
         }
     }
     m_workspace->shutdown();
+    m_wallpaper.shutdown();
     m_glass.reset();
     m_close->unhook();
     m_animations.detach_transformers();
@@ -227,14 +234,15 @@ void CPluginRuntime::Impl::notify(const std::string &text) const {
 
 void CPluginRuntime::Impl::configure(bool refresh_effects) {
     m_warm_pending = !m_warmed_style || *m_warmed_style != m_config.style;
-    std::array<std::optional<hyprimate::config::Style>, 2> event_styles;
+    constexpr std::array EVENT_NAMES{"open: ", "close: ", "move: ", "resize: "};
+    std::array<std::optional<hyprimate::config::Style>, EVENT_NAMES.size()> event_styles{};
     m_resources.for_each([&]<class Style>(auto &resources) {
         if constexpr (requires { Style::refresh(resources, Style::requests(m_config), refresh_effects); }) {
             const auto errors = Style::refresh(resources, Style::requests(m_config), refresh_effects);
             for (std::size_t index = 0; index < errors.size(); ++index) {
                 if (!errors[index].empty()) {
                     notify(std::string{"[hyprimate] external effect "} +
-                        (index == 0 ? "open: " : "close: ") + errors[index]);
+                        EVENT_NAMES[index] + errors[index]);
                 }
             }
         } else {
@@ -250,6 +258,8 @@ void CPluginRuntime::Impl::configure(bool refresh_effects) {
     m_animations.configure({.style = m_config.style,
         .open_style = event_styles[0],
         .close_style = event_styles[1],
+        .move_style = event_styles[2],
+        .resize_style = event_styles[3],
         .enabled = m_config.enabled,
         .inert = m_inert,
         .opening = m_config.open.enabled,
@@ -276,8 +286,16 @@ void CPluginRuntime::Impl::warm_style() {
     }
 }
 
-void CPluginRuntime::Impl::configure_workspace() {
-    m_workspace->configure(m_config.workspace);
+void CPluginRuntime::Impl::configure_workspace(bool force) {
+    m_workspace->configure(m_config.workspace, force);
+}
+
+void CPluginRuntime::Impl::configure_wallpaper(bool force) {
+    const auto &options = m_config.wallpaper;
+    if (force || m_wallpaper_request != options) {
+        m_wallpaper.configure(options.effect, options.effectParameters, options.effectDuration);
+        m_wallpaper_request = options;
+    }
 }
 
 void CPluginRuntime::Impl::update_inert() {
@@ -289,13 +307,17 @@ void CPluginRuntime::Impl::update_inert() {
 }
 
 void CPluginRuntime::Impl::reload() {
+    const auto started = std::chrono::steady_clock::now();
     m_config = hyprimate::config::readConfig(m_values);
     update_inert();
-    m_workspace->clear();
-    configure_workspace();
+    configure_workspace(true);
+    configure_wallpaper(true);
     m_animations.reload();
     configure(true);
     restore_scanout();
+    LOG(Log::DEBUG, "[hyprimate] plugin reload_us={}",
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - started).count());
 }
 
 void CPluginRuntime::Impl::render_pre(const PHLMONITOR &monitor) {

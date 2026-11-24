@@ -23,7 +23,7 @@ class CWorkspaceAnimation {
 
     bool install(std::string &error);
     void shutdown();
-    void configure(const hyprimate::config::SWorkspaceSettings &settings);
+    void configure(const hyprimate::config::SWorkspaceSettings &settings, bool force);
     void on_render_pre_checks(const PHLMONITOR &monitor);
     void on_render_pre(const PHLMONITOR &monitor);
     void remove_monitor(const PHLMONITOR &monitor);

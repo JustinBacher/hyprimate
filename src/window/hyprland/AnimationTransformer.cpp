@@ -62,12 +62,20 @@ bool construction_source_fits(const Desktop::View::CWindow &window) {
 // depending on call order, and remains valid through preceding transformers.
 class CAnimationTransformer::CContentSourcePass final : public IPassElement {
   public:
-    CContentSourcePass(ContentSource &source, CRenderPass &pass, bool supported)
-        : m_source(source), m_pass(pass), m_supported(supported), m_next(source.passes) {
+    CContentSourcePass(ContentSource &source, CRenderPass &pass, CBox blur_box,
+        double rounding, double rounding_power)
+        : m_source(source), m_pass(pass), m_blur_box(blur_box), m_rounding(rounding),
+          m_rounding_power(rounding_power), m_next(source.passes) {
         if (m_next) { m_next->m_previous = this; }
         source.passes = this;
     }
     ~CContentSourcePass() override {
+        if (m_source.receipt == this) {
+            m_source.receipt = nullptr;
+            m_source.context = nullptr;
+            m_source.framebuffer.reset();
+            m_source.shader_matte.reset();
+        }
         if (m_previous) { m_previous->m_next = m_next; }
         else { m_source.passes = m_next; }
         if (m_next) { m_next->m_previous = m_previous; }
@@ -77,8 +85,13 @@ class CAnimationTransformer::CContentSourcePass final : public IPassElement {
     CContentSourcePass(CContentSourcePass &&) = delete;
     CContentSourcePass &operator=(CContentSourcePass &&) = delete;
     std::vector<UP<IPassElement>> draw(CRenderContext &ctx) override {
-        m_source.framebuffer = m_supported ? ctx.m_data.currentFB : SP<IFramebuffer>{};
-        m_source.context = m_supported ? &ctx : nullptr;
+        m_source.framebuffer = ctx.m_data.currentFB;
+        m_source.context = &ctx;
+        m_source.receipt = this;
+        m_source.shader_matte.reset();
+        m_source.blur_box = m_blur_box;
+        m_source.rounding = m_rounding;
+        m_source.rounding_power = m_rounding_power;
         return {};
     }
     bool needsLiveBlur(CRenderContext &) override { return false; }
@@ -92,7 +105,8 @@ class CAnimationTransformer::CContentSourcePass final : public IPassElement {
   private:
     ContentSource &m_source;
     CRenderPass &m_pass;
-    const bool m_supported;
+    const CBox m_blur_box;
+    const double m_rounding, m_rounding_power;
     CContentSourcePass *m_next = nullptr, *m_previous = nullptr;
 };
 
@@ -113,11 +127,15 @@ void CAnimationTransformer::preWindowRender(CRenderContext &ctx, CSurfacePassEle
         return;
     }
     auto &pass = IHyprRenderer::currentPass(ctx);
-    // The shader ABI has color, not Hyprland's separate geometric blur
-    // coverage. Reject the exact host presentation if it wants that matte.
-    const bool SUPPORTED = m_handle.style != hyprimate::config::Style::Shader ||
-        (data && data->pWindow && !data->pWindow->shouldBlur(data->workspacePresentation));
-    IHyprRenderer::addPassElement(ctx, makeUnique<CContentSourcePass>(m_content_source, pass, SUPPORTED));
+    CBox blur_box;
+    if (m_handle.style == hyprimate::config::Style::Shader && data && data->pWindow &&
+        data->pMonitor && data->pWindow->shouldBlur(data->workspacePresentation)) {
+        const auto position = data->pos - data->pMonitor->m_position;
+        blur_box = CBox{position.x, position.y, data->w, data->h}.scale(data->pMonitor->m_scale).round();
+    }
+    IHyprRenderer::addPassElement(ctx, makeUnique<CContentSourcePass>(m_content_source, pass,
+        blur_box, !data || data->dontRound ? 0 : std::max(data->rounding - 1, 0),
+        data ? data->roundingPower : 2));
 }
 
 bool CAnimationTransformer::active() const {
@@ -153,6 +171,14 @@ SWindowTransformBuffer CAnimationTransformer::transform(CRenderContext &ctx,
         !input.framebuffer || !input.framebuffer->getTexture()) {
         return input;
     }
+    if (m_handle.style == hyprimate::config::Style::Shader) {
+        const auto window = m_window.lock();
+        if (!m_port.session_unlocked() || !window || !window->mapped() ||
+            !window->m_ruleApplicator ||
+            window->m_ruleApplicator->noScreenShare().valueOrDefault()) {
+            return {.framebuffer = input.framebuffer, .box = input.box, .success = false};
+        }
+    }
     if (m_handle.style == hyprimate::config::Style::Shader &&
         input.framebuffer != ctx.m_data.currentFB) {
         // Only expose the host's isolated window raster, never an unverified
@@ -181,8 +207,12 @@ SWindowTransformBuffer CAnimationTransformer::transform(CRenderContext &ctx,
     const bool BLUR_MASK = CONTENT_RECEIPT &&
         (m_content_source.context != &ctx ||
             m_content_source.framebuffer.lock() != ctx.m_data.currentFB);
-    if (BLUR_MASK && m_handle.style == hyprimate::config::Style::Shader) {
-        // Keep the untransformed content and matte together on fallback.
+    const bool SHADER = m_handle.style == hyprimate::config::Style::Shader;
+    if (SHADER && BLUR_MASK) {
+        auto matte = std::exchange(m_content_source.shader_matte, {});
+        if (matte && m_content_source.context == &ctx && m_content_source.matte_result_box == CANVAS) {
+            return {.framebuffer = std::move(matte), .box = CANVAS};
+        }
         return {.framebuffer = input.framebuffer, .box = input.box, .success = false};
     }
     CHyprAnimationCanvas canvas{ctx, m_port.canvas_resources(), BLUR_MASK};
@@ -213,6 +243,22 @@ SWindowTransformBuffer CAnimationTransformer::transform(CRenderContext &ctx,
         ctx.m_data.fbSize = CANVAS.size();
         g_pHyprRenderer->setProjectionType(ctx, Render::RPT_EXPORT);
         g_pHyprRenderer->draw(ctx, CClearPassElement::SClearData{CHyprColor(0, 0, 0, 0)});
+    }
+    // Stock 0.57 publishes color before calling the transformer on its matte.
+    // Stage our own matching native geometry now: any allocation or shader error
+    // returns *both* original rasters instead of publishing a blur-less silhouette.
+    if (SHADER && !m_content_source.blur_box.empty()) {
+        CHyprAnimationCanvas matte{ctx, m_port.canvas_resources(), true,
+            m_content_source.rounding, m_content_source.rounding_power};
+        matte.set_blur_box(m_content_source.blur_box);
+        auto mask_draw = DRAW;
+        mask_draw.canvas = &matte;
+        mask_draw.real_pass = false;
+        if (!m_animations.draw(m_handle, mask_draw) || !matte.layer()) {
+            return {.framebuffer = input.framebuffer, .box = input.box, .success = false};
+        }
+        m_content_source.shader_matte = std::move(matte.layer());
+        m_content_source.matte_result_box = CANVAS;
     }
     if (TRANSFORMED && !BLUR_MASK && !canvas.captures_pixels()) {
         m_animations.profile_transformed(m_handle, DRAW.monitor);

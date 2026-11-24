@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <span>
 
 #include <GLES3/gl3.h>
 
@@ -17,6 +18,9 @@ namespace hyprimate::shader {
         float width = 1, height = 1, scale = 1;
         float pointer_x = 0.5F, pointer_y = 0.5F;
         bool pointer_valid = false, fullscreen = false;
+        std::array<float, 4> geometry{}, previous_geometry{}, velocity{};
+        float direction = 0;
+        bool held = false, settling = false;
     };
     struct Source {
         GLuint texture = 0;
@@ -24,6 +28,12 @@ namespace hyprimate::shader {
         // Physical dimensions of the backing texture, not of the captured rectangle.
         // Normalized source rectangle in the borrowed texture; top-first.
         std::array<float, 4> uv{0, 0, 1, 1};
+        GLuint destination_texture = 0;
+        std::array<float, 4> destination_uv{0, 0, 1, 1};
+    };
+    struct Clip {
+        GLint x, y;
+        GLsizei width, height;
     };
     struct Target {
         GLuint framebuffer = 0, texture = 0;
@@ -36,6 +46,14 @@ namespace hyprimate::shader {
         // Private pooled targets must not retain another draw's pixels. Clear
         // once before the first final pass unless that pass already clears.
         bool clear_before_render = false;
+        // In-place presentation of a single final pass over host pixels. Clips
+        // are disjoint physical framebuffer rectangles within the viewport.
+        std::span<const Clip> clips{};
+        bool composite = false;
+        bool blur_mask = false;
+        // Set before any host-visible submission. A false return afterward
+        // must not cause replay over potentially modified compositor pixels.
+        bool *submitted = nullptr;
     };
     struct Statistics {
         std::uint64_t allocations = 0, allocated_bytes = 0;
@@ -62,6 +80,7 @@ namespace hyprimate::shader {
         void release() noexcept;
         void abandon() noexcept;
         const Package &package() const;
+        bool can_composite_direct() const noexcept;
         // Counters describe preparation of the current generation. Allocations
         // include short-lived one-texel format probes; upload_bytes counts data
         // transferred from the CPU, not probe storage.
@@ -77,8 +96,8 @@ namespace hyprimate::shader {
         ~Instance();
         Instance(const Instance &) = delete;
         Instance &operator=(const Instance &) = delete;
-        // Allocates once for capture pixel dimensions. Changing dimensions resets
-        // simulation and replays initialization; unchanged dimensions reuse storage.
+        // Matching resolved attachment dimensions preserve simulation. Otherwise
+        // allocate transactionally and replay initialization.
         bool initialize(Program &program, unsigned width, unsigned height, std::string &error);
         // CPU timing only. Older/repeated tick IDs are ignored; pending delta accumulates.
         void advance(const Frame &frame) noexcept;

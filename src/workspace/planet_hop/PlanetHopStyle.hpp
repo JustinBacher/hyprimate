@@ -29,9 +29,12 @@ namespace hyprimate::workspace {
             bool ready = false;
             std::optional<planet_hop::Journey> journey;
         };
+        static const auto &options(const config::SWorkspaceSettings &settings) {
+            return settings.planetHop;
+        }
         static void prepare(Resources &resources, const config::SWorkspaceSettings &settings) {
             const bool CHANGED =
-                resources.settings.update(settings.planetHop, [](const auto &value) {
+                resources.settings.update(options(settings), [](const auto &value) {
                     Prepared result;
                     result.duration = value.duration / 1000.0;
                     result.curve = value.curve;

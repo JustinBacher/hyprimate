@@ -12,6 +12,7 @@ namespace hyprimate::shader {
 
     std::shared_ptr<WindowProgram> prepare_window_program(Event event, const std::string &path,
         const std::string &parameters, std::string &error);
+    bool window_program_supports_blur(const std::shared_ptr<WindowProgram> &program) noexcept;
 
     // One instance per window transition. The render callback borrows the mapped
     // framebuffer or an isolated copy of the authorized native close snapshot.
@@ -23,6 +24,7 @@ namespace hyprimate::shader {
         WindowRenderer &operator=(const WindowRenderer &) = delete;
 
         Box bounds(const Box &capture) const noexcept;
+        bool supports_blur() const noexcept;
         bool resize(const Box &capture, double scale, std::string &error);
         bool bind_close_source(const Box &source, const CHyprAnimationCanvas::Image &image,
             std::string &error);

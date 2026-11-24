@@ -39,6 +39,7 @@ namespace {
         std::optional<CropProof> reject_crop{};
         bool allow_source_bind = true;
         double pinned_speed = 1;
+        bool blur_safe = false;
     };
     struct Log {
         int opens = 0, closes = 0, ends = 0, prepares = 0;
@@ -75,6 +76,8 @@ namespace {
         double drawn_speed = 0;
         bool accepts_resize = false;
         bool bind_succeeds = true;
+        bool accept_motion = true, blur_safe = false;
+        std::vector<MotionKind> motions_started;
     };
     template <config::Style Kind>
     struct TestStyle {
@@ -98,10 +101,27 @@ namespace {
             return settings;
         }
         static State start(const Resources &resources, std::uint64_t seed) {
-            return {.seed = seed, .pinned_speed = resources.prepared.speed};
+            return {.seed = seed, .pinned_speed = resources.prepared.speed, .blur_safe = resources.log.blur_safe};
         }
         static bool moves(const Motion &motion, const Resources &resources) noexcept {
             return motion.translated || (resources.log.accepts_resize && motion.resized);
+        }
+        static bool can_begin_motion(const Resources &resources, MotionKind, bool blurred)
+            requires(PUBLIC_MAPPED_ONLY) {
+            return resources.log.accept_motion && (!blurred || resources.log.blur_safe);
+        }
+        static bool begin_motion(State &, const Place &, Resources &resources, MotionKind kind)
+            requires(PUBLIC_MAPPED_ONLY) {
+            resources.log.motions_started.push_back(kind);
+            return resources.log.accept_motion;
+        }
+        static bool mapped_blur_safe(const State &state) noexcept
+            requires(PUBLIC_MAPPED_ONLY) {
+            return state.blur_safe;
+        }
+        static bool close_blur_safe(const State &state) noexcept
+            requires(PUBLIC_MAPPED_ONLY) {
+            return state.blur_safe;
         }
         static bool open(
             State & /*state*/, const Place & /*place*/, Resources &resources, Effects &effects) {
@@ -134,6 +154,7 @@ namespace {
             resources.log.closed_publication = state.publication;
             state.reject_crop = resources.log.reject_crop;
             state.allow_source_bind = resources.log.bind_succeeds;
+            state.blur_safe = resources.log.blur_safe;
             if (resources.log.require_publication && state.publication == Publication::Unknown) {
                 return CloseStart::Declined;
             }
@@ -401,6 +422,149 @@ namespace {
         CHECK(f.resources.get<Effect>().log.opens == 1);
     }
 
+    void motion_overrides_preserve_samples_and_pin_the_active_generation() {
+        Fixture f;
+        f.policy.move_style = Effect::KIND;
+        f.policy.resize_style = Effect::KIND;
+        f.policy.opening = false;
+        f.module.configure(f.policy);
+        f.window(1, 1, false);
+        auto &window = f.port.windows.at(1);
+        window.workspace_offset = {20, 0};
+        window.floating_offset = {0, 5};
+        auto &effect = f.resources.get<Effect>().log;
+        f.frame(1);
+        CHECK(!f.port.transformers.contains(1));
+        window.capture.x -= 2;
+        f.frame(1);
+        CHECK(!f.port.transformers.contains(1));  // Decoration-only change is neither event.
+
+        window.held = true;
+        window.body.x += 10;
+        window.capture.x += 10;
+        f.frame(1, .02);
+        CHECK(f.port.transformers.contains(1));
+        const auto move = f.handle();
+        CHECK(move.style == Effect::KIND && effect.motions_started.back() == MotionKind::Move);
+        auto sample = effect.steps.back().motion_geometry;
+        CHECK(sample && sample->active && effect.steps.back().held);
+        CHECK(sample->previous.x == 120 && sample->current.x == 130 && sample->current.y == 105);
+        CHECK(std::abs(sample->sample_seconds - .02) < 1e-6);
+
+        f.module.reload();
+        f.module.update_settings<Effect>({3});
+        f.module.configure(f.policy);
+        f.frame(1);
+        CHECK(f.handle() == move && effect.motions_started.size() == 1);
+        CHECK(effect.steps.back().motion_geometry->active);  // A stationary grab is still active.
+        window.held = false;
+        f.frame(1);
+        CHECK(f.handle() == move && !effect.steps.back().motion_geometry->active);
+        FakeCanvas canvas;
+        FakeCanvas::Image image{.id = 96};
+        CHECK(f.module.draw(move, {.canvas = &canvas, .image = &image, .real_pass = true}));
+        CHECK(effect.drawn_speed == 2);
+        window.held = true;
+        f.frame(1);
+        CHECK(f.handle() == move && effect.motions_started.size() == 1);
+        CHECK(effect.steps.back().motion_geometry->active);
+        window.held = false;
+
+        // An edge resize includes translation. It must acquire the resize
+        // program, keep this sample, and receive the newly prepared generation.
+        window.body.x -= 6;
+        window.body.w += 6;
+        window.capture.x -= 6;
+        window.capture.w += 6;
+        f.frame(1);
+        const auto resize = f.handle();
+        CHECK(resize.style == Effect::KIND && resize != move && !f.module.active(move));
+        CHECK(effect.motions_started.size() == 2 && effect.motions_started.back() == MotionKind::Resize);
+        sample = effect.steps.back().motion_geometry;
+        CHECK(sample && sample->active && sample->previous.w == 100 && sample->current.w == 106);
+        CHECK(sample->previous.x == 130 && sample->current.x == 124);
+        CHECK(f.module.draw(resize, {.canvas = &canvas, .image = &image, .real_pass = true}));
+        CHECK(effect.drawn_speed == 3);
+        window.resize_held = true;
+        f.frame(1);
+        CHECK(f.handle() == resize && effect.steps.back().motion_geometry->active);
+        f.policy.movement = false;
+        f.module.configure(f.policy);
+        CHECK(!f.port.transformers.contains(1) && !f.module.active(resize));
+    }
+
+    void motion_override_hands_off_open_and_falls_back_without_reading_private_pixels() {
+        Fixture f;
+        f.policy.open_style = Effect::KIND;
+        f.policy.move_style = Effect::KIND;
+        f.module.configure(f.policy);
+        f.window(1);
+        auto &window = f.port.windows.at(1);
+        auto &effect = f.resources.get<Effect>().log;
+        f.frame(1);
+        const auto open = f.handle();
+        window.layout_animated = true;
+        window.body.x -= 5;
+        window.capture.x -= 5;
+        f.frame(1);
+        CHECK(f.handle() == open && effect.motions_started.empty());
+        window.held = true;
+        f.frame(1);
+        const auto move = f.handle();
+        CHECK(move != open && !f.module.active(open) && effect.motions_started.size() == 1);
+
+        FakeCanvas canvas;
+        FakeCanvas::Image image{.id = 97};
+        window.no_screen_share = true;
+        CHECK(!f.module.draw(move, {.canvas = &canvas, .image = &image, .real_pass = true}));
+        CHECK(canvas.draws.empty());
+        f.frame(1);
+        CHECK(!f.port.transformers.contains(1));
+
+        window.no_screen_share = false;
+        window.animating_in = false;
+        window.layout_animated = false;
+        effect.accept_motion = false;
+        window.body.x += 5;
+        window.capture.x += 5;
+        f.frame(1);
+        CHECK(!f.port.transformers.contains(1) && f.log().steps.empty());
+
+        // Missing resize override delegates to the existing built-in rules.
+        window.held = false;
+        window.body.w += 5;
+        window.capture.w += 5;
+        f.log().accepts_resize = true;
+        f.frame(1);
+        CHECK(f.handle().style == Style::KIND);
+    }
+
+    void motion_override_respects_the_acquired_blur_capability() {
+        Fixture f;
+        f.policy.resize_style = Effect::KIND;
+        f.module.configure(f.policy);
+        f.window(1, 1, false);
+        auto &window = f.port.windows.at(1);
+        f.port.blurred_windows.insert(1);
+        window.resize_held = true;
+        f.frame(1);
+        CHECK(!f.port.transformers.contains(1));
+        auto &effect = f.resources.get<Effect>().log;
+        CHECK(effect.motions_started.empty());
+
+        effect.blur_safe = true;
+        f.frame(1);
+        const auto resize = f.handle();
+        FakeCanvas canvas;
+        FakeCanvas::Image image{.id = 98};
+        effect.blur_safe = false;
+        f.module.reload();
+        f.module.configure(f.policy);
+        f.frame(1);
+        CHECK(f.handle() == resize);
+        CHECK(f.module.draw(resize, {.canvas = &canvas, .image = &image, .real_pass = true}));
+    }
+
     void closing_override_replaces_mapped_state_and_restores_native_on_failure() {
         Fixture f;
         f.policy.close_style = Effect::KIND;
@@ -490,6 +654,37 @@ namespace {
         f.module.bind_fadeout(1, fade, {55});
         CHECK(!f.module.suppresses(55));
         CHECK(f.resources.get<Effect>().log.close_initializations == 0);
+    }
+
+    void shader_close_pre_blur_requires_the_pinned_capability() {
+        Fixture f;
+        f.policy.close_style = Effect::KIND;
+        f.module.configure(f.policy);
+        f.window(1, 1, false);
+        f.module.close(1, f.port.now);
+        auto fade = f.fade(56);
+        fade.pre_blur = true;
+        f.port.fadeouts.at(56) = fade;
+        f.module.bind_fadeout(1, fade, {56});
+        CHECK(!f.module.suppresses(56));
+
+        auto &effect = f.resources.get<Effect>().log;
+        effect.blur_safe = true;
+        f.window(2, 1, false);
+        f.module.close(2, f.port.now);
+        fade = f.fade(57);
+        fade.pre_blur = true;
+        f.port.fadeouts.at(57) = fade;
+        effect.blur_safe = false;
+        f.module.reload();
+        f.module.configure(f.policy);
+        f.module.bind_fadeout(2, fade, {57});
+        CHECK(f.module.suppresses(57));
+
+        // Shader support for native preBlur does not authorize textureBlur.
+        f.port.fadeouts.at(57).blurred = true;
+        f.frame(1);
+        CHECK(!f.module.suppresses(57));
     }
 
     void external_effect_checks_privacy_at_entry_bind_and_draw() {
@@ -2690,9 +2885,13 @@ namespace {
 int main() try {
     opening_override_pins_settings_and_yields_to_native_movement();
     opening_override_yields_to_a_single_drag_sample();
+    motion_overrides_preserve_samples_and_pin_the_active_generation();
+    motion_override_hands_off_open_and_falls_back_without_reading_private_pixels();
+    motion_override_respects_the_acquired_blur_capability();
     closing_override_replaces_mapped_state_and_restores_native_on_failure();
     completed_override_close_stays_suppressed_across_reload();
     external_effect_declines_unsupported_blur_before_ownership();
+    shader_close_pre_blur_requires_the_pinned_capability();
     external_effect_checks_privacy_at_entry_bind_and_draw();
     locked_close_replay_does_not_mutate_owned_shutdown();
     opening_movement_and_settlement();

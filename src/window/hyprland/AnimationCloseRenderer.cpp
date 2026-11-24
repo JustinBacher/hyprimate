@@ -711,6 +711,8 @@ void CAnimationCloseRenderer::draw_item(
                     .blur_live = BLUR && !BLUR->xray,
                     .blur_rounding = BLUR ? BLUR->round : 0.0,
                     .blur_rounding_power = BLUR ? BLUR->roundingPower : 2.0,
+                    .blur_box = BLUR ? BLUR->box : CBox{},
+                    .blur_alpha = BLUR ? BLUR->alpha : 1.F,
                     .close_guard = guard});
             }, [&] {
                 if (!FOUND->public_close_only) { native.draw_backdrop(EFFECTS, guard); }

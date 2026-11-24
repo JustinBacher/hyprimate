@@ -212,6 +212,16 @@ hl.config({
                     },
                     enabled = true,
                 },
+                move = {
+                    effect = "",
+                    effect_parameters = "{}",
+                    effect_duration = 350,
+                },
+                resize = {
+                    effect = "",
+                    effect_parameters = "{}",
+                    effect_duration = 350,
+                },
                 movement = {
                     options = {
                         burn = {
@@ -234,6 +244,9 @@ hl.config({
             workspace = {
                 enabled = false,
                 style = "rotation",
+                effect = "",
+                effect_parameters = "{}",
+                effect_duration = 600,
                 options = {
                     rotation = {
                         duration = 600,
@@ -294,6 +307,11 @@ hl.config({
                         },
                     },
                 },
+            },
+            wallpaper = {
+                effect = "",
+                effect_parameters = "{}",
+                effect_duration = 0,
             },
         },
     },
@@ -366,6 +384,9 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `window:options:cloth:side` | string / animation defaults: `"auto"` | — | Cloth exit edge: the side of appearance (auto), nearest valid edge, opening origin, or a fixed edge. Invalid preferred edges fall back to the normal edge selection. Allowed: `auto`, `nearest`, `origin`, `top`, `bottom`, `left`, `right`. |
 | `workspace:enabled` | boolean / `false` | — | Enable workspace transition effects independently of window effects. |
 | `workspace:style` | string / `"rotation"` | — | Choose the workspace transition style. Invalid names are rejected. Allowed: `rotation`, `planet_hop`, `cube`. |
+| `workspace:effect` | string / `""` | — | Path to a native GLES shader transition manifest. Empty uses workspace.style. |
+| `workspace:effect_parameters` | string / `"{}"` | — | JSON object overriding declared workspace shader parameters. |
+| `workspace:effect_duration` | float / `600` | 0–60000 | External workspace transition time in milliseconds. Zero uses the built-in workspace style. |
 | `workspace:options:rotation:duration` | float / `600` | ≥ 0 | Time in milliseconds for the workspace rotation. |
 | `workspace:options:rotation:curve` | string / `"default"` | — | Name of a Hyprland Bezier animation curve. Unknown names are rejected and the previous valid curve is retained. Curve overshoot is clipped to the wheel's rotation range. |
 | `workspace:options:rotation:gap_fill_style` | string / `"still"` | — | Gap treatment: morph stretches an auxiliary incoming-wallpaper bridge; background uses gap_fill_color; wallpaper blends enlarged, optionally blurred wallpaper copies; still (default) holds the outgoing wallpaper stationary while windows rotate. In still mode a different incoming wallpaper rotates in with its windows; matching texture resources with unchanged content stay stationary. No mode changes the rigid circular workspace motion. Configuration uses underscores: gap_fill_style, gap_fill_color, gap_fill_blur. Invalid styles are rejected. Allowed: `morph`, `background`, `wallpaper`, `still`. |
@@ -414,6 +435,9 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `workspace:options:cube:solid:zoom` | float / `0.25` | 0–1 | Extra camera retreat at mid-turn, measured in workspace widths. |
 | `workspace:options:cube:inside_out:cube_tilt` | float / `0` | -20–20 | Mid-turn tilt in degrees. Positive angles tip the workspace face up; zero keeps it level. |
 | `workspace:options:cube:inside_out:zoom` | float / `0.45` | 0–1 | Fraction of the safe camera retreat inside the room at mid-turn; 1 uses the full safe distance. |
+| `wallpaper:effect` | string / `""` | — | Path to a native GLES wallpaper manifest. Empty keeps the native background. |
+| `wallpaper:effect_parameters` | string / `"{}"` | — | JSON object overriding declared wallpaper shader parameters. |
+| `wallpaper:effect_duration` | int / `0` | 0–60000 | Milliseconds of wallpaper simulation before holding the final frame. Zero runs continuously. |
 | `window:enabled` | boolean / `true` | — | Enable window movement, opening and closing effects. When false, none of these effects run. |
 | `window:style` | string / `"liquid"` | — | Choose the built-in style for movement and for transitions without an external effect override. Allowed: `liquid`, `paper`, `cloth`, `swarm`, `bubble`, `smoke`, `burn`, `construction`. |
 | `window:open:effect` | string / `""` | — | Path to a native GLES shader effect manifest for window opening. Empty uses window.style. |
@@ -422,6 +446,12 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `window:close:effect_parameters` | string / `"{}"` | — | JSON object overriding the closing effect's declared parameters. |
 | `window:open:effect_duration` | float / `600` | 0–60000 | Opening effect duration in milliseconds. Zero uses the compositor's native opening. |
 | `window:close:effect_duration` | float / `600` | 0–60000 | Closing effect duration in milliseconds. Zero uses the compositor's native closing. |
+| `window:move:effect` | string / `""` | — | Path to a native GLES shader manifest for movement. Empty uses window.style. |
+| `window:move:effect_parameters` | string / `"{}"` | — | JSON object overriding declared movement shader parameters. |
+| `window:move:effect_duration` | float / `350` | 0–60000 | Movement settling time in milliseconds; zero disables the external effect. |
+| `window:resize:effect` | string / `""` | — | Path to a native GLES shader manifest for resizing. Empty uses window.style. |
+| `window:resize:effect_parameters` | string / `"{}"` | — | JSON object overriding declared resizing shader parameters. |
+| `window:resize:effect_duration` | float / `350` | 0–60000 | Resize settling time in milliseconds; zero disables the external effect. |
 | `window:options:construction:worker_size` | float / `1` | 0–2 | Worker size multiplier for opening, movement, resizing and closing. Workers scale with the window's shorter dimension; 1 is normal size, 0 hides the people, and 2 doubles their size. |
 | `window:options:burn:variation` | float / `0.7` | 0–1 | Irregularity of the combustion front, from even propagation to strongly uneven burning. |
 | `window:options:burn:fragment_density` | float / `0.55` | 0–1 | Relative emission of detached printed fragments. Zero disables them. |

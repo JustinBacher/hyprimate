@@ -49,8 +49,11 @@ namespace hyprimate::workspace {
             return false;
         }
 
+        static const auto &options(const config::SWorkspaceSettings &settings) {
+            return settings.cube;
+        }
         static void prepare(Resources &resources, const config::SWorkspaceSettings &settings) {
-            resources.settings.update(settings.cube, [](const auto &value) {
+            resources.settings.update(options(settings), [](const auto &value) {
                 const bool SOLID = value.variant == config::CubeVariant::Solid;
                 return Prepared{
                     .duration = value.duration / 1000.0,

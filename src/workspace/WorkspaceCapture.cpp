@@ -27,7 +27,7 @@ namespace hyprimate::workspace {
             !resources || !monitor->m_enabled || !monitor->m_output ||
             monitor->m_drmFormat == DRM_FORMAT_INVALID || monitor->m_transformedSize.x <= 0 ||
             monitor->m_transformedSize.y <= 0 ||
-            (kind == CaptureKind::SourceIsolated && !resources->isolated()) ||
+            (blocks_surface_feedback(kind) && !resources->isolated()) ||
             (kind == CaptureKind::DestinationLive &&
                 (!monitor->resources() || resources != monitor->resources()->sceneResources())) ||
             renderer.context().active()) {

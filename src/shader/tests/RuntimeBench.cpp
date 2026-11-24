@@ -21,6 +21,7 @@ namespace {
     constexpr GLenum TIME_ELAPSED = 0x88BF, GPU_DISJOINT = 0x8FBB;
 
     bool run(const std::filesystem::path &path, unsigned width, unsigned height) {
+        const auto parse_start = Clock::now();
         auto loaded = hyprimate::shader::load_package(path.string());
         if (!loaded) {
             std::fprintf(stderr, "%s: %s\n", path.c_str(), loaded.error().c_str());
@@ -29,16 +30,19 @@ namespace {
         auto package = std::move(*loaded);
         auto values = hyprimate::shader::parameter_values(package);
         if (!values) return false;
+        const auto compile_start = Clock::now();
         hyprimate::shader::Program program;
         hyprimate::shader::Instance instance;
         std::string error;
-        if (!program.initialize(std::move(package), *values, error, eglGetProcAddress) ||
-            !instance.initialize(program, width, height, error)) {
+        const bool prepared = program.initialize(std::move(package), *values, error, eglGetProcAddress);
+        const auto allocation_start = Clock::now();
+        if (!prepared || !instance.initialize(program, width, height, error)) {
             std::fprintf(stderr, "%s: %s\n", path.c_str(), error.c_str());
             instance.release();
             program.release();
             return false;
         }
+        const auto allocated = Clock::now();
         GLuint textures[2]{}, framebuffer = 0;
         glGenTextures(2, textures);
         std::vector<unsigned char> pixels(static_cast<std::size_t>(width) * height * 4, 255);
@@ -71,12 +75,15 @@ namespace {
         frame.seed = 42;
         frame.pointer_valid = true;
         bool success = true;
+        auto first_submit = Clock::duration::zero();
         for (unsigned i = 0; i < 8; ++i) {
             frame.tick = i + 1;
             frame.elapsed += frame.delta;
             frame.progress = frame.elapsed / frame.duration;
             instance.advance(frame);
+            const auto submit_start = Clock::now();
             if (!instance.render(source, target, true, error)) { success = false; break; }
+            if (i == 0) first_submit = Clock::now() - submit_start;
         }
         // Only measurement boundaries synchronize; production execution must not.
         glFinish();
@@ -117,6 +124,10 @@ namespace {
             path.parent_path().filename().c_str(), width, height, FRAMES, submit_us, completed_us);
         if (timer && !disjoint) std::printf("\"gpu_us_per_frame\":%.3f,", static_cast<double>(gpu_ns) / (1000 * FRAMES));
         else std::printf("\"gpu_us_per_frame\":null,");
+        auto us = [](Clock::duration duration) { return std::chrono::duration<double, std::micro>(duration).count(); };
+        std::printf("\"parse_us\":%.3f,\"prepare_us\":%.3f,\"allocate_us\":%.3f,\"first_submit_us\":%.3f,",
+            us(compile_start - parse_start), us(allocation_start - compile_start),
+            us(allocated - allocation_start), us(first_submit));
         std::printf("\"allocation_calls_during_frames\":%llu,\"upload_bytes_during_frames\":%llu,"
                     "\"copy_bytes_during_frames\":%llu,\"draws_during_frames\":%llu,"
                     "\"instance_bytes\":%llu}\n",
@@ -141,8 +152,12 @@ int main() {
     std::fprintf(stderr, "GL_VENDOR=%s\nGL_RENDERER=%s\nGL_VERSION=%s\n",
         glGetString(GL_VENDOR), glGetString(GL_RENDERER), glGetString(GL_VERSION));
     bool success = true;
-    for (const auto *name : {"fade", "diffusion", "particles"}) {
-        success = run(std::filesystem::path{HYPRIMATE_SHADER_EXAMPLES} / name / "effect.json", 1280, 720) && success;
+    for (const auto &[width, height] : {std::pair{1280U, 720U}, std::pair{1920U, 1080U},
+             std::pair{2560U, 1440U}, std::pair{3840U, 2160U}}) {
+        for (const auto *name : {"fade", "diffusion", "particles"}) {
+            success = run(std::filesystem::path{HYPRIMATE_SHADER_EXAMPLES} / name / "effect.json",
+                          width, height) && success;
+        }
     }
     return success ? EXIT_SUCCESS : EXIT_FAILURE;
 }

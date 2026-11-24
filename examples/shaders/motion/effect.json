@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "events": ["move", "resize"],
+  "blur_mask": true,
+  "fragment": "motion.frag"
+}

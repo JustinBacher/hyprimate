@@ -316,7 +316,9 @@ namespace hyprimate::shader {
 
         enum Uniform : std::size_t {
             Progress, Elapsed, Delta, Duration, Scale, SizeXY, TargetSize, Pointer, Seed,
-            SourceUV, Domain, EventID, PointerValid, Fullscreen, Iteration, Iterations, UniformCount
+            SourceUV, Domain, EventID, PointerValid, Fullscreen, Iteration, Iterations,
+            DestinationUV, Geometry, PreviousGeometry, Velocity, Direction, Held, Settling,
+            BlurMask, UniformCount
         };
         struct Builtin {
             std::string_view name;
@@ -329,7 +331,11 @@ namespace hyprimate::shader {
             {"hypr_seed", GL_FLOAT_VEC4}, {"hypr_source_uv", GL_FLOAT_VEC4},
             {"hypr_domain", GL_FLOAT_VEC4}, {"hypr_event", GL_INT},
             {"hypr_pointer_valid", GL_BOOL}, {"hypr_fullscreen", GL_BOOL},
-            {"hypr_iteration", GL_INT}, {"hypr_iterations", GL_INT}}};
+            {"hypr_iteration", GL_INT}, {"hypr_iterations", GL_INT},
+            {"hypr_destination_uv", GL_FLOAT_VEC4}, {"hypr_geometry", GL_FLOAT_VEC4},
+            {"hypr_previous_geometry", GL_FLOAT_VEC4}, {"hypr_velocity", GL_FLOAT_VEC4},
+            {"hypr_direction", GL_FLOAT}, {"hypr_held", GL_BOOL}, {"hypr_settling", GL_BOOL},
+            {"hypr_blur_mask", GL_BOOL}}};
         constexpr std::array<GLenum, 6> VALUE_TYPES{
             GL_FLOAT, GL_INT, GL_BOOL, GL_FLOAT_VEC2, GL_FLOAT_VEC3, GL_FLOAT_VEC4};
 
@@ -590,10 +596,11 @@ namespace hyprimate::shader {
                 }
                 const auto input = std::ranges::find(pass.inputs, uniform, &Binding::name);
                 if (type != GL_SAMPLER_2D || elements != 1 ||
-                    (input == pass.inputs.end() && uniform != "hypr_source")) {
+                    (input == pass.inputs.end() && uniform != "hypr_source" && uniform != "hypr_destination")) {
                     return fail(error, "unsupported or unmapped uniform: " + std::string(uniform));
                 }
-                const Ref ref = uniform == "hypr_source" ? Ref{} : input->resource;
+                const Ref ref = uniform == "hypr_source" ? Ref{} :
+                    uniform == "hypr_destination" ? Ref{ResourceKind::Destination} : input->resource;
                 unsigned unit = 0;
                 while (unit < gpu.sampler_count && gpu.samplers[unit] != ref) {
                     ++unit;
@@ -873,6 +880,12 @@ namespace hyprimate::shader {
         GLuint source_sampler = 0;
         unsigned sampler_count = 0, block_count = 0, max_outputs = 1;
         bool has_feedback = false, samples_borrowed_target = false, blends_final = false, armed = true;
+        unsigned final_draws = 0;
+        bool final_is_last = false, uses_frag_coord = false, uses_destination = false;
+        bool final_source_over = false;
+        bool direct() const noexcept {
+            return final_draws == 1 && final_is_last && final_source_over && !uses_frag_coord;
+        }
 
         explicit Impl(Package spec) : package(std::move(spec)) {}
 
@@ -962,7 +975,20 @@ namespace hyprimate::shader {
                 block_count = std::max(block_count, gpu.block_count);
                 max_outputs = std::max(max_outputs, static_cast<unsigned>(pass.outputs.size()));
                 has_feedback |= pass.transform_feedback;
+                uses_destination |= std::ranges::any_of(
+                    std::views::counted(gpu.samplers.begin(), gpu.sampler_count),
+                    [](Ref ref) { return ref.kind == ResourceKind::Destination; });
                 if (!pass.outputs.empty() && pass.outputs.front().kind == ResourceKind::Output) {
+                    final_draws += pass.iterations;
+                    final_is_last = i + 1 == spec.passes.size();
+                    const auto builtin = default_vertex();
+                    const bool fullscreen = pass.mesh < 0 &&
+                        (pass.vertex == builtin ||
+                            (pass.vertex.size() == builtin.size() + 1 &&
+                                pass.vertex.front() == '\n' && pass.vertex.ends_with(builtin)));
+                    final_source_over = fullscreen;
+                    // Keep v1 gl_FragCoord relative to its private target.
+                    uses_frag_coord |= pass.fragment.find("gl_FragCoord") != std::string::npos;
                     samples_borrowed_target |= gpu.sampler_count != 0;
                     blends_final |= pass.blend;
                 }
@@ -1022,7 +1048,7 @@ namespace hyprimate::shader {
             }
             const bool source_used = std::ranges::any_of(passes, [](const CompiledPass &pass) {
                 return std::ranges::any_of(std::views::counted(pass.samplers.begin(), pass.sampler_count),
-                    [](Ref ref) { return ref.kind == ResourceKind::Source; });
+                    [](Ref ref) { return ref.kind == ResourceKind::Source || ref.kind == ResourceKind::Destination; });
             });
             if (source_used) {
                 glGenSamplers(1, &source_sampler);
@@ -1083,6 +1109,8 @@ namespace hyprimate::shader {
     }
 
     const Package &Program::package() const { return m_impl->package; }
+
+    bool Program::can_composite_direct() const noexcept { return m_impl && m_impl->direct(); }
 
     const Statistics &Program::statistics() const noexcept { return m_impl ? m_impl->stats : EMPTY_STATS; }
 
@@ -1341,7 +1369,8 @@ namespace hyprimate::shader {
         };
 
         void frame_uniforms(const CompiledPass &gpu, const Timing &time, const Source &source,
-            Extent extent, const std::array<float, 4> &domain, unsigned iter, unsigned iterations) {
+            Extent extent, const std::array<float, 4> &domain, unsigned iter, unsigned iterations,
+            bool blur_mask) {
             const auto &u = gpu.uniforms;
             const auto &f = time.frame;
             // Skip optimized-out uniforms rather than issuing no-op driver calls.
@@ -1362,6 +1391,14 @@ namespace hyprimate::shader {
             if (u[Fullscreen] >= 0) glUniform1i(u[Fullscreen], f.fullscreen);
             if (u[Iteration] >= 0) glUniform1i(u[Iteration], static_cast<GLint>(iter));
             if (u[Iterations] >= 0) glUniform1i(u[Iterations], static_cast<GLint>(iterations));
+            if (u[DestinationUV] >= 0) glUniform4fv(u[DestinationUV], 1, source.destination_uv.data());
+            if (u[Geometry] >= 0) glUniform4fv(u[Geometry], 1, f.geometry.data());
+            if (u[PreviousGeometry] >= 0) glUniform4fv(u[PreviousGeometry], 1, f.previous_geometry.data());
+            if (u[Velocity] >= 0) glUniform4fv(u[Velocity], 1, f.velocity.data());
+            if (u[Direction] >= 0) glUniform1f(u[Direction], f.direction);
+            if (u[Held] >= 0) glUniform1i(u[Held], f.held);
+            if (u[Settling] >= 0) glUniform1i(u[Settling], f.settling);
+            if (u[BlurMask] >= 0) glUniform1i(u[BlurMask], blur_mask);
         }
     }  // namespace
 
@@ -1454,6 +1491,9 @@ namespace hyprimate::shader {
         GLuint texture(Ref ref, const Source &source) const {
             if (ref.kind == ResourceKind::Source) {
                 return source.texture;
+            }
+            if (ref.kind == ResourceKind::Destination) {
+                return source.destination_texture;
             }
             if (owner->assets[ref.index] != 0) {
                 return owner->assets[ref.index];
@@ -1656,6 +1696,7 @@ namespace hyprimate::shader {
             const auto color = type == GL_TEXTURE ?
                 static_cast<GLuint>(attachment(GL_COLOR_ATTACHMENT0, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME)) : 0;
             if ((target.texture != 0 && target.texture != color) || color == source.texture ||
+                (color && color == source.destination_texture) ||
                 (color != 0 && owns_texture(color))) {
                 return fail(error, "borrowed framebuffer color attachment aliases an input or disagrees with its texture");
             }
@@ -1666,7 +1707,7 @@ namespace hyprimate::shader {
                         return false;
                     }
                     const auto name = static_cast<GLuint>(attachment(point, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME));
-                    return name == source.texture || owns_texture(name);
+                    return name == source.texture || name == source.destination_texture || owns_texture(name);
                 };
                 for (GLint i = 1; i < owner->limits.color_attachments; ++i) {
                     if (aliases(GL_COLOR_ATTACHMENT0 + i)) {
@@ -1681,7 +1722,7 @@ namespace hyprimate::shader {
             if (component == GL_INT || component == GL_UNSIGNED_INT) {
                 return fail(error, "integer borrowed output is not a native color target");
             }
-            if (component == GL_FLOAT && owner->blends_final && !owner->limits.float_blend &&
+            if (component == GL_FLOAT && (owner->blends_final || target.composite) && !owner->limits.float_blend &&
                 (attachment(GL_COLOR_ATTACHMENT0, GL_FRAMEBUFFER_ATTACHMENT_RED_SIZE) == 32 ||
                  attachment(GL_COLOR_ATTACHMENT0, GL_FRAMEBUFFER_ATTACHMENT_GREEN_SIZE) == 32 ||
                  attachment(GL_COLOR_ATTACHMENT0, GL_FRAMEBUFFER_ATTACHMENT_BLUE_SIZE) == 32 ||
@@ -1734,8 +1775,9 @@ namespace hyprimate::shader {
                 if (final) {
                     glScissor(x, y, size.width, size.height);
                 }
-                owner->color.blend(static_cast<unsigned>(pass.outputs.size()), pass.blend);
-                const bool clear = pass.clear || (final && clear_final);
+                const bool composite = final && target.composite;
+                owner->color.blend(static_cast<unsigned>(pass.outputs.size()), composite || pass.blend);
+                const bool clear = !composite && (pass.clear || (final && clear_final));
                 if (final) clear_final = false;
                 if (clear) {
                     for (std::size_t i = 0; i < pass.outputs.size(); ++i) {
@@ -1753,7 +1795,8 @@ namespace hyprimate::shader {
                 const auto ref = gpu.samplers[i];
                 glActiveTexture(GL_TEXTURE0 + i);
                 glBindTexture(GL_TEXTURE_2D, texture(ref, source));
-                glBindSampler(i, ref.kind == ResourceKind::Source ? owner->source_sampler : 0);
+                glBindSampler(i, ref.kind == ResourceKind::Source ||
+                    ref.kind == ResourceKind::Destination ? owner->source_sampler : 0);
             }
             for (unsigned i = 0; i < gpu.block_count; ++i) {
                 const auto &block = gpu.blocks[i];
@@ -1766,7 +1809,7 @@ namespace hyprimate::shader {
             }
             active_blocks = gpu.block_count;
             frame_uniforms(gpu, time, source, size, final ? target.domain : FULL_DOMAIN, iteration,
-                pass.iterations);
+                pass.iterations, target.blur_mask);
             if (pass.transform_feedback) {
                 const auto &mesh = owner->package.meshes[static_cast<unsigned>(pass.mesh)];
                 glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -1781,7 +1824,17 @@ namespace hyprimate::shader {
                 glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, 0, 0);
                 glDisable(GL_RASTERIZER_DISCARD);
             } else {
-                submit_mesh(pass);
+                if (final && target.composite) {
+                    if (!gl_ok(error, "preparing direct shader submission")) return false;
+                    for (const auto &clip : target.clips) {
+                        glScissor(clip.x, clip.y, clip.width, clip.height);
+                        if (target.submitted) *target.submitted = true;
+                        submit_mesh(pass);
+                        if (!gl_ok(error, "executing direct shader submission")) return false;
+                    }
+                } else {
+                    submit_mesh(pass);
+                }
             }
             if (!gl_ok(error, "executing native shader pass")) {
                 return false;
@@ -1794,7 +1847,7 @@ namespace hyprimate::shader {
                     textures[output.index].read ^= 1U;
                 }
             }
-            ++stats.draws;
+            stats.draws += final && target.composite ? target.clips.size() : 1;
             switch (pass.phase) {
                 case Phase::Initialize: ++stats.initialize_passes; break;
                 case Phase::Update: ++stats.update_passes; break;
@@ -1834,6 +1887,22 @@ namespace hyprimate::shader {
         const Extent capture{width, height};
         if (m_impl && m_impl->owner == program.m_impl && m_impl->capture == capture && !m_impl->faulted) {
             return true;
+        }
+        if (m_impl && m_impl->owner == program.m_impl && !m_impl->faulted && capture.bounded() &&
+            m_impl->owner->limits.viewport_fits(width, height)) {
+            const auto &textures = m_impl->owner->package.textures;
+            bool same_storage = true;
+            for (std::size_t i = 0; i < textures.size(); ++i) {
+                if (textures[i].image.empty() &&
+                    texture_extent(textures[i].size, capture) != m_impl->textures[i].size) {
+                    same_storage = false;
+                    break;
+                }
+            }
+            if (same_storage) {
+                m_impl->capture = capture;
+                return true;
+            }
         }
         if (!gl_ok(error, "entering instance preparation")) {
             return false;
@@ -1892,6 +1961,16 @@ namespace hyprimate::shader {
             target.domain[2] <= 0 || target.domain[3] <= 0) {
             return fail(error, "invalid borrowed shader target dimensions or domain");
         }
+        if (target.composite &&
+            (!program.direct() || target.clear_before_render ||
+                !std::ranges::all_of(target.clips, [&](const Clip &clip) {
+                    return clip.x >= target.origin_x && clip.y >= target.origin_y &&
+                        clip.width > 0 && clip.height > 0 &&
+                        std::int64_t{clip.x} + clip.width <= std::int64_t{target.origin_x} + extent.width &&
+                        std::int64_t{clip.y} + clip.height <= std::int64_t{target.origin_y} + extent.height;
+                }))) {
+            return fail(error, "incompatible in-place shader presentation");
+        }
         if (source.texture == 0 || source.width == 0 || source.height == 0 ||
             source.width > static_cast<unsigned>(program.limits.texture) ||
             source.height > static_cast<unsigned>(program.limits.texture) ||
@@ -1899,6 +1978,12 @@ namespace hyprimate::shader {
             (target.framebuffer == 0 && target.texture != 0) || !valid_source_uv(source.uv) ||
             !glIsTexture(source.texture) || (target.framebuffer != 0 && !glIsFramebuffer(target.framebuffer))) {
             return fail(error, "invalid or aliased borrowed shader texture/framebuffer");
+        }
+        if (program.uses_destination &&
+            (!source.destination_texture || source.destination_texture == target.texture ||
+                instance.owns_texture(source.destination_texture) ||
+                !valid_source_uv(source.destination_uv) || !glIsTexture(source.destination_texture))) {
+            return fail(error, "invalid or aliased borrowed destination texture");
         }
         if (!gl_ok(error, "entering native shader draw")) {
             return false;
@@ -1931,6 +2016,7 @@ namespace hyprimate::shader {
             // A non-2D texture can pass glIsTexture; catch that before any simulation work.
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, source.texture);
+            if (program.uses_destination) glBindTexture(GL_TEXTURE_2D, source.destination_texture);
         }
         if (!gl_ok(error, "validating borrowed shader resources")) {
             return false;

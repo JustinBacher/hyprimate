@@ -55,6 +55,7 @@ namespace hyprimate::animation {
         float alpha = 1;
         bool alive = false, blurred = false, image_available = false;
         bool no_screen_share = false;
+        bool pre_blur = false;
     };
     struct PendingPublicClose {
         Place place;

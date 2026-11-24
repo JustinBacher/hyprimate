@@ -50,6 +50,9 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --             workspace = {
 --                 enabled = false,
 --                 style = "rotation",
+--                 effect = "",
+--                 effect_parameters = "{}",
+--                 effect_duration = 600,
 --                 options = {
 --                     rotation = {
 --                         duration = 600,
@@ -111,6 +114,11 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                     },
 --                 },
 --             },
+--             wallpaper = {
+--                 effect = "",
+--                 effect_parameters = "{}",
+--                 effect_duration = 0,
+--             },
 --             window = {
 --                 enabled = true,
 --                 style = "liquid",
@@ -148,6 +156,16 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --                         },
 --                     },
 --                     enabled = true,
+--                 },
+--                 move = {
+--                     effect = "",
+--                     effect_parameters = "{}",
+--                     effect_duration = 350,
+--                 },
+--                 resize = {
+--                     effect = "",
+--                     effect_parameters = "{}",
+--                     effect_duration = 350,
 --                 },
 --                 options = {
 --                     construction = {

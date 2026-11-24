@@ -71,8 +71,11 @@ namespace hyprimate::workspace {
                 resources.settings.prepared.gap,
                 matching_wallpaper);
         }
+        static const auto &options(const config::SWorkspaceSettings &settings) {
+            return settings.rotation;
+        }
         static void prepare(Resources &resources, const config::SWorkspaceSettings &settings) {
-            resources.settings.update(settings.rotation, [](const auto &value) {
+            resources.settings.update(options(settings), [](const auto &value) {
                 Prepared result;
                 result.duration = value.duration / 1000.0;
                 result.curve = value.curve;

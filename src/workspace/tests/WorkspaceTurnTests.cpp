@@ -73,6 +73,7 @@ namespace {
         CHECK(fixture.port.composition(fixture.two, SPECIAL).identity != WITH_SPECIAL.identity);
         CHECK(blocks_surface_feedback(CaptureKind::SourceIsolated));
         CHECK(!blocks_surface_feedback(CaptureKind::DestinationLive));
+        CHECK(blocks_surface_feedback(CaptureKind::DestinationIsolated));
         CHECK(direction_between({}, 1, false, false) == Direction::Forward);
         CHECK(direction_between(2, 1, false, true) == Direction::Forward);
         CHECK(direction_between(1, 2, true, false) == Direction::Backward);
@@ -90,6 +91,24 @@ namespace {
         CHECK(fixture.turn.stage(WITH_SPECIAL));
         fixture.turn.begin(WITH_SPECIAL, fixture.a, 1.0, LINEAR);
         CHECK(fixture.turn.direction() == Direction::Backward);
+    }
+
+    void snapshot_endpoints_are_reused_through_reversal() {
+        Fixture fixture;
+        fixture.port.snapshot_endpoints = true;
+        fixture.start();
+        fixture.present();
+        CHECK(fixture.port.captures.size() == 2);
+        fixture.frame(fixture.b, .16);
+        CHECK(fixture.turn.stage(fixture.b));
+        fixture.turn.begin(fixture.b, fixture.a, 1.0, LINEAR);
+        fixture.frame(fixture.a, .10);
+        CHECK(fixture.turn.active());
+        CHECK(fixture.port.captures.size() == 2);
+        // Returning to native presentation resumes its original refresh policy.
+        fixture.port.snapshot_endpoints = false;
+        fixture.frame(fixture.a, .05);
+        CHECK(fixture.port.captures.size() == 3);
     }
 
     void staging_and_capture_failures() {
@@ -1127,6 +1146,123 @@ namespace {
         CHECK(nested() == Presentation::Skipped && fixture.displays == 3);
     }
 
+    void alternate_presentation_preserves_reversal_and_fallback() {
+        Fixture fixture;
+        using Turn = decltype(fixture.turn);
+        using Presentation = Turn::Presentation;
+        fixture.start();
+        const auto current = [&] { return &fixture.turn; };
+        const auto prepare = [] { return true; };
+        Turn::PresentationSample sample{};
+        bool accept = true;
+        int renders = 0, alternate_calls = 0;
+        const auto draw = [&] {
+            return Turn::draw_queued(
+                fixture.turn.queue(true, prepare),
+                current,
+                [&](double progress, Direction direction) {
+                    ++renders;
+                    CHECK(progress == sample.progress && direction == sample.direction);
+                    return true;
+                },
+                [&] {
+                    ++fixture.displays;
+                    return true;
+                },
+                [&](const auto &frame) {
+                    ++alternate_calls;
+                    sample = frame;
+                    return accept;
+                });
+        };
+        fixture.frame(fixture.b, .2, false);
+        CHECK(draw() == Presentation::FirstDisplay);
+        const auto generation = sample.generation;
+        CHECK(generation != 0 && sample.tick == 1 && sample.elapsed == 0 && sample.delta == 0);
+        CHECK(sample.progress == 0 && sample.duration == 1 && sample.direction == Direction::Forward);
+        CHECK(renders == 0 && fixture.displays == 0);
+        fixture.frame(fixture.b, .25, false);
+        CHECK(draw() == Presentation::Displayed && sample.progress == .25);
+        fixture.turn.begin(fixture.b, fixture.a, 1.0, LINEAR);
+        fixture.frame(fixture.a, .20, false);
+        accept = false;
+        CHECK(draw() == Presentation::Displayed);
+        CHECK(sample.generation == generation && sample.tick == 3);
+        CHECK(sample.direction == Direction::Forward && sample.progress < .25);
+        CHECK(std::abs(sample.elapsed - .45) < 1e-12 && std::abs(sample.delta - .20) < 1e-12);
+        CHECK(renders == 1 && fixture.displays == 1);
+
+        // A revoked alternate may not fall through to built-in presentation.
+        const auto ticket = fixture.turn.queue(true, prepare);
+        CHECK(Turn::draw_queued(
+                  ticket, current,
+                  [&](double, Direction) {
+                      ++renders;
+                      return true;
+                  },
+                  [&] {
+                      ++fixture.displays;
+                      return true;
+                  },
+                  [&](const auto &) {
+                      fixture.turn.invalidate_callbacks();
+                      return false;
+                  }) == Presentation::Skipped);
+        CHECK(renders == 1 && fixture.displays == 1);
+
+        const auto unsafe = fixture.turn.queue(true, prepare);
+        fixture.port.safety_facts.locked = true;
+        CHECK(Turn::draw_queued(
+                  unsafe,
+                  current,
+                  [](double, Direction) { return false; },
+                  [] { return false; },
+                  [&](const auto &) {
+                      ++alternate_calls;
+                      return true;
+                  }) == Presentation::Cancelled);
+        CHECK(alternate_calls == 3);
+    }
+
+    void alternate_presentation_restarts_for_a_queued_pair() {
+        Fixture fixture;
+        using Turn = decltype(fixture.turn);
+        using Presentation = Turn::Presentation;
+        const auto current = [&] { return &fixture.turn; };
+        Turn::PresentationSample sample{};
+        const auto draw = [&] {
+            return Turn::draw_queued(
+                fixture.turn.queue(true, [] { return true; }),
+                current,
+                [](double, Direction) { return false; },
+                [] { return false; },
+                [&](const auto &frame) {
+                    sample = frame;
+                    return true;
+                });
+        };
+        fixture.start();
+        fixture.frame(fixture.b, 0, false);
+        CHECK(draw() == Presentation::FirstDisplay);
+        const auto generation = sample.generation;
+        fixture.turn.begin(fixture.b, fixture.c, .75, LINEAR);
+        fixture.port.next_pair_timing = std::pair<double, Transition::Curve>{.5, SQUARE};
+        for (int i = 0; i < 5; ++i) {
+            fixture.frame(fixture.c, .20, false);
+            CHECK(draw() == Presentation::Displayed);
+            CHECK(sample.generation == generation && sample.duration == 1.0);
+        }
+        CHECK(sample.progress == 1.0);
+        fixture.frame(fixture.c, .05, false);
+        CHECK(draw() == Presentation::FirstDisplay);
+        CHECK(fixture.turn.source().identity == fixture.b.identity);
+        CHECK(fixture.turn.destination().identity == fixture.c.identity);
+        CHECK(sample.generation != generation && sample.tick == 1 && sample.progress == 0);
+        CHECK(sample.elapsed == 0 && sample.delta == 0 && sample.duration == .5);
+        fixture.frame(fixture.c, .125, false);
+        CHECK(draw() == Presentation::Displayed && sample.progress == .0625);
+    }
+
 }  // namespace
 
 int main() {
@@ -1135,6 +1271,7 @@ int main() {
     returning_to_destination_discards_pending();
     repeated_endpoint_keeps_the_visual_timeline();
     staging_and_capture_failures();
+    snapshot_endpoints_are_reused_through_reversal();
     gate_and_unpresented_retarget();
     reversal_and_coalescing();
     reversal_ignores_a_sample_that_never_reached_the_output();
@@ -1153,6 +1290,8 @@ int main() {
     callback_invalidation_does_not_resurrect_work();
     capture_and_curve_callbacks_cannot_revive_cancelled_turns();
     queued_ticket_is_claimed_before_callbacks();
+    alternate_presentation_preserves_reversal_and_fallback();
+    alternate_presentation_restarts_for_a_queued_pair();
     blend_handoff_and_failures();
     inactive_source_guards();
     queue_and_hud_order();

@@ -32,6 +32,8 @@ class CWindowAnimationPass final : public IPassElement {
         bool blur_live = true;
         double blur_rounding = 0;
         double blur_rounding_power = 2;
+        CBox blur_box{};
+        float blur_alpha = 1.F;
         std::optional<CloseRenderGuard> close_guard;
     };
     explicit CWindowAnimationPass(SData data);

@@ -29,6 +29,12 @@ class CHyprAnimationCanvas {
     [[nodiscard]] bool blur_mask() const { return m_blur_mask; }
     [[nodiscard]] double mask_rounding() const { return m_mask_rounding; }
     [[nodiscard]] double mask_rounding_power() const { return m_mask_rounding_power; }
+    void allow_direct() { m_allow_direct = true; }
+    [[nodiscard]] bool direct_allowed() const { return m_allow_direct; }
+    void direct_presented() { m_direct_presented = true; }
+    [[nodiscard]] bool presented_directly() const { return m_direct_presented; }
+    void set_blur_box(const CBox &box) { m_blur_box = box; }
+    [[nodiscard]] const CBox &blur_box() const { return m_blur_box; }
     bool submit_mesh(const hyprimate::animation::Mesh<Vertex> &mesh,
         const hyprimate::animation::Draw<CHyprAnimationCanvas> &draw);
     static hyprimate::Vec2 image_size(const Image &image);
@@ -56,4 +62,6 @@ class CHyprAnimationCanvas {
     bool m_blur_mask = false;
     double m_mask_rounding = 0;
     double m_mask_rounding_power = 2;
+    CBox m_blur_box{};
+    bool m_allow_direct = false, m_direct_presented = false;
 };

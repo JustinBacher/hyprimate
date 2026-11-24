@@ -499,13 +499,14 @@ std::expected<Package,std::string> load_package(const std::string &path) {
     try {
         Package package; const auto file=std::filesystem::absolute(expand(path)).lexically_normal();package.path=file.string();
         const auto root=parse(read_file(file,65536));
-        fields(root,{"version","events","bounds","helpers","parameters","textures","buffers","meshes","fragment","passes"});
+        fields(root,{"version","events","bounds","blur_mask","helpers","parameters","textures","buffers","meshes","fragment","passes"});
         require(natural(root.at("version"),SPEC_VERSION,SPEC_VERSION)==SPEC_VERSION,"unsupported version");
         if(root.contains("events")) {
             array(root.at("events"),6);package.events.clear();
             for(const auto &e:root.at("events"))package.events.push_back(choice<Event>(e,{{"open",Event::Open},{"close",Event::Close},{"move",Event::Move},{"resize",Event::Resize},{"workspace",Event::Workspace},{"wallpaper",Event::Wallpaper}}));
         }
         if(root.contains("bounds")) {array(root.at("bounds"),4);require(root.at("bounds").size()==4,"bounds requires four fractions");for(unsigned i=0;i<4;++i)package.bounds[i]=number(root.at("bounds")[i]);}
+        if (root.contains("blur_mask")) package.blur_mask = root.at("blur_mask").get<bool>();
         if(root.contains("parameters")) {
             const auto &parameters=root.at("parameters");require(parameters.is_object() && parameters.size()<=MAX_PARAMETERS,"invalid parameters");
             for(const auto &[name,json]:parameters.items()) {
@@ -556,12 +557,13 @@ std::string shader_source(const Package &package,std::string_view body,bool vert
     std::string source=R"(#version 300 es
 precision highp float;
 precision highp int;
-uniform sampler2D hypr_source;
-uniform float hypr_progress, hypr_elapsed, hypr_delta, hypr_duration, hypr_scale;
+uniform sampler2D hypr_source, hypr_destination;
+uniform float hypr_progress, hypr_elapsed, hypr_delta, hypr_duration, hypr_scale, hypr_direction;
 uniform vec2 hypr_size, hypr_target_size, hypr_pointer;
-uniform vec4 hypr_seed, hypr_source_uv, hypr_domain;
+uniform vec4 hypr_seed, hypr_source_uv, hypr_domain, hypr_destination_uv;
+uniform vec4 hypr_geometry, hypr_previous_geometry, hypr_velocity;
 uniform int hypr_event, hypr_iteration, hypr_iterations;
-uniform bool hypr_pointer_valid, hypr_fullscreen;
+uniform bool hypr_pointer_valid, hypr_fullscreen, hypr_held, hypr_settling, hypr_blur_mask;
 vec4 hypr_premultiply(vec4 c) { return vec4(c.rgb * c.a, c.a); }
 vec4 hypr_unpremultiply(vec4 c) { return vec4(c.a > 0.0 ? c.rgb / c.a : vec3(0.0), c.a); }
 vec4 hypr_sample_source(vec2 uv) {
@@ -572,6 +574,11 @@ vec4 hypr_sample_source(vec2 uv) {
     vec2 mapped = clamp(hypr_source_uv.xy + uv * hypr_source_uv.zw, lo, hi);
 )";
     source+=vertex?"    return textureLod(hypr_source, mapped, 0.0);\n}\n":"    return texture(hypr_source, mapped);\n}\nin vec2 hypr_uv;\nvec2 hypr_window_uv() { return hypr_domain.xy + hypr_uv * hypr_domain.zw; }\n";
+    source += R"(vec4 hypr_sample_destination(vec2 uv) {
+    if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec4(0.0);
+    return textureLod(hypr_destination, hypr_destination_uv.xy + uv * hypr_destination_uv.zw, 0.0);
+}
+)";
     constexpr std::array<std::string_view,6> types{"float","int","bool","vec2","vec3","vec4"};
     for(const auto &p:package.parameters) {const auto type=static_cast<unsigned>(p.initial.type);if(type<types.size())source+="uniform "+std::string(types[type])+" "+p.name+";\n";}
     source+="#line 1\n";source.append(body);return source;

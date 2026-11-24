@@ -102,6 +102,8 @@ namespace hyprimate::animation {
             std::optional<Handle> handle;
             std::optional<Edge> opening_edge;
             std::optional<Box> exclusive_open_goal{};
+            std::optional<Box> native_open_goal{};
+            std::optional<MotionKind> rejected_motion{};
             bool opening_seen = false;
             bool expired = false;
             bool driven = false;
@@ -138,9 +140,12 @@ namespace hyprimate::animation {
             bool public_mapped_only = false;
             bool allows_mapped_blur = true;
             bool preserve_on_reload = false;
+            bool allows_close_blur = false;
+            bool allows_close_pre_blur = true;
             bool retained_no_screen_share = false;
             MonitorId profile_monitor = 0;
             std::uint64_t profile_generation = 0;
+            std::optional<MotionKind> mapped_motion{};
         };
         template <class Function>
         bool visit(Handle handle, Function &&function);
@@ -188,13 +193,17 @@ namespace hyprimate::animation {
         void tick_screen(ScreenFacts &facts, MonitorId monitor);
         bool usable_observation(Tracked &window, const std::optional<Observation> &observation);
         std::optional<Observation> sample_window(Tracked &window, const FrameStamp &stamp);
-        // Returns whether accepted opening effects require a geometry reread.
+        std::optional<MotionKind> motion_kind(const Tracked &window, const Observation &observation,
+            const std::optional<Motion> &motion) const;
+        // Returns whether a geometry change requires the host observation to be reread.
         bool begin_mapped(
-            Tracked &window, const Observation &observation, const std::optional<Motion> &motion);
+            Tracked &window, const Observation &observation, const std::optional<Motion> &motion,
+            std::optional<MotionKind> active_motion);
         static std::optional<double> step_clock(Record &entry, const FrameStamp &stamp);
         void present_mapped(Tracked &window, Record &entry, const Observation &observation);
         void frame_mapped(Tracked &window, const FrameStamp &stamp);
-        bool refresh_fadeout(Record &entry);
+        bool refresh_fadeout(Record &entry, const std::optional<FadeoutFacts> &fadeout);
+        static bool close_blur_allowed(const Record &entry, const FadeoutFacts &fadeout);
         static Step dying_step(const Record &entry, double elapsed);
         void damage_dying(Record &entry);
         bool public_close_revoked(Record &entry);

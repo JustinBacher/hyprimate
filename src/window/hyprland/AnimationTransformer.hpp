@@ -48,6 +48,10 @@ class CAnimationTransformer final : public Render::IWindowTransformer {
         WP<Render::IFramebuffer> framebuffer;
         Render::CRenderContext *context = nullptr;
         CContentSourcePass *passes = nullptr;
+        CContentSourcePass *receipt = nullptr;
+        SP<Render::IFramebuffer> shader_matte;
+        CBox blur_box, matte_result_box;
+        double rounding = 0, rounding_power = 2;
     };
     ContentSource m_content_source;
     PHLWINDOWREF m_window;

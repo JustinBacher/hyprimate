@@ -22,10 +22,12 @@ namespace hyprimate::animation {
     struct Policy {
         config::Style style{};
         std::optional<config::Style> open_style{}, close_style{};
+        std::optional<config::Style> move_style{}, resize_style{};
         bool enabled = false, inert = false;
         bool opening = false, movement = false, closing = false, workspace_movement = false;
         bool close_available = false;
     };
+    enum class MotionKind : std::uint8_t { Move, Resize };
     struct Neighbourhood {
         std::span<const Box> tiled_goals, obstacles;
         bool alone = false;
@@ -50,6 +52,11 @@ namespace hyprimate::animation {
         double sample_seconds =
             0;  // Observation interval, including the frame that acquired the style.
     };
+    struct MotionGeometry {
+        Box current, previous;
+        double sample_seconds = 0;
+        bool active = false;
+    };
     struct Step {
         double elapsed = 0;
         bool stalled = false;
@@ -69,6 +76,7 @@ namespace hyprimate::animation {
         std::optional<Box> visible_output_owner{};  // Owner screen in the same coordinates.
         double scale = 1;
         bool fullscreen = false;
+        std::optional<MotionGeometry> motion_geometry{};
     };
     struct Effects {
         std::optional<Box> drive_body;

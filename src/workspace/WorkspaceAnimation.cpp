@@ -62,6 +62,7 @@
 #include "gl/RawGlBracket.hpp"
 #include "perf/LiveProfiler.hpp"
 #include "perf/MonitorIdentity.hpp"
+#include "shader/SceneShader.hpp"
 #include "workspace/WorkspaceAnimation.hpp"
 #include "workspace/WorkspaceCallbackScope.hpp"
 #include "workspace/WorkspaceCapture.hpp"
@@ -319,7 +320,8 @@ class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
             const auto CHANGED = [this] {
                 if (m_last_settings && m_last_settings->style == Style::KIND) {
                     m_turns.reload();
-                    configure(*m_last_settings);
+                    m_settings_changed = true;
+                    configure(*m_last_settings, false);
                 }
             };
             if constexpr (requires { resources.curves.install(m_handle, CHANGED); }) {
@@ -364,10 +366,15 @@ class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
         [[nodiscard]] double duration(const hyprimate::workspace::JourneyEndpoint &from,
             const hyprimate::workspace::JourneyEndpoint &destination,
             double base) const;
+        [[nodiscard]] std::optional<std::pair<double, hyprimate::workspace::Transition::Curve>>
+        next_pair(
+            const hyprimate::workspace::JourneyEndpoint &from,
+            const hyprimate::workspace::JourneyEndpoint &destination) const;
         [[nodiscard]] hyprimate::workspace::WorkspaceTravel travel() const {
             return owner->m_travel;
         }
         [[nodiscard]] double live_boundary() const;
+        [[nodiscard]] bool reuse_captures() const;
         [[nodiscard]] double max_frame_gap() const {
             return owner->m_max_frame_gap;
         }
@@ -394,9 +401,25 @@ class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
     struct MonitorState {
         explicit MonitorState(Impl *owner) : port{.owner = owner, .entry = this} {
         }
+        void latch_effect() {
+            effect_program = port.owner->m_effect_program;
+            base_duration = port.owner->m_turns.duration();
+            curve = port.owner->m_turns.curve();
+            effect.reset();
+            effect_generation = 0;
+            effect_declined = false;
+        }
         PHLMONITORREF monitor;
         SP<Render::IFramebuffer> source;
         SP<Render::IFramebuffer> destination;
+        // One simulation per presented endpoint pair, including reversals.
+        std::shared_ptr<hyprimate::shader::SceneProgram> effect_program;
+        bool effect_declined = false;
+        double base_duration = 0.0;
+        hyprimate::workspace::Transition::Curve curve;
+        std::unique_ptr<hyprimate::shader::SceneShader> effect;
+        std::uint64_t effect_generation = 0;
+        std::uint64_t effect_seed = 0;
         SP<Render::IFramebuffer> presentation;
         SP<Render::IFramebuffer> source_wallpaper;
         SP<Render::IFramebuffer> destination_wallpaper;
@@ -560,7 +583,7 @@ class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
     bool install(std::string &error);
     void shutdown();
     void on_render_stage(const Event::SRenderStageEvent &event);
-    void configure(const hyprimate::config::SWorkspaceSettings &settings);
+    void configure(const hyprimate::config::SWorkspaceSettings &settings, bool force);
     template <class Style>
     void configure_style(bool enabled, Style::Resources &resources);
     void pre_checks(const PHLMONITOR &monitor);
@@ -667,7 +690,7 @@ class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
     std::uint64_t m_gesture_revision = 0;
     int m_style_draw_depth = 0;
     bool m_release_pending = false;
-    std::optional<hyprimate::config::SWorkspaceSettings> m_deferred_settings;
+    std::optional<std::pair<hyprimate::config::SWorkspaceSettings, bool>> m_deferred_settings;
     void release_styles() {
         m_styles.for_each([]<class Style>(auto &resources) {
             // Failed initialization and backend loss still need an idempotent
@@ -704,6 +727,10 @@ class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
     std::array<CHyprSignalListener, 4> m_inventory_listeners;
     bool m_settings_changed = true;
     std::optional<hyprimate::config::SWorkspaceSettings> m_last_settings;
+    std::shared_ptr<hyprimate::shader::SceneProgram> m_effect_program;
+    double m_effect_duration = 0.0;
+    std::pair<std::string, std::string> m_effect_request;
+    bool m_admit_turns = false;
     std::optional<std::string> m_invalid_curve;
     CHyprSignalListener m_wallpaper_listener;
     MonitorState *m_capturing = nullptr;
@@ -854,6 +881,41 @@ namespace {
     }
     enum class Coverage { Preserve, OpaqueTarget, ResetSource };
     enum class CopySource { Retained, BorrowedNative };
+
+    // Capture boundaries reset only alpha to record foreground coverage for
+    // built-in styles. RGB already contains the complete scene, including each
+    // endpoint's own wallpaper. Expose that RGB as opaque to both raw and helper
+    // shader samplers without copying pixels or discarding fallback coverage.
+    class OpaqueEndpointSamples {
+      public:
+        explicit OpaqueEndpointSamples(std::array<GLuint, 2> textures) : m_textures(textures) {
+            with_bound_textures([&](std::size_t index) {
+                glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_A, &m_alpha[index]);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_A, GL_ONE);
+            });
+        }
+        ~OpaqueEndpointSamples() {
+            with_bound_textures([&](std::size_t index) {
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_A, m_alpha[index]);
+            });
+        }
+        OpaqueEndpointSamples(const OpaqueEndpointSamples &) = delete;
+        OpaqueEndpointSamples &operator=(const OpaqueEndpointSamples &) = delete;
+
+      private:
+        void with_bound_textures(const auto &operation) const {
+            GLint previous = 0;
+            glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous);
+            for (std::size_t index = 0; index < m_textures.size(); ++index) {
+                glBindTexture(GL_TEXTURE_2D, m_textures[index]);
+                operation(index);
+            }
+            glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previous));
+        }
+
+        std::array<GLuint, 2> m_textures;
+        std::array<GLint, 2> m_alpha{};
+    };
 
     bool copy_capture(const SP<Render::IFramebuffer> &source,
         const SP<Render::IFramebuffer> &target,
@@ -1595,9 +1657,9 @@ namespace {
                     if (std::exchange(owner->m_release_pending, false)) {
                         owner->release_styles();
                     }
-                    if (auto settings = std::exchange(owner->m_deferred_settings, std::nullopt)) {
+                    if (auto pending = std::exchange(owner->m_deferred_settings, std::nullopt)) {
                         if (active() == owner) {
-                            owner->configure(*settings);
+                            owner->configure(pending->first, pending->second);
                         }
                     }
                 }
@@ -1614,15 +1676,94 @@ namespace {
                 data.tex = m_frame.presentation->getTexture();
                 data.box = {0, 0, m_monitor->m_transformedSize.x, m_monitor->m_transformedSize.y};
                 g_pHyprRenderer->draw(ctx, data, ctx.m_data.damage);
+                return true;
+            };
+            const auto *slot = owner_pin ? owner_pin->state_slot(m_monitor) : nullptr;
+            const auto entry = slot && (*slot)->effect_program && !(*slot)->effect_declined
+                                   ? *slot : nullptr;
+            const auto EFFECT = [&](const Turn::PresentationSample &sample) {
+                // An unusable alternate presentation resumes the native capture cadence.
+                entry->effect_declined = true;
+                if (owner_pin->state(m_monitor) != entry.get() ||
+                    m_frame.source.identity != m_frame.source.endpoint.identity ||
+                    m_frame.destination.identity != m_frame.destination.endpoint.identity ||
+                    !m_frame.source.composite || !m_frame.destination.composite ||
+                    m_frame.source.composite != entry->source ||
+                    m_frame.destination.composite != entry->destination ||
+                    m_frame.source.composite == m_frame.destination.composite ||
+                    !m_frame.source.shader_readable || !m_frame.destination.shader_readable ||
+                    !hyprimate::gl::native_current(m_frame.source.composite) ||
+                    !hyprimate::gl::native_current(m_frame.destination.composite)) {
+                    return false;
+                }
+                const auto &source = m_frame.source.composite;
+                const auto &destination = m_frame.destination.composite;
+                const auto SRC = source->getTexture();
+                const auto DST = destination->getTexture();
+                if (!SRC || !DST || SRC->m_type != Render::TEXTURE_RGBA ||
+                    DST->m_type != Render::TEXTURE_RGBA || !SRC->m_texID || !DST->m_texID ||
+                    SRC->m_texID == DST->m_texID) {
+                    return false;
+                }
+                if (entry->effect_generation != sample.generation) {
+                    entry->effect_generation = sample.generation;
+                    entry->effect_seed = m_ticket;
+                    entry->effect =
+                        std::make_unique<hyprimate::shader::SceneShader>(entry->effect_program);
+                }
+                if (!entry->effect) {
+                    return false;
+                }
+                const hyprimate::workspace::ProfileCpuScope CPU{
+                    EFFECT_PROFILE, hyprimate::perf::Phase::Draw};
+                const hyprimate::workspace::ProfileAttribution ATTRIBUTION{EFFECT_PROFILE};
+                const hyprimate::perf::GpuScope GPU{EFFECT_PROFILE};
+                auto frame = hyprimate::shader::Frame{
+                    .tick = sample.tick,
+                    .seed = entry->effect_seed,
+                    .event = hyprimate::shader::Event::Workspace,
+                    .progress = static_cast<float>(sample.progress),
+                    .elapsed = static_cast<float>(sample.elapsed),
+                    .delta = static_cast<float>(sample.delta),
+                    .duration = static_cast<float>(sample.duration),
+                    .width = static_cast<float>(m_monitor->m_size.x),
+                    .height = static_cast<float>(m_monitor->m_size.y),
+                    .scale = static_cast<float>(m_monitor->m_scale)};
+                frame.direction = sample.direction == Direction::Forward ? 1.F : -1.F;
+                entry->effect->advance(frame);
+                std::string error;
+                // Only retained, policy-authorized full-workspace captures are
+                // inputs. The active context is the output, never a sampler.
+                bool drawn = false;
+                {
+                    const OpaqueEndpointSamples ENDPOINTS{{SRC->m_texID, DST->m_texID}};
+                    drawn = entry->effect->draw(ctx, source, destination, error);
+                }
+                if (!drawn) {
+                    entry->effect.reset();
+                    LOG(Log::DEBUG,
+                        "[hyprimate] workspace shader declined monitor={}: {}",
+                        m_monitor->m_name,
+                        error);
+                    return false;
+                }
+                entry->effect_declined = false;
+                style_name = "shader";
+                return true;
+            };
+            const auto result = entry
+                                    ? Turn::draw_queued(m_ticket, CURRENT, RENDER, DISPLAY, EFFECT)
+                                    : Turn::draw_queued(m_ticket, CURRENT, RENDER, DISPLAY);
+            if (result == Turn::Presentation::Displayed ||
+                result == Turn::Presentation::FirstDisplay) {
                 if (hyprimate::perf::enabled()) {
                     const auto MONITOR = hyprimate::perf::monitor_identity(m_monitor);
                     if (MONITOR != 0) {
-                        hyprimate::perf::touch(m_key, MONITOR);
+                        hyprimate::perf::touch(
+                            style_name == "shader" ? EFFECT_PROFILE : m_key, MONITOR);
                     }
                 }
-                return true;
-            };
-            const auto result = Turn::draw_queued(m_ticket, CURRENT, RENDER, DISPLAY);
+            }
             if (result == Turn::Presentation::FirstDisplay) {
                 LOG(Log::DEBUG,
                     "[hyprimate] workspace presented monitor={} source={} destination={} style={}",
@@ -1662,6 +1803,8 @@ namespace {
         }
 
       private:
+        static constexpr hyprimate::perf::Key EFFECT_PROFILE{
+            hyprimate::perf::Domain::Workspace, "shader", "transition"};
         std::uint64_t m_ticket;
         PHLMONITOR m_monitor;
         hyprimate::workspace::WorkspaceFrame m_frame;
@@ -1871,6 +2014,7 @@ void CWorkspaceAnimation::Impl::shutdown() {
     }
     ++m_lifecycle;
     m_turns.clear();
+    m_effect_program.reset();
     m_deferred_settings.reset();
     m_wallpaper_listener.reset();
     m_inventory_listeners = {};
@@ -1908,22 +2052,67 @@ void CWorkspaceAnimation::Impl::shutdown() {
     m_begin_render = nullptr;
 }
 
-void CWorkspaceAnimation::Impl::configure(const hyprimate::config::SWorkspaceSettings &requested) {
+void CWorkspaceAnimation::Impl::configure(
+    const hyprimate::config::SWorkspaceSettings &requested, bool force) {
     const auto keep_alive = shared_from_this();
-    const auto settings = requested;
-    auto lifecycle = ++m_lifecycle;
-    if (m_style_draw_depth) {
-        m_turns.clear();
-        m_deferred_settings = settings;
+    if (!force && !m_settings_changed && m_last_settings == requested && !m_deferred_settings) {
         return;
     }
-    if (m_capture_depth) {
-        m_turns.clear();
+    const auto settings = requested;
+    const auto *previous = m_last_settings ? &*m_last_settings : nullptr;
+    bool native_changed = !previous || previous->enabled != settings.enabled ||
+                          previous->style != settings.style;
+    if (!native_changed) {
+        m_styles.for_each([&]<class Style>(auto & /*resources*/) {
+            if (settings.style == Style::KIND) {
+                native_changed = Style::options(*previous) != Style::options(settings);
+            }
+        });
     }
-    if (!m_last_settings || *m_last_settings != settings) {
-        m_settings_changed = true;
-        m_last_settings = settings;
+    if (m_style_draw_depth) {
+        const bool DEFERRED_FORCE = m_deferred_settings && m_deferred_settings->second;
+        m_deferred_settings.emplace(settings, force || DEFERRED_FORCE);
+        return;
     }
+    auto lifecycle = m_lifecycle;
+    if (native_changed) {
+        lifecycle = ++m_lifecycle;
+        if (m_capture_depth) {
+            m_turns.clear();
+        }
+    }
+    const double EFFECT_DURATION = settings.effectDuration / 1000.0;
+    const bool SAME_EFFECT = previous && previous->enabled &&
+                             previous->effectDuration > 0.0 &&
+                             previous->effect == settings.effect &&
+                             previous->effectParameters == settings.effectParameters;
+    const bool MATCHES_PREPARED = m_effect_program &&
+                                  m_effect_request.first == settings.effect &&
+                                  m_effect_request.second == settings.effectParameters;
+    if (!settings.enabled || settings.effect.empty() || !std::isfinite(EFFECT_DURATION) ||
+        EFFECT_DURATION <= 0.0) {
+        m_effect_program.reset();
+        m_effect_duration = 0.0;
+        m_effect_request = {};
+    } else if (!force && MATCHES_PREPARED) {
+        m_effect_duration = EFFECT_DURATION;
+    } else if (force || !SAME_EFFECT) {
+        std::string error;
+        auto effect = hyprimate::shader::prepare_scene_program(
+            hyprimate::shader::Event::Workspace, settings.effect, settings.effectParameters, error);
+        if (m_lifecycle != lifecycle) {
+            return;
+        }
+        if (effect) {
+            m_effect_program = std::move(effect);
+            m_effect_duration = EFFECT_DURATION;
+            m_effect_request = {settings.effect, settings.effectParameters};
+        } else {
+            LOG(Log::WARN, "[hyprimate] workspace shader unavailable: {}", error);
+        }
+    }
+    m_settings_changed = m_settings_changed || native_changed || force;
+    m_last_settings = settings;
     m_styles.for_each([&]<class Style>(auto &resources) {
         if (settings.style != Style::KIND) {
             return;
@@ -1936,7 +2125,8 @@ void CWorkspaceAnimation::Impl::configure(const hyprimate::config::SWorkspaceSet
         if (m_lifecycle != lifecycle) {
             return;
         }
-        const bool ENABLED = settings.enabled && resources.settings.prepared.duration > 0.0;
+        const bool ENABLED =
+            settings.enabled && (m_effect_program || resources.settings.prepared.duration > 0.0);
         if (PREVIOUS != resources.settings.last || m_style_kind != Style::KIND ||
             !settings.enabled) {
             clear();
@@ -1953,7 +2143,7 @@ void CWorkspaceAnimation::Impl::configure(const hyprimate::config::SWorkspaceSet
         }
         m_individual_windows = Style::needs_individual_windows(resources);
         m_native_hud = Style::uses_native_hud(resources);
-        m_uses_previews = ENABLED && Style::uses_workspace_previews(resources);
+        m_uses_previews = settings.enabled && Style::uses_workspace_previews(resources);
         if (!m_uses_previews) {
             m_observed.clear();
         }
@@ -1968,13 +2158,16 @@ void CWorkspaceAnimation::Impl::configure(const hyprimate::config::SWorkspaceSet
         if (m_lifecycle != lifecycle) {
             return;
         }
-        configure_style<Style>(ENABLED && SUPPORTED, resources);
+        m_admit_turns = ENABLED && SUPPORTED;
+        // A shader-only setup can become disabled for new turns while a
+        // previously admitted pair still needs its registry and capture policy.
+        configure_style<Style>(settings.enabled && SUPPORTED, resources);
         if (m_lifecycle != lifecycle) {
             return;
         }
-        m_style_warm_pending = m_turns.enabled() && !resources.ready;
+        m_style_warm_pending = m_admit_turns && m_turns.enabled() && !resources.ready;
     });
-    if (m_lifecycle == lifecycle && m_turns.enabled()) {
+    if (m_lifecycle == lifecycle && m_admit_turns && m_turns.enabled()) {
         prime_outputs();
     }
 }
@@ -2037,9 +2230,13 @@ void CWorkspaceAnimation::Impl::configure_style(bool enabled, Style::Resources &
             return static_cast<double>(CURVE->getYForPoint(static_cast<float>(progress)));
         };
     };
+    const double duration = m_effect_program ? m_effect_duration : prepared.duration;
+    const double registry_duration = std::isfinite(duration) && duration > 0.0
+                                         ? duration
+                                         : (m_states.empty() ? 0.0 : m_turns.duration());
     m_turns.configure(enabled,
         static_cast<std::uint64_t>(Style::KIND),
-        prepared.duration,
+        registry_duration,
         prepared.curve,
         m_settings_changed,
         RESOLVE);
@@ -2400,7 +2597,11 @@ bool CWorkspaceAnimation::Impl::capture(MonitorState &entry,
             return false;
         }
     }
-    const auto RESOURCES = kind == hyprimate::workspace::CaptureKind::SourceIsolated
+    // A shader must never see the monitor's potentially stale preblur cache.
+    const auto capture_kind = kind == TurnKind::DestinationLive && entry.port.reuse_captures()
+                                  ? TurnKind::DestinationIsolated
+                                  : kind;
+    const auto RESOURCES = hyprimate::workspace::blocks_surface_feedback(capture_kind)
                                ? entry.source_resources
                                : monitor->resources()->sceneResources();
     struct DrawData {
@@ -2449,6 +2650,7 @@ bool CWorkspaceAnimation::Impl::capture(MonitorState &entry,
                                             : entry.destination_wallpaper_identity;
     capture_wallpaper_identity(entry, monitor, identity);
     auto &frame = target == entry.source ? entry.source_frame : entry.destination_frame;
+    frame.shader_readable = false;
     auto &shell_identity =
         target == entry.source ? entry.source_shell_identity : entry.destination_shell_identity;
     capture_wallpaper_identity(entry, monitor, shell_identity, true);
@@ -2471,7 +2673,7 @@ bool CWorkspaceAnimation::Impl::capture(MonitorState &entry,
         monitor,
         target,
         RESOURCES,
-        kind,
+        capture_kind,
         DRAW,
         &data,
         [](void *opaque) { return static_cast<DrawData *>(opaque)->allowed(); });
@@ -2480,6 +2682,7 @@ bool CWorkspaceAnimation::Impl::capture(MonitorState &entry,
     const bool COMPLETE =
         entry.capture_policy.complete({.native_captured = CAPTURED && !entry.capture_failed,
             .wallpaper_captured = entry.wallpaper_captured});
+    frame.shader_readable = COMPLETE && RESOURCES->isolated();
     if (!COMPLETE) {
         LOG(Log::DEBUG,
             "[hyprimate] workspace fallback reason=capture-incomplete monitor={} kind={} native={} "
@@ -2660,12 +2863,22 @@ bool CWorkspaceAnimation::Impl::TurnPort::capture(
     auto &frame = kind == TurnKind::SourceIsolated ? entry->source_frame : entry->destination_frame;
     frame.identity = composition.identity;
     frame.endpoint = composition.endpoint();
-    return owner->capture(*entry, MONITOR, composition.workspace.lock(), kind, TARGET);
+    if (!owner->capture(*entry, MONITOR, composition.workspace.lock(), kind, TARGET)) {
+        return false;
+    }
+    if (reuse_captures()) {
+        LOG(Log::DEBUG, "[hyprimate] workspace shader endpoint capture width={} height={}",
+            TARGET->m_size.x, TARGET->m_size.y);
+    }
+    return true;
 }
 double CWorkspaceAnimation::Impl::TurnPort::duration(
     const hyprimate::workspace::JourneyEndpoint &from,
     const hyprimate::workspace::JourneyEndpoint &destination,
     double base) const {
+    if (entry->effect_program) {
+        return entry->base_duration;
+    }
     double duration = base;
     owner->m_styles.for_each([&]<class Style>(auto &resources) {
         if (Style::KIND == owner->m_style_kind) {
@@ -2673,6 +2886,21 @@ double CWorkspaceAnimation::Impl::TurnPort::duration(
         }
     });
     return duration;
+}
+
+std::optional<std::pair<double, hyprimate::workspace::Transition::Curve>>
+CWorkspaceAnimation::Impl::TurnPort::next_pair(
+    const hyprimate::workspace::JourneyEndpoint &from,
+    const hyprimate::workspace::JourneyEndpoint &destination) const {
+    if (!owner->m_admit_turns || !owner->m_turns.enabled()) {
+        return std::pair<double, hyprimate::workspace::Transition::Curve>{};
+    }
+    entry->latch_effect();
+    return std::pair{duration(from, destination, entry->base_duration), entry->curve};
+}
+
+bool CWorkspaceAnimation::Impl::TurnPort::reuse_captures() const {
+    return entry->effect_program && !entry->effect_declined;
 }
 
 double CWorkspaceAnimation::Impl::TurnPort::live_boundary() const {
@@ -2797,7 +3025,14 @@ std::vector<CWorkspaceAnimation::Impl::Snapshot> CWorkspaceAnimation::Impl::snap
             }
             continue;
         }
+        const bool acquire = turn(monitor) == nullptr;
+        if (acquire && !m_admit_turns) {
+            continue;
+        }
         const auto entry = ensure_state(monitor);
+        if (acquire) {
+            entry->latch_effect();
+        }
         const auto staged = m_turns.get(monitor_key(monitor), entry->port);
         Snapshot item{.monitor = monitor,
             .composition = composition(monitor, true),
@@ -2872,7 +3107,7 @@ void CWorkspaceAnimation::Impl::finish(std::vector<Snapshot> &snapshots) {
                 }
             }
         }
-        active_turn->begin(item.composition, AFTER, m_turns.duration(), m_turns.curve());
+        active_turn->begin(item.composition, AFTER, entry->base_duration, entry->curve);
         if (turn(item.monitor) != active_turn.get() || item.lifecycle != m_lifecycle ||
             active_turn->revision() != item.revision + 1) {
             continue;
@@ -3020,7 +3255,7 @@ void CWorkspaceAnimation::Impl::restore_scanout(const PHLMONITOR &monitor) {
 }
 
 void CWorkspaceAnimation::Impl::pre_checks(const PHLMONITOR &monitor) {
-    if (needs_native_prime(monitor, m_turns.enabled()) ||
+    if (needs_native_prime(monitor, m_admit_turns && m_turns.enabled()) ||
         (m_style_warm_pending && m_turns.enabled() && ready(monitor))) {
         // A scanout frame returns before RENDER_POST. Force one ordinary native
         // frame, not a capture, to establish safe render-resource readiness.
@@ -3477,9 +3712,10 @@ void CWorkspaceAnimation::shutdown() {
     const auto impl = m_impl;
     impl->shutdown();
 }
-void CWorkspaceAnimation::configure(const hyprimate::config::SWorkspaceSettings &settings) {
+void CWorkspaceAnimation::configure(
+    const hyprimate::config::SWorkspaceSettings &settings, bool force) {
     const auto impl = m_impl;
-    impl->configure(settings);
+    impl->configure(settings, force);
 }
 void CWorkspaceAnimation::on_render_pre_checks(const PHLMONITOR &monitor) {
     const auto impl = m_impl;

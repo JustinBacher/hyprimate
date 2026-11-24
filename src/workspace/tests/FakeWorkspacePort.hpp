@@ -101,12 +101,20 @@ namespace hyprimate::workspace::test {
             timed_pair = {from.identity, destination.identity};
             return base;
         }
+        std::optional<std::pair<double, Transition::Curve>> next_pair_timing;
+        [[nodiscard]] const auto &next_pair(
+            const JourneyEndpoint &, const JourneyEndpoint &) const {
+            return next_pair_timing;
+        }
         [[nodiscard]] WorkspaceTravel travel() const {
             return path_measure;
         }
         WorkspaceTravel path_measure = nullptr;
         [[nodiscard]] double live_boundary() const {
             return boundary;
+        }
+        [[nodiscard]] bool reuse_captures() const {
+            return snapshot_endpoints;
         }
         double frame_gap = STALL_SECONDS;
         [[nodiscard]] double max_frame_gap() const {
@@ -194,6 +202,7 @@ namespace hyprimate::workspace::test {
         Wallpaper next_wallpaper;
         std::pair<std::int64_t, std::int64_t> timed_pair;
         double boundary = 1.0;
+        bool snapshot_endpoints = false;
         std::int64_t inactive_source = 0;
         bool buffers_ready = true;
         bool capture_succeeds = true;

@@ -34,7 +34,9 @@ class WorkspaceCaptureScope {
     }
     static WorkspaceCaptureScope *for_context(const Render::CRenderContext &ctx) {
         auto *capture = current(ctx);
-        return capture && capture->m_kind == Kind::SourceIsolated ? capture : nullptr;
+        return capture && hyprimate::workspace::blocks_surface_feedback(capture->m_kind)
+                   ? capture
+                   : nullptr;
     }
     static bool is_destination_live(const Render::CRenderContext &ctx) {
         const auto *capture = current(ctx);

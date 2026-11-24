@@ -3,7 +3,8 @@
 
 No host socket, compositor configuration, workspace, or installed plugin is touched.
 Requires kwin_wayland, dbus-run-session, Hyprland, hyprctl, grim, wayland-info,
-Python GI/GTK3/gtk-layer-shell/Cairo, and Pillow. Retains screenshots and logs.
+Python GI, GTK 3 with gtk-layer-shell/Cairo, and Pillow. The full run also uses
+GTK 4 with gtk4-session-lock and gtk4-layer-shell. Retains screenshots and logs.
 """
 import argparse
 import hashlib
@@ -88,8 +89,46 @@ def color_bias(image, box, wanted):
         return rgb[1] - max(rgb[0], rgb[2])
     return min(rgb[0], rgb[2]) - rgb[1]
 
+def lock_fixture():
+    import gi
+    gi.require_version('Gtk', '4.0')
+    gi.require_version('Gtk4SessionLock', '1.0')
+    from gi.repository import GLib, Gtk, Gtk4SessionLock
+    lock = Gtk4SessionLock.Instance.new()
+    loop = GLib.MainLoop()
+    windows = []
 
-def run(out, plugin, runtime, processes):
+    def monitor(owner, output):
+        window = Gtk.Window()
+        drawing = Gtk.DrawingArea()
+
+        def paint(widget, cr, width, height):
+            cr.set_source_rgb(.13, .18, .26)
+            cr.paint()
+        drawing.set_draw_func(paint)
+        window.set_child(drawing)
+        owner.assign_window_to_monitor(window, output)
+        windows.append(window)
+        window.present()
+
+    def unlock(*args):
+        lock.unlock()
+        return GLib.SOURCE_REMOVE
+
+    lock.connect('monitor', monitor)
+    lock.connect('locked', lambda *_: print('LOCKED', flush=True))
+    lock.connect('failed', lambda *_: loop.quit())
+    lock.connect('unlocked', lambda *_: loop.quit())
+    GLib.io_add_watch(sys.stdin, GLib.PRIORITY_DEFAULT, GLib.IO_IN | GLib.IO_HUP, unlock)
+    if not lock.lock():
+        return 1
+    loop.run()
+    return 0
+
+
+
+def run(out, plugin, runtime, processes, profile_only=False, size=(1280, 960), previous=False,
+        interactive=False):
     home = runtime / 'home'
     home.mkdir()
     env = dict(os.environ, XDG_RUNTIME_DIR=str(runtime), HOME=str(home),
@@ -109,14 +148,21 @@ def run(out, plugin, runtime, processes):
         return process
 
     parent = start('parent', ['dbus-run-session', '--', 'kwin_wayland', '--virtual',
-                              '--width', '1280', '--height', '960', '--no-lockscreen',
+                              '--width', str(size[0]), '--height', str(size[1]), '--no-lockscreen',
                               '--no-global-shortcuts', '--socket', 'shader-parent'])
     evidence.until(lambda: (runtime / 'shader-parent').is_socket(), parent)
     env.update(WAYLAND_DISPLAY='shader-parent', AQ_BACKENDS='wayland')
-    evidence.until(lambda: 'wl_output' in sp.run(['wayland-info'], env=env,
-                   text=True, capture_output=True, timeout=5).stdout, parent)
+    def parent_ready():
+        try:
+            info = sp.run(['wayland-info'], env=env, text=True, capture_output=True, timeout=2)
+        except sp.TimeoutExpired:
+            return False
+        return 'wl_output' in info.stdout
+
+    evidence.until(parent_ready, parent)
     config = runtime / 'hyprland.lua'
-    base_config = (ROOT / 'tests/nested/hyprland.lua').read_text() + SCENE_CONFIG
+    base_config = (ROOT / 'tests/nested/hyprland.lua').read_text() + SCENE_CONFIG.replace(
+        '1280x960@60', f'{size[0]}x{size[1]}@60')
     config.write_text(base_config)
     compositor = start('hyprland', ['Hyprland', '-c', config])
 
@@ -208,6 +254,54 @@ def run(out, plugin, runtime, processes):
         return current if stable_frames >= 3 and max(current.getpixel((200, 200))) > 80 else None
 
     baseline = evidence.until(stable_background, compositor)
+    if profile_only:
+        probe = os.environ.get('HYPRIMATE_FRAME_PROBE')
+        trace = Path(env['HYPRIMATE_FRAME_TRACE']) if probe else None
+        if probe:
+            hc('plugin', 'load', str(Path(probe).resolve(strict=True)))
+        plain = '{effect="",enabled=false}'
+        intervals = {}
+        for name in ('native', 'fade', 'diffusion', 'particles'):
+            package = ROOT / 'examples/shaders' / name / 'effect.json'
+            effect = '{effect=' + json.dumps(str(package)) + ',effect_duration=2200}'
+            if previous and name == 'fade':
+                legacy = runtime / 'original-fade'
+                shutil.copytree(package.parent, legacy)
+                manifest = legacy / 'effect.json'
+                description = json.loads(manifest.read_text())
+                description.pop('blur_mask')
+                manifest.write_text(json.dumps(description))
+                fragment = legacy / 'fade.frag'
+                body = fragment.read_text()
+                start, end = body.index('    if (hypr_blur_mask)'), body.index('    color = vec4(source.rgb')
+                fragment.write_text(body[:start] + body[end:])
+                effect = '{effect=' + json.dumps(str(manifest)) + ',effect_duration=2200}'
+            reload_with(plain if name == 'native' else effect, plain if name == 'native' else effect)
+            if hc('hyprimate:profile', 'start') != 'ok':
+                raise RuntimeError('private profile start failed')
+            started = time.monotonic_ns()
+            open_client('profile')
+            time.sleep(2.45)
+            close_client('profile')
+            time.sleep(2.45)
+            finished = time.monotonic_ns()
+            report = json.loads(hc('hyprimate:profile', 'stop'))
+            (out / f'{name}-profile.json').write_text(json.dumps(report, indent=2) + '\n')
+            intervals[name] = (started, finished)
+        if trace:
+            # Plugin unload flushes the trace's file buffer before slicing it.
+            hc('plugin', 'unload', str(Path(probe).resolve(strict=True)))
+            samples = [tuple(map(int, fields)) for line in trace.read_text().splitlines()
+                       if len(fields := line.split()) == 2]
+            for name, (started, finished) in intervals.items():
+                durations = sorted(duration / 1e6 for stamp, duration in samples
+                                   if started <= stamp < finished)
+                if durations:
+                    stats = {f'p{pct}_ms': durations[(len(durations) - 1) * pct // 100]
+                             for pct in (50, 95, 99, 100)}
+                    stats['frames'] = len(durations)
+                    (out / f'{name}-compositor.json').write_text(json.dumps(stats, indent=2) + '\n')
+        return
     metrics = {}
     # Establish the existing built-in presentation before testing external
     # preparation. First-window rendering can settle native output sampling.
@@ -283,8 +377,8 @@ def run(out, plugin, runtime, processes):
     close_client('reload-next')
     time.sleep(2.85)
 
-    # Keep backdrop blur enabled and make a real blur request with opacity.
-    # A neighboring no_blur rule opts into the same package instead.
+    # Older v1 packages still take native blur fallback. The configuration has
+    # a real blur request even for the opaque drawing-area fixture.
     blur_config = ('hl.config({decoration={active_opacity=0.65,inactive_opacity=0.65,'
                    'blur={enabled=true,size=6,passes=2}}})')
     reload_with(original_open, selection(original, 4500, green), blur_config)
@@ -297,23 +391,90 @@ def run(out, plugin, runtime, processes):
     metrics['native-blur-fallback-error'] = difference(blurred, reference, native_box)
     if metrics['native-blur-fallback-error'] > 1.0 or difference(baseline, blurred, native_box) < 12:
         raise RuntimeError('shader opening did not preserve native blur presentation')
-    hc('eval', 'hl.config({plugin={hyprimate={window={open={enabled=true}}}}})')
     close_client('needs-blur')
+    time.sleep(.7)
+    local = probe_package(runtime, 'shader-blur', 'tint')
+    spec = json.loads(local.read_text())
+    spec.pop('fragment')
+    spec.update(blur_mask=True, bounds=[.25, 0, .25, 0], passes=[dict(
+        name='shift', phase='render', vertex='shift.vert', fragment='probe.frag', outputs=['output'])])
+    local.write_text(json.dumps(spec))
+    (local.parent / 'shift.vert').write_text('''
+out vec2 hypr_uv;
+void main() {
+    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+    hypr_uv = p;
+    gl_Position = vec4(p * 2.0 - 1.0 + vec2(.28,0), 0.0, 1.0);
+}''')
+    (local.parent / 'probe.frag').write_text('''
+layout(location=0) out vec4 color;
+void main() {
+    vec2 uv = hypr_window_uv();
+    vec4 native = hypr_sample_source(uv);
+    float progress = hypr_event == 0 ? hypr_progress : (1.0 - hypr_progress);
+    if (hypr_blur_mask) {
+        color = vec4(native.r * progress);
+    } else {
+        // Fully transparent band must still retain its displaced blur coverage.
+        float a = (uv.y > .33 && uv.y < .67) ? 0.0 : native.a * progress;
+        color = vec4(tint * a, a);
+    }
+}
+''')
+    reload_with(selection(local, 1500, green), selection(local, 1600, magenta), blur_config)
+    shifted = open_client('shader-blur')
+    x, y = shifted['at']
+    w, h = shifted['size']
+    paint = (x + w // 2, y + 20, x + 3 * w // 4, y + h // 4)
+    glass = (x + w // 2, y + 2 * h // 5, x + 3 * w // 4, y + 3 * h // 5)
+    old_edge = (x + 4, y + h // 4, x + w // 10, y + 3 * h // 4)
+    time.sleep(1.05)
+    opening = snap('shader-blur-deformed-open')
+    metrics['blur-open-color-bias'] = color_bias(opening, paint, 'green')
+    metrics['blur-open-transparent-band'] = difference(opening, baseline, glass)
+    metrics['blur-open-original-edge-error'] = maximum_difference(opening, baseline, old_edge)
+    if (metrics['blur-open-color-bias'] < 20 or metrics['blur-open-transparent-band'] < 2 or
+            metrics['blur-open-original-edge-error'] > 3):
+        raise RuntimeError(('deformed blur opening', metrics))
+    time.sleep(.6)
+    close_client('shader-blur')
+    time.sleep(.35)
+    closing = snap('shader-blur-deformed-close')
+    metrics['blur-close-color-bias'] = color_bias(closing, paint, 'magenta')
+    metrics['blur-close-transparent-band'] = difference(closing, baseline, glass)
+    if metrics['blur-close-color-bias'] < 20 or metrics['blur-close-transparent-band'] < 2:
+        raise RuntimeError(('deformed blur closing', metrics))
+    time.sleep(1.45)
+    if maximum_difference(snap('shader-blur-retired'), baseline) > 2:
+        raise RuntimeError('shader blur left pixels behind after retirement')
+
+    # Keep a settled native blurred window beneath a simultaneously rendered
+    # external effect. Its uncovered portion must not be erased by the effect.
+    lower_rule = ('\n' + blur_config + '\n' +
+                  'hl.window_rule({name="shader-overlap",match={title="^PaperEvidence-blur-lower$"},'
+                  'float=true,move="410 160"})')
+    reload_with('{effect="",enabled=false}', '{effect="",enabled=false}', lower_rule)
+    lower = client_box(open_client('blur-lower'))
     time.sleep(.65)
-    declined_close = snap('shader-declines-close-blur')
-    # Compare against the same native blur path, not a blur-disabled output.
-    hc('eval', 'hl.config({plugin={hyprimate={window={open={enabled=false},close={enabled=false}}}}})')
-    open_client('needs-blur')
-    time.sleep(.65)
-    close_client('needs-blur')
-    time.sleep(.65)
-    native_close = snap('native-blur-close-reference')
-    metrics['native-blur-close-fallback-error'] = maximum_difference(
-        declined_close, native_close, native_box)
-    # Two independently rounded native blur composites can differ by two LSBs.
-    if metrics['native-blur-close-fallback-error'] > 2:
-        raise RuntimeError('shader close changed native blurred snapshot retirement')
-    hc('eval', 'hl.config({plugin={hyprimate={window={open={enabled=true},close={enabled=true}}}}})')
+    native_below = snap('native-blur-below')
+    native_only = (lower[2] - 110, lower[1] + 20, lower[2] - 30, lower[1] + 75)
+    if difference(native_below, baseline, native_only) < 8:
+        raise RuntimeError('overlap fixture did not present its native window')
+    reload_with(selection(local, 1500, green), selection(local, 1600, magenta), lower_rule)
+    upper = client_box(open_client('blur-upper'))
+    if upper[2] <= lower[0]:
+        raise RuntimeError('native and external blur fixtures do not overlap')
+    overlap = (lower[0] + 25, upper[1] + 20, upper[2] - 20, upper[1] + 75)
+    time.sleep(.90)
+    combined = snap('shader-blur-over-native')
+    expect_color(combined, overlap, 'green', 'blur-over-native-color-bias')
+    metrics['blur-native-uncovered-max-error'] = maximum_difference(combined, native_below, native_only)
+    if metrics['blur-native-uncovered-max-error'] > 2:
+        raise RuntimeError('external draw damaged the uncovered native window')
+    close_client('blur-upper')
+    close_client('blur-lower')
+    time.sleep(1.75)
+    reload_with(original_open, selection(original, 4500, green), blur_config)
     opt_in_box = client_box(open_client('no-blur'))
     time.sleep(.65)
     expect_color(snap('no-blur-shader-opt-in'), opt_in_box, 'green', 'no-blur-opening')
@@ -428,6 +589,203 @@ def run(out, plugin, runtime, processes):
     if metrics['protected-close-background-max-error'] > 1:
         raise RuntimeError('protected close retained an external presentation')
 
+    native = '{effect="",enabled=false}'
+    reload_with(native, native)
+    motion_manifest = ROOT / 'examples/shaders/motion/effect.json'
+    def motion_settings(move, resize):
+        hc('eval', 'hl.config({plugin={hyprimate={window={movement={enabled=true},' +
+           'move={effect=' + json.dumps(str(move)) + ',effect_duration=650},resize={effect=' +
+           json.dumps(str(resize)) + ',effect_duration=650}}}}})')
+
+    motion_settings(motion_manifest, motion_manifest)
+    moved = open_client('motion', construction='light')
+    selector = 'window="address:' + moved['address'] + '"'
+    time.sleep(.6)
+    def geometry(operation, x, y):
+        hc('eval', f'assert(hl.dispatch(hl.dsp.window.{operation}({{x={x},y={y},{selector}}})).ok)')
+
+    geometry('move', 360, 250)
+    time.sleep(.16)
+    move_image = snap('motion-active')
+    time.sleep(.85)
+    move_settled = snap('motion-settled')
+    move_box = client_box(client('motion'))
+    metrics['external-move-pixel-change'] = difference(move_image, move_settled, move_box)
+    for width, height in [(520, 345), (455, 315), (560, 360)]:
+        geometry('resize', width, height)
+        time.sleep(.10)
+    resize_image = snap('resize-active')
+    time.sleep(.85)
+    resize_settled = snap('resize-settled')
+    resize_box = client_box(client('motion'))
+    metrics['external-resize-pixel-change'] = difference(resize_image, resize_settled, resize_box)
+    # Restrict the comparison to the same interior patch; movement and resize
+    # must select different authored tint branches, not just change geometry.
+    patch = (390, 280, 530, 455)
+    move_red, move_green, _ = ImageStat.Stat(move_image.crop(patch)).mean
+    resize_red, resize_green, resize_blue = ImageStat.Stat(resize_image.crop(patch)).mean
+    if move_green - move_red < 25 or min(resize_red, resize_blue) - resize_green < 25:
+        raise RuntimeError('move and resize did not present their distinct shader tints')
+
+    if interactive:
+        import socket
+        from construction_motion_evidence import HeldPointer, peer
+
+        # Bind only inside the private fixture. Verify the Wayland socket peer
+        # before sending input, even though the socket lives under private XDG.
+        hc('eval', blur_config + '; hl.bind("mouse:272", hl.dsp.window.drag(), {mouse=true})')
+        initial = client('motion')
+        x, y = initial['at']
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            peer(sock, runtime / instance['wl_socket'], compositor.pid)
+            pointer = HeldPointer(sock, size, [])
+            try:
+                pointer.connect()
+                pointer.move((x + 105, y + 80))
+                time.sleep(.08)
+                pointer.button(True)
+                pointer.segment((x + 235, y + 120), .34)
+                forward = client('motion')['at'][0]
+                pointer.segment((x + 150, y + 110), .25)
+                px, py = client('motion')['at']
+                image = snap('interactive-blur-drag-reversal')
+                r, g, _ = ImageStat.Stat(image.crop((px + 80, py + 45, px + 240, py + 125))).mean
+                if forward - x < 55 or forward - px < 45 or g - r < 25:
+                    raise RuntimeError(('held drag did not reverse with its external shader', x, forward, px, g - r))
+                metrics['interactive-drag-reversal-px'] = forward - px
+                pointer.button(False)
+
+                time.sleep(.85)
+                hc('reload')  # Remove the drag bind, then select resize again after reload.
+                motion_settings(motion_manifest, motion_manifest)
+                hc('eval', blur_config + '; hl.bind("mouse:272", hl.dsp.window.resize(), {mouse=true})')
+                item = client('motion')
+                x, y = item['at']
+                w, h = item['size']
+                grip = (x + w - 12, y + h - 12)
+                pointer.move(grip)
+                time.sleep(.08)
+                pointer.button(True)
+                pointer.segment((grip[0] + 105, grip[1] + 40), .34)
+                grown = client('motion')['size'][0]
+                pointer.segment((grip[0] - 35, grip[1] - 26), .25)
+                item = client('motion')
+                px, py = item['at']
+                image = snap('interactive-blur-resize-reversal')
+                r, g, b = ImageStat.Stat(image.crop((px + 80, py + 45, px + 240, py + 125))).mean
+                if grown - w < 55 or grown - item['size'][0] < 70 or b - max(r, g) < 18:
+                    raise RuntimeError(('held resize did not reverse with its external shader', w, grown,
+                                        item['size'], b - max(r, g)))
+                metrics['interactive-resize-reversal-px'] = grown - item['size'][0]
+            finally:
+                pointer.close()
+        hc('reload')  # Restore native opacity and clear the private pointer bind.
+    close_client('motion')
+    time.sleep(.65)
+
+    motion_settings('', '')
+    hc('eval', 'hl.config({plugin={hyprimate={window={movement={enabled=false}}}}}); '
+       'hl.animation({leaf="windowsIn",enabled=false}); '
+       'hl.animation({leaf="windowsMove",enabled=false})')
+
+    # Place visibly different clients on both sides before enabling the effect.
+    def workspace(number):
+        hc('dispatch', f'hl.dsp.focus({{workspace={json.dumps(str(number))}}})')
+
+    def stable_scene(name):
+        # Native workspace offsets and client presentation can still settle
+        # after dispatch and map complete. Compare stable, native endpoints.
+        last = None
+        equal_since = None
+
+        def sample():
+            nonlocal last, equal_since
+            current = snap(name)
+            stamp = time.monotonic()
+            if last is None or ImageChops.difference(last, current).getbbox() is not None:
+                equal_since = stamp
+            last = current
+            return current if stamp - equal_since >= .25 else None
+
+        return evidence.until(sample, compositor)
+
+    workspace(2)
+    open_client('workspace-two', construction='light')
+    time.sleep(.7)
+    two = stable_scene('workspace-two')
+    workspace(1)
+    open_client('workspace-one')
+    time.sleep(.7)
+    one = stable_scene('workspace-one')
+    workspace_manifest = ROOT / 'examples/shaders/workspace/effect.json'
+    hc('eval', 'hl.config({plugin={hyprimate={workspace={enabled=true,style="rotation",effect=' +
+       json.dumps(str(workspace_manifest)) + ',effect_duration=1400}}}})')
+    time.sleep(.25)
+    hc('hyprimate:profile', 'start')
+    workspace(2)
+    time.sleep(.5)
+    outward = snap('workspace-shader-outward')
+    workspace(1)
+    time.sleep(.25)
+    reversed_frame = snap('workspace-shader-reversal')
+    time.sleep(1.35)
+    ws_report = json.loads(hc('hyprimate:profile', 'stop'))
+    (out / 'workspace-profile.json').write_text(json.dumps(ws_report, indent=2) + '\n')
+    metrics['external-workspace-presentation-frames'] = sum(
+        row['drawn_frames'] for row in ws_report['styles']
+        if row['domain'] == 'workspace' and row['style'] == 'shader')
+    if metrics['external-workspace-presentation-frames'] < 3:
+        raise RuntimeError('workspace transition used only the built-in fallback')
+    wallpaper_region = (20, 520, 220, 680)
+    for frame in (outward, reversed_frame):
+        if difference(one, frame, wallpaper_region) > 3:
+            raise RuntimeError('workspace shader lost the captured native background')
+    current_ws = json.loads(hc('-j', 'activeworkspace'))['id']
+    settled = stable_scene('workspace-reversed-settled')
+    if current_ws != 1 or difference(one, settled) > .7 or difference(one, two) < .4:
+        raise RuntimeError('workspace capture controls were indistinct or reversal did not settle')
+    hc('eval', 'hl.config({plugin={hyprimate={workspace={enabled=false}}}})')
+    close_client('workspace-one')
+    workspace(2)
+    close_client('workspace-two')
+    workspace(1)
+    time.sleep(.65)
+
+    reload_with(selection(expanded, 4500, green), native)
+    revoke = open_client('shader-revoked')
+    revoke_box = client_box(revoke)
+    time.sleep(.65)
+    expect_color(snap('before-protection-change'), revoke_box, 'green', 'before-protection-change')
+    hc('eval', 'hl.window_rule({name="shader-revocation",match={title="^PaperEvidence-shader-revoked$"},'
+       'no_screen_share=true})')
+    protected = evidence.until(lambda: (frame := snap('after-protection-change')) and
+                               color_bias(frame, revoke_box, 'green') < 80 and frame, compositor)
+    if color_bias(protected, halo_box(revoke), 'green') > 80:
+        raise RuntimeError('expanded shader pixels survived protected-content change')
+    close_client('shader-revoked')
+    time.sleep(.65)
+
+    # Obtain a real ext-session-lock after the shader has presented. The
+    # private compositor must switch to the lock surface without old pixels.
+    reload_with(original_open, original_close)
+    lock_window = client_box(open_client('lock-live'))
+    time.sleep(.55)
+    expect_color(snap('before-live-lock'), lock_window, 'green', 'live-before-lock')
+    # GTK's Wayland interposer must load before PyGObject imports libwayland.
+    lock = start('session-lock', ['env', 'LD_PRELOAD=libgtk4-layer-shell.so.0',
+                                  sys.executable, __file__, '--lock-fixture'], sp.PIPE)
+    evidence.until(lambda: 'LOCKED' in (out / 'session-lock.log').read_text(), lock)
+    locked = evidence.until(lambda: (image := snap('live-lock')).getpixel((240, 220))[2] in
+                            range(63, 73) and image, lock)
+    if locked.getpixel((240, 220))[1] not in range(42, 52):
+        raise RuntimeError('window or wallpaper pixels escaped to lock presentation')
+    lock.stdin.write(b'unlock\n')
+    lock.stdin.flush()
+    if lock.wait(timeout=5):
+        raise RuntimeError('private session unlock failed')
+    close_client('lock-live')
+    time.sleep(.6)
+
     # Exercise program/resource teardown while the host renderer still exists.
     hc('plugin', 'unload', str(plugin))
     snap('unloaded')
@@ -444,6 +802,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output', type=Path)
     parser.add_argument('--plugin', type=Path, default=ROOT / 'build/hyprimate.so')
+    parser.add_argument('--profile-only', action='store_true')
+    parser.add_argument('--interactive', action='store_true', help='exercise private held grabs (requires NumPy)')
+    parser.add_argument('--size', type=int, nargs=2, default=(1280, 960), metavar=('WIDTH', 'HEIGHT'))
+    parser.add_argument('--previous', action='store_true', help='Profile the original v1 plugin')
     args = parser.parse_args()
     for command in ('kwin_wayland', 'dbus-run-session', 'Hyprland', 'hyprctl', 'grim', 'wayland-info'):
         if not shutil.which(command):
@@ -454,7 +816,8 @@ def main():
     # Keep the compositor's signature + Unix socket below sockaddr_un.sun_path.
     with tempfile.TemporaryDirectory(prefix='hs.', dir='/tmp') as temporary:
         try:
-            run(out, args.plugin.resolve(strict=True), Path(temporary), processes)
+            run(out, args.plugin.resolve(strict=True), Path(temporary), processes,
+                args.profile_only, args.size, args.previous, args.interactive)
         finally:
             for process in reversed(processes):
                 if process.poll() is None:
@@ -466,6 +829,8 @@ def main():
                         process.wait()
             for log in Path(temporary).glob('hypr/*/hyprland.log'):
                 shutil.copyfile(log, out / 'private-hyprland.log')
+    if args.profile_only:
+        return
     bad = []
     copies = set()
     for log in out.glob('*.log'):
@@ -477,6 +842,10 @@ def main():
                 copies.add((receipt[1], int(receipt[2]), int(receipt[3])))
     if bad:
         raise RuntimeError(('rendering errors in private logs', bad))
+    workspace_captures = re.findall(r'workspace shader endpoint capture width=(\d+) height=(\d+)',
+                                    (out / 'private-hyprland.log').read_text(errors='replace'))
+    if len(workspace_captures) != 2:
+        raise RuntimeError(('workspace reversal should use the original two captures', workspace_captures))
     open_copies = {(count, size) for event, count, size in copies if event == 'open'}
     close_copies = {(count, size) for event, count, size in copies if event == 'close'}
     # Hyprland's isolated window capture may include its two-pixel AA margin.
@@ -486,6 +855,7 @@ def main():
         raise RuntimeError(('unbounded or missing native source isolation receipts', sorted(copies)))
     measurements = out / 'measurements.json'
     metrics = json.loads(measurements.read_text())
+    metrics['workspace_endpoint_captures'] = [tuple(map(int, extent)) for extent in workspace_captures]
     metrics['source_isolation_receipts'] = [
         dict(event=event, copies=count, copy_bytes=size)
         for event, count, size in sorted(copies)]
@@ -494,4 +864,9 @@ def main():
 
 
 if __name__ == '__main__':
-    evidence.wallpaper() if sys.argv[1:] == ['--wallpaper'] else main()
+    if sys.argv[1:] == ['--wallpaper']:
+        evidence.wallpaper()
+    elif sys.argv[1:] == ['--lock-fixture']:
+        raise SystemExit(lock_fixture())
+    else:
+        main()

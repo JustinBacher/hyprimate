@@ -24,12 +24,6 @@ CWindowAnimationPass::~CWindowAnimationPass() {
 }
 
 std::vector<UP<IPassElement>> CWindowAnimationPass::draw(Render::CRenderContext &ctx) {
-    if (m_data.blur && m_data.handle.style == hyprimate::config::Style::Shader) {
-        // Shader closes decline blur before snapshot ownership; never sample
-        // arbitrary shader color as a scalar coverage matte even on stale work.
-        if (m_data.close_guard) { m_data.close_guard->physical_failure(ctx); }
-        return {};
-    }
     if (!m_data.image_owner.ensure_current()) {
         if (m_data.close_guard) { m_data.close_guard->physical_failure(ctx); }
         return {};
@@ -42,6 +36,8 @@ std::vector<UP<IPassElement>> CWindowAnimationPass::draw(Render::CRenderContext 
             profile_key(m_data.handle.style, m_data.retained_tail ? "shared" : "close");
         const hyprimate::perf::GpuScope GPU_PROFILE{PROFILE_KEY};
         CHyprAnimationCanvas canvas{ctx, *m_data.resources};
+        const bool shader = m_data.handle.style == hyprimate::config::Style::Shader;
+        if (shader && !m_data.blur) canvas.allow_direct();
         const Draw<CHyprAnimationCanvas> DRAW{.canvas = &canvas, .image = &m_data.image,
             .source = m_data.source, .output = m_data.output, .canvas_box = m_data.canvas_box,
             .image_origin = m_data.image_origin, .image_size = m_data.image_size,
@@ -49,7 +45,15 @@ std::vector<UP<IPassElement>> CWindowAnimationPass::draw(Render::CRenderContext 
             .frame = m_data.frame};
         CHyprAnimationCanvas matte{ctx, *m_data.resources, true,
             m_data.blur_rounding, m_data.blur_rounding_power};
+        matte.set_blur_box(m_data.blur_box);
         const auto composite = [&] {
+            if (canvas.presented_directly()) {
+                if (canvas.pass() == PassKind::Live && !canvas.captures_pixels()) {
+                    hyprimate::perf::touch(PROFILE_KEY, m_data.monitor);
+                }
+                if (m_data.close_guard) { m_data.close_guard->physical_presented(ctx, true); }
+                return;
+            }
             if (!canvas.layer()) {
                 if (m_data.close_guard) { m_data.close_guard->physical_presented(ctx, false); }
                 return;
@@ -69,6 +73,7 @@ std::vector<UP<IPassElement>> CWindowAnimationPass::draw(Render::CRenderContext 
                 texture_data.blurShapeInvalid = true;
                 texture_data.liveBlurOverride = m_data.blur_live;
                 texture_data.blurPatternBox = BOX;
+                if (shader) texture_data.blurA = m_data.blur_alpha;
                 texture_data.blurAlphaMatte = matte.layer()->getTexture();
                 texture_data.discardMode = 0;
                 g_pHyprRenderer->draw(ctx, texture_data, m_data.damage);
@@ -98,6 +103,8 @@ std::vector<UP<IPassElement>> CWindowAnimationPass::draw(Render::CRenderContext 
                 }
             }
             guard_display(composite);
+        } else if (m_data.close_guard) {
+            m_data.close_guard->physical_failure(ctx);
         }
     });
     return {};
