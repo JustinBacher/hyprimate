@@ -7,6 +7,16 @@
 namespace hyprimate::workspace {
 
     namespace {
+        // Braking can spend half of the last representable gap. Rounding that
+        // displacement must not briefly show the rejected native endpoint.
+        double brake_position(double start, double displacement) {
+            const double position = start + displacement;
+            if (start > 0.0 && start < 1.0 && (position == 0.0 || position == 1.0)) {
+                return std::nextafter(position, start);
+            }
+            return position;
+        }
+
         // Retain the selected curve through most of the return. Ease only its
         // time input at the joins, so braking and landing both meet at rest.
         double soften_ends(double time) {
@@ -117,11 +127,12 @@ namespace hyprimate::workspace {
         m_elapsed += elapsed_seconds;
         if (m_elapsed < m_brake_time) {
             const double BRAKE = m_elapsed / m_brake_time;
-            m_position = m_start + (m_brake_velocity * m_elapsed * (1.0 - (.5 * BRAKE)));
+            m_position =
+                brake_position(m_start, m_brake_velocity * m_elapsed * (1.0 - (.5 * BRAKE)));
             m_velocity = m_brake_velocity * (1.0 - BRAKE);
             return;
         }
-        const double START = m_start + (m_brake_velocity * .5 * m_brake_time);
+        const double START = brake_position(m_start, m_brake_velocity * .5 * m_brake_time);
         const double SPAN = m_duration - m_brake_time;
         const double TIME = (m_elapsed - m_brake_time) / SPAN;
         const auto SAMPLE = [&](double unit) {

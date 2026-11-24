@@ -50,6 +50,21 @@ int main() {
     CHECK(std::abs(LIGHT(.25) - HEAVY(.25)) > .04);
     const auto LONG = spring_curve({.stiffness = 100, .damping = 20, .mass = 1}, 10);
     CHECK(LONG(.9) < LONG(.99) && LONG(.99) < 1);
+    // Braking at the last representable position below one can put its
+    // half-gap endpoint exactly on one through round-to-even.
+    const double LAST = std::nextafter(1.0, 0.0);
+    Transition last_gap;
+    CHECK(last_gap.begin(Direction::Forward, SECONDS, [](double time) { return time; }));
+    last_gap.retarget(false, SECONDS, {.position = LAST, .velocity = 1.0},
+        [](double position, bool destination) {
+            return hyprimate::workspace::planet_hop::remaining_travel(position, destination, false);
+        });
+    CHECK(last_gap.progress() == LAST && last_gap.velocity() == 1.0);
+    last_gap.advance(1.0 - LAST);
+    CHECK(last_gap.active() && last_gap.progress() < 1.0);
+    last_gap.advance(SECONDS);
+    CHECK(!last_gap.active() && last_gap.progress() == 0.0 && last_gap.velocity() == 0.0);
+
     constexpr double TINY = std::numeric_limits<float>::denorm_min() / 1000.0;
     constexpr double HUGE = std::numeric_limits<float>::max() / 1000.0;
     for (const float DAMPING : std::array{0.F, 20.F, 40.F}) {
