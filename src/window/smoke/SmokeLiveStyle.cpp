@@ -54,6 +54,7 @@ hyprimate::animation::Frame SSmokeModule::advance(State &state,
     Resources &resources,
     [[maybe_unused]] hyprimate::animation::Effects &effects) {
     auto &smoke = state.smoke;
+    const bool POINTER_DRAG = !step.dying && step.movement_enabled && step.held;
     if (!step.dying && !step.open_enabled && smoke.opening()) {
         smoke.reset();
     }
@@ -66,7 +67,8 @@ hyprimate::animation::Frame SSmokeModule::advance(State &state,
         const auto &before = motion.from_capture;
         smoke.drive({now.x + now.w * 0.5 - before.x - before.w * 0.5,
                         now.y + now.h * 0.5 - before.y - before.h * 0.5},
-            motion.layout_animated && !motion.workspace_moving && !step.held,
+            motion.layout_animated && !motion.workspace_moving &&
+                !(POINTER_DRAG && resources.prepared.movement.follow_pointer),
             {now.w - before.w, now.h - before.h});
     }
     auto params = smoke.opening() ? resources.prepared.opening : resources.prepared.movement;
@@ -77,10 +79,7 @@ hyprimate::animation::Frame SSmokeModule::advance(State &state,
         params.strength = 0;
     }
     const hyprimate::Vec2 size{step.capture.w, step.capture.h};
-    smoke.advance(std::min(step.elapsed, hyprimate::STALL_SECONDS),
-        size,
-        params,
-        !step.dying && step.movement_enabled && step.held);
+    smoke.advance(std::min(step.elapsed, hyprimate::STALL_SECONDS), size, params, POINTER_DRAG);
     if (!smoke.active()) {
         return {};
     }
@@ -123,6 +122,9 @@ SSmokeModule::Prepared SSmokeModule::prepare_settings(const Settings &settings) 
         .strength = movement.strength,
         .turbulence = movement.turbulence,
         .trail = movement.trail,
+        .trail_length = movement.trailLength,
+        .trail_lifetime = movement.trailLifetime / 1000.0,
+        .trail_girth = movement.trailGirth,
         .reform = movement.reform,
         .settle_speed = movement.settleSpeed,
         .mass = movement.mass,
@@ -130,6 +132,7 @@ SSmokeModule::Prepared SSmokeModule::prepare_settings(const Settings &settings) 
         .color = settings.shared.color,
         .density = settings.shared.density,
         .variation = settings.shared.variation,
+        .follow_pointer = movement.dragFollow == hyprimate::config::DragFollow::Current,
     };
     auto opening = PARAMS;
     opening.turbulence = settings.open.turbulence;

@@ -155,6 +155,27 @@ namespace {
         CHECK(std::hypot(released.offset.x, released.offset.y) < 8);
     }
 
+    void original_drag_keeps_the_unattached_body() {
+        Smoke original;
+        const SmokeParams PARAMS{.follow_pointer = false};
+        for (int i = 0; i < 60; ++i) {
+            original.drive(i < 40 ? Vec2{12, 0} : Vec2{0, -12});
+            original.advance(1.0 / 120, SIZE, PARAMS, true);
+        }
+        // On a turn, an unattached body coasts across the old heading and lags the new one.
+        const auto offset = smoke_body(original.frame(SIZE)).offset;
+        CHECK(offset.x > 10 && offset.y > 10);
+    }
+
+    void explicit_trail_reach_expands_the_damage_bounds() {
+        Smoke smoke;
+        const auto automatic = smoke.bounds(SIZE);
+        smoke.advance(1.0 / 120, SIZE, {.trail_length = 1800});
+        const auto extended = smoke.bounds(SIZE);
+        CHECK(extended.x <= -1800 && extended.x + extended.w >= SIZE.x + 1800);
+        CHECK(extended.w > automatic.w && extended.h > automatic.h);
+    }
+
     // Moving contracts the window into its body; stopping expands it back to the exact window.
     void movement_contracts_and_reforms_the_body() {
         Smoke smoke;
@@ -365,6 +386,8 @@ int main() {
     disabled_movement_and_stop_transition();
     first_layout_move_retains_visible_carry();
     grabbed_body_tracks_turns_without_carry();
+    original_drag_keeps_the_unattached_body();
+    explicit_trail_reach_expands_the_damage_bounds();
     movement_contracts_and_reforms_the_body();
     settle_speed_changes_reform_without_changing_entry_or_transitions();
     resizing_unravels_without_inventing_translation();

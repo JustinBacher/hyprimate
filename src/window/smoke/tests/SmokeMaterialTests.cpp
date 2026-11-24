@@ -383,7 +383,7 @@ namespace {
             }
             CHECK(passes[1] > 100000 && passes[5] < passes[1]);
             const int CLEAR = static_cast<int>(
-                std::ceil(60.0 * 1.1 * hyprimate::smoke_life(hyprimate::SmokeParams{}.trail)));
+                std::ceil(60.0 * 1.1 * hyprimate::SmokeParams{}.trail_lifetime));
             long rest = 0;
             for (int i = 0; i < CLEAR; ++i) {
                 rest = AWAY(STEP(0));
@@ -395,6 +395,61 @@ namespace {
                 .source_pos = {40, 68},
                 .source_size = {TW, TH}};
         }
+    }
+
+    void test_wake_controls(Harness &harness) {
+        struct Wake {
+            int distant_opacity;
+            int lingering_opacity;
+            double width_squared;
+        };
+        const auto run = [&](hyprimate::SmokeParams params) {
+            CSmokeField field;
+            hyprimate::Smoke driver;
+            driver.seed(5);
+            harness.target.source_pos = {40, 68};
+            const auto step = [&](double dx) {
+                driver.drive({dx, 0});
+                driver.advance(1.0 / 120, {TW, TH}, params, true);
+                harness.target.source_pos.x += dx;
+                harness.frame = driver.frame({TW, TH});
+                return harness.render(field);
+            };
+            for (int i = 0; i < 47; ++i)
+                step(6);
+            const Image MOVING = step(6);
+            const int LEFT = static_cast<int>(harness.target.source_pos.x);
+            const int DISTANT = alpha_sum(MOVING, 20, LEFT - 65);
+            // Measure lateral width across the near wake, excluding the main body.
+            double weight = 0, moment = 0, second_moment = 0;
+            for (int y = 20; y < H - 20; ++y) {
+                for (int x = LEFT - 35; x < LEFT + 24; ++x) {
+                    const double opacity = at(MOVING, x, y)[3];
+                    weight += opacity;
+                    moment += y * opacity;
+                    second_moment += y * y * opacity;
+                }
+            }
+            const double MEAN = weight > 0 ? moment / weight : 0;
+            const double WIDTH_SQUARED = weight > 0 ? second_moment / weight - MEAN * MEAN : 0;
+            for (int i = 0; i < 35; ++i)
+                step(0);
+            const int LINGERING = alpha_sum(step(0), 20, LEFT - 65);
+            field.release();
+            return Wake{DISTANT, LINGERING, WIDTH_SQUARED};
+        };
+        const auto baseline = run({});
+        const auto short_reach = run({.trail_length = 35});
+        const auto brief = run({.trail_lifetime = 0.1});
+        const auto narrow = run({.trail_girth = 0.25});
+        const auto broad = run({.trail_girth = 2.5});
+        CHECK(baseline.distant_opacity > 10000);
+        CHECK(short_reach.distant_opacity < 0.1 * baseline.distant_opacity);
+        CHECK(baseline.lingering_opacity > 3000);
+        CHECK(brief.lingering_opacity < 0.1 * baseline.lingering_opacity);
+        CHECK(narrow.width_squared > 0 && broad.width_squared > narrow.width_squared);
+        harness.target.source_pos = {40, 68};
+        harness.frame = {};
     }
 
     void test_dragged_core_tracks_between_steps(Harness &harness) {
@@ -789,6 +844,7 @@ int main(int argc, char **argv) {
         test_resize(h, capture);
 
         test_wake(h);
+        test_wake_controls(h);
         test_dragged_core_tracks_between_steps(h);
 
         test_substep(h);

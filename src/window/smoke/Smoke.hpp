@@ -33,7 +33,9 @@ namespace hyprimate {
         double presence = 1;  // window material still feeding the smoke body
         double turbulence = 0.65;
         double trail = 0.65;
-        double life = 0.94;    // seconds wake smoke lives after leaving the body; see smoke_life
+        double life = 0.94;      // seconds after wake smoke leaves the body
+        double trail_length = 0;  // logical pixels beyond the body; zero uses the automatic reach
+        double trail_girth = 1;   // multiplier for the width of shed smoke
         double gather = 0;     // opening: strength of loose streams converging on the window
         double cohesion = 0;   // pull of loose smoke back into the window rectangle
         double dispersal = 0;  // closing: outward breakup and accelerated decay
@@ -78,6 +80,9 @@ namespace hyprimate {
         double strength = 0.85;
         double turbulence = 0.65;
         double trail = 0.65;
+        double trail_length = 0;
+        double trail_lifetime = 0.94;  // seconds
+        double trail_girth = 1;
         double reform = 0.48;
         double settle_speed = 1;
         double mass = 0.45;
@@ -85,18 +90,18 @@ namespace hyprimate {
         std::uint32_t color = 0;
         double density = 1;
         double variation = 0.5;
+        bool follow_pointer = true;
     };
 
     // World-space extent of the fluid around the window centre. The margin bounds the wake.
-    [[nodiscard]] inline Vec2 smoke_domain(Vec2 size) noexcept {
-        const double MARGIN = std::clamp(0.85 * std::max(size.x, size.y), 200.0, 800.0);
+    [[nodiscard]] inline Vec2 smoke_domain(Vec2 size, double trail_length = 0) noexcept {
+        const double AUTO_MARGIN = std::clamp(0.85 * std::max(size.x, size.y), 200.0, 800.0);
+        // Make room for the reach, including the feather at the domain edge and the largest
+        // shift of the domain toward the wake. Short reaches trim the wake, not the fluid grid.
+        const double MARGIN = trail_length > 0
+                                  ? std::max(AUTO_MARGIN, trail_length + 64.0 + 0.6 * AUTO_MARGIN)
+                                  : AUTO_MARGIN;
         return {.x = size.x + (2.0 * MARGIN), .y = size.y + (2.0 * MARGIN)};
-    }
-
-    // Lifetime of wake smoke from the moment it leaves the body: denser for its first third,
-    // curling and fragmenting through the middle, thinned to nothing by the end.
-    [[nodiscard]] inline double smoke_life(double trail) noexcept {
-        return 0.55 + (0.6 * std::clamp(trail, 0.0, 1.0));
     }
 
     class Smoke {

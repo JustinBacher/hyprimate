@@ -61,13 +61,29 @@ vec2 bodyLocal(vec2 rel) {
 // Texture coordinate of the contracted window at a window-relative point.
 vec2 bodyUV(vec2 rel) { return bodyLocal(rel) / (2.0 * u_body_half) + .5; }
 // Exact signed distance to the body's rounded rectangle, in its own frame.
-float bodyDistance(vec2 rel) {
+float bodyLocalDistance(vec2 q) {
     vec2 outward;
     float r = min(u_body_radius, min(u_body_half.x, u_body_half.y));
-    return rectDistance(bodyLocal(rel), u_body_half - r, outward) - r;
+    return rectDistance(q, u_body_half - r, outward) - r;
 }
+float bodyDistance(vec2 rel) { return bodyLocalDistance(bodyLocal(rel)); }
 // Size against which body turbulence is measured.
 float bodyScale() { return max(2.0 * min(u_body_half.x, u_body_half.y), 48.0); }
+
+uniform float u_trail_length, u_trail_girth;
+bool finiteWake() { return u_trail_length > 0.0 && u_transit <= 0.0; }
+// The detached wake feathers over the last quarter of its reach in logical pixels. Its
+// envelope doesn't rotate when the window turns: only the attached shell uses the stretch.
+float trailReach(vec2 rel, float sd, float scale) {
+    if (sd <= .3 * scale) {
+        return 1.0;
+    }
+    float distance = bodyLocalDistance(rel - u_body_offset);
+    float wake = 1.0 - smoothstep(.75, 1.0, distance / u_trail_length);
+    float fringe = 1.0 - smoothstep(.3 * scale, .55 * scale, sd);
+    return max(wake, fringe);
+}
+
 // Full attachment through the rounded body's core, feathering to ordinary world-space flow.
 float dragAttachment(vec2 rel) {
     float feather = max(.18 * bodyScale(), 4.0);

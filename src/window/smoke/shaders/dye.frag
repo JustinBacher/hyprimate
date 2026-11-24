@@ -67,13 +67,14 @@ void main() {
     vec2 wuv = rel / (2.0 * u_half) + .5;
     // Window content mapped onto the body: the moving window contracts into it, and a head
     // carries a scattered miniature of the window's colours.
-    vec2 buv = bodyUV(rel);
+    vec2 q = bodyLocal(rel);
+    vec2 buv = q / (2.0 * u_body_half) + .5;
     // Material coordinates: the contracting moving window, or the window itself while a
     // head gathers it up or condenses into it.
     vec2 luv = mix(buv, wuv, u_transit);
     float extent = max(2.0 * min(u_half.x, u_half.y), 48.0);
     float scale = bodyScale();
-    float sd = bodyDistance(rel);
+    float sd = bodyLocalDistance(q);
     vec2 unused;
     float material = mix(sd, rectDistance(rel, u_half, unused), u_transit);
     // Moving material turns to smoke, and condensing material absorbs it, inside a ragged
@@ -105,6 +106,10 @@ void main() {
     float wake = mix(ageing, mix(2.6, .55, u_trail) * (1.0 + .6 * u_mass), u_transit);
     float decay = mix(wake, .25, body * (1.0 - u_dispersal)) +
         2.4 * u_dispersal * (.1 + 2.6 * patches * patches);
+    float reach = finiteWake() ? trailReach(rel, sd, scale) : 1.0;
+    // Drain detached dye outside the reach at a rate per second, not by reapplying the
+    // screen-space feather each step. The composite applies that feather to opacity.
+    decay += 36.0 * (1.0 - reach);
     // Keep the forming front fed. Only the tightly bound interior takes dye out of circulation.
     float bound = smoothstep(.60, 1.0, formed);
     decay += (opening ? 4.0 * bound : 10.0 * (1.0 - phase)) *
@@ -141,7 +146,7 @@ void main() {
             (1.0 - smoothstep(.87, 1.0, 1.0 - u_smoke));
     }
     // Seeded density variation; a head also carries layered folds so it never fills evenly.
-    vec2 folded = bodyLocal(rel) / scale;
+    vec2 folded = q / scale;
     float folds = .65 * noise3(vec3(folded * 1.8, u_time * .3 + u_seed * 21.0)) +
         .35 * noise3(vec3(folded * 4.4 + 7.0, u_time * .7 + u_seed * 13.0)) - .5;
     float clumping = max(1.0 + (.6 * u_variation + 1.1 * u_transit) * folds, .15);
@@ -158,13 +163,30 @@ void main() {
     vec2 bodyVelocity = mix(u_velocity, u_head_velocity, u_transit) + resizeVelocity(rel);
     float speed = length(bodyVelocity);
     if (massed > 0.0 && speed > 1.0) {
-        vec2 q = bodyLocal(rel);
-        float rear = dot(q / max(u_body_half, vec2(1.0)), -bodyVelocity / speed);
-        float band = smoothstep(-.12 * scale, .02 * scale, sd) *
-            (1.0 - smoothstep(.05 * scale, .3 * scale, sd)) * smoothstep(-.2, .6, rear);
+        vec2 heading = bodyVelocity / speed;
+        float rear = dot(q / max(u_body_half, vec2(1.0)), -heading);
+        float edge = .3 * scale;
+        float aperture = 1.0;
+        if (u_transit <= 0.0 && u_trail_girth != 1.0) {
+            vec2 side = vec2(-heading.y, heading.x);
+            float across = abs(dot(q, side));
+            float spread = dot(abs(side), u_body_half);
+            if (u_trail_girth < 1.0) {
+                // Narrow the rear cross-section without disturbing the body that feeds it.
+                float width = (spread + edge) * u_trail_girth;
+                aperture = 1.0 - smoothstep(width, width + .15 * scale * u_trail_girth, across);
+            } else {
+                // Widen the shedding aperture and its outer layer, still only around the shell.
+                float width = spread + edge;
+                aperture = 1.0 - smoothstep(width, width + .15 * scale, across / u_trail_girth);
+                edge *= mix(1.0, u_trail_girth, smoothstep(.15 * spread, .85 * spread, across));
+            }
+        }
+        float band = aperture * smoothstep(-.12 * scale, .02 * scale, sd) *
+            (1.0 - smoothstep(.05 * scale, edge, sd)) * smoothstep(-.2, .6, rear);
         float puffs = smoothstep(.5 - .1 * u_variation, .8,
             noise3(vec3(q / scale * 3.2, u_time * 2.3 + u_seed * 7.0)));
-        float shed = band * puffs * massed * mix(phase, 1.0, u_transit) * u_presence *
+        float shed = reach * band * puffs * massed * mix(phase, 1.0, u_transit) * u_presence *
             smoothstep(40.0, 600.0, speed);
         dye += materialAt(clamp(buv, 0.0, 1.0), .05) * shed * u_trail * u_dt * 9.0 *
             clamp(1.0 - dye.a / full, 0.0, 1.0);
@@ -172,7 +194,7 @@ void main() {
     // A settling body's rim, the last part to condense, keeps fizzing off wisps of itself.
     if (u_settle > 0.0) {
         float rim = smoothstep(-.25 * scale, -.03 * scale, sd) * (1.0 - smoothstep(0.0, .12 * scale, sd));
-        float puffs = smoothstep(.45, .75, noise3(vec3(bodyLocal(rel) / scale * 2.6, u_time * 1.4 + u_seed * 5.0)));
+        float puffs = smoothstep(.45, .75, noise3(vec3(q / scale * 2.6, u_time * 1.4 + u_seed * 5.0)));
         dye += materialAt(clamp(luv, 0.0, 1.0), .04) * rim * puffs * max(phase, .6 * u_settle) *
             u_presence * u_settle * u_trail * u_dt * 28.0 * clamp(1.0 - dye.a / full, 0.0, 1.0);
     }

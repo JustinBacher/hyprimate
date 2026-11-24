@@ -87,6 +87,8 @@ namespace hyprimate {
             m_frame.close_source_body = smoke_body(m_frame);
         }
         m_frame.drag_follow = 0;
+        m_frame.trail_length = 0;
+        m_frame.trail_girth = 1;
         m_duration = std::isfinite(duration) && duration > 0.0
                          ? duration
                          : (direction == Transition::Open ? 1.4 : 1.6);
@@ -305,7 +307,12 @@ namespace hyprimate {
         m_params.variation = safe_param(params.variation, 0.5, 0.0, 1.0);
         m_frame.turbulence = m_params.turbulence;
         m_frame.trail = m_params.trail;
-        m_frame.life = smoke_life(m_params.trail);
+        const bool TRANSITION = m_opening || m_closing;
+        // Transition smoke keeps its existing response to the shared trail amount.
+        m_frame.life = TRANSITION ? 0.55 + 0.6 * m_params.trail
+                                  : safe_param(params.trail_lifetime, 0.94, 0.1, 4.0);
+        m_frame.trail_length = TRANSITION ? 0 : safe_param(params.trail_length, 0.0, 0.0, 2400.0);
+        m_frame.trail_girth = TRANSITION ? 1 : safe_param(params.trail_girth, 1.0, 0.25, 2.5);
         m_frame.mass_size = m_params.mass;
         m_frame.mass_roundness = m_params.roundness;
         m_frame.color = m_params.color;
@@ -313,7 +320,10 @@ namespace hyprimate {
         m_frame.variation = m_params.variation;
         // Noise fields move away from a shared pattern only as far as variation allows.
         m_frame.seed = m_seed * m_params.variation;
-        const bool FOLLOW_DRAG = pointer_drag && !m_opening && !m_closing && !m_closed;
+        const bool FOLLOW_DRAG = params.follow_pointer && pointer_drag && !TRANSITION && !m_closed;
+        if (!params.follow_pointer) {
+            m_frame.drag_follow = 0;
+        }
         if (FOLLOW_DRAG) {
             m_frame.drag_follow = 1;
             m_frame.carry = {};
@@ -474,7 +484,7 @@ namespace hyprimate {
     }
     Box Smoke::bounds(Vec2 size) const noexcept {
         size = safe_size(size);
-        const Vec2 DOMAIN = smoke_domain(size);
+        const Vec2 DOMAIN = smoke_domain(size, m_frame.trail_length);
         return {.x = ((size.x - DOMAIN.x) * 0.5) + m_frame.offset.x,
             .y = ((size.y - DOMAIN.y) * 0.5) + m_frame.offset.y,
             .w = DOMAIN.x,

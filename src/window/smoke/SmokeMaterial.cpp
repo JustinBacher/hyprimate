@@ -75,6 +75,8 @@ bool CSmokeMaterial::initialize(const SSmokePrograms &programs) {
         "u_dispersal",
         "u_turbulence",
         "u_trail",
+        "u_trail_length",
+        "u_trail_girth",
         "u_life",
         "u_gather",
         "u_fade",
@@ -183,6 +185,8 @@ void CSmokeMaterial::motion(
                           : hyprimate::smoke_body(frame);
     glUniform2f(u[Carry], F(frame.carry.x), F(frame.carry.y));
     glUniform2f(u[WindowVelocity], F(frame.velocity.x), F(frame.velocity.y));
+    glUniform1f(u[TrailLength], F(frame.trail_length));
+    glUniform1f(u[TrailGirth], F(frame.trail_girth));
     glUniform2f(u[Lag], F(frame.lag.x), F(frame.lag.y));
     glUniform3f(u[DragMotion], F(drag_delta.x), F(drag_delta.y), F(frame.drag_follow));
     glUniform2f(u[Position], F(frame.position.x), F(frame.position.y));
@@ -301,7 +305,7 @@ bool CSmokeMaterial::simulate(CSmokeField &field,
     if (field.m_primed && !(DT > 0.0)) {
         return true;
     }
-    const hyprimate::Vec2 DOMAIN = hyprimate::smoke_domain(frame.size);
+    const hyprimate::Vec2 DOMAIN = hyprimate::smoke_domain(frame.size, frame.trail_length);
 
     std::array<GLfloat, 4> clear{};
     glGetFloatv(GL_COLOR_CLEAR_VALUE, clear.data());
@@ -460,7 +464,7 @@ void CSmokeMaterial::draw(const CSmokeField &field,
     // The grid lies where it was last stepped. Map it from the window's current position, so
     // a frame that does not step still shows the smoke fixed in the world.
     const hyprimate::Vec2 DOMAIN =
-        field.m_primed ? field.m_domain : hyprimate::smoke_domain(frame.size);
+        field.m_primed ? field.m_domain : hyprimate::smoke_domain(frame.size, frame.trail_length);
     glUniform2f(u[Origin], F(target.origin.x), F(target.origin.y));
     glUniform2f(u[Source], F(target.source_pos.x), F(target.source_pos.y));
     glUniform2f(u[Size], F(target.source_size.x), F(target.source_size.y));

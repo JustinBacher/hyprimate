@@ -70,7 +70,11 @@ void main() {
     vec4 dye = texture(u_dye, guv) * retained;
     vec4 smoke = vec4(0.0);
     vec2 fluid = vec2(0.0);
-    if (dye.a > .002) {
+    float wake = 1.0;
+    if (dye.a > .002 && finiteWake()) {
+        wake = trailReach(rel, bodyDistance(rel), bodyScale());
+    }
+    if (dye.a > .002 && wake > 0.0) {
         // Density gradient gives billows a surface; marching toward the light gives
         // dense folds their own shadow.
         vec2 tap = 1.5 * texel;
@@ -116,7 +120,7 @@ void main() {
         colour = mix(vec3(luma), colour, .85);
         colour = mix(colour, u_tint.rgb, .8 * u_tint.a);
         colour *= .45 + .45 * shadow + .4 * diffuse * shadow;
-        float alpha = (1.0 - exp(-density * 2.3 * thickness)) * u_fade;
+        float alpha = (1.0 - exp(-density * 2.3 * thickness)) * u_fade * wake;
         smoke = vec4(colour * alpha, alpha);
     }
     if (opening) {
