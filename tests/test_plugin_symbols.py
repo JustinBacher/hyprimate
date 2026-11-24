@@ -1,19 +1,19 @@
 import os
 from pathlib import Path
 import subprocess
-import sys
 import tempfile
 import unittest
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "tools" / "check_plugin_symbols.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "tools" / "check_plugin_symbols.cmake"
 
 
 class PluginSymbolTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.directory = Path(self.temp.name)
+        self.directory = Path(self.temp.name) / "plugin fixture directory"
+        self.directory.mkdir()
 
     def compile(self, name, source, *args):
         source_path = self.directory / (name + ".c")
@@ -40,9 +40,15 @@ class PluginSymbolTests(unittest.TestCase):
             "plugin.so", source, "-Wl,--no-as-needed", "-lc", *args,
         )
 
-    def check_plugin(self, plugin, host, *args):
+    def check_plugin(self, plugin, host, nm="nm"):
         return subprocess.run(
-            [sys.executable, str(SCRIPT), str(plugin), str(host), *args],
+            [
+                os.environ.get("CMAKE", "cmake"),
+                f"-DPLUGIN={plugin}",
+                f"-DHOST={host}",
+                f"-DNM={nm}",
+                "-P", str(SCRIPT),
+            ],
             capture_output=True, text=True,
         )
 
@@ -56,6 +62,8 @@ class PluginSymbolTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("random_missing", result.stderr)
         self.assertIn("hyprimate_missing", result.stderr)
+        self.assertLess(result.stderr.index("hyprimate_missing"),
+                        result.stderr.index("random_missing"))
 
     def test_host_and_host_dependency_exports_are_accepted(self):
         self.library("libprovider.so", "void dependency_api(void) {}\n")
@@ -130,9 +138,10 @@ class PluginSymbolTests(unittest.TestCase):
         host = self.host("-Wl,--no-as-needed", "-L", str(self.directory),
                          "-lprovider", "-Wl,-rpath,$ORIGIN")
         plugin = self.plugin("void entry(void) {}\n")
-        result = self.check_plugin(plugin, host, "--nm", str(self.directory / "no-nm"))
+        result = self.check_plugin(plugin, host, str(self.directory / "no-nm"))
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("no-nm", result.stderr)
+
         library.unlink()
         result = self.check_plugin(plugin, host)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)

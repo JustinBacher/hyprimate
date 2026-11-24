@@ -4,4 +4,4 @@ name = "hyprimate"
 [hyprimate]
 description = "Viscous window deformation during movement"
 output = "build/hyprimate.so"
-build = ["cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo", "cmake --build build"]
+build = ["cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=OFF", "cmake --build build --target hyprimate"]

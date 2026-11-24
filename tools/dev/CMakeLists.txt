@@ -8,6 +8,7 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
 endif()
 
+option(BUILD_TESTING "Build Hyprimate's development tests" ON)
 enable_testing()
 if(NOT HYPRIMATE_SOURCE_DIR)
     get_filename_component(HYPRIMATE_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../.. ABSOLUTE)

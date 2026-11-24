@@ -1,12 +1,22 @@
 # Development toolchain
 
-One entry point, `python3 tools/dev.py COMMAND`, drives every diagnostic build. The production build is untouched:
-`CMakeLists.txt` was not modified, no flags were added to it, and nothing here is instrumented into `hyprimate.so`.
+One entry point, `python3 tools/dev.py COMMAND`, drives the diagnostic builds. Python 3 is a
+development dependency: the default CMake build, hyprpm install, and Nix package build do not
+require it.
+The install build still verifies that the plugin's imports are provided by Hyprland and its
+libraries, using `nm`, `ldd`, and standard shell tools.
 
 How isolation works: `tools/dev/CMakeLists.txt` is a wrapper project. It adds the unmodified root project as a
 subdirectory and adds the `hyprimate-bench` target. `dev.py` configures it in `build/dev/<profile>/` and passes
 sanitizer/coverage/trace flags on the command line, so a profile can never leak into `build/` (the production tree).
 Reports are written to `build/dev/reports/<command>.json`, logs to `build/dev/logs/`.
+
+The dev wrapper enables `BUILD_TESTING` by default. For tests configured directly from the
+repository root, pass `-DBUILD_TESTING=ON`. After editing `config/settings.json` or its generator,
+build the `update-config` target in a test-enabled build and commit the refreshed headers in
+`config/generated/` along with any generated documentation changes. CTest's
+`config-generated-check` rejects stale headers and documentation. The production build copies
+the checked-in headers and does not run the Python generator.
 
 Exit codes: `0` ok (advisories allowed) · `1` blocking finding (failing test, new blocking diagnostic, benchmark
 regression, removed export) · `2` usage · `3` tool/environment failure (missing or crashed tool; says nothing about the

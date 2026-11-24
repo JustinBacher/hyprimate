@@ -33,7 +33,7 @@ This is an OpenGL effect. Fullscreen clients follow the framework's existing nat
 Build the plugin against the installed Hyprland, then run:
 
 ```sh
-cmake -S . -B build -G Ninja
+cmake -S . -B build -G Ninja -DBUILD_TESTING=ON
 cmake --build build
 ctest --test-dir build --output-on-failure -R burn
 /usr/bin/python tests/nested/burn_evidence.py build/burn-review --record

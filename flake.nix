@@ -31,7 +31,6 @@
           pkgs.cmake
           pkgs.ninja
           pkgs.pkg-config
-          pkgs.python3
           pkgs.binutils
           (pkgs.lib.getBin pkgs.glibc)
         ];
@@ -72,7 +71,7 @@
 
       devShells.${system}.default = (pkgs.mkShell.override { stdenv = host.stdenv; }) {
         inputsFrom = [ hyprimate ];
-        packages = [ host pkgs.jq ];
+        packages = [ host pkgs.jq pkgs.python3 ];
         HYPRIMATE_JOLT_SOURCE = "${joltSource}";
         HYPRIMATE_HYPRLAND_ELF = hyprlandElf;
         HYPRIMATE_HYPRLAND_BIN = "${host}/bin";

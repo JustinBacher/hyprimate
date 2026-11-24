@@ -45,7 +45,7 @@ if ! command -v cmake >/dev/null 2>&1; then
 fi
 
 if [[ ! -f "$build_dir/compile_commands.json" ]]; then
-    cmake -S "$repo_root" -B "$build_dir" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+    cmake -S "$repo_root" -B "$build_dir" -DBUILD_TESTING=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 fi
 if [[ ! -f "$build_dir/compile_commands.json" ]]; then
     echo "error: no compile_commands.json in $build_dir; use a CMake Makefiles or Ninja build with CMAKE_EXPORT_COMPILE_COMMANDS=ON" >&2

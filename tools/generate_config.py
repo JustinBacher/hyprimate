@@ -623,7 +623,7 @@ def main():
     for path, content in outputs:
         if not path.exists() or path.read_text() != content:
             if args.check:
-                print(f'{path} is stale; regenerate configuration documentation', file=sys.stderr)
+                print(f'{path} is stale; run the update-config target', file=sys.stderr)
                 stale = True
             else:
                 path.parent.mkdir(parents=True, exist_ok=True)

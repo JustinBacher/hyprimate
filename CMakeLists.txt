@@ -13,9 +13,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION OFF)
 
+option(BUILD_TESTING "Build Hyprimate's development tests" OFF)
+
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(HYPRLAND REQUIRED IMPORTED_TARGET hyprland)
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
+if(BUILD_TESTING)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+endif()
 
 # Jolt Physics drives the cloth animations. Only the library is built, single precision, statically into the plugin;
 # its compute backends (GPU hair), debug renderer, profiler and floating-point exceptions stay off: an FP trap or a
@@ -58,24 +62,37 @@ add_compile_options(
     $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wunused-private-field>
 )
 
-set(CONFIG_SCHEMA ${CMAKE_CURRENT_SOURCE_DIR}/config/settings.json)
-set(CONFIG_GENERATOR ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_config.py)
+set(CONFIG_SNAPSHOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/config/generated)
+set(CONFIG_SNAPSHOTS
+    ${CONFIG_SNAPSHOT_DIR}/config_generated.hpp
+    ${CONFIG_SNAPSHOT_DIR}/config_settings_generated.hpp
+)
 set(CONFIG_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
 add_custom_command(
     OUTPUT ${CONFIG_GENERATED_DIR}/config_generated.hpp
            ${CONFIG_GENERATED_DIR}/config_settings_generated.hpp
-    COMMAND ${Python3_EXECUTABLE} ${CONFIG_GENERATOR} --schema ${CONFIG_SCHEMA}
-            --header ${CONFIG_GENERATED_DIR}/config_generated.hpp
-            --settings-header ${CONFIG_GENERATED_DIR}/config_settings_generated.hpp
-    DEPENDS ${CONFIG_SCHEMA} ${CONFIG_GENERATOR}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CONFIG_GENERATED_DIR}
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CONFIG_SNAPSHOTS} ${CONFIG_GENERATED_DIR}
+    DEPENDS ${CONFIG_SNAPSHOTS}
     VERBATIM
 )
 add_custom_target(generate-config DEPENDS ${CONFIG_GENERATED_DIR}/config_generated.hpp
     ${CONFIG_GENERATED_DIR}/config_settings_generated.hpp)
-add_custom_target(update-config-docs
-    COMMAND ${Python3_EXECUTABLE} ${CONFIG_GENERATOR} --schema ${CONFIG_SCHEMA} --readme ${CMAKE_CURRENT_SOURCE_DIR}/README.md --lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/nested/hyprland.lua
-    VERBATIM
-)
+
+if(BUILD_TESTING)
+    set(CONFIG_GENERATOR ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_config.py)
+    set(CONFIG_GENERATOR_ARGS
+        --schema ${CMAKE_CURRENT_SOURCE_DIR}/config/settings.json
+        --header ${CONFIG_SNAPSHOT_DIR}/config_generated.hpp
+        --settings-header ${CONFIG_SNAPSHOT_DIR}/config_settings_generated.hpp
+        --readme ${CMAKE_CURRENT_SOURCE_DIR}/README.md
+        --lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/nested/hyprland.lua
+    )
+    add_custom_target(update-config
+        COMMAND ${Python3_EXECUTABLE} ${CONFIG_GENERATOR} ${CONFIG_GENERATOR_ARGS}
+        VERBATIM
+    )
+endif()
 
 # Hyprland-independent core: liquid mesh, edge transition, paper, cloth and swarm models. The plugin and the tests
 # link it.
@@ -121,24 +138,28 @@ target_compile_options(hyprimate PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>:-fno-gn
 
 # Shared plugins may import host APIs, but every strong import must have a provider.
 find_program(HYPRLAND_EXECUTABLE NAMES Hyprland REQUIRED)
-set(PLUGIN_SYMBOL_CHECKER ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_plugin_symbols.py)
+set(PLUGIN_SYMBOL_CHECKER ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_plugin_symbols.cmake)
 set_property(TARGET hyprimate APPEND PROPERTY LINK_DEPENDS
-    ${PLUGIN_SYMBOL_CHECKER} ${HYPRLAND_EXECUTABLE})
+    ${PLUGIN_SYMBOL_CHECKER} ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_plugin_symbols.sh
+    ${HYPRLAND_EXECUTABLE})
 add_custom_command(TARGET hyprimate POST_BUILD
-    COMMAND ${Python3_EXECUTABLE} ${PLUGIN_SYMBOL_CHECKER}
-            $<TARGET_FILE:hyprimate> ${HYPRLAND_EXECUTABLE} --nm ${CMAKE_NM}
+    COMMAND ${CMAKE_COMMAND}
+            "-DPLUGIN=$<TARGET_FILE:hyprimate>" "-DHOST=${HYPRLAND_EXECUTABLE}" "-DNM=${CMAKE_NM}"
+            -P ${PLUGIN_SYMBOL_CHECKER}
     COMMENT "Checking plugin imports against Hyprland and shared dependencies"
     VERBATIM
 )
 
-add_custom_target(clang-tidy-check
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_clang_tidy.py
-            --build-dir ${CMAKE_BINARY_DIR}
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    COMMENT "Checking project translation units with clang-tidy"
-    DEPENDS generate-config
-    VERBATIM
-)
+if(BUILD_TESTING)
+    add_custom_target(clang-tidy-check
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_clang_tidy.py
+                --build-dir ${CMAKE_BINARY_DIR}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Checking project translation units with clang-tidy"
+        DEPENDS generate-config
+        VERBATIM
+    )
+endif()
 
 find_program(CLANG_FORMAT_EXECUTABLE clang-format)
 if(CLANG_FORMAT_EXECUTABLE)
@@ -222,7 +243,8 @@ if(BUILD_TESTING)
     add_test(NAME gl-context-tests COMMAND gl-context-tests)
     set_tests_properties(gl-context-tests PROPERTIES ENVIRONMENT "EGL_PLATFORM=surfaceless")
 
-    add_test(NAME config-docs-check COMMAND ${Python3_EXECUTABLE} ${CONFIG_GENERATOR} --schema ${CONFIG_SCHEMA} --readme ${CMAKE_CURRENT_SOURCE_DIR}/README.md --lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/nested/hyprland.lua --check)
+    add_test(NAME config-generated-check
+        COMMAND ${Python3_EXECUTABLE} ${CONFIG_GENERATOR} ${CONFIG_GENERATOR_ARGS} --check)
     add_test(NAME config-generator-tests COMMAND ${Python3_EXECUTABLE} -m unittest discover -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p test_config_generator.py)
     add_test(NAME plugin-symbol-tests COMMAND ${Python3_EXECUTABLE} -m unittest discover -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p test_plugin_symbols.py)
     add_test(NAME style-independence-tests COMMAND ${Python3_EXECUTABLE} -m unittest discover -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p test_style_independence.py)
