@@ -16,6 +16,7 @@ namespace hyprimate {
 
         constexpr double STEP = 1.0 / 120.0;
         constexpr double ACCUMULATOR_TOLERANCE = 1e-9;
+        constexpr int MAX_STEPS_PER_ADVANCE = 30;
 
         // Steering. Accelerations are multiples of an agent's cruise speed per second.
         constexpr double FORCE_MIN = 4.0, FORCE_MAX = 14.0;  // by responsiveness
@@ -157,6 +158,15 @@ namespace hyprimate {
         double approach(double value, double target, double step) noexcept {
             return value < target ? std::min(target, value + step) : std::max(target, value - step);
         }
+        void release_agent(SwarmAgent &agent) noexcept {
+            agent.visible = true;
+            if (agent.leaving && agent.docked) {
+                agent.docked = false;
+                agent.heading =
+                    std::atan2(agent.exit.y - agent.position.y, agent.exit.x - agent.position.x);
+            }
+        }
+
 
         bool finite(const SwarmParams &params) noexcept {
             return std::isfinite(params.speed) && std::isfinite(params.stagger) &&
@@ -624,11 +634,13 @@ namespace hyprimate {
         m_shift = {};
 
         m_accumulator += DELTA_TIME;
-        while (m_accumulator >= STEP - ACCUMULATOR_TOLERANCE) {
+        int steps = 0;
+        while (steps < MAX_STEPS_PER_ADVANCE && m_accumulator >= STEP - ACCUMULATOR_TOLERANCE) {
             if (TIMED) {
                 m_still += STEP;
             }
             step(WANDERING);
+            ++steps;
             if (TIMED) {
                 const double BEFORE = smoothstep(0.5, 1.0, (m_time - STEP) / m_simulation_seconds);
                 const double NOW = smoothstep(0.5, 1.0, m_time / m_simulation_seconds);
@@ -637,6 +649,39 @@ namespace hyprimate {
                 }
             }
             m_accumulator = std::max(0.0, m_accumulator - STEP);
+        }
+        if (steps == MAX_STEPS_PER_ADVANCE && m_accumulator >= STEP - ACCUMULATOR_TOLERANCE) {
+            if (TIMED) {
+                // Skipped time advances delay gates only; due and steering still reflect actual
+                // steps. Newly released agents join absolute guidance below.
+                const double SCHEDULED = (m_elapsed_ms / m_requested_ms) * m_simulation_seconds;
+                const double SKIPPED_TIME = std::max(0.0, SCHEDULED - m_time);
+                for (SwarmAgent &agent : m_agents) {
+                    if (agent.gone || agent.delay <= 0.0) {
+                        continue;
+                    }
+                    if (agent.delay > SKIPPED_TIME) {
+                        agent.delay -= SKIPPED_TIME;
+                    } else {
+                        agent.delay = 0.0;
+                        release_agent(agent);
+                    }
+                }
+                const double BEFORE = smoothstep(0.5, 1.0, m_time / m_simulation_seconds);
+                const double NOW = std::min(
+                    smoothstep(0.5, 1.0, m_elapsed_ms / m_requested_ms), std::nextafter(1.0, 0.0));
+                if (NOW > BEFORE && BEFORE < 1.0) {
+                    guide_transition(
+                        std::min((NOW - BEFORE) / (1.0 - BEFORE), std::nextafter(1.0, 0.0)));
+                }
+                m_time = SCHEDULED;
+                m_accumulator = 0.0;
+            } else {
+                // Untimed transitions have no absolute schedule to guide toward; keep only the
+                // fractional remainder so discarded complete steps cannot become a backlog.
+                const double REMAINDER = std::fmod(m_accumulator, STEP);
+                m_accumulator = REMAINDER >= STEP - ACCUMULATOR_TOLERANCE ? 0.0 : REMAINDER;
+            }
         }
         if (TIMED) {
             if (opening()) {
@@ -871,12 +916,7 @@ namespace hyprimate {
             }
             // Past its delay an opening agent is on its way in, and a closing one lets go of the
             // window.
-            moving_agent.visible = true;
-            if (moving_agent.leaving && moving_agent.docked) {
-                moving_agent.docked = false;
-                moving_agent.heading = std::atan2(moving_agent.exit.y - moving_agent.position.y,
-                    moving_agent.exit.x - moving_agent.position.x);
-            }
+            release_agent(moving_agent);
             if (OVERDUE && !moving_agent.docked) {
                 moving_agent.docked = true;
                 moving_agent.visible = true;

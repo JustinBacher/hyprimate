@@ -1094,6 +1094,146 @@ namespace {
         CHECK(swarm.params().speed == initial.speed);
     }
 
+    void timed_advances_cap_steps_and_keep_exact_endpoints() {
+        SwarmParams params;
+        params.count = 24;
+        params.speed = 1.0;  // Force the route estimate to the 6.6 s simulation-time clamp.
+        const EdgeSet SIDES = sides({Edge::Left});
+        const auto CHECK_CAPPED_FRAME = [](Swarm &swarm, double elapsed) {
+            const double BEFORE = swarm.agents().front().due;
+            CHECK(swarm.advance(elapsed));
+            const double ELAPSED = BEFORE - swarm.agents().front().due;
+            const int STEPS = static_cast<int>(std::lround(ELAPSED * 120.0));
+            CHECK(STEPS == 30);
+            CHECK(std::abs(ELAPSED - (static_cast<double>(STEPS) / 120.0)) < 1e-9);
+            CHECK(std::ranges::none_of(
+                swarm.agents(), [](const SwarmAgent &agent) { return agent.gone; }));
+            CHECK(!in_formation(swarm));
+        };
+
+        Swarm opening;
+        opening.begin(Transition::Open, params, 41, placement(), SIDES, 1000.0);
+        for (int frame = 0; frame < 2; ++frame) {
+            CHECK_CAPPED_FRAME(opening, 0.2);
+        }
+        Swarm half_progress = opening;
+        Swarm later_progress = opening;
+        CHECK_CAPPED_FRAME(half_progress, 0.1);
+        CHECK_CAPPED_FRAME(later_progress, 0.2);
+        const auto LOOSE = std::ranges::find_if(half_progress.agents(),
+            [](const SwarmAgent &agent) { return agent.visible && !agent.docked; });
+        CHECK(LOOSE != half_progress.agents().end());
+        if (LOOSE != half_progress.agents().end()) {
+            const std::size_t INDEX =
+                static_cast<std::size_t>(std::distance(half_progress.agents().begin(), LOOSE));
+            const auto DISTANCE_HOME = [](const SwarmAgent &agent) {
+                return std::hypot(agent.position.x - agent.home.x, agent.position.y - agent.home.y);
+            };
+            const double BEFORE_GUIDANCE = DISTANCE_HOME(*LOOSE);
+            const double AFTER_GUIDANCE = DISTANCE_HOME(later_progress.agents()[INDEX]);
+            CHECK(BEFORE_GUIDANCE > 0.0);
+            // smoothstep(0.5, 1.0, 0.6) is 0.104; the equal step counts isolate this guide.
+            CHECK(std::abs(AFTER_GUIDANCE - (BEFORE_GUIDANCE * (1.0 - 0.104))) < 1e-6);
+        }
+        const double HALF_DUE = half_progress.agents().front().due;
+        const double LATER_DUE = later_progress.agents().front().due;
+        CHECK(half_progress.advance(0.001));
+        CHECK(later_progress.advance(0.001));
+        CHECK(half_progress.agents().front().due == HALF_DUE);
+        CHECK(later_progress.agents().front().due == LATER_DUE);
+        for (int frame = 2; frame < 4; ++frame) {
+            CHECK_CAPPED_FRAME(opening, 0.2);
+        }
+        CHECK(opening.active() && !in_formation(opening));
+        CHECK(!opening.advance(0.2));
+        CHECK(!opening.active() && in_formation(opening));
+
+        Swarm closing;
+        closing.begin(Transition::Close, params, 42, placement(), SIDES, 1000.0);
+        for (int frame = 0; frame < 4; ++frame) {
+            CHECK_CAPPED_FRAME(closing, 0.2);
+            CHECK(!closing.closed());
+        }
+        CHECK(closing.active() && !closing.closed());
+        CHECK(!closing.advance(0.2));
+        CHECK(closing.closed() && !closing.active());
+        CHECK(closing.bounds().w == 0.0);
+        CHECK(std::ranges::all_of(closing.agents(),
+            [](const SwarmAgent &agent) { return agent.gone && !agent.visible; }));
+    }
+
+    void capped_advances_release_scheduled_agents() {
+        constexpr double SIMULATION_SECONDS = 11.0;
+        constexpr double REQUESTED_SECONDS = 0.5;
+        constexpr double ACTUAL_TIME = 30.0 / 120.0;
+        constexpr double MIN_SCHEDULED = ACTUAL_TIME + (1.0 / 120.0) + 1e-6;
+        constexpr double MAX_SCHEDULED = (0.25 / REQUESTED_SECONDS) * SIMULATION_SECONDS;
+        SwarmParams params;
+        params.count = SWARM_MAX_AGENTS;
+        params.speed = 50.0;  // Long routes hit the 5 s stagger + 6 s close-deadline clamp.
+        params.stagger = 5.0;
+        params.variation = 0.0;
+        const EdgeSet SIDES = sides({Edge::Left});
+
+        const auto CHECK_DELAYED_RELEASES = [&](Transition kind, std::uint64_t seed) {
+            Swarm swarm;
+            swarm.begin(kind, params, seed, placement(), SIDES, REQUESTED_SECONDS * 1000.0);
+            const auto AGENTS = swarm.agents();
+            std::size_t release_index = AGENTS.size();
+            std::size_t waiting_index = AGENTS.size();
+            double scheduled = 0.0;
+            for (std::size_t release = 0; release < AGENTS.size() && release_index == AGENTS.size();
+                ++release) {
+                if (AGENTS[release].gone || AGENTS[release].delay <= ACTUAL_TIME) {
+                    continue;
+                }
+                const double LOWER = std::max(AGENTS[release].delay, MIN_SCHEDULED);
+                if (!(LOWER < MAX_SCHEDULED)) {
+                    continue;
+                }
+                for (std::size_t waiting = 0; waiting < AGENTS.size(); ++waiting) {
+                    if (AGENTS[waiting].gone || AGENTS[waiting].delay <= LOWER) {
+                        continue;
+                    }
+                    const double UPPER = std::min(AGENTS[waiting].delay, MAX_SCHEDULED);
+                    if (UPPER > LOWER) {
+                        release_index = release;
+                        waiting_index = waiting;
+                        scheduled = LOWER + (0.5 * (UPPER - LOWER));
+                        break;
+                    }
+                }
+            }
+            const bool FOUND = release_index < AGENTS.size() && waiting_index < AGENTS.size();
+            CHECK(FOUND);
+            if (!FOUND) {
+                return;
+            }
+
+            const double RELEASE_DUE = AGENTS[release_index].due;
+            const double WAITING_DUE = AGENTS[waiting_index].due;
+            const double ELAPSED_SECONDS = (scheduled / SIMULATION_SECONDS) * REQUESTED_SECONDS;
+            CHECK(ELAPSED_SECONDS < 0.25);
+            CHECK(swarm.advance(ELAPSED_SECONDS));
+            const double RELEASE_DUE_DELTA = RELEASE_DUE - swarm.agents()[release_index].due;
+            const double WAITING_DUE_DELTA = WAITING_DUE - swarm.agents()[waiting_index].due;
+            CHECK(std::abs(RELEASE_DUE_DELTA - ACTUAL_TIME) < 1e-9);
+            CHECK(std::abs(WAITING_DUE_DELTA - ACTUAL_TIME) < 1e-9);
+
+            const SwarmAgent &RELEASED = swarm.agents()[release_index];
+            const SwarmAgent &WAITING = swarm.agents()[waiting_index];
+            CHECK(RELEASED.delay == 0.0 && RELEASED.visible && !RELEASED.docked);
+            CHECK(WAITING.delay > 0.0);
+            if (kind == Transition::Open) {
+                CHECK(!WAITING.visible && !WAITING.docked);
+            } else {
+                CHECK(WAITING.visible && WAITING.docked);
+            }
+        };
+        CHECK_DELAYED_RELEASES(Transition::Open, 43);
+        CHECK_DELAYED_RELEASES(Transition::Close, 44);
+    }
+
     void durations_retime_opening_and_closing_motion() {
         SwarmParams params;
         params.count = 24;
@@ -1103,9 +1243,9 @@ namespace {
             Swarm slow;
             quick.begin(KIND, params, 31, placement(), SIDES, 125.5);
             slow.begin(KIND, params, 31, placement(), SIDES, 2008.0);
-            quick.advance(0.06275);
-            for (int i = 0; i < 8; ++i) {
-                slow.advance(0.1255);
+            for (int i = 0; i < 16; ++i) {
+                quick.advance(0.06275 / 16.0);
+                slow.advance(0.06275);
             }
             CHECK(quick.active() && slow.active());
             CHECK(quick.bounds().w > 0.0);
@@ -1116,9 +1256,11 @@ namespace {
                 CHECK(std::abs(agent.lock - peer->lock) < 1e-6);
                 ++peer;
             }
-            CHECK(!quick.advance(0.06275));
-            for (int i = 0; i < 8; ++i) {
-                slow.advance(0.1255);
+            for (int i = 0; i < 16; ++i) {
+                const bool QUICK_ACTIVE = quick.advance(0.06275 / 16.0);
+                const bool SLOW_ACTIVE = slow.advance(0.06275);
+                CHECK(QUICK_ACTIVE == (i < 15));
+                CHECK(SLOW_ACTIVE == (i < 15));
             }
             CHECK(!slow.active());
             if (KIND == Transition::Open) {
@@ -1197,6 +1339,8 @@ int main() {
     merging_sprites_keep_animating();
     movement_retuning_preserves_agents_and_latches_close();
     durations_retime_opening_and_closing_motion();
+    timed_advances_cap_steps_and_keep_exact_endpoints();
+    capped_advances_release_scheduled_agents();
     edge_sides_follow_the_neighbours();
     return g_failures == 0 ? 0 : 1;
 }

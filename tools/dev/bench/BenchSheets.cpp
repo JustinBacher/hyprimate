@@ -1,6 +1,8 @@
 // Cloth and swarm workloads. Cloth recording runs on a worker thread, so its wall time is
 // dominated by the simulation and is reported as threaded.
+#include <cmath>
 #include <memory>
+#include <stdexcept>
 
 #include "Bench.hpp"
 #include "window/cloth/ClothFlutter.hpp"
@@ -106,6 +108,34 @@ namespace {
         }
         return sum;
     }
+    double swarm_sprint() {
+        constexpr int FRAMES = 5;
+        constexpr int MAX_STEPS = 30;
+        constexpr std::uint64_t COUNT_BASE = MAX_STEPS + 1;
+        SwarmParams params;
+        params.count = SWARM_MAX_AGENTS;
+        params.speed = 100.0;
+        EdgeSet sides;
+        sides.add(Edge::Left);
+        Swarm swarm;
+        swarm.begin(Transition::Open, params, 11, placement(0), sides, 1000.0);
+
+        // Base-31 digits preserve the directly decodable actual step count for every frame.
+        std::uint64_t checksum = 0;
+        for (int frame = 0; frame < FRAMES; ++frame) {
+            const double BEFORE = swarm.agents().front().due;
+            const bool ACTIVE = swarm.advance(0.2);
+            const double ELAPSED = BEFORE - swarm.agents().front().due;
+            const int STEPS = static_cast<int>(std::lround(ELAPSED * 120.0));
+            if (STEPS < 0 || STEPS > MAX_STEPS || (frame < FRAMES - 1 && STEPS != MAX_STEPS) ||
+                (frame == FRAMES - 1 && STEPS != 0) ||
+                (ACTIVE != (frame < FRAMES - 1))) {
+                throw std::runtime_error("swarm.sprint: unexpected substep count or transition state");
+            }
+            checksum = (checksum * COUNT_BASE) + static_cast<std::uint64_t>(STEPS);
+        }
+        return static_cast<double>(checksum);
+    }
 }  // namespace
 
 namespace bench {
@@ -115,5 +145,6 @@ namespace bench {
         registry.push_back({"cloth.unshaded_mesh", "Unshaded mesh projection into reusable buffers", 90, cloth_unshaded_mesh});
         registry.push_back({"swarm.open", "Swarm 250 agents opening", 120, swarm_open});
         registry.push_back({"swarm.move_settle", "Swarm 250 agents drag then settle", 240, swarm_movement});
+        registry.push_back({"swarm.sprint", "Swarm 400 agents with timed catch-up capped at 30 steps/frame", 5, swarm_sprint});
     }
 }  // namespace bench
