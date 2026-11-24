@@ -1,10 +1,10 @@
 set(construction_dir ${CMAKE_CURRENT_LIST_DIR})
 set(construction_png ${construction_dir}/art/construction.png)
-set(construction_embed ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_construction_atlas.py)
+set(construction_embed ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_construction_atlas.cmake)
 set(construction_header ${CONFIG_GENERATED_DIR}/construction_atlas_generated.hpp)
 add_custom_command(OUTPUT ${construction_header}
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${CONFIG_GENERATED_DIR}
-    COMMAND ${Python3_EXECUTABLE} ${construction_embed} --input ${construction_png} --output ${construction_header}
+    COMMAND ${CMAKE_COMMAND} -DINPUT=${construction_png} -DOUTPUT=${construction_header}
+            -P ${construction_embed}
     DEPENDS ${construction_embed} ${construction_png}
     VERBATIM)
 find_package(PNG REQUIRED)

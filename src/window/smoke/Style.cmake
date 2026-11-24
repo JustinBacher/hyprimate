@@ -1,19 +1,17 @@
 set(SMOKE_SHADER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/window/smoke/shaders)
+set(SMOKE_SHADER_EMBEDDER ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_shaders.cmake)
 add_custom_command(
     OUTPUT ${CONFIG_GENERATED_DIR}/smoke_shaders_generated.hpp
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_bubble_shaders.py
-            --source-dir ${SMOKE_SHADER_DIR}
-            --output ${CONFIG_GENERATED_DIR}/smoke_shaders_generated.hpp
-            --namespace smoke_shader --shader VERTEX=smoke.vert --shader COMPOSITE=smoke.frag
-            --shader VELOCITY=velocity.frag --shader DIVERGENCE=divergence.frag
-            --shader PRESSURE=pressure.frag --shader PROJECT=project.frag
-            --shader ADVECT=advect.frag --shader DYE=dye.frag
+    COMMAND ${CMAKE_COMMAND}
+            -DSTYLE=smoke
+            -DSOURCE_DIR=${SMOKE_SHADER_DIR}
+            -DOUTPUT=${CONFIG_GENERATED_DIR}/smoke_shaders_generated.hpp
+            -P ${SMOKE_SHADER_EMBEDDER}
     DEPENDS ${SMOKE_SHADER_DIR}/smoke.vert ${SMOKE_SHADER_DIR}/smoke.frag
             ${SMOKE_SHADER_DIR}/velocity.frag ${SMOKE_SHADER_DIR}/divergence.frag
             ${SMOKE_SHADER_DIR}/pressure.frag ${SMOKE_SHADER_DIR}/project.frag
-            ${SMOKE_SHADER_DIR}/advect.frag
-            ${SMOKE_SHADER_DIR}/dye.frag ${SMOKE_SHADER_DIR}/common.glsl
-            ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_bubble_shaders.py
+            ${SMOKE_SHADER_DIR}/advect.frag ${SMOKE_SHADER_DIR}/dye.frag
+            ${SMOKE_SHADER_DIR}/common.glsl ${SMOKE_SHADER_EMBEDDER}
     VERBATIM
 )
 add_custom_target(generate-smoke-shaders DEPENDS ${CONFIG_GENERATED_DIR}/smoke_shaders_generated.hpp)
@@ -29,7 +27,9 @@ target_sources(hyprimate PRIVATE
 )
 
 add_dependencies(hyprimate generate-smoke-shaders)
-add_dependencies(clang-tidy-check generate-smoke-shaders)
+if(TARGET clang-tidy-check)
+    add_dependencies(clang-tidy-check generate-smoke-shaders)
+endif()
 
 if(BUILD_TESTING)
     add_executable(smoke-tests src/window/smoke/tests/SmokeTests.cpp)

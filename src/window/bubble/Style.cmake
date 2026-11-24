@@ -13,12 +13,15 @@ set(BUBBLE_SHADER_FILES
     ${BUBBLE_SHADER_DIR}/microbubble.vert
     ${BUBBLE_SHADER_DIR}/microbubble.frag
 )
+set(BUBBLE_SHADER_EMBEDDER ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_shaders.cmake)
 add_custom_command(
     OUTPUT ${CONFIG_GENERATED_DIR}/bubble_shaders_generated.hpp
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_bubble_shaders.py
-            --source-dir ${BUBBLE_SHADER_DIR}
-            --output ${CONFIG_GENERATED_DIR}/bubble_shaders_generated.hpp
-    DEPENDS ${BUBBLE_SHADER_FILES} ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_bubble_shaders.py
+    COMMAND ${CMAKE_COMMAND}
+            -DSTYLE=bubble
+            -DSOURCE_DIR=${BUBBLE_SHADER_DIR}
+            -DOUTPUT=${CONFIG_GENERATED_DIR}/bubble_shaders_generated.hpp
+            -P ${BUBBLE_SHADER_EMBEDDER}
+    DEPENDS ${BUBBLE_SHADER_FILES} ${BUBBLE_SHADER_EMBEDDER}
     VERBATIM
 )
 add_custom_target(generate-bubble-shaders DEPENDS ${CONFIG_GENERATED_DIR}/bubble_shaders_generated.hpp)
@@ -42,7 +45,9 @@ target_sources(hyprimate PRIVATE
 )
 
 add_dependencies(hyprimate generate-bubble-shaders)
-add_dependencies(clang-tidy-check generate-bubble-shaders)
+if(TARGET clang-tidy-check)
+    add_dependencies(clang-tidy-check generate-bubble-shaders)
+endif()
 
 if(BUILD_TESTING)
     add_executable(bubble-tests src/window/bubble/tests/BubbleTests.cpp)

@@ -14,7 +14,7 @@ To regenerate the committed PNG (authoring only), from the repository root:
 resvg src/window/construction/art/construction.svg src/window/construction/art/construction.png
 ```
 
-Exporter: resvg 0.49.0. The normal build embeds the PNG via `tools/embed_construction_atlas.py`.
+Exporter: resvg 0.49.0. The normal build embeds the PNG via `tools/embed_construction_atlas.cmake`.
 
 ## Private review
 
