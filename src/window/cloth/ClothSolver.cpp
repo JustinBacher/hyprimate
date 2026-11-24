@@ -12,6 +12,7 @@
 #include <xmmintrin.h>
 #endif
 
+#include "window/cloth/ClothHingeSimd.hpp"
 #include "window/cloth/ClothSolveOrder.hpp"
 #include "window/cloth/ClothSolver.hpp"
 
@@ -41,7 +42,8 @@ namespace hyprimate::cloth {
         }
 
         // Preserve the signed angle and float reduction order of the reference cloth.
-        float angle(Point edge, Point left, Point right, float product) noexcept {
+        [[gnu::always_inline]] inline float angle(
+            Point edge, Point left, Point right, float product) noexcept {
             const float COSINE = dot(left, right) / std::sqrt(product);
             const float ABS_COSINE = std::min(std::abs(COSINE), 1.0F);
             const float MAGNITUDE =
@@ -488,7 +490,18 @@ namespace hyprimate::cloth {
         const auto LAST = m_hinges.groups[group + 1];
         std::size_t index = FIRST == 0 ? 0 : m_hinges.ends[FIRST - 1];
         for (std::size_t batch = FIRST; batch < LAST; ++batch) {
-            for (const auto END = m_hinges.ends[batch]; index < END; ++index) {
+            const auto END = m_hinges.ends[batch];
+#if defined(__SSE2__)
+            // Hinges in one level share no vertices. Never pack across levels.
+            for (; END - index >= 4; index += 4) {
+                simd::solve_hinges4(m_positions,
+                    m_inverseMasses,
+                    std::span<const Hinge, 4>{m_hinges.constraints.data() + index, 4},
+                    BEND_ALPHA,
+                    PI);
+            }
+#endif
+            for (; index < END; ++index) {
                 const auto &hinge = m_hinges.constraints[index];
                 const auto [LOW, HIGH, LEFT, RIGHT] = hinge.vertices;
                 const auto EDGE = m_positions[HIGH] - m_positions[LOW];

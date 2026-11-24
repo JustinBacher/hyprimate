@@ -106,3 +106,14 @@ CSV byte for byte. Interleaved open-recording runs used 5% less process CPU time
 and 77 instead of 323 C++ allocations per recording. In a separate four-worker
 model run, the median of six worker-wall p99 measurements fell from 6.40 to
 5.29 ms. These are model timings, not compositor frame times.
+
+On SSE2, the hinge pass also projects four vertex-disjoint constraints in
+parallel within each level. It preserves each lane's float evaluation order
+and uses the scalar pass for the remaining hinges and on non-SSE2 hosts.
+All 1,874 displayed samples matched the previous CPU solver's CSV byte for
+byte. The single-open model benchmark used 22% fewer user-space CPU cycles
+in interleaved runs on the same workstation.
+In the four-worker model benchmark, median recording time was 625 ms versus
+788 ms for the previous CPU solver and 734 ms for frozen Jolt (six runs per
+variant). The median worker-wall p99 was 4.18 ms, 5.04 ms, and 4.49 ms,
+respectively. These are not compositor frame times.
