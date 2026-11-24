@@ -27,7 +27,8 @@ target_sources(hyprimate PRIVATE
 add_dependencies(hyprimate generate-swarm-shaders)
 add_dependencies(clang-tidy-check generate-swarm-shaders)
 
-target_compile_definitions(hyprimate PRIVATE HYPRIMATE_SPRITE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/window/swarm/sprites")
+set(HYPRIMATE_SPRITE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/window/swarm/sprites" CACHE PATH "Directory containing the built-in Swarm sprites")
+target_compile_definitions(hyprimate PRIVATE HYPRIMATE_SPRITE_DIR="${HYPRIMATE_SPRITE_DIR}")
 
 if(BUILD_TESTING)
     add_executable(swarm-tests src/window/swarm/tests/SwarmTests.cpp)
