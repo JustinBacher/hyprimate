@@ -8,6 +8,10 @@
 #include <tuple>
 #include <utility>
 
+#if defined(__SSE2__)
+#include <xmmintrin.h>
+#endif
+
 #include "window/cloth/ClothSolveOrder.hpp"
 #include "window/cloth/ClothSolver.hpp"
 
@@ -21,6 +25,20 @@ namespace hyprimate::cloth {
         constexpr float PI = 3.14159265358979323846F;
         constexpr std::size_t GRID = SHEET_CELLS + 1;
         constexpr std::size_t SEAM = 13;
+
+        // Divide all three coordinates at once, without replacing division with a
+        // rounded reciprocal. The unused lane carries no simulation state.
+        Point divide(Point point, float divisor) noexcept {
+#if defined(__SSE2__)
+            const auto QUOTIENT =
+                _mm_div_ps(_mm_setr_ps(point.x, point.y, point.z, 0), _mm_set1_ps(divisor));
+            alignas(16) std::array<float, 4> lanes;
+            _mm_store_ps(lanes.data(), QUOTIENT);
+            return {lanes[0], lanes[1], lanes[2]};
+#else
+            return point / divisor;
+#endif
+        }
 
         // Preserve the signed angle and float reduction order of the reference cloth.
         float angle(Point edge, Point left, Point right, float product) noexcept {
@@ -335,6 +353,8 @@ namespace hyprimate::cloth {
         std::ranges::stable_sort(constraints, {}, GROUP);
         Batches<Constraint> result;
         result.constraints.resize(constraints.size());
+        std::vector<std::size_t> sizes;
+        std::vector<std::size_t> levels;
         std::size_t first = 0;
         for (std::size_t group = 0; group <= SEAM; ++group) {
             std::size_t last = first;
@@ -343,8 +363,8 @@ namespace hyprimate::cloth {
             }
             // Each level preserves the order of conflicting constraints and can run in parallel.
             std::array<std::size_t, SHEET_GRID_VERTICES> last_level{};
-            std::vector<std::size_t> sizes;
-            std::vector<std::size_t> levels;
+            sizes.clear();
+            levels.clear();
             levels.reserve(last - first);
             for (std::size_t i = first; i < last; ++i) {
                 std::size_t level = 0;
@@ -455,7 +475,7 @@ namespace hyprimate::cloth {
                 const float INV_HIGH = m_inverseMasses[HIGH];
                 const float DENOMINATOR = LENGTH * (INV_LOW + INV_HIGH + EDGE_ALPHA);
                 if (DENOMINATOR >= 1e-12F) {
-                    const auto CORRECTION = (DELTA * (LENGTH - edge.restLength)) / DENOMINATOR;
+                    const auto CORRECTION = divide(DELTA * (LENGTH - edge.restLength), DENOMINATOR);
                     m_positions[LOW] += CORRECTION * INV_LOW;
                     m_positions[HIGH] -= CORRECTION * INV_HIGH;
                 }
@@ -492,13 +512,13 @@ namespace hyprimate::cloth {
                 if (bend == 0) {
                     continue;
                 }
-                left_normal = left_normal / LEFT_AREA;
-                right_normal = right_normal / RIGHT_AREA;
+                left_normal = divide(left_normal, LEFT_AREA);
+                right_normal = divide(right_normal, RIGHT_AREA);
                 const auto LEFT_GRAD = left_normal * LENGTH;
                 const auto RIGHT_GRAD = right_normal * LENGTH;
                 const auto LOW_GRAD =
-                    (left_normal * dot(LEFT_TIP, EDGE) + right_normal * dot(RIGHT_TIP, EDGE)) /
-                    LENGTH;
+                    divide(left_normal * dot(LEFT_TIP, EDGE) + right_normal * dot(RIGHT_TIP, EDGE),
+                        LENGTH);
                 const auto HIGH_GRAD = Point{} - LOW_GRAD - LEFT_GRAD - RIGHT_GRAD;
                 const float INV_LOW = m_inverseMasses[LOW];
                 const float INV_HIGH = m_inverseMasses[HIGH];
@@ -527,7 +547,7 @@ namespace hyprimate::cloth {
             const auto DELTA = position - ANCHOR;
             const float SQUARED = lengthSquared(DELTA);
             if (SQUARED > constraint.range * constraint.range) {
-                position = ANCHOR + (DELTA * constraint.range) / std::sqrt(SQUARED);
+                position = ANCHOR + divide(DELTA * constraint.range, std::sqrt(SQUARED));
             }
         }
     }
@@ -588,7 +608,7 @@ namespace hyprimate::cloth {
                 }
                 auto &position = m_positions[i];
                 auto &velocity = m_velocities[i];
-                velocity = (position - m_previous[i]) / DT;
+                velocity = divide(position - m_previous[i], DT);
                 if (CONTACTS) {
                     const auto plane = planes[i];
                     const float DEPTH =

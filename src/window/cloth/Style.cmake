@@ -9,6 +9,8 @@ target_sources(hyprimate PRIVATE
 
 set_source_files_properties(src/window/cloth/ClothFlutter.cpp src/window/cloth/ClothSolver.cpp
     PROPERTIES COMPILE_OPTIONS "-fvisibility=hidden;-fvisibility-inlines-hidden;-ffp-contract=off")
+# The solver consumes IEEE square-root results, not libm errno. Keep contraction disabled.
+set_property(SOURCE src/window/cloth/ClothSolver.cpp APPEND PROPERTY COMPILE_OPTIONS -fno-math-errno)
 
 find_package(Threads REQUIRED)
 target_link_libraries(hyprimate-core PRIVATE Threads::Threads)

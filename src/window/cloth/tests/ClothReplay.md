@@ -93,3 +93,16 @@ single-window draw-interval p99 ranged from 18.24–18.63 ms with Jolt and
 and 19.09–20.73 ms, respectively (three runs each). Four-window opening worker
 p99 increased; the nested backend supplied callback intervals, not hardware
 presentation timestamps. These observations do not establish a speedup.
+
+## CPU-only optimization
+
+Batch construction reuses scratch buffers across islands. On SSE2 hosts, a
+packed divide evaluates the three coordinates together with the same IEEE
+rounding as scalar division. The solver still disables floating-point
+contraction and retains its original constraint order.
+
+On the same workstation, the optimized build reproduced the previous solver's
+CSV byte for byte. Interleaved open-recording runs used 5% less process CPU time
+and 77 instead of 323 C++ allocations per recording. In a separate four-worker
+model run, the median of six worker-wall p99 measurements fell from 6.40 to
+5.29 ms. These are model timings, not compositor frame times.
