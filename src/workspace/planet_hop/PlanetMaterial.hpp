@@ -2,6 +2,9 @@
 
 #include <string_view>
 
+// The shader hash31 variants are from the Hash without Sine family (David Hoskins, MIT).
+// See THIRD_PARTY_NOTICES.md.
+
 namespace hyprimate::workspace::planet_hop::shader {
 
     // GLES 3.0, premultiplied output throughout. Compile once per GL context.

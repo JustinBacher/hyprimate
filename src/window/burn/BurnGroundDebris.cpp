@@ -7,6 +7,9 @@
 #include "window/burn/BurnGroundDebris.hpp"
 #include "window/burn/BurnGroundShader.hpp"
 
+// The dust shader hash is from the Hash without Sine family (David Hoskins, MIT).
+// See THIRD_PARTY_NOTICES.md.
+
 namespace {
     constexpr GLsizei STRIP_VERTICES = 10;
 

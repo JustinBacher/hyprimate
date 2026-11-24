@@ -3,6 +3,9 @@
 #include <string>
 #include <string_view>
 
+// burnHash is from the Hash without Sine family (David Hoskins, MIT).
+// See THIRD_PARTY_NOTICES.md.
+
 namespace burn_shader {
     // Keep burnArrival identical to hyprimate::burn_arrival for deposits and debris.
     inline constexpr std::string_view COMMON = R"GLSL(

@@ -48,6 +48,8 @@
           mkdir -p "$out/share/hyprimate/sprites"
           install -Dm644 -t "$out/share/hyprimate/sprites" \
             ../src/window/swarm/sprites/{bird,cat,spider}.png
+          install -Dm644 -t "$out/share/licenses/hyprimate" \
+            ../LICENSE ../THIRD_PARTY_NOTICES.md ../CREDITS.md
           runHook postInstall
         '';
       };

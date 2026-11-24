@@ -1,5 +1,8 @@
 #pragma once
 
+// hashCell is from the Hash without Sine family (David Hoskins, MIT).
+// See THIRD_PARTY_NOTICES.md.
+
 namespace hyprimate::workspace::lava {
     inline constexpr const char *VERTEX_SHADER = R"GLSL(#version 300 es
 void main() {
