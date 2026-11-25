@@ -3,6 +3,7 @@
 #include <cmath>
 #include <limits>
 
+#include "gl/RawGlState.hpp"
 #include "gl/Storage.hpp"
 #include "window/paper/PaperMaterial.hpp"
 #include "window/paper/PaperRenderMeshMath.hpp"
