@@ -1,4 +1,4 @@
-target_sources(hyprimate PRIVATE src/workspace/lava/LavaRenderer.cpp)
+target_sources(hyprimate PRIVATE src/workspace/lava/LavaRenderer.cpp src/workspace/lava/LavaCapture.cpp)
 
 if(BUILD_TESTING)
     add_executable(lava-renderer-tests src/workspace/lava/tests/LavaRendererTests.cpp
