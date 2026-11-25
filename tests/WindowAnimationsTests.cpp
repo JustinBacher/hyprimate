@@ -1629,6 +1629,42 @@ namespace {
         canvas.pass_kind = PassKind::Live;
         CHECK(fixture.module.draw_tail(HANDLE, DRAW, false));
     }
+    void retained_tail_desktop_pixels_are_not_replayed() {
+        Fixture fixture;
+        fixture.log().tail = true;
+        fixture.window(1);
+        fixture.frame(1);
+        const auto HANDLE = fixture.handle();
+        FakeCanvas canvas;
+        const FakeCanvas::Image IMAGE{.id = 84};
+        const Draw<FakeCanvas> DRAW{.canvas = &canvas,
+            .image = &IMAGE,
+            .source = {},
+            .output = {},
+            .canvas_box = {},
+            .image_origin = {},
+            .image_size = {},
+            .real_pass = true,
+            .includes_desktop_pixels = true};
+        CHECK(!fixture.port.windows.at(1).no_screen_share);
+        CHECK(fixture.module.draw(HANDLE, DRAW));
+        CHECK(fixture.port.retained_mapped_image(HANDLE).has_value());
+        fixture.port.windows.at(1).workspace_visible = false;
+        fixture.frame(1);
+        fixture.module.after_windows(1, canvas);
+        CHECK(fixture.port.queued_tails.size() == 1);
+
+        canvas.pass_kind = PassKind::Live;
+        CHECK(fixture.module.draw_tail(HANDLE, DRAW, false));
+        canvas.pass_kind = PassKind::WorkspaceSource;
+        CHECK(!fixture.module.draw_tail(HANDLE, DRAW, false));
+        canvas.pass_kind = PassKind::Live;
+        canvas.rendering_capture = true;
+        CHECK(!fixture.module.draw_tail(HANDLE, DRAW, false));
+        canvas.rendering_capture = false;
+        canvas.rendering_snapshot = true;
+        CHECK(!fixture.module.draw_tail(HANDLE, DRAW, false));
+    }
     void retained_tail_rechecks_final_submission() {
         for (int change = 0; change < 9; ++change) {
             Fixture fixture;
@@ -3342,6 +3378,7 @@ int main() try {
     public_close_publishes_first_frame_at_bind();
     public_close_blank_completion_is_not_native_fallback();
     public_close_rejects_unproven_sources_before_initialization();
+    retained_tail_desktop_pixels_are_not_replayed();
     public_close_interrupts_only_on_physical_draw_failure_or_revocation();
     public_close_uses_latest_physical_mapped_outcome();
     public_close_crop_is_validated_before_retention();

@@ -137,11 +137,12 @@ namespace hyprimate::animation {
                         observation->workspace_offset.x + observation->floating_offset.x,
                         observation->workspace_offset.y + observation->floating_offset.y};
                     if (!m_port.retained_mapped_image(handle)) {
-                        entry->retained_no_screen_share = observation->no_screen_share;
+                        entry->retained_no_screen_share = false;
                     }
                     // Retained framebuffers are shared, not immutable pixel copies.
                     // A later private draw can update storage retained by an earlier frame.
-                    entry->retained_no_screen_share |= observation->no_screen_share;
+                    entry->retained_no_screen_share |= observation->no_screen_share ||
+                        draw_info.includes_desktop_pixels;
                     m_port.retain_mapped_image(handle,
                         *draw_info.image,
                         draw_info.image_origin,

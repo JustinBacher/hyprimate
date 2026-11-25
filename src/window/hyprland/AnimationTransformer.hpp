@@ -1,5 +1,8 @@
 #pragma once
 
+#include <optional>
+#include <string>
+
 #include <hyprland/src/plugins/PluginAPI.hpp>
 #include <hyprland/src/render/transformer/Transformer.hpp>
 
@@ -35,6 +38,15 @@ class CAnimationTransformer final : public Render::IWindowTransformer {
     [[nodiscard]] CBox sourceBoxForOutput(
         const CBox &output_box, const CBox &input_box) const override;
     void preWindowRender(Render::CRenderContext &ctx, CSurfacePassElement::SRenderData *) override;
+    // Backdrop effects can sample in the parent pass, then put only their
+    // finished window-owned paint into the nested window source.
+    static void prepare_window_underlay(const PHLWINDOW &, Render::CRenderContext &);
+    struct UnderlayTarget {
+        SP<Render::IFramebuffer> image;
+        CBox box;
+    };
+    [[nodiscard]] std::optional<UnderlayTarget> window_underlay_target(
+        Render::CRenderContext &, const SP<Render::IFramebuffer> &parent_target);
     [[nodiscard]] hyprimate::animation::Handle handle() const noexcept {
         return m_handle;
     }
@@ -49,11 +61,15 @@ class CAnimationTransformer final : public Render::IWindowTransformer {
         Render::CRenderContext *context = nullptr;
         CContentSourcePass *passes = nullptr;
         CContentSourcePass *receipt = nullptr;
+        CContentSourcePass *underlay_pass = nullptr;
         SP<Render::IFramebuffer> shader_matte;
         CBox blur_box, matte_result_box;
         double rounding = 0, rounding_power = 2;
+        bool includes_underlay = false;
     };
     ContentSource m_content_source;
+    Render::CRenderContext *m_underlay_context = nullptr;
+    std::string m_underlay_pass_name;
     PHLWINDOWREF m_window;
     HyprWindowAnimations &m_animations;
     CHyprWindowPort &m_port;

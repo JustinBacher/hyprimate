@@ -34,6 +34,7 @@ class CHyprAnimationCanvas {
     }
     [[nodiscard]] hyprimate::animation::PassKind pass() const;
     [[nodiscard]] bool captures_pixels() const;
+    [[nodiscard]] static bool exports_output(const Render::CRenderContext &);
     [[nodiscard]] bool workspace_switch() const;
     [[nodiscard]] bool blur_mask() const { return m_blur_mask; }
     [[nodiscard]] double mask_rounding() const { return m_mask_rounding; }

@@ -1,3 +1,4 @@
+#include <hyprland/src/output/MonitorResources.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/render/pass/ClearPassElement.hpp>
@@ -32,6 +33,14 @@ bool CHyprAnimationCanvas::captures_pixels() const {
            WorkspaceCaptureScope::for_context(context()) != nullptr ||
            WorkspaceCaptureScope::is_destination_live(context());
 }
+
+bool CHyprAnimationCanvas::exports_output(const Render::CRenderContext &ctx) {
+    // Monitor/region shares may copy already-rendered scanout pixels, bypassing
+    // the read-only window/workspace draw path and masking only native footprints.
+    const auto monitor = ctx.m_data.pMonitor.lock();
+    return monitor && (monitor->resources()->shouldKeepMirrorFB() || monitor->needsACopyFB());
+}
+
 bool CHyprAnimationCanvas::workspace_switch() const {
     const auto &ctx = context();
     if (WorkspaceCaptureScope::for_context(ctx) ||

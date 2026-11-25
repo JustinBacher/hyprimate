@@ -1,5 +1,4 @@
 #include <array>
-#include <cmath>
 #include <cstdint>
 #include <dlfcn.h>
 #include <new>
@@ -9,23 +8,15 @@
 
 #include <hyprland/src/desktop/view/window/Window.hpp>
 #include <hyprland/src/desktop/view/window/WindowEffectsController.hpp>
-#include <hyprland/src/desktop/view/window/WindowPresentation.hpp>
+#include <hyprland/src/output/Monitor.hpp>
 #include <hyprland/src/plugins/PluginSystem.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Renderer.hpp>
-#include <hyprland/src/render/pass/ClearPassElement.hpp>
 #include <hyprland/src/render/transformer/TransformerList.hpp>
 
 #include "AnimationTransformer.hpp"
-#include "HyprWindowPort.hpp"
 #include "HyprglassCompat.hpp"
-#include "StyleTypes.hpp"
 #include "plugin/PluginImports.hpp"
-#include "gl/NativeFramebuffer.hpp"
-#include "window/WindowAnimations.hpp"
-#include "window/shared/SheetRenderer.hpp"
-#include "workspace/WorkspaceCaptureScope.hpp"
-#include "perf/GpuTimer.hpp"
 
 // Opaque Hyprglass arguments: never inspect another plugin's private layout.
 class CGlassDecoration;
@@ -53,19 +44,19 @@ namespace {
 
 class CHyprglassCompat::Impl {
   public:
-    Impl(HANDLE owner, HyprWindowAnimations &animations, CHyprWindowPort &port)
-        : m_owner(owner), m_animations(animations), m_port(port) {}
+    explicit Impl(HANDLE owner) : m_owner(owner) {}
     ~Impl() { reset(); }
     Impl(const Impl &) = delete;
     Impl &operator=(const Impl &) = delete;
     Impl(Impl &&) = delete;
     Impl &operator=(Impl &&) = delete;
     void refresh();
+    [[nodiscard]] bool available() const { return s_active == this; }
 
   private:
     void reset();
-    bool deform(Render::CRenderContext &ctx, const Image &sample, const Image &target,
-        CBox &raw, CBox &transformed, float alpha, const std::array<float, 4> &radii,
+    bool route_underlay(Render::CRenderContext &ctx, const Image &sample, const Image &target,
+        const CBox &raw, CBox &transformed, float alpha, const std::array<float, 4> &radii,
         float rounding, const Vector2D &padding, const SResolveContext &resolve,
         float light, const GlassRenderer::SFrostInput *frost);
     static void render(CGlassDecoration *decoration, Render::CRenderContext &ctx,
@@ -78,8 +69,6 @@ class CHyprglassCompat::Impl {
     inline static Impl *s_active = nullptr;
     inline static constexpr std::array IMPORTS{RENDER_SYMBOL, APPLY_SYMBOL};
     HANDLE m_owner;
-    HyprWindowAnimations &m_animations;
-    CHyprWindowPort &m_port;
     std::vector<CPlugin *> m_plugins;
     HANDLE m_plugin = nullptr;
     std::array<void **, 2> m_slots{};
@@ -242,79 +231,40 @@ void CHyprglassCompat::Impl::apply(Render::CRenderContext &ctx, Image sample, Im
         return;
     }
     // Layer/item glass has its own mask and does not belong to a window animation.
-    if (!mask && self.deform(ctx, sample, target, raw, transformed, alpha, radii,
+    if (!mask && self.route_underlay(ctx, sample, target, raw, transformed, alpha, radii,
             rounding, padding, resolve, light, frost)) return;
     self.m_apply(ctx, sample, target, raw, transformed, alpha, radii, rounding,
         padding, resolve, mask, light, frost);
 }
 
-bool CHyprglassCompat::Impl::deform(Render::CRenderContext &ctx, const Image &sample,
-    const Image &target, CBox &raw, CBox &transformed, float alpha,
+bool CHyprglassCompat::Impl::route_underlay(Render::CRenderContext &ctx, const Image &sample,
+    const Image &target, const CBox &raw, CBox &transformed, float alpha,
     const std::array<float, 4> &radii, float rounding, const Vector2D &padding,
     const SResolveContext &resolve, float light, const GlassRenderer::SFrostInput *frost) {
-    using namespace hyprimate::animation;
     const auto monitor = ctx.m_data.pMonitor.lock();
-    if (!m_window || !monitor || !sample || !target || !CHyprWindowPort::session_unlocked() ||
-        ctx.readOnlyEffects() || ctx.m_renderingCapture || ctx.m_renderingSnapshot ||
-        WorkspaceCaptureScope::for_context(ctx) || WorkspaceCaptureScope::is_destination_live(ctx))
-        return false;
+    // The legacy glass shader scissors in output coordinates even on an export FBO.
+    // Transformed outputs need its native target rather than a clipped-away pane.
+    if (!m_window || !sample || !monitor || monitor->m_transform != WL_OUTPUT_TRANSFORM_NORMAL) return false;
     auto *transformer = m_window->effects().transformers()->get<CAnimationTransformer>();
-    if (!transformer || !transformer->active() || transformer->handle().style !=
-            hyprimate::config::Style::Liquid) return false;
-    const double scale = monitor->m_scale;
-    if (!std::isfinite(scale) || scale <= 0.0) return false;
+    if (!transformer) return false;
+    const auto underlay = transformer->window_underlay_target(ctx, target);
+    if (!underlay) return false;
 
-    // Exactly the native transformer's source domain, including decorations.
-    // Using raw (the main surface) would stretch the liquid field differently.
-    auto source = m_window->getFullWindowBoundingBox();
-    const auto workspace = m_window->m_workspace;
-    const auto offset = workspace && !(m_window->m_state & Desktop::View::WINDOW_STATE_PINNED)
-        ? workspace->m_renderOffset->value() : Vector2D{};
-    source.translate(offset + m_window->presentation().floatingOffset() - monitor->m_position);
-    const auto output = transformer->transformedExtents(source).scale(scale);
-    const auto canvas_box = Render::pixelBoxForLogical(
-        transformer->transformedExtents(source).expand(1.0 / scale), scale);
-    source.scale(scale);
-    const auto raster_box = Render::pixelBoxForLogical(source.copy().scale(1.0 / scale), scale);
-    if (source.empty() || canvas_box.empty() || raster_box.empty()) return false;
-    const auto glass = hyprimate::gl::get_work_buffer(ctx, raster_box.size());
-    if (!glass) return false;
-
-    const hyprimate::perf::GpuScope GPU_PROFILE{profile_key(transformer->handle().style)};
+    // The real backdrop was already sampled. Redirect only the final shaded pane;
+    // the nested window pass draws it below the client before any transformer runs.
     const Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
-    {
-        const auto state = ctx.saveDrawState();
-        g_pHyprRenderer->bindFB(ctx, glass);
-        ctx.m_data.fbSize = raster_box.size();
-        ctx.m_data.damage = CRegion{0, 0, raster_box.w, raster_box.h};
-        g_pHyprRenderer->setProjectionType(ctx, Render::RPT_EXPORT);
-        g_pHyprRenderer->draw(ctx, CClearPassElement::SClearData{CHyprColor(0, 0, 0, 0)});
-        auto local = raw.copy().translate(-raster_box.pos());
-        // Sampling has already happened against the real backdrop. Redirect only
-        // the final shaded glass quad, never the background cache or its inputs.
-        m_apply(ctx, sample, glass, local, transformed,
-            alpha, radii, rounding, padding, resolve, nullptr, light, frost);
-    }
-
-    CHyprAnimationCanvas canvas{ctx, m_port.canvas_resources()};
-    const Draw<CHyprAnimationCanvas> draw{.canvas = &canvas, .image = &glass,
-        .source = to_box(source), .output = to_box(output), .canvas_box = to_box(canvas_box),
-        .image_origin = {.x = raster_box.x, .y = raster_box.y},
-        .image_size = {.x = raster_box.w, .y = raster_box.h}, .scale = scale,
-        // Glass must never replace retained client pixels or advance publication.
-        .real_pass = false, .monitor = m_port.monitor_identity(monitor)};
-    if (!m_animations.draw(transformer->handle(), draw) || !canvas.layer()) return false;
-    const hyprimate::gl::NativeMeshSamplers samplers;
-    Render::GL::CHyprOpenGLImpl::STextureRenderData texture_data{};
-    texture_data.damage = &ctx.m_data.damage;
-    texture_data.allowCustomUV = true;
-    g_pHyprRenderer->bindFB(ctx, target);
-    Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, canvas.layer()->getTexture(), canvas_box,
-        sheet_canvas_quad(), texture_data);
+    const auto state = ctx.saveDrawState();
+    g_pHyprRenderer->bindFB(ctx, underlay->image);
+    ctx.m_data.fbSize = underlay->box.size();
+    ctx.m_data.damage = CRegion{0, 0, underlay->box.w, underlay->box.h};
+    g_pHyprRenderer->setProjectionType(ctx, Render::RPT_EXPORT);
+    auto local = raw.copy().translate(-underlay->box.pos());
+    m_apply(ctx, sample, underlay->image, local, transformed,
+        alpha, radii, rounding, padding, resolve, nullptr, light, frost);
     return true;
 }
 
-CHyprglassCompat::CHyprglassCompat(HANDLE owner, HyprWindowAnimations &animations,
-    CHyprWindowPort &port) : m_impl(std::make_unique<Impl>(owner, animations, port)) {}
+CHyprglassCompat::CHyprglassCompat(HANDLE owner) : m_impl(std::make_unique<Impl>(owner)) {}
 CHyprglassCompat::~CHyprglassCompat() = default;
 void CHyprglassCompat::refresh() { m_impl->refresh(); }
+bool CHyprglassCompat::available() const { return m_impl->available(); }

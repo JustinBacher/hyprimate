@@ -41,6 +41,7 @@
 #include "window/WindowAnimations.hpp"
 #include "window/Profiling.hpp"
 #include "window/hyprland/AnimationCloseRenderer.hpp"
+#include "window/hyprland/AnimationTransformer.hpp"
 #include "window/hyprland/HyprAnimationCanvas.hpp"
 #include "window/hyprland/HyprWindowPort.hpp"
 #include "window/hyprland/HyprglassCompat.hpp"
@@ -129,7 +130,7 @@ CPluginRuntime::Impl::Impl(HANDLE handle) : m_handle(handle) {
     if (!m_workspace->install(error)) {
         notify("[hyprimate] workspace transitions unavailable: " + error);
     }
-    m_glass = std::make_unique<CHyprglassCompat>(m_handle, m_animations, m_port);
+    m_glass = std::make_unique<CHyprglassCompat>(m_handle);
     configure_workspace();
     configure_wallpaper();
     configure();
@@ -389,6 +390,9 @@ void CPluginRuntime::Impl::render_stage(const Event::SRenderStageEvent &event) {
             }
             CHyprAnimationCanvas canvas{ctx, m_port.canvas_resources()};
             m_animations.before_window(m_port.identity(PHLWINDOWREF{WINDOW}), canvas, MONITOR, m_frame);
+            if (m_glass->available()) {
+                CAnimationTransformer::prepare_window_underlay(WINDOW, ctx);
+            }
         }
     } else if (event.stage == RENDER_POST_WINDOWS && event.context) {
         CHyprAnimationCanvas canvas{event.context->get(), m_port.canvas_resources()};

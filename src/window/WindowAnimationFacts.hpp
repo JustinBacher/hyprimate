@@ -152,6 +152,8 @@ namespace hyprimate::animation {
         MonitorId monitor = 0;
         WindowId window = 0;
         FrameId frame = 0;
+        // A compositor backdrop effect may contribute pixels that cannot be replayed in captures.
+        bool includes_desktop_pixels = false;
     };
     struct ScreenFacts {
         MonitorId monitor = 0;

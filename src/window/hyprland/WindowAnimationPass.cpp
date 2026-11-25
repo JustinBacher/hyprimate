@@ -29,7 +29,11 @@ std::vector<UP<IPassElement>> CWindowAnimationPass::draw(Render::CRenderContext 
         if (m_data.close_guard) { m_data.close_guard->physical_failure(ctx); }
         return {};
     }
-    const auto valid = [&] { return !m_data.close_guard || m_data.close_guard->valid(ctx); };
+    const auto valid = [&] {
+        return (!m_data.retained_tail || !m_data.no_screen_share ||
+                   !CHyprAnimationCanvas::exports_output(ctx)) &&
+               (!m_data.close_guard || m_data.close_guard->valid(ctx));
+    };
     with_guarded_display(valid, [&](const auto &guard_display) {
         if (m_data.animations == nullptr || m_data.resources == nullptr || !m_data.image ||
             !m_data.animations->active(m_data.handle)) { return; }
