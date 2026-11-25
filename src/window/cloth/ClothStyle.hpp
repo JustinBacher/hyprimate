@@ -9,25 +9,14 @@
 #include <hyprland/src/plugins/PluginAPI.hpp>
 
 #include "config_generated.hpp"
-#include "window/WindowAnimationEntry.hpp"
-#include "window/cloth/ClothLiveState.hpp"
+#include "window/cloth/ClothResources.hpp"
 #include "window/shared/SheetMesh.hpp"
 #include "window/shared/SheetResources.hpp"
 
-struct SClothPrepared {
-    hyprimate::ClothMovementParams movement;
-    hyprimate::ClothParams open;
-    hyprimate::ClothParams close;
-};
-
-struct SClothResources : hyprimate::animation::ResourcesBase<SClothStyle,
-                             hyprimate::config::SClothSettings,
-                             SClothPrepared> {
+struct SClothResources : SClothRuntimeResources {
     explicit SClothResources(SSharedStyleResources &shared) : shade(shared.sheet_shade) {
     }
-    hyprimate::ClothPhysics physics;
     CSheetShade &shade;
-    AnimationPool animations;
 };
 struct SClothModule {
     using State = SClothStyle;

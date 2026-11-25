@@ -154,6 +154,16 @@ namespace hyprimate {
             params.gravity = std::clamp(params.gravity, 0.0, 3.0);
             return true;
         }
+        bool valid_transition(Transition kind,
+            ClothParams &params,
+            const Box &window,
+            const std::optional<ClothCloseGeometry> &geometry) noexcept {
+            return (kind == Transition::Open || kind == Transition::Close) && sanitize(params) &&
+                   valid_box(window) && valid_close_geometry(geometry);
+        }
+        bool valid_movement(ClothMovementParams &params, const Box &capture) noexcept {
+            return valid_box(capture) && sanitize(params) && params.strength > 0;
+        }
     }  // namespace
 
     ClothFlutter::ClothFlutter() = default;
@@ -186,12 +196,29 @@ namespace hyprimate {
         return *this;
     }
 
+    bool ClothFlutter::can_begin(Transition kind,
+        const ClothParams &params,
+        const Box &window,
+        std::optional<ClothCloseGeometry> geometry) noexcept {
+        auto checked = params;
+        return valid_transition(kind, checked, window, geometry);
+    }
+
+    bool ClothFlutter::can_begin_movement(
+        const ClothMovementParams &params, const Box &capture) noexcept {
+        auto checked = params;
+        return valid_movement(checked, capture);
+    }
+    bool ClothFlutter::can_update_movement(const Box &capture, double elapsed_seconds) noexcept {
+        return valid_box(capture) && std::isfinite(elapsed_seconds) && elapsed_seconds >= 0 &&
+               elapsed_seconds <= STALL_SECONDS;
+    }
+
     void ClothFlutter::begin_movement(
         const ClothMovementParams &params, std::uint64_t seed, const Box &capture) noexcept try {
         const WorkerAdmission admission;
         auto movement = params;
-        if (!admission.available() || !valid_box(capture) || !sanitize(movement) ||
-            movement.strength <= 0) {
+        if (!admission.available() || !valid_movement(movement, capture)) {
             reset();
             return;
         }
@@ -269,8 +296,7 @@ namespace hyprimate {
         if (!moving() || !m_movement || !m_movement->producer) {
             return;
         }
-        if (!valid_box(capture) || !std::isfinite(elapsed_seconds) || elapsed_seconds < 0 ||
-            elapsed_seconds > STALL_SECONDS) {
+        if (!can_update_movement(capture, elapsed_seconds)) {
             reset();
             return;
         }
@@ -301,8 +327,7 @@ namespace hyprimate {
         std::optional<ClothCloseGeometry> geometry) noexcept try {
         const WorkerAdmission admission;
         ClothParams cloth_params = params;
-        if (!admission.available() || (kind != Transition::Open && kind != Transition::Close) ||
-            !sanitize(cloth_params) || !valid_box(window) || !valid_close_geometry(geometry)) {
+        if (!admission.available() || !valid_transition(kind, cloth_params, window, geometry)) {
             reset();
             return;
         }

@@ -35,6 +35,13 @@ if(BUILD_TESTING)
     target_link_options(cloth-lease-failure-tests PRIVATE "-Wl,--wrap=pthread_mutex_lock")
     add_test(NAME cloth-lease-failure-tests COMMAND cloth-lease-failure-tests)
 
+    add_executable(cloth-style-tests src/window/cloth/tests/ClothStyleTests.cpp)
+    add_dependencies(cloth-style-tests generate-config)
+    target_include_directories(cloth-style-tests PRIVATE
+        ${CONFIG_GENERATED_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_link_libraries(cloth-style-tests PRIVATE hyprimate-core Threads::Threads ${CMAKE_DL_LIBS})
+    add_test(NAME cloth-style-tests COMMAND cloth-style-tests)
+
     add_executable(cloth-solver-tests src/window/cloth/tests/ClothSolverTests.cpp)
     target_link_libraries(cloth-solver-tests PRIVATE hyprimate-core)
     target_include_directories(cloth-solver-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)

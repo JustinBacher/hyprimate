@@ -57,6 +57,15 @@ namespace hyprimate {
         ClothFlutter &operator=(const ClothFlutter &other);
         ClothFlutter(ClothFlutter &&) noexcept;
         ClothFlutter &operator=(ClothFlutter &&) noexcept;
+        // These admission checks match begin/begin_movement without starting a worker.
+        [[nodiscard]] static bool can_begin(Transition kind,
+            const ClothParams &params,
+            const Box &window,
+            std::optional<ClothCloseGeometry> geometry = std::nullopt) noexcept;
+        [[nodiscard]] static bool can_begin_movement(
+            const ClothMovementParams &params, const Box &capture) noexcept;
+        [[nodiscard]] static bool can_update_movement(
+            const Box &capture, double elapsed_seconds) noexcept;
         // Coordinates are logical pixels. Overlapping obstacles are ignored. Close inherits an
         // active opening's displayed shape, opacity and real-time velocity. Missing close geometry
         // defaults to a downward exit just below the window; provided invalid geometry, invalid

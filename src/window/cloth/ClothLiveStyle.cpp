@@ -71,12 +71,12 @@ bool SClothModule::open(State &state, const Place &place, Resources &resources, 
     const auto EDGE =
         resolve_style_open_edge(edge_input(place, true, std::nullopt), resources.last->open);
     ClothFlutter opening;
-    opening.begin(Transition::Open,
-        resources.prepared.open,
-        place.seed,
-        place.rest_capture,
-        place.near.obstacles);
-    if (!opening.active()) {
+    if (!resources.begin(opening,
+            Transition::Open,
+            resources.prepared.open,
+            place.seed,
+            place.rest_capture,
+            place.near.obstacles)) {
         return false;
     }
     state.origin = EDGE ? std::optional{EDGE->edge} : std::nullopt;
@@ -106,7 +106,12 @@ Frame SClothModule::advance(
     }
     if (!step.dying && step.movement_enabled && step.motion && moves(*step.motion, resources) &&
         !state.cloth.moving()) {
-        state.cloth.begin_movement(state.movement, state.seed, step.motion->from_capture);
+        resources.begin_movement(state.cloth,
+            state.movement,
+            state.seed,
+            step.motion->from_capture,
+            step.motion->capture,
+            step.elapsed);
     }
     if (!step.dying && state.cloth.moving() && step.motion) {
         state.cloth.update_movement(step.motion->capture, step.elapsed);
@@ -133,13 +138,14 @@ CloseStart SClothModule::close(State &state, const Place &place, Resources &reso
     if (!EDGE) {
         return CloseStart::Declined;
     }
-    state.cloth.begin(Transition::Close,
-        resources.prepared.close,
-        place.seed,
-        place.capture,
-        place.near.obstacles,
-        ClothCloseGeometry{.edge = EDGE->edge, .screen = place.screen});
-    if (!state.cloth.active()) {
+    const ClothCloseGeometry GEOMETRY{.edge = EDGE->edge, .screen = place.screen};
+    if (!resources.begin(state.cloth,
+            Transition::Close,
+            resources.prepared.close,
+            place.seed,
+            place.capture,
+            place.near.obstacles,
+            GEOMETRY)) {
         return CloseStart::Declined;
     }
     state.capture_size = {.x = place.capture.w, .y = place.capture.h};
