@@ -74,6 +74,7 @@
 #include "workspace/WorkspaceCapture.hpp"
 #include "workspace/WorkspaceCapturePlan.hpp"
 #include "workspace/WorkspaceFrame.hpp"
+#include "workspace/WorkspaceHookLifetime.hpp"
 #include "workspace/WorkspaceIdentity.hpp"
 #include "workspace/WorkspaceProfiling.hpp"
 #include "workspace/WorkspaceStyleList.hpp"
@@ -401,6 +402,7 @@ class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
 
     bool install(std::string &error);
     void shutdown();
+    void finish_shutdown();
     void on_render_stage(const Event::SRenderStageEvent &event);
     void configure(const hyprimate::config::SWorkspaceSettings &settings, bool force);
     template <class Style>
@@ -517,6 +519,7 @@ class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
     static void damage(const PHLMONITOR &monitor);
 
     HANDLE m_handle = nullptr;
+    hyprimate::workspace::WorkspaceHookLifetime m_hook_lifetime;
     std::uint64_t m_lifecycle = 0;
     std::uint64_t m_gesture_revision = 0;
     int m_style_draw_depth = 0;

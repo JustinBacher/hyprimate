@@ -340,7 +340,8 @@ namespace {
         float strength,
         const CRegion &damage,
         const Render::SBlurContext &context) {
-        const auto *manager = active();
+        auto *manager = active();
+        const hyprimate::workspace::WorkspaceHookLifetime::Scope scope{manager};
         auto function = original<BlurFn>(manager != nullptr ? manager->m_blur_hook : nullptr);
         if (function == nullptr) {
             return nullptr;
@@ -376,7 +377,8 @@ namespace {
         bool popups,
         bool lockscreen,
         bool workspace_scene) {
-        const auto *manager = active();
+        auto *manager = active();
+        const hyprimate::workspace::WorkspaceHookLifetime::Scope scope{manager};
         const auto ORIGINAL =
             original<LayerFn>(manager != nullptr ? manager->m_layer_hook : nullptr);
         if (ORIGINAL == nullptr) {
@@ -401,6 +403,7 @@ namespace {
         bool no_mouse_move,
         bool no_focus) {
         auto *manager = active();
+        const hyprimate::workspace::WorkspaceHookLifetime::Scope scope{manager};
         auto function = original<ChangeFn>(manager != nullptr ? manager->m_change_hook : nullptr);
         if (function == nullptr) {
             return;
@@ -444,6 +447,7 @@ namespace {
 
     void hook_special(Monitor::CMonitor *self, const PHLWORKSPACE &workspace, bool no_focus) {
         auto *manager = active();
+        const hyprimate::workspace::WorkspaceHookLifetime::Scope scope{manager};
         auto function = original<SpecialFn>(manager != nullptr ? manager->m_special_hook : nullptr);
         if (function == nullptr) {
             return;
@@ -482,6 +486,7 @@ namespace {
         bool carry_focus,
         bool replace) {
         auto *manager = active();
+        const hyprimate::workspace::WorkspaceHookLifetime::Scope scope{manager};
         auto function = original<MoveFn>(manager != nullptr ? manager->m_move_hook : nullptr);
         if (function == nullptr) {
             return;
@@ -520,6 +525,7 @@ namespace {
     void hook_swap(
         const State::Workspace::CPlacementController *self, PHLMONITOR first, PHLMONITOR second) {
         auto *manager = active();
+        const hyprimate::workspace::WorkspaceHookLifetime::Scope scope{manager};
         auto function = original<SwapFn>(manager != nullptr ? manager->m_swap_hook : nullptr);
         if (function == nullptr) {
             return;
@@ -557,6 +563,7 @@ namespace {
         bool instant,
         std::optional<std::string> style) {
         auto *manager = active();
+        const hyprimate::workspace::WorkspaceHookLifetime::Scope scope{manager};
         auto function = original<AnimateFn>(manager != nullptr ? manager->m_animate_hook : nullptr);
         if (function == nullptr) {
             return;
@@ -628,6 +635,7 @@ namespace {
         const Vector2D &translate,
         const float &scale) {
         auto *manager = active();
+        const hyprimate::workspace::WorkspaceHookLifetime::Scope scope{manager};
         auto function = manager != nullptr ? manager->render_original() : nullptr;
         if (function == nullptr) {
             return;
@@ -646,7 +654,8 @@ namespace {
         Render::CRenderContext &ctx,
         PHLMONITOR monitor,
         const Time::steady_tp &now) {
-        const auto *manager = active();
+        auto *manager = active();
+        const hyprimate::workspace::WorkspaceHookLifetime::Scope scope{manager};
         auto function = manager != nullptr ? manager->drag_original() : nullptr;
         if (function == nullptr || (manager != nullptr && manager->m_capture_depth > 0)) {
             return;
@@ -656,9 +665,9 @@ namespace {
 
     bool hook_gesture_begin(CUnifiedWorkspaceSwipeGesture *gesture, PHLMONITOR monitor) {
         auto *manager = active();
+        const hyprimate::workspace::WorkspaceHookLifetime::Scope scope{manager};
         auto function =
             original<GestureBeginFn>(manager != nullptr ? manager->m_gesture_begin_hook : nullptr);
-        const auto owner_pin = manager ? manager->shared_from_this() : nullptr;
         if (function == nullptr) {
             return false;
         }
@@ -676,6 +685,7 @@ namespace {
 
     bool hook_gesture_end(CUnifiedWorkspaceSwipeGesture *gesture) {
         auto *manager = active();
+        const hyprimate::workspace::WorkspaceHookLifetime::Scope scope{manager};
         auto function =
             original<GestureEndFn>(manager != nullptr ? manager->m_gesture_end_hook : nullptr);
         // Detach the outgoing gesture before native code can begin another one.
@@ -687,6 +697,7 @@ namespace {
 
     void hook_gesture_cancel(CUnifiedWorkspaceSwipeGesture *gesture) {
         auto *manager = active();
+        const hyprimate::workspace::WorkspaceHookLifetime::Scope scope{manager};
         auto function =
             original<GestureVoidFn>(manager != nullptr ? manager->m_gesture_cancel_hook : nullptr);
         if (manager != nullptr) {
@@ -814,6 +825,7 @@ namespace {
         bool ignore_position,
         bool standalone) {
         auto *manager = active();
+        const hyprimate::workspace::WorkspaceHookLifetime::Scope scope{manager};
         const auto ORIGINAL =
             original<WindowFn>(manager != nullptr ? manager->m_window_hook : nullptr);
         if (ORIGINAL == nullptr) {
@@ -1227,7 +1239,12 @@ namespace {
 CWorkspaceAnimation::Impl *CWorkspaceAnimation::Impl::s_active = nullptr;
 
 bool CWorkspaceAnimation::Impl::install(std::string &error) {
+    if (m_hook_lifetime.busy()) {
+        error = "cannot install workspace hooks during a hook callback";
+        return false;
+    }
     shutdown();
+    m_hook_lifetime.reset();
     struct Spec {
         const char *name = nullptr;
         const char *signature = nullptr;
@@ -1420,6 +1437,10 @@ void CWorkspaceAnimation::Impl::on_render_stage(const Event::SRenderStageEvent &
 }
 
 void CWorkspaceAnimation::Impl::shutdown() {
+    m_hook_lifetime.request<&Impl::finish_shutdown>(*this);
+}
+
+void CWorkspaceAnimation::Impl::finish_shutdown() {
     if (s_active == this) {
         s_active = nullptr;
     }
