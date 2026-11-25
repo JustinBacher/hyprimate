@@ -127,6 +127,7 @@ SP<Render::IFramebuffer> render_sheet(Render::CRenderContext &ctx, const SSheetD
         return nullptr;
     }
 
+    // Requested while paper_layer is held, so the pool cannot return the same buffer twice.
     const bool LIT =
         draw.shade && (draw.shade_vertices != nullptr) && !draw.shade_vertices->empty();
     const auto SHADE_LAYER =
