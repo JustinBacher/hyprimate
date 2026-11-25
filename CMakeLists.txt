@@ -81,6 +81,7 @@ add_library(hyprimate SHARED
     src/window/hyprland/HyprWindowIdentity.cpp
     src/window/hyprland/AnimationCloseHooks.cpp
     src/window/hyprland/CloseRenderGuard.cpp
+    src/window/hyprland/AnimationCloseAssociation.cpp
     src/window/hyprland/HyprWindowPort.cpp
     src/window/hyprland/HyprWindowVisuals.cpp
     src/window/hyprland/HyprAnimationCanvas.cpp
