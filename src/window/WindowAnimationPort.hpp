@@ -111,6 +111,7 @@ namespace hyprimate::animation {
         { constant.observe(window) } -> std::same_as<std::optional<Observation>>;
         { constant.mapped_blur_required(window) } -> std::same_as<bool>;
         { constant.session_unlocked() } -> std::same_as<bool>;
+        { constant.workspace_switch(monitor) } -> std::same_as<bool>;
         { constant.tail_source_allowed(window, window_id, true) } -> std::same_as<bool>;
         { port.neighbourhood(window) } -> std::same_as<Neighbourhood>;
         { port.warp_body(window, box) } -> std::same_as<void>;

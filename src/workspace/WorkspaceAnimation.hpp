@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -26,6 +27,8 @@ class CWorkspaceAnimation {
     void configure(const hyprimate::config::SWorkspaceSettings &settings, bool force);
     void on_render_pre_checks(const PHLMONITOR &monitor);
     void on_render_pre(const PHLMONITOR &monitor);
+    [[nodiscard]] bool turn_active(const PHLMONITOR &monitor) const;
+    void set_prepare_capture(std::function<void(const PHLMONITOR &)> callback);
     void remove_monitor(const PHLMONITOR &monitor);
     void clear();
 

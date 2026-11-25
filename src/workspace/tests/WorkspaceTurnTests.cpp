@@ -74,9 +74,15 @@ namespace {
         CHECK(blocks_surface_feedback(CaptureKind::SourceIsolated));
         CHECK(!blocks_surface_feedback(CaptureKind::DestinationLive));
         CHECK(blocks_surface_feedback(CaptureKind::DestinationIsolated));
+        CHECK(blocks_surface_feedback(CaptureKind::DestinationTurnIsolated));
         CHECK(is_workspace_switch_capture(CaptureKind::SourceIsolated));
         CHECK(is_workspace_switch_capture(CaptureKind::DestinationLive));
+        CHECK(is_workspace_switch_capture(CaptureKind::DestinationTurnIsolated));
         CHECK(!is_workspace_switch_capture(CaptureKind::DestinationIsolated));
+        CHECK(turn_capture_kind(CaptureKind::DestinationLive, true) == CaptureKind::DestinationTurnIsolated);
+        CHECK(turn_capture_kind(CaptureKind::DestinationLive, false) == CaptureKind::DestinationLive);
+        CHECK(turn_capture_kind(CaptureKind::SourceIsolated, true) == CaptureKind::SourceIsolated);
+        CHECK(turn_capture_kind(CaptureKind::DestinationIsolated, true) == CaptureKind::DestinationIsolated);
         CHECK(native_workspace_switch(true, false, false, false, false));
         CHECK(native_workspace_switch(false, true, false, false, false));
         CHECK(native_workspace_switch(false, false, true, true, true));

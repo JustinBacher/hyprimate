@@ -152,6 +152,7 @@ using workspace_animation_detail::TurnKind;
 class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
   public:
     explicit Impl(HANDLE handle);
+    std::function<void(const PHLMONITOR &)> prepare_capture;
     ~Impl() {
         shutdown();
     }

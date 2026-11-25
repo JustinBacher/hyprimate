@@ -15,6 +15,21 @@ namespace hyprimate::animation {
         return detail::translated(STATE->bounds, {capture.x, capture.y});
     }
     template <class Port, class... Styles>
+    Box CWindowAnimations<Port, StyleList<Styles...>>::planned_extents(
+        Handle handle, const Box &capture) const {
+        auto bounds = extents(handle, capture);
+        if (!m_policy.during_workspace_switch) {
+            // Planning has no render context. Include native input even when a
+            // later workspace pass bypasses the animation transformer.
+            const double left = std::min(bounds.x, capture.x);
+            const double top = std::min(bounds.y, capture.y);
+            const double right = std::max(bounds.x + bounds.w, capture.x + capture.w);
+            const double bottom = std::max(bounds.y + bounds.h, capture.y + capture.h);
+            bounds = {.x = left, .y = top, .w = right - left, .h = bottom - top};
+        }
+        return bounds;
+    }
+    template <class Port, class... Styles>
     bool CWindowAnimations<Port, StyleList<Styles...>>::tail_allowed(
         Handle handle, const Canvas &canvas, bool retained_no_screen_share) const {
         const auto *entry = record(handle);

@@ -159,9 +159,10 @@ void CAnimationCloseRenderer::finish_monitor_frame(const PHLMONITOR &monitor, Re
         if (FOUND == m_records.end()) { return; }
         FOUND->awaiting_physical_queue = false;
         const auto VIEW = m_animations.dying_view_for(FOUND->fadeout);
-        // No scene was attempted for a damage-free frame. In a damaged frame a
-        // missing plane (e.g. workspace switch) must not leave native suppressed.
-        if (VIEW && VIEW->public_close_only && !ctx.m_data.finalDamage.empty()) {
+        // A deliberate workspace fallback is not a failed physical submission.
+        if (hyprimate::animation::missing_public_close_plane_failed(VIEW && VIEW->public_close_only,
+                !ctx.m_data.finalDamage.empty(),
+                m_animations.allows_draw(CHyprAnimationCanvas{ctx, m_port.canvas_resources()}))) {
             m_animations.interrupt_public_close(VIEW->handle);
         }
     }

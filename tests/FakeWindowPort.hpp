@@ -82,11 +82,16 @@ namespace hyprimate::animation::test {
             return blurred_windows.contains(window);
         }
         std::map<MonitorId, ScreenFacts> monitors;
+        std::set<MonitorId> workspace_switches;
+        [[nodiscard]] bool workspace_switch(MonitorId monitor) const {
+            return workspace_switches.contains(monitor);
+        }
         std::map<std::uint64_t, FadeoutFacts> fadeouts;
         std::map<WindowId, Handle> transformers;
         std::vector<Visual> visuals;
         std::vector<Box> damage_log;
         std::vector<MonitorId> scheduled, scanout;
+        std::vector<Box> visible_output_boxes;
         std::vector<WindowId> detached, forgotten, alpha_settled, backdrop_captures;
         std::set<std::uint64_t> suppressed;
         int suppress_requests = 0;
@@ -241,6 +246,19 @@ namespace hyprimate::animation::test {
         }
         std::span<const MonitorId> monitors_overlapping(const Box & /*box*/) {
             return overlapping;
+        }
+        std::span<const Box> visible_outputs(Vec2 offset) {
+            visible_output_boxes.clear();
+            for (const auto &[id, monitor] : monitors) {
+                (void)id;
+                auto box = monitor.screen;
+                box.x -= offset.x;
+                box.y -= offset.y;
+                if (is_usable(box)) {
+                    visible_output_boxes.push_back(box);
+                }
+            }
+            return visible_output_boxes;
         }
         void capture_backdrop(Handle handle, WindowRef window, Canvas &canvas) {
             backdrop_captures.push_back(window);

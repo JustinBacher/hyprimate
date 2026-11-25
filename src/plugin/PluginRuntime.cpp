@@ -120,6 +120,11 @@ CPluginRuntime::Impl::Impl(HANDLE handle) : m_handle(handle) {
         notify("[hyprimate] close transitions unavailable: " + error);
     }
     m_workspace = std::make_unique<CWorkspaceAnimation>(m_handle);
+    m_workspace->set_prepare_capture([this](const PHLMONITOR &monitor) {
+        if (!m_config.duringWorkspaceSwitch && monitor) {
+            m_animations.prepare_workspace_capture(m_port.monitor_identity(monitor));
+        }
+    });
     error.clear();
     if (!m_workspace->install(error)) {
         notify("[hyprimate] workspace transitions unavailable: " + error);
@@ -359,7 +364,7 @@ void CPluginRuntime::Impl::render_pre(const PHLMONITOR &monitor) {
     restore_scanout();
     if (monitor) {
         if (!m_config.duringWorkspaceSwitch) {
-            m_port.update_workspace_switch(monitor);
+            m_port.update_workspace_switch(monitor, m_workspace->turn_active(monitor));
         }
         m_animations.frame({.monitor = m_port.monitor_identity(monitor),
             .frame = ++m_frame,

@@ -55,6 +55,8 @@ namespace hyprimate::animation {
         void bind_fadeout(
             WindowId window_id, const FadeoutFacts &fadeout, Port::RetainedImage image);
         void frame(const FrameStamp &stamp);
+        // Restore plugin-driven bodies before capturing either endpoint of a turn.
+        void prepare_workspace_capture(MonitorId monitor);
         void before_window(
             WindowId window_id, Canvas &canvas, MonitorId render_monitor = 0, FrameId render_frame = 0);
         void before_windows(MonitorId monitor, Canvas &canvas);
@@ -75,6 +77,7 @@ namespace hyprimate::animation {
         bool suppresses(std::uint64_t fadeout) const;
         void native_finished(std::uint64_t fadeout);
         Box extents(Handle handle, const Box &capture) const;
+        Box planned_extents(Handle handle, const Box &capture) const;
         [[nodiscard]] bool allows_draw(const Canvas &canvas) const {
             return m_policy.during_workspace_switch || !canvas.workspace_switch();
         }

@@ -160,7 +160,7 @@ bool CAnimationTransformer::blocksDirectScanout() const {
 }
 
 CBox CAnimationTransformer::transformedExtents(const CBox &current_box) const {
-    return active() ? to_cbox(m_animations.extents(m_handle, to_box(current_box))) : current_box;
+    return active() ? to_cbox(m_animations.planned_extents(m_handle, to_box(current_box))) : current_box;
 }
 
 CBox CAnimationTransformer::sourceBoxForOutput(
@@ -198,7 +198,7 @@ SWindowTransformBuffer CAnimationTransformer::transform(CRenderContext &ctx,
     }
     const CBox CANVAS = pixelBoxForLogical(context.outputBox.copy().expand(1.0 / SCALE), SCALE);
     const CBox SOURCE = context.currentBox.copy().scale(SCALE);
-    const CBox OUTPUT = transformedExtents(context.currentBox).scale(SCALE);
+    const CBox OUTPUT = to_cbox(m_animations.extents(m_handle, to_box(context.currentBox))).scale(SCALE);
     const auto SIZE = input.framebuffer->getTexture()->m_size;
     if (m_handle.style == hyprimate::config::Style::Construction &&
         (context.inputBox != context.currentBox || input.box.size() != SIZE)) {

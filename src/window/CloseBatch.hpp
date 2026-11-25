@@ -99,6 +99,11 @@ namespace hyprimate::animation {
         return model.suppresses(fadeout);
     }
 
+    constexpr bool missing_public_close_plane_failed(
+        bool public_close, bool damaged, bool workspace_effects_allowed) {
+        return public_close && damaged && workspace_effects_allowed;
+    }
+
     // Style code can re-enter the host between drawing a layer and displaying it.
     // Check before touching queued model state, then again at the composite.
     template <class Valid, class Draw>

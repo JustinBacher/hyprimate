@@ -295,7 +295,7 @@ SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::capture_preview(const Invent
             OWNER,
             scratch,
             resources,
-            TurnKind::SourceIsolated,
+            TurnKind::DestinationIsolated,
             DRAW,
             &data,
             [](void *context) { return static_cast<DrawData *>(context)->allowed(); }) &&

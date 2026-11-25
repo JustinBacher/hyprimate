@@ -49,10 +49,60 @@ namespace {
         CHECK(window.body.w == BODY.w && window.body.h == BODY.h);
         animations.end_all();
     }
+    void workspace_switch_preserves_native_geometry_and_liquid_timeline() {
+        for (const bool starts_during_switch : {false, true}) {
+            using Module = CWindowAnimations<test::FakeWindowPort, StyleList<SLiquidModule>>;
+            test::FakeWindowPort port;
+            Module::Resources resources;
+            Module animations(port, resources);
+            animations.configure({.style = SLiquidModule::KIND, .enabled = true, .opening = true,
+                .during_workspace_switch = false});
+            SLiquidModule::Settings settings{};
+            settings.open.duration = 1000.0F;
+            settings.open.strength = 0.65F;
+            animations.update_settings<SLiquidModule>(settings);
+            constexpr Box screen{.x = 0, .y = 0, .w = 800, .h = 600};
+            constexpr Box body{.x = 300, .y = 350, .w = 200, .h = 160};
+            port.monitors.emplace(1, ScreenFacts{.monitor = 1, .screen = screen, .work_area = screen});
+            auto &window = port.windows[1];
+            window = {.window = 1, .monitor = 1, .workspace = 1, .body = body, .capture = body,
+                .goal_body = body, .screen = screen, .work_area = screen, .mapped = true,
+                .animating_in = true};
+            if (starts_during_switch) {
+                port.workspace_switches.insert(1);
+            }
+            animations.track(1);
+            animations.frame({.monitor = 1, .frame = 1, .now = port.advance(1.0 / 60)});
+            const auto handle = port.transformers.at(1);
+            if (!starts_during_switch) {
+                CHECK(window.body.y >= screen.h - 1);
+                animations.prepare_workspace_capture(1);
+                port.workspace_switches.insert(1);
+            }
+            CHECK(detail::same_box(window.body, body));
+            window.animating_in = false;
+            for (FrameId frame = 2; frame <= 5; ++frame) {
+                animations.frame({.monitor = 1, .frame = frame, .now = port.advance(1.0 / 60)});
+                CHECK(detail::same_box(window.body, body));
+                CHECK(animations.active(handle));
+            }
+            port.workspace_switches.erase(1);
+            animations.frame({.monitor = 1, .frame = 6, .now = port.advance(1.0 / 60)});
+            CHECK(animations.active(handle));
+            CHECK(!detail::same_box(window.body, body));
+            for (FrameId frame = 7; frame <= 180 && animations.active(handle); ++frame) {
+                animations.frame({.monitor = 1, .frame = frame, .now = port.advance(1.0 / 60)});
+            }
+            CHECK(!animations.active(handle));
+            CHECK(detail::same_box(window.body, body));
+            animations.end_all();
+        }
+    }
 }  // namespace
 
 int main() {
     opening_emerges_and_returns_to_layout_goal();
+    workspace_switch_preserves_native_geometry_and_liquid_timeline();
     SLiquidResources resources;
     SLiquidModule::Settings settings{};
     settings.open.duration = -1.0F;  // Unset duration from read_config.

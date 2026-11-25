@@ -2,7 +2,9 @@
 
 namespace hyprimate::workspace {
 
-    enum class CaptureKind { SourceIsolated, DestinationLive, DestinationIsolated };
+    enum class CaptureKind {
+        SourceIsolated, DestinationLive, DestinationTurnIsolated, DestinationIsolated
+    };
 
     // Only the live destination stands in for a native output scene.
     constexpr bool blocks_surface_feedback(CaptureKind kind) {
@@ -12,6 +14,12 @@ namespace hyprimate::workspace {
     // Inventory previews are isolated captures, but not either endpoint of a turn.
     constexpr bool is_workspace_switch_capture(CaptureKind kind) {
         return kind != CaptureKind::DestinationIsolated;
+    }
+
+    constexpr CaptureKind turn_capture_kind(CaptureKind kind, bool reuse_captures) {
+        return kind == CaptureKind::DestinationLive && reuse_captures
+                   ? CaptureKind::DestinationTurnIsolated
+                   : kind;
     }
 
     constexpr bool native_workspace_switch(bool offset_animating, bool alpha_animating,

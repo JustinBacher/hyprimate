@@ -1645,9 +1645,7 @@ bool CWorkspaceAnimation::Impl::capture(MonitorState &entry,
         }
     }
     // A shader must never see the monitor's potentially stale preblur cache.
-    const auto capture_kind = kind == TurnKind::DestinationLive && entry.port.reuse_captures()
-                                  ? TurnKind::DestinationIsolated
-                                  : kind;
+    const auto capture_kind = hyprimate::workspace::turn_capture_kind(kind, entry.port.reuse_captures());
     const auto RESOURCES = hyprimate::workspace::blocks_surface_feedback(capture_kind)
                                ? entry.source_resources
                                : monitor->resources()->sceneResources();
@@ -1715,6 +1713,9 @@ bool CWorkspaceAnimation::Impl::capture(MonitorState &entry,
             target == entry.source ? entry.source_wallpaper : entry.destination_wallpaper;
     }
     const ScopedCapture CAPTURE_SCOPE{m_capture_depth};
+    if (prepare_capture) {
+        prepare_capture(monitor);
+    }
     const bool CAPTURED = hyprimate::workspace::capture_workspace(*g_pHyprRenderer,
         m_begin_render,
         monitor,
@@ -2497,6 +2498,13 @@ void CWorkspaceAnimation::on_render_pre(const PHLMONITOR &monitor) {
     const auto impl = m_impl;
     const auto output = monitor;
     impl->pre_render(output);
+}
+bool CWorkspaceAnimation::turn_active(const PHLMONITOR &monitor) const {
+    const auto *turn = m_impl->turn(monitor);
+    return turn && turn->active();
+}
+void CWorkspaceAnimation::set_prepare_capture(std::function<void(const PHLMONITOR &)> callback) {
+    m_impl->prepare_capture = std::move(callback);
 }
 void CWorkspaceAnimation::remove_monitor(const PHLMONITOR &monitor) {
     const auto impl = m_impl;

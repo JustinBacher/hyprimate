@@ -318,6 +318,11 @@ namespace hyprimate::animation {
             return;
         }
         if (entry.awaiting_close_presentation) {
+            if (!m_policy.during_workspace_switch && m_port.workspace_switch(stamp.monitor)) {
+                // The physical close plane is deliberately absent during the switch.
+                // Preserve the first-frame receipt deadline until it can be displayed.
+                entry.last_step = stamp.now;
+            }
             if (std::chrono::duration<double>(stamp.now - entry.last_step).count() >
                 STALL_WINDOW_SECONDS) {
                 interrupt_public_close(CURRENT_HANDLE);

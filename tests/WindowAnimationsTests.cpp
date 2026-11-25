@@ -2945,6 +2945,114 @@ namespace {
             CHECK(fixture.module.draw(CLOSE->handle, DRAW));
         }
     }
+    void workspace_switch_preserves_public_close_receipt() {
+        CHECK(missing_public_close_plane_failed(true, true, true));
+        CHECK(!missing_public_close_plane_failed(true, true, false));
+        CHECK(!missing_public_close_plane_failed(true, false, true));
+        CHECK(!missing_public_close_plane_failed(false, true, true));
+
+        Fixture fixture;
+        fixture.policy.close_style = Effect::KIND;
+        fixture.policy.during_workspace_switch = false;
+        fixture.module.configure(fixture.policy);
+        fixture.window(1, 1, false);
+        fixture.module.close(1, fixture.port.now);
+        const auto handle = fixture.module.pending_for(1);
+        CHECK(handle);
+        if (!handle) return;
+        fixture.module.bind_fadeout(1, fixture.fade(708), {.id = 7});
+        CHECK(fixture.module.suppresses(708));
+        fixture.port.workspace_switches.insert(1);
+        fixture.frame(1, 3.0);
+        fixture.frame(1, 3.0);
+        CHECK(fixture.module.active(*handle) && fixture.module.suppresses(708));
+        CHECK(fixture.resources.get<Effect>().log.steps.empty());
+        fixture.port.workspace_switches.erase(1);
+        fixture.frame(1);
+        CHECK(fixture.module.active(*handle) && fixture.module.suppresses(708));
+        fixture.module.confirm_public_close_presented(*handle, fixture.port.now, true);
+        fixture.frame(1);
+        CHECK(fixture.module.active(*handle));
+        CHECK(fixture.resources.get<Effect>().log.steps.size() == 1);
+    }
+    void workspace_switch_driven_geometry_and_planning() {
+        Fixture fixture;
+        fixture.policy.during_workspace_switch = false;
+        fixture.module.configure(fixture.policy);
+        fixture.window(1);
+        fixture.window(2, 2);
+        const Box goal = fixture.port.windows.at(1).goal_body;
+        const Box driven{.x = 130, .y = 140, .w = 35, .h = 25};
+        fixture.log().drive = driven;
+        fixture.frame(1);
+        fixture.frame(2);
+        const auto handle = fixture.handle();
+        CHECK(detail::same_box(fixture.port.windows.at(1).body, driven));
+        CHECK(detail::same_box(fixture.port.windows.at(2).body, driven));
+
+        // Source capture can happen synchronously before a turn becomes active.
+        fixture.module.prepare_workspace_capture(1);
+        CHECK(detail::same_box(fixture.port.windows.at(1).body, goal));
+        CHECK(detail::same_box(fixture.port.windows.at(2).body, driven));
+        CHECK(fixture.module.active(handle));
+        fixture.port.workspace_switches.insert(1);
+        const auto steps = fixture.log().steps.size();
+        fixture.frame(1);
+        fixture.frame(1);
+        CHECK(fixture.log().steps.size() == steps + 2);
+        CHECK(detail::same_box(fixture.port.windows.at(1).body, goal));
+        CHECK(fixture.module.active(handle));
+
+        // Native extents must remain in the planned output even when the
+        // animation's bounds are smaller than its input.
+        const Box capture{.x = 10, .y = 20, .w = 160, .h = 140};
+        const auto bounds = fixture.module.planned_extents(handle, capture);
+        CHECK(detail::same_box(bounds, capture));
+        const Box smaller{.x = 10, .y = 20, .w = 30, .h = 20};
+        CHECK(detail::same_box(fixture.module.planned_extents(handle, smaller),
+            Box{.x = 10, .y = 20, .w = 100, .h = 80}));
+        fixture.policy.during_workspace_switch = true;
+        fixture.module.configure(fixture.policy);
+        const auto animated = fixture.module.planned_extents(handle, capture);
+        CHECK(detail::same_box(animated, Box{.x = 10, .y = 20, .w = 100, .h = 80}));
+        fixture.frame(1);
+        CHECK(detail::same_box(fixture.port.windows.at(1).body, driven));
+
+        // A native switch also releases an already-driven window without a capture.
+        fixture.policy.during_workspace_switch = false;
+        fixture.module.configure(fixture.policy);
+        fixture.frame(1);
+        CHECK(detail::same_box(fixture.port.windows.at(1).body, goal));
+        fixture.port.workspace_switches.erase(1);
+        fixture.frame(1);
+        CHECK(detail::same_box(fixture.port.windows.at(1).body, driven));
+        fixture.port.workspace_switches.insert(1);
+        fixture.log().running = false;
+        fixture.frame(1);
+        CHECK(detail::same_box(fixture.port.windows.at(1).body, goal));
+        CHECK(!fixture.module.active(handle));
+
+        Fixture default_policy;
+        default_policy.window(1);
+        default_policy.log().drive = driven;
+        default_policy.frame(1);
+        default_policy.module.prepare_workspace_capture(1);
+        CHECK(detail::same_box(default_policy.port.windows.at(1).body, driven));
+        default_policy.port.workspace_switches.insert(1);
+        default_policy.frame(1);
+        CHECK(detail::same_box(default_policy.port.windows.at(1).body, driven));
+
+        Fixture retargeted;
+        retargeted.policy.during_workspace_switch = false;
+        retargeted.module.configure(retargeted.policy);
+        retargeted.window(1);
+        retargeted.log().drive = driven;
+        retargeted.frame(1);
+        const Box new_goal{.x = 220, .y = 110, .w = 140, .h = 100};
+        retargeted.port.windows.at(1).goal_body = new_goal;
+        retargeted.module.prepare_workspace_capture(1);
+        CHECK(detail::same_box(retargeted.port.windows.at(1).body, new_goal));
+    }
     void close_lookup_survives_view_scratch_rebuild() {
         Fixture fixture;
         fixture.window(1);
@@ -3027,6 +3135,8 @@ int main() try {
     queued_close_rechecks_session();
     close_batch_capacity_fallback_and_reentry();
     workspace_switch_presentation_policy();
+    workspace_switch_preserves_public_close_receipt();
+    workspace_switch_driven_geometry_and_planning();
     close_lookup_survives_view_scratch_rebuild();
     backdrop_failure_preserves_close_content();
     close_draw_rechecks_callback_invalidation();

@@ -44,12 +44,12 @@ void CHyprWindowPort::bind(HyprWindowAnimations &module) {
     m_module = &module;
 }
 
-void CHyprWindowPort::update_workspace_switch(const PHLMONITOR &monitor) {
+void CHyprWindowPort::update_workspace_switch(const PHLMONITOR &monitor, bool plugin_turn) {
     if (!monitor) {
         return;
     }
     const bool GESTURE = g_pUnifiedWorkspaceSwipe && g_pUnifiedWorkspaceSwipe->isGestureInProgress();
-    bool active = false;
+    bool active = plugin_turn;
     for (const auto &workspace : State::Workspace::state()->workspaces()) {
         if (workspace->m_monitor.lock() != monitor) {
             continue;
@@ -73,6 +73,16 @@ void CHyprWindowPort::update_workspace_switch(const PHLMONITOR &monitor) {
         }
     }
     states.push_back({.monitor = monitor, .active = active});
+}
+
+bool CHyprWindowPort::workspace_switch(MonitorId monitor) const {
+    const auto output = monitor_for(monitor);
+    for (const auto &state : m_canvas_resources.workspace_switches) {
+        if (output && state.monitor.lock() == output) {
+            return state.active;
+        }
+    }
+    return false;
 }
 
 void CHyprWindowPort::forget_workspace_switch(const PHLMONITOR &monitor) {

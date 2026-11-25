@@ -23,6 +23,23 @@ namespace hyprimate::animation {
         m_port.damage_window(tracked_window.window);
     }
     template <class Port, class... Styles>
+    void CWindowAnimations<Port, StyleList<Styles...>>::prepare_workspace_capture(MonitorId monitor) {
+        if (m_policy.during_workspace_switch) {
+            return;
+        }
+        for (auto &window : m_tracked) {
+            if (!window.driven) {
+                continue;
+            }
+            const auto observation = m_port.observe(window.window);
+            if (!observation || observation->monitor != monitor) {
+                continue;
+            }
+            release_drive(window);
+            window.previous = m_port.observe(window.window);
+        }
+    }
+    template <class Port, class... Styles>
     bool CWindowAnimations<Port, StyleList<Styles...>>::apply(
         Tracked &tracked_window, const Observation &observation, const Effects &effects) {
         if ((effects.drive_body && effects.snap_to_goal) ||
@@ -36,6 +53,13 @@ namespace hyprimate::animation {
         }
         if (effects.release_body) {
             release_drive(tracked_window);
+        }
+        if (!m_policy.during_workspace_switch && m_port.workspace_switch(observation.monitor)) {
+            release_drive(tracked_window);
+            if (effects.settle_native_open_alpha) {
+                m_port.settle_open_alpha(tracked_window.window);
+            }
+            return true;
         }
         if (effects.drive_body || effects.snap_to_goal) {
             if (!tracked_window.driven) {
@@ -261,6 +285,15 @@ namespace hyprimate::animation {
         auto observation = sample_window(window, stamp);
         if (!observation) {
             return;
+        }
+        if (!m_policy.during_workspace_switch && m_port.workspace_switch(stamp.monitor) &&
+            window.driven) {
+            release_drive(window);
+            observation = m_port.observe(window.window);
+            if (!observation) {
+                return;
+            }
+            window.previous = *observation;
         }
         std::optional<Motion> motion;
         const bool WORKSPACE_MOVEMENT = m_policy.workspace_movement && !observation->pinned;
