@@ -1,6 +1,7 @@
 target_sources(hyprimate-core PRIVATE
     src/window/burn/BurnDynamics.cpp
     src/window/burn/BurnGround.cpp
+    src/window/burn/BurnGroundMovement.cpp
 )
 
 target_sources(hyprimate PRIVATE
