@@ -1013,6 +1013,45 @@ namespace {
         }
     }
 
+    void test_tangential_midpoint_numeric_domain() {
+        const double NAN_VALUE = std::numeric_limits<double>::quiet_NaN();
+        const double INF = std::numeric_limits<double>::infinity();
+        for (const double ENDPOINT : {NAN_VALUE, INF, -INF}) {
+            EdgeFrame frame = QUARTER;
+            frame.body_t0 = ENDPOINT;
+            EdgeTransition transition;
+            transition.begin(Transition::Open, frame, TransitionParams{}, STRENGTH);
+            CHECK(!transition.active());
+        }
+
+        // Both positive and negative endpoints can overflow their sum even though their
+        // midpoint and difference are representable. The close starts at full spread, where
+        // an infinite midpoint multiplied by zero would still contaminate the map.
+        for (const auto &[T0, T1, CENTRE] :
+            std::array<std::array<double, 3>, 3>{{
+                {1e308, 1.1e308, 1.05e308},
+                {-1.1e308, -1e308, -1.05e308},
+                {0.0, std::numeric_limits<double>::denorm_min(), 0.0},
+            }}) {
+            EdgeFrame frame = QUARTER;
+            frame.body_t0 = T0;
+            frame.body_t1 = T1;
+            for (const Transition KIND : {Transition::Open, Transition::Close}) {
+                EdgeTransition transition;
+                transition.begin(KIND, frame, TransitionParams{}, STRENGTH);
+                CHECK(transition.active());
+                const Vec2 BEAD = transition.bead_centre();
+                const Vec2 MAPPED = transition.map({0.0, 0.0}, CAPTURE);
+                CHECK(std::isfinite(BEAD.x) && std::isfinite(BEAD.y));
+                CHECK(std::isfinite(MAPPED.x) && std::isfinite(MAPPED.y));
+                CHECK(BEAD.x == (KIND == Transition::Open ? CENTRE : 0.0));
+                CHECK(MAPPED.x == (KIND == Transition::Open ? CENTRE : 0.0));
+                CHECK(std::isfinite(transition.meniscus_low()));
+                CHECK(std::isfinite(transition.meniscus_high()));
+            }
+        }
+    }
+
     // Invalid input.
     void test_invalid_inputs() {
         constexpr double K_NA_N = std::numeric_limits<double>::quiet_NaN();
@@ -1072,6 +1111,7 @@ int main() try {
     test_close_interrupting_open_neck_decays_then_splashes();
     test_close_splash_agrees_across_refresh_rates();
     test_duration_retimes_the_visible_transition();
+    test_tangential_midpoint_numeric_domain();
     test_invalid_inputs();
     return g_failures == 0 ? 0 : 1;
 } catch (...) {

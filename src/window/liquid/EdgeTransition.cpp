@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <numeric>
 #include <optional>
 #include <span>
 
@@ -145,7 +146,8 @@ namespace hyprimate {
         const double ELASTICITY = std::clamp(params.elasticity, 0.0, 1.0);
         const double MOMENTUM = std::clamp(params.momentum, 0.0, 1.0);
         const double STRENGTH_SCALE = std::clamp(strength / REFERENCE_STRENGTH, 0.25, 1.5);
-        const double WIDTH = m_frame.body_t1 - m_frame.body_t0;
+        const double WIDTH = std::min(
+            m_frame.body_t1 - m_frame.body_t0, std::numeric_limits<double>::max());
         const double DEPTH = m_frame.body_far - m_frame.body_near;
         m_half_n = m_frame.capture_far - m_frame.edge_distance;
         // The capture contains the body, so its tangential half-extent is at least width / 2; using
@@ -236,7 +238,7 @@ namespace hyprimate {
         const Vec2 INWARD = inward_normal(m_frame.edge);
         const Vec2 ALONG = HORIZONTAL ? Vec2{.x = 1.0, .y = 0.0} : Vec2{.x = 0.0, .y = 1.0};
         const double TANGENT_CENTRE =
-            0.5 * (m_frame.body_t0 + m_frame.body_t1) * (1.0 - m_spread_t.value);
+            std::midpoint(m_frame.body_t0, m_frame.body_t1) * (1.0 - m_spread_t.value);
         const double NORMAL_CENTRE = m_nc - m_frame.edge_distance;
         return {
             .x = (ALONG.x * TANGENT_CENTRE) + (INWARD.x * NORMAL_CENTRE),
@@ -281,7 +283,7 @@ namespace hyprimate {
             mapping.inv_exponent = 1.0 / mapping.exponent;
         }
 
-        const double CENTRE_T = 0.5 * (m_frame.body_t0 + m_frame.body_t1);
+        const double CENTRE_T = std::midpoint(m_frame.body_t0, m_frame.body_t1);
         mapping.t_base = CENTRE_T * (1.0 - SPREAD_T);
         mapping.t_scale = m_radius + ((mapping.half_t - m_radius) * SPREAD_T);
         // The normal extent comes from `size`, like the tangential one: the frame's capture is
@@ -530,7 +532,7 @@ namespace hyprimate {
     }
 
     double EdgeTransition::meniscus(double tangent) const noexcept {
-        const double CENTRE = 0.5 * (m_frame.body_t0 + m_frame.body_t1);
+        const double CENTRE = std::midpoint(m_frame.body_t0, m_frame.body_t1);
         double peak_height = 0.0;
         for (const Lobe &lobe : m_profile.lobes) {
             if (!(lobe.height > 0.0)) {
@@ -554,7 +556,7 @@ namespace hyprimate {
     }
 
     double EdgeTransition::meniscus_low() const noexcept {
-        const double CENTRE = 0.5 * (m_frame.body_t0 + m_frame.body_t1);
+        const double CENTRE = std::midpoint(m_frame.body_t0, m_frame.body_t1);
         double low = CENTRE;
         bool any = false;
         for (const Lobe &lobe : m_profile.lobes) {
@@ -569,7 +571,7 @@ namespace hyprimate {
     }
 
     double EdgeTransition::meniscus_high() const noexcept {
-        const double CENTRE = 0.5 * (m_frame.body_t0 + m_frame.body_t1);
+        const double CENTRE = std::midpoint(m_frame.body_t0, m_frame.body_t1);
         double high = CENTRE;
         bool any = false;
         for (const Lobe &lobe : m_profile.lobes) {
