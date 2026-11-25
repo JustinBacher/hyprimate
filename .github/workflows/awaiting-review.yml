@@ -1,0 +1,99 @@
+# Close only open issues currently labeled Awaiting Review, using the latest
+# label event timestamp. actions/stale also provides the repository's standard
+# stale handling, but its inactivity/comment rules alone cannot measure label age.
+# Daily scheduling and API pagination can delay a close by at least one run.
+#
+# actions/stale will not add/remove Awaiting Review; PR closing is disabled.
+name: awaiting-review
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  close-awaiting-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v10
+        with:
+          only-issue-labels: Awaiting Review
+          stale-issue-label: Awaiting Review
+          days-before-issue-stale: -1
+          days-before-issue-close: 7
+          remove-issue-stale-when-updated: false
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+      - name: Close issues labeled for over seven days
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labelName = 'Awaiting Review';
+            const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+            const { owner, repo } = context.repo;
+
+            const latestLabelEvent = async (issue_number) => {
+              const events = await github.paginate(
+                github.rest.issues.listEvents,
+                { owner, repo, issue_number, per_page: 100 }
+              );
+              return events
+                .filter(event =>
+                  event.label?.name === labelName &&
+                  (event.event === 'labeled' || event.event === 'unlabeled')
+                )
+                .reduce((latest, event) => {
+                  if (!latest) return event;
+                  const time = Date.parse(event.created_at);
+                  const latestTime = Date.parse(latest.created_at);
+                  return time > latestTime || (time === latestTime && event.id > latest.id)
+                    ? event
+                    : latest;
+                }, null);
+            };
+
+            const isOlderThanSevenDays = event => {
+              const timestamp = Date.parse(event?.created_at ?? '');
+              return Number.isFinite(timestamp) && Date.now() - timestamp > sevenDaysMs;
+            };
+
+            const hasAwaitingReview = issue =>
+              issue.labels.some(label =>
+                (typeof label === 'string' ? label : label.name) === labelName
+              );
+
+            const issues = await github.paginate(
+              github.rest.issues.listForRepo,
+              { owner, repo, state: 'open', labels: labelName, per_page: 100 }
+            );
+
+            for (const issue of issues) {
+              if (issue.pull_request || !hasAwaitingReview(issue)) continue;
+
+              const event = await latestLabelEvent(issue.number);
+              if (!event || event.event !== 'labeled' || !isOlderThanSevenDays(event)) continue;
+
+              // Recheck both current state and label history immediately before closing.
+              const current = await github.rest.issues.get({
+                owner, repo, issue_number: issue.number
+              });
+              const latest = await latestLabelEvent(issue.number);
+              if (
+                current.data.state !== 'open' ||
+                !hasAwaitingReview(current.data) ||
+                !latest ||
+                latest.event !== 'labeled' ||
+                !isOlderThanSevenDays(latest)
+              ) continue;
+
+              core.info(`Closing issue #${issue.number}: Awaiting Review label is over seven days old.`);
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: issue.number,
+                state: 'closed',
+                state_reason: 'not_planned'
+              });
+            }
