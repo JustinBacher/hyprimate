@@ -16,6 +16,7 @@ add_custom_target(generate-swarm-shaders DEPENDS ${CONFIG_GENERATED_DIR}/swarm_s
 
 target_sources(hyprimate-core PRIVATE
     src/window/swarm/Swarm.cpp
+    src/window/swarm/SwarmStep.cpp
     src/window/swarm/SwarmSprite.cpp
 )
 
