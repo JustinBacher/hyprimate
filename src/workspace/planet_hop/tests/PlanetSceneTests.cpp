@@ -59,6 +59,47 @@ namespace {
             .placement = static_cast<std::uint64_t>(number) * 2};
     }
 
+    void owner_extents_have_lattice_clearance() {
+        constexpr std::array<double, 5> ASPECTS{1, 2, .5, 4, 8};
+        const auto endpoint = [](std::uint64_t slot, double aspect, double offset) {
+            return JourneyEndpoint{.identity = static_cast<std::int64_t>(slot + 1),
+                .placement = slot,
+                .owner = slot + 1,
+                .monitor_x = offset,
+                .monitor_y = -offset,
+                .monitor_width = 1080 * aspect,
+                .monitor_height = 1080};
+        };
+        const auto separated = [](const JourneyEndpoint &first,
+                                   const JourneyEndpoint &second,
+                                   const SceneOptions &options) {
+            const auto A = layout_position(first, options);
+            const auto B = layout_position(second, options);
+            const double DIAMETER = 2 * (options.planet_size + std::abs(options.elevation));
+            return std::hypot(A.x - B.x, A.y - B.y, A.z - B.z) >= DIAMETER - 1e-9;
+        };
+        for (const auto LAYOUT : {Layout::Monitor, Layout::All, Layout::SolarSystem}) {
+            SceneOptions options;
+            options.planet_layout = LAYOUT;
+            options.planet_separation = .1;  // Exercise the minimum clearance.
+            options.solar_vertical_spread = 0;
+            CHECK(separated(endpoint(1, 2, 0), endpoint(7, 1, 0), options));
+            for (std::uint64_t first = 0; first < 16; ++first) {
+                for (std::uint64_t second = first + 1; second < 16; ++second) {
+                    for (const double FIRST_ASPECT : ASPECTS) {
+                        for (const double SECOND_ASPECT : ASPECTS) {
+                            for (const double OFFSET : {-10000., 0., 10000.}) {
+                                CHECK(separated(endpoint(first, FIRST_ASPECT, OFFSET),
+                                    endpoint(second, SECOND_ASPECT, -OFFSET),
+                                    options));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     void motion_is_continuous_and_direct() {
         SceneOptions options;
         options.planet_layout = Layout::SolarSystem;
@@ -298,6 +339,7 @@ namespace {
 
 int main() {
     planet_scene_layout_tests::layouts_are_deterministic_and_locked();
+    owner_extents_have_lattice_clearance();
     planet_scene_layout_tests::topology_scope_and_geometry_are_independent();
     planet_scene_layout_tests::projected_topology_preserves_native_handoff();
     planet_scene_layout_tests::origin_and_named_handoffs_have_no_foreground_inventory();

@@ -9,6 +9,8 @@ namespace hyprimate::workspace::planet_hop {
     namespace {
         constexpr double CIRCLE_PI = std::numbers::pi;
         constexpr double FOCAL = 2.414213562373095;  // 45 degree vertical field of view.
+        // Shared by every owner; owner-specific scaling would alias distinct cells.
+        constexpr double LATTICE_SCALE = 1.7;
 
         double finite(double value, double fallback) {
             return std::isfinite(value) ? value : fallback;
@@ -107,13 +109,12 @@ namespace hyprimate::workspace::planet_hop {
             // The radial scale leaves clearance between adjacent golden-angle samples.
             const auto SLOT = static_cast<double>(endpoint.placement);
             const double ANGLE = std::fmod(SLOT * 2.399963229728653, 2 * CIRCLE_PI);
-            const double CELL = spacing(options) * .8;
+            const double CELL = spacing(options) * .8 * LATTICE_SCALE;
             const double RADIUS = CELL * std::sqrt(SLOT + 1);
             const double HEIGHT = positive(endpoint.monitor_height, 1);
             const double OWNER_DEPTH = std::tanh(finite(endpoint.monitor_x, 0) / HEIGHT) -
                                        std::tanh(finite(endpoint.monitor_y, 0) / HEIGHT);
-            return {.x = RADIUS * std::cos(ANGLE) *
-                         std::max(1.0, positive(endpoint.monitor_width, 1) / HEIGHT),
+            return {.x = RADIUS * std::cos(ANGLE),
                 .y = RADIUS * std::sin(ANGLE) * (1 + options.solar_vertical_spread),
                 .z = CELL * ((.7 * variation(endpoint.placement)) + (.3 * OWNER_DEPTH))};
         }
@@ -142,20 +143,15 @@ namespace hyprimate::workspace::planet_hop {
         if (OPTIONS.planet_layout == Layout::SolarSystem) {
             return solar_position(endpoint, OPTIONS);
         }
-        auto position = hex_position(endpoint.placement, SPACING);
-        const double OWNER_ASPECT =
-            positive(endpoint.monitor_width, 1) / positive(endpoint.monitor_height, 1);
-        position.x *= std::max(1.0, OWNER_ASPECT);
-        // Bounded owner offsets preserve physical orientation without allowing a
-        // monitor translation to alias another durable workspace's hex cell.
-        position.x += SPACING * .1 * std::max(1.0, OWNER_ASPECT) *
-                      std::tanh(finite(endpoint.monitor_x, 0) / 1080);
+        auto position = hex_position(endpoint.placement, SPACING * LATTICE_SCALE);
+        // Offsets are bounded independently of owner aspect, leaving a clearance
+        // margin around the shared lattice cells.
+        position.x += SPACING * .1 * std::tanh(finite(endpoint.monitor_x, 0) / 1080);
         position.y -= SPACING * .1 * std::tanh(finite(endpoint.monitor_y, 0) / 1080);
         if (OPTIONS.planet_layout == Layout::All) {
             // Compact tilted constellations retain identity in the image plane.
             // Never put an owner's entire inventory on the camera's landing ray.
-            position.x += SPACING * .05 * std::max(1.0, OWNER_ASPECT) *
-                          std::tanh(positive(endpoint.monitor_width, 1) / 1080);
+            position.x += SPACING * .05 * std::tanh(positive(endpoint.monitor_width, 1) / 1080);
             position.y -= SPACING * .05 * std::tanh(positive(endpoint.monitor_height, 1) / 1080);
             position.z = SPACING * .5 * variation(endpoint.placement);
         } else {
@@ -237,10 +233,8 @@ namespace hyprimate::workspace::planet_hop {
         }
         if (options.planet_layout == Layout::SolarSystem) {
             auto &path = result.solar_path;
-            path.from_aspect =
-                std::max(1.0, positive(from.monitor_width, 1) / positive(from.monitor_height, 1));
-            path.to_aspect = std::max(1.0,
-                positive(destination.monitor_width, 1) / positive(destination.monitor_height, 1));
+            path.from_aspect = 1;
+            path.to_aspect = 1;
             const Vec3 FIRST{result.source_center.x / path.from_aspect,
                 result.source_center.y / (1 + options.solar_vertical_spread),
                 0};
