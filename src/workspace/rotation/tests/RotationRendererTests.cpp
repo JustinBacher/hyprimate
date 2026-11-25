@@ -9,6 +9,7 @@
 #include "GlHarness.hpp"
 #include "workspace/rotation/RotationGeometry.hpp"
 #include "workspace/rotation/RotationRenderer.hpp"
+#include "workspace/rotation/RotationShaders.hpp"
 
 namespace {
     constexpr int WIDTH = 96;

@@ -5,6 +5,7 @@
 #include "workspace/rotation/RotationGeometry.hpp"
 #include "workspace/rotation/RotationRenderer.hpp"
 #ifndef HYPRIMATE_ROTATION_RAW_ONLY
+#include "workspace/rotation/RotationShaders.hpp"
 #include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/Framebuffer.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
