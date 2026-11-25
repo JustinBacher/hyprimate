@@ -270,6 +270,11 @@ if(BUILD_TESTING)
     target_include_directories(window-mesh-abi-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_link_libraries(window-mesh-abi-tests PRIVATE PkgConfig::HYPRLAND)
 
+    add_library(workspace-style-coverage-tests OBJECT src/workspace/tests/WorkspaceStyleCoverageTests.cpp)
+    add_dependencies(workspace-style-coverage-tests generate-config)
+    target_include_directories(workspace-style-coverage-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CONFIG_GENERATED_DIR})
+    target_link_libraries(workspace-style-coverage-tests PRIVATE PkgConfig::HYPRLAND)
+
     add_executable(sheet-mesh-tests tests/SheetMeshTests.cpp)
     target_link_libraries(sheet-mesh-tests PRIVATE hyprimate-core)
     target_include_directories(sheet-mesh-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)

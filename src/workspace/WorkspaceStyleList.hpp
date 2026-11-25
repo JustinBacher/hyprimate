@@ -64,21 +64,23 @@ namespace hyprimate::workspace {
         static consteval bool valid() {
             if constexpr (!(WorkspaceStyle<Styles> && ...)) {
                 return false;
-            }
-            constexpr std::array<config::WorkspaceStyle, sizeof...(Styles)> KINDS{Styles::KIND...};
-            if (sizeof...(Styles) != config::WORKSPACE_STYLES.size()) {
-                return false;
-            }
-            for (const auto EXPECTED : config::WORKSPACE_STYLES) {
-                unsigned count = 0;
-                for (const auto ACTUAL : KINDS) {
-                    count += ACTUAL == EXPECTED;
-                }
-                if (count != 1) {
+            } else {
+                constexpr std::array<config::WorkspaceStyle, sizeof...(Styles)> KINDS{
+                    Styles::KIND...};
+                if (sizeof...(Styles) != config::WORKSPACE_STYLES.size()) {
                     return false;
                 }
+                for (const auto EXPECTED : config::WORKSPACE_STYLES) {
+                    unsigned count = 0;
+                    for (const auto ACTUAL : KINDS) {
+                        count += ACTUAL == EXPECTED;
+                    }
+                    if (count != 1) {
+                        return false;
+                    }
+                }
+                return UniqueResources<Styles...>::value;
             }
-            return UniqueResources<Styles...>::value;
         }
     };
 

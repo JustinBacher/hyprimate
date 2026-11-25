@@ -48,11 +48,41 @@ namespace planet_renderer_tests {
         CHECK(!renderer.prepare_depth(MALFORMED));
         CHECK(!renderer.has_depth_image());
         std::filesystem::remove(MALFORMED);
+        const std::string EMPTY = PATH + ".empty";
+        {
+            std::ofstream empty(EMPTY, std::ios::trunc);
+        }
+        CHECK(!renderer.prepare_depth(EMPTY));
+        CHECK(!renderer.depth_error().empty());
+        CHECK(renderer.depth_error().find("exceeds") == std::string::npos);
+        std::filesystem::remove(EMPTY);
         png_image image{};
         image.version = PNG_IMAGE_VERSION;
         image.width = image.height = 2;
         image.format = PNG_FORMAT_GRAY;
         constexpr std::array<unsigned char, 4> PIXELS{0, 85, 170, 255};
+        // Neither a missing file nor a failed decode may poison this path's cache.
+        const std::string RETRY_MISSING = PATH + ".missing";
+        std::filesystem::remove(RETRY_MISSING);
+        CHECK(!renderer.prepare_depth(RETRY_MISSING));
+        CHECK(png_image_write_to_file(
+                  &image, RETRY_MISSING.c_str(), 0, PIXELS.data(), 0, nullptr) != 0);
+        CHECK(renderer.prepare_depth(RETRY_MISSING));
+        CHECK(renderer.has_depth_image());
+        CHECK(renderer.depth_error().empty());
+        std::filesystem::remove(RETRY_MISSING);
+        const std::string RETRY_INVALID = PATH + ".invalid";
+        {
+            std::ofstream invalid(RETRY_INVALID);
+            invalid << "not a PNG";
+        }
+        CHECK(!renderer.prepare_depth(RETRY_INVALID));
+        CHECK(png_image_write_to_file(
+                  &image, RETRY_INVALID.c_str(), 0, PIXELS.data(), 0, nullptr) != 0);
+        CHECK(renderer.prepare_depth(RETRY_INVALID));
+        CHECK(renderer.has_depth_image());
+        CHECK(renderer.depth_error().empty());
+        std::filesystem::remove(RETRY_INVALID);
         CHECK(png_image_write_to_file(&image, PATH.c_str(), 0, PIXELS.data(), 0, nullptr) != 0);
         CHECK(renderer.prepare_depth(PATH));
         CHECK(renderer.has_depth_image());

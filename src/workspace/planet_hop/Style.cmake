@@ -43,6 +43,28 @@ if(BUILD_TESTING)
     target_link_libraries(planet-spring-tests PRIVATE hyprimate-core PkgConfig::PLANET_HYPRUTILS)
     add_test(NAME planet-spring-tests COMMAND planet-spring-tests)
 
+    add_executable(planet-curves-tests
+        src/workspace/planet_hop/tests/PlanetCurvesTests.cpp
+        src/workspace/planet_hop/PlanetCurves.cpp)
+    target_include_directories(planet-curves-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_compile_options(planet-curves-tests PRIVATE -ffunction-sections -fdata-sections)
+    target_link_options(planet-curves-tests PRIVATE "LINKER:--gc-sections"
+        "LINKER:--wrap=_ZN9Hyprutils9Animation17CAnimationManager12bezierExistsERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE")
+    target_link_libraries(planet-curves-tests PRIVATE
+        hyprimate-core PkgConfig::HYPRLAND PkgConfig::PLANET_LUA PkgConfig::PLANET_HYPRUTILS)
+    add_test(NAME planet-curves-tests COMMAND planet-curves-tests)
+
+    add_executable(planet-depth-io-tests
+        src/workspace/planet_hop/tests/PlanetDepthIoTests.cpp
+        src/workspace/planet_hop/PlanetDepth.cpp)
+    target_include_directories(planet-depth-io-tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_link_libraries(planet-depth-io-tests PRIVATE PNG::PNG)
+    target_link_options(planet-depth-io-tests PRIVATE "LINKER:--wrap=open"
+        "LINKER:--wrap=_ZNSt10filesystem9file_sizeERKNS_7__cxx114pathERSt10error_code")
+    add_test(NAME planet-depth-io-tests COMMAND planet-depth-io-tests)
+    set_tests_properties(planet-depth-io-tests PROPERTIES TIMEOUT 10)
+
     add_executable(planet-scene-tests src/workspace/planet_hop/tests/PlanetSceneTests.cpp
         src/workspace/planet_hop/tests/PlanetSceneLayoutTests.cpp
         src/workspace/planet_hop/tests/PlanetSceneSurfaceTests.cpp)

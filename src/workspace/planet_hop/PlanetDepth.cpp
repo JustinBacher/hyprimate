@@ -1,9 +1,12 @@
-#include <filesystem>
-#include <fstream>
+#include <cerrno>
+#include <cstdint>
 #include <iterator>
 #include <new>
 
+#include <fcntl.h>
 #include <png.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "workspace/planet_hop/PlanetGlRenderer.hpp"
 
@@ -25,21 +28,46 @@ namespace hyprimate::workspace {
                     return true;
                 }
                 constexpr std::uintmax_t MAX_FILE = 16ULL * 1024ULL * 1024ULL;
-                std::error_code error;
-                if (!std::filesystem::is_regular_file(path, error)) {
+                const int FD = open(path.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+                if (FD < 0) {
+                    depth_error = "cannot open depthSource";
+                    return false;
+                }
+                struct FileGuard {
+                    int fd;
+                    ~FileGuard() {
+                        close(fd);
+                    }
+                } file{FD};
+                struct stat info{};
+                if (fstat(FD, &info) != 0) {
+                    depth_error = "cannot inspect depthSource";
+                    return false;
+                }
+                if (!S_ISREG(info.st_mode)) {
                     depth_error = "depthSource must be a regular PNG file";
                     return false;
                 }
-                const auto SIZE = std::filesystem::file_size(path, error);
-                if (error || SIZE == 0 || SIZE > MAX_FILE) {
+                if (info.st_size <= 0) {
+                    depth_error = "depthSource is empty";
+                    return false;
+                }
+                if (static_cast<std::uintmax_t>(info.st_size) > MAX_FILE) {
                     depth_error = "depthSource exceeds the 16 MiB compressed input limit";
                     return false;
                 }
-                std::ifstream input(path, std::ios::binary);
-                std::vector<char> bytes(static_cast<std::size_t>(SIZE));
-                if (!input.read(bytes.data(), static_cast<std::streamsize>(bytes.size()))) {
-                    depth_error = "cannot read depthSource";
-                    return false;
+                std::vector<char> bytes(static_cast<std::size_t>(info.st_size));
+                std::size_t offset = 0;
+                while (offset < bytes.size()) {
+                    const auto COUNT = read(FD, bytes.data() + offset, bytes.size() - offset);
+                    if (COUNT < 0 && errno == EINTR) {
+                        continue;
+                    }
+                    if (COUNT <= 0) {
+                        depth_error = "cannot read depthSource";
+                        return false;
+                    }
+                    offset += static_cast<std::size_t>(COUNT);
                 }
                 png_image image{};
                 image.version = PNG_IMAGE_VERSION;
@@ -75,7 +103,7 @@ namespace hyprimate::workspace {
             m_depth_pixels = std::move(pixels);
             m_depth_width = width;
             m_depth_height = height;
-            m_depth_prepared = true;
+            m_depth_prepared = PREPARED;
             m_depth_dirty = true;
             return PREPARED;
         } catch (const std::bad_alloc &) {

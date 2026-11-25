@@ -34,14 +34,17 @@ namespace hyprimate::workspace::planet_hop {
         if (s_owner == nullptr) {
             return luaL_error(state, "planet_hop is not loaded");
         }
-        const char *name = luaL_checkstring(state, 1);
-        luaL_argcheck(state, name[0] != '\0', 1, "empty curve name");
+        std::size_t name_length = 0;
+        const char *name = luaL_checklstring(state, 1, &name_length);
+        const std::string_view NAME(name, name_length);
+        luaL_argcheck(state, !NAME.empty(), 1, "empty curve name");
+        luaL_argcheck(state, NAME.find('\0') == std::string_view::npos, 1, "invalid curve name");
         luaL_checktype(state, 2, LUA_TTABLE);
         lua_getfield(state, 2, "type");
-        luaL_argcheck(state,
-            std::string_view(luaL_checkstring(state, -1)) == "spring",
-            2,
-            "expected type = 'spring'");
+        std::size_t type_length = 0;
+        const char *type = luaL_checklstring(state, -1, &type_length);
+        luaL_argcheck(
+            state, std::string_view(type, type_length) == "spring", 2, "expected type = 'spring'");
         lua_pop(state, 1);
         const auto NUMBER = [state](const char *field, float fallback, bool allow_zero) {
             lua_getfield(state, 2, field);
@@ -56,25 +59,39 @@ namespace hyprimate::workspace::planet_hop {
         spring.mass = NUMBER("mass", spring.mass, false);
         spring.stiffness = NUMBER("stiffness", spring.stiffness, false);
         spring.damping = NUMBER("damping", spring.damping, true);
-        s_owner->m_springs.insert_or_assign(name, spring);
+        s_owner->m_springs.insert_or_assign(std::string(NAME), spring);
         s_owner->m_changed();
         return 0;
     }
 
-    Transition::Curve PlanetCurves::resolve(const std::string &name, double seconds) const {
+    PlanetCurves::Selection PlanetCurves::resolve(const std::string &name, double seconds) const {
         constexpr std::string_view PREFIX = "spring:";
         const bool EXPLICIT = name.starts_with(PREFIX);
         const std::string SUFFIX = EXPLICIT ? name.substr(PREFIX.size()) : std::string{};
         const auto &key = EXPLICIT ? SUFFIX : name;
         if (!EXPLICIT) {
             if (const auto LOCAL = m_springs.find(name); LOCAL != m_springs.end()) {
-                return spring_curve(LOCAL->second, seconds);
+                auto curve = spring_curve(LOCAL->second, seconds);
+                if (curve) {
+                    return {Selection::Kind::Spring, std::move(curve)};
+                }
+                auto &manager = Animation::mgr();
+                return manager && manager->bezierExists(name)
+                           ? Selection{Selection::Kind::Bezier, {}}
+                           : Selection{};
             }
         }
         auto &manager = Animation::mgr();
-        if (!manager || (!EXPLICIT && manager->bezierExists(name)) || !manager->springExists(key)) {
+        if (!manager) {
             return {};
         }
-        return spring_curve(*manager->getSpring(key), seconds);
+        if (!EXPLICIT && manager->bezierExists(name)) {
+            return {Selection::Kind::Bezier, {}};
+        }
+        if (!manager->springExists(key)) {
+            return {};
+        }
+        auto curve = spring_curve(*manager->getSpring(key), seconds);
+        return curve ? Selection{Selection::Kind::Spring, std::move(curve)} : Selection{};
     }
 }  // namespace hyprimate::workspace::planet_hop

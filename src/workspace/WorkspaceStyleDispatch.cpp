@@ -1,3 +1,5 @@
+#include <concepts>
+
 #include "workspace/WorkspaceAnimationImpl.hpp"
 
 CWorkspaceAnimation::Impl::Impl(HANDLE handle) : m_handle(handle) {
@@ -187,18 +189,39 @@ void CWorkspaceAnimation::Impl::configure_style(bool enabled, Style::Resources &
             return {};
         }
         const std::string NAME(requested_curve);
+        bool known = false;
+        using Selection = hyprimate::workspace::Transition::CurveSelection;
         if constexpr (requires {
-                          resources.curves.resolve(NAME, resources.settings.prepared.duration);
+                          {
+                              resources.curves.resolve(NAME, resources.settings.prepared.duration)
+                          } -> std::same_as<Selection>;
                       }) {
-            if (auto curve = resources.curves.resolve(NAME, resources.settings.prepared.duration)) {
-                if (m_lifecycle != lifecycle) {
-                    return {};
-                }
-                m_invalid_curve.reset();
-                return curve;
+            auto selection = resources.curves.resolve(NAME, resources.settings.prepared.duration);
+            if (m_lifecycle != lifecycle) {
+                return {};
             }
+            using Kind = Selection::Kind;
+            if (selection.kind == Kind::Spring) {
+                m_invalid_curve.reset();
+                return std::move(selection.curve);
+            }
+            known = selection.kind == Kind::Bezier;
+        } else {
+            if constexpr (requires {
+                              resources.curves.resolve(NAME, resources.settings.prepared.duration);
+                          }) {
+                if (auto curve =
+                        resources.curves.resolve(NAME, resources.settings.prepared.duration)) {
+                    if (m_lifecycle != lifecycle) {
+                        return {};
+                    }
+                    m_invalid_curve.reset();
+                    return curve;
+                }
+            }
+            known = manager->bezierExists(NAME);
         }
-        const bool KNOWN = manager->bezierExists(NAME);
+        const bool KNOWN = known;
         if (!KNOWN && (!m_invalid_curve || *m_invalid_curve != NAME)) {
             HyprlandAPI::addNotification(m_handle,
                 "[hyprimate] Unknown workspace curve '" + NAME +

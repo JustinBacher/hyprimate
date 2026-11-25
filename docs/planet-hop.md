@@ -23,6 +23,10 @@ hl.config({ plugin = { hyprimate = { workspace = {
 
 `curve` accepts a native `hl.curve` Bézier or spring name. A spring declared with `hl.plugin.planet_hop.curve` is private to Planet Hop and takes precedence for a bare name. Use `spring:name` to explicitly select a native spring. Planet Hop uses Hyprutils' mass, stiffness, damping and step response. Unlike a native property that can overshoot and settle on its own schedule, the camera has two endpoints and a deadline: Planet Hop fits the spring's rising response to the duration, ending at its first peak or its settling tolerance rather than replaying rebounds or a stationary tail.
 
+An unresolved explicit `spring:name` is invalid, not a Bézier name: the last valid curve is retained,
+or the native default is used when none exists. Lua curve names and types containing embedded NULs
+are rejected rather than truncated.
+
 | `planet_layout` | Worlds and placement |
 |---|---|
 | `focused` | Only the source and destination; a direct flight framed around that pair. |
@@ -37,6 +41,10 @@ The scene uses real workspaces, never placeholders for missing workspace numbers
 Use `window_mode = "floating"` and adjust `elevation` for rectangular, separately anchored windows. Use `overlay_mode = "hud"` to keep panels screen-aligned. Set `sampling_quality = 0` to reduce tessellation and material sampling without turning off lighting, depth, clouds, stars or atmosphere. These effects and rotation each have their own switch. `depth_source` accepts a grayscale PNG depth map in wallpaper/screen coordinates (top row first); with no usable map, the renderer uses subtle procedural relief, not wallpaper luminance. See the [generated settings table](../README.md) for all ranges, defaults and switches.
 
 The plugin links libpng to decode the configured `depth_source` at runtime. The GPU samples the resulting texture during the hop; frames do not decode the PNG again.
+
+Depth maps must be regular files. Loading opens and validates the same descriptor without waiting on
+a FIFO, and a failed load is retried on the next preparation, so installing or repairing a PNG at
+the same path does not require changing the setting.
 
 ## Capture and safety
 

@@ -14,6 +14,8 @@ struct lua_State;
 namespace hyprimate::workspace::planet_hop {
     class PlanetCurves {
       public:
+        using Selection = Transition::CurveSelection;
+
         bool install(void *handle, std::function<void()> changed);
         ~PlanetCurves();
         PlanetCurves() = default;
@@ -22,7 +24,7 @@ namespace hyprimate::workspace::planet_hop {
         PlanetCurves(PlanetCurves &&) = delete;
         PlanetCurves &operator=(PlanetCurves &&) = delete;
 
-        [[nodiscard]] Transition::Curve resolve(const std::string &name, double seconds) const;
+        [[nodiscard]] Selection resolve(const std::string &name, double seconds) const;
 
       private:
         static int define(lua_State *state);
