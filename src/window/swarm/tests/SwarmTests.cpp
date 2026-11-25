@@ -211,10 +211,10 @@ namespace {
         params.cohesion = 1.0;
         params.separation = 1.0;
         Swarm swarm;
-        swarm.begin(Transition::Open, params, 0x53a9u, placement(), sides({Edge::Left}));
-        std::uint64_t checksum = 14695981039346656037ull;
+        swarm.begin(Transition::Open, params, 0x53a9U, placement(), sides({Edge::Left}));
+        std::uint64_t checksum = 14695981039346656037ULL;
         const auto MIX = [&checksum](std::uint64_t value) {
-            checksum = (checksum ^ value) * 1099511628211ull;
+            checksum = (checksum ^ value) * 1099511628211ULL;
         };
         for (int frame = 0; frame < 300; ++frame) {
             swarm.advance(FRAME);
@@ -230,7 +230,7 @@ namespace {
                     (static_cast<std::uint64_t>(agent.gone) << 3));
             }
         }
-        CHECK(checksum == 10005184937473135830ull);
+        CHECK(checksum == 10005184937473135830ULL);
     }
 
     void close_lets_go_in_no_order_and_leaves_through_its_side() {

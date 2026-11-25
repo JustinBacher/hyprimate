@@ -50,60 +50,60 @@ namespace {
 
     std::uint64_t frame_checksum(const SmokeFrame &frame) {
         std::uint64_t hash = 14695981039346656037ULL;
-        const auto word = [&](std::uint64_t value) {
+        const auto WORD = [&](std::uint64_t value) {
             hash = (hash ^ value) * 1099511628211ULL;
         };
-        const auto scalar = [&](double value) { word(std::bit_cast<std::uint64_t>(value)); };
-        const auto vector = [&](Vec2 value) {
-            scalar(value.x);
-            scalar(value.y);
+        const auto SCALAR = [&](double value) { WORD(std::bit_cast<std::uint64_t>(value)); };
+        const auto VECTOR = [&](Vec2 value) {
+            SCALAR(value.x);
+            SCALAR(value.y);
         };
-        vector(frame.size);
-        vector(frame.velocity);
-        vector(frame.lag);
-        vector(frame.carry);
-        vector(frame.position);
-        vector(frame.offset);
-        scalar(frame.time);
-        scalar(frame.seed);
-        scalar(frame.smoke);
-        scalar(frame.presence);
-        scalar(frame.turbulence);
-        scalar(frame.trail);
-        scalar(frame.life);
-        scalar(frame.trail_length);
-        scalar(frame.trail_thickness);
-        scalar(frame.gather);
-        scalar(frame.cohesion);
-        scalar(frame.dispersal);
-        scalar(frame.fade);
-        scalar(frame.mass);
-        scalar(frame.drag_follow);
-        scalar(frame.contraction);
-        scalar(frame.settle);
-        scalar(frame.mass_size);
-        scalar(frame.mass_roundness);
-        scalar(frame.transit);
-        vector(frame.head);
-        vector(frame.head_velocity);
-        vector(frame.head_lag);
-        vector(frame.head_half);
-        scalar(frame.head_radius);
-        vector(frame.origin_uv);
-        scalar(frame.order);
-        scalar(frame.attract);
-        scalar(frame.wind);
-        vector(frame.edge_point);
-        vector(frame.edge_dir);
-        word(frame.color);
-        scalar(frame.density);
-        scalar(frame.variation);
-        word(frame.close_source_body.has_value());
+        VECTOR(frame.size);
+        VECTOR(frame.velocity);
+        VECTOR(frame.lag);
+        VECTOR(frame.carry);
+        VECTOR(frame.position);
+        VECTOR(frame.offset);
+        SCALAR(frame.time);
+        SCALAR(frame.seed);
+        SCALAR(frame.smoke);
+        SCALAR(frame.presence);
+        SCALAR(frame.turbulence);
+        SCALAR(frame.trail);
+        SCALAR(frame.life);
+        SCALAR(frame.trail_length);
+        SCALAR(frame.trail_thickness);
+        SCALAR(frame.gather);
+        SCALAR(frame.cohesion);
+        SCALAR(frame.dispersal);
+        SCALAR(frame.fade);
+        SCALAR(frame.mass);
+        SCALAR(frame.drag_follow);
+        SCALAR(frame.contraction);
+        SCALAR(frame.settle);
+        SCALAR(frame.mass_size);
+        SCALAR(frame.mass_roundness);
+        SCALAR(frame.transit);
+        VECTOR(frame.head);
+        VECTOR(frame.head_velocity);
+        VECTOR(frame.head_lag);
+        VECTOR(frame.head_half);
+        SCALAR(frame.head_radius);
+        VECTOR(frame.origin_uv);
+        SCALAR(frame.order);
+        SCALAR(frame.attract);
+        SCALAR(frame.wind);
+        VECTOR(frame.edge_point);
+        VECTOR(frame.edge_dir);
+        WORD(frame.color);
+        SCALAR(frame.density);
+        SCALAR(frame.variation);
+        WORD(static_cast<std::uint64_t>(frame.close_source_body.has_value()));
         if (frame.close_source_body) {
-            vector(frame.close_source_body->half);
-            scalar(frame.close_source_body->radius);
-            vector(frame.close_source_body->offset);
-            vector(frame.close_source_body->stretch);
+            VECTOR(frame.close_source_body->half);
+            SCALAR(frame.close_source_body->radius);
+            VECTOR(frame.close_source_body->offset);
+            VECTOR(frame.close_source_body->stretch);
         }
         return hash;
     }
@@ -130,10 +130,10 @@ namespace {
                 smoke.advance(SUBSTEP_SECONDS, SIZE);
                 const auto frame = smoke.frame(SIZE);
                 CHECK(frame.time > before.time);
-                const auto checksum = frame_checksum(frame);
+                const auto CHECKSUM = frame_checksum(frame);
                 (void)std::printf("first stepped interruption %s/%s: 0x%016" PRIx64 "\n",
-                    direction == Transition::Open ? "open" : "close", route.edge ? "edge" : "inside", checksum);
-                CHECK(checksum == EXPECTED[index++]);
+                    direction == Transition::Open ? "open" : "close", route.edge ? "edge" : "inside", CHECKSUM);
+                CHECK(CHECKSUM == EXPECTED[index++]);
             }
         }
     }

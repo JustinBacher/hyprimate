@@ -78,7 +78,7 @@ namespace hyprimate::shader::package_detail {
             if (name.empty() || name.starts_with("hypr_") || name.starts_with("gl_") ||
                 name.find("__") != name.npos)
                 return false;
-            auto alpha = [](char c) {
+            const auto alpha = [](char c) {
                 return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
             };
             if (!alpha(name.front())) return false;

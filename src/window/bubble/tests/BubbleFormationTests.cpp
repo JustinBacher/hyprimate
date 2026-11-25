@@ -13,14 +13,6 @@
 namespace {
     using namespace hyprimate;
     constexpr Vec2 SIZE{.x = 1000, .y = 700};
-
-    void advance_for(Bubble &bubble, double seconds, double step = 0.01) {
-        while (seconds > 1e-12) {
-            const double DELTA_TIME = std::min(seconds, step);
-            bubble.advance(DELTA_TIME);
-            seconds -= DELTA_TIME;
-        }
-    }
     void formation_during_opening() {
         for (const Vec2 WINDOW_SIZE :
             {Vec2{.x = 320, .y = 900}, Vec2{.x = 1100, .y = 320}, Vec2{.x = 640, .y = 640}, SIZE}) {
