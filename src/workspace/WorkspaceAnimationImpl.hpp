@@ -134,25 +134,7 @@ using workspace_animation_detail::copy_opaque;
 
 class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
   public:
-    explicit Impl(HANDLE handle) : m_handle(handle) {
-        m_styles.for_each([this]<class Style>(auto &resources) {
-            const auto CHANGED = [this] {
-                if (m_last_settings && m_last_settings->style == Style::KIND) {
-                    m_turns.reload();
-                    m_settings_changed = true;
-                    configure(*m_last_settings, false);
-                }
-            };
-            if constexpr (requires { resources.curves.install(m_handle, CHANGED); }) {
-                if (!resources.curves.install(m_handle, CHANGED)) {
-                    HyprlandAPI::addNotification(m_handle,
-                        "[hyprimate] Workspace style Lua curve registration unavailable",
-                        CHyprColor(1.F, 0.35F, 0.2F, 1.F),
-                        10000.F);
-                }
-            }
-        });
-    }
+    explicit Impl(HANDLE handle);
     ~Impl() {
         shutdown();
     }
@@ -524,14 +506,7 @@ class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
     int m_style_draw_depth = 0;
     bool m_release_pending = false;
     std::optional<std::pair<hyprimate::config::SWorkspaceSettings, bool>> m_deferred_settings;
-    void release_styles() {
-        m_styles.for_each([]<class Style>(auto &resources) {
-            // Failed initialization and backend loss still need an idempotent
-            // release; each renderer verifies its own context before deleting names.
-            resources.renderer.release();
-            resources.ready = false;
-        });
-    }
+    void release_styles();
     bool m_uses_wallpaper = false;
     bool m_native_direction = false;
     bool m_layered = false;
