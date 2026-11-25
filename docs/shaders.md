@@ -2,7 +2,7 @@
 
 Hyprimate loads declarative effect packages written for **OpenGL ES 3.0 and GLSL ES 3.00**. Packages are trusted executable GPU workloads, not sandboxed content. Install only packages you trust. Allocation budgets and pass limits do not bound shader execution time.
 
-There is no Burn My Windows compatibility layer, JavaScript runtime, compute shader support, shader translation, Vulkan backend, or private EGL context. Ported effects must adapt their source, helper functions, parameters, assets, and setup to this specification. No third-party effects are bundled.
+There is no Burn My Windows compatibility layer, JavaScript runtime, shader translation, Vulkan backend, or private EGL context. Ported effects must adapt their source, helper functions, parameters, assets, and setup to this specification. No third-party effects are bundled.
 
 ## Select effects independently
 
@@ -61,6 +61,22 @@ The window/endpoint samplers are still transparent black on wallpaper; the
 explicit environment resources below are separate. Authorized workspace
 captures can replay procedural wallpapers without advancing them. No Niri
 integration is included.
+
+## Optional portable compute
+
+Version 1 packages can declare private typed `fields` and `kernel` passes in
+`initialize` or `update`. Kernels have the same logical ABI on GLES 3.0 and
+3.1+: Hyprimate uses the current compositor context and can execute the same
+source as native compute or as a typed fragment draw. An ordinary `render` pass
+may sample a field directly in its vertex or fragment shader, but only a kernel
+can write fields. Packages without fields retain the existing texture and
+render-pass ABI.
+
+Try [`compute-stencil`](../examples/shaders/compute-stencil/effect.json) as an
+open/close effect or a wallpaper, and
+[`compute-particles`](../examples/shaders/compute-particles/effect.json) as an
+open/close effect. See [Portable GPU compute](compute.md) for the manifest
+syntax, run commands, GLSL ABI, and standalone C++ example.
 
 ## Original and reactive wallpaper
 

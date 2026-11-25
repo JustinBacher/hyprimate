@@ -14,7 +14,8 @@ void main() {
 }
 )";
     }
-    std::string shader_source(const Package &package, std::string_view body, bool vertex) {
+    std::string shader_source(const Package &package, std::string_view body, bool vertex,
+        std::string_view field_helpers) {
         std::string source = R"(#version 300 es
 precision highp float;
 precision highp int;
@@ -92,6 +93,8 @@ vec4 hypr_sample_wallpaper_processed(vec2 uv) {
             if (type < types.size())
                 source += "uniform " + std::string(types[type]) + " " + p.name + ";\n";
         }
+        source.append(field_helpers);
+        if (!field_helpers.empty()) source += '\n';
         source += "#line 1\n";
         source.append(body);
         return source;

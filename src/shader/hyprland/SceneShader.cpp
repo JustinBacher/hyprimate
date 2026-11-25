@@ -40,6 +40,17 @@ namespace hyprimate::shader {
             return false;
         }
     }
+    namespace {
+        std::uint64_t scene_bytes(unsigned width, unsigned height, DRMFormat format) {
+            return std::uint64_t{width} * height *
+                (format == DRM_FORMAT_ABGR16161616F ? 8U : 4U);
+        }
+
+        bool fits_budget(std::uint64_t instance, std::uint64_t ancillary, std::uint64_t additional = 0) {
+            return instance <= MAX_INSTANCE_BYTES && ancillary <= MAX_INSTANCE_BYTES - instance &&
+                additional <= MAX_INSTANCE_BYTES - instance - ancillary;
+        }
+    }
 
     class SceneProgram {
       public:
@@ -76,9 +87,11 @@ namespace hyprimate::shader {
     }
 
     struct SceneShader::Impl {
-        explicit Impl(std::shared_ptr<SceneProgram> shader) : program(std::move(shader)) {}
+        explicit Impl(std::shared_ptr<SceneProgram> shader)
+            : program(std::move(shader)), receipt_id(next_compute_instance_id()) {}
         std::shared_ptr<SceneProgram> program;
         Instance instance;
+        const std::uint64_t receipt_id;
         Frame frame{};
         Image black;
         Image publication;
@@ -95,7 +108,16 @@ namespace hyprimate::shader {
             LOG(Log::DEBUG, "[hyprimate] environment retire update={} draw={} upload_bytes={} allocated={} allocations={}",
                 stats.update_passes, stats.draws, stats.upload_bytes, stats.allocated_bytes, stats.allocations);
         }
-        const auto &owner = m_impl->program->prepared->owner;
+        const auto &owner = *m_impl->program->prepared->owner;
+        if (m_impl->program->prepared->has_compute && m_impl->initialized_size)
+            m_impl->program->prepared->log_compute_instance_retirement(
+                m_impl->receipt_id, m_impl->instance.compute_statistics(), "scene");
+#ifdef HYPRIMATE_COMPUTE_BENCH_ADAPTER
+        if (m_impl->program->prepared->has_compute && m_impl->initialized_size)
+            if (const auto iterations = m_impl->instance.benchmark_cpu_dispatches(); iterations > 0)
+                LOG(Log::DEBUG, "[hyprimate] compute benchmark cpu instance_id={} iterations={}",
+                    m_impl->receipt_id, iterations);
+#endif
         const gl::ScopedCompositorContext context{owner};
         if (context) m_impl->instance.release();
         else m_impl->instance.abandon();
@@ -125,7 +147,7 @@ namespace hyprimate::shader {
         const bool workspace = state.program->event == Event::Workspace;
         const bool live = authoritative && !ctx.readOnlyEffects();
         if (!monitor || !encoding || !ctx.active() || !ctx.shouldRenderContent(false) ||
-            !prepared.owner.ensure_current() || !g_pHyprRenderer ||
+            !prepared.owner->ensure_current() || !g_pHyprRenderer ||
             (workspace && (!live || !source || !destination))) {
             return fail(error, "unavailable compositor scene shader context");
         }
@@ -141,6 +163,12 @@ namespace hyprimate::shader {
         };
         const Render::GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
         if (!workspace && !state.black && live) {
+            const auto publication_bytes = state.publication
+                ? scene_bytes(static_cast<unsigned>(state.publication->m_size.x),
+                    static_cast<unsigned>(state.publication->m_size.y), state.publication->m_drmFormat)
+                : 0U;
+            if (!fits_budget(state.instance.statistics().allocated_bytes, publication_bytes, 4U))
+                return fail(error, "wallpaper source and simulation exceed the instance budget");
             auto black = g_pHyprRenderer->createFB("hyprimate empty wallpaper input");
             if (!black || !gl::allocate_framebuffer(*black, 1, 1, DRM_FORMAT_ABGR8888)) {
                 return fail(error, "cannot allocate isolated wallpaper input");
@@ -162,8 +190,13 @@ namespace hyprimate::shader {
         const Source input{.texture = src, .width = workspace ? size->width : 1U,
             .height = workspace ? size->height : 1U, .destination_texture = dst, .environment = environment};
         if (size != state.initialized_size) {
+            const auto publication_bytes = state.publication
+                ? scene_bytes(static_cast<unsigned>(state.publication->m_size.x),
+                    static_cast<unsigned>(state.publication->m_size.y), state.publication->m_drmFormat)
+                : 0U;
+            const auto ancillary_bytes = (state.black ? 4U : 0U) + publication_bytes;
             if (!live || !state.instance.initialize(state.program->prepared->program,
-                    size->width, size->height, error)) return false;
+                    size->width, size->height, error, ancillary_bytes)) return false;
             state.initialized_size = size;
         }
         if (live) state.instance.advance(state.frame);
@@ -195,14 +228,14 @@ namespace hyprimate::shader {
             if (state.publication && (!want || !state.publication->imageDescription() ||
                     state.publication->imageDescription()->value() != want->value() ||
                     state.publication->m_drmFormat != format || state.publication->m_size != monitor->m_transformedSize)) {
-                gl::release_native(state.publication, prepared.owner);
+                gl::release_native(state.publication, *prepared.owner);
             }
             if (!state.publication && live) {
                 const auto bytes = std::uint64_t(size->width) * size->height *
                     (format == DRM_FORMAT_ABGR16161616F ? 8 : 4);
-                if (state.instance.statistics().allocated_bytes + bytes > MAX_INSTANCE_BYTES) {
+                const auto ancillary = state.black ? 4U : 0U;
+                if (!fits_budget(state.instance.statistics().allocated_bytes, ancillary, bytes))
                     return fail(error, "published wallpaper and simulation exceed the instance budget");
-                }
                 const gl::FramebufferAllocationState allocation;
                 auto publication = g_pHyprRenderer->createFB("hyprimate published wallpaper");
                 if (!publication || !want ||
@@ -217,8 +250,13 @@ namespace hyprimate::shader {
             if (!monitor->resources() || !input_encoding->imageDescription()) {
                 return fail(error, "no compositor scene work buffer owner");
             }
+            const auto format = alpha_format(input_encoding->m_drmFormat);
+            const auto bytes = scene_bytes(size->width, size->height, format);
+            const auto ancillary = state.black ? 4U : 0U;
+            if (!fits_budget(state.instance.statistics().allocated_bytes, ancillary, bytes))
+                return fail(error, "scene work buffer and simulation exceed the instance budget");
             const gl::FramebufferAllocationState allocation;
-            layer = monitor->resources()->getUnusedWorkBuffer(alpha_format(input_encoding->m_drmFormat),
+            layer = monitor->resources()->getUnusedWorkBuffer(format,
                 input_encoding->imageDescription(), monitor->m_transformedSize);
             if (ctx.sceneResources()) layer = ctx.sceneResources()->prepareWorkBuffer(std::move(layer));
         }

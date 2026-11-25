@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "events": ["open", "close", "wallpaper"],
+  "parameters": {
+    "diffusion": {"type": "float", "default": 0.2, "min": 0.0, "max": 0.24}
+  },
+  "fields": {
+    "energy": {"type": "float", "domain": [256, 256], "ping_pong": true, "lifetime": "persistent"}
+  },
+  "passes": [
+    {"name": "seed", "phase": "initialize", "kernel": "seed.glsl", "outputs": ["energy.write"]},
+    {"name": "step", "phase": "update", "kernel": "step.glsl", "iterations": 8,
+     "inputs": {"previous": "energy.read"}, "outputs": ["energy.write"]},
+    {"name": "compose", "phase": "render", "fragment": "compose.frag",
+     "inputs": {"heat": "energy.read"}, "outputs": ["output"]}
+  ]
+}

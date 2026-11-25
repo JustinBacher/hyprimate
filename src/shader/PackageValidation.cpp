@@ -1,3 +1,4 @@
+#include "../compute/KernelSource.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -410,6 +411,7 @@ namespace hyprimate::shader::package_detail {
         for (float bound : p.bounds)
             require(std::isfinite(bound) && bound >= 0 && bound <= 2, "bounds must be in [0,2]");
         require(p.parameters.size() <= MAX_PARAMETERS && p.textures.size() <= MAX_TEXTURES &&
+                    p.fields.size() + p.textures.size() <= MAX_TEXTURES &&
                     p.buffers.size() <= MAX_BUFFERS && p.meshes.size() <= MAX_MESHES &&
                     !p.passes.empty() && p.passes.size() <= MAX_PASSES,
             "package count limit exceeded");
@@ -420,6 +422,23 @@ namespace hyprimate::shader::package_detail {
             range(parameter, parameter.initial);
         }
         std::size_t bytes = 0, decoded = 0, source_bytes = 0;
+        for (const auto &field : p.fields) {
+            resource_name(field.name);
+            named(field.name);
+            require(names.insert(field.name).second, "duplicate resource name");
+            require(!compute::type_name(field.type).empty(), "invalid field type");
+            require(field.lifetime == Lifetime::Persistent || field.lifetime == Lifetime::Transient,
+                "invalid field lifetime");
+            require(field.domain.has_value() != field.scale.has_value(),
+                "field requires exactly one of domain or scale");
+            if (field.domain) {
+                const auto layout = compute::field_layout({field.type, *field.domain});
+                require(bool(layout), "invalid field domain");
+                bytes += layout->storage_bytes * (field.ping_pong ? 2 : 1);
+            } else
+                require(std::isfinite(*field.scale) && *field.scale > 0 && *field.scale <= 1,
+                    "invalid field scale");
+        }
         for (const auto &t : p.textures) {
             resource_name(t.name);
             require(names.insert(t.name).second, "duplicate resource name");
@@ -488,6 +507,11 @@ namespace hyprimate::shader::package_detail {
                     ping = p.textures[ref.index].ping_pong;
                     life = p.textures[ref.index].lifetime;
                     break;
+                case ResourceKind::Field:
+                    require(ref.index < p.fields.size(), "invalid field ref");
+                    ping = p.fields[ref.index].ping_pong;
+                    life = p.fields[ref.index].lifetime;
+                    break;
                 case ResourceKind::Buffer:
                     require(ref.index < p.buffers.size(), "invalid buffer ref");
                     ping = p.buffers[ref.index].ping_pong;
@@ -552,27 +576,79 @@ namespace hyprimate::shader::package_detail {
                 produced.clear();
                 phase = pass.phase;
             }
+            const bool compute_pass = pass.compute;
             require(pass.iterations >= 1 && pass.iterations <= MAX_ITERATIONS,
                 "invalid pass iterations");
             require(pass.mesh >= -1 &&
                         (pass.mesh < 0 || static_cast<std::size_t>(pass.mesh) < p.meshes.size()),
                 "invalid pass mesh");
-            require(!pass.vertex.empty(), "missing vertex shader");
             require(pass.inputs.size() <= 32 && pass.blocks.size() <= 32, "too many pass bindings");
-            source_bytes += shader_source(p, pass.vertex, true).size();
-            source_bytes += shader_source(p, pass.fragment, false).size();
+            source_bytes += pass.kernel.size();
+            std::string field_helpers;
+            if (!compute_pass) {
+                for (const auto &binding : pass.inputs) {
+                    if (binding.resource.kind != ResourceKind::Field) continue;
+                    require(binding.resource.index < p.fields.size(), "invalid render field ref");
+                    auto helper = compute::sample_source(binding.name,
+                        p.fields[binding.resource.index].type);
+                    require(bool(helper), helper ? "" : helper.error());
+                    field_helpers += *helper;
+                }
+            }
+            if (compute_pass) {
+                require(pass.phase != Phase::Render && !pass.kernel.empty() && pass.vertex.empty() &&
+                            pass.fragment.empty() && pass.blocks.empty() && pass.mesh < 0 &&
+                            !pass.transform_feedback && !pass.blend && !pass.clear &&
+                            pass.varyings.empty(),
+                    "compute passes require a kernel, initialize/update phase, and no raster state");
+                require(std::ranges::all_of(pass.inputs, [&](const Binding &binding) {
+                            return binding.resource.kind == ResourceKind::Field &&
+                                   binding.resource.index < p.fields.size();
+                        }) &&
+                            std::ranges::all_of(pass.outputs, [&](Ref ref) {
+                                return ref.kind == ResourceKind::Field && ref.index < p.fields.size();
+                            }),
+                    "compute passes may access only declared fields");
+                const auto descriptor = kernel_descriptor(p, pass);
+                auto valid_kernel = compute::validate_kernel(descriptor);
+                require(bool(valid_kernel), valid_kernel ? "" : valid_kernel.error());
+            } else {
+                require(pass.kernel.empty(), "kernel source requires a compute pass");
+                require(!pass.vertex.empty(), "missing vertex shader");
+                source_bytes += shader_source(p, pass.vertex, true, field_helpers).size();
+                source_bytes += shader_source(p, pass.fragment, false, field_helpers).size();
+                validate_stage(p, pass.vertex);
+                validate_stage(p, pass.fragment);
+            }
             require(source_bytes <= MaxSource, "assembled shader source exceeds 4 MiB");
-            validate_stage(p, pass.vertex);
-            validate_stage(p, pass.fragment);
             std::vector<Ref> reads, writes = pass.outputs;
             std::set<std::string> bindings;
             for (const auto &binding : pass.inputs) {
                 named(binding.name);
-                require(!parameters.contains(binding.name) && bindings.insert(binding.name).second,
+                require(!parameters.contains(binding.name) && bindings.insert(binding.name).second &&
+                            binding.name != "hypr_delta" && binding.name != "hypr_elapsed" &&
+                            binding.name != "hypr_progress" && binding.name != "hypr_iteration" &&
+                            binding.name != "hypr_iterations" && binding.name != "hypr_seed",
                     "duplicate/colliding sampler binding");
                 require(binding.resource.kind == ResourceKind::Source ||
-                            binding.resource.kind == ResourceKind::Texture,
-                    "sampler requires texture");
+                            binding.resource.kind == ResourceKind::Texture ||
+                            binding.resource.kind == ResourceKind::Field,
+                    "sampler requires a texture or field");
+                require(compute_pass ? binding.resource.kind == ResourceKind::Field
+                                     : binding.resource.kind != ResourceKind::Field ||
+                                           pass.phase == Phase::Render,
+                    "fields are readable only by kernels and render passes");
+                if (binding.resource.kind == ResourceKind::Field && !compute_pass) {
+                    require(binding.resource.index < p.fields.size(), "invalid render field ref");
+                    auto helper = compute::sample_source(binding.name,
+                        p.fields[binding.resource.index].type);
+                    require(bool(helper), helper ? "" : helper.error());
+                    for (const auto &parameter : p.parameters)
+                        require(parameter.name != "hc_tex_" + binding.name &&
+                                    parameter.name != "hc_size_" + binding.name &&
+                                    parameter.name != "hc_read_" + binding.name,
+                            "field helper collides with parameter: " + binding.name);
+                }
                 reads.push_back(binding.resource);
             }
             for (const auto &binding : pass.blocks) {
@@ -603,9 +679,17 @@ namespace hyprimate::shader::package_detail {
                     named(v);
                     require(varyings.insert(v).second, "duplicate feedback varying");
                 }
-            } else {
+            } else if (!compute_pass) {
                 require(!pass.fragment.empty() && !writes.empty() && pass.varyings.empty(),
                     "raster pass requires fragment and outputs");
+            }
+            if (compute_pass) {
+                const auto &first = p.fields[pass.outputs.front().index];
+                for (const auto output : pass.outputs) {
+                    const auto &field = p.fields[output.index];
+                    require(field.domain == first.domain && field.scale == first.scale,
+                        "compute outputs must have equal logical domains");
+                }
             }
             require(writes.size() <= MAX_TEXTURES, "too many outputs");
             for (auto read : reads) {
@@ -631,9 +715,11 @@ namespace hyprimate::shader::package_detail {
                 } else
                     require(pass.phase != Phase::Render || life == Lifetime::Transient,
                         "render cannot write persistent resources");
-                if (!pass.transform_feedback) {
-                    require(
-                        write.kind == ResourceKind::Output || write.kind == ResourceKind::Texture,
+                if (compute_pass) {
+                    require(write.kind == ResourceKind::Field,
+                        "compute outputs must be fields");
+                } else if (!pass.transform_feedback) {
+                    require(write.kind == ResourceKind::Output || write.kind == ResourceKind::Texture,
                         "raster outputs require textures");
                     if (write.kind == ResourceKind::Texture) {
                         const auto &t = p.textures[write.index];

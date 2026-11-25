@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "events": ["open", "close"],
+  "parameters": {
+    "acceleration": {"type": "float", "default": 0.75, "min": 0.0, "max": 2.0}
+  },
+  "fields": {
+    "positions": {"type": "vec2", "domain": [16384], "ping_pong": true},
+    "velocities": {"type": "vec2", "domain": [16384], "ping_pong": true}
+  },
+  "meshes": {
+    "particles": {"primitive": "triangles", "count": 3, "instances": 16384}
+  },
+  "passes": [
+    {"name": "seed", "phase": "initialize", "kernel": "seed.glsl", "outputs": ["positions.write", "velocities.write"]},
+    {"name": "step", "phase": "update", "kernel": "step.glsl", "inputs": {"position": "positions.read", "velocity": "velocities.read"},
+     "outputs": ["positions.write", "velocities.write"]},
+    {"name": "window", "phase": "render", "fragment": "window.frag", "outputs": ["output"]},
+    {"name": "particles", "phase": "render", "vertex": "particles.vert", "fragment": "particles.frag", "mesh": "particles",
+     "inputs": {"position": "positions.read", "velocity": "velocities.read"}, "outputs": ["output"], "blend": "premultiplied", "clear": false}
+  ]
+}

@@ -1,11 +1,14 @@
 #include "GlesRuntimePrivate.hpp"
 
 
+#include "compute/Compute.hpp"
+
 #include <algorithm>
 #include <charconv>
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <optional>
 #include <ranges>
 #include <string_view>
 #include <unordered_set>
@@ -40,6 +43,69 @@ namespace hyprimate::shader {
                    r[0] >= 0 && r[1] >= 0 && r[2] > 0 && r[3] > 0 && r[0] + r[2] <= ONE &&
                    r[1] + r[3] <= ONE;
         }
+        constexpr GLenum PRIMITIVES_GENERATED_QUERY = 0x8C87;
+        bool supports_primitives_generated_query() {
+            const auto major = integer(GL_MAJOR_VERSION);
+            const auto minor = integer(GL_MINOR_VERSION);
+            if (major > 3 || (major == 3 && minor >= 2)) return true;
+            const auto count = integer(GL_NUM_EXTENSIONS);
+            for (GLint i = 0; i < count; ++i) {
+                const auto *name = glGetStringi(GL_EXTENSIONS, static_cast<GLuint>(i));
+                if (!name) continue;
+                const std::string_view extension(reinterpret_cast<const char *>(name));
+                if (extension == "GL_EXT_geometry_shader" || extension == "GL_OES_geometry_shader")
+                    return true;
+            }
+            return false;
+        }
+        bool window_rectangles_allow_compute(const Limits &limits) {
+            constexpr GLenum mode = 0x8F13, count = 0x8F15; // EXT_window_rectangles
+            constexpr GLint exclusive = 0x8F11;
+            return !limits.window_rectangles ||
+                (integer(mode) == exclusive && integer(count) == 0);
+        }
+
+        bool compute_asset_bytes(const Package &package, std::uint64_t &bytes) {
+            bytes = 0;
+            for (const auto &texture : package.textures) {
+                if (texture.image.empty()) continue;
+                const auto width = std::uint64_t{texture.image_width};
+                const auto height = std::uint64_t{texture.image_height};
+                const auto pixel_bytes = std::uint64_t{pixel_format(texture.format).bytes};
+                const auto max = std::numeric_limits<std::uint64_t>::max();
+                if (height && width > max / height) return false;
+                const auto pixels = width * height;
+                if (pixel_bytes && pixels > max / pixel_bytes) return false;
+                const auto amount = pixels * pixel_bytes;
+                if (amount > MAX_INSTANCE_BYTES || bytes > MAX_INSTANCE_BYTES - amount) return false;
+                bytes += amount;
+            }
+            return true;
+        }
+
+        bool instance_budget_fits(std::uint64_t owned, std::uint64_t shared_assets,
+            std::size_t ancillary) {
+            if (owned > MAX_INSTANCE_BYTES || shared_assets > MAX_INSTANCE_BYTES - owned) return false;
+            return ancillary <= MAX_INSTANCE_BYTES - owned - shared_assets;
+        }
+
+        // Resource validation needs only the draw framebuffer and texture unit zero.
+        // In particular, do not bracket compute-only simulation with two DrawStates.
+        struct ValidationState {
+            GLint framebuffer = integer(GL_DRAW_FRAMEBUFFER_BINDING);
+            GLint active_texture = integer(GL_ACTIVE_TEXTURE);
+            GLint texture;
+
+            ValidationState() {
+                glActiveTexture(GL_TEXTURE0);
+                texture = integer(GL_TEXTURE_BINDING_2D);
+            }
+            ~ValidationState() {
+                glBindTexture(GL_TEXTURE_2D, texture);
+                glActiveTexture(active_texture);
+                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
+            }
+        };
 
 
         void frame_uniforms(const CompiledPass &gpu, const Timing &time, const Source &source,
@@ -85,6 +151,21 @@ namespace hyprimate::shader {
             if (u[DisturbancesAvailable] >= 0) glUniform1i(u[DisturbancesAvailable], env.disturbances != 0);
             if (u[InteractionCount] >= 0) glUniform1i(u[InteractionCount], static_cast<GLint>(env.interactions.size()));
         }
+
+        compute::ParameterValue parameter_value(const Parameter &parameter, const Value &value) {
+            compute::ParameterValue result;
+            result.lanes = parameter.initial.type == ValueType::Vec2 ? 2U :
+                parameter.initial.type == ValueType::Vec3 ? 3U :
+                parameter.initial.type == ValueType::Vec4 ? 4U : 1U;
+            if (parameter.initial.type == ValueType::Int || parameter.initial.type == ValueType::Bool) {
+                std::array<std::int32_t, 4> numbers{};
+                numbers[0] = value.type == ValueType::Bool ? (value.integer != 0) : value.integer;
+                result.data = numbers;
+            } else {
+                result.data = value.numbers;
+            }
+            return result;
+        }
     }  // namespace
 
 
@@ -110,6 +191,8 @@ namespace hyprimate::shader {
             if (glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
                 return fail(error, "borrowed output framebuffer is incomplete");
             }
+
+
             if (target.framebuffer == 0) {
                 return true;
             }
@@ -161,6 +244,58 @@ namespace hyprimate::shader {
             }
             return true;
         }
+    bool Instance::Impl::dispatch_compute(std::size_t pass_index, unsigned iteration,
+        const Timing &time, compute::Batch &batch, std::string &error) {
+        const auto &pass = owner->package.passes[pass_index];
+        const auto &gpu = owner->passes[pass_index];
+        std::array<compute::Field *, MAX_TEXTURES> outputs{};
+        for (std::size_t i = 0; i < pass.outputs.size(); ++i) outputs[i] = &field(pass.outputs[i]);
+        const auto publish_outputs = [&] {
+            for (const Ref output : pass.outputs)
+                if (output.side == Side::Write) fields[output.index].read ^= 1U;
+        };
+#ifdef HYPRIMATE_COMPUTE_BENCH_ADAPTER
+        if (benchmark_cpu) {
+            benchmark_cpu->run(pass.phase == Phase::Initialize, time.seed[0], owner->values[0].numbers[0],
+                time.frame.delta, {outputs.data(), pass.outputs.size()});
+            publish_outputs();
+            return true;
+        }
+#endif
+        std::array<const compute::Field *, MAX_TEXTURES> inputs{};
+        for (std::size_t i = 0; i < pass.inputs.size(); ++i) inputs[i] = &field(pass.inputs[i].resource);
+        std::array<compute::ParameterValue, MAX_PARAMETERS + 6> parameters{};
+        std::size_t count = 0;
+        for (std::size_t i = 0; i < owner->package.parameters.size(); ++i)
+            parameters[count++] = parameter_value(owner->package.parameters[i], owner->values[i]);
+        const auto push_float = [&](float value) {
+            compute::ParameterValue v; v.data = std::array<float, 4>{value, 0, 0, 0}; parameters[count++] = v;
+        };
+        const auto push_int = [&](std::int32_t value) {
+            compute::ParameterValue v; v.data = std::array<std::int32_t, 4>{value, 0, 0, 0}; parameters[count++] = v;
+        };
+        push_float(time.frame.delta);
+        push_float(time.frame.elapsed);
+        push_float(time.frame.progress);
+        push_int(static_cast<std::int32_t>(iteration));
+        push_int(static_cast<std::int32_t>(pass.iterations));
+        compute::ParameterValue seed; seed.lanes = 4; seed.data = time.seed; parameters[count++] = seed;
+        const auto before = owner->compute_device->statistics();
+        const auto result = batch.dispatch(gpu.kernel->kernel, {inputs.data(), pass.inputs.size()},
+            {outputs.data(), pass.outputs.size()}, {parameters.data(), count});
+        const auto after = owner->compute_device->statistics();
+        compute_stats.barriers += after.barriers - before.barriers;
+        compute_stats.fetch_barriers += after.fetch_barriers - before.fetch_barriers;
+        compute_stats.framebuffer_barriers += after.framebuffer_barriers - before.framebuffer_barriers;
+        compute_stats.update_barriers += after.update_barriers - before.update_barriers;
+        compute_stats.image_barriers += after.image_barriers - before.image_barriers;
+        compute_stats.uniform_updates += after.uniform_updates - before.uniform_updates;
+        if (!result) return fail(error, result.error());
+        publish_outputs();
+        if (gpu.kernel->kernel.backend() == compute::Backend::Native) ++compute_stats.native_dispatches;
+        else ++compute_stats.slibs_dispatches;
+        return true;
+    }
     void Instance::Impl::submit_mesh(const Pass &pass) {
             const auto *mesh = pass_mesh(owner->package, pass);
             if (!mesh) {
@@ -198,11 +333,9 @@ namespace hyprimate::shader {
             if (!pass.transform_feedback) {
                 const auto x = final ? target.origin_x : 0;
                 const auto y = final ? target.origin_y : 0;
-                glViewport(x, y, size.width, size.height);
-                enable(GL_SCISSOR_TEST, final);
-                if (final) {
-                    glScissor(x, y, size.width, size.height);
-                }
+                owner->color.viewport(x, y, size.width, size.height);
+                owner->color.scissor_test(final);
+                if (final) owner->color.scissor_box(x, y, size.width, size.height);
                 const bool composite = final && target.composite;
                 owner->color.blend(static_cast<unsigned>(pass.outputs.size()), composite || pass.blend);
                 const bool clear = !composite && (pass.clear || (final && clear_final));
@@ -224,6 +357,21 @@ namespace hyprimate::shader {
                 glActiveTexture(GL_TEXTURE0 + i);
                 glBindTexture(GL_TEXTURE_2D, texture(ref, source));
                 glBindSampler(i, linear_host_image(ref.kind) ? owner->source_sampler : 0);
+                if (ref.kind == ResourceKind::Field) {
+                    const auto before = owner->compute_device->statistics();
+                    auto sampled = owner->compute_device->sample(field(ref));
+                    const auto after = owner->compute_device->statistics();
+                    compute_stats.barriers += after.barriers - before.barriers;
+                    compute_stats.fetch_barriers += after.fetch_barriers - before.fetch_barriers;
+                    if (!sampled) { error = sampled.error(); return false; }
+                    ++compute_stats.samples;
+                    glBindTexture(GL_TEXTURE_2D, sampled->texture);
+                    glBindSampler(i, 0);
+                    if (gpu.field_sizes && (*gpu.field_sizes)[i] >= 0)
+                        glUniform3i((*gpu.field_sizes)[i], static_cast<GLint>(sampled->desc.domain.x),
+                            static_cast<GLint>(sampled->desc.domain.y), static_cast<GLint>(sampled->desc.domain.z));
+                    continue;
+                }
             }
             for (unsigned i = 0; i < gpu.block_count; ++i) {
                 const auto &block = gpu.blocks[i];
@@ -268,7 +416,7 @@ namespace hyprimate::shader {
                 if (final && target.composite) {
                     if (!gl_ok(error, "preparing direct shader submission")) return false;
                     for (const auto &clip : target.clips) {
-                        glScissor(clip.x, clip.y, clip.width, clip.height);
+                        owner->color.scissor_box(clip.x, clip.y, clip.width, clip.height);
                         if (target.submitted) *target.submitted = true;
                         submit_mesh(pass);
                         if (!gl_ok(error, "executing direct shader submission")) return false;
@@ -299,31 +447,76 @@ namespace hyprimate::shader {
     bool Instance::Impl::phase(Phase phase, const Timing &frame, const Source &source, const Target &target,
             unsigned &active_blocks, bool &clear_final, std::string &error) {
             const auto &passes = owner->package.passes;
-            for (std::size_t i = 0; i < passes.size(); ++i) {
-                if (passes[i].phase != phase) {
+            for (std::size_t i = 0; i < passes.size();) {
+                if (passes[i].phase != phase) { ++i; continue; }
+                if (!passes[i].kernel.empty()) {
+                    std::size_t end = i + 1;
+                    while (end < passes.size() && passes[end].phase == phase && !passes[end].kernel.empty()) ++end;
+                    compute::Batch batch;
+#ifdef HYPRIMATE_COMPUTE_BENCH_ADAPTER
+                    if (!benchmark_cpu)
+#endif
+                    {
+                        const auto offset = owner->passes[i].kernel->batch_offset;
+                        auto begun = owner->compute_device->begin(std::span(owner->compute_kernels).subspan(offset, end - i));
+                        if (!begun) {
+                            faulted = true;
+                            return fail(error, begun.error());
+                        }
+                        batch = std::move(*begun);
+                    }
+                    for (std::size_t pass_index = i; pass_index < end; ++pass_index) {
+                        for (unsigned iteration = 0; iteration < passes[pass_index].iterations; ++iteration) {
+                            if (!dispatch_compute(pass_index, iteration, frame, batch, error)) {
+                                faulted = phase != Phase::Render;
+                                return false;
+                            }
+                            switch (phase) {
+                                case Phase::Initialize: ++stats.initialize_passes; break;
+                                case Phase::Update: ++stats.update_passes; break;
+                                case Phase::Render: ++stats.render_passes; break;
+                            }
+                        }
+                    }
+                    batch = {};
+                    i = end;
                     continue;
                 }
                 for (unsigned iteration = 0; iteration < passes[i].iterations; ++iteration) {
                     if (!draw(i, iteration, frame, source, target, active_blocks, clear_final, error)) {
-                        // Only a partial simulation can invalidate committed state.
-                        // Render scratch is produced again on the next invocation.
                         faulted = phase != Phase::Render;
                         return false;
                     }
                 }
+                ++i;
             }
             return true;
         }
     Instance::Instance() = default;
     Instance::~Instance() = default;
 
-    bool Instance::initialize(Program &program, unsigned width, unsigned height, std::string &error) {
+    bool Instance::initialize(Program &program, unsigned width, unsigned height, std::string &error,
+        std::size_t ancillary_bytes) {
         error.clear();
         if (!program.m_impl || !program.m_impl->armed) {
             return fail(error, "no prepared GLES shader program");
         }
+        const auto &prepared = *program.m_impl;
+        if (prepared.compute_device && !window_rectangles_allow_compute(prepared.limits)) {
+            return fail(error, "compute package cannot run with active EXT_window_rectangles state");
+        }
+        std::uint64_t asset_budget_bytes = 0;
+        if (prepared.compute_device &&
+            !compute_asset_bytes(prepared.package, asset_budget_bytes)) {
+            return fail(error, "shader instance exceeds its 128 MiB storage budget");
+        }
         const Extent capture{width, height};
         if (m_impl && m_impl->owner == program.m_impl && m_impl->capture == capture && !m_impl->faulted) {
+            if (!instance_budget_fits(m_impl->stats.allocated_bytes, asset_budget_bytes, ancillary_bytes)) {
+                return fail(error, "shader instance exceeds its 128 MiB storage budget");
+            }
+            m_impl->asset_budget_bytes = asset_budget_bytes;
+            m_impl->ancillary_bytes = ancillary_bytes;
             return true;
         }
         if (m_impl && m_impl->owner == program.m_impl && !m_impl->faulted && capture.bounded() &&
@@ -337,8 +530,22 @@ namespace hyprimate::shader {
                     break;
                 }
             }
+            for (std::size_t i = 0; i < m_impl->fields.size(); ++i) {
+                const auto &desc = m_impl->owner->package.fields[i];
+                auto domain = desc.domain.value_or(compute::Domain{});
+                if (desc.scale) {
+                    const auto resolved = texture_extent(Size{.scale = *desc.scale}, capture);
+                    domain = {resolved.width, resolved.height, 1};
+                }
+                same_storage &= m_impl->fields[i].descriptor == compute::FieldDesc{desc.type, domain};
+            }
             if (same_storage) {
+                if (!instance_budget_fits(m_impl->stats.allocated_bytes, asset_budget_bytes, ancillary_bytes)) {
+                    return fail(error, "shader instance exceeds its 128 MiB storage budget");
+                }
                 m_impl->capture = capture;
+                m_impl->asset_budget_bytes = asset_budget_bytes;
+                m_impl->ancillary_bytes = ancillary_bytes;
                 return true;
             }
         }
@@ -351,6 +558,8 @@ namespace hyprimate::shader {
         }
         auto instance = std::make_unique<Impl>();
         instance->owner = program.m_impl;
+        instance->ancillary_bytes = ancillary_bytes;
+        instance->asset_budget_bytes = asset_budget_bytes;
         instance->capture = capture;
         if (!instance->allocate(error)) {
             discard_errors();
@@ -359,6 +568,15 @@ namespace hyprimate::shader {
         if (!gl_ok(error, "restoring caller state after instance preparation")) {
             return false;
         }
+        // A changed resource set is a new, unprimed simulation transaction.
+        // Carrying only matching field sides into it would run initialization
+        // again on preserved data while the other resources start from scratch.
+#ifdef HYPRIMATE_COMPUTE_BENCH_ADAPTER
+        if (instance->owner->benchmark_workload) {
+            instance->benchmark_cpu = std::make_unique<compute::fixture::NestedCpuAdapter>(
+                *instance->owner->benchmark_workload, instance->fields.front().descriptor.domain);
+        }
+#endif
         m_impl = std::move(instance);
         return true;
     }
@@ -392,6 +610,9 @@ namespace hyprimate::shader {
         }
         auto &instance = *m_impl;
         const auto &program = *instance.owner;
+        if (program.compute_device && !window_rectangles_allow_compute(program.limits)) {
+            return fail(error, "compute package cannot run with active EXT_window_rectangles state");
+        }
         if (!advance_simulation && !instance.primed) {
             return fail(error, "read-only shader draw requires a live initialization");
         }
@@ -451,31 +672,49 @@ namespace hyprimate::shader {
                 return fail(error, "native draw would contaminate a caller visibility/feedback query");
             }
         }
-        const DrawState guard(current, program.sampler_count, program.block_count, use_feedback,
-            program.color, program.max_outputs);
-        TargetScope scoped_target(target, instance.saved_draw_buffers);
-        scoped_target.select();
-        if (!instance.validate_target(source, target, error)) {
-            return false;
-        }
-        if (program.source_sampler != 0 || (program.package.environment.used() && program.sampler_count)) {
-            // A non-2D texture can pass glIsTexture; catch that before any simulation work.
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, source.texture);
-            if (program.uses_destination) glBindTexture(GL_TEXTURE_2D, source.destination_texture);
-            if (program.package.environment.used()) {
-                for (auto texture : {source.environment.original, source.environment.processed,
-                         source.environment.state, source.environment.disturbances}) {
-                    if (!texture) continue;
-                    if (instance.owns_texture(texture) || !glIsTexture(texture))
-                        return fail(error, "invalid or aliased borrowed environmental image");
-                    glBindTexture(GL_TEXTURE_2D, texture);
-                }
+        if (supports_primitives_generated_query()) {
+            GLint query = 0;
+            glGetQueryiv(PRIMITIVES_GENERATED_QUERY, GL_CURRENT_QUERY, &query);
+            if (query != 0) {
+                return fail(error, "native draw would contaminate a caller primitives-generated query");
             }
         }
-        if (!gl_ok(error, "validating borrowed shader resources")) {
-            return false;
+        const bool separate_simulation = program.compute_only_simulation && advance_simulation &&
+            (!instance.primed || instance.pending);
+        {
+            ValidationState validation;
+            TargetScope scoped_target(target, instance.saved_draw_buffers);
+            scoped_target.select();
+            if (!instance.validate_target(source, target, error)) {
+                return false;
+            }
+            if (program.source_sampler != 0 || (program.package.environment.used() && program.sampler_count)) {
+                // A non-2D texture can pass glIsTexture; catch that before simulation.
+                glBindTexture(GL_TEXTURE_2D, source.texture);
+                if (program.uses_destination) glBindTexture(GL_TEXTURE_2D, source.destination_texture);
+                if (program.package.environment.used()) {
+                    for (auto texture : {source.environment.original, source.environment.processed,
+                             source.environment.state, source.environment.disturbances}) {
+                        if (!texture) continue;
+                        if (instance.owns_texture(texture) || !glIsTexture(texture))
+                            return fail(error, "invalid or aliased borrowed environmental image");
+                        glBindTexture(GL_TEXTURE_2D, texture);
+                    }
+                }
+            }
+            if (!gl_ok(error, "validating borrowed shader resources")) {
+                return false;
+            }
         }
+        std::optional<DrawState> guard;
+        std::optional<TargetScope> scoped_target;
+        if (!separate_simulation) {
+            guard.emplace(current, program.sampler_count, program.block_count, use_feedback,
+                program.color, program.max_outputs);
+            scoped_target.emplace(target, instance.saved_draw_buffers);
+            scoped_target->select();
+        }
+
         unsigned active_blocks = 0;
         bool clear_final = target.clear_before_render;
         if (advance_simulation) {
@@ -490,10 +729,27 @@ namespace hyprimate::shader {
                 return false;
             }
             if (instance.pending || !instance.primed) {
+#ifdef HYPRIMATE_COMPUTE_BENCH_ADAPTER
+                if (instance.benchmark_cpu) {
+                    const auto before = program.compute_device->statistics().upload_bytes;
+                    auto published = instance.benchmark_cpu->publish(*program.compute_device);
+                    if (!published) {
+                        instance.faulted = true;
+                        return fail(error, published.error());
+                    }
+                    instance.compute_stats.upload_bytes += program.compute_device->statistics().upload_bytes - before;
+                }
+#endif
                 instance.committed_frame = instance.pending_frame;
                 instance.pending = false;
                 instance.primed = true;
             }
+        }
+        if (!guard) {
+            guard.emplace(current, program.sampler_count, program.block_count, false,
+                program.color, program.max_outputs);
+            scoped_target.emplace(target, instance.saved_draw_buffers);
+            scoped_target->select();
         }
         return instance.phase(Phase::Render, instance.committed_frame, source, target,
             active_blocks, clear_final, error);
@@ -502,14 +758,26 @@ namespace hyprimate::shader {
     void Instance::release() noexcept { m_impl.reset(); }
 
     void Instance::abandon() noexcept {
-        if (m_impl) {
-            m_impl->armed = false;
-            if (m_impl->owner.use_count() == 1) {
-                m_impl->owner->armed = false;
-            }
-            m_impl.reset();
-        }
+        if (!m_impl) return;
+        auto &instance = *m_impl;
+        instance.armed = false;
+        auto owner = instance.owner;
+        // Individual fields defer retirement through the shared device; this
+        // instance must not invalidate sibling instances on that device.
+        for (auto &pair : instance.fields)
+            for (auto &field : pair.sides) field.abandon();
+        instance.fields.clear();
+        if (owner && owner.use_count() == 2) owner->armed = false;
+        m_impl.reset();
     }
 
     const Statistics &Instance::statistics() const noexcept { return m_impl ? m_impl->stats : EMPTY_STATS; }
+    compute::Statistics Instance::compute_statistics() const noexcept {
+        return m_impl ? m_impl->compute_stats : compute::Statistics{};
+    }
+#ifdef HYPRIMATE_COMPUTE_BENCH_ADAPTER
+    std::uint64_t Instance::benchmark_cpu_dispatches() const noexcept {
+        return m_impl && m_impl->benchmark_cpu ? m_impl->benchmark_cpu->iterations() : 0;
+    }
+#endif
 }  // namespace hyprimate::shader

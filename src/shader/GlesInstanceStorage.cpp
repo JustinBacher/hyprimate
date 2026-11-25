@@ -47,6 +47,14 @@ namespace hyprimate::shader {
         }
         const auto &package = owner->package;
         std::uint64_t bytes = 0;
+        const auto add_bytes = [&](std::uint64_t amount) {
+            if (amount > MAX_INSTANCE_BYTES || bytes > MAX_INSTANCE_BYTES - amount) return false;
+            bytes += amount;
+            return true;
+        };
+        if (!add_bytes(asset_budget_bytes) || !add_bytes(ancillary_bytes)) {
+            return fail(error, "shader instance exceeds its 128 MiB storage budget");
+        }
         for (std::size_t i = 0; i < package.textures.size(); ++i) {
             const auto &desc = package.textures[i];
             if (!desc.image.empty()) {
@@ -59,14 +67,46 @@ namespace hyprimate::shader {
                     error, "texture dimensions exceed the GLES/bounded extent: " + desc.name);
             }
             textures[i].size = size;
-            bytes += std::uint64_t{size.width} * size.height * pixel_format(desc.format).bytes *
-                     (desc.ping_pong ? 2 : 1);
+            const auto amount = std::uint64_t{size.width} * size.height * pixel_format(desc.format).bytes;
+            if (!add_bytes(amount * (desc.ping_pong ? 2U : 1U)))
+                return fail(error, "shader instance exceeds its 128 MiB storage budget");
+        }
+        fields.resize(package.fields.size());
+        if (!fields.empty() && !owner->compute_device) {
+            return fail(error, "field storage requires a prepared compute device");
+        }
+        for (std::size_t i = 0; i < package.fields.size(); ++i) {
+            const auto &desc = package.fields[i];
+            auto domain = desc.domain.value_or(compute::Domain{});
+            if (desc.scale) {
+                const auto size = texture_extent(Size{.scale = *desc.scale}, capture);
+                domain = {size.width, size.height, 1};
+            }
+            auto &field = fields[i];
+            field.descriptor = {desc.type, domain};
+            const auto &caps = owner->compute_device->capabilities();
+            const auto layout = compute::field_layout(field.descriptor, caps.width, caps.height,
+                caps.max_field_bytes);
+            if (!layout) return fail(error, "field '" + desc.name + "': " + layout.error());
+            const auto sides = desc.ping_pong ? 2U : 1U;
+            if (layout->storage_bytes > MAX_INSTANCE_BYTES / sides ||
+                !add_bytes(static_cast<std::uint64_t>(layout->storage_bytes) * sides))
+                return fail(error, "shader instance exceeds its 128 MiB storage budget");
+        }
+        for (const auto &pass : package.passes) {
+            if (pass.kernel.empty() || pass.outputs.empty()) continue;
+            const auto domain = fields[pass.outputs.front().index].descriptor.domain;
+            if (std::ranges::any_of(pass.outputs, [&](Ref ref) {
+                    return fields[ref.index].descriptor.domain != domain;
+                })) {
+                return fail(error, "incompatible compute output domains: " + pass.name);
+            }
         }
         for (const auto &buffer : package.buffers) {
-            bytes += buffer.bytes * (buffer.ping_pong ? 2 : 1);
-        }
-        if (bytes > MAX_INSTANCE_BYTES) {
-            return fail(error, "shader instance exceeds its 128 MiB storage budget");
+            const auto sides = buffer.ping_pong ? 2U : 1U;
+            if (buffer.bytes > MAX_INSTANCE_BYTES / sides ||
+                !add_bytes(static_cast<std::uint64_t>(buffer.bytes) * sides))
+                return fail(error, "shader instance exceeds its 128 MiB storage budget");
         }
         for (std::size_t i = 0; i < package.passes.size(); ++i) {
             const auto &outputs = package.passes[i].outputs;
@@ -85,19 +125,19 @@ namespace hyprimate::shader {
         return true;
     }
     GLuint Instance::Impl::texture(Ref ref, const Source &source) const {
-        if (ref.kind == ResourceKind::Source) {
-            return source.texture;
-        }
-        if (ref.kind == ResourceKind::Destination) {
-            return source.destination_texture;
-        }
-        if (ref.kind >= ResourceKind::Original)
+        if (ref.kind == ResourceKind::Source) return source.texture;
+        if (ref.kind == ResourceKind::Destination) return source.destination_texture;
+        if (ref.kind == ResourceKind::Original || ref.kind == ResourceKind::Processed ||
+            ref.kind == ResourceKind::EnvironmentState || ref.kind == ResourceKind::Disturbances)
             return environmental_texture(ref.kind, source.environment);
-        if (owner->assets[ref.index] != 0) {
-            return owner->assets[ref.index];
-        }
+        if (ref.kind != ResourceKind::Texture) return 0;
+        if (owner->assets[ref.index] != 0) return owner->assets[ref.index];
         const auto &pair = textures[ref.index];
         return pair.names[pair.read ^ static_cast<unsigned>(ref.side == Side::Write)];
+    }
+    compute::Field &Instance::Impl::field(Ref ref) {
+        auto &pair = fields[ref.index];
+        return pair.sides[pair.read ^ static_cast<unsigned>(ref.side == Side::Write)];
     }
     GLuint Instance::Impl::buffer(Ref ref) const {
         const auto &pair = buffers[ref.index];
@@ -181,6 +221,27 @@ namespace hyprimate::shader {
         const auto &package = owner->package;
         PrepareState saved(owner->color);
         saved_draw_buffers.resize(static_cast<std::size_t>(owner->limits.draw_buffers));
+        for (std::size_t i = 0; i < package.fields.size(); ++i) {
+            auto &pair = fields[i];
+            const auto sides = package.fields[i].ping_pong ? 2U : 1U;
+            for (unsigned side = 0; side < sides; ++side) {
+                const auto before = owner->compute_device->statistics();
+                auto field = owner->compute_device->allocate(pair.descriptor);
+                const auto after = owner->compute_device->statistics();
+                compute_stats.allocations += after.allocations - before.allocations;
+                compute_stats.pool_hits += after.pool_hits - before.pool_hits;
+                compute_stats.barriers += after.barriers - before.barriers;
+                compute_stats.fetch_barriers += after.fetch_barriers - before.fetch_barriers;
+                compute_stats.framebuffer_barriers += after.framebuffer_barriers - before.framebuffer_barriers;
+                compute_stats.update_barriers += after.update_barriers - before.update_barriers;
+                compute_stats.image_barriers += after.image_barriers - before.image_barriers;
+                compute_stats.upload_bytes += after.upload_bytes - before.upload_bytes;
+                if (!field) return fail(error, "allocating field '" + package.fields[i].name + "': " + field.error());
+                compute_stats.live_bytes += field->layout().storage_bytes;
+                count_storage(stats, field->layout().storage_bytes);
+                pair.sides[side] = std::move(*field);
+            }
+        }
         for (std::size_t i = 0; i < package.textures.size(); ++i) {
             const auto &desc = package.textures[i];
             if (!desc.image.empty()) {

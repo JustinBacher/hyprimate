@@ -55,6 +55,11 @@ namespace hyprimate::shader::gles_detail {
             if (deleted != GL_FALSE) {
                 return fail(error, "caller program is pending deletion");
             }
+            GLint linked = GL_FALSE;
+            glGetProgramiv(current, GL_LINK_STATUS, &linked);
+            if (linked == GL_FALSE) {
+                return fail(error, "caller program cannot be restored after a failed relink");
+            }
         }
         return true;
     }

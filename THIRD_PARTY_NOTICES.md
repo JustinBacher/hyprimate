@@ -92,6 +92,42 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
+## SLIBS GLES raster-compute reference (public domain)
+
+`src/compute/SlibsBackend.cpp` adapts the raster-computation sequence in
+[`gpgpu_gles.h`](https://github.com/yui0/slibs/blob/ce1a1bf1186d201fc600b1d34bbd1f9ef217b143/gpgpu_gles.h),
+pinned to commit `ce1a1bf1186d201fc600b1d34bbd1f9ef217b143` of
+[SLIBS](https://github.com/yui0/slibs). That file identifies its author and
+copyright:
+
+```text
+Cat's eye
+©2017-2023 Yuichiro Nakada
+```
+
+The pinned [SLIBS README's per-file license table](https://github.com/yui0/slibs/blob/ce1a1bf1186d201fc600b1d34bbd1f9ef217b143/README.md)
+identifies `gpgpu_gles.h` as **public domain**. This designation is specific to
+that file and is not an attribution of the repository's other licenses or of
+Hyprimate's MIT license to the original.
+
+The corroborating [`gpgpu_glsl.h`](https://github.com/yui0/slibs/blob/ce1a1bf1186d201fc600b1d34bbd1f9ef217b143/gpgpu_glsl.h)
+at that revision is also listed as **public domain**, and identifies
+`©2017-2018 Yuichiro Nakada`. Its legacy `attribute`/`varying` and GLES unsized
+RGBA path is a reference only, not a second compiled implementation.
+
+The adaptation retains the upstream `gpu_make_texture` / `gpu_set_input` /
+`gpu_set_output` / draw dataflow as a private typed MRT raster pass, but does
+not copy the header. It replaces the vertex buffers with a vertex-ID fullscreen
+triangle; compiles with Hyprimate's checked shared shader compiler; generates
+ES 3.00 typed outputs; uses immutable typed field textures allocated by the
+compute device; reuses one private FBO and VAO; checks output attachment
+completeness; uses `CLAMP_TO_EDGE` and nearest sampling in the device's texture
+setup; and scopes/restores the touched raster state. It does not use the
+upstream assertions, `glGetError` checks, process exits, GLFW/GBM/EGL setup,
+legacy single-color output, per-draw FBO allocation, CPU reads, or texture
+transfer helpers. Shared typed transfer and format-availability probing are
+implemented by the compute device, not this adaptation.
+
 ## Other system libraries and older builds
 
 libpng, OpenGL ES/EGL, Lua, and the other shared libraries supplied by the host

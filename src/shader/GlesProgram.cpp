@@ -3,11 +3,13 @@
 #include <cmath>
 #include <ranges>
 #include <string_view>
+#include <optional>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include "GlesRuntimePrivate.hpp"
+#include "gl/ShaderCompile.hpp"
 
 namespace hyprimate::shader {
     using namespace gles_detail;
@@ -125,55 +127,64 @@ namespace hyprimate::shader {
                     break;
             }
         }
-        std::string shader_log(GLuint name, bool program) {
-            GLint size = 0;
-            if (program) {
-                glGetProgramiv(name, GL_INFO_LOG_LENGTH, &size);
-            } else {
-                glGetShaderiv(name, GL_INFO_LOG_LENGTH, &size);
+
+        std::string field_helpers(const Package &package, const Pass &pass) {
+            std::string helpers;
+            for (const auto &input : pass.inputs) {
+                if (input.resource.kind != ResourceKind::Field) {
+                    continue;
+                }
+                const auto &desc = package.fields[input.resource.index];
+                auto generated = compute::sample_source(input.name, desc.type);
+                if (generated) {
+                    helpers += *generated;
+                }
             }
-            std::string log(static_cast<std::size_t>(std::clamp(size, 1, 64 * 1024)), '\0');
-            GLsizei length = 0;
-            if (program) {
-                glGetProgramInfoLog(name, static_cast<GLsizei>(log.size()), &length, log.data());
-            } else {
-                glGetShaderInfoLog(name, static_cast<GLsizei>(log.size()), &length, log.data());
-            }
-            log.resize(static_cast<std::size_t>(length));
-            return log;
+            return helpers;
         }
 
-        GLuint compile(GLenum stage, const std::string &source, std::string &error) {
-            const auto shader = glCreateShader(stage);
-            if (shader == 0) {
-                error = "cannot create shader";
-                return 0;
+        GLenum field_sampler_type(compute::Type type) {
+            switch (type.scalar) {
+                case compute::Element::Float: return GL_UNSIGNED_INT_SAMPLER_2D;
+                case compute::Element::Int: return GL_INT_SAMPLER_2D;
+                case compute::Element::Uint: return GL_UNSIGNED_INT_SAMPLER_2D;
             }
-            const auto *body = source.c_str();
-            const auto bytes = static_cast<GLint>(source.size());
-            glShaderSource(shader, 1, &body, &bytes);
-            glCompileShader(shader);
-            GLint status = GL_FALSE;
-            glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
-            if (status == GL_TRUE) {
-                return shader;
-            }
-            error =
-                (stage == GL_VERTEX_SHADER ? "vertex: " : "fragment: ") + shader_log(shader, false);
-            glDeleteShader(shader);
             return 0;
         }
 
+        std::optional<std::pair<Ref, compute::Type>> field_sampler(
+            const Package &package, const Pass &pass, std::string_view name) {
+            for (const auto &input : pass.inputs) {
+                if (input.resource.kind != ResourceKind::Field) continue;
+                if (name == "hc_tex_" + input.name) {
+                    return std::pair{input.resource, package.fields[input.resource.index].type};
+                }
+            }
+            return std::nullopt;
+        }
+
+        std::optional<std::pair<Ref, compute::Type>> field_size(
+            const Package &package, const Pass &pass, std::string_view name) {
+            for (const auto &input : pass.inputs) {
+                if (input.resource.kind != ResourceKind::Field) continue;
+                if (name == "hc_size_" + input.name) {
+                    return std::pair{input.resource, package.fields[input.resource.index].type};
+                }
+            }
+            return std::nullopt;
+        }
+
         bool link(const Package &package, const Pass &pass, CompiledPass &gpu, std::string &error) {
+            const auto helpers = field_helpers(package, pass);
             const auto vertex =
-                compile(GL_VERTEX_SHADER, shader_source(package, pass.vertex, true), error);
+                gl::compile_shader(GL_VERTEX_SHADER, shader_source(package, pass.vertex, true, helpers), error);
             if (vertex == 0) {
                 return false;
             }
             // Do not inject raster ABI inputs into the inert feedback fragment.
-            const auto fragment = compile(GL_FRAGMENT_SHADER,
+            const auto fragment = gl::compile_shader(GL_FRAGMENT_SHADER,
                 pass.transform_feedback ? "#version 300 es\nvoid main() {}\n"
-                                        : shader_source(package, pass.fragment, false),
+                                        : shader_source(package, pass.fragment, false, helpers),
                 error);
             if (fragment == 0) {
                 glDeleteShader(vertex);
@@ -205,7 +216,7 @@ namespace hyprimate::shader {
             glDeleteShader(fragment);
             GLint status = GL_FALSE;
             glGetProgramiv(gpu.program, GL_LINK_STATUS, &status);
-            return status == GL_TRUE || fail(error, "link: " + shader_log(gpu.program, true));
+            return status == GL_TRUE || fail(error, "link: " + gl::shader_log(gpu.program, true));
         }
 
         bool reflect_attributes(const Mesh *mesh, GLuint program, std::string &error) {
@@ -307,6 +318,16 @@ namespace hyprimate::shader {
             // GLES links per-stage sampler/UBO limits. The v3.0 uniform interface exposes
             // combined active samplers, not their originating shader stage.
             glUseProgram(gpu.program);
+            const auto sampler_unit = [&](Ref ref) -> std::optional<unsigned> {
+                unsigned unit = 0;
+                while (unit < gpu.sampler_count && gpu.samplers[unit] != ref) ++unit;
+                if (unit == gpu.sampler_count) {
+                    if (unit >= gpu.samplers.size() ||
+                        unit >= static_cast<unsigned>(limits.samplers)) return std::nullopt;
+                    gpu.samplers[gpu.sampler_count++] = ref;
+                }
+                return unit;
+            };
             for (GLuint i = 0; i < static_cast<GLuint>(count); ++i) {
                 GLint block = -1;
                 glGetActiveUniformsiv(gpu.program, 1, &i, GL_UNIFORM_BLOCK_INDEX, &block);
@@ -341,6 +362,26 @@ namespace hyprimate::shader {
                         values[static_cast<std::size_t>(parameter - package.parameters.begin())]);
                     continue;
                 }
+                if (const auto sampled = field_sampler(package, pass, uniform)) {
+                    if (type != field_sampler_type(sampled->second) || elements != 1)
+                        return fail(error, "typed field sampler mismatch: " + std::string(uniform));
+                    const auto unit = sampler_unit(sampled->first);
+                    if (!unit) return fail(error, "active sampler bindings exceed the GLES texture unit limit");
+                    glUniform1i(location, static_cast<GLint>(*unit));
+                    continue;
+                }
+                if (const auto sized = field_size(package, pass, uniform)) {
+                    if (type != GL_INT_VEC3 || elements != 1)
+                        return fail(error, "field domain uniform must be ivec3: " + std::string(uniform));
+                    const auto unit = sampler_unit(sized->first);
+                    if (!unit) return fail(error, "active sampler bindings exceed the GLES texture unit limit");
+                    if (!gpu.field_sizes) {
+                        gpu.field_sizes = std::make_unique<std::array<GLint, MAX_SHADER_SAMPLERS>>();
+                        gpu.field_sizes->fill(-1);
+                    }
+                    (*gpu.field_sizes)[*unit] = location;
+                    continue;
+                }
                 const auto input = std::ranges::find(pass.inputs, uniform, &Binding::name);
                 const auto &environment = package.environment;
                 std::optional<Ref> sampler;
@@ -363,7 +404,11 @@ namespace hyprimate::shader {
                     return fail(error, "unsupported or unmapped uniform: " + std::string(uniform));
                 }
                 const auto ref = *sampler;
-                if (ref.kind >= ResourceKind::Original && !package.supports(Event::Wallpaper) &&
+                const bool environment_ref = ref.kind == ResourceKind::Original ||
+                                             ref.kind == ResourceKind::Processed ||
+                                             ref.kind == ResourceKind::EnvironmentState ||
+                                             ref.kind == ResourceKind::Disturbances;
+                if (environment_ref && !package.supports(Event::Wallpaper) &&
                     pass.phase != Phase::Render) {
                     return fail(error,
                         "window packages can only sample the environment in their render phase");
@@ -653,24 +698,22 @@ namespace hyprimate::shader {
     bool Program::Impl::direct() const noexcept {
         return final_draws > 0 && final_is_last && final_source_over && !uses_frag_coord;
     }
-    Program::Impl::Impl(Package spec) : package(std::move(spec)) {
-    }
+    Program::Impl::Impl(Package spec, const Values &resolved_values, std::shared_ptr<void> owner)
+        : package(std::move(spec)), values(resolved_values), compute_owner(std::move(owner)) {}
     Program::Impl::~Impl() {
+        compute_device.reset();
         if (!armed) {
             return;
         }
         for (const auto &pass : passes) {
-            if (pass.program != 0) {
-                glDeleteProgram(pass.program);
-            }
+            if (pass.program != 0) glDeleteProgram(pass.program);
         }
         glDeleteTextures(static_cast<GLsizei>(assets.size()), assets.data());
         glDeleteBuffers(static_cast<GLsizei>(elements.size()), elements.data());
-        if (source_sampler != 0) {
-            glDeleteSamplers(1, &source_sampler);
-        }
+        if (source_sampler != 0) glDeleteSamplers(1, &source_sampler);
     }
-    bool Program::Impl::prepare(const Values &values, GlResolver resolver, std::string &error) {
+    bool Program::Impl::prepare(const Values &values, GlResolver resolver,
+        compute::GlResolver compute_resolver, compute::Backend backend, std::string &error) {
         limits.query();
         if (!color.configure(limits, resolver)) {
             return fail(error, "indexed GLES draw buffer state requires a GL procedure resolver");
@@ -707,10 +750,38 @@ namespace hyprimate::shader {
                 return fail(error, "mesh exceeds GLES element index limit: " + mesh.name);
             }
         }
+        if (!spec.fields.empty()) {
+#ifdef HYPRIMATE_COMPUTE_BENCH_ADAPTER
+            if (compute::fixture::cpu_requested()) {
+                auto workload = compute::fixture::match_workload(spec);
+                if (!workload) return fail(error, workload.error());
+                benchmark_workload = *workload;
+            }
+#endif
+            compute_device = std::make_unique<compute::Device>();
+            compute_only_simulation = std::ranges::all_of(spec.passes, [](const Pass& pass) {
+                return pass.phase == Phase::Render || !pass.kernel.empty();
+            });
+            compute_kernels.reserve(std::ranges::count_if(spec.passes, [](const Pass& pass) { return !pass.kernel.empty(); }));
+            if (auto initialized = compute_device->initialize(compute_resolver, backend); !initialized) {
+                return fail(error, "compute device: " + initialized.error());
+            }
+        }
         for (std::size_t i = 0; i < spec.passes.size(); ++i) {
             const auto &pass = spec.passes[i];
             auto &gpu = passes[i];
             const auto *mesh = pass_mesh(spec, pass);
+            if (!pass.kernel.empty()) {
+                if (!compute_device) {
+                    return fail(error, "compute pass without field resources: " + pass.name);
+                }
+                auto descriptor = kernel_descriptor(spec, pass);
+                auto kernel = compute_device->prepare(descriptor);
+                if (!kernel) return fail(error, pass.name + ": " + kernel.error());
+                gpu.kernel = std::make_unique<CompiledKernel>(CompiledKernel{std::move(*kernel), compute_kernels.size()});
+                compute_kernels.emplace_back(std::cref(gpu.kernel->kernel));
+                continue;
+            }
             if (pass.outputs.size() > static_cast<std::size_t>(limits.draw_buffers) ||
                 pass.outputs.size() > static_cast<std::size_t>(limits.color_attachments)) {
                 return fail(error, "MRT exceeds GLES draw buffer / attachment limit: " + pass.name);
@@ -846,9 +917,9 @@ namespace hyprimate::shader {
     Program::Program() = default;
     Program::~Program() = default;
 
-    bool Program::initialize(
-        Package package, const Values &values, std::string &error, GlResolver resolver) {
-        error.clear();
+    bool Program::initialize(Package package, const Values &values, std::string &error,
+        GlResolver resolver, compute::GlResolver compute_resolver, compute::Backend backend,
+        std::shared_ptr<void> compute_owner) {
         if (const auto valid = validate_package(package); !valid) {
             return fail(error, valid.error());
         }
@@ -867,8 +938,9 @@ namespace hyprimate::shader {
         if (!can_use_program(previous, error)) {
             return false;
         }
-        auto prepared = std::make_shared<Impl>(std::move(package));
-        const bool ok = prepared->prepare(values, resolver, error);
+        auto prepared =
+            std::make_shared<Impl>(std::move(package), values, std::move(compute_owner));
+        const bool ok = prepared->prepare(values, resolver, compute_resolver, backend, error);
         glUseProgram(previous);
         if (!ok) {
             discard_errors();
@@ -888,6 +960,7 @@ namespace hyprimate::shader {
     void Program::abandon() noexcept {
         if (m_impl) {
             m_impl->armed = false;
+            if (m_impl->compute_device) m_impl->compute_device->abandon();
             m_impl.reset();
         }
     }
@@ -902,5 +975,14 @@ namespace hyprimate::shader {
 
     const Statistics &Program::statistics() const noexcept {
         return m_impl ? m_impl->stats : EMPTY_STATS;
+    }
+    compute::Statistics Program::compute_statistics() const noexcept {
+        return m_impl && m_impl->compute_device
+                   ? m_impl->compute_device->statistics()
+                   : compute::Statistics{};
+    }
+
+    const compute::Capabilities *Program::compute_capabilities() const noexcept {
+        return m_impl && m_impl->compute_device ? &m_impl->compute_device->capabilities() : nullptr;
     }
 }  // namespace hyprimate::shader

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -8,6 +9,7 @@
 
 #include <GLES3/gl3.h>
 
+#include "../compute/Compute.hpp"
 #include "Package.hpp"
 
 namespace hyprimate::shader {
@@ -84,7 +86,9 @@ namespace hyprimate::shader {
         // Transfer a package into the immutable prepared generation. The resolver
         // is required when the host exposes indexed draw-buffer state.
         bool initialize(Package package, const Values &values, std::string &error,
-            GlResolver resolver = nullptr);
+            GlResolver resolver = nullptr, compute::GlResolver compute_resolver = {},
+            compute::Backend backend = compute::Backend::Auto,
+            std::shared_ptr<void> compute_owner = {});
         void release() noexcept;
         void abandon() noexcept;
         const Package &package() const;
@@ -93,6 +97,8 @@ namespace hyprimate::shader {
         // include short-lived one-texel format probes; upload_bytes counts data
         // transferred from the CPU, not probe storage.
         const Statistics &statistics() const noexcept;
+        compute::Statistics compute_statistics() const noexcept;
+        const compute::Capabilities *compute_capabilities() const noexcept;
       private:
         friend class Instance;
         struct Impl;
@@ -105,8 +111,10 @@ namespace hyprimate::shader {
         Instance(const Instance &) = delete;
         Instance &operator=(const Instance &) = delete;
         // Matching resolved attachment dimensions preserve simulation. Otherwise
-        // allocate transactionally and replay initialization.
-        bool initialize(Program &program, unsigned width, unsigned height, std::string &error);
+        // allocate transactionally and replay initialization. ancillary_bytes
+        // reserves the shared instance budget for retained host-owned targets.
+        bool initialize(Program &program, unsigned width, unsigned height, std::string &error,
+            std::size_t ancillary_bytes = 0);
         // CPU timing only. Older/repeated tick IDs are ignored; pending delta accumulates.
         void advance(const Frame &frame) noexcept;
         // Initializes/updates only on an authorized live execution. Read-only
@@ -119,6 +127,10 @@ namespace hyprimate::shader {
         void release() noexcept;
         void abandon() noexcept;
         const Statistics &statistics() const noexcept;
+        compute::Statistics compute_statistics() const noexcept;
+#ifdef HYPRIMATE_COMPUTE_BENCH_ADAPTER
+        std::uint64_t benchmark_cpu_dispatches() const noexcept;
+#endif
       private:
         struct Impl;
         std::unique_ptr<Impl> m_impl;

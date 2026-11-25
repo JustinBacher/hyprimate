@@ -10,8 +10,10 @@
 namespace hyprimate::shader::gles_detail {
     constexpr unsigned MAX_BLOCK_BINDINGS = 32;
     constexpr unsigned MAX_SHADER_SAMPLERS = MAX_TEXTURES + 6;
-    constexpr std::array<GLenum, 10> DRAW_CAPS{GL_SCISSOR_TEST,
-        GL_STENCIL_TEST,
+    constexpr GLenum SAMPLE_MASK = 0x8E51;
+    constexpr GLenum MAX_CLIP_DISTANCES = 0x0D32;
+    constexpr GLenum CLIP_DISTANCE0 = 0x3000;
+    constexpr std::array<GLenum, 9> DRAW_CAPS{GL_STENCIL_TEST,
         GL_DEPTH_TEST,
         GL_CULL_FACE,
         GL_RASTERIZER_DISCARD,
@@ -35,7 +37,8 @@ namespace hyprimate::shader::gles_detail {
         std::array<GLint, 2> viewport{};
         bool float_linear = false, float_blend = false;
         bool indexed_core = false, indexed_ext = false, indexed_oes = false;
-
+        bool viewport_oes = false, viewport_nv = false, clip_distances = false;
+        bool sample_mask = false, window_rectangles = false;
         void query() {
             texture = integer(GL_MAX_TEXTURE_SIZE);
             glGetIntegerv(GL_MAX_VIEWPORT_DIMS, viewport.data());
@@ -47,7 +50,10 @@ namespace hyprimate::shader::gles_detail {
             block_bytes = integer(GL_MAX_UNIFORM_BLOCK_SIZE);
             feedback_components = integer(GL_MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS);
             glGetInteger64v(GL_MAX_ELEMENT_INDEX, &index);
-            indexed_core = integer(GL_MAJOR_VERSION) > 3 || integer(GL_MINOR_VERSION) >= 2;
+            const auto major = integer(GL_MAJOR_VERSION);
+            const auto minor = integer(GL_MINOR_VERSION);
+            indexed_core = major > 3 || (major == 3 && minor >= 2);
+            sample_mask = major > 3 || (major == 3 && minor >= 1);
             const auto count = integer(GL_NUM_EXTENSIONS);
             for (GLint i = 0; i < count; ++i) {
                 const auto *name = glGetStringi(GL_EXTENSIONS, static_cast<GLuint>(i));
@@ -59,6 +65,11 @@ namespace hyprimate::shader::gles_detail {
                 float_blend |= ext == "GL_EXT_float_blend";
                 indexed_ext |= ext == "GL_EXT_draw_buffers_indexed";
                 indexed_oes |= ext == "GL_OES_draw_buffers_indexed";
+                viewport_oes |= ext == "GL_OES_viewport_array";
+                viewport_nv |= ext == "GL_NV_viewport_array";
+                window_rectangles |= ext == "GL_EXT_window_rectangles";
+                clip_distances |= ext == "GL_EXT_clip_cull_distance" ||
+                                  ext == "GL_APPLE_clip_distance";
             }
         }
 
@@ -75,13 +86,29 @@ namespace hyprimate::shader::gles_detail {
         using IsEnabled = GLboolean(GL_APIENTRYP)(GLenum, GLuint);
         using Mask = void(GL_APIENTRYP)(GLuint, GLboolean, GLboolean, GLboolean, GLboolean);
         using Equation = void(GL_APIENTRYP)(GLuint, GLenum, GLenum);
+        using EquationSingle = void(GL_APIENTRYP)(GLuint, GLenum);
         using Factors = void(GL_APIENTRYP)(GLuint, GLenum, GLenum, GLenum, GLenum);
         using ColorMask = std::array<GLboolean, 4>;
+        using GetFloatIndexed = void(GL_APIENTRYP)(GLenum, GLuint, GLfloat *);
+        using GetIntegerIndexed = void(GL_APIENTRYP)(GLenum, GLuint, GLint *);
+        using ViewportIndexed = void(GL_APIENTRYP)(GLuint, const GLfloat *);
+        using ScissorIndexed = void(GL_APIENTRYP)(GLuint, GLint, GLint, GLsizei, GLsizei);
+        using DepthRangeIndexed = void(GL_APIENTRYP)(GLuint, GLfloat, GLfloat);
+        GetIntegerIndexed get_integer_indexed = nullptr;
         Enable enable_slot = nullptr, disable_slot = nullptr;
         IsEnabled enabled_slot = nullptr;
         Mask mask_slot = nullptr;
         Equation equation_slot = nullptr;
+        EquationSingle equation_single = nullptr;
         Factors factors_slot = nullptr;
+        GetFloatIndexed get_float_indexed = nullptr;
+        ViewportIndexed viewport_indexed = nullptr;
+        ScissorIndexed scissor_indexed = nullptr;
+        DepthRangeIndexed depth_range_indexed = nullptr;
+        Enable scissor_enable = nullptr, scissor_disable = nullptr;
+        IsEnabled scissor_enabled = nullptr;
+        bool sample_mask = false;
+        unsigned clip_count = 0;
 
         bool load(GlResolver resolve, const char *suffix) {
             if (!resolve) {
@@ -95,16 +122,87 @@ namespace hyprimate::shader::gles_detail {
             enabled_slot = reinterpret_cast<IsEnabled>(proc("glIsEnabledi"));
             mask_slot = reinterpret_cast<Mask>(proc("glColorMaski"));
             equation_slot = reinterpret_cast<Equation>(proc("glBlendEquationSeparatei"));
+            equation_single = reinterpret_cast<EquationSingle>(proc("glBlendEquationi"));
             factors_slot = reinterpret_cast<Factors>(proc("glBlendFuncSeparatei"));
             return enable_slot && disable_slot && enabled_slot && mask_slot && equation_slot &&
-                   factors_slot;
+                   equation_single && factors_slot;
+        }
+
+        bool load_viewport(GlResolver resolve, const char *suffix, bool share_enable) {
+            if (!resolve) return false;
+            const auto proc = [&](const char *name) {
+                return resolve((std::string(name) + suffix).c_str());
+            };
+            get_float_indexed = reinterpret_cast<GetFloatIndexed>(proc("glGetFloati_v"));
+            get_integer_indexed = glGetIntegeri_v;
+            viewport_indexed = reinterpret_cast<ViewportIndexed>(proc("glViewportIndexedfv"));
+            scissor_indexed = reinterpret_cast<ScissorIndexed>(proc("glScissorIndexed"));
+            depth_range_indexed = reinterpret_cast<DepthRangeIndexed>(proc("glDepthRangeIndexedf"));
+            scissor_enable = share_enable ? enable_slot : reinterpret_cast<Enable>(proc("glEnablei"));
+            scissor_disable = share_enable ? disable_slot : reinterpret_cast<Enable>(proc("glDisablei"));
+            scissor_enabled = share_enable ? enabled_slot : reinterpret_cast<IsEnabled>(proc("glIsEnabledi"));
+            return get_float_indexed && get_integer_indexed && viewport_indexed && scissor_indexed &&
+                   depth_range_indexed && scissor_enable && scissor_disable && scissor_enabled;
         }
 
         bool configure(const Limits &limits, GlResolver resolve) {
-            return (!limits.indexed_core && !limits.indexed_ext && !limits.indexed_oes) ||
-                   (limits.indexed_core && load(resolve, "")) ||
-                   (limits.indexed_ext && load(resolve, "EXT")) ||
-                   (limits.indexed_oes && load(resolve, "OES"));
+            if ((limits.indexed_core || limits.indexed_ext || limits.indexed_oes) &&
+                !(limits.indexed_core && load(resolve, "")) &&
+                !(limits.indexed_ext && load(resolve, "EXT")) &&
+                !(limits.indexed_oes && load(resolve, "OES"))) return false;
+            if ((limits.viewport_oes || limits.viewport_nv) &&
+                !(limits.viewport_oes && load_viewport(resolve, "OES", indexed())) &&
+                !(limits.viewport_nv && load_viewport(resolve, "NV", false))) return false;
+            sample_mask = limits.sample_mask;
+            if (limits.clip_distances) {
+                const auto count = integer(MAX_CLIP_DISTANCES);
+                if (count <= 0 || count > 32) return false;
+                clip_count = static_cast<unsigned>(count);
+            }
+            if (get_float_indexed) {
+                std::array<GLfloat, 4> viewport{};
+                std::array<GLfloat, 2> range{};
+                std::array<GLint, 4> scissor{};
+                get_float_indexed(GL_VIEWPORT, 0, viewport.data());
+                get_float_indexed(GL_DEPTH_RANGE, 0, range.data());
+                get_integer_indexed(GL_SCISSOR_BOX, 0, scissor.data());
+                (void)scissor_enabled(GL_SCISSOR_TEST, 0);
+            }
+            if (limits.viewport_oes || limits.viewport_nv || limits.clip_distances) {
+                std::string error;
+                if (!gl_ok(error, "querying indexed viewport and clip-distance state")) return false;
+            }
+            return true;
+        }
+
+        void viewport(GLint x, GLint y, GLsizei width, GLsizei height) const {
+            if (viewport_indexed) {
+                const std::array<GLfloat, 4> value{static_cast<GLfloat>(x), static_cast<GLfloat>(y),
+                    static_cast<GLfloat>(width), static_cast<GLfloat>(height)};
+                viewport_indexed(0, value.data());
+            } else {
+                glViewport(x, y, width, height);
+            }
+        }
+
+        void scissor_box(GLint x, GLint y, GLsizei width, GLsizei height) const {
+            if (scissor_indexed) scissor_indexed(0, x, y, width, height);
+            else glScissor(x, y, width, height);
+        }
+
+        bool scissor_test() const {
+            return (scissor_enabled ? scissor_enabled(GL_SCISSOR_TEST, 0) :
+                glIsEnabled(GL_SCISSOR_TEST)) != GL_FALSE;
+        }
+
+        void scissor_test(bool enabled) const {
+            if (scissor_enabled) (enabled ? scissor_enable : scissor_disable)(GL_SCISSOR_TEST, 0);
+            else enable(GL_SCISSOR_TEST, enabled);
+        }
+
+        void depth_range(GLfloat near_value, GLfloat far_value) const {
+            if (depth_range_indexed) depth_range_indexed(0, near_value, far_value);
+            else glDepthRangef(near_value, far_value);
         }
 
         bool indexed() const {
@@ -141,7 +239,12 @@ namespace hyprimate::shader::gles_detail {
         }
 
         void equation(unsigned i, GLenum rgb, GLenum alpha) const {
-            if (indexed()) {
+            // Advanced KHR/core equations use the single setter. Separate setters
+            // only accept the basic equations, even if both arguments are equal.
+            if (rgb == alpha) {
+                if (indexed()) equation_single(i, rgb);
+                else glBlendEquation(rgb);
+            } else if (indexed()) {
                 equation_slot(i, rgb, alpha);
             } else {
                 glBlendEquationSeparate(rgb, alpha);
@@ -250,9 +353,15 @@ namespace hyprimate::shader::gles_detail {
             GLint64 start = 0, bytes = 0;
         };
         std::array<Unit, MAX_SHADER_SAMPLERS> units{};
-        std::array<BlockRange, MAX_BLOCK_BINDINGS> blocks{};
         std::array<GLboolean, DRAW_CAPS.size()> enabled{};
+        std::array<BlockRange, MAX_BLOCK_BINDINGS> blocks{};
+        const IndexedColor &state;
         const DrawColorState color;
+        std::array<GLfloat, 4> indexed_viewport{};
+        std::array<GLint, 4> indexed_scissor{};
+        std::array<GLfloat, 2> indexed_depth_range{};
+        std::array<GLboolean, 32> clips{};
+        bool indexed_scissor_enabled = false, sample_mask_enabled = false;
         std::array<GLint, 4> viewport{}, scissor{};
         std::array<GLfloat, 2> depth_range{};
         GLfloat line_width = 1;
@@ -268,14 +377,25 @@ namespace hyprimate::shader::gles_detail {
             bool use_feedback,
             const IndexedColor &colors,
             unsigned outputs)
-            : color(colors, outputs),
+            : state(colors),
+              color(colors, outputs),
               program(current),
               unit_count(samplers),
               block_count(uniform_blocks),
               uses_feedback(use_feedback) {
-            glGetIntegerv(GL_VIEWPORT, viewport.data());
-            glGetIntegerv(GL_SCISSOR_BOX, scissor.data());
-            glGetFloatv(GL_DEPTH_RANGE, depth_range.data());
+            indexed_scissor_enabled = colors.scissor_test();
+            if (colors.viewport_indexed) {
+                colors.get_float_indexed(GL_VIEWPORT, 0, indexed_viewport.data());
+                colors.get_float_indexed(GL_DEPTH_RANGE, 0, indexed_depth_range.data());
+                colors.get_integer_indexed(GL_SCISSOR_BOX, 0, indexed_scissor.data());
+            } else {
+                glGetIntegerv(GL_VIEWPORT, viewport.data());
+                glGetIntegerv(GL_SCISSOR_BOX, scissor.data());
+                glGetFloatv(GL_DEPTH_RANGE, depth_range.data());
+            }
+            sample_mask_enabled = colors.sample_mask && glIsEnabled(SAMPLE_MASK);
+            for (unsigned i = 0; i < colors.clip_count; ++i)
+                clips[i] = glIsEnabled(CLIP_DISTANCE0 + i);
             glGetFloatv(GL_LINE_WIDTH, &line_width);
             array_buffer = integer(GL_ARRAY_BUFFER_BINDING);
             vao = integer(GL_VERTEX_ARRAY_BINDING);
@@ -303,25 +423,34 @@ namespace hyprimate::shader::gles_detail {
             }
             for (std::size_t i = 0; i < DRAW_CAPS.size(); ++i) {
                 enabled[i] = glIsEnabled(DRAW_CAPS[i]);
-                if (enabled[i]) {
-                    glDisable(DRAW_CAPS[i]);
-                }
+                if (enabled[i]) glDisable(DRAW_CAPS[i]);
             }
-            glDepthRangef(0, 1);
+            colors.scissor_test(false);
+            if (colors.sample_mask) enable(SAMPLE_MASK, false);
+            for (unsigned i = 0; i < colors.clip_count; ++i) enable(CLIP_DISTANCE0 + i, false);
+            colors.depth_range(0, 1);
             glLineWidth(1);
         }
 
         ~DrawState() {
             for (std::size_t i = 0; i < DRAW_CAPS.size(); ++i) {
                 const auto cap = DRAW_CAPS[i];
-                if (enabled[i] || cap == GL_SCISSOR_TEST || cap == GL_RASTERIZER_DISCARD) {
-                    enable(cap, enabled[i]);
-                }
+                if (enabled[i] || cap == GL_RASTERIZER_DISCARD) enable(cap, enabled[i]);
             }
-            glDepthRangef(depth_range[0], depth_range[1]);
+            state.scissor_test(indexed_scissor_enabled);
+            state.depth_range(state.viewport_indexed ? indexed_depth_range[0] : depth_range[0],
+                state.viewport_indexed ? indexed_depth_range[1] : depth_range[1]);
             glLineWidth(line_width);
-            glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
-            glScissor(scissor[0], scissor[1], scissor[2], scissor[3]);
+            if (state.viewport_indexed) {
+                state.viewport_indexed(0, indexed_viewport.data());
+                state.scissor_box(indexed_scissor[0], indexed_scissor[1], indexed_scissor[2], indexed_scissor[3]);
+            } else {
+                glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+                glScissor(scissor[0], scissor[1], scissor[2], scissor[3]);
+            }
+            if (state.sample_mask) enable(SAMPLE_MASK, sample_mask_enabled);
+            for (unsigned i = 0; i < state.clip_count; ++i)
+                enable(CLIP_DISTANCE0 + i, clips[i] != GL_FALSE);
             for (unsigned i = 0; i < unit_count; ++i) {
                 glActiveTexture(GL_TEXTURE0 + i);
                 glBindTexture(GL_TEXTURE_2D, units[i].texture);
@@ -356,14 +485,15 @@ namespace hyprimate::shader::gles_detail {
         GLint array_buffer = integer(GL_ARRAY_BUFFER_BINDING);
         GLint vao = integer(GL_VERTEX_ARRAY_BINDING);
         GLint framebuffer = integer(GL_DRAW_FRAMEBUFFER_BINDING);
-        bool scissor = glIsEnabled(GL_SCISSOR_TEST);
+        bool scissor = false;
         bool discard = glIsEnabled(GL_RASTERIZER_DISCARD);
         const IndexedColor &color;
         IndexedColor::ColorMask mask;
         GLuint zero_framebuffer = 0;
 
-        explicit PrepareState(const IndexedColor &api) : color(api), mask(api.mask(0)) {
-            glDisable(GL_SCISSOR_TEST);
+        explicit PrepareState(const IndexedColor &api) : scissor(api.scissor_test()),
+            color(api), mask(api.mask(0)) {
+            color.scissor_test(false);
             glDisable(GL_RASTERIZER_DISCARD);
             color.color_mask(0, FULL_MASK);
         }
@@ -375,7 +505,7 @@ namespace hyprimate::shader::gles_detail {
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
             glBindVertexArray(vao);
             glBindBuffer(GL_ARRAY_BUFFER, array_buffer);
-            enable(GL_SCISSOR_TEST, scissor);
+            color.scissor_test(scissor);
             enable(GL_RASTERIZER_DISCARD, discard);
             color.color_mask(0, mask);
         }

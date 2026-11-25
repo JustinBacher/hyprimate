@@ -1,6 +1,9 @@
 #include "shader/GlesRuntime.hpp"
 
+#include <filesystem>
+
 #include <algorithm>
+#include <EGL/egl.h>
 #include <array>
 #include <cstdint>
 #include <cstring>
@@ -40,6 +43,14 @@ namespace driver_probe {
         GLint value = 0;
         glGetIntegeri_v(property, slot, &value);
         return value;
+    }
+
+    bool compute_context_current(void *owner) noexcept {
+        return owner && eglGetCurrentContext() == *static_cast<EGLContext *>(owner);
+    }
+
+    hyprimate::compute::GlResolver::Proc resolve_compute(const char *name, void *) noexcept {
+        return eglGetProcAddress(name);
     }
 }  // namespace driver_probe
 
@@ -1168,6 +1179,97 @@ void main() { shade(color); }
         CHECK(glGetError() == GL_NO_ERROR);
     }
 
+
+    void compute_instances_keep_authorized_state_and_generation() {
+        const auto source = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path();
+        const auto fixture = source / "examples/shaders/compute-stencil/effect.json";
+        auto loaded = load_package(fixture.string());
+        CHECK(loaded.has_value());
+        if (!loaded) return;
+        Layers layers(8, 8);
+        EGLContext context = eglGetCurrentContext();
+        const hyprimate::compute::GlResolver compute_resolver{
+            driver_probe::resolve_compute, driver_probe::compute_context_current, &context};
+        Program program;
+        Instance first, second;
+        std::string error;
+        auto values = parameter_values(*loaded);
+        CHECK(values.has_value());
+        if (!values) return;
+        auto fixture_package = std::move(*loaded);
+        auto replacement = fixture_package;
+        if (!checked(program.initialize(std::move(fixture_package), *values, error, eglGetProcAddress,
+                compute_resolver), error) ||
+            !checked(first.initialize(program, 8, 8, error), error) ||
+            !checked(second.initialize(program, 8, 8, error), error)) return;
+        constexpr std::size_t INSTANCE_BUDGET = 128ULL * 1024 * 1024;
+        const auto prior_texture_calls = driver_probe::texture_calls;
+        Instance ancillary_over_budget;
+        CHECK(!ancillary_over_budget.initialize(program, 8, 8, error, INSTANCE_BUDGET));
+        CHECK(error.find("128 MiB") != std::string::npos);
+        CHECK(driver_probe::texture_calls == prior_texture_calls);
+        CHECK(!first.initialize(program, 8, 8, error,
+            INSTANCE_BUDGET - first.statistics().allocated_bytes + 1));
+
+
+        CHECK(!first.render(layers.source, layers.target, false, error));
+        CHECK(first.compute_statistics().native_dispatches == 0);
+        CHECK(first.compute_statistics().slibs_dispatches == 0);
+        CHECK(checked(first.render(layers.source, layers.target, true, error), error));
+        const auto primed = first.compute_statistics();
+        CHECK(primed.native_dispatches + primed.slibs_dispatches > 0);
+        CHECK(checked(first.render(layers.source, layers.target, false, error), error));
+        const auto replay = first.compute_statistics();
+        CHECK(replay.native_dispatches == primed.native_dispatches);
+        CHECK(replay.slibs_dispatches == primed.slibs_dispatches);
+        CHECK(replay.samples > primed.samples);
+        CHECK(checked(second.render(layers.source, layers.target, true, error), error));
+        CHECK(second.compute_statistics().native_dispatches + second.compute_statistics().slibs_dispatches ==
+            primed.native_dispatches + primed.slibs_dispatches);
+        first.advance({.tick = 1, .seed = 17, .delta = 0.1F});
+        second.advance({.tick = 1, .seed = 23, .delta = 0.2F});
+        CHECK(checked(first.render(layers.source, layers.target, true, error), error));
+        const auto first_committed_pixel = pixel(layers.target, 3, 3);
+        CHECK(checked(second.render(layers.source, layers.target, true, error), error));
+        const auto before_pending_replay = first.compute_statistics();
+        const auto committed_pixel = first_committed_pixel;
+        first.advance({.tick = 2, .seed = 17, .delta = 0.75F});
+        CHECK(checked(first.render(layers.source, layers.target, false, error), error));
+        CHECK(pixel(layers.target, 3, 3) == committed_pixel);
+        CHECK(first.compute_statistics().native_dispatches == before_pending_replay.native_dispatches);
+        CHECK(first.compute_statistics().slibs_dispatches == before_pending_replay.slibs_dispatches);
+        CHECK(checked(first.render(layers.source, layers.target, true, error), error));
+        const auto committed = first.compute_statistics();
+        CHECK(committed.native_dispatches + committed.slibs_dispatches >
+            before_pending_replay.native_dispatches + before_pending_replay.slibs_dispatches);
+        const auto resized_pixel = pixel(layers.target, 3, 3);
+        CHECK(checked(first.initialize(program, 10, 9, error), error));
+        CHECK(checked(first.render(layers.source, layers.target, false, error), error));
+        CHECK(pixel(layers.target, 3, 3) == resized_pixel);
+        CHECK(first.compute_statistics().native_dispatches == committed.native_dispatches);
+        CHECK(first.compute_statistics().slibs_dispatches == committed.slibs_dispatches);
+
+        auto oversized = replacement;
+        for (unsigned i = 0; i < 5; ++i) {
+            oversized.fields.push_back({"extra" + std::to_string(i),
+                {hyprimate::compute::Element::Float, 1},
+                std::nullopt, 1.0F, Lifetime::Persistent, true});
+        }
+        Program oversized_program;
+        Instance rejected;
+        CHECK(checked(oversized_program.initialize(std::move(oversized), *values, error,
+            eglGetProcAddress, compute_resolver), error));
+        CHECK(!rejected.initialize(oversized_program, 2048, 2048, error));
+        CHECK(error.find("128 MiB") != std::string::npos);
+        CHECK(checked(first.render(layers.source, layers.target, false, error), error));
+        replacement.passes.back().fragment += "\nthis is not valid GLSL;\n";
+        CHECK(!program.initialize(std::move(replacement), *values, error, eglGetProcAddress,
+            compute_resolver));
+        CHECK(first.compute_statistics().native_dispatches == committed.native_dispatches);
+        CHECK(first.compute_statistics().slibs_dispatches == committed.slibs_dispatches);
+        first.abandon();
+        CHECK(checked(second.render(layers.source, layers.target, false, error), error));
+    }
     void indexed_color_state_is_preserved_during_prepare_and_mrt_draws() {
         const char *suffix = integer(GL_MINOR_VERSION) >= 2 ? "" : nullptr;
         if (!suffix) {
@@ -1269,6 +1371,7 @@ int main(int argc, char **argv) {
     fixed_simulation_storage_survives_source_resize();
     mrt_dimensions_are_checked_after_capture_size_resolution();
     render_only_failure_preserves_committed_and_pending_simulation();
+    compute_instances_keep_authorized_state_and_generation();
     feedback_instancing_uniform_blocks_and_host_state();
     transient_feedback_requires_exact_complete_capture();
     feedback_storage_is_rebound_sequentially_for_uniform_and_vertex_inputs();

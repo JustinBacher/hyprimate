@@ -1,8 +1,4 @@
-// Standalone build (from repo root; B is the parent's configured build directory):
-// c++ -std=gnu++23 -O2 -Isrc -Itests src/compute/tests/PackageExampleProof.cpp \
-//   -L"$B" -lshader-gles -lcompute-gles -lshader-package -lcompute-source \
-//   $(pkg-config --libs egl glesv2 libpng) -o "$B/package-example-proof"
-// Run with: EGL_PLATFORM=surfaceless "$B/package-example-proof" examples/shaders
+// Build with CMake target compute-package-example-tests; CTest supplies the fixture root.
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
 #include "shader/GlesRuntime.hpp"
@@ -106,6 +102,18 @@ std::vector<float> stencil(unsigned steps) {
     }
     return a;
 }
+Pixel sampled_source(int pixel_x, int pixel_y) {
+    // The package renderer intentionally binds its linear sampler for host images.
+    const float x = std::clamp(2.F * (pixel_x + .5F) / W - .5F, 0.F, 1.F);
+    const float y = std::clamp(2.F * (pixel_y + .5F) / H - .5F, 0.F, 1.F);
+    Pixel result{};
+    for (unsigned c = 0; c < 4; ++c) {
+        const float low = colors[0][c] * (1.F - x) + colors[1][c] * x;
+        const float high = colors[2][c] * (1.F - x) + colors[3][c] * x;
+        result[c] = static_cast<std::uint8_t>(std::lround(low * (1.F - y) + high * y));
+    }
+    return result;
+}
 Pixel stencil_pixel(float energy, Pixel source) {
     const float intensity = std::clamp(energy * 85.F, 0.F, 1.F);
     constexpr std::array<float, 3> tint{1.F, .26F, .06F};
@@ -175,7 +183,7 @@ bool run(const std::filesystem::path& root, compute::Backend backend,
         // These pixels address exact texels around each impulse in the 256x256 field.
         for (const auto cell : {std::array<int, 2>{85, 64}, {88, 64}, {170, 192}, {173, 192}}) {
             const int x = cell[0], y = cell[1];
-            const Pixel expected_pixel = stencil_pixel(oracle[y * 256 + x], colors[(y >= 128) * 2 + (x >= 128)]);
+            const Pixel expected_pixel = stencil_pixel(oracle[y * 256 + x], sampled_source(2*x, 2*y));
             ok &= require(near(at(final, 2*x, 2*y), expected_pixel, 2), "stencil rendered pixel matches CPU diffusion oracle");
         }
         ok &= require(at(initial, 170, 128) != at(final, 170, 128), "stencil pixel changes after 32 updates");

@@ -10,6 +10,8 @@
 #include <string_view>
 #include <vector>
 
+#include "../compute/Types.hpp"
+
 namespace hyprimate::shader {
     inline constexpr unsigned SPEC_VERSION = 1;
     inline constexpr unsigned MAX_PASSES = 32, MAX_ITERATIONS = 32, MAX_TEXTURES = 16,
@@ -22,7 +24,7 @@ namespace hyprimate::shader {
     enum class ValueType { Float, Int, Bool, Vec2, Vec3, Vec4 };
     enum class Primitive { Points, Lines, Triangles, TriangleStrip };
     enum class Side { Single, Read, Write };
-    enum class ResourceKind { Source, Output, Texture, Buffer, Destination, Original, Processed, EnvironmentState, Disturbances };
+    enum class ResourceKind { Source, Output, Texture, Buffer, Field, Destination, Original, Processed, EnvironmentState, Disturbances };
     struct Ref {
         ResourceKind kind = ResourceKind::Source;
         std::uint16_t index = 0;
@@ -56,6 +58,15 @@ namespace hyprimate::shader {
         std::vector<std::uint8_t> image;
         bool operator==(const Texture &) const = default;
     };
+    struct Field {
+        std::string name;
+        compute::Type type;
+        std::optional<compute::Domain> domain;
+        std::optional<float> scale;
+        Lifetime lifetime = Lifetime::Persistent;
+        bool ping_pong = false;
+        bool operator==(const Field &) const = default;
+    };
     struct Buffer {
         std::string name;
         std::size_t bytes = 0;
@@ -86,7 +97,8 @@ namespace hyprimate::shader {
     struct Pass {
         std::string name;
         Phase phase = Phase::Render;
-        std::string vertex, fragment;
+        std::string vertex, fragment, kernel;
+        bool compute = false;
         std::vector<Binding> inputs, blocks;
         std::vector<Ref> outputs;
         std::vector<std::string> varyings;
@@ -117,6 +129,7 @@ namespace hyprimate::shader {
         Environment environment;
         std::vector<Parameter> parameters;
         std::vector<Texture> textures;
+        std::vector<Field> fields;
         std::vector<Buffer> buffers;
         std::vector<Mesh> meshes;
         std::vector<Pass> passes;
@@ -133,6 +146,9 @@ namespace hyprimate::shader {
     std::expected<void, std::string> validate_package(const Package &package);
     // Bodies omit #version and injected uniforms. Fragment hypr_uv is injected;
     // custom vertices supply it. Includes zero-based hypr_iteration and hypr_iterations.
-    std::string shader_source(const Package &package, std::string_view body, bool vertex);
+    std::string shader_source(const Package &package, std::string_view body, bool vertex,
+        std::string_view field_helpers = {});
+    // The package and pass must already have passed validate_package.
+    compute::KernelDesc kernel_descriptor(const Package &package, const Pass &pass);
     std::string_view default_vertex() noexcept;
 }  // namespace hyprimate::shader

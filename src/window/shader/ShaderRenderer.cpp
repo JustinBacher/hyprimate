@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <optional>
 #include <utility>
 
@@ -53,6 +54,15 @@ namespace hyprimate::shader {
             error = message;
             return false;
         }
+        bool fits_budget(std::uint64_t instance, std::uint64_t ancillary, std::uint64_t additional = 0) {
+            return instance <= MAX_INSTANCE_BYTES && ancillary <= MAX_INSTANCE_BYTES - instance &&
+                additional <= MAX_INSTANCE_BYTES - instance - ancillary;
+        }
+
+        std::uint64_t image_bytes(unsigned width, unsigned height, unsigned bytes_per_pixel) {
+            return std::uint64_t{width} * height * bytes_per_pixel;
+        }
+
 
         Render::GL::CGLFramebuffer *gl_framebuffer(const Image &image) {
             return image ? dynamic_cast<Render::GL::CGLFramebuffer *>(image.get()) : nullptr;
@@ -92,9 +102,11 @@ namespace hyprimate::shader {
     }
 
     struct WindowRenderer::Impl {
-        explicit Impl(std::shared_ptr<WindowProgram> prepared) : program(std::move(prepared)) {}
+        explicit Impl(std::shared_ptr<WindowProgram> prepared)
+            : program(std::move(prepared)), receipt_id(next_compute_instance_id()) {}
         std::shared_ptr<WindowProgram> program;
         Instance instance;
+        const std::uint64_t receipt_id;
         std::optional<Extent> size;
         // Only individual source identity is retained, never a second ownership
         // reference to the host's snapshot. Its lease is owned by the window port.
@@ -103,6 +115,7 @@ namespace hyprimate::shader {
         Box close_box{};
         Source close_source{};
         Image close_matte;
+        std::uint64_t close_copy_bytes = 0, close_matte_bytes = 0;
         CBox close_matte_box{};
         bool direct_reported = false;
     };
@@ -112,14 +125,24 @@ namespace hyprimate::shader {
         : m_impl(std::make_unique<Impl>(std::move(program))) {}
 
     WindowRenderer::~WindowRenderer() {
-        const gl::ScopedCompositorContext context{m_impl->program->owner};
+        if (m_impl->program->has_compute && m_impl->size)
+            m_impl->program->log_compute_instance_retirement(
+                m_impl->receipt_id, m_impl->instance.compute_statistics(), "window");
+#ifdef HYPRIMATE_COMPUTE_BENCH_ADAPTER
+        if (m_impl->program->has_compute && m_impl->size)
+            if (const auto iterations = m_impl->instance.benchmark_cpu_dispatches(); iterations > 0)
+            LOG(Log::DEBUG, "[hyprimate] compute benchmark cpu instance_id={} iterations={}",
+                m_impl->receipt_id, iterations);
+#endif
+        const auto &owner = *m_impl->program->owner;
+        const gl::ScopedCompositorContext context{owner};
         if (context) {
             m_impl->instance.release();
             m_impl->close_matte.reset();
             if (m_impl->close_copy) glDeleteTextures(1, &m_impl->close_copy);
         } else {
             m_impl->instance.abandon();
-            gl::release_native(m_impl->close_matte, m_impl->program->owner);
+            gl::release_native(m_impl->close_matte, owner);
         }
     }
 
@@ -139,11 +162,13 @@ namespace hyprimate::shader {
             return fail(error, "capture dimensions exceed native shader limits");
         }
         if (size == m_impl->size) return true;
-        const gl::ScopedCompositorContext context{m_impl->program->owner};
+        const gl::ScopedCompositorContext context{*m_impl->program->owner};
         if (!context) return fail(error, "compositor GLES context changed");
         const auto start = Clock::now();
         const bool first = !m_impl->size;
-        if (!m_impl->instance.initialize(m_impl->program->program, size->width, size->height, error)) {
+        const auto ancillary_bytes = m_impl->close_copy_bytes + m_impl->close_matte_bytes;
+        if (!m_impl->instance.initialize(m_impl->program->program, size->width, size->height, error,
+                ancillary_bytes)) {
             return false;
         }
         if (first) {
@@ -156,7 +181,7 @@ namespace hyprimate::shader {
     }
 
     bool WindowRenderer::bind_close_source(const Box &source, const Image &image, std::string &error) {
-        const gl::ScopedCompositorContext context{m_impl->program->owner};
+        const gl::ScopedCompositorContext context{*m_impl->program->owner};
         if (!context) return fail(error, "compositor GLES context changed");
         auto *framebuffer = gl_framebuffer(image);
         if (!framebuffer || !image->isAllocated() || image->getMirrorTexture() ||
@@ -194,11 +219,12 @@ namespace hyprimate::shader {
             const auto right = std::min(crop.x + crop.w, backing.w);
             const auto bottom = std::min(crop.y + crop.h, backing.h);
             const bool fp16 = image->m_drmFormat == DRM_FORMAT_ABGR16161616F;
-            if (!cropped || !(right > left && bottom > top) ||
-                std::size_t(cropped->width) * cropped->height * (fp16 ? 8 : 4) +
-                    m_impl->instance.statistics().allocated_bytes > MAX_INSTANCE_BYTES) {
+            if (!cropped || !(right > left && bottom > top))
                 return fail(error, "close crop exceeds native shader limits");
-            }
+            const auto copy_storage_bytes = image_bytes(cropped->width, cropped->height, fp16 ? 8U : 4U);
+            if (!fits_budget(m_impl->instance.statistics().allocated_bytes,
+                    m_impl->close_copy_bytes + m_impl->close_matte_bytes, copy_storage_bytes))
+                return fail(error, "close crop exceeds native shader storage budget");
 
             GLboolean feedback_active = GL_FALSE, feedback_paused = GL_FALSE;
             glGetBooleanv(GL_TRANSFORM_FEEDBACK_ACTIVE, &feedback_active);
@@ -244,6 +270,7 @@ namespace hyprimate::shader {
                 return fail(error, "could not isolate the native close snapshot");
             }
             m_impl->close_copy = copy;
+            m_impl->close_copy_bytes = copy_storage_bytes;
             copy_bytes = static_cast<std::size_t>(right - left) * static_cast<std::size_t>(bottom - top) *
                 (fp16 ? 8U : 4U);
             isolated = {copy, cropped->width, cropped->height, relative(source, crop)};
@@ -266,7 +293,7 @@ namespace hyprimate::shader {
     bool WindowRenderer::draw(const animation::Draw<CHyprAnimationCanvas> &draw, bool closing,
         std::string &error) {
         if (!draw.canvas || !draw.image || !*draw.image || !g_pHyprRenderer ||
-            !m_impl->program->owner.ensure_current() || !is_usable(draw.source) ||
+            !m_impl->program->owner->ensure_current() || !is_usable(draw.source) ||
             !is_usable(draw.canvas_box)) {
             return fail(error, "unavailable native shader draw source or context");
         }
@@ -314,11 +341,9 @@ namespace hyprimate::shader {
                 const Render::GL::CFramebufferBindingGuard mask_bindings{g_pHyprRenderer->glBackend()};
                 const auto mask_state = ctx.saveDrawState();
                 if (!shape && closing) {
-                    constexpr std::size_t RGBA_BYTES = 4;
-                    const auto bytes = std::size_t(source.width) * source.height *
-                        (input->m_drmFormat == DRM_FORMAT_ABGR16161616F ? 8 : 4) *
-                        (m_impl->close_copy ? 1 : 0) + std::size_t(source.width) * source.height * RGBA_BYTES;
-                    if (bytes + m_impl->instance.statistics().allocated_bytes > MAX_INSTANCE_BYTES) {
+                    const auto matte_bytes = image_bytes(source.width, source.height, 4);
+                    if (!fits_budget(m_impl->instance.statistics().allocated_bytes,
+                            m_impl->close_copy_bytes + m_impl->close_matte_bytes, matte_bytes)) {
                         return fail(error, "closing source and blur geometry exceed shader storage budget");
                     }
                     auto owned = g_pHyprRenderer->createFB("hyprimate closing blur geometry");
@@ -326,8 +351,14 @@ namespace hyprimate::shader {
                             static_cast<int>(source.height), DRM_FORMAT_ABGR8888)) {
                         return fail(error, "cannot allocate closing blur geometry");
                     }
+                    m_impl->close_matte_bytes = matte_bytes;
                     shape = std::move(owned);
                 } else if (!closing) {
+                    const auto mapped_bytes = image_bytes(source.width, source.height,
+                        input->m_drmFormat == DRM_FORMAT_ABGR16161616F ? 8U : 4U);
+                    if (!fits_budget(m_impl->instance.statistics().allocated_bytes,
+                            m_impl->close_copy_bytes + m_impl->close_matte_bytes, mapped_bytes))
+                        return fail(error, "window blur work buffer and simulation exceed the storage budget");
                     shape = gl::get_work_buffer(ctx, image->m_size);
                 }
                 if (!shape || shape == input || shape == ctx.m_data.currentFB ||
@@ -352,6 +383,7 @@ namespace hyprimate::shader {
                 g_pHyprRenderer->draw(ctx, rect, ctx.m_data.damage);
                 if (glGetError() != GL_NO_ERROR) {
                     shape.reset();
+                    if (closing) m_impl->close_matte_bytes = 0;
                     return fail(error, "native shader blur geometry draw failed");
                 }
                 if (closing) m_impl->close_matte_box = box;

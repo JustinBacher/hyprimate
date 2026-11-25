@@ -14,6 +14,7 @@
 #include <png.h>
 
 using namespace hyprimate::shader;
+namespace compute = hyprimate::compute;
 using Json = nlohmann::json;
 namespace {
 void check(bool condition, const char *message) { if (!condition) throw std::runtime_error(message); }
@@ -217,12 +218,115 @@ void environment_contracts() {
     bad = window; bad["environment"].erase("channel");
     check(!f.load(bad), "coordination cannot use an implicit channel");
 }
+void compute_fields_and_kernels() {
+    Fixture f;
+    f.file("seed.glsl", "void kernel(ivec3 id, inout float value) { value = float(id.x); }\n");
+    f.file("step.glsl", "void kernel(ivec3 id, inout float a, inout float b) { a = hc_read_heat(id); b = a; }\n");
+    f.file("illegal.glsl", "void kernel(ivec3 id, inout float value) { value = texture(hc_tex, vec2(0.0)).x; }\n");
+    f.file("host.glsl", "void kernel(ivec3 id, inout float value) { value = hypr_wallpaper_original.x; }\n");
+    f.file("oversized.glsl", std::string(1024 * 1024 + 1, ' '));
+    f.file("render.frag", "layout(location=0) out vec4 color; void main(){color=texture(hypr_wallpaper_original,vec2(0.0));}\n");
+    Json j = Json::parse(R"json({
+        "version": 1,
+        "events": ["wallpaper"],
+        "environment": {"original": true},
+        "parameters": {"enabled": {"type": "bool", "default": true}},
+        "fields": {
+            "scratch": {"type": "float", "domain": [7, 5], "lifetime": "transient"},
+            "heat": {"type": "float", "domain": [7, 5], "ping_pong": true},
+            "velocity": {"type": "vec2", "scale": 0.5},
+            "other": {"type": "float", "domain": [7, 5]}
+        },
+        "passes": [
+            {"name": "seed", "phase": "initialize", "kernel": "seed.glsl", "outputs": ["scratch"]},
+            {"name": "evolve", "phase": "initialize", "kernel": "step.glsl",
+             "inputs": {"heat": "scratch"}, "outputs": ["heat.write", "other"]},
+            {"name": "present", "phase": "render", "vertex": "display.vert", "fragment": "render.frag",
+             "inputs": {"heat": "heat.read"}, "outputs": ["output"]}
+        ]
+    })json");
+    f.file("display.vert", "out vec2 hypr_uv; void main(){hypr_uv=vec2(0.0);gl_Position=vec4(0.0);}\n");
+    auto loaded = f.load(j);
+    check(bool(loaded), "typed fields and ordered compute passes load");
+    check(loaded->fields.size() == 4 && loaded->passes[0].compute &&
+            loaded->passes[0].kernel.find("kernel") != std::string::npos,
+        "compute fields and kernel source survive loading");
+    auto descriptor = kernel_descriptor(*loaded, loaded->passes[1]);
+    check(descriptor.inputs.size() == 1 && descriptor.inputs[0].name == "heat" &&
+            descriptor.inputs[0].type == compute::Type{compute::Element::Float,1} &&
+            descriptor.outputs.size() == 2 && descriptor.outputs[0].type == descriptor.inputs[0].type &&
+            descriptor.outputs[1].type == descriptor.inputs[0].type,
+        "kernel descriptor uses typed aliases and ordered outputs");
+    check(descriptor.parameters.size() == 7 && descriptor.parameters[0].name == "enabled" &&
+            descriptor.parameters[0].type == compute::Type{compute::Element::Int,1} &&
+            descriptor.parameters[1].name == "hypr_delta" &&
+            descriptor.parameters[6].name == "hypr_seed",
+        "kernel descriptor orders typed package parameters before timing uniforms");
+    auto helper = compute::sample_source("heat", descriptor.inputs[0].type);
+    check(bool(helper), "typed rendering helper generation");
+    const auto assembled = shader_source(*loaded, loaded->passes[2].fragment, false, *helper);
+    check(assembled.find("uniform sampler2D hypr_wallpaper_original") != std::string::npos &&
+            assembled.find(*helper) != std::string::npos &&
+            assembled.find(*helper) < assembled.find("layout(location=0)"),
+        "field consumers may combine typed field helpers with host original helpers");
+
+    auto bad = j;
+    bad["fields"]["other"]["domain"] = {8,5};
+    check(!f.load(bad), "compute outputs must share one domain");
+    bad = j;
+    bad["textures"] = {{"other", {{"width",1},{"height",1}}}};
+    check(!f.load(bad), "fields share the texture resource namespace");
+    bad = j;
+    bad["fields"]["scratch"]["scale"] = 0.5;
+    check(!f.load(bad), "field cannot declare both fixed domain and scale");
+    bad = j;
+    bad["passes"][1]["inputs"]["heat"] = "missing";
+    check(!f.load(bad), "kernel cannot import undeclared or host resources");
+    bad = j;
+    bad["passes"][1]["clear"] = true;
+    check(!f.load(bad), "compute passes cannot request raster clear");
+    bad = j;
+    bad["passes"][1]["outputs"] = {"output"};
+    check(!f.load(bad), "compute passes cannot write presentation output");
+    bad = j;
+    bad["passes"][1]["kernel"] = "illegal.glsl";
+    check(!f.load(bad), "kernel cannot use raster texture imports");
+    bad = j;
+    bad["passes"][1]["kernel"] = "host.glsl";
+    check(!f.load(bad), "kernel cannot import host rendering resources");
+    bad = j;
+    bad["passes"][1]["kernel"] = "oversized.glsl";
+    check(!f.load(bad), "kernel source file budget");
+    Package invalid = *loaded;
+    invalid.passes[1].clear = true;
+    check(!validate_package(invalid), "programmatic compute pass must disable clearing");
+    invalid = *loaded;
+    invalid.passes[1].inputs[0].resource = {ResourceKind::Source, 0, Side::Single};
+    check(!validate_package(invalid), "programmatic kernels cannot import host resources");
+    invalid = *loaded;
+    invalid.passes[2].outputs = {{ResourceKind::Field, 0, Side::Single}};
+    check(!validate_package(invalid), "raster passes cannot write fields");
+    invalid = *loaded;
+    invalid.environment.state = Ref{ResourceKind::Field, 0, Side::Read};
+    check(!validate_package(invalid), "programmatic fields cannot use environment export ABI");
+    Package changed = *loaded;
+    changed.passes[0].kernel += " ";
+    check(changed != *loaded, "kernel source participates in package identity");
+    bad = j;
+    bad["passes"][1]["phase"] = "update";
+    check(!f.load(bad), "transient field producer is scoped to its phase");
+
+    Package programmatic = *loaded;
+    programmatic.fields[0].type = {compute::Element::Float, 5};
+    check(!validate_package(programmatic), "programmatic field type validation");
+}
 } // namespace
 int main() {
     try {
         shorthand_and_abi();strict_schema();parameters();dependencies();assets_and_buffers();meshes_and_feedback();
         precision_and_transient_initialization();
         environment_contracts();
+        compute_fields_and_kernels();
         std::cout << "PackageTests passed\n";return 0;
     } catch(const std::exception &error) {std::cerr << "PackageTests: " << error.what() << '\n';return 1;}
 }

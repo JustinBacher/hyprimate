@@ -127,6 +127,7 @@ Ref reference(const Package &package, const Json &json) {
     if (name.ends_with(".read")) { side = Side::Read; name.resize(name.size() - 5); }
     else if (name.ends_with(".write")) { side = Side::Write; name.resize(name.size() - 6); }
     for (std::size_t i = 0; i < package.textures.size(); ++i) if (package.textures[i].name == name) return {ResourceKind::Texture, static_cast<std::uint16_t>(i), side};
+    for (std::size_t i = 0; i < package.fields.size(); ++i) if (package.fields[i].name == name) return {ResourceKind::Field, static_cast<std::uint16_t>(i), side};
     for (std::size_t i = 0; i < package.buffers.size(); ++i) if (package.buffers[i].name == name) return {ResourceKind::Buffer, static_cast<std::uint16_t>(i), side};
     fail("unknown resource: " + name);
 }
@@ -176,6 +177,43 @@ void resources(Package &package, const Json &root, const std::filesystem::path &
             package.textures.push_back(std::move(t));
         }
     }
+    if (root.contains("fields")) {
+        const auto &items = root.at("fields");
+        require(items.is_object() && items.size() <= MAX_TEXTURES, "invalid fields");
+        for (const auto &[name, json] : items.items()) {
+            fields(json, {"type", "domain", "scale", "ping_pong", "lifetime"});
+            Field field;
+            field.name = name;
+            auto parsed_type = compute::parse_type(text(json.at("type")));
+            require(bool(parsed_type), "invalid field type: " + name);
+            field.type = *parsed_type;
+            require(json.contains("domain") != json.contains("scale"),
+                "field requires exactly one of domain or scale");
+            if (json.contains("domain")) {
+                const auto &domain = json.at("domain");
+                array(domain, 3);
+                require(!domain.empty(), "field domain cannot be empty");
+                std::array<std::uint32_t, 3> axes{1, 1, 1};
+                for (std::size_t i = 0; i < domain.size(); ++i)
+                    axes[i] = natural(domain[i], 1, compute::MAX_PIXELS);
+                field.domain = compute::Domain{axes[0], axes[1], axes[2]};
+            } else {
+                field.scale = number(json.at("scale"));
+                require(*field.scale > 0 && *field.scale <= 1, "field scale must be in (0,1]");
+            }
+            if (json.contains("ping_pong")) field.ping_pong = boolean(json.at("ping_pong"));
+            if (json.contains("lifetime")) field.lifetime = lifetime(json.at("lifetime"));
+            if (field.domain) {
+                auto layout = compute::field_layout({field.type, *field.domain});
+                require(bool(layout), "invalid field domain or size: " + name);
+                storage += layout->storage_bytes * (field.ping_pong ? 2 : 1);
+                require(storage <= MAX_INSTANCE_BYTES, "instance storage exceeds 128 MiB");
+            }
+            package.fields.push_back(std::move(field));
+        }
+    }
+    require(package.textures.size() + package.fields.size() <= MAX_TEXTURES,
+        "texture and field count limit exceeded");
     if (root.contains("buffers")) {
         const auto &buffers = root.at("buffers"); require(buffers.is_object() && buffers.size() <= MAX_BUFFERS, "invalid buffers");
         for (const auto &[name, json] : buffers.items()) {
@@ -247,11 +285,20 @@ void passes(Package &package, const Json &root, const std::filesystem::path &bas
     }
     array(root.at("passes"),MAX_PASSES);
     for (const auto &json : root.at("passes")) {
-        fields(json,{"name","phase","vertex","fragment","inputs","blocks","outputs","mesh","feedback","iterations","blend","clear"});
+        fields(json, {"name","phase","vertex","fragment","kernel","inputs","blocks","outputs","mesh","feedback","iterations","blend","clear"});
         Pass pass; pass.name=text(json.at("name"));
         if (json.contains("phase")) pass.phase=choice<Phase>(json.at("phase"),{{"initialize",Phase::Initialize},{"update",Phase::Update},{"render",Phase::Render}});
-        if (json.contains("vertex")) pass.vertex=stage(json.at("vertex"),base,helpers); else pass.vertex=helpers+"\n"+std::string(default_vertex());
-        if (json.contains("fragment")) pass.fragment=stage(json.at("fragment"),base,helpers);
+        const bool compute_pass = json.contains("kernel");
+        require(!compute_pass || (!json.contains("vertex") && !json.contains("fragment") &&
+                    !json.contains("blocks") && !json.contains("mesh") && !json.contains("feedback") &&
+                    !json.contains("blend") && !json.contains("clear")),
+            "compute pass cannot declare raster stages or state");
+        pass.compute = compute_pass;
+        if (compute_pass) pass.clear = false;
+        if (compute_pass) pass.kernel = read_file(base / expand(text(json.at("kernel"))), MiB);
+        if (!compute_pass && json.contains("vertex")) pass.vertex = stage(json.at("vertex"), base, helpers);
+        else if (!compute_pass) pass.vertex = helpers + "\n" + std::string(default_vertex());
+        if (!compute_pass && json.contains("fragment")) pass.fragment = stage(json.at("fragment"), base, helpers);
         if (json.contains("iterations")) pass.iterations=natural(json.at("iterations"),1,MAX_ITERATIONS);
         if (json.contains("blend")) pass.blend=choice<bool>(json.at("blend"),{{"none",false},{"premultiplied",true}});
         if (json.contains("clear")) pass.clear=boolean(json.at("clear"));
@@ -274,7 +321,7 @@ void passes(Package &package, const Json &root, const std::filesystem::path &bas
             for (const auto &varying : feedback.at("varyings")) pass.varyings.push_back(text(varying));
             require(json.contains("vertex") && !json.contains("fragment") && !json.contains("outputs") && !json.contains("blend") && !json.contains("clear"),"feedback pass requires vertex only and no raster outputs/state");
         }
-        source_bytes += pass.vertex.size() + pass.fragment.size();
+        source_bytes += pass.vertex.size() + pass.fragment.size() + pass.kernel.size();
         require(source_bytes <= MaxSource, "shader source exceeds 4 MiB");
         package.passes.push_back(std::move(pass));
     }
@@ -288,7 +335,7 @@ std::expected<Package,std::string> load_package(const std::string &path) {
     try {
         Package package; const auto file=std::filesystem::absolute(expand(path)).lexically_normal();package.path=file.string();
         const auto root=parse(read_file(file,65536));
-        fields(root,{"version","events","bounds","blur_mask","helpers","parameters","textures","buffers","meshes","fragment","passes","environment"});
+        fields(root, {"version","events","bounds","blur_mask","helpers","parameters","textures","fields","buffers","meshes","fragment","passes","environment"});
         require(natural(root.at("version"),SPEC_VERSION,SPEC_VERSION)==SPEC_VERSION,"unsupported version");
         if(root.contains("events")) {
             array(root.at("events"),6);package.events.clear();
@@ -335,5 +382,47 @@ std::expected<Values,std::string> parameter_values(const Package &package,std::s
         for(const auto &p:package.parameters) {auto v=json.contains(p.name)?value(json.at(p.name),p.initial.type):p.initial;range(p,v);result.push_back(v);}
         return result;
     }catch(const std::exception &error){return std::unexpected(error.what());}
+}
+compute::KernelDesc kernel_descriptor(const Package &package, const Pass &pass) {
+    compute::KernelDesc descriptor;
+    descriptor.name = pass.name;
+    descriptor.source = pass.kernel;
+    for (const auto &binding : pass.inputs)
+        descriptor.inputs.push_back({binding.name, package.fields[binding.resource.index].type});
+    for (const auto &output : pass.outputs) {
+        std::string name = "output" + std::to_string(descriptor.outputs.size());
+        const auto used = [&](std::string_view candidate) {
+            return std::ranges::any_of(descriptor.inputs, [&](const compute::Slot &slot) {
+                       return slot.name == candidate;
+                   }) ||
+                   std::ranges::any_of(package.parameters, [&](const Parameter &parameter) {
+                       return parameter.name == candidate;
+                   }) ||
+                   std::ranges::any_of(descriptor.outputs, [&](const compute::Slot &slot) {
+                       return slot.name == candidate;
+                   });
+        };
+        while (used(name)) name += '_';
+        descriptor.outputs.push_back({std::move(name), package.fields[output.index].type});
+    }
+    for (const auto &parameter : package.parameters) {
+        compute::Type type{compute::Element::Float, 1};
+        switch (parameter.initial.type) {
+            case ValueType::Float: type = {compute::Element::Float, 1}; break;
+            case ValueType::Int:
+            case ValueType::Bool: type = {compute::Element::Int, 1}; break;
+            case ValueType::Vec2: type = {compute::Element::Float, 2}; break;
+            case ValueType::Vec3: type = {compute::Element::Float, 3}; break;
+            case ValueType::Vec4: type = {compute::Element::Float, 4}; break;
+        }
+        descriptor.parameters.push_back({parameter.name, type});
+    }
+    descriptor.parameters.push_back({"hypr_delta", {compute::Element::Float, 1}});
+    descriptor.parameters.push_back({"hypr_elapsed", {compute::Element::Float, 1}});
+    descriptor.parameters.push_back({"hypr_progress", {compute::Element::Float, 1}});
+    descriptor.parameters.push_back({"hypr_iteration", {compute::Element::Int, 1}});
+    descriptor.parameters.push_back({"hypr_iterations", {compute::Element::Int, 1}});
+    descriptor.parameters.push_back({"hypr_seed", {compute::Element::Float, 4}});
+    return descriptor;
 }
 } // namespace hyprimate::shader

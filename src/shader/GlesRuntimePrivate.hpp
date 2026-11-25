@@ -9,7 +9,12 @@
 #include <string>
 #include <vector>
 
+#include "../compute/Compute.hpp"
 #include "GlesState.hpp"
+
+#ifdef HYPRIMATE_COMPUTE_BENCH_ADAPTER
+#include "compute/tests/NestedCpuAdapter.hpp"
+#endif
 
 namespace hyprimate::shader::gles_detail {
     inline constexpr unsigned MAX_EXTENT = 8192;
@@ -158,10 +163,17 @@ namespace hyprimate::shader::gles_detail {
         GLsizeiptr bytes;
     };
 
+    struct CompiledKernel {
+        compute::Kernel kernel;
+        std::size_t batch_offset;
+    };
+
     struct CompiledPass {
         GLuint program = 0;
         std::array<GLint, UniformCount> uniforms;
         std::array<Ref, MAX_SHADER_SAMPLERS> samplers{};
+        std::unique_ptr<std::array<GLint, MAX_SHADER_SAMPLERS>> field_sizes;
+        std::unique_ptr<CompiledKernel> kernel;
         GLint interactions = -1;
         GLint interaction_vectors = 0;
         bool uses_environment = false;
@@ -212,17 +224,30 @@ namespace hyprimate::shader::gles_detail {
         Frame frame;
         std::array<float, 4> seed = seed_values(0);
     };
+    struct FieldPairStorage {
+        compute::FieldDesc descriptor;
+        std::array<compute::Field, 2> sides;
+        unsigned read = 0;
+    };
 }  // namespace hyprimate::shader::gles_detail
 
 namespace hyprimate::shader {
     struct Program::Impl {
         const Package package;
+        Values values;
         gles_detail::Limits limits;
         gles_detail::IndexedColor color;
         Statistics stats;
         std::array<gles_detail::CompiledPass, MAX_PASSES> passes;
         std::array<GLuint, MAX_TEXTURES> assets{};
         std::array<GLuint, MAX_MESHES> elements{};
+        std::unique_ptr<compute::Device> compute_device;
+        std::shared_ptr<void> compute_owner;
+        std::vector<std::reference_wrapper<const compute::Kernel>> compute_kernels;
+        bool compute_only_simulation = false;
+#ifdef HYPRIMATE_COMPUTE_BENCH_ADAPTER
+        std::optional<compute::fixture::Workload> benchmark_workload;
+#endif
         GLuint source_sampler = 0;
         unsigned sampler_count = 0, block_count = 0, max_outputs = 1;
         bool has_feedback = false, samples_borrowed_target = false, blends_final = false,
@@ -232,17 +257,26 @@ namespace hyprimate::shader {
         bool final_source_over = true;
 
         bool direct() const noexcept;
-        explicit Impl(Package spec);
+        explicit Impl(Package spec, const Values &resolved_values, std::shared_ptr<void> owner);
         ~Impl();
-        bool prepare(const Values &values, GlResolver resolver, std::string &error);
+        bool prepare(const Values &values, GlResolver resolver,
+            compute::GlResolver compute_resolver, compute::Backend backend, std::string &error);
         bool preflight_formats(std::string &error);
         bool upload(std::string &error);
     };
+
 
     struct Instance::Impl {
         std::shared_ptr<Program::Impl> owner;
         gles_detail::Extent capture;
         Statistics stats;
+        std::size_t ancillary_bytes = 0;
+        std::uint64_t asset_budget_bytes = 0;
+        compute::Statistics compute_stats;
+        std::vector<gles_detail::FieldPairStorage> fields;
+#ifdef HYPRIMATE_COMPUTE_BENCH_ADAPTER
+        std::unique_ptr<compute::fixture::NestedCpuAdapter> benchmark_cpu;
+#endif
         std::array<gles_detail::TexturePair, MAX_TEXTURES> textures;
         std::array<gles_detail::BufferPair, MAX_BUFFERS> buffers;
         std::array<gles_detail::DrawFramebuffer, MAX_PASSES> framebuffers;
@@ -255,6 +289,7 @@ namespace hyprimate::shader {
         ~Impl();
         bool size_storage(std::string &error);
         GLuint texture(Ref ref, const Source &source) const;
+        compute::Field &field(Ref ref);
         GLuint buffer(Ref ref) const;
         void configure_mesh(unsigned index, bool create);
         void attach_outputs(gles_detail::DrawFramebuffer &fbo, const Pass &pass);
@@ -275,6 +310,8 @@ namespace hyprimate::shader {
             unsigned &active_blocks,
             bool &clear_final,
             std::string &error);
+        bool dispatch_compute(std::size_t pass_index, unsigned iteration,
+            const gles_detail::Timing &time, compute::Batch &batch, std::string &error);
         bool phase(Phase phase,
             const gles_detail::Timing &frame,
             const Source &source,
@@ -283,4 +320,4 @@ namespace hyprimate::shader {
             bool &clear_final,
             std::string &error);
     };
-}  // namespace hyprimate::shader
+} // namespace hyprimate::shader
