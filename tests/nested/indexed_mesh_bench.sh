@@ -24,6 +24,7 @@ set -euo pipefail
 
 rounds=3 style=cloth seconds=20 out="" modes="off on" parent="" expect="" node="" gpu_index=""
 expect_output=""
+startup_only=0
 while (($#)); do
     case "$1" in
         --rounds) rounds=$2; shift 2 ;;
@@ -36,6 +37,7 @@ while (($#)); do
         --expect-node) node=$2; shift 2 ;;
         --expect-gpu) gpu_index=$2; shift 2 ;;
         --expect-output) expect_output=$2; shift 2 ;;
+        --startup-only) startup_only=1; shift ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
 done
@@ -81,22 +83,45 @@ run_mode() {
         echo "parent_display=${parent:-${WAYLAND_DISPLAY:-}}"
         grep -a "Got node\|eglDeviceFromDRMFD\|Renderer:" "$compositor_log" || true
     } >"$out/$tag.device.txt"
-    # Startup admission: never time a session whose output has not appeared yet. Bounded wait for
-    # an active output (and the expected geometry when given); an empty monitor list is invalid.
-    local ready=0
-    for _ in $(seq 150); do
-        hc monitors -j >"$out/$tag.monitors.json" 2>/dev/null || true
-        if jq -e --arg want "$expect_output" 'any(.[]; .width > 0 and .height > 0 and
-            .name != "FALLBACK" and ($want == "" or
-            "\(.width)x\(.height)x\(.scale)" == $want))' "$out/$tag.monitors.json" \
-            >/dev/null 2>&1; then
-            ready=1
-            break
-        fi
+    # Phase 1: a nested backend can start IPC before announcing its first Wayland output; the only
+    # monitor is then the 0x0 FALLBACK. Give the backend a short chance, then ask this disposable
+    # instance for an output once, as tests/nested/check-gl.sh does, and record that it was needed.
+    # Topology gate: exactly one real (non-FALLBACK) output, so a session recovered with a created
+    # output renders the same single monitor as one that did not need recovery, and a late-arriving
+    # second output can never be timed.
+    output_ready() {
+        hc monitors -j >"$out/$tag.monitors.json" 2>/dev/null || return 1
+        jq -e --arg want "$1" '([.[] | select(.name != "FALLBACK")] | length) == 1 and
+            any(.[]; .width > 0 and .height > 0 and .name != "FALLBACK" and
+            ($want == "" or "\(.width)x\(.height)x\(.scale)" == $want))' \
+            "$out/$tag.monitors.json" >/dev/null 2>&1
+    }
+    local ready=0 created=0 waited=0
+    for _ in $(seq 20); do
+        output_ready "" && { ready=1; break; }
         sleep .1
     done
     if ((!ready)); then
-        echo "output not ready (wanted '${expect_output:-any}')" >"$out/$tag.INVALID"
+        local reply
+        reply=$(hc output create wayland bench-output 2>&1 || true)
+        created=1
+        echo "output_created=1 reply=$reply" >"$out/$tag.startup.txt"
+    else
+        echo "output_created=0" >"$out/$tag.startup.txt"
+    fi
+    # Phase 2: startup admission. Never time a session whose output has not reached the expected
+    # geometry; bounded wait.
+    ready=0
+    for _ in $(seq 150); do
+        waited=$((waited + 1))
+        output_ready "$expect_output" && { ready=1; break; }
+        sleep .1
+    done
+    echo "ready=$ready created=$created admission_wait_ds=$waited" >>"$out/$tag.startup.txt"
+    if ((!ready)); then
+        echo "output not ready (wanted '${expect_output:-any}', output_created=$created)" \
+            >"$out/$tag.INVALID"
+        cp "$compositor_log" "$out/$tag.compositor.log" 2>/dev/null || true
         kill "$runner" 2>/dev/null || true
         wait "$runner" 2>/dev/null || true
         return 3
@@ -114,6 +139,16 @@ run_mode() {
         kill "$runner" 2>/dev/null || true
         wait "$runner" 2>/dev/null || true
         return 1
+    fi
+    save_compositor_log() { cp "$compositor_log" "$out/$tag.compositor.log" 2>/dev/null || true; }
+    if ((startup_only)); then
+        save_compositor_log
+        cp "$out/$tag.monitors.json" "$out/$tag.startup-monitors.json"
+        kill "$runner" 2>/dev/null || true
+        wait "$runner" 2>/dev/null || true
+        : >"$out/$tag.STARTUP_OK"
+        echo "$tag: startup ok ($(cat "$out/$tag.startup.txt" | tr '\n' ' '))"
+        return 0
     fi
 
     hc dispatch 'hl.dsp.exec_cmd("kitty")' >/dev/null
@@ -157,6 +192,7 @@ run_mode() {
         wait "$runner" 2>/dev/null || true
         return 1
     fi
+    save_compositor_log
     kill "$runner" 2>/dev/null || true
     wait "$runner" 2>/dev/null || true
     # The plugin prints its draw counters and GPU stopwatch results when it unloads.
