@@ -28,7 +28,7 @@ if(BUILD_TESTING)
         src/window/burn/BurnGroundDebris.cpp
         src/window/burn/BurnMaterial.cpp)
     target_include_directories(burn-material-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
-    target_link_libraries(burn-material-tests PRIVATE hyprimate-core PkgConfig::TEST_EGL)
+    target_link_libraries(burn-material-tests PRIVATE hyprimate-core PkgConfig::TEST_EGL gl-allocation-fault)
     target_link_options(burn-material-tests PRIVATE "LINKER:--wrap=glDeleteProgram")
     add_test(NAME burn-material-tests COMMAND burn-material-tests)
     set_tests_properties(burn-material-tests PROPERTIES ENVIRONMENT "EGL_PLATFORM=surfaceless")
