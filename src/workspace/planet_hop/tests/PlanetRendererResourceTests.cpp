@@ -249,7 +249,7 @@ namespace planet_renderer_tests {
         CHECK(READ() != NEUTRAL);
         // Initialization caches the complete borrowed program tuple, not merely
         // the presence of a planet program or the first successful initialization.
-        namespace shader = planet_hop::shader;
+        namespace shader = planet_shader;
         const PlanetPrograms PROGRAMS{
             .planet = gl_harness::build_program(shader::VERTEX, shader::FRAGMENT),
             .quad = gl_harness::build_program(shader::QUAD_VERTEX, shader::QUAD_FRAGMENT),

@@ -24,11 +24,21 @@ elseif(STYLE STREQUAL "swarm")
     set(shaders
         SURFACE_VERTEX=surface.vert SURFACE_FRAGMENT=surface.frag
         FIELD_VERTEX=field.vert FIELD_FRAGMENT=field.frag)
+elseif(STYLE STREQUAL "planet_hop")
+    set(namespace planet_shader)
+    set(shaders
+        VERTEX=planet.vert FRAGMENT=planet.frag
+        QUAD_VERTEX=quad.vert QUAD_FRAGMENT=quad.frag
+        SKY_VERTEX=sky.vert SKY_FRAGMENT=sky.frag)
 else()
     message(FATAL_ERROR "Unknown shader style: ${STYLE}")
 endif()
 
-set(header "#pragma once\nnamespace ${namespace} {\n")
+if(STYLE STREQUAL "planet_hop")
+    set(header "#pragma once\n#include <string_view>\nnamespace ${namespace} {\n")
+else()
+    set(header "#pragma once\nnamespace ${namespace} {\n")
+endif()
 foreach(shader IN LISTS shaders)
     string(REPLACE "=" ";" pair "${shader}")
     list(GET pair 0 name)
@@ -90,7 +100,11 @@ foreach(shader IN LISTS shaders)
     if(NOT terminator EQUAL -1)
         message(FATAL_ERROR "${filename} contains the raw string terminator")
     endif()
-    string(APPEND header "inline constexpr auto ${name} = ::std::to_array(R\"SHADER(${source})SHADER\");\n")
+    if(STYLE STREQUAL "planet_hop")
+        string(APPEND header "inline constexpr ::std::string_view ${name} = R\"SHADER(${source})SHADER\";\n")
+    else()
+        string(APPEND header "inline constexpr auto ${name} = ::std::to_array(R\"SHADER(${source})SHADER\");\n")
+    endif()
 endforeach()
 string(APPEND header "} // namespace ${namespace}\n")
 

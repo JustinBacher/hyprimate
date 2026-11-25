@@ -1,8 +1,8 @@
 #pragma once
 
 #include "GlHarness.hpp"
+#include "planet_shaders_generated.hpp"
 #include "workspace/planet_hop/PlanetGlRenderer.hpp"
-#include "workspace/planet_hop/PlanetMaterial.hpp"
 
 // Offscreen tests own their programs; production owns CShader instances instead.
 // Both supply the same GLSL to the compositor-free renderer.
@@ -18,7 +18,7 @@ class PlanetTestRenderer final {
     PlanetTestRenderer &operator=(PlanetTestRenderer &&) = delete;
 
     bool initialize_raw() {
-        namespace shader = hyprimate::workspace::planet_hop::shader;
+        namespace shader = planet_shader;
         if (m_programs.planet == 0) {
             m_programs.planet = gl_harness::build_program(shader::VERTEX, shader::FRAGMENT);
             m_programs.quad = gl_harness::build_program(shader::QUAD_VERTEX, shader::QUAD_FRAGMENT);

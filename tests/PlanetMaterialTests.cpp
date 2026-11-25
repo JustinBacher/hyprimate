@@ -6,10 +6,28 @@
 
 #include "Check.hpp"
 #include "GlHarness.hpp"
-#include "workspace/planet_hop/PlanetMaterial.hpp"
+#include "planet_shaders_generated.hpp"
 
 namespace {
-    namespace shader = hyprimate::workspace::planet_hop::shader;
+    namespace shader = planet_shader;
+    static_assert(shader::VERTEX.size() == 8587 && shader::FRAGMENT.size() == 10214);
+    static_assert(shader::QUAD_VERTEX.size() == 332 && shader::QUAD_FRAGMENT.size() == 2163);
+    static_assert(shader::SKY_VERTEX.size() == 203 && shader::SKY_FRAGMENT.size() == 2346);
+    static_assert([] {
+        constexpr std::array SOURCES{shader::VERTEX,
+            shader::FRAGMENT,
+            shader::QUAD_VERTEX,
+            shader::QUAD_FRAGMENT,
+            shader::SKY_VERTEX,
+            shader::SKY_FRAGMENT};
+        for (const auto source : SOURCES) {
+            if (!source.starts_with("#version 300 es\n") || !source.ends_with('\n') ||
+                source.find('\0') != std::string_view::npos || source.data()[source.size()] != '\0') {
+                return false;
+            }
+        }
+        return true;
+    }());
     constexpr std::array<float, 16> IDENTITY4{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
     constexpr std::array<float, 9> IDENTITY3{1, 0, 0, 0, 1, 0, 0, 0, 1};
     using Pixel = std::array<std::uint8_t, 4>;
