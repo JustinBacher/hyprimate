@@ -22,6 +22,7 @@ if(TARGET clang-tidy-check)
 endif()
 
 find_package(PNG REQUIRED)
+pkg_check_modules(PLANET_GLES REQUIRED IMPORTED_TARGET glesv2)
 target_sources(hyprimate-core PRIVATE src/workspace/planet_hop/PlanetScene.cpp)
 add_library(planet-gl STATIC
     src/workspace/planet_hop/PlanetGlRenderer.cpp
@@ -30,7 +31,7 @@ add_library(planet-gl STATIC
     src/workspace/planet_hop/PlanetDepth.cpp)
 target_include_directories(planet-gl PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # depth_source is a production setting, not evidence tooling: retain bounded PNG decoding.
-target_link_libraries(planet-gl PUBLIC hyprimate-core PRIVATE PNG::PNG)
+target_link_libraries(planet-gl PUBLIC hyprimate-core PkgConfig::PLANET_GLES PRIVATE PNG::PNG)
 target_compile_options(planet-gl PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>:-fno-gnu-unique>)
 pkg_check_modules(PLANET_LUA REQUIRED IMPORTED_TARGET lua)
 target_sources(hyprimate PRIVATE src/workspace/planet_hop/PlanetRenderer.cpp src/workspace/planet_hop/PlanetCurves.cpp)

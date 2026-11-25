@@ -5,6 +5,8 @@ target_sources(hyprimate-core PRIVATE
     src/window/paper/PaperContact.cpp
     src/window/paper/PaperWorkers.cpp
 )
+find_package(Threads REQUIRED)
+target_link_libraries(hyprimate-core PRIVATE Threads::Threads)
 
 target_sources(hyprimate PRIVATE
     src/window/paper/PaperLiveStyle.cpp

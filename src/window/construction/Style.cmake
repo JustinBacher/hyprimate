@@ -7,6 +7,7 @@ add_custom_command(OUTPUT ${construction_header}
             -P ${construction_embed}
     DEPENDS ${construction_embed} ${construction_png}
     VERBATIM)
+add_custom_target(generate-construction-atlas DEPENDS ${construction_header})
 find_package(PNG REQUIRED)
 
 target_sources(hyprimate-core PRIVATE
@@ -29,8 +30,11 @@ target_sources(hyprimate-core PRIVATE
 target_sources(hyprimate PRIVATE
     ${construction_dir}/ConstructionLiveStyle.cpp
     ${construction_dir}/ConstructionRenderer.cpp
-    ${construction_dir}/ConstructionMaterial.cpp
-    ${construction_header})
+    ${construction_dir}/ConstructionMaterial.cpp)
+add_dependencies(hyprimate generate-construction-atlas)
+if(TARGET clang-tidy-check)
+    add_dependencies(clang-tidy-check generate-construction-atlas)
+endif()
 target_link_libraries(hyprimate PRIVATE PNG::PNG)
 
 if(BUILD_TESTING)
@@ -52,7 +56,8 @@ if(BUILD_TESTING)
     add_construction_test(construction-close-site-tests tests/ConstructionCloseSiteTests.cpp)
     add_executable(construction-material-tests
         ${construction_dir}/tests/ConstructionMaterialTests.cpp
-        ${construction_dir}/ConstructionMaterial.cpp ${construction_header})
+        ${construction_dir}/ConstructionMaterial.cpp)
+    add_dependencies(construction-material-tests generate-construction-atlas)
     target_include_directories(construction-material-tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/tests ${CONFIG_GENERATED_DIR})
     target_link_libraries(construction-material-tests PRIVATE hyprimate-core PkgConfig::TEST_EGL PNG::PNG)

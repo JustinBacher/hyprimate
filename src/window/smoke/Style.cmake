@@ -6,12 +6,10 @@ add_custom_command(
             -DSTYLE=smoke
             -DSOURCE_DIR=${SMOKE_SHADER_DIR}
             -DOUTPUT=${CONFIG_GENERATED_DIR}/smoke_shaders_generated.hpp
+            -DDEPFILE=${CONFIG_GENERATED_DIR}/smoke_shaders_generated.d
             -P ${SMOKE_SHADER_EMBEDDER}
-    DEPENDS ${SMOKE_SHADER_DIR}/smoke.vert ${SMOKE_SHADER_DIR}/smoke.frag
-            ${SMOKE_SHADER_DIR}/velocity.frag ${SMOKE_SHADER_DIR}/divergence.frag
-            ${SMOKE_SHADER_DIR}/pressure.frag ${SMOKE_SHADER_DIR}/project.frag
-            ${SMOKE_SHADER_DIR}/advect.frag ${SMOKE_SHADER_DIR}/dye.frag
-            ${SMOKE_SHADER_DIR}/common.glsl ${SMOKE_SHADER_EMBEDDER}
+    DEPENDS ${SMOKE_SHADER_EMBEDDER}
+    DEPFILE ${CONFIG_GENERATED_DIR}/smoke_shaders_generated.d
     VERBATIM
 )
 add_custom_target(generate-smoke-shaders DEPENDS ${CONFIG_GENERATED_DIR}/smoke_shaders_generated.hpp)

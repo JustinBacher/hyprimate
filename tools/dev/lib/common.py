@@ -156,7 +156,9 @@ def test_targets(directory: Path) -> list[str]:
     return sorted(t for t in list_targets(directory) if t.endswith("-tests"))
 
 
-GENERATORS = ["generate-config", "generate-bubble-shaders", "generate-swarm-shaders", "generate-smoke-shaders"]
+GENERATORS = ["generate-config", "generate-bubble-shaders", "generate-swarm-shaders",
+              "generate-swarm-sprites", "generate-smoke-shaders", "generate-construction-atlas",
+              "generate-planet-shaders"]
 
 
 def build(directory: Path, targets: list[str], *, env: dict | None = None) -> subprocess.CompletedProcess:

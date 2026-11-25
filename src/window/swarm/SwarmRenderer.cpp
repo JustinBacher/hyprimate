@@ -35,7 +35,7 @@
 #include "window/swarm/Swarm.hpp"
 #include "window/swarm/SwarmLiveState.hpp"
 #include "window/swarm/SwarmRenderer.hpp"
-#include "window/swarm/SwarmSprite.hpp"
+#include "window/swarm/SwarmSpriteLoader.hpp"
 #include "window/swarm/SwarmSurface.hpp"
 #include "window/swarm/SwarmSurfaceBody.hpp"
 
@@ -59,11 +59,9 @@ namespace {
     cairo_status_t bake(const std::string &creature,
         CSwarmSprites::SSheet &sheet,
         std::vector<std::uint8_t> &pixels) {
-        const auto PATH = hyprimate::sprite_path(
-            hyprimate::SpriteName{creature}, hyprimate::SpriteDirectory{HYPRIMATE_SPRITE_DIR});
         using Surface = std::unique_ptr<cairo_surface_t, decltype(&cairo_surface_destroy)>;
-        const Surface source{
-            cairo_image_surface_create_from_png(PATH.c_str()), cairo_surface_destroy};
+        const Surface source{hyprimate::load_swarm_sprite(
+            creature, HYPRIMATE_SPRITE_DIR, HYPRIMATE_EMBED_BUILTIN_SPRITES), cairo_surface_destroy};
         auto *image = source.get();
         if (cairo_surface_status(image) != CAIRO_STATUS_SUCCESS) {
             return cairo_surface_status(image);

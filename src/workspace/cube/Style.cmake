@@ -1,5 +1,8 @@
 add_library(cube-material STATIC src/workspace/cube/CubeMaterial.cpp src/workspace/cube/CubeMesh.cpp)
 target_include_directories(cube-material PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+pkg_check_modules(CUBE_GLES REQUIRED IMPORTED_TARGET glesv2)
+# The material library calls GLES directly, including outside the plugin.
+target_link_libraries(cube-material PUBLIC PkgConfig::CUBE_GLES)
 target_compile_options(cube-material PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>:-fno-gnu-unique>)
 target_sources(hyprimate PRIVATE src/workspace/cube/CubeRenderer.cpp)
 target_link_libraries(hyprimate PRIVATE cube-material)
