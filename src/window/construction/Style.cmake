@@ -13,11 +13,15 @@ target_sources(hyprimate-core PRIVATE
     ${construction_dir}/ConstructionSite.cpp
     ${construction_dir}/ConstructionCrew.cpp
     ${construction_dir}/studies/IntactTransport.cpp
+    ${construction_dir}/studies/IntactTransportCarry.cpp
+    ${construction_dir}/studies/IntactTransportCrane.cpp
     ${construction_dir}/studies/EdgeStretch.cpp
     ${construction_dir}/studies/PieceRelocation.cpp
     ${construction_dir}/studies/RegionalClose.cpp
     ${construction_dir}/ConstructionCloseSite.cpp
     ${construction_dir}/ConstructionMotionArt.cpp
+    ${construction_dir}/ConstructionCraneArt.cpp
+    ${construction_dir}/ConstructionPieceArt.cpp
     ${construction_dir}/ConstructionMotionSite.cpp)
 target_sources(hyprimate PRIVATE
     ${construction_dir}/ConstructionLiveStyle.cpp
