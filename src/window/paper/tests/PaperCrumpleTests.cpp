@@ -881,6 +881,35 @@ namespace {
         }
     }
 
+    void test_short_opening_schedule() {
+        for (const double duration : {0.001, 0.010, 0.025, 0.040, 0.080}) {
+            PaperParams params;
+            params.duration = duration;
+            params.simulation_quality = PaperQuality::Low;
+            PaperCrumple model;
+            model.begin(Transition::Open, params, 42, SIZE);
+            CHECK(model.active());
+            const auto packet = frame(model);
+            valid(packet);
+
+            run(model, duration * 0.5);
+            const auto halfway = frame(model);
+            valid(halfway);
+            // At 1 ms the opening is shorter than one integration tick; there
+            // is no intermediate simulated pose to compare.
+            if (duration > 0.001) CHECK(std::abs(radius(halfway) - radius(packet)) > 1e-7);
+
+            run(model, duration * 0.5);
+            // A completed opening is the public evidence that flat_and_quiet()
+            // succeeded; bound extra settling time so an inverted schedule fails.
+            for (unsigned i = 0; i < 20 && model.active(); ++i) run(model, 0.01);
+            std::printf("[paper] short-opening duration=%g active=%d\n", duration, model.active());
+            CHECK(!model.active());
+            CHECK(!model.closed());
+            identity(frame(model));
+        }
+    }
+
     void test_time_validation_and_reset() {
         PaperParams params;
         params.simulation_quality = PaperQuality::Low;
@@ -928,5 +957,6 @@ int main() {
     test_opening_material_trajectory();
     test_late_material_fold_progression();
     test_opening_tool_reach_and_dwell();
+    test_short_opening_schedule();
     return g_failures == 0 ? 0 : 1;
 }

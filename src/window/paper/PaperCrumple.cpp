@@ -441,10 +441,14 @@ namespace hyprimate {
                 m_grip_compliance[hinge.b] = std::min(m_grip_compliance[hinge.b], compliance);
             }
         } else {
-            // The tools come to rest, not the material: leave at least 25 ms
-            // for wrinkles to relax even at the minimum configured duration.
-            const double dwell = std::max(TUNE("DWELL", 0.1), 0.025 / m_params.duration);
+            // Reserve up to 25 ms for relaxation, but leave at least half of a
+            // short opening for travel. The normal 100 ms schedule is unchanged.
+            const double dwell =
+                std::max(TUNE("DWELL", 0.1), std::min(0.5, 0.025 / m_params.duration));
             const double finish = 1 - dwell;
+            // Compress the stagger with the available travel interval below the
+            // normal 100 ms finish, rather than letting any onset overtake it.
+            const double onset_scale = std::min(1.0, finish / 0.75);
             const double now = 1 - m_fraction, before = 1 - m_previous_fraction;
             // Every tool follows one unfolding curve across the whole duration. Its
             // response is quasi-static: removing a share of what remains means a
@@ -462,7 +466,7 @@ namespace hyprimate {
                 slack > 0 ? 1 - std::min(0.3, slack / (m_material.y * m_material.y)) : 1;
             // The palm/table pair closes after the grips have started pulling, so
             // it irons out what remains rather than flattening a wad with its folds.
-            const double PRESS_START = TUNE("PRESS_START", 0.2);
+            const double PRESS_START = TUNE("PRESS_START", 0.2) * onset_scale;
             gap = m_press_height * unfolding_left((now - PRESS_START) / (finish - PRESS_START));
             tool_travel = std::max(0.025, 6 * m_step / m_params.duration) / iterations;
             // Finite-compliance hand loads: rim traction transmits through the
@@ -489,6 +493,7 @@ namespace hyprimate {
                     double onset = g.start * (0.4 + 0.4 * m_params.crumpliness);
                     if (m_params.force_direction == PaperForce::Directional)
                         onset += 0.15 * (1 - g.uv.x);
+                    onset *= onset_scale;
                     const double width = finish - onset;
                     left_now += influence * unfolding_left((now - onset) / width);
                     left_before += influence * unfolding_left((before - onset) / width);
