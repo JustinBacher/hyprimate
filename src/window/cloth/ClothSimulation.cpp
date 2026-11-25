@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <mdspan>
+#include <new>
 #include <numbers>
 #include <optional>
 #include <span>
@@ -74,14 +75,14 @@ namespace hyprimate::cloth_detail {
             return ClothPocket{x, vx};
         }
 
-        bool publish_movement(Run &run,
+        TerminalReason publish_movement(Run &run,
             double time,
             std::span<const cloth::Point> positions,
             std::span<const cloth::Point> velocities) {
             const unsigned HEAD = run.output_head.load(std::memory_order_relaxed);
             if (HEAD - run.output_tail.load(std::memory_order_acquire) == Run::OUTPUT_CAPACITY) {
                 run.overflow.store(true, std::memory_order_release);
-                return false;
+                return TerminalReason::QueueOverflow;
             }
             auto &snapshot = run.snapshots.at(HEAD % Run::OUTPUT_CAPACITY);
             snapshot.time = time;
@@ -96,7 +97,7 @@ namespace hyprimate::cloth_detail {
                 if (!std::isfinite(POSITION.x) || !std::isfinite(POSITION.y) ||
                     !std::isfinite(POSITION.z) || !std::isfinite(VELOCITY.x) ||
                     !std::isfinite(VELOCITY.y) || !std::isfinite(VELOCITY.z)) {
-                    return false;
+                    return TerminalReason::RecordingFailure;
                 }
                 snapshot.values[i] = {
                     .position = {POSITION.x, POSITION.y, POSITION.z},
@@ -110,20 +111,20 @@ namespace hyprimate::cloth_detail {
             }
             run.output_head.store(HEAD + 1, std::memory_order_release);
             run.recorded.fetch_add(1, std::memory_order_release);
-            return true;
+            return TerminalReason::Running;
         }
     }  // namespace
 
     // NOLINTNEXTLINE(readability-function-cognitive-complexity): Splitting risks per-vertex
     // calls and publication ordering.
-    void simulate_movement(Run &run, double phase) {
+    TerminalReason simulate_movement(Run &run, double phase) {
         std::optional<perf::CpuScope> setup_profile{std::in_place,
             perf::Key{perf::Domain::Window, "cloth", "move"},
             perf::Phase::Worker};
         cloth::StepSettings settings{.speedCap = 20};
         const auto STOPPED = [&] { return run.stop.stop_requested(); };
         if (STOPPED()) {
-            return;
+            return TerminalReason::Cancelled;
         }
         const SheetGrid REST = rest_grid();
         std::array<double, GRID> pleats{};
@@ -138,15 +139,21 @@ namespace hyprimate::cloth_detail {
         if (run.movement.springiness > 0) {
             pocket.emplace(make_pocket(run));
         }
-        bool good = publish_movement(run, -STEP_SECONDS, positions, velocities) &&
-                    publish_movement(run, 0, positions, velocities);
+        if (const auto FIRST = publish_movement(run, -STEP_SECONDS, positions, velocities);
+            FIRST != TerminalReason::Running) {
+            return FIRST;
+        }
+        if (const auto SECOND = publish_movement(run, 0, positions, velocities);
+            SECOND != TerminalReason::Running) {
+            return SECOND;
+        }
         Run::Target previous{.time = 0, .box = run.window};
         Box box = run.window;
         double time = 0;
         double last_motion = 0;
         double previous_rod_velocity = 0;
         setup_profile.reset();
-        while (good && !STOPPED()) {
+        while (!STOPPED()) {
             if (s_pause.load(std::memory_order_acquire) &&
                 run.recorded.load(std::memory_order_relaxed) >=
                     s_pause_after.load(std::memory_order_relaxed)) {
@@ -167,7 +174,7 @@ namespace hyprimate::cloth_detail {
             if (!pocket && movement.springiness > 0) {
                 pocket.emplace(make_pocket(run, positions, velocities));
             }
-            while (time + STEP_SECONDS <= TARGET.time + 1e-10 && good && !STOPPED()) {
+            while (time + STEP_SECONDS <= TARGET.time + 1e-10 && !STOPPED()) {
                 const double NEXT_TIME = time + STEP_SECONDS;
                 const double BLEND = std::clamp(
                     (NEXT_TIME - previous.time) / (TARGET.time - previous.time), 0.0, 1.0);
@@ -205,8 +212,7 @@ namespace hyprimate::cloth_detail {
                 previous_rod_velocity = ROD_VELOCITY;
                 if (pocket &&
                     !pocket->update(ACCELERATION, ROD_VELOCITY, SETTLE, movement.springiness)) {
-                    good = false;
-                    break;
+                    return TerminalReason::SolverFailure;
                 }
                 const double OLD_DEPTH = std::sqrt(box.w * box.h);
                 const double NEW_DEPTH = std::sqrt(NEXT.w * NEXT.h);
@@ -266,15 +272,19 @@ namespace hyprimate::cloth_detail {
                 // Preserve the solved pose and velocity together to retain upward folds.
                 box = NEXT;
                 time = NEXT_TIME;
-                good = publish_movement(run, time, positions, velocities);
+                if (const auto PUBLISHED = publish_movement(run, time, positions, velocities);
+                    PUBLISHED != TerminalReason::Running) {
+                    return PUBLISHED;
+                }
             }
             previous = TARGET;
         }
+        return TerminalReason::Cancelled;
     }
 
     // NOLINTNEXTLINE(readability-function-cognitive-complexity): Splitting risks per-vertex
     // calls and neighbor update ordering.
-    void simulate(Run &run, const SimInput &input) {
+    TerminalReason simulate(Run &run, const SimInput &input) {
         const perf::Key KEY{
             perf::Domain::Window, "cloth", run.kind == Transition::Close ? "close" : "open"};
         std::optional<perf::CpuScope> setup_profile{std::in_place, KEY, perf::Phase::Worker};
@@ -289,9 +299,13 @@ namespace hyprimate::cloth_detail {
             return !STOPPED();
         };
         if (!WAIT_PUBLICATION()) {
-            return;
+            return TerminalReason::Cancelled;
         }
-        allocate_recording(run);
+        try {
+            allocate_recording(run);
+        } catch (const std::bad_alloc &) {
+            return TerminalReason::RecordingAllocationFailure;
+        }
         if (setup_profile->session() != 0) {
             perf::resource_sample(KEY,
                 sizeof(Run) + static_cast<std::uint64_t>(run.frames) * sizeof(Run::Frame),
@@ -299,7 +313,7 @@ namespace hyprimate::cloth_detail {
                 setup_profile->session());
         }
         if (STOPPED()) {
-            return;
+            return TerminalReason::Cancelled;
         }
         std::array<cloth::Obstacle, MAX_OBSTACLES> boxes;
         for (std::size_t i = 0; i < input.obstacles.size(); ++i) {
@@ -334,7 +348,7 @@ namespace hyprimate::cloth_detail {
             }
         }
         if (STOPPED()) {
-            return;
+            return TerminalReason::Cancelled;
         }
         setup_profile.reset();
         if (run.kind == Transition::Open) {
@@ -346,7 +360,7 @@ namespace hyprimate::cloth_detail {
                 const perf::CpuScope PROFILE{
                     {perf::Domain::Window, "cloth", "open"}, perf::Phase::Worker};
                 if (!WAIT_PUBLICATION()) {
-                    return;
+                    return TerminalReason::Cancelled;
                 }
                 solver.step(settings);
             }
@@ -359,12 +373,15 @@ namespace hyprimate::cloth_detail {
             pocket.emplace(make_pocket(run));
         }
         if (!record(run, 0, positions, velocities)) {
-            return;
+            return TerminalReason::RecordingFailure;
         }
         const auto OPEN_AIR_DRAG_FACTOR =
             static_cast<float>(1 - std::exp(-OPEN_AIR_DRAG * STEP_SECONDS));
         setup_profile.reset();
-        for (int step = 1; step < run.frames && WAIT_PUBLICATION(); ++step) {
+        for (int step = 1; step < run.frames; ++step) {
+            if (!WAIT_PUBLICATION()) {
+                return TerminalReason::Cancelled;
+            }
             const perf::CpuScope PROFILE{{perf::Domain::Window,
                                              "cloth",
                                              run.kind == Transition::Close ? "close" : "open"},
@@ -376,7 +393,7 @@ namespace hyprimate::cloth_detail {
                 const double ROD_VELOCITY = run.travel.x * 30 * PROGRESS * PROGRESS *
                                             (1 - PROGRESS) * (1 - PROGRESS) / run.length;
                 if (!pocket->update(0, ROD_VELOCITY, 0, run.movement.springiness)) {
-                    break;
+                    return TerminalReason::SolverFailure;
                 }
             }
             if (run.kind == Transition::Open) {
@@ -455,8 +472,9 @@ namespace hyprimate::cloth_detail {
             }
             solver.step(settings);
             if (!record(run, step, positions, velocities)) {
-                break;
+                return TerminalReason::RecordingFailure;
             }
         }
+        return TerminalReason::Completed;
     }
 }  // namespace hyprimate::cloth_detail

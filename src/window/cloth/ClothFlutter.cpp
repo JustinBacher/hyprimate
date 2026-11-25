@@ -1,8 +1,10 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cinttypes>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <cstdint>
 #include <iterator>
 #include <memory>
@@ -27,6 +29,7 @@ namespace hyprimate {
         using cloth_detail::MAX_OBSTACLES;
         using cloth_detail::STEP_SECONDS;
         using cloth_detail::SimInput;
+        using cloth_detail::TerminalReason;
         using cloth_detail::WorkerAdmission;
         using cloth_detail::mul;
         using cloth_detail::rest_grid;
@@ -39,6 +42,36 @@ namespace hyprimate {
         // already exist one 60 Hz frame plus one step later. Displaying any later alternates
         // interpolation with extrapolation from whichever snapshots happen to be ready.
         constexpr double MOVEMENT_LATENCY = 4 * STEP_SECONDS;
+
+        const char *failure_message(TerminalReason reason) noexcept {
+            switch (reason) {
+                case TerminalReason::SolverFailure:
+                    return "solver failure";
+                case TerminalReason::RecordingFailure:
+                    return "recording rejected a sample";
+                case TerminalReason::RecordingAllocationFailure:
+                    return "recording allocation failed";
+                case TerminalReason::Running:
+                case TerminalReason::Completed:
+                case TerminalReason::Cancelled:
+                case TerminalReason::QueueOverflow:
+                    return nullptr;
+            }
+            return nullptr;
+        }
+
+        void report_worker_failure(ClothFlutter::Run &run) noexcept {
+            const char *const MESSAGE = failure_message(run.terminal.load(std::memory_order_acquire));
+            if (!MESSAGE || run.report_closed.exchange(true, std::memory_order_relaxed)) {
+                return;
+            }
+            std::fprintf(stderr,
+                "hyprimate: cloth worker operation=%s seed=%" PRIu64 " recorded=%d: %s\n",
+                run.live ? "move" : (run.kind == Transition::Close ? "close" : "open"),
+                run.seed,
+                run.recorded.load(std::memory_order_relaxed),
+                MESSAGE);
+        }
 
         // A curtain has enough material across its width to form vertical folds. Integrate
         // unit-length tangents so gathering spends width in depth without pre-stretching the mesh.
@@ -224,6 +257,7 @@ namespace hyprimate {
         }
         const auto RUN = std::make_shared<Run>();
         RUN->live = true;
+        RUN->seed = seed;
         RUN->window = capture;
         RUN->movement = movement;
         const double ALPHA = opacity();
@@ -333,6 +367,7 @@ namespace hyprimate {
         }
         const auto RUN = std::make_shared<Run>();
         RUN->kind = kind;
+        RUN->seed = seed;
         RUN->window = window;
         RUN->screen = geometry ? geometry->screen
                                : Box{.x = window.x, .y = window.y, .w = window.w, .h = window.h};
@@ -410,6 +445,11 @@ namespace hyprimate {
     }
 
     void ClothFlutter::start_fallback() noexcept {
+        // Only an active playback can adopt a failure; supersession and cancellation stay quiet.
+        // This runs outside worker admission and the registry mutex.
+        if (m_run) {
+            report_worker_failure(*m_run);
+        }
         try {
             auto fallback = std::make_shared<Fallback>();
             sample_vertices(fallback->positions, fallback->velocities);
@@ -497,8 +537,7 @@ namespace hyprimate {
             const bool PROGRESSED = cloth_detail::consume_movement(*m_run, playback, WANTED);
             if (m_run->recorded.load(std::memory_order_acquire) < 2) {
                 m_startup_wait += elapsed_seconds;
-                if (m_startup_wait >= STALL_SECONDS ||
-                    m_run->finished.load(std::memory_order_acquire)) {
+                if (m_startup_wait >= STALL_SECONDS || m_run->finished()) {
                     start_fallback();
                 }
             } else {
@@ -507,14 +546,13 @@ namespace hyprimate {
                                      : m_startup_wait + elapsed_seconds;
                 playback.settling = m_t - playback.last_motion >= 0.5;
                 if (m_run->overflow.load(std::memory_order_acquire) ||
-                    m_startup_wait >= STALL_SECONDS ||
-                    m_run->finished.load(std::memory_order_acquire) || playback.settling) {
+                    m_startup_wait >= STALL_SECONDS || m_run->finished() || playback.settling) {
                     start_fallback();
                 }
             }
             return active();
         }
-        const bool FINISHED = m_run->finished.load(std::memory_order_acquire);
+        const bool FINISHED = m_run->finished();
         const int RECORDED = m_run->recorded.load(std::memory_order_acquire);
         const bool COMPLETE = RECORDED >= m_run->frames;
         if (FINISHED && !COMPLETE) {
@@ -531,7 +569,7 @@ namespace hyprimate {
             }
             m_startup_wait += elapsed_seconds;
             if (m_startup_wait >= STALL_SECONDS) {
-                const bool FINISHED_NOW = m_run->finished.load(std::memory_order_acquire);
+                const bool FINISHED_NOW = m_run->finished();
                 const int RECORDED_NOW = m_run->recorded.load(std::memory_order_acquire);
                 if ((!FINISHED_NOW || RECORDED_NOW >= m_run->frames) &&
                     RECORDED_NOW > m_startup_recorded) {
@@ -562,7 +600,7 @@ namespace hyprimate {
             m_startup_wait += elapsed_seconds;
         }
         if (WAITING && m_startup_wait >= STALL_SECONDS) {
-            const bool FINISHED_NOW = m_run->finished.load(std::memory_order_acquire);
+            const bool FINISHED_NOW = m_run->finished();
             const int RECORDED_NOW = m_run->recorded.load(std::memory_order_acquire);
             if ((!FINISHED_NOW || RECORDED_NOW >= m_run->frames) && RECORDED_NOW > RECORDED) {
                 m_startup_wait = 0;

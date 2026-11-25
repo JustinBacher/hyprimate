@@ -8,15 +8,20 @@
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <future>
+#include <limits>
 #include <memory>
 #include <new>
+#include <string_view>
 #include <system_error>
 #include <thread>
+#include <utility>
 
 #include <dlfcn.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "shared/Core.hpp"
 #include "window/cloth/ClothFlutter.hpp"
@@ -72,9 +77,29 @@ namespace {
         return SCANNED;
     }
 
-    // Fail the large recording allocation on the worker rather than the startup thread.
-    // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-    std::atomic<int> s_recording_failure{0};  // 0 disabled, 1 armed, 2 injected
+    enum class WorkerFault : std::uint8_t { None, Recording, Solver };
+    struct FaultAttempt {
+        WorkerFault fault;
+        std::promise<bool> returned;
+    };
+
+    thread_local FaultAttempt *s_launch_fault = nullptr;
+    thread_local WorkerFault s_worker_fault = WorkerFault::None;
+
+    struct WorkerStart {
+        void *(*entry)(void *);
+        void *argument;
+        FaultAttempt attempt;
+    };
+
+    void *start_faulting_worker(void *argument) {
+        const std::unique_ptr<WorkerStart> start{static_cast<WorkerStart *>(argument)};
+        s_worker_fault = start->attempt.fault;
+        void *const RESULT = start->entry(start->argument);
+        // The entry has already published the terminal state and cannot log after this point.
+        start->attempt.returned.set_value(s_worker_fault == WorkerFault::None);
+        return RESULT;
+    }
 
     timespec deadline() {
         timespec value{};
@@ -142,9 +167,9 @@ namespace {
     void *allocate(std::size_t size, std::size_t alignment = 0) {
         constexpr std::size_t MIN_RECORDING_BYTES =
             hyprimate::SHEET_GRID_VERTICES * 6 * sizeof(float) * 100;
-        int armed = 1;
-        if (size >= MIN_RECORDING_BYTES &&
-            s_recording_failure.compare_exchange_strong(armed, 2, std::memory_order_relaxed)) {
+        if (s_worker_fault == WorkerFault::Solver ||
+            (s_worker_fault == WorkerFault::Recording && size >= MIN_RECORDING_BYTES)) {
+            s_worker_fault = WorkerFault::None;
             throw std::bad_alloc();
         }
         Attempt *OWNER = current_attempt();
@@ -268,7 +293,19 @@ extern "C" int pthread_create(pthread_t *thread,
         gate->entered = true;
         return EAGAIN;
     }
-    const int RESULT = CREATE(thread, attributes, entry, argument);
+    WorkerStart *start = nullptr;
+    if (s_launch_fault != nullptr) {
+        // Test-only trampoline context; the worker takes ownership on successful creation.
+        start = new (std::nothrow) WorkerStart{entry, argument, std::move(*s_launch_fault)};
+        if (!start) {
+            return ENOMEM;
+        }
+    }
+    const int RESULT =
+        CREATE(thread, attributes, start ? start_faulting_worker : entry, start ? start : argument);
+    if (RESULT != 0) {
+        delete start;
+    }
     if (RESULT == 0 && s_capture_reaper != nullptr) {
         *s_capture_reaper = *thread;
     }
@@ -473,18 +510,147 @@ namespace {
         };
     }
 
-    bool worker_recording_failure() {
+    class StderrCapture {
+      public:
+        StderrCapture() {
+            if (m_file && std::fflush(stderr) == 0) {
+                m_saved = ::dup(STDERR_FILENO);
+                m_redirected = m_saved >= 0 && ::dup2(::fileno(m_file), STDERR_FILENO) >= 0;
+            }
+        }
+        ~StderrCapture() {
+            if (m_redirected) {
+                (void)std::fflush(stderr);
+                (void)::dup2(m_saved, STDERR_FILENO);
+            }
+            if (m_saved >= 0) {
+                (void)::close(m_saved);
+            }
+            if (m_file) {
+                (void)std::fclose(m_file);
+            }
+        }
+        StderrCapture(const StderrCapture &) = delete;
+        StderrCapture &operator=(const StderrCapture &) = delete;
+        StderrCapture(StderrCapture &&) = delete;
+        StderrCapture &operator=(StderrCapture &&) = delete;
+
+        [[nodiscard]] bool matches(std::string_view expected) const {
+            std::array<char, 256> buffer{};
+            if (!m_redirected || expected.size() >= buffer.size() || std::fflush(stderr) != 0) {
+                return false;
+            }
+            const auto SIZE = ::pread(::fileno(m_file), buffer.data(), expected.size() + 1, 0);
+            return SIZE == static_cast<ssize_t>(expected.size()) &&
+                   std::string_view{buffer.data(), expected.size()} == expected;
+        }
+
+      private:
+        std::FILE *const m_file = std::tmpfile();
+        int m_saved = -1;
+        bool m_redirected = false;
+    };
+
+    constexpr std::string_view RECORDING_FAILURE_DIAGNOSTIC =
+        "hyprimate: cloth worker operation=open seed=123 recorded=0: recording allocation failed\n";
+
+    bool start_failed_worker(ClothFlutter &cloth, WorkerFault fault) {
+        FaultAttempt attempt{.fault = fault, .returned = {}};
+        auto returned = attempt.returned.get_future();
+        s_launch_fault = &attempt;
+        const bool RECORDING = fault == WorkerFault::Recording;
+        start(cloth, RECORDING ? Startup::Transition : Startup::Movement);
+        s_launch_fault = nullptr;
+        if (!cloth.active() ||
+            returned.wait_for(std::chrono::seconds(10)) != std::future_status::ready ||
+            !returned.get()) {
+            return false;
+        }
+        return RECORDING ? !cloth.wait_for_recording(0) : !cloth.wait_for_snapshots(2, 0);
+    }
+
+    bool worker_failure_diagnostic(WorkerFault fault) {
+        const StderrCapture CAPTURE;
+        const bool RECORDING = fault == WorkerFault::Recording;
+        const std::string_view EXPECTED = RECORDING
+            ? RECORDING_FAILURE_DIAGNOSTIC
+            : "hyprimate: cloth worker operation=move seed=123 recorded=0: solver failure\n";
         ClothFlutter cloth;
-        s_recording_failure.store(1, std::memory_order_relaxed);
-        cloth.begin(Transition::Open, {}, 123, WINDOW, {});
-        const bool INCOMPLETE = !cloth.wait_for_recording();
-        const bool INJECTED = s_recording_failure.exchange(0, std::memory_order_relaxed) == 2;
-        const bool FAILED = INCOMPLETE && INJECTED;
-        const bool ENTERED_FALLBACK = cloth.active() && cloth.advance(0);
+        if (!start_failed_worker(cloth, fault) || !CAPTURE.matches("")) {
+            return false;
+        }
+        // A second playback of a failed transition shares its run and report claim.
+        auto retained = RECORDING ? cloth : ClothFlutter{};
+        const bool FALLBACK = cloth.active() && cloth.advance(0);
+        if (!FALLBACK || !CAPTURE.matches(EXPECTED)) {
+            return false;
+        }
+        const bool RETAINED_FALLBACK = !RECORDING || (retained.active() && retained.advance(0));
         cloth.advance(.2);
-        const bool RECOVERED = !cloth.active() && cloth.opacity() == 1;
-        cloth.begin(Transition::Open, {}, 124, WINDOW, {});
-        return FAILED && ENTERED_FALLBACK && RECOVERED && cloth.wait_for_recording();
+        retained.advance(.2);
+        const bool RECOVERED = !cloth.active() && cloth.opacity() == 1 &&
+                               (!RECORDING || (!retained.active() && retained.opacity() == 1));
+        start(cloth, RECORDING ? Startup::Transition : Startup::Movement);
+        const bool RETRIED = RECORDING ? cloth.wait_for_recording() : cloth.wait_for_snapshots(2);
+        return RETAINED_FALLBACK && RECOVERED && RETRIED && CAPTURE.matches(EXPECTED);
+    }
+
+    bool superseded_playback_does_not_claim_failure(bool keep_retained) {
+        const StderrCapture CAPTURE;
+        ClothFlutter cloth;
+        if (!start_failed_worker(cloth, WorkerFault::Recording) || !CAPTURE.matches("")) {
+            return false;
+        }
+        auto retained = keep_retained ? cloth : ClothFlutter{};
+        // Replace the completed failure without advancing its playback.
+        start(cloth, Startup::Movement);
+        const bool QUIET = cloth.wait_for_snapshots(2) && cloth.advance(0) && CAPTURE.matches("");
+        if (!keep_retained) {
+            return QUIET;
+        }
+        // The retained copy still owns the old generation and can claim its diagnostic.
+        const bool RETAINED_FALLBACK = retained.active() && retained.advance(0);
+        retained.advance(.2);
+        return QUIET && RETAINED_FALLBACK && !retained.active() &&
+               CAPTURE.matches(RECORDING_FAILURE_DIAGNOSTIC);
+    }
+
+    bool worker_cancellation_is_quiet(bool fail_before_stop) {
+        const StderrCapture CAPTURE;
+        ClothFlutter cloth;
+        bool prepared = true;
+        {
+            const ClothPhysics PHYSICS;
+            if (fail_before_stop) {
+                prepared = start_failed_worker(cloth, WorkerFault::Recording) && CAPTURE.matches("");
+            } else {
+                ClothPhysics::pause_workers_for_testing(true);
+                start(cloth, Startup::Transition);
+            }
+            // Shutdown cancels the generation before its still-committed playback can claim it.
+        }
+        if (!prepared || !CAPTURE.matches("") || !cloth.active() || cloth.wait_for_recording(0) ||
+            !cloth.advance(0)) {
+            return false;
+        }
+        cloth.advance(.2);
+        return !cloth.active() && cloth.opacity() == 1 && CAPTURE.matches("");
+    }
+
+    bool invalid_sample_preserves_published_prefix() {
+        const auto RUN = std::make_unique<ClothFlutter::Run>();
+        RUN->kind = Transition::Close;
+        RUN->window = RUN->screen = WINDOW;
+        RUN->frames = 4;
+        RUN->outside_frame.store(RUN->frames, std::memory_order_relaxed);
+        RUN->start = cloth_detail::rest_grid();
+        cloth_detail::SimInput input;
+        input.flutter = 0.5;
+        // A close records its initial pose before using the gust phase on its first step.
+        input.phase_b = std::numeric_limits<double>::quiet_NaN();
+        const auto REASON = cloth_detail::simulate(*RUN, input);
+        return REASON == cloth_detail::TerminalReason::RecordingFailure &&
+               RUN->recorded.load(std::memory_order_acquire) == 1;
     }
 
     bool restart_allocation_failure() {
@@ -560,6 +726,7 @@ namespace {
         s_capture_reaper = &gate.thread;
         const ClothPhysics PHYSICS;
         s_capture_reaper = nullptr;
+        ClothPhysics::pause_workers_for_testing(true, 1);
         static Attempt recording;  // Outlives a timeout and any asynchronous reclamation.
         auto run = std::make_shared<ClothFlutter::Run>();
         run->kind = Transition::Close;
@@ -577,24 +744,24 @@ namespace {
         }
         const auto LIMIT = std::chrono::steady_clock::now() + std::chrono::seconds(10);
         while (lease && run->recorded.load(std::memory_order_acquire) < 1 &&
-               !run->finished.load(std::memory_order_acquire) &&
+               !run->finished() &&
                std::chrono::steady_clock::now() < LIMIT) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         lease.reset();
-        while (!run->finished.load(std::memory_order_acquire) &&
-               std::chrono::steady_clock::now() < LIMIT) {
+        while (!run->finished() && std::chrono::steady_clock::now() < LIMIT) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
-        const bool FINISHED = run->finished.load(std::memory_order_acquire);
+        const bool CANCELLED = run->terminal.load(std::memory_order_acquire) ==
+                               cloth_detail::TerminalReason::Cancelled;
         s_recording_tracker.store(nullptr, std::memory_order_release);
         s_reaper_gate.store(&gate, std::memory_order_release);
-        const bool SCANNED = FINISHED && wait_for_reaper_scans(gate);
+        const bool SCANNED = CANCELLED && wait_for_reaper_scans(gate);
         s_reaper_gate.store(nullptr, std::memory_order_release);
         const bool REGISTRY_OWNS_RUN = run.use_count() >= 2;
         run.reset();
         const bool FREED = wait_for_first_free(recording);
-        return FINISHED && SCANNED && REGISTRY_OWNS_RUN && FREED &&
+        return SCANNED && REGISTRY_OWNS_RUN && FREED &&
                pthread_equal(recording.first_freed_on, gate.thread);
     }
 
@@ -686,9 +853,33 @@ int main() {
         std::fputs("cloth recording was not reclaimed by its reaper\n", stderr);
         passed = false;
     }
+    if (!worker_cancellation_is_quiet(false)) {
+        std::fputs("cancelled cloth worker did not fall back silently\n", stderr);
+        passed = false;
+    }
+    if (!worker_cancellation_is_quiet(true)) {
+        std::fputs("shutdown did not suppress an unclaimed cloth failure\n", stderr);
+        passed = false;
+    }
     const ClothPhysics PHYSICS;
-    if (!worker_recording_failure()) {
-        std::fputs("worker recording allocation failure/retry failed\n", stderr);
+    if (!worker_failure_diagnostic(WorkerFault::Recording)) {
+        std::fputs("worker recording allocation failure diagnostic/retry failed\n", stderr);
+        passed = false;
+    }
+    if (!worker_failure_diagnostic(WorkerFault::Solver)) {
+        std::fputs("worker solver failure diagnostic/retry failed\n", stderr);
+        passed = false;
+    }
+    if (!superseded_playback_does_not_claim_failure(false)) {
+        std::fputs("superseded cloth failure was not discarded quietly\n", stderr);
+        passed = false;
+    }
+    if (!superseded_playback_does_not_claim_failure(true)) {
+        std::fputs("retained cloth playback did not claim the superseded original's failure\n", stderr);
+        passed = false;
+    }
+    if (!invalid_sample_preserves_published_prefix()) {
+        std::fputs("cloth recording rejection did not preserve its published prefix\n", stderr);
         passed = false;
     }
     // Filling 16 slots establishes capacity; reaping the first run leaves one free slot.

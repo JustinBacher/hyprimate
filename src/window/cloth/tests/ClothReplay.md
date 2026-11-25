@@ -4,6 +4,13 @@
 display-time samples to CSV. Setup and recording wall times go to stderr and
 are excluded from the comparison.
 
+The separate `cloth-lease-failure-tests` target covers solver and recording
+faults, including rejection after a frame has been published. An active
+playback can claim one diagnostic per run when it enters fallback. A retained
+copy can still claim it after the original playback is superseded; dropping
+the last playback or stopping the runtime closes the claim. Cancellation that
+wins this race is silent. A new run can retry.
+
 ## Frozen baseline
 
 The tracked `cloth-reference.csv.gz` records the accepted whole-mesh CPU

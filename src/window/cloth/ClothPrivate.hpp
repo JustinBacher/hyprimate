@@ -3,6 +3,7 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <stop_token>
 #include <thread>
@@ -17,6 +18,16 @@ namespace hyprimate {
         inline constexpr double OPEN_LENGTH = 1.4;
         inline constexpr double GRAVITY = 9.81;
         inline constexpr double FALLBACK_LENGTH = 0.18;
+
+        enum class TerminalReason : std::uint8_t {
+            Running,
+            Completed,
+            Cancelled,
+            QueueOverflow,
+            SolverFailure,
+            RecordingFailure,
+            RecordingAllocationFailure,
+        };
 
         inline Vec3 add(Vec3 left, Vec3 right) noexcept {
             return {.x = left.x + right.x, .y = left.y + right.y, .z = left.z + right.z};
@@ -89,6 +100,7 @@ namespace hyprimate {
         std::atomic<bool> overflow{false};
         Transition kind = Transition::Open;
         Edge edge = Edge::Bottom;
+        std::uint64_t seed = 0;
         Box window{}, screen{};
         double length = cloth_detail::OPEN_LENGTH;
         double max_initial_speed = 0;
@@ -101,9 +113,22 @@ namespace hyprimate {
         // length is determined at runtime.
         std::unique_ptr<Frame[]> samples;
         std::atomic<int> recorded{0}, outside_frame{0};
-        std::atomic<bool> finished{false}, released{false};
+        // The worker publishes the terminal reason once; retained playbacks share the report.
+        std::atomic<cloth_detail::TerminalReason> terminal{cloth_detail::TerminalReason::Running};
+        std::atomic<bool> report_closed{false}, released{false};
         std::stop_source stop;
         std::thread worker;  // only the registry reaper joins it
+
+        [[nodiscard]] bool finished() const noexcept {
+            return terminal.load(std::memory_order_acquire) != cloth_detail::TerminalReason::Running;
+        }
+
+        void request_stop() noexcept {
+            // A cancellation and the playback's report claim are ordered on the same flag.
+            // A claim that already won may still be reported after this stop request.
+            report_closed.store(true, std::memory_order_relaxed);
+            stop.request_stop();
+        }
 
         [[nodiscard]] static bool pinned(int row) noexcept {
             return row == 0;

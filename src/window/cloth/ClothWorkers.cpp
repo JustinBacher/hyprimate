@@ -30,7 +30,7 @@ namespace hyprimate {
             std::shared_ptr<Run> run;
             ~Lease() {
                 if (run) {
-                    run->stop.request_stop();
+                    run->request_stop();
                     run->released.store(true, std::memory_order_release);
                 }
             }
@@ -39,6 +39,7 @@ namespace hyprimate {
 
     namespace {
         using cloth_detail::Run;
+        using cloth_detail::TerminalReason;
 
         class Registry {
           public:
@@ -55,7 +56,7 @@ namespace hyprimate {
                 changed.notify_all();
                 reaper.join();
                 for (const auto &run : runs) {
-                    run->stop.request_stop();
+                    run->request_stop();
                 }
                 for (const auto &run : runs) {
                     if (run->worker.joinable()) {
@@ -69,15 +70,19 @@ namespace hyprimate {
                 const std::scoped_lock LOCK(mutex);
                 runs.push_back(run);
                 try {
-                    // Finished can be published before the thread constructor returns.
+                    // A terminal reason can be published before the thread constructor returns.
                     // Serialize member publication with the reaper's inspection.
                     run->worker = std::thread([run, work = std::forward<Work>(work)] {
+                        auto reason = TerminalReason::SolverFailure;
                         try {
-                            work(*run);
+                            reason = work(*run);
                         } catch (...) {
-                            // A failed solver publishes the same terminal state as cancellation.
+                            // Any unexpected exception terminates this attempt, not the runtime.
                         }
-                        run->finished.store(true, std::memory_order_release);
+                        if (reason != TerminalReason::Completed && run->stop.stop_requested()) {
+                            reason = TerminalReason::Cancelled;
+                        }
+                        run->terminal.store(reason, std::memory_order_release);
                     });
                 } catch (...) {
                     runs.pop_back();
@@ -95,7 +100,7 @@ namespace hyprimate {
                         // Both the worker closure and the releasing Lease may still own Run after
                         // publishing their flags. The registry must be the sole owner before it
                         // can move the last reference to the reaper thread.
-                        if (!(*iterator)->finished.load(std::memory_order_acquire) ||
+                        if (!(*iterator)->finished() ||
                             !(*iterator)->released.load(std::memory_order_acquire) ||
                             iterator->use_count() != 1) {
                             ++iterator;
@@ -151,7 +156,8 @@ namespace hyprimate {
             const std::shared_ptr<Run> &run, SimInput &&input) const {
             auto lease = std::make_shared<Lease>();
             lease->run = run;
-            s_registry->launch(run, [input = std::move(input)](Run &run) { simulate(run, input); });
+            s_registry->launch(
+                run, [input = std::move(input)](Run &run) { return simulate(run, input); });
             return lease;
         }
 
@@ -159,7 +165,7 @@ namespace hyprimate {
             const std::shared_ptr<Run> &run, double phase) const {
             auto lease = std::make_shared<Lease>();
             lease->run = run;
-            s_registry->launch(run, [phase](Run &run) { simulate_movement(run, phase); });
+            s_registry->launch(run, [phase](Run &run) { return simulate_movement(run, phase); });
             return lease;
         }
     }  // namespace cloth_detail
