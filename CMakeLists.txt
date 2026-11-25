@@ -78,6 +78,7 @@ add_library(hyprimate SHARED
     src/perf/RuntimeProfiler.cpp
     src/window/hyprland/AnimationTransformer.cpp
     src/window/hyprland/AnimationCloseRenderer.cpp
+    src/window/hyprland/HyprWindowIdentity.cpp
     src/window/hyprland/HyprWindowPort.cpp
     src/window/hyprland/HyprAnimationCanvas.cpp
     src/window/hyprland/HyprglassCompat.cpp
