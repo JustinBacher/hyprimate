@@ -77,6 +77,7 @@ float shadow(vec3 p,vec3 n) {
         if(any(lessThan(q,vec2(0.0))) || any(greaterThan(q,vec2(1.0)))) continue;
         vec2 samplePixel=clamp(floor(q*shadowSize),vec2(0.0),shadowSize-1.0);
         float stored=texelFetch(sceneDepth,ivec2(samplePixel),0).r;
+        if(stored==1.0) continue;
         float blocker=mix(lightRange.y,lightRange.x,stored);
         vec2 actualOffset=samplePixel+0.5-coord*shadowSize;
         float gap=blocker-receiver+dot(slope,actualOffset*texelWorld);
@@ -91,9 +92,6 @@ float shadow(vec3 p,vec3 n) {
 void main() {
     vec2 uv=clamp(uvTransform.xy+materialUV*uvTransform.zw,uvBounds.xy,uvBounds.zw);
     vec4 texel=texture(image,uv);
-    // Holes neither occlude nor cast. Translucent material retains its own RGBA,
-    // but cannot reveal a second copy of the window through the folded paper.
-    if(texel.a<=0.001) discard;
     if(depthPass==2) {
         float height=max(surfacePosition.z,0.0);
         // Contact is compact and stronger; air shadows spread and fade with height.
@@ -113,6 +111,8 @@ void main() {
         color=vec4(0.0,0.0,0.0,alpha);
         return;
     }
+    // Keep the center cutoff for sheet color and depth passes; pass 2 filters neighboring taps.
+    if(texel.a<=0.001) discard;
     if(depthPass!=0) { color=vec4(0.0); return; }
     if(shading<=0.0) { color=texel*opacity; return; }
     vec3 n=normalize(surfaceNormal);

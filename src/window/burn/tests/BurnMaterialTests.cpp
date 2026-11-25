@@ -324,6 +324,46 @@ namespace {
         glDeleteVertexArrays(1, &vao);
         glDeleteProgram(PROGRAM);
     }
+    void opening_over_saturated_scorch(const Target &target) {
+        const GLuint program =
+            gl_harness::build_program(burn_ground_shader::VERTEX, burn_ground_shader::fragment());
+        CHECK(program != 0);
+        if (!program) return;
+        glUseProgram(program);
+        glUniform4f(glGetUniformLocation(program, "viewUV"), 0, 0, 1, 1);
+        glUniform2f(glGetUniformLocation(program, "axisX"), 1, 0);
+        glUniform2f(glGetUniformLocation(program, "axisY"), 0, 1);
+        glUniform4f(glGetUniformLocation(program, "logicalScreen"), 0, 0, WIDTH, HEIGHT);
+        glUniform1i(glGetUniformLocation(program, "field"), 1);
+        glUniform4f(glGetUniformLocation(program, "openingRect[0]"), 0, 0, 1, 1);
+        glUniform4f(glGetUniformLocation(program, "openingState[0]"), 0, 0, 1, 0);
+        GLuint vao = 0;
+        glGenVertexArrays(1, &vao);
+        glBindVertexArray(vao);
+        glBindFramebuffer(GL_FRAMEBUFFER, target.framebuffer);
+        glViewport(0, 0, WIDTH, HEIGHT);
+        glDisable(GL_BLEND);
+        glDisable(GL_DEPTH_TEST);
+        glActiveTexture(GL_TEXTURE1);
+        const GLuint field = upload(Image(WIDTH * HEIGHT, Pixel{255, 0, 0, 0}));
+        glActiveTexture(GL_TEXTURE0);
+        const GLuint wall = upload(Image(WIDTH * HEIGHT, Pixel{210, 180, 140, 255}));
+        const auto render = [&](int openings) {
+            glUniform1i(glGetUniformLocation(program, "openingCount"), openings);
+            constexpr std::array<float, 4> clear{};
+            glClearBufferfv(GL_COLOR, 0, clear.data());
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+            return read(target);
+        };
+        const auto scorch = render(0);
+        const auto with_opening = render(1);
+        CHECK(scorch != with_opening);
+        glDeleteTextures(1, &wall);
+        glDeleteTextures(1, &field);
+        glDeleteVertexArrays(1, &vao);
+        glDeleteProgram(program);
+    }
+
     void common_front_and_cold_ink(const Target &target) {
         constexpr std::string_view VERTEX = R"GLSL(#version 300 es
 precision highp float;
@@ -424,6 +464,7 @@ int main() {
     opening_and_consume(material, target, TEXTURE, source);
     common_front_and_cold_ink(target);
     missing_paper_and_surviving_print(target);
+    opening_over_saturated_scorch(target);
     flake_carries_birth_print(target);
     CHECK(glGetError() == GL_NO_ERROR);
     material.release();

@@ -133,7 +133,7 @@ void main() {
         heat=state.g*(0.25+1.25*mottle);
     }
     float opacity=severity;
-    float frontDistance=0.0, frontWidth=0.055;
+    float frontOpacity=0.0, frontDistance=0.0, frontWidth=0.055;
     vec2 frontUV=vec2(0.0);
     bool onFront=false;
     for(int index=0;index<openingCount;++index) {
@@ -145,27 +145,31 @@ void main() {
         float width=max(state.z,0.0001);
         if(distance<0.0 || distance>width*2.6) continue;
         float rim=1.0-smoothstep(width*0.25,width*2.6,distance);
-        if(rim>opacity) {
-            opacity=rim;
+        if(rim>frontOpacity) {
+            frontOpacity=rim;
             frontDistance=distance;
             frontWidth=width;
             frontUV=local;
             onFront=true;
         }
     }
+    opacity=max(severity,frontOpacity);
     if(opacity<=0.0 && coarse.b<=0.02) discard;
     vec3 clean=wallPrint(uv);
     vec4 legacy=vec4(0.0);
     if(opacity>0.0) {
-        vec3 burned;
+        float luminance=dot(clean,vec3(0.2126,0.7152,0.0722));
+        vec3 desaturated=mix(clean,vec3(luminance),severity*0.85);
+        vec3 scorched=burnChar(desaturated,
+            (1.0-severity)*0.055*2.6,0.055,paper/800.0,heat);
+        vec4 scorch=vec4(scorched*severity,severity);
         if(onFront) {
-            burned=burnChar(clean,frontDistance,frontWidth,frontUV,1.0);
+            vec3 opening=burnChar(clean,frontDistance,frontWidth,frontUV,1.0);
+            vec4 front=vec4(opening*frontOpacity,frontOpacity);
+            legacy=front+scorch*(1.0-front.a);
         } else {
-            float luminance=dot(clean,vec3(0.2126,0.7152,0.0722));
-            vec3 desaturated=mix(clean,vec3(luminance),severity*0.85);
-            burned=burnChar(desaturated,(1.0-severity)*0.055*2.6,0.055,paper/800.0,heat);
+            legacy=scorch;
         }
-        legacy=vec4(burned*opacity,opacity);
     }
     if(coarse.b<=0.02) {
         color=legacy;

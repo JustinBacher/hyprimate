@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <utility>
 #include <vector>
 
@@ -88,6 +89,51 @@ int main() {
         return shade[0] == 0 && shade[1] == 0 && shade[2] == 0;
     }));
 
+    // A sampled non-finite vertex must not make the production triangle sort
+    // comparator violate strict weak ordering. Invalid-depth triangles are last,
+    // with the index providing a deterministic order inside both groups.
+    {
+        SheetGrid invalid_world{};
+        auto invalid_expected = frame.order;
+        invalid_world[0].z = std::numeric_limits<double>::quiet_NaN();
+        invalid_world[2].z = 3;
+        const auto depth = [&](std::uint16_t triangle) {
+            const auto &corners = sheet_triangle(triangle);
+            return (invalid_world[corners[0]].z + invalid_world[corners[1]].z +
+                       invalid_world[corners[2]].z) /
+                   3.0;
+        };
+        std::sort(invalid_expected.begin(), invalid_expected.end(), [&](auto first, auto second) {
+            const double a = depth(first), b = depth(second);
+            if (std::isfinite(a) != std::isfinite(b)) return std::isfinite(a);
+            if (std::isfinite(a) && a != b) return a < b;
+            return first < second;
+        });
+        project_sheet(invalid_world, {112, 56}, 0, frame);
+        CHECK(frame.order == invalid_expected);
+    }
+
+    // A steep sheet far off-axis can face toward the perspective eye even
+    // though its world-space normal keeps the same z sign as on the flat sheet.
+    {
+        SheetGrid off_axis{};
+        const double focal = 3.0 * std::sqrt(112.0 * 56.0);
+        for (int row = 0; row <= SHEET_CELLS; ++row) {
+            for (int column = 0; column <= SHEET_CELLS; ++column) {
+                const auto index = static_cast<std::size_t>(row * (SHEET_CELLS + 1) + column);
+                off_axis[index] = {10.0 * focal + column, static_cast<double>(row), -0.2 * column};
+            }
+        }
+        project_sheet(off_axis, {112, 56}, 0.5, frame);
+        const auto &corners = sheet_triangle(0);
+        const auto &a = frame.position[corners[0]];
+        const auto &b = frame.position[corners[1]];
+        const auto &c = frame.position[corners[2]];
+        const double projected_area =
+            (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+        CHECK(projected_area > 0);
+        CHECK(frame.shade[0][0] > -0.85F && frame.shade[0][0] < -0.6F);
+    }
     const LiquidMesh LIQUID_MESH;
     const EdgeTransition TRANSITION;
     LiquidPoseGrid grid;

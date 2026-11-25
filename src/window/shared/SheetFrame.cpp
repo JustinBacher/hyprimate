@@ -78,8 +78,8 @@ namespace hyprimate {
             return CACHED;
         }
 
-        // Back-to-front by mean world z; the triangle index breaks ties. Sorting (meanZ, t) pairs
-        // gives one total order, so the result is the same whatever the starting permutation.
+        // Back-to-front by mean world z, with non-finite depths last and the triangle index as tie-breaker.
+        // This yields a total order regardless of the input permutation or invalid sampled vertices.
         void sort_back_to_front(
             const SheetGrid &world, std::array<std::uint16_t, SHEET_TRIANGLES> &order) noexcept {
             const Topology &mesh = topology();
@@ -93,7 +93,11 @@ namespace hyprimate {
             std::ranges::sort(order, [&](std::uint16_t first, std::uint16_t second) {
                 const double DEPTH_A = depths[first];
                 const double DEPTH_B = depths[second];
-                return DEPTH_A < DEPTH_B || (!(DEPTH_B < DEPTH_A) && first < second);
+                const bool FINITE_A = std::isfinite(DEPTH_A);
+                const bool FINITE_B = std::isfinite(DEPTH_B);
+                if (FINITE_A != FINITE_B) return FINITE_A;
+                if (FINITE_A && DEPTH_A != DEPTH_B) return DEPTH_A < DEPTH_B;
+                return first < second;
             });
         }
 
@@ -173,13 +177,12 @@ namespace hyprimate {
             .z = LIGHT_DIR_Z / L_LEN,
         };
 
-        std::array<Vec3, SHEET_TRIANGLES> face_normal{};
         std::array<Vec3, SHEET_GRID_VERTICES> vertex_normal{};
-        for (auto &&[tri_corners, normal] : std::views::zip(mesh.triangles, face_normal)) {
+        for (std::size_t triangle = 0; triangle < SHEET_TRIANGLES; ++triangle) {
+            const auto &tri_corners = mesh.triangles[triangle];
             const Vec3 NORMAL =
                 cross(world[std::get<1>(tri_corners)] - world[std::get<0>(tri_corners)],
                     world[std::get<2>(tri_corners)] - world[std::get<0>(tri_corners)]);
-            normal = NORMAL;
             for (const std::size_t VERTEX : tri_corners) {
                 Vec3 &sum = vertex_normal[VERTEX];
                 sum = {.x = sum.x + NORMAL.x, .y = sum.y + NORMAL.y, .z = sum.z + NORMAL.z};
@@ -207,10 +210,15 @@ namespace hyprimate {
             back = SHADE_OF(normal, -1.0);
         }
 
-        for (auto &&[corners, normal, shade] :
-            std::views::zip(mesh.triangles, face_normal, out.shade)) {
-            // The side of the sheet this triangle shows decides which way its vertex normals point.
-            const double FACING = normal.z < 0.0 ? -1.0 : 1.0;
+        // Perspective can reverse which side faces the eye even when the world normal's z sign does not.
+        for (std::size_t triangle = 0; triangle < SHEET_TRIANGLES; ++triangle) {
+            const auto &corners = mesh.triangles[triangle];
+            const auto &a = out.position[std::get<0>(corners)];
+            const auto &b = out.position[std::get<1>(corners)];
+            const auto &c = out.position[std::get<2>(corners)];
+            const double AREA = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+            const double FACING = AREA < 0.0 ? -1.0 : 1.0;
+            auto &shade = out.shade[triangle];
             std::ranges::transform(corners, shade.begin(), [&](std::size_t vertex) {
                 return static_cast<float>(
                     FACING > 0.0 ? vertex_shade_front[vertex] : vertex_shade_back[vertex]);

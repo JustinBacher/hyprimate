@@ -735,6 +735,92 @@ namespace {
     }
 }  // namespace
 
+namespace {
+
+    void shader_sentinels_and_shadow_holes(const Target &output) {
+        constexpr std::string_view VERTEX = R"GLSL(#version 300 es
+precision highp float;
+out vec2 materialUV;
+out vec3 surfaceNormal;
+out vec3 surfacePosition;
+uniform int shadowMode;
+void main() {
+    vec2 uv=gl_VertexID==0 ? vec2(0,0) : (gl_VertexID==1 ? vec2(2,0) : vec2(0,2));
+    gl_Position=vec4(uv*2.0-1.0,0,1);
+    materialUV=uv;
+    surfaceNormal=vec3(0,0,1);
+    surfacePosition=shadowMode==0 ? vec3(uv.x*0.001,uv.y*0.001,-0.1*uv.x) : vec3(0,0,0.35);
+}
+)GLSL";
+        const GLuint program = gl_harness::build_program(VERTEX, paper_shader::FRAGMENT);
+        CHECK(program != 0);
+        if (!program) return;
+        GLuint vao = 0, image_texture = 0, depth_texture = 0;
+        glGenVertexArrays(1, &vao);
+        glBindVertexArray(vao);
+        const Image white(WIDTH * HEIGHT, Pixel{255, 255, 255, 255});
+        image_texture = upload(white);
+        std::array<float, WIDTH * HEIGHT> empty_depth;
+        empty_depth.fill(1.F);
+        glGenTextures(1, &depth_texture);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, depth_texture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexImage2D(
+            GL_TEXTURE_2D, 0, GL_R32F, WIDTH, HEIGHT, 0, GL_RED, GL_FLOAT, empty_depth.data());
+        glActiveTexture(GL_TEXTURE0);
+        glUseProgram(program);
+        glUniform1i(glGetUniformLocation(program, "image"), 0);
+        glUniform1i(glGetUniformLocation(program, "sceneDepth"), 1);
+        glUniform4f(glGetUniformLocation(program, "uvTransform"), 0, 0, 1, 1);
+        glUniform4f(glGetUniformLocation(program, "uvBounds"), 0, 0, 1, 1);
+        glUniform4f(glGetUniformLocation(program, "lightBounds"), 0, 0, 0.001F, 0.001F);
+        glUniform2f(glGetUniformLocation(program, "shadowSize"), WIDTH, HEIGHT);
+        glUniform2f(glGetUniformLocation(program, "lightRange"), -0.001F, 1);
+        const std::array<float, 9> identity{1, 0, 0, 0, 1, 0, 0, 0, 1};
+        glUniformMatrix3fv(
+            glGetUniformLocation(program, "lightBasis"), 1, GL_FALSE, identity.data());
+        glUniform1f(glGetUniformLocation(program, "opacity"), 1);
+        glUniform1f(glGetUniformLocation(program, "shading"), 1);
+        glUniform1f(glGetUniformLocation(program, "thickness"), 0.02F);
+        glUniform1f(glGetUniformLocation(program, "shadowStrength"), 1);
+        glBindFramebuffer(GL_FRAMEBUFFER, output.framebuffer);
+        glViewport(0, 0, WIDTH, HEIGHT);
+        glDisable(GL_BLEND);
+        glDisable(GL_DEPTH_TEST);
+        const GLint mode = glGetUniformLocation(program, "shadowMode");
+        const GLint pass = glGetUniformLocation(program, "depthPass");
+        glUniform1i(mode, 0);
+        glUniform1i(pass, 0);
+        constexpr std::array<float, 4> clear{};
+        glClearBufferfv(GL_COLOR, 0, clear.data());
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+        near(top(read(output.framebuffer), 64, 48), {255, 255, 255, 255});
+
+        Image holed = white;
+        holed[48 * WIDTH + 64] = {0, 0, 0, 0};
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, image_texture);
+        glTexSubImage2D(
+            GL_TEXTURE_2D, 0, 0, 0, WIDTH, HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, holed.data());
+        glUniform1i(mode, 1);
+        glUniform1i(pass, 2);
+        glUniform4f(glGetUniformLocation(program, "lightBounds"), 0, 0, 1, 1);
+        glUniform2f(glGetUniformLocation(program, "lightRange"), 0, 1);
+        glClearBufferfv(GL_COLOR, 0, clear.data());
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+        CHECK(read(output.framebuffer)[48 * WIDTH + 64][3] > 0);
+        glDeleteTextures(1, &depth_texture);
+        glDeleteTextures(1, &image_texture);
+        glDeleteVertexArrays(1, &vao);
+        glDeleteProgram(program);
+    }
+}  // namespace
+
+
 // NOLINTNEXTLINE(misc-const-correctness): standard hosted main signature.
 int main(int argc, char **argv) {
     const gl_harness::CContext CONTEXT(WIDTH, HEIGHT);
@@ -778,6 +864,7 @@ int main(int argc, char **argv) {
         desktop_shadow(material, OUTPUT);
         isolation_and_resize(PROGRAM, material, TEXTURE, OUTPUT);
         allocation_retry(PROGRAM, TEXTURE, OUTPUT);
+        shader_sentinels_and_shadow_holes(OUTPUT);
     }
     material.release();
     glDeleteTextures(1, &TEXTURE);
