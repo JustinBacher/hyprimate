@@ -18,6 +18,7 @@ add_custom_target(generate-smoke-shaders DEPENDS ${CONFIG_GENERATED_DIR}/smoke_s
 
 target_sources(hyprimate-core PRIVATE
     src/window/smoke/Smoke.cpp
+    src/window/smoke/SmokeTransit.cpp
 )
 
 target_sources(hyprimate PRIVATE
