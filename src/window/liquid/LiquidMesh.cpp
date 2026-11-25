@@ -605,13 +605,19 @@ namespace hyprimate {
                 .y = (m_slow_delta.y * SLOW_DECAY) + m_pending_delta.y,
             };
             m_slow_time = (m_slow_time * SLOW_DECAY) + elapsed_seconds;
-            const Vec2 SLOW_VELOCITY{
+            Vec2 slow_velocity{
                 .x = m_slow_delta.x / m_slow_time,
                 .y = m_slow_delta.y / m_slow_time,
             };
-            if (!is_finite(SLOW_VELOCITY)) {
+            if (!is_finite(slow_velocity)) {
                 reset();
                 return false;
+            }
+            // Bound the estimate before differentiating and storing it, not just the lag speed.
+            const double SLOW_SPEED = std::hypot(slow_velocity.x, slow_velocity.y);
+            if (SLOW_SPEED > CAP) {
+                slow_velocity.x *= CAP / SLOW_SPEED;
+                slow_velocity.y *= CAP / SLOW_SPEED;
             }
             // Raw deceleration along the previous slow motion; zero on acceleration or steady drag.
             Vec2 raw_decel{};
@@ -619,14 +625,14 @@ namespace hyprimate {
             if (PREVIOUS_SLOW_SPEED > 0.0) {
                 const double DIR_X = m_slow_velocity.x / PREVIOUS_SLOW_SPEED;
                 const double DIR_Y = m_slow_velocity.y / PREVIOUS_SLOW_SPEED;
-                const double DVX = (SLOW_VELOCITY.x - m_slow_velocity.x) / elapsed_seconds;
-                const double DVY = (SLOW_VELOCITY.y - m_slow_velocity.y) / elapsed_seconds;
+                const double DVX = (slow_velocity.x - m_slow_velocity.x) / elapsed_seconds;
+                const double DVY = (slow_velocity.y - m_slow_velocity.y) / elapsed_seconds;
                 const double DECEL = -((DVX * DIR_X) + (DVY * DIR_Y));
                 if (DECEL > 0.0) {
                     raw_decel = {.x = DIR_X * DECEL, .y = DIR_Y * DECEL};
                 }
             }
-            m_slow_velocity = SLOW_VELOCITY;
+            m_slow_velocity = slow_velocity;
             // Tick-start rate of an exponential pseudo-force whose integral over this tick equals
             // the velocity change: R0 * tau * (1 - exp(-dt/tau)) = raw_decel * dt. Substeps decay
             // it, so cadence does not change the push.

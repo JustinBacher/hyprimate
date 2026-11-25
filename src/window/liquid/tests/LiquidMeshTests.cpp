@@ -181,6 +181,23 @@ namespace {
                 mesh.advance(1.0 / 60.0, WINDOW);
                 CHECK(lattice_valid(mesh, WINDOW));
             }
+
+            // Both jumps exceed the velocity cap throughout these frames. Their visible
+            // response must therefore stay the same after motion stops, too.
+            LiquidMesh bounded_control{};
+            LiquidMesh jump{};
+            bounded_control.record_translation(Vec2{.x = 1000.0, .y = 0.0}, WINDOW, STRENGTH);
+            jump.record_translation(Vec2{.x = 5000.0, .y = 0.0}, WINDOW, STRENGTH);
+            bounded_control.advance(1.0 / 60.0, WINDOW);
+            jump.advance(1.0 / 60.0, WINDOW);
+            CHECK(max_difference(jump.displacements(), bounded_control.displacements()) < 1e-9);
+            for (int stop_frame = 0; stop_frame < 2; ++stop_frame) {
+                bounded_control.record_translation(Vec2{}, WINDOW, STRENGTH);
+                jump.record_translation(Vec2{}, WINDOW, STRENGTH);
+                bounded_control.advance(1.0 / 60.0, WINDOW);
+                jump.advance(1.0 / 60.0, WINDOW);
+                CHECK(max_difference(jump.displacements(), bounded_control.displacements()) < 1e-9);
+            }
         }
 
         // Rapid reversals, including a diagonal impulse.
