@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -201,6 +202,35 @@ namespace {
         }
         CHECK(same);
         CHECK(differs);
+    }
+
+    void seeded_crowded_trajectory() {
+        SwarmParams params;
+        params.count = 120;
+        params.stagger = 0.15;
+        params.cohesion = 1.0;
+        params.separation = 1.0;
+        Swarm swarm;
+        swarm.begin(Transition::Open, params, 0x53a9u, placement(), sides({Edge::Left}));
+        std::uint64_t checksum = 14695981039346656037ull;
+        const auto MIX = [&checksum](std::uint64_t value) {
+            checksum = (checksum ^ value) * 1099511628211ull;
+        };
+        for (int frame = 0; frame < 300; ++frame) {
+            swarm.advance(FRAME);
+            for (const SwarmAgent &agent : swarm.agents()) {
+                for (const double value : {agent.position.x, agent.position.y, agent.velocity.x,
+                         agent.velocity.y, agent.heading, agent.lock, agent.turn, agent.travel,
+                         agent.walk, agent.delay, agent.due, agent.weave, agent.gait}) {
+                    MIX(std::bit_cast<std::uint64_t>(value));
+                }
+                MIX(static_cast<std::uint64_t>(agent.visible) |
+                    (static_cast<std::uint64_t>(agent.docked) << 1) |
+                    (static_cast<std::uint64_t>(agent.leaving) << 2) |
+                    (static_cast<std::uint64_t>(agent.gone) << 3));
+            }
+        }
+        CHECK(checksum == 10005184937473135830ull);
     }
 
     void close_lets_go_in_no_order_and_leaves_through_its_side() {
@@ -1309,6 +1339,7 @@ int main() {
     tiles_partition_the_capture();
     opening_enters_from_its_sides_and_settles_exactly();
     equal_seeds_give_equal_motion();
+    seeded_crowded_trajectory();
     close_lets_go_in_no_order_and_leaves_through_its_side();
     tiles_fill_in_no_order();
     surface_rounding_waits_for_formation();
