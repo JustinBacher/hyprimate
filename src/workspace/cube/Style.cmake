@@ -1,4 +1,4 @@
-add_library(cube-material STATIC src/workspace/cube/CubeMaterial.cpp)
+add_library(cube-material STATIC src/workspace/cube/CubeMaterial.cpp src/workspace/cube/CubeMesh.cpp)
 target_include_directories(cube-material PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_options(cube-material PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>:-fno-gnu-unique>)
 target_sources(hyprimate PRIVATE src/workspace/cube/CubeRenderer.cpp)
