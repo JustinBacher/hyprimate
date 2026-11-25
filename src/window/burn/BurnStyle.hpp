@@ -23,13 +23,13 @@ struct SBurnPrepared {
 struct SBurnResources : hyprimate::animation::ResourcesBase<SBurnStyle,
                             hyprimate::config::SBurnSettings,
                             SBurnPrepared> {
-    SBurnResources() = default;
-    explicit SBurnResources([[maybe_unused]] SSharedStyleResources &shared) {
-    }
+    SBurnResources();
+    explicit SBurnResources(SSharedStyleResources &);
+    ~SBurnResources();
     AnimationPool animations;
     CBurnGround ground;
     CBurnGroundDraw ground_draw;
-    std::shared_ptr<CBurnRenderer> renderer, scratch_renderer;
+    std::unique_ptr<CBurnRenderer> renderer, scratch_renderer;
 };
 struct SBurnModule {
     using State = SBurnStyle;
