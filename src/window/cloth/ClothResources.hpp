@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <memory>
 #include <optional>
 #include <span>
 
@@ -58,14 +57,14 @@ struct SClothRuntimeResources : hyprimate::animation::ResourcesBase<SClothStyle,
             return true;
         }
         try {
-            physics = std::make_unique<hyprimate::ClothPhysics>();
+            physics.emplace();
             return true;
         } catch (...) {
             return false;
         }
     }
 
-    std::unique_ptr<hyprimate::ClothPhysics> physics;
+    std::optional<hyprimate::ClothPhysics> physics;
 
   public:
     AnimationPool animations;
