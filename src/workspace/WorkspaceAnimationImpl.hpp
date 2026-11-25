@@ -86,7 +86,35 @@ namespace workspace_animation_detail {
     using RenderFn = void (*)(Render::IHyprRenderer *, Render::CRenderContext &, PHLMONITOR,
         PHLWORKSPACE, const Time::steady_tp &, Render::eSceneMode, const Vector2D &, const float &);
     using DragFn = void (*)(Render::IHyprRenderer *, Render::CRenderContext &, PHLMONITOR, const Time::steady_tp &);
+    // Native draw callbacks can synchronously dispatch another workspace request.
+    // Never capture recursively or stage a new turn from an offscreen pass.
+    struct ScopedCapture {
+        explicit ScopedCapture(int &depth) : m_depth(depth) {
+            ++m_depth;
+        }
+        ~ScopedCapture() {
+            --m_depth;
+        }
+        ScopedCapture(const ScopedCapture &) = delete;
+        ScopedCapture &operator=(const ScopedCapture &) = delete;
+        ScopedCapture(ScopedCapture &&) = delete;
+        ScopedCapture &operator=(ScopedCapture &&) = delete;
+
+      private:
+        int &m_depth;
+    };
     std::optional<std::uint32_t> numbered(const PHLWORKSPACE &workspace);
+    bool safe_scene();
+    enum class Coverage { Preserve, OpaqueTarget, ResetSource };
+    enum class CopySource { Retained, BorrowedNative };
+    std::uint32_t capture_format(const PHLMONITOR &monitor);
+    std::uint64_t framebuffer_bytes(const SP<Render::IFramebuffer> &framebuffer);
+    bool copy_capture(const SP<Render::IFramebuffer> &source,
+        const SP<Render::IFramebuffer> &target, Coverage coverage, bool downsample,
+        const std::optional<CBox> &crop = std::nullopt,
+        CopySource ownership = CopySource::Retained);
+    bool copy_opaque(const SP<Render::IFramebuffer> &source,
+        const SP<Render::IFramebuffer> &target, bool opaque = true, bool downsample = false);
 }
 
 using workspace_animation_detail::Clock;
@@ -94,7 +122,15 @@ using workspace_animation_detail::TurnKind;
 using workspace_animation_detail::Direction;
 using workspace_animation_detail::RenderFn;
 using workspace_animation_detail::DragFn;
+using workspace_animation_detail::ScopedCapture;
 using workspace_animation_detail::numbered;
+using workspace_animation_detail::safe_scene;
+using workspace_animation_detail::Coverage;
+using workspace_animation_detail::CopySource;
+using workspace_animation_detail::capture_format;
+using workspace_animation_detail::framebuffer_bytes;
+using workspace_animation_detail::copy_capture;
+using workspace_animation_detail::copy_opaque;
 
 class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
   public:
@@ -566,3 +602,9 @@ class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
     CFunctionHook *m_gesture_end_hook = nullptr;
     CFunctionHook *m_gesture_cancel_hook = nullptr;
 };
+
+namespace workspace_animation_detail {
+    void sample_resources(hyprimate::perf::Key key,
+        CWorkspaceAnimation::Impl::MonitorState &entry) noexcept;
+}
+using workspace_animation_detail::sample_resources;
