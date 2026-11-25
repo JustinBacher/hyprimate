@@ -103,14 +103,18 @@ hc() { hyprctl -i "$instance" "$@"; }
 # IPC can answer before the nested output has been configured by the parent compositor. Until then
 # the only monitor is 0x0, and a config refresh (plugin load / hl.config) makes stock Hyprland try
 # to allocate a 0x0 framebuffer and abort ("cannot alloc a FB with negative / zero size"; seen in
-# CMonitorResources::initFB from CPropRefresher::refreshProp). Wait, bounded, for a sized output;
-# if none appears, continue as before so a genuinely broken parent still surfaces its own error.
+# CMonitorResources::initFB from CPropRefresher::refreshProp). Wait, bounded, for a sized output.
+# If none appears the parent never configured the nested toplevel, and continuing is a guaranteed
+# crash, so stop here with a clear error instead (callers such as the bench retry this).
+output_sized=0
 for _ in $(seq 150); do
     if hc monitors -j 2>/dev/null | jq -e 'any(.[]; .width > 0 and .height > 0 and .name != "FALLBACK")' >/dev/null 2>&1; then
+        output_sized=1
         break
     fi
     sleep .1
 done
+((output_sized)) || { echo "nested output never got a size from the parent compositor; log: $log" >&2; exit 1; }
 
 result=$(hc plugin load "$plugin")
 [[ $result == ok ]] || { echo "plugin load failed: $result" >&2; exit 1; }
