@@ -1,4 +1,9 @@
+#include <array>
+#include <bit>
 #include <cmath>
+#include <cinttypes>
+#include <cstdint>
+#include <cstdio>
 #include <vector>
 
 #include "Check.hpp"
@@ -41,6 +46,96 @@ namespace {
         advance_for(smoke, 3.0);
         CHECK(!smoke.active() && !smoke.closed());
         CHECK(smoke.frame(SIZE).smoke == 0 && smoke.frame(SIZE).presence == 1);
+    }
+
+    std::uint64_t frame_checksum(const SmokeFrame &frame) {
+        std::uint64_t hash = 14695981039346656037ULL;
+        const auto word = [&](std::uint64_t value) {
+            hash = (hash ^ value) * 1099511628211ULL;
+        };
+        const auto scalar = [&](double value) { word(std::bit_cast<std::uint64_t>(value)); };
+        const auto vector = [&](Vec2 value) {
+            scalar(value.x);
+            scalar(value.y);
+        };
+        vector(frame.size);
+        vector(frame.velocity);
+        vector(frame.lag);
+        vector(frame.carry);
+        vector(frame.position);
+        vector(frame.offset);
+        scalar(frame.time);
+        scalar(frame.seed);
+        scalar(frame.smoke);
+        scalar(frame.presence);
+        scalar(frame.turbulence);
+        scalar(frame.trail);
+        scalar(frame.life);
+        scalar(frame.trail_length);
+        scalar(frame.trail_thickness);
+        scalar(frame.gather);
+        scalar(frame.cohesion);
+        scalar(frame.dispersal);
+        scalar(frame.fade);
+        scalar(frame.mass);
+        scalar(frame.drag_follow);
+        scalar(frame.contraction);
+        scalar(frame.settle);
+        scalar(frame.mass_size);
+        scalar(frame.mass_roundness);
+        scalar(frame.transit);
+        vector(frame.head);
+        vector(frame.head_velocity);
+        vector(frame.head_lag);
+        vector(frame.head_half);
+        scalar(frame.head_radius);
+        vector(frame.origin_uv);
+        scalar(frame.order);
+        scalar(frame.attract);
+        scalar(frame.wind);
+        vector(frame.edge_point);
+        vector(frame.edge_dir);
+        word(frame.color);
+        scalar(frame.density);
+        scalar(frame.variation);
+        word(frame.close_source_body.has_value());
+        if (frame.close_source_body) {
+            vector(frame.close_source_body->half);
+            scalar(frame.close_source_body->radius);
+            vector(frame.close_source_body->offset);
+            vector(frame.close_source_body->stretch);
+        }
+        return hash;
+    }
+
+    void first_stepped_frame_after_interruption() {
+        // Captured on the pre-move implementation to pin the first stepped frame.
+        constexpr std::array<std::uint64_t, 4> EXPECTED{
+            0x544c02da33bd23aeULL, 0xaeb4c989ca4ab933ULL,
+            0x49090b55cec0aa95ULL, 0x5bfebf119d23a3f5ULL};
+        const SmokeRoute EDGE{.edge = true, .direction = {.x = 0.6, .y = -0.8}, .reach = 900};
+        std::size_t index = 0;
+        for (const auto direction : {Transition::Open, Transition::Close}) {
+            for (const auto route : {SmokeRoute{}, EDGE}) {
+                Smoke smoke;
+                smoke.seed(42);
+                const auto previous = direction == Transition::Open ? Transition::Close : Transition::Open;
+                smoke.begin(previous, 1.4, SIZE, EDGE);
+                for (int i = 0; i < 48; ++i) {
+                    smoke.advance(SUBSTEP_SECONDS, SIZE);
+                }
+                const auto before = smoke.frame(SIZE);
+                CHECK(before.transit > 0.01);
+                smoke.begin(direction, 1.1, SIZE, route);
+                smoke.advance(SUBSTEP_SECONDS, SIZE);
+                const auto frame = smoke.frame(SIZE);
+                CHECK(frame.time > before.time);
+                const auto checksum = frame_checksum(frame);
+                (void)std::printf("first stepped interruption %s/%s: 0x%016" PRIx64 "\n",
+                    direction == Transition::Open ? "open" : "close", route.edge ? "edge" : "inside", checksum);
+                CHECK(checksum == EXPECTED[index++]);
+            }
+        }
     }
 
     // Wake smoke must outlive the reform briefly, then fade out gradually rather than vanish.
@@ -399,6 +494,7 @@ namespace {
 
 int main() {
     endpoints_and_interruption();
+    first_stepped_frame_after_interruption();
     residual_wake_fades_out();
     substeps_are_rate_independent();
     frame_includes_unstepped_translation();
