@@ -164,19 +164,6 @@ namespace hyprimate {
         return best;
     }
 
-    int BubbleFoam::largest() const {
-        int best = -1;
-        for (std::size_t i = 0; i < budget; ++i) {
-            const auto &film = films[i];
-            if (!film.live || film.burst > 0 || film.into != -1) {
-                continue;
-            }
-            if (best < 0 || film.radius > films[static_cast<std::size_t>(best)].radius) {
-                best = static_cast<int>(i);
-            }
-        }
-        return best;
-    }
 
     std::size_t BubbleFoam::live_count() const {
         return static_cast<std::size_t>(

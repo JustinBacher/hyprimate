@@ -47,7 +47,6 @@ class CSmokeRenderer {
     bool initialize();
     hyprimate::gl::CompositorContextOwner m_owner;
     std::array<std::unique_ptr<CShader>, SSmokePrograms::ProgramCount> m_shaders;
-    SSmokePrograms m_programs;
     bool m_ready = false;
     CSmokeMaterial m_material;
     bool m_warmed = false;

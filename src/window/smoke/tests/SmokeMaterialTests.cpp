@@ -53,8 +53,8 @@ namespace {
         CSmokeMaterial material;
         GLuint texture = 0;
         hyprimate::Vec2 texture_size{TW, TH};
-        SSmokeTarget target{
-            .canvas = {W, H}, .origin = {0, 0}, .source_pos = {40, 68}, .source_size = {TW, TH}};
+        hyprimate::Vec2 canvas{W, H};
+        SSmokeTarget target{.origin = {0, 0}, .source_pos = {40, 68}, .source_size = {TW, TH}};
         hyprimate::SmokeFrame frame{};
 
         void upload(const Image &pixels, int width = TW, int height = TH) {
@@ -76,8 +76,8 @@ namespace {
                 .texture_size = texture_size};
         }
         Image render(CSmokeField &field) {
-            const auto WIDTH = static_cast<GLsizei>(target.canvas.x);
-            const auto HEIGHT = static_cast<GLsizei>(target.canvas.y);
+            const auto WIDTH = static_cast<GLsizei>(canvas.x);
+            const auto HEIGHT = static_cast<GLsizei>(canvas.y);
             glViewport(0, 0, WIDTH, HEIGHT);
             glDisable(GL_BLEND);
             require(material.simulate(field, frame, target, images()));
@@ -348,10 +348,8 @@ namespace {
             hyprimate::Smoke driver;
             driver.seed(5);
             const hyprimate::Vec2 SIZE{TW, TH};
-            harness.target = {.canvas = {CW, CH},
-                .origin = {0, 0},
-                .source_pos = {260, 196},
-                .source_size = SIZE};
+            harness.canvas = {CW, CH};
+            harness.target = {.origin = {0, 0}, .source_pos = {260, 196}, .source_size = SIZE};
             const auto AWAY = [&](const Image &image) {
                 const int X0 = static_cast<int>(harness.target.source_pos.x) - CLEARANCE;
                 const int Y0 = static_cast<int>(harness.target.source_pos.y) - CLEARANCE;
@@ -389,10 +387,8 @@ namespace {
             }
             CHECK(rest < passes[1] / 100);
             field.release();
-            harness.target = {.canvas = {W, H},
-                .origin = {0, 0},
-                .source_pos = {40, 68},
-                .source_size = {TW, TH}};
+            harness.canvas = {W, H};
+            harness.target = {.origin = {0, 0}, .source_pos = {40, 68}, .source_size = {TW, TH}};
         }
     }
 
@@ -669,10 +665,8 @@ namespace {
             hyprimate::Smoke driver;
             driver.seed(11);
             const hyprimate::Vec2 SIZE{WW, WH};
-            harness.target = {.canvas = {CW, CH},
-                .origin = {0, 0},
-                .source_pos = {120, 560},
-                .source_size = SIZE};
+            harness.canvas = {CW, CH};
+            harness.target = {.origin = {0, 0}, .source_pos = {120, 560}, .source_size = SIZE};
             for (int i = 0; i < 168; ++i) {
                 const hyprimate::Vec2 STEP = i < 36   ? hyprimate::Vec2{24, -4}
                                              : i < 60 ? hyprimate::Vec2{-6, -16}
@@ -694,10 +688,8 @@ namespace {
             field.release();
             capture_erratic(harness, field, capture, SIZE, CW, CH);
             harness.upload(pixels);
-            harness.target = {.canvas = {W, H},
-                .origin = {0, 0},
-                .source_pos = {40, 68},
-                .source_size = {TW, TH}};
+            harness.canvas = {W, H};
+            harness.target = {.origin = {0, 0}, .source_pos = {40, 68}, .source_size = {TW, TH}};
         }
     }
 
@@ -857,10 +849,8 @@ int main(int argc, char **argv) {
         h.frame = {};
         h.frame.size = {1280, 720};
         h.frame.presence = h.frame.fade = 1;
-        h.target = {.canvas = {1920, 1080},
-            .origin = {0, 0},
-            .source_pos = {320, 180},
-            .source_size = {1280, 720}};
+        h.canvas = {1920, 1080};
+        h.target = {.origin = {0, 0}, .source_pos = {320, 180}, .source_size = {1280, 720}};
         glViewport(0, 0, 1920, 1080);
         h.material.simulate(field, h.frame, h.target, h.images());
         glFinish();

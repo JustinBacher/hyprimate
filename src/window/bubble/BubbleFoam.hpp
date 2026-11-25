@@ -38,7 +38,6 @@ namespace hyprimate {
         double interaction = 1;  // contact and adhesion strength
         double damping = 1;  // how quickly the liquid calms relative motion
         double buoyancy = 1;  // upward drift
-        double linger = .5;  // film lifetime before draining to rupture
     };
 
     // A large membrane the foam meets: a rounded box that may be growing. The foam pushes it,
@@ -114,7 +113,6 @@ namespace hyprimate {
 
         // The intact, unfed film whose outline is nearest the point, or -1.
         [[nodiscard]] int nearest(Vec2 point, double reach) const;
-        [[nodiscard]] int largest() const;
         // A missing (-1) or out-of-budget slot throws; an in-budget slot may be dead.
         [[nodiscard]] const Film &film(int slot) const { return films[checked_slot(slot)]; }
         Film &film(int slot) { return films[checked_slot(slot)]; }

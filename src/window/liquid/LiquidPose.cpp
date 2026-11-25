@@ -328,31 +328,6 @@ namespace hyprimate {
         return extents;
     }
 
-    Box project_to_output(const Box &extents_device, const Box &render_box, Vec2 snapshot_size) {
-        const double SCALE_X = render_box.w / snapshot_size.x;
-        const double SCALE_Y = render_box.h / snapshot_size.y;
-        return Box{
-            .x = render_box.x + (extents_device.x * SCALE_X),
-            .y = render_box.y + (extents_device.y * SCALE_Y),
-            .w = extents_device.w * SCALE_X,
-            .h = extents_device.h * SCALE_Y,
-        };
-    }
-
-    Box owned_render_box(const Box &source_device, const Box &native_box, Vec2 snapshot_size) {
-        const double SCALE_X = native_box.w / snapshot_size.x;
-        const double SCALE_Y = native_box.h / snapshot_size.y;
-        const double MID_X = source_device.x + (source_device.w * 0.5);
-        const double MID_Y = source_device.y + (source_device.h * 0.5);
-        const double CENTRE_X = native_box.x + (MID_X * SCALE_X);
-        const double CENTRE_Y = native_box.y + (MID_Y * SCALE_Y);
-        return Box{
-            .x = CENTRE_X - MID_X,
-            .y = CENTRE_Y - MID_Y,
-            .w = snapshot_size.x,
-            .h = snapshot_size.y,
-        };
-    }
 
     namespace {
 

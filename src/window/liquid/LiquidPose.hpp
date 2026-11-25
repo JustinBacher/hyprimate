@@ -101,12 +101,6 @@ namespace hyprimate {
     // Edge liquid point relative to the box centre, in logical px, including the open offset.
     Vec2 liquid_edge_point(const LiquidPose &pose, double tangent, double n);
 
-    // Maps snapshot-space texels into the output: F(p) = B.pos + p * B.size / T.
-    Box project_to_output(const Box &extents_device, const Box &render_box, Vec2 snapshot_size);
-
-    // Owned placement: the snapshot at unit scale (device px), with the window's centre riding the
-    // native fadeout's centre.
-    Box owned_render_box(const Box &source_device, const Box &native_box, Vec2 snapshot_size);
 
     // Box helpers matching the clipping and padding the liquid paths use.
     Box intersect_boxes(const Box &first, const Box &second) noexcept;

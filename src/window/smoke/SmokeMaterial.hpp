@@ -8,7 +8,7 @@
 #include "window/smoke/Smoke.hpp"
 
 struct SSmokeTarget {
-    hyprimate::Vec2 canvas, origin, source_pos, source_size;
+    hyprimate::Vec2 origin, source_pos, source_size;
 };
 struct SSmokeImages {
     GLuint window = 0;

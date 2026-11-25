@@ -92,7 +92,7 @@ namespace hyprimate {
         if (!usable(size)) { return; }
         m_size = size;
         m_random = seed;
-        m_foam.reset(seed, {.interaction=m_params.interaction, .damping=m_params.damping, .buoyancy=m_params.buoyancy, .linger=m_params.linger},
+        m_foam.reset(seed, {.interaction=m_params.interaction, .damping=m_params.damping, .buoyancy=m_params.buoyancy},
             static_cast<std::size_t>(m_params.count));
         const double SHORT_SIDE = std::min(size.x, size.y);
         const double WIDTH = size.x / SHORT_SIDE;

@@ -40,9 +40,3 @@ inline hyprimate::EdgeSet swarm_sides(
     return out;
 }
 
-inline hyprimate::EdgeSet swarm_sides(
-    const hyprimate::EdgeInput &input, hyprimate::EdgeSet lone_sides) {
-    return input.last_window
-               ? lone_sides
-               : hyprimate::resolve_edge_sides(input.body, input.screen, input.neighbours);
-}

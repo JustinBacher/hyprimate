@@ -45,8 +45,7 @@ namespace hyprimate {
         foam.reset(seed ^ 0x51ED270B27A3C1F5ULL,
             {.interaction = 1,
                 .damping = BUBBLE_DAMPING,
-                .buoyancy = -SINK_SPEED / .05,
-                .linger = .5},
+                .buoyancy = -SINK_SPEED / .05},
             K_BUBBLE_WAKE_BUBBLES);
     }
 

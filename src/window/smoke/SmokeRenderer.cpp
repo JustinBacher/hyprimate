@@ -62,7 +62,6 @@ bool CSmokeRenderer::initialize() {
         }
         if (!m_material.initialize(programs)) return false;
         m_shaders = std::move(shaders);
-        m_programs = programs;
         m_ready = true;
         return true;
     } catch (const std::bad_alloc &) {
@@ -109,8 +108,7 @@ SP<Render::IFramebuffer> CSmokeRenderer::render(
         glDisable(GL_DEPTH_TEST);
         glDisable(GL_CULL_FACE);
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        const SSmokeTarget target{.canvas = {draw.canvas.x, draw.canvas.y},
-            .origin = draw.output_origin,
+        const SSmokeTarget target{.origin = draw.output_origin,
             .source_pos = {draw.source.x, draw.source.y},
             .source_size = {draw.source.w, draw.source.h}};
         const SSmokeImages images{.window = draw.window->m_texID,
