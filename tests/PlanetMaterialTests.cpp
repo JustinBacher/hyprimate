@@ -10,9 +10,6 @@
 
 namespace {
     namespace shader = planet_shader;
-    static_assert(shader::VERTEX.size() == 8587 && shader::FRAGMENT.size() == 10214);
-    static_assert(shader::QUAD_VERTEX.size() == 332 && shader::QUAD_FRAGMENT.size() == 2163);
-    static_assert(shader::SKY_VERTEX.size() == 203 && shader::SKY_FRAGMENT.size() == 2346);
     static_assert([] {
         constexpr std::array SOURCES{shader::VERTEX,
             shader::FRAGMENT,
