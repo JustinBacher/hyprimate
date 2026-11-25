@@ -10,7 +10,7 @@ using namespace hyprimate::animation;
 static_assert(StyleCore<SPaperModule>);
 
 int main() {
-    SPaperResources resources;
+    SPaperSimulationResources resources;
     resources.prepared.open = {
         .duration = 0.6, .crumpliness = 0.6, .shading = 0.7, .variation = 0.5};
     resources.prepared.close = {

@@ -148,11 +148,12 @@ SPaperModule::Prepared SPaperModule::prepare_settings(const Settings &settings) 
         .shading = static_cast<float>(shared.shading)};
 }
 
-SPaperModule::State SPaperModule::start(const Resources &, std::uint64_t) {
+SPaperModule::State SPaperModule::start(const SimulationResources &, std::uint64_t) {
     return {};
 }
 
-bool SPaperModule::open(State &state, const Place &place, Resources &resources, Effects &effects) {
+bool SPaperModule::open(
+    State &state, const Place &place, SimulationResources &resources, Effects &effects) {
     if (resources.prepared.open.duration <= 0 || !is_usable(place.rest_capture) ||
         !is_usable(place.goal_body)) {
         return false;
@@ -171,7 +172,8 @@ bool SPaperModule::open(State &state, const Place &place, Resources &resources, 
     return true;
 }
 
-Frame SPaperModule::advance(State &state, const Step &step, Resources &resources, Effects &) {
+Frame SPaperModule::advance(
+    State &state, const Step &step, SimulationResources &resources, Effects &) {
     if (state.run) {
         if (!step.dying && !step.open_enabled) {
             invalidate_bounds(state);
@@ -219,7 +221,7 @@ Frame SPaperModule::advance(State &state, const Step &step, Resources &resources
     return {.running = true, .bounds = bounds(state.display, step.capture)};
 }
 
-CloseStart SPaperModule::close(State &state, const Place &place, Resources &resources) {
+CloseStart SPaperModule::close(State &state, const Place &place, SimulationResources &resources) {
     if (resources.prepared.close.duration <= 0 || !is_usable(place.capture)) {
         return CloseStart::Declined;
     }
@@ -251,7 +253,7 @@ CloseStart SPaperModule::close(State &state, const Place &place, Resources &reso
     return STARTED ? CloseStart::Owned : CloseStart::Declined;
 }
 
-void SPaperModule::end(State &state, Resources &resources, End) noexcept {
+void SPaperModule::end(State &state, SimulationResources &resources, End) noexcept {
     resources.workers.cancel(state.run);
     invalidate_bounds(state);
 }

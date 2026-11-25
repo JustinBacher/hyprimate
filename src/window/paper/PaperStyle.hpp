@@ -17,21 +17,28 @@ struct SPaperPrepared {
     hyprimate::PaperInteractionParams interaction;
     float shading = 0.7F;
 };
-struct SPaperResources : hyprimate::animation::ResourcesBase<SPaperStyle,
-                             hyprimate::config::SPaperSettings,
-                             SPaperPrepared> {
-    SPaperResources() = default;
-    explicit SPaperResources([[maybe_unused]] SSharedStyleResources &shared) {
-    }
+struct SPaperSimulationResources : hyprimate::animation::ResourcesBase<SPaperStyle,
+                                       hyprimate::config::SPaperSettings,
+                                       SPaperPrepared> {
     AnimationPool animations;
     hyprimate::PaperWorkers workers;
-    std::shared_ptr<CPaperRenderer> renderer, scratch_renderer;
+};
+struct SPaperResources : SPaperSimulationResources {
+    SPaperResources();
+    explicit SPaperResources(SSharedStyleResources &);
+    ~SPaperResources();
+
+  private:
+    friend struct SPaperModule;
+    // Workers retain CPU runs and surfaces, never these compositor-thread GL owners.
+    std::unique_ptr<CPaperRenderer> m_live_renderer, m_scratch_renderer;
 };
 struct SPaperModule {
     using State = SPaperStyle;
     using Prepared = SPaperPrepared;
     using Resources = SPaperResources;
     using Settings = hyprimate::config::SPaperSettings;
+    using SimulationResources = SPaperSimulationResources;
     static const Settings &settings(const auto &config) {
         return config.paper;
     }
@@ -40,19 +47,21 @@ struct SPaperModule {
     static constexpr bool DRAWS_UNDER_BLUR = false;
 
     static Prepared prepare_settings(const Settings &settings);
-    static State start(const Resources &resources, std::uint64_t seed);
+    static State start(const SimulationResources &resources, std::uint64_t seed);
     static bool open(State &state,
         const hyprimate::animation::Place &place,
-        Resources &resources,
+        SimulationResources &resources,
         hyprimate::animation::Effects &effects);
     static hyprimate::animation::Frame advance(State &state,
         const hyprimate::animation::Step &step,
-        Resources &resources,
+        SimulationResources &resources,
         hyprimate::animation::Effects &effects);
     static hyprimate::animation::CloseStart close(
-        State &state, const hyprimate::animation::Place &place, Resources &resources);
-    static void end(State &state, Resources &resources, hyprimate::animation::End why) noexcept;
-    static bool moves(const hyprimate::animation::Motion &motion, const Resources &) noexcept {
+        State &state, const hyprimate::animation::Place &place, SimulationResources &resources);
+    static void end(
+        State &state, SimulationResources &resources, hyprimate::animation::End why) noexcept;
+    static bool moves(
+        const hyprimate::animation::Motion &motion, const SimulationResources &) noexcept {
         return motion.translated || motion.resized;
     }
 

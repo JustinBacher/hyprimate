@@ -10,8 +10,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <new>
 #include <thread>
+#include <utility>
 
 #include <dlfcn.h>
 #include <pthread.h>
@@ -40,6 +42,8 @@ namespace {
     std::atomic<bool> release_worker_allocation = false;
     std::atomic<bool> worker_destruction_entered = false;
     std::atomic<bool> release_worker_destruction = false;
+    thread_local bool observe_worker_join = false;
+    std::atomic<bool> worker_join_entered = false;
     thread_local bool fail_after_start = false;
     thread_local bool fail_thread_start = false;
     thread_local bool saw_thread_start = false;
@@ -195,6 +199,14 @@ extern "C" int pthread_create(
     const int result = REAL(thread, attr, start, argument);
     if (result == 0 && fail_after_start) allocation_countdown = 0;
     return result;
+}
+
+extern "C" int pthread_join(pthread_t thread, void **result) {
+    using Join = int (*)(pthread_t, void **);
+    static const auto REAL = reinterpret_cast<Join>(dlsym(RTLD_NEXT, "pthread_join"));
+    if (!REAL) std::abort();
+    if (observe_worker_join) worker_join_entered.store(true, std::memory_order_release);
+    return REAL(thread, result);
 }
 
 namespace {
@@ -574,6 +586,54 @@ int main() {
         CHECK(publishes(workers, other));
         workers.cancel(other);
         workers.cancel(run);
+    }
+    {
+        // Hold a worker after it takes the close handoff, then destroy its pool.
+        // No animation or event-thread handle remains to keep the surface alive.
+        auto initial = curved_surface();
+        std::weak_ptr<const PaperSurface> handoff = initial;
+        auto workers = std::make_unique<PaperWorkers>();
+        std::shared_ptr<PaperRun> run;
+        worker_allocation_entered.store(false, std::memory_order_relaxed);
+        release_worker_allocation.store(false, std::memory_order_relaxed);
+        worker_join_entered.store(false, std::memory_order_relaxed);
+        wait_for_worker_allocation = true;
+        fail_worker_allocation = true;
+        const bool started = workers->begin(run, Transition::Close, PARAMS, 7, SIZE, CURSOR, initial);
+        fail_worker_allocation = false;
+        wait_for_worker_allocation = false;
+        const auto allocation_deadline =
+            std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (started && !worker_allocation_entered.load(std::memory_order_acquire) &&
+            std::chrono::steady_clock::now() < allocation_deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        const bool paused = worker_allocation_entered.load(std::memory_order_acquire);
+        initial.reset();
+        run.reset();
+
+        std::atomic<bool> teardown_done = false;
+        std::thread teardown([owner = std::move(workers), &teardown_done]() mutable {
+            observe_worker_join = true;
+            owner.reset();
+            observe_worker_join = false;
+            teardown_done.store(true, std::memory_order_release);
+        });
+        const auto join_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (!worker_join_entered.load(std::memory_order_acquire) &&
+            !teardown_done.load(std::memory_order_acquire) &&
+            std::chrono::steady_clock::now() < join_deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        const bool joining = worker_join_entered.load(std::memory_order_acquire);
+        CHECK(started && paused && joining);
+        if (paused && joining) {
+            CHECK(!teardown_done.load(std::memory_order_acquire));
+            CHECK(!handoff.expired());
+        }
+        // Release even on failure so neither the worker nor teardown can hang the test.
+        release_worker_allocation.store(true, std::memory_order_release);
+        teardown.join();
+        CHECK(teardown_done.load(std::memory_order_acquire));
+        CHECK(handoff.expired());
     }
     {
         // Destruction requests cancellation and joins even with work in flight.
