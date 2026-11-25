@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 #include <hyprland/src/helpers/DeformableMesh.hpp>
@@ -32,7 +33,10 @@ struct SSheetDraw {
     SP<Render::ITexture> shade;  // ramp texture from CSheetShade; null draws unlit
     Vector2D canvas;  // work buffer size in device pixels
     CBox mesh_box;  // box the meshes are normalised to, in canvas pixels
+    // With window_indices, window_vertices holds unique vertices and the window layer draws
+    // indexed; the shade layer is always an expanded list.
     const std::vector<SMeshRenderVertex> *window_vertices = nullptr;
+    const std::vector<std::uint16_t> *window_indices = nullptr;
     const std::vector<SMeshRenderVertex> *shade_vertices = nullptr;
     float alpha = 1.F;
 };

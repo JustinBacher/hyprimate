@@ -21,9 +21,12 @@
 #include <hyprutils/math/Box.hpp>
 
 #include "gl/CompositorContext.hpp"
+#include "gl/IndexedMesh.hpp"
 #include "gl/NativeFramebuffer.hpp"
 #include "gl/NativeResource.hpp"
 #include "gl/Storage.hpp"
+#include "perf/GpuStopwatch.hpp"
+#include "perf/LiveProfiler.hpp"
 #include "window/shared/SheetRenderer.hpp"
 
 namespace {
@@ -160,11 +163,58 @@ SP<Render::IFramebuffer> render_sheet(Render::CRenderContext &ctx, const SSheetD
     // takes the frontmost triangle only. Paper is opaque: with blending, a translucent window let
     // the layers folded behind show through, and the crumple read as tissue. The window's own
     // translucency against what is behind it is kept.
-    BEGIN_TARGET(paper_layer);
-    Render::GL::g_pHyprOpenGL->blend(false);
-    texture_data.a = draw.alpha;
-    Render::GL::g_pHyprOpenGL->renderTextureMesh(
-        ctx, draw.window, draw.mesh_box, *draw.window_vertices, texture_data);
+    // Draws the window layer from the generator's expanded list, or from a gathered copy of its
+    // unique vertices when only the indexed form exists (redirect unavailable, compare reference).
+    const auto DRAW_WINDOW_EXPANDED = [&] {
+        BEGIN_TARGET(paper_layer);
+        Render::GL::g_pHyprOpenGL->blend(false);
+        texture_data.a = draw.alpha;
+        if (draw.window_indices == nullptr) {
+            Render::GL::g_pHyprOpenGL->renderTextureMesh(
+                ctx, draw.window, draw.mesh_box, *draw.window_vertices, texture_data);
+            return;
+        }
+        static thread_local std::vector<SMeshRenderVertex> gathered;
+        hyprimate::gl::expand_indexed_mesh(*draw.window_vertices, *draw.window_indices, gathered);
+        Render::GL::g_pHyprOpenGL->renderTextureMesh(
+            ctx, draw.window, draw.mesh_box, gathered, texture_data);
+    };
+    const auto DRAW_WINDOW_INDEXED = [&] {
+        BEGIN_TARGET(paper_layer);
+        Render::GL::g_pHyprOpenGL->blend(false);
+        texture_data.a = draw.alpha;
+        return hyprimate::gl::render_indexed_mesh(
+            ctx, draw.window, draw.mesh_box, *draw.window_vertices, *draw.window_indices,
+            texture_data);
+    };
+    {
+        // CPU time of the window-layer submission goes to `hyprctl hyprimate:profile`. Its GPU
+        // time uses timestamp queries: the host's enclosing style scope already holds the single
+        // GL_TIME_ELAPSED query, so a nested GpuScope here can only be dropped.
+        constexpr hyprimate::perf::Key KEY{
+            hyprimate::perf::Domain::Window, "sheet", "window-layer"};
+        const hyprimate::perf::CpuScope CPU_SCOPE{KEY, hyprimate::perf::Phase::Draw};
+        const hyprimate::perf::GpuStopwatch GPU_STOPWATCH{"window-layer"};
+        if (draw.window_indices == nullptr) {
+            DRAW_WINDOW_EXPANDED();
+        } else if (hyprimate::gl::indexed_mesh_mode() ==
+                   hyprimate::gl::IndexedMeshMode::Compare) {
+            DRAW_WINDOW_EXPANDED();
+            const auto EXPANDED_PIXELS = hyprimate::gl::capture_bound_framebuffer(
+                static_cast<int>(draw.canvas.x), static_cast<int>(draw.canvas.y));
+            if (DRAW_WINDOW_INDEXED()) {
+                hyprimate::gl::record_compare(EXPANDED_PIXELS,
+                    hyprimate::gl::capture_bound_framebuffer(
+                        static_cast<int>(draw.canvas.x), static_cast<int>(draw.canvas.y)),
+                    draw.window_vertices->size(),
+                    draw.window_indices->size());
+            } else {
+                DRAW_WINDOW_EXPANDED();
+            }
+        } else if (!DRAW_WINDOW_INDEXED()) {
+            DRAW_WINDOW_EXPANDED();
+        }
+    }
     Render::GL::g_pHyprOpenGL->blend(true);
 
     // Tint: DST_ALPHA weights the shade by window coverage, so transparent pixels stay transparent

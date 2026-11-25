@@ -3,6 +3,7 @@
 #include <hyprland/src/render/pass/ClearPassElement.hpp>
 
 #include "HyprAnimationCanvas.hpp"
+#include "gl/IndexedMesh.hpp"
 #include "gl/NativeFramebuffer.hpp"
 #include "gl/Storage.hpp"
 #include "workspace/WorkspaceCaptureScope.hpp"
@@ -65,6 +66,10 @@ void CHyprAnimationCanvas::composite(const hyprimate::Box &box, float alpha) {
         data);
 }
 
+bool CHyprAnimationCanvas::indexed_meshes() {
+    return hyprimate::gl::indexed_meshes_enabled();
+}
+
 bool CHyprAnimationCanvas::submit_mesh(
     const Mesh<Vertex> &mesh, const Draw<CHyprAnimationCanvas> &draw) {
     if (!*draw.image || !(*draw.image)->getTexture() || mesh.window == nullptr ||
@@ -82,6 +87,7 @@ bool CHyprAnimationCanvas::submit_mesh(
             .canvas = SIZE,
             .mesh_box = OUTPUT,
             .window_vertices = mesh.window,
+            .window_indices = mesh.window_indices,
             .shade_vertices = mesh.shade,
             .alpha = mesh.opacity});
     if (!m_layer) {

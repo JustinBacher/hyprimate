@@ -168,13 +168,23 @@ namespace hyprimate::animation {
                         (buffers.window.capacity() + buffers.under.capacity() +
                             buffers.shade.capacity()) * sizeof(typename Canvas::Vertex), 0);
                 }
+                bool indexed = false;
+                if constexpr (requires { Canvas::indexed_meshes(); }) {
+                    indexed = Canvas::indexed_meshes();
+                }
                 const MeshTarget<typename Canvas::Vertex> TARGET{draw_info.source,
                     draw_info.output,
                     draw_info.image_origin,
                     draw_info.image_size,
                     draw_info.scale,
-                    &buffers};
-                const auto MESH = Style::mesh(slot.state, TARGET, resources);
+                    &buffers,
+                    indexed};
+                const auto MESH = [&] {
+                    const perf::CpuScope MESH_SCOPE{
+                        perf::Key{perf::Domain::Window, "sheet", "mesh-fill"},
+                        perf::Phase::Update};
+                    return Style::mesh(slot.state, TARGET, resources);
+                }();
                 drawn = draw_info.canvas->submit_mesh(MESH, isolated_draw);
             }
         });

@@ -28,8 +28,11 @@
 
 #include "PluginRuntime.hpp"
 #include "config_generated.hpp"
+#include "gl/CompositorContext.hpp"
+#include "gl/IndexedMesh.hpp"
 #include "gl/NativeResource.hpp"
 #include "perf/LiveProfiler.hpp"
+#include "perf/GpuStopwatch.hpp"
 #include "perf/RuntimeProfiler.hpp"
 #include "shader/ShaderWallpaper.hpp"
 #include "window/WindowAnimations.hpp"
@@ -112,6 +115,12 @@ CPluginRuntime::Impl::Impl(HANDLE handle) : m_handle(handle) {
     if (!m_close_available) {
         notify("[hyprimate] close transitions unavailable: " + error);
     }
+    if (hyprimate::gl::indexed_mesh_mode() != hyprimate::gl::IndexedMeshMode::Off) {
+        std::string indexed_error;
+        if (!hyprimate::gl::install_indexed_mesh(m_handle, indexed_error)) {
+            notify("[hyprimate] indexed mesh unavailable: " + indexed_error);
+        }
+    }
     m_workspace = std::make_unique<CWorkspaceAnimation>(m_handle);
     error.clear();
     if (!m_workspace->install(error)) {
@@ -185,6 +194,17 @@ CPluginRuntime::Impl::Impl(HANDLE handle) : m_handle(handle) {
 }
 
 CPluginRuntime::Impl::~Impl() {
+    {
+        // Timestamp-query results are read at teardown so a profiled run reports GPU time of the
+        // regions it stopwatched; the context must be current to read and free the queries.
+        const hyprimate::gl::ScopedCompositorContext CONTEXT{};
+        if (CONTEXT) {
+            const auto REPORT = hyprimate::perf::gpu_stopwatch_report();
+            if (!REPORT.empty()) std::fputs(REPORT.c_str(), stderr);
+            hyprimate::perf::gpu_stopwatch_release();
+        }
+    }
+    hyprimate::gl::uninstall_indexed_mesh();
     m_profiler.reset();
     m_open.reset();
     m_close_event.reset();

@@ -76,6 +76,7 @@ target_compile_options(hyprimate-core PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>:-f
 add_library(hyprimate SHARED
     src/main.cpp
     src/plugin/PluginRuntime.cpp
+    src/perf/GpuStopwatch.cpp
     src/perf/GpuTimer.cpp
     src/perf/RuntimeProfiler.cpp
     src/window/hyprland/AnimationTransformer.cpp
@@ -92,6 +93,7 @@ add_library(hyprimate SHARED
     src/window/hyprland/StyleContract.cpp
     src/window/hyprland/NativeFadeoutPass.cpp
     src/gl/CompositorContext.cpp
+    src/gl/IndexedMesh.cpp
     src/gl/NativeResource.cpp
     src/window/shared/SheetRenderer.cpp
     src/window/shared/SolidFill.cpp

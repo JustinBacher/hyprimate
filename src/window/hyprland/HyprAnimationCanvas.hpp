@@ -35,6 +35,8 @@ class CHyprAnimationCanvas {
     [[nodiscard]] bool presented_directly() const { return m_direct_presented; }
     void set_blur_box(const CBox &box) { m_blur_box = box; }
     [[nodiscard]] const CBox &blur_box() const { return m_blur_box; }
+    // True when mesh generators should emit indexed window meshes for this process.
+    [[nodiscard]] static bool indexed_meshes();
     bool submit_mesh(const hyprimate::animation::Mesh<Vertex> &mesh,
         const hyprimate::animation::Draw<CHyprAnimationCanvas> &draw);
     static hyprimate::Vec2 image_size(const Image &image);

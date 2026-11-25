@@ -113,5 +113,61 @@ int main() {
     const auto *under_data = buffers.under.data();
     fill_liquid_mesh(POSE, TARGET, grid, UNDER_BOX, {}, CLIP);
     CHECK(buffers.under.data() == under_data);
+
+    // An indexed target must be the expanded triangle list with its duplicates folded away:
+    // gathering the unique vertices through the indices reproduces the expanded mesh exactly.
+    {
+        const auto SAME_VERTICES = [](const auto &expanded,
+                                       const auto &unique,
+                                       const std::vector<std::uint16_t> &indices) {
+            if (expanded.size() != indices.size()) return false;
+            for (std::size_t i = 0; i < indices.size(); ++i) {
+                if (indices[i] >= unique.size()) return false;
+                const auto &a = expanded[i];
+                const auto &b = unique[indices[i]];
+                if (a.x != b.x || a.y != b.y || a.u != b.u || a.v != b.v) return false;
+            }
+            return true;
+        };
+        animation::MeshBuffers<animation::MeshVertex> flat_buffers, indexed_buffers;
+        auto flat_target = TARGET;
+        flat_target.buffers = &flat_buffers;
+        auto indexed_target = TARGET;
+        indexed_target.buffers = &indexed_buffers;
+        indexed_target.indexed = true;
+
+        const auto FLAT = fill_sheet_mesh(frame, flat_target, true, 1.F);
+        const auto INDEXED = fill_sheet_mesh(frame, indexed_target, true, 1.F);
+        CHECK(FLAT.window_indices == nullptr);
+        CHECK(INDEXED.window_indices == &indexed_buffers.window_indices);
+        CHECK(indexed_buffers.window.size() == SHEET_GRID_VERTICES);
+        CHECK(indexed_buffers.window_indices.size() == SHEET_VERTEX_COUNT);
+        CHECK(SAME_VERTICES(flat_buffers.window, indexed_buffers.window, indexed_buffers.window_indices));
+        // The shade mesh is not shared per vertex and stays expanded in both forms.
+        CHECK(indexed_buffers.shade.size() == SHEET_VERTEX_COUNT);
+        for (std::size_t i = 0; i < SHEET_VERTEX_COUNT; ++i) {
+            CHECK(flat_buffers.shade[i].u == indexed_buffers.shade[i].u);
+        }
+
+        animation::MeshBuffers<animation::MeshVertex> liquid_flat, liquid_indexed;
+        auto liquid_flat_target = TARGET;
+        liquid_flat_target.buffers = &liquid_flat;
+        auto liquid_indexed_target = TARGET;
+        liquid_indexed_target.buffers = &liquid_indexed;
+        liquid_indexed_target.indexed = true;
+        const auto LIQUID_FLAT =
+            fill_liquid_mesh(POSE, liquid_flat_target, grid, std::nullopt, {}, std::nullopt);
+        const auto LIQUID_INDEXED =
+            fill_liquid_mesh(POSE, liquid_indexed_target, grid, std::nullopt, {}, std::nullopt);
+        CHECK(LIQUID_FLAT.window_indices == nullptr);
+        CHECK(LIQUID_INDEXED.window_indices == &liquid_indexed.window_indices);
+        CHECK(liquid_indexed.window.size() ==
+              static_cast<std::size_t>(LIQUID_POSE_SAMPLES) * LIQUID_POSE_SAMPLES);
+        CHECK(SAME_VERTICES(liquid_flat.window, liquid_indexed.window, liquid_indexed.window_indices));
+        // The lattice indices are built once and survive refills.
+        const auto *index_data = liquid_indexed.window_indices.data();
+        fill_liquid_mesh(POSE, liquid_indexed_target, grid, std::nullopt, {}, std::nullopt);
+        CHECK(liquid_indexed.window_indices.data() == index_data);
+    }
     return g_failures == 0 ? 0 : 1;
 }

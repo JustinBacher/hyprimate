@@ -125,7 +125,9 @@ namespace hyprimate {
     bool empty_box(const Box &box) noexcept;
 
     // Places the render mesh. source_device is the window in device px, output_device the target in
-    // device px, and texture_origin/texture_size the texture in device px.
+    // device px, and texture_origin/texture_size the texture in device px. With `indices`, `out`
+    // receives the LIQUID_POSE_SAMPLES^2 unique lattice vertices and `indices` the triangle list;
+    // without it `out` is the expanded triangle list.
     template <class Vertex>
     void fill_liquid_render_mesh(const LiquidPose &pose,
         const Box &source_device,
@@ -134,9 +136,13 @@ namespace hyprimate {
         Vec2 texture_origin,
         Vec2 texture_size,
         LiquidPoseGrid &grid,
-        std::vector<Vertex> &out) {
-        if (out.size() != LIQUID_RENDER_VERTEX_COUNT) {
-            out.resize(LIQUID_RENDER_VERTEX_COUNT);
+        std::vector<Vertex> &out,
+        std::vector<std::uint16_t> *indices = nullptr) {
+        const std::size_t COUNT = indices != nullptr
+            ? static_cast<std::size_t>(LIQUID_POSE_SAMPLES) * LIQUID_POSE_SAMPLES
+            : LIQUID_RENDER_VERTEX_COUNT;
+        if (out.size() != COUNT) {
+            out.resize(COUNT);
         }
 
         refresh_liquid_pose_grid(
@@ -177,6 +183,29 @@ namespace hyprimate {
         constexpr std::array<std::array<int, 2>, 6> ORDER{
             {{0, 0}, {0, 1}, {1, 0}, {1, 0}, {0, 1}, {1, 1}},
         };
+        if (indices != nullptr) {
+            // Unique lattice samples in layout_left order (index i + j * LIQUID_POSE_SAMPLES), plus a
+            // triangle list that only depends on the lattice, so it is built once per buffer.
+            for (std::size_t k = 0; k < samples.size(); ++k) {
+                out[k].x = samples[k].x;
+                out[k].y = samples[k].y;
+                out[k].u = samples[k].u;
+                out[k].v = samples[k].v;
+            }
+            if (indices->size() != LIQUID_RENDER_VERTEX_COUNT) {
+                indices->resize(LIQUID_RENDER_VERTEX_COUNT);
+                auto index = indices->begin();
+                for (int cj = 0; cj < LIQUID_RENDER_CELLS; ++cj) {
+                    for (int ci = 0; ci < LIQUID_RENDER_CELLS; ++ci) {
+                        for (const auto &[CORNER_X, CORNER_Y] : ORDER) {
+                            *index++ = static_cast<std::uint16_t>(
+                                (ci + CORNER_X) + ((cj + CORNER_Y) * LIQUID_POSE_SAMPLES));
+                        }
+                    }
+                }
+            }
+            return;
+        }
         auto output = out.begin();
         for (int cj = 0; cj < LIQUID_RENDER_CELLS; ++cj) {
             for (int ci = 0; ci < LIQUID_RENDER_CELLS; ++ci) {
@@ -254,9 +283,11 @@ namespace hyprimate {
             target.image_origin,
             target.image_size,
             grid,
-            target.buffers->window);
+            target.buffers->window,
+            target.indexed ? &target.buffers->window_indices : nullptr);
         animation::Mesh<V> result{};
         result.window = &target.buffers->window;
+        result.window_indices = target.indexed ? &target.buffers->window_indices : nullptr;
         if (under_output) {
             fill_liquid_meniscus_mesh(
                 pose, target.source, target.scale, *under_output, target.buffers->under);

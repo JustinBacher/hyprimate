@@ -112,6 +112,8 @@ namespace hyprimate::animation {
     template <Vertex V>
     struct MeshBuffers {
         std::vector<V> window{}, under{}, shade{};
+        // Triangle-list indices into `window` when a target asks for an indexed window mesh.
+        std::vector<std::uint16_t> window_indices{};
     };
     template <Vertex V>
     struct MeshTarget {
@@ -120,10 +122,15 @@ namespace hyprimate::animation {
         double scale = 1;
         // Non-null, borrowed for the synchronous mesh call; storage stays owned by the port.
         MeshBuffers<V> *buffers;
+        // Emit `window` as unique vertices plus `window_indices` instead of an expanded
+        // triangle list. Set only when the canvas can draw indexed meshes.
+        bool indexed = false;
     };
     template <Vertex V>
     struct Mesh {
         const std::vector<V> *window = nullptr, *under = nullptr;
+        // Non-null: `window` holds unique vertices addressed by these triangle-list indices.
+        const std::vector<std::uint16_t> *window_indices = nullptr;
         Box under_output{};
         Rgba under_color{};
         const std::vector<V> *shade = nullptr;

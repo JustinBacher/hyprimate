@@ -11,16 +11,27 @@ namespace hyprimate {
 
     inline constexpr std::size_t SHEET_VERTEX_COUNT = SHEET_TRIANGLES * 3;
 
+    static_assert(SHEET_GRID_VERTICES <= 0xFFFFU, "sheet indices are 16-bit");
+
     // Pure projection into reusable backend vertex storage. The returned vectors are borrowed.
+    // An indexed target gets the SHEET_GRID_VERTICES unique projected vertices plus a
+    // SHEET_VERTEX_COUNT triangle-list index buffer in back-to-front order; otherwise the window
+    // mesh is the expanded triangle list. The shade mesh is always expanded: its texel differs per
+    // triangle corner, so its vertices are not shared.
     template <animation::Vertex V>
     animation::Mesh<V> fill_sheet_mesh(const SheetFrame &frame,
         const animation::MeshTarget<V> &target,
         bool shaded,
         float opacity) {
         auto &window = target.buffers->window;
+        auto &indices = target.buffers->window_indices;
         auto &shade = target.buffers->shade;
-        if (window.size() != SHEET_VERTEX_COUNT) {
-            window.resize(SHEET_VERTEX_COUNT);
+        const std::size_t WINDOW_COUNT = target.indexed ? SHEET_GRID_VERTICES : SHEET_VERTEX_COUNT;
+        if (window.size() != WINDOW_COUNT) {
+            window.resize(WINDOW_COUNT);
+        }
+        if (target.indexed && indices.size() != SHEET_VERTEX_COUNT) {
+            indices.resize(SHEET_VERTEX_COUNT);
         }
         if (shaded && shade.size() != SHEET_VERTEX_COUNT) {
             shade.resize(SHEET_VERTEX_COUNT);
@@ -47,14 +58,26 @@ namespace hyprimate {
                     target.image_size.y),
             };
         }
-        const auto fill = [&]<bool SHADED>() {
+        if (target.indexed) {
+            for (std::size_t i = 0; i < projected.size(); ++i) {
+                window[i] = {
+                    .x = projected[i].x, .y = projected[i].y, .u = projected[i].u, .v = projected[i].v};
+            }
+        }
+        const auto fill = [&]<bool SHADED, bool INDEXED>() {
             auto window_vertex = window.begin();
+            auto index = indices.begin();
             auto shade_vertex = shade.begin();
             for (const std::size_t TRI : frame.order) {
                 const auto &corners = sheet_triangle(TRI);
                 for (std::size_t corner = 0; corner < corners.size(); ++corner) {
                     const auto &vertex = projected[corners[corner]];
-                    *window_vertex++ = {.x = vertex.x, .y = vertex.y, .u = vertex.u, .v = vertex.v};
+                    if constexpr (INDEXED) {
+                        *index++ = static_cast<std::uint16_t>(corners[corner]);
+                    } else {
+                        *window_vertex++ = {
+                            .x = vertex.x, .y = vertex.y, .u = vertex.u, .v = vertex.v};
+                    }
                     if constexpr (SHADED) {
                         const double TEXEL =
                             128 +
@@ -68,13 +91,20 @@ namespace hyprimate {
                 }
             }
         };
-        if (shaded) {
-            fill.template operator()<true>();
+        if (target.indexed) {
+            if (shaded) {
+                fill.template operator()<true, true>();
+            } else {
+                fill.template operator()<false, true>();
+            }
+        } else if (shaded) {
+            fill.template operator()<true, false>();
         } else {
-            fill.template operator()<false>();
+            fill.template operator()<false, false>();
         }
         animation::Mesh<V> result{};
         result.window = &window;
+        result.window_indices = target.indexed ? &indices : nullptr;
         result.shade = shaded ? &shade : nullptr;
         result.opacity = opacity;
         return result;
