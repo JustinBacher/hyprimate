@@ -21,7 +21,7 @@
 #include "window/construction/ConstructionBatch.hpp"
 #include "window/construction/ConstructionCloseSite.hpp"
 #include "window/construction/ConstructionMaterial.hpp"
-#include "window/construction/ConstructionProgram.hpp"
+#include "gl/GlProgram.hpp"
 #include "window/construction/ConstructionShaders.hpp"
 #include "gl/CompositorContext.hpp"
 #include "gl/FramebufferAllocationState.hpp"
@@ -95,7 +95,7 @@ struct CConstructionRenderer::Impl {
             using namespace hyprimate::construction_shader;
             // The material owns its VAO and uniform bindings. CShader cannot adopt this
             // program and its dynamic compiler leaks GL names on compile/link failures.
-            program = build_program(VERTEX.data(), FRAGMENT.data());
+            program = gl::build_program(VERTEX.data(), FRAGMENT.data(), "Construction");
         }
         // Retain a linked program through transient material allocation failure; the material
         // releases every partially acquired object before returning false, and retries lazily.

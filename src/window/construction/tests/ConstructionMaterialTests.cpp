@@ -10,7 +10,7 @@
 #include "GlAllocationFault.hpp"
 #include "GlHarness.hpp"
 #include "window/construction/ConstructionMaterial.hpp"
-#include "window/construction/ConstructionProgram.hpp"
+#include "gl/GlProgram.hpp"
 #include "window/construction/ConstructionShaders.hpp"
 #include "window/construction/studies/RegionalClose.hpp"
 #include "gl/RawGlState.hpp"
@@ -657,12 +657,12 @@ in vec3 v_uv;
 out vec4 color;
 void main() { color = vec4(v_uv, 1.0); }
 )GLSL";
-    CHECK(build_program(INVALID, FRAGMENT.data()) == 0);
-    CHECK(build_program(VERTEX.data(), INVALID) == 0);
-    CHECK(build_program(VERTEX.data(), MISMATCHED_FRAGMENT) == 0);
+    CHECK(gl::build_program(INVALID, FRAGMENT.data(), "Construction") == 0);
+    CHECK(gl::build_program(VERTEX.data(), INVALID, "Construction") == 0);
+    CHECK(gl::build_program(VERTEX.data(), MISMATCHED_FRAGMENT, "Construction") == 0);
     CHECK(glGetError() == GL_NO_ERROR);
 
-    const GLuint PROGRAM = build_program(VERTEX.data(), FRAGMENT.data());
+    const GLuint PROGRAM = gl::build_program(VERTEX.data(), FRAGMENT.data(), "Construction");
     if (PROGRAM != 0) {
         GLint attached = -1;
         glGetProgramiv(PROGRAM, GL_ATTACHED_SHADERS, &attached);

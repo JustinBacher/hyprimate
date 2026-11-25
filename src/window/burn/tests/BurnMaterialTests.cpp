@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdio>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "Check.hpp"
@@ -12,6 +13,24 @@
 #include "window/burn/BurnGroundShader.hpp"
 #include "window/burn/BurnMaterial.hpp"
 #include "window/burn/BurnShaders.hpp"
+
+namespace {
+    bool observing_program_deletion = false;
+    unsigned observed_program_deletions = 0;
+    unsigned diagnostic_counts[3]{};
+
+    void capture_diagnostic(const char *, const char *stage, const char *) noexcept {
+        if (std::string_view{stage} == "vertex shader") ++diagnostic_counts[0];
+        else if (std::string_view{stage} == "fragment shader") ++diagnostic_counts[1];
+        else if (std::string_view{stage} == "program") ++diagnostic_counts[2];
+    }
+}
+
+extern "C" void __real_glDeleteProgram(GLuint program);
+extern "C" void __wrap_glDeleteProgram(GLuint program) {
+    if (observing_program_deletion) ++observed_program_deletions;
+    __real_glDeleteProgram(program);
+}
 
 namespace {
     constexpr int WIDTH = 96, HEIGHT = 96;
@@ -74,6 +93,153 @@ namespace {
         for (unsigned channel = 0; channel < 4; ++channel)
             CHECK(std::abs(static_cast<int>(actual[channel]) - expected[channel]) <= 2);
     }
+    void resource_context_replacement(const Target &target, GLuint texture, const Image &source) {
+        using hyprimate::gl::ContextOwnerState;
+        using hyprimate::gl::EglContextId;
+        const EGLDisplay display = eglGetCurrentDisplay();
+        const EGLContext original = eglGetCurrentContext();
+        const EGLSurface draw_surface = eglGetCurrentSurface(EGL_DRAW);
+        const EGLSurface read_surface = eglGetCurrentSurface(EGL_READ);
+        const EglContextId owner{display, original};
+        EGLint config_id = 0, count = 0;
+        EGLConfig config{};
+        if (!eglQueryContext(display, original, EGL_CONFIG_ID, &config_id)) {
+            CHECK(false);
+            return;
+        }
+        const EGLint filter[]{EGL_CONFIG_ID, config_id, EGL_NONE};
+        if (!eglChooseConfig(display, filter, &config, 1, &count) || count != 1) {
+            CHECK(false);
+            return;
+        }
+        const EGLint attributes[]{EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
+        const EGLContext alternate = eglCreateContext(display, config, EGL_NO_CONTEXT, attributes);
+        CHECK(alternate != EGL_NO_CONTEXT);
+        if (alternate == EGL_NO_CONTEXT) return;
+
+        CBurnResources resources;
+        hyprimate::BurnParams params;
+        params.duration = 1;
+        params.ember_density = params.fragment_density = 0;
+        params.consume = true;
+        hyprimate::BurnSimulation simulation;
+        simulation.open(CAPTURE, params, 29);
+        advance(simulation, 150);
+        const auto draw = [&](const Target &output, GLuint image) {
+            glBindFramebuffer(GL_FRAMEBUFFER, output.framebuffer);
+            glDisable(GL_SCISSOR_TEST);
+            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+            constexpr std::array<GLfloat, 4> clear{0, 0, 0, 0};
+            glClearBufferfv(GL_COLOR, 0, clear.data());
+            const bool ok = resources.material().draw(simulation, placement(), image, output.framebuffer);
+            CHECK(ok);
+            if (ok) {
+                const auto pixels = read(output);
+                for (std::size_t index = 0; index < source.size(); ++index)
+                    near(pixels[index], source[index]);
+            }
+        };
+        CHECK(resources.accept(ContextOwnerState::current));
+        {
+            const gl_harness::FailAllocation fail(gl_harness::Allocation::buffer, 1);
+            CHECK(!resources.initialize());
+            CHECK(resources.program() == 0);
+        }
+        CHECK(resources.initialize());
+        const GLuint first_program = resources.program();
+        CHECK(first_program != 0);
+        CHECK(resources.supports({WIDTH, HEIGHT}));
+        draw(target, texture);
+        CHECK(eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT));
+        observed_program_deletions = 0;
+        observing_program_deletion = true;
+        CHECK(!resources.accept(hyprimate::gl::detail::classify_context_owner(owner, {}, false)));
+        observing_program_deletion = false;
+        CHECK(observed_program_deletions == 0);
+        CHECK(resources.program() == first_program);
+        if (!eglMakeCurrent(display, draw_surface, read_surface, original)) {
+            CHECK(false);
+            eglDestroyContext(display, alternate);
+            return;
+        }
+        CHECK(resources.accept(hyprimate::gl::detail::classify_context_owner(owner, owner, true)));
+        CHECK(resources.initialize());
+        CHECK(resources.program() == first_program);
+        CHECK(glIsProgram(first_program) == GL_TRUE);
+        draw(target, texture);
+
+        if (!eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, alternate)) {
+            CHECK(false);
+            resources.release();
+            eglMakeCurrent(display, draw_surface, read_surface, original);
+            eglDestroyContext(display, alternate);
+            return;
+        }
+        {
+            // Detect any attempted program deletion, independently of driver name allocation.
+            const GLuint sentinel = glCreateProgram();
+            CHECK(sentinel != 0);
+            observed_program_deletions = 0;
+            observing_program_deletion = true;
+            CHECK(resources.accept(hyprimate::gl::detail::classify_context_owner(
+                owner, {display, alternate}, false)));
+            observing_program_deletion = false;
+            CHECK(observed_program_deletions == 0);
+            CHECK(resources.program() == 0);
+            if (sentinel) CHECK(glIsProgram(sentinel) == GL_TRUE);
+            const Target alternate_target;
+            const GLuint alternate_texture = upload(source);
+            CHECK(alternate_target.valid && alternate_texture != 0);
+            {
+                const gl_harness::FailAllocation fail(gl_harness::Allocation::buffer, 1);
+                CHECK(!resources.initialize());
+                CHECK(resources.program() == 0);
+                if (sentinel) CHECK(glIsProgram(sentinel) == GL_TRUE);
+            }
+            CHECK(resources.initialize());
+            const GLuint second_program = resources.program();
+            CHECK(second_program != 0);
+            draw(alternate_target, alternate_texture);
+            CHECK(resources.initialize());
+            CHECK(resources.program() == second_program);
+            draw(alternate_target, alternate_texture);
+            glUseProgram(0);
+            resources.release();
+            CHECK(glIsProgram(second_program) == GL_FALSE);
+            if (sentinel) CHECK(glIsProgram(sentinel) == GL_TRUE);
+            glDeleteTextures(1, &alternate_texture);
+            if (sentinel) glDeleteProgram(sentinel);
+        }
+        CHECK(eglMakeCurrent(display, draw_surface, read_surface, original));
+        CHECK(eglDestroyContext(display, alternate));
+    }
+
+    GLuint production_program() {
+        const auto vertex = burn_shader::vertex();
+        const auto fragment = burn_shader::fragment();
+        constexpr const char *INVALID = "#version 300 es\nthis is not GLSL\n";
+        constexpr const char *MISMATCH = R"GLSL(#version 300 es
+precision highp float;
+in vec3 materialUV;
+out vec4 color;
+void main() { color = vec4(materialUV, 1.0); }
+)GLSL";
+        CHECK(hyprimate::gl::build_program(INVALID, fragment.c_str(), "Burn", capture_diagnostic) == 0);
+        CHECK(hyprimate::gl::build_program(vertex.c_str(), INVALID, "Burn", capture_diagnostic) == 0);
+        CHECK(hyprimate::gl::build_program(vertex.c_str(), MISMATCH, "Burn", capture_diagnostic) == 0);
+        CHECK(diagnostic_counts[0] == 1 && diagnostic_counts[1] == 1 && diagnostic_counts[2] == 1);
+        const GLuint program = hyprimate::gl::build_program(
+            vertex.c_str(), fragment.c_str(), "Burn", capture_diagnostic);
+        CHECK(diagnostic_counts[0] == 1 && diagnostic_counts[1] == 1 && diagnostic_counts[2] == 1);
+        CHECK(program != 0);
+        if (program) {
+            GLint attached = -1;
+            glGetProgramiv(program, GL_ATTACHED_SHADERS, &attached);
+            CHECK(attached == 0);
+        }
+        return program;
+    }
+
     bool allocation_failure_retry(
         GLuint program, const Target &target, GLuint texture, const Image &source) {
         hyprimate::BurnParams params;
@@ -436,8 +602,7 @@ int main() {
     }
     const Target target;
     if (!target.valid) return 1;
-    const GLuint PROGRAM =
-        gl_harness::build_program(burn_shader::vertex(), burn_shader::fragment());
+    const GLuint PROGRAM = production_program();
     CHECK(PROGRAM != 0);
     if (!PROGRAM) return 1;
     CBurnMaterial material;
@@ -454,6 +619,7 @@ int main() {
                 row % 9 < 2 || column % 7 < 2 ? Pixel{15, 19, 23, 255} : Pixel{210, 225, 240, 255};
     const GLuint TEXTURE = upload(source);
     CHECK(TEXTURE != 0);
+    if (TEXTURE) resource_context_replacement(target, TEXTURE, source);
     if (!TEXTURE || glGetError() != GL_NO_ERROR ||
         !allocation_failure_retry(PROGRAM, target, TEXTURE, source)) {
         material.release();
