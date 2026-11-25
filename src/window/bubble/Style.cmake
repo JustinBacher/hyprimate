@@ -1,18 +1,4 @@
 set(BUBBLE_SHADER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/window/bubble/shaders)
-set(BUBBLE_SHADER_FILES
-    ${BUBBLE_SHADER_DIR}/membrane.vert
-    ${BUBBLE_SHADER_DIR}/membrane.frag
-    ${BUBBLE_SHADER_DIR}/curl.vert
-    ${BUBBLE_SHADER_DIR}/curl.frag
-    ${BUBBLE_SHADER_DIR}/particle.vert
-    ${BUBBLE_SHADER_DIR}/particle.frag
-    ${BUBBLE_SHADER_DIR}/membrane.glsl
-    ${BUBBLE_SHADER_DIR}/soap.glsl
-    ${BUBBLE_SHADER_DIR}/film.vert
-    ${BUBBLE_SHADER_DIR}/film.frag
-    ${BUBBLE_SHADER_DIR}/microbubble.vert
-    ${BUBBLE_SHADER_DIR}/microbubble.frag
-)
 set(BUBBLE_SHADER_EMBEDDER ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_shaders.cmake)
 add_custom_command(
     OUTPUT ${CONFIG_GENERATED_DIR}/bubble_shaders_generated.hpp
@@ -20,8 +6,10 @@ add_custom_command(
             -DSTYLE=bubble
             -DSOURCE_DIR=${BUBBLE_SHADER_DIR}
             -DOUTPUT=${CONFIG_GENERATED_DIR}/bubble_shaders_generated.hpp
+            -DDEPFILE=${CONFIG_GENERATED_DIR}/bubble_shaders_generated.d
             -P ${BUBBLE_SHADER_EMBEDDER}
-    DEPENDS ${BUBBLE_SHADER_FILES} ${BUBBLE_SHADER_EMBEDDER}
+    DEPENDS ${BUBBLE_SHADER_EMBEDDER}
+    DEPFILE ${CONFIG_GENERATED_DIR}/bubble_shaders_generated.d
     VERBATIM
 )
 add_custom_target(generate-bubble-shaders DEPENDS ${CONFIG_GENERATED_DIR}/bubble_shaders_generated.hpp)
