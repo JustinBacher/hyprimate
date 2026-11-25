@@ -1322,6 +1322,59 @@ namespace {
         }
     }
 
+    void numeric_params_remain_finite() {
+        const double values[] = {std::numeric_limits<double>::quiet_NaN(),
+            std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity(),
+            std::numeric_limits<double>::denorm_min(), std::numeric_limits<double>::max(),
+            -std::numeric_limits<double>::max()};
+        double SwarmParams::* fields[] = {&SwarmParams::speed, &SwarmParams::stagger,
+            &SwarmParams::cohesion, &SwarmParams::separation, &SwarmParams::responsiveness,
+            &SwarmParams::settling, &SwarmParams::wander, &SwarmParams::variation};
+        for (const auto field : fields) {
+            for (double value : values) {
+                SwarmParams params;
+                params.*field = value;
+                Swarm swarm;
+                swarm.begin_movement({}, 0x1234, placement());
+                swarm.set_movement_params(params);
+                CHECK(!swarm.agents().empty());
+                for (int step = 0; step < 60; ++step) swarm.advance(FRAME);
+                for (const SwarmAgent &agent : swarm.agents()) {
+                    CHECK(std::isfinite(agent.position.x) && std::isfinite(agent.position.y));
+                    CHECK(std::isfinite(agent.velocity.x) && std::isfinite(agent.velocity.y));
+                    CHECK(std::isfinite(agent.travel) && std::abs(agent.travel) < 1e9);
+                    CHECK(std::abs(agent.position.x) < 1e9 && std::abs(agent.position.y) < 1e9);
+                }
+                SwarmParams invalid;
+                invalid.*field = std::numeric_limits<double>::quiet_NaN();
+                swarm.set_movement_params(invalid);
+                for (const SwarmAgent &agent : swarm.agents()) {
+                    CHECK(std::isfinite(agent.position.x) && std::isfinite(agent.position.y));
+                }
+            }
+        }
+    }
+
+    void sprite_numeric_inputs_remain_finite() {
+        const double values[] = {std::numeric_limits<double>::quiet_NaN(),
+            std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity(),
+            std::numeric_limits<double>::denorm_min(), std::numeric_limits<double>::max(),
+            -std::numeric_limits<double>::max()};
+        for (double value : values) {
+            const int frame = walk_frame(value, std::numeric_limits<double>::denorm_min(), 8);
+            CHECK(frame >= 0 && frame < 8);
+            const SpriteFrame shape{.core = std::numeric_limits<double>::denorm_min(),
+                .reach = std::numeric_limits<double>::max()};
+            const double size = sprite_size(shape, SpriteFit{value}, SpriteCover{value}, SpriteLock{value});
+            CHECK(std::isfinite(size) && size >= 0.0 && size <= 1e9);
+        }
+        const SpriteFrame shape{.core = std::numeric_limits<double>::max(),
+            .reach = std::numeric_limits<double>::denorm_min()};
+        const double size = sprite_size(shape, SpriteFit{std::numeric_limits<double>::max()},
+            SpriteCover{std::numeric_limits<double>::max()}, SpriteLock{0.5});
+        CHECK(std::isfinite(size) && size >= 0.0 && size <= 1e9);
+    }
+
 }  // namespace
 
 int main() {
@@ -1336,6 +1389,8 @@ int main() {
               hyprimate::SpriteDirectory{"/sprites"}) == "./custom.png");
     CHECK(hyprimate::sprite_path(hyprimate::SpriteName{""}, hyprimate::SpriteDirectory{"/sprites"})
             .empty());
+    numeric_params_remain_finite();
+    sprite_numeric_inputs_remain_finite();
     tiles_partition_the_capture();
     opening_enters_from_its_sides_and_settles_exactly();
     equal_seeds_give_equal_motion();

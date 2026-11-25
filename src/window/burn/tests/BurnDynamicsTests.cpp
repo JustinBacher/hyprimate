@@ -15,6 +15,67 @@ namespace {
         return bounds.x <= point.x - radius && bounds.y <= point.y - radius &&
                bounds.x + bounds.w >= point.x + radius && bounds.y + bounds.h >= point.y + radius;
     }
+    void numeric_params_remain_finite() {
+        constexpr double LIMIT = 1e9;
+        const double values[] = {std::numeric_limits<double>::quiet_NaN(),
+            std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity(),
+            std::numeric_limits<double>::denorm_min(), std::numeric_limits<double>::max(),
+            -std::numeric_limits<double>::max(), -1.0};
+        double BurnParams::* fields[] = {&BurnParams::ember_density, &BurnParams::fragment_density,
+            &BurnParams::variation, &BurnParams::wind_direction, &BurnParams::wind_strength,
+            &BurnParams::gravity_strength, &BurnParams::curl};
+        for (const auto field : fields) {
+            for (double value : values) {
+                BurnParams params;
+                params.*field = value;
+                BurnSimulation simulation;
+                simulation.open(CAPTURE, params, 43);
+                const double accepted = simulation.params().*field;
+                const bool safe = std::isfinite(accepted) && std::abs(accepted) <= LIMIT &&
+                    (field != &BurnParams::variation || (accepted >= 0 && accepted <= 1)) &&
+                    (field != &BurnParams::fragment_density || (accepted >= 0 && accepted <= 2));
+                CHECK(safe);
+                if (!safe) continue;
+                advance(simulation, .5);
+                CHECK(std::isfinite(simulation.front().progress));
+                for (const auto &particle : simulation.particles()) {
+                    CHECK(std::isfinite(particle.position.x) && std::isfinite(particle.position.y));
+                    CHECK(std::isfinite(particle.velocity.x) && std::isfinite(particle.velocity.y));
+                    CHECK(std::abs(particle.position.x) < LIMIT && std::abs(particle.position.y) < LIMIT);
+                }
+                BurnSimulation closing;
+                closing.close(CAPTURE, params, 43);
+                advance(closing, .5);
+                for (const auto &fragment : closing.fragments()) {
+                    CHECK(std::isfinite(fragment.position.x) && std::isfinite(fragment.position.y));
+                    CHECK(std::isfinite(fragment.size.x) && std::isfinite(fragment.size.y));
+                    CHECK(fragment.size.x >= 0 && fragment.size.x <= CAPTURE.w);
+                    CHECK(fragment.size.y >= 0 && fragment.size.y <= CAPTURE.h);
+                }
+            }
+        }
+    }
+
+    void fragment_density_limits_emission() {
+        // Even at density 2 the entire 100 px² capture earns less than one fragment.
+        constexpr Box SMALL{0, 0, 10, 10};
+        const double values[] = {std::numeric_limits<double>::quiet_NaN(),
+            std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity(),
+            std::numeric_limits<double>::denorm_min(), std::numeric_limits<double>::max(),
+            -std::numeric_limits<double>::max(), -1.0};
+        for (double value : values) {
+            BurnParams params;
+            params.ember_density = 0;
+            params.fragment_density = value;
+            BurnSimulation simulation;
+            simulation.close(SMALL, params, 43);
+            for (int step = 0; step < 60; ++step) {
+                simulation.advance(SUBSTEP_SECONDS, SMALL);
+                CHECK(simulation.fragments().empty());
+            }
+        }
+    }
+
     void timing_and_interruption() {
         BurnParams params;
         params.duration = 1;
@@ -173,6 +234,8 @@ namespace {
     }
 }  // namespace
 int main() {
+    numeric_params_remain_finite();
+    fragment_density_limits_emission();
     timing_and_interruption();
     arrival_model();
     fragments_and_bounds();

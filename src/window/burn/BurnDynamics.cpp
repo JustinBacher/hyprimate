@@ -2,6 +2,7 @@
 #include <cmath>
 #include <numbers>
 
+#include "shared/NumericDomain.hpp"
 #include "window/burn/BurnDynamics.hpp"
 
 namespace hyprimate {
@@ -9,9 +10,16 @@ namespace hyprimate {
         constexpr double PI = std::numbers::pi;
         BurnParams sanitized(BurnParams params) noexcept {
             if (!std::isfinite(params.duration) || params.duration <= 0) params.duration = 1.5;
-            params.variation = std::clamp(params.variation, 0., 1.);
-            params.ember_density = std::clamp(params.ember_density, 0., 2.);
-            params.fragment_density = std::clamp(params.fragment_density, 0., 2.);
+            // Variation is [0, 1]; ember and fragment densities are [0, 2].
+            params.variation = std::clamp(finite_or(params.variation, .7), 0., 1.);
+            params.ember_density = std::clamp(finite_or(params.ember_density, .65), 0., 2.);
+            params.wind_direction = std::clamp(finite_or(params.wind_direction, 0.), 0., 360.);
+            params.wind_strength =
+                std::clamp(finite_or(params.wind_strength, 100.), 0., 1000.);
+            params.gravity_strength =
+                std::clamp(finite_or(params.gravity_strength, 300.), 0., 1800.);
+            params.curl = std::clamp(finite_or(params.curl, .8), 0., 1.);
+            params.fragment_density = std::clamp(finite_or(params.fragment_density, .55), 0., 2.);
             return params;
         }
     }  // namespace

@@ -9,6 +9,7 @@
 #include <string_view>
 #include <vector>
 
+#include "shared/NumericDomain.hpp"
 #include "window/swarm/SwarmSprite.hpp"
 
 namespace hyprimate {
@@ -30,7 +31,9 @@ namespace hyprimate {
         constexpr std::uint8_t SOLID = 128;
         constexpr double FAR = 1e18;
         constexpr double COVER_MARGIN =
-            1.06;  // the core overshoots its tile slightly, so coverage is complete before lock 1
+            1.06;  // core overshoots its tile slightly, so coverage is complete before lock 1
+        // Geometry beyond logical desktop scale is not a meaningful sprite size.
+        constexpr double MAX_SPRITE_SIZE = 1e9;
 
         // One pass of the exact squared Euclidean distance transform (lower envelope of parabolas)
         // over n samples with the given stride. `sites` and `boundaries` are scratch of n and n + 1
@@ -190,12 +193,26 @@ namespace hyprimate {
 
     double sprite_size(
         const SpriteFrame &frame, SpriteFit fit, SpriteCover cover, SpriteLock lock) noexcept {
-        if (!(frame.reach > 0.0) || !(frame.core > 0.0) || !(fit.value > 0.0)) {
+        const double REACH = finite_or(frame.reach, 0.0);
+        const double CORE = finite_or(frame.core, 0.0);
+        const double FIT = finite_or(fit.value, 0.0);
+        if (!(REACH > 0.0) || !(CORE > 0.0) || !(FIT > 0.0)) {
             return 0.0;
         }
-        const double LOOSE = fit.value / frame.reach;
-        const double WHOLE = std::max(LOOSE, COVER_MARGIN * cover.value / frame.core);
-        return LOOSE * std::pow(WHOLE / LOOSE, std::clamp(lock.value, 0.0, 1.0));
+
+        const double LOG_LOOSE = std::log(FIT) - std::log(REACH);
+        const double COVER_VALUE = std::max(0.0, finite_or(cover.value, 0.0));
+        const double LOG_WHOLE = COVER_VALUE > 0.0
+                                     ? std::max(LOG_LOOSE,
+                                           std::log(COVER_MARGIN) + std::log(COVER_VALUE) -
+                                               std::log(CORE))
+                                     : LOG_LOOSE;
+        const double LOCK = std::clamp(finite_or(lock.value, 0.0), 0.0, 1.0);
+        const double LOG_SIZE = std::lerp(LOG_LOOSE, LOG_WHOLE, LOCK);
+        if (LOG_SIZE >= std::log(MAX_SPRITE_SIZE)) {
+            return MAX_SPRITE_SIZE;
+        }
+        return std::exp(LOG_SIZE);
     }
 
 }  // namespace hyprimate
