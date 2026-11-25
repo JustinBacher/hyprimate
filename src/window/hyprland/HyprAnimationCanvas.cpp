@@ -6,6 +6,7 @@
 #include "gl/IndexedMesh.hpp"
 #include "gl/NativeFramebuffer.hpp"
 #include "gl/Storage.hpp"
+#include "perf/Diagnostics.hpp"
 #include "workspace/WorkspaceCaptureScope.hpp"
 
 using namespace hyprimate::animation;
@@ -59,6 +60,7 @@ void CHyprAnimationCanvas::composite(const hyprimate::Box &box, float alpha) {
     data.a = alpha;
     data.allowCustomUV = true;
     const hyprimate::gl::NativeMeshSamplers SAMPLERS;
+    HYPRIMATE_GPU_STOPWATCH("canvas.composite");
     Render::GL::g_pHyprOpenGL->renderTextureMesh(context(),
         m_layer->getTexture(),
         CBox{box.x, box.y, box.w, box.h},
@@ -109,11 +111,14 @@ bool CHyprAnimationCanvas::submit_mesh(
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     const auto STATE = context().saveDrawState();
     auto &data = context().m_data;
-    g_pHyprRenderer->bindFB(context(), COMPOSED);
-    data.damage = CRegion{0.0, 0.0, SIZE.x, SIZE.y};
-    data.fbSize = SIZE;
-    g_pHyprRenderer->setProjectionType(context(), Render::RPT_EXPORT);
-    g_pHyprRenderer->draw(context(), CClearPassElement::SClearData{CHyprColor(0, 0, 0, 0)});
+    {
+        HYPRIMATE_GPU_STOPWATCH("canvas.work-buffer-clear");
+        g_pHyprRenderer->bindFB(context(), COMPOSED);
+        data.damage = CRegion{0.0, 0.0, SIZE.x, SIZE.y};
+        data.fbSize = SIZE;
+        g_pHyprRenderer->setProjectionType(context(), Render::RPT_EXPORT);
+        g_pHyprRenderer->draw(context(), CClearPassElement::SClearData{CHyprColor(0, 0, 0, 0)});
+    }
     if (mesh.clip) {
         const auto &clip = *mesh.clip;
         const CBox CLIP{clip.x - draw.canvas_box.x, clip.y - draw.canvas_box.y, clip.w, clip.h};
@@ -129,15 +134,19 @@ bool CHyprAnimationCanvas::submit_mesh(
             mesh.under_output.y - draw.canvas_box.y,
             mesh.under_output.w,
             mesh.under_output.h};
+        HYPRIMATE_GPU_STOPWATCH("canvas.compose-under");
         Render::GL::g_pHyprOpenGL->renderTextureMesh(
             context(), solid, UNDER, *mesh.under, texture_data);
     }
     texture_data.a = 1.F;
-    Render::GL::g_pHyprOpenGL->renderTextureMesh(context(),
-        m_layer->getTexture(),
-        CBox{0, 0, SIZE.x, SIZE.y},
-        sheet_canvas_quad(),
-        texture_data);
+    {
+        HYPRIMATE_GPU_STOPWATCH("canvas.compose-clip");
+        Render::GL::g_pHyprOpenGL->renderTextureMesh(context(),
+            m_layer->getTexture(),
+            CBox{0, 0, SIZE.x, SIZE.y},
+            sheet_canvas_quad(),
+            texture_data);
+    }
     m_layer = COMPOSED;
     return true;
 }

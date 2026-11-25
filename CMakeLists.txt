@@ -14,6 +14,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION OFF)
 
 option(BUILD_TESTING "Build Hyprimate's development tests" OFF)
+option(HYPRIMATE_DIAGNOSTICS "Enable indexed mesh comparisons and experimental GPU instrumentation" OFF)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(HYPRLAND REQUIRED IMPORTED_TARGET hyprland)
@@ -76,7 +77,6 @@ target_compile_options(hyprimate-core PRIVATE -frtti $<$<CXX_COMPILER_ID:GNU>:-f
 add_library(hyprimate SHARED
     src/main.cpp
     src/plugin/PluginRuntime.cpp
-    src/perf/GpuStopwatch.cpp
     src/perf/GpuTimer.cpp
     src/perf/RuntimeProfiler.cpp
     src/window/hyprland/AnimationTransformer.cpp
@@ -94,6 +94,7 @@ add_library(hyprimate SHARED
     src/window/hyprland/NativeFadeoutPass.cpp
     src/gl/CompositorContext.cpp
     src/gl/IndexedMesh.cpp
+    src/gl/GotRedirect.cpp
     src/gl/NativeResource.cpp
     src/window/shared/SheetRenderer.cpp
     src/window/shared/SolidFill.cpp
@@ -103,6 +104,10 @@ add_library(hyprimate SHARED
     src/workspace/WorkspacePreviews.cpp
     src/workspace/WorkspaceStyleDispatch.cpp
 )
+if(HYPRIMATE_DIAGNOSTICS)
+    target_sources(hyprimate PRIVATE src/perf/GpuStopwatch.cpp)
+    target_compile_definitions(hyprimate PRIVATE HYPRIMATE_DIAGNOSTICS=1)
+endif()
 set_target_properties(hyprimate PROPERTIES PREFIX "" INTERPROCEDURAL_OPTIMIZATION FALSE)
 add_dependencies(hyprimate generate-config)
 target_include_directories(hyprimate PRIVATE ${CONFIG_GENERATED_DIR})
@@ -269,6 +274,14 @@ if(BUILD_TESTING)
     target_link_libraries(sheet-mesh-tests PRIVATE hyprimate-core)
     target_include_directories(sheet-mesh-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME sheet-mesh-tests COMMAND sheet-mesh-tests)
+
+    add_executable(got-redirect-tests tests/GotRedirectTests.cpp src/gl/GotRedirect.cpp)
+    target_include_directories(got-redirect-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_compile_definitions(got-redirect-tests PRIVATE HYPRIMATE_GOT_REDIRECT_TESTING=1)
+    target_compile_options(got-redirect-tests PRIVATE -fplt)
+    target_link_options(got-redirect-tests PRIVATE -Wl,-z,now,-z,relro)
+    target_link_libraries(got-redirect-tests PRIVATE ${CMAKE_DL_LIBS})
+    add_test(NAME got-redirect-tests COMMAND got-redirect-tests)
 
     add_library(plugin-import-fixture SHARED tests/PluginImportFixture.cpp)
     target_link_options(plugin-import-fixture PRIVATE -Wl,-z,lazy,-z,relro)

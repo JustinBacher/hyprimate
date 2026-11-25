@@ -1,229 +1,153 @@
 #include "gl/IndexedMesh.hpp"
 
 #include <algorithm>
-#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <dlfcn.h>
-#include <elf.h>
-#include <link.h>
-#include <sys/mman.h>
-#include <unistd.h>
 
 #include <GLES3/gl32.h>
 #include <hyprland/src/render/Texture.hpp>
 
+#include "gl/CompositorContext.hpp"
+#include "gl/IndexedDrawContract.hpp"
+
 namespace hyprimate::gl {
     namespace {
+        static_assert(sizeof(SMeshRenderVertex) == 16);
         using DrawArraysFn = void (*)(GLenum, GLint, GLsizei);
 
-        // What the next stock glDrawArrays(GL_TRIANGLES, 0, vertex_count) on this thread becomes.
         struct Pending {
-            bool active = false;
+            IndexedDrawContract contract;
             GLuint buffer = 0;
-            GLsizei vertex_count = 0;
             GLsizei index_count = 0;
-            GLenum index_type = GL_UNSIGNED_SHORT;
-            bool consumed = false;
         };
-
+        // Hyprland renders and unloads on its event-loop thread; TLS prevents unrelated threads'
+        // stock draws from inheriting the pending indexed submission.
         thread_local Pending t_pending;
-
-        // Hyprland's own GOT slot for glDrawArrays (BIND_NOW + RELRO executable) and the libGLESv2
-        // entry it held. Patching the slot, not the shared stub, leaves every other caller in the
-        // process (this plugin, other plugins) on the real function, and needs no instruction
-        // relocation: the glvnd stub begins with RIP-relative loads the host's inline hooker
-        // rejects.
-        void **g_slot = nullptr;
         DrawArraysFn g_original = nullptr;
+        bool g_installed = false;
+        bool g_contract_broken = false;
         GLuint g_elements = 0;
+        CompositorContextOwner g_owner;
 
-        std::atomic<std::uint64_t> g_elements_draws{0};
-        std::atomic<std::uint64_t> g_passthrough_draws{0};
-        std::atomic<std::uint64_t> g_vertices_expanded{0};
-        std::atomic<std::uint64_t> g_vertices_uploaded{0};
-        std::atomic<std::uint64_t> g_index_bytes{0};
-        std::atomic<std::uint64_t> g_compares{0};
-        std::atomic<std::uint64_t> g_compare_mismatches{0};
+#ifdef HYPRIMATE_DIAGNOSTICS
+        std::uint64_t g_elements_draws = 0, g_passthrough_draws = 0;
+        std::uint64_t g_vertices_expanded = 0, g_vertices_uploaded = 0, g_index_bytes = 0;
+        std::uint64_t g_compares = 0, g_compare_mismatches = 0, g_readback_failures = 0;
+        bool selftest_enabled() noexcept {
+            static const bool enabled = [] {
+                const char *value = std::getenv("HYPRIMATE_INDEXED_MESH_SELFTEST");
+                return value && std::strcmp(value, "1") == 0;
+            }();
+            return enabled;
+        }
+#endif
 
         void hooked_draw_arrays(GLenum mode, GLint first, GLsizei count) {
-            const auto &p = t_pending;
-            if (p.active && mode == GL_TRIANGLES && first == 0 && count == p.vertex_count) {
-                // Stock bound the shader's VAO just before this draw. GL_ELEMENT_ARRAY_BUFFER is
-                // VAO state, so detach it again to leave the shared VAO as stock left it.
-                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, p.buffer);
-                glDrawElements(GL_TRIANGLES, p.index_count, p.index_type, nullptr);
-                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-                t_pending.consumed = true;
-                g_elements_draws.fetch_add(1, std::memory_order_relaxed);
-                return;
+            auto &pending = t_pending;
+            switch (pending.contract.dispatch(mode, first, count)) {
+                case IndexedDrawContract::Decision::Suppress:
+                    g_contract_broken = true;
+                    return;
+                case IndexedDrawContract::Decision::Elements: {
+                    GLint previous = 0;
+                    glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &previous);
+                    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, pending.buffer);
+                    glDrawElements(GL_TRIANGLES, pending.index_count, GL_UNSIGNED_SHORT, nullptr);
+                    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLuint>(previous));
+                    pending.contract.consumed = true;
+#ifdef HYPRIMATE_DIAGNOSTICS
+                    ++g_elements_draws;
+#endif
+                    return;
+                }
+                case IndexedDrawContract::Decision::Forward:
+#ifdef HYPRIMATE_DIAGNOSTICS
+                    ++g_passthrough_draws;
+#endif
+                    g_original(mode, first, count);
             }
-            g_passthrough_draws.fetch_add(1, std::memory_order_relaxed);
-            g_original(mode, first, count);
         }
 
-        void upload_indices(std::span<const std::uint16_t> indices, Pending &out) {
-            if (g_elements == 0) {
-                glGenBuffers(1, &g_elements);
+        bool upload_indices(std::span<const std::uint16_t> indices, Pending &out) {
+            if (!g_owner.ensure_current()) {
+                // A replaced backend/context does not own the old name. Abandon it.
+                g_elements = 0;
+                g_owner.reset();
+                if (!g_owner.ensure_current()) return false;
             }
-            // COPY_WRITE, not ELEMENT_ARRAY: whichever VAO is bound right now must not capture it.
+            if (!g_elements) glGenBuffers(1, &g_elements);
+            if (!g_elements) return false;
+            GLint previous = 0;
+            glGetIntegerv(GL_COPY_WRITE_BUFFER_BINDING, &previous);
             glBindBuffer(GL_COPY_WRITE_BUFFER, g_elements);
-            const auto BYTES = static_cast<GLsizeiptr>(indices.size_bytes());
-            // Orphan, then fill: the previous draw may still be reading the old block.
-            glBufferData(GL_COPY_WRITE_BUFFER, BYTES, nullptr, GL_STREAM_DRAW);
-            glBufferSubData(GL_COPY_WRITE_BUFFER, 0, BYTES, indices.data());
-            glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
-            out.index_type = GL_UNSIGNED_SHORT;
+            const auto bytes = static_cast<GLsizeiptr>(indices.size_bytes());
+            glBufferData(GL_COPY_WRITE_BUFFER, bytes, nullptr, GL_STREAM_DRAW);
+            glBufferSubData(GL_COPY_WRITE_BUFFER, 0, bytes, indices.data());
+            glBindBuffer(GL_COPY_WRITE_BUFFER, static_cast<GLuint>(previous));
             out.buffer = g_elements;
-            g_index_bytes.fetch_add(static_cast<std::uint64_t>(BYTES), std::memory_order_relaxed);
-        }
-    }  // namespace
-
-    IndexedMeshMode indexed_mesh_mode() noexcept {
-        static const IndexedMeshMode MODE = [] {
-            const char *value = std::getenv("HYPRIMATE_INDEXED_MESH");
-            if (value == nullptr) return IndexedMeshMode::Off;
-            if (std::strcmp(value, "compare") == 0) return IndexedMeshMode::Compare;
-            if (std::strcmp(value, "1") == 0 || std::strcmp(value, "on") == 0) {
-                return IndexedMeshMode::On;
-            }
-            return IndexedMeshMode::Off;
-        }();
-        return MODE;
-    }
-
-    namespace {
-        struct SlotSearch {
-            const char *symbol;
-            void **slot;
-        };
-
-        int find_slot(dl_phdr_info *info, std::size_t, void *arg) {
-            auto *search = static_cast<SlotSearch *>(arg);
-            // The first object reported is the main executable (empty name).
-            if (info->dlpi_name != nullptr && info->dlpi_name[0] != '\0') return 1;
-            const ElfW(Dyn) *dyn = nullptr;
-            for (int i = 0; i < info->dlpi_phnum; ++i) {
-                if (info->dlpi_phdr[i].p_type == PT_DYNAMIC) {
-                    dyn = reinterpret_cast<const ElfW(Dyn) *>(
-                        info->dlpi_addr + info->dlpi_phdr[i].p_vaddr);
-                }
-            }
-            if (dyn == nullptr) return 1;
-            const auto ABSOLUTE = [&](ElfW(Addr) ptr) {
-                // glibc relocates these in place on most targets; accept either form.
-                return ptr >= info->dlpi_addr ? ptr : ptr + info->dlpi_addr;
-            };
-            const ElfW(Sym) *symtab = nullptr;
-            const char *strtab = nullptr;
-            const ElfW(Rela) *rela = nullptr;
-            const ElfW(Rela) *jmprel = nullptr;
-            std::size_t rela_size = 0;
-            std::size_t jmprel_size = 0;
-            for (; dyn->d_tag != DT_NULL; ++dyn) {
-                switch (dyn->d_tag) {
-                    case DT_SYMTAB: symtab = reinterpret_cast<const ElfW(Sym) *>(ABSOLUTE(dyn->d_un.d_ptr)); break;
-                    case DT_STRTAB: strtab = reinterpret_cast<const char *>(ABSOLUTE(dyn->d_un.d_ptr)); break;
-                    case DT_RELA: rela = reinterpret_cast<const ElfW(Rela) *>(ABSOLUTE(dyn->d_un.d_ptr)); break;
-                    case DT_RELASZ: rela_size = dyn->d_un.d_val; break;
-                    case DT_JMPREL: jmprel = reinterpret_cast<const ElfW(Rela) *>(ABSOLUTE(dyn->d_un.d_ptr)); break;
-                    case DT_PLTRELSZ: jmprel_size = dyn->d_un.d_val; break;
-                    default: break;
-                }
-            }
-            if (symtab == nullptr || strtab == nullptr) return 1;
-            const auto SCAN = [&](const ElfW(Rela) *table, std::size_t bytes) {
-                for (std::size_t i = 0; table != nullptr && i < bytes / sizeof(ElfW(Rela)); ++i) {
-                    const auto TYPE = ELF64_R_TYPE(table[i].r_info);
-                    if (TYPE != R_X86_64_GLOB_DAT && TYPE != R_X86_64_JUMP_SLOT) continue;
-                    const char *name = strtab + symtab[ELF64_R_SYM(table[i].r_info)].st_name;
-                    if (std::strcmp(name, search->symbol) == 0) {
-                        search->slot = reinterpret_cast<void **>(info->dlpi_addr + table[i].r_offset);
-                        return;
-                    }
-                }
-            };
-            SCAN(rela, rela_size);
-            if (search->slot == nullptr) SCAN(jmprel, jmprel_size);
-            return 1;
-        }
-
-        // The slot lives in RELRO (read-only after startup). Toggle write access around a store.
-        bool store_slot(void **slot, void *value) {
-            const auto PAGE = static_cast<std::uintptr_t>(sysconf(_SC_PAGESIZE));
-            void *page = reinterpret_cast<void *>(reinterpret_cast<std::uintptr_t>(slot) & ~(PAGE - 1));
-            if (mprotect(page, PAGE, PROT_READ | PROT_WRITE) != 0) return false;
-            __atomic_store_n(slot, value, __ATOMIC_RELEASE);
-            mprotect(page, PAGE, PROT_READ);
             return true;
         }
     }  // namespace
 
-    bool install_indexed_mesh(HANDLE, std::string &error) {
-        if (g_slot != nullptr) return true;
-        SlotSearch search{"glDrawArrays", nullptr};
-        dl_iterate_phdr(find_slot, &search);
-        if (search.slot == nullptr || *search.slot == nullptr) {
-            error = "Hyprland's glDrawArrays GOT slot not found";
-            std::fprintf(stderr, "[hyprimate] indexed-mesh: %s\n", error.c_str());
+    IndexedMeshMode indexed_mesh_mode() noexcept {
+        static const IndexedMeshMode mode = [] {
+            const char *value = std::getenv("HYPRIMATE_INDEXED_MESH");
+            if (value && (!std::strcmp(value, "off") || !std::strcmp(value, "0")))
+                return IndexedMeshMode::Off;
+#ifdef HYPRIMATE_DIAGNOSTICS
+            if (value && !std::strcmp(value, "compare")) return IndexedMeshMode::Compare;
+#endif
+            return IndexedMeshMode::On;
+        }();
+        return mode;
+    }
+
+    bool IndexedMeshRedirect::install(std::string &error) {
+        g_original = reinterpret_cast<DrawArraysFn>(dlsym(RTLD_DEFAULT, "glDrawArrays"));
+        if (!g_original) {
+            error = "glDrawArrays could not be resolved";
             return false;
         }
-        g_original = reinterpret_cast<DrawArraysFn>(*search.slot);
-        if (!store_slot(search.slot, reinterpret_cast<void *>(&hooked_draw_arrays))) {
-            g_original = nullptr;
-            error = "could not make Hyprland's GOT slot writable";
-            std::fprintf(stderr, "[hyprimate] indexed-mesh: %s\n", error.c_str());
-            return false;
-        }
-        g_slot = search.slot;
-        std::fprintf(stderr,
-            "[hyprimate] indexed-mesh: GOT slot %p redirected (original %p)\n",
-            static_cast<void *>(g_slot),
-            reinterpret_cast<void *>(g_original));
+        if (!m_redirect.install("glDrawArrays", reinterpret_cast<void *>(&hooked_draw_arrays),
+                error, reinterpret_cast<void *>(g_original))) return false;
+        g_installed = true;
         return true;
     }
 
-    void uninstall_indexed_mesh() noexcept {
-        if (g_slot != nullptr) {
-            std::fprintf(stderr,
-                "[hyprimate] indexed-mesh: uninstall; elements_draws=%llu passthrough=%llu uploaded=%llu "
-                "expanded=%llu index_bytes=%llu compares=%llu mismatches=%llu\n",
-                static_cast<unsigned long long>(g_elements_draws.load()),
-                static_cast<unsigned long long>(g_passthrough_draws.load()),
-                static_cast<unsigned long long>(g_vertices_uploaded.load()),
-                static_cast<unsigned long long>(g_vertices_expanded.load()),
-                static_cast<unsigned long long>(g_index_bytes.load()),
-                static_cast<unsigned long long>(g_compares.load()),
-                static_cast<unsigned long long>(g_compare_mismatches.load()));
-            store_slot(g_slot, reinterpret_cast<void *>(g_original));
-            g_slot = nullptr;
-            g_original = nullptr;
+    IndexedMeshRedirect::~IndexedMeshRedirect() {
+        g_installed = false;
+        m_redirect.reset();
+#ifdef HYPRIMATE_DIAGNOSTICS
+        std::fprintf(stderr,
+            "[hyprimate] indexed-mesh: uninstall; elements_draws=%llu passthrough=%llu uploaded=%llu "
+            "expanded=%llu index_bytes=%llu compares=%llu mismatches=%llu bytes_indexed=%llu "
+            "bytes_expanded=%llu contract_broken=%d selftest=%d readback_failures=%llu\n",
+            static_cast<unsigned long long>(g_elements_draws),
+            static_cast<unsigned long long>(g_passthrough_draws),
+            static_cast<unsigned long long>(g_vertices_uploaded),
+            static_cast<unsigned long long>(g_vertices_expanded),
+            static_cast<unsigned long long>(g_index_bytes),
+            static_cast<unsigned long long>(g_compares),
+            static_cast<unsigned long long>(g_compare_mismatches),
+            static_cast<unsigned long long>(g_vertices_uploaded * sizeof(SMeshRenderVertex) + g_index_bytes),
+            static_cast<unsigned long long>(g_vertices_expanded * sizeof(SMeshRenderVertex)),
+            g_contract_broken ? 1 : 0, selftest_enabled() ? 1 : 0,
+            static_cast<unsigned long long>(g_readback_failures));
+#endif
+        if (g_elements) {
+            const ScopedCompositorContext context{g_owner};
+            if (context) glDeleteBuffers(1, &g_elements);
+            g_elements = 0;
+            g_owner.reset();
         }
-        // The buffer name is only valid in the compositor context; delete it only if one is
-        // current (the runtime destructor runs on the render thread with Hyprland's context).
-        if (g_elements != 0 && eglGetCurrentContext() != EGL_NO_CONTEXT) {
-            glDeleteBuffers(1, &g_elements);
-        }
-        g_elements = 0;
-    }
-
-    bool indexed_mesh_available() noexcept {
-        return g_slot != nullptr;
-    }
-
-    IndexedMeshStats indexed_mesh_stats() noexcept {
-        return {g_elements_draws.load(),
-            g_passthrough_draws.load(),
-            g_vertices_expanded.load(),
-            g_vertices_uploaded.load(),
-            g_index_bytes.load(),
-            g_compares.load(),
-            g_compare_mismatches.load()};
+        // g_original stays live if another patcher retained our hook. GotRedirect pins the DSO
+        // when it cannot prove that no such chained call can reach it.
     }
 
     bool indexed_meshes_enabled() noexcept {
-        return g_slot != nullptr && indexed_mesh_mode() != IndexedMeshMode::Off;
+        return g_installed && !g_contract_broken;
     }
 
     void expand_indexed_mesh(std::span<const SMeshRenderVertex> vertices,
@@ -240,39 +164,75 @@ namespace hyprimate::gl {
         const std::vector<SMeshRenderVertex> &vertices,
         std::span<const std::uint16_t> indices,
         const Render::GL::CHyprOpenGLImpl::STextureRenderData &data) {
-        if (g_slot == nullptr || t_pending.active || vertices.empty() || indices.empty() ||
+        if (!indexed_meshes_enabled() || t_pending.contract.active || vertices.empty() || indices.empty() ||
             indices.size() % 3 != 0 || vertices.size() > 0xFFFFU ||
-            indices.size() > static_cast<std::size_t>(INT32_MAX)) {
-            return false;
+            indices.size() > static_cast<std::size_t>(INT32_MAX)) return false;
+        Pending pending;
+        pending.contract.active = true;
+        pending.contract.vertex_count = static_cast<int>(vertices.size());
+        pending.index_count = static_cast<GLsizei>(indices.size());
+#ifdef HYPRIMATE_DIAGNOSTICS
+        std::vector<std::uint16_t> damaged;
+        if (indexed_mesh_mode() == IndexedMeshMode::Compare && selftest_enabled() && indices.size() > 3) {
+            damaged.assign(indices.begin(), indices.end());
+            const auto other = std::find_if(damaged.rbegin(), damaged.rend(), [&](std::uint16_t value) {
+                return value != damaged[0] && value != damaged[1] && value != damaged[2];
+            });
+            if (other != damaged.rend()) std::iter_swap(damaged.begin(), other);
+            indices = damaged;
         }
-        Pending p;
-        p.active = true;
-        p.vertex_count = static_cast<GLsizei>(vertices.size());
-        p.index_count = static_cast<GLsizei>(indices.size());
-        upload_indices(indices, p);
-        t_pending = p;
-        // Stock early-outs on empty damage without drawing; that is a successful no-op.
+#endif
+        if (!upload_indices(indices, pending)) return false;
+        t_pending = pending;
+        struct ResetPending {
+            ~ResetPending() { t_pending = {}; }
+        } reset_pending;
         Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx, texture, box, vertices, data);
-        const bool CONSUMED = t_pending.consumed;
-        t_pending = {};
-        const bool EMPTY_DAMAGE = data.damage == nullptr || data.damage->empty();
-        if (CONSUMED) {
-            g_vertices_uploaded.fetch_add(vertices.size(), std::memory_order_relaxed);
-            g_vertices_expanded.fetch_add(indices.size(), std::memory_order_relaxed);
+        const bool consumed = t_pending.contract.consumed && !t_pending.contract.broken;
+#ifdef HYPRIMATE_DIAGNOSTICS
+        if (consumed) {
+            g_vertices_uploaded += vertices.size();
+            g_vertices_expanded += indices.size();
+            g_index_bytes += indices.size_bytes();
         }
-        return CONSUMED || EMPTY_DAMAGE;
+#endif
+        return consumed;
     }
 
+#ifdef HYPRIMATE_DIAGNOSTICS
     FramebufferSnapshot capture_bound_framebuffer(int width, int height) {
         FramebufferSnapshot snapshot;
         if (width <= 0 || height <= 0) return snapshot;
-        while (glGetError() != GL_NO_ERROR) {}
+        // A lost context may report errors indefinitely; never hang establishing a baseline.
+        int remaining_errors = 16;
+        while (remaining_errors > 0 && glGetError() != GL_NO_ERROR) --remaining_errors;
+        if (remaining_errors == 0) return snapshot;
+        GLint draw = 0, read = 0, pack = 0, alignment = 0, row = 0, skip_rows = 0, skip_pixels = 0;
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &draw);
+        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &read);
+        glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &pack);
+        if (pack != 0) return snapshot;
+        glGetIntegerv(GL_PACK_ALIGNMENT, &alignment);
+        glGetIntegerv(GL_PACK_ROW_LENGTH, &row);
+        glGetIntegerv(GL_PACK_SKIP_ROWS, &skip_rows);
+        glGetIntegerv(GL_PACK_SKIP_PIXELS, &skip_pixels);
+        if (glGetError() != GL_NO_ERROR) return snapshot;
         snapshot.width = width;
         snapshot.height = height;
         snapshot.pixels.resize(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(draw));
         glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glPixelStorei(GL_PACK_ROW_LENGTH, 0);
+        glPixelStorei(GL_PACK_SKIP_ROWS, 0);
+        glPixelStorei(GL_PACK_SKIP_PIXELS, 0);
         glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, snapshot.pixels.data());
         snapshot.ok = glGetError() == GL_NO_ERROR;
+        glPixelStorei(GL_PACK_ALIGNMENT, alignment);
+        glPixelStorei(GL_PACK_ROW_LENGTH, row);
+        glPixelStorei(GL_PACK_SKIP_ROWS, skip_rows);
+        glPixelStorei(GL_PACK_SKIP_PIXELS, skip_pixels);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(read));
+        if (glGetError() != GL_NO_ERROR) snapshot.ok = false;
         return snapshot;
     }
 
@@ -280,8 +240,11 @@ namespace hyprimate::gl {
         const FramebufferSnapshot &indexed,
         std::size_t vertices,
         std::size_t indices) {
+        const auto N = ++g_compares;
         if (!expanded.ok || !indexed.ok || expanded.pixels.size() != indexed.pixels.size()) {
-            std::fprintf(stderr, "[hyprimate] indexed-mesh compare: readback unavailable\n");
+            ++g_compare_mismatches;
+            ++g_readback_failures;
+            std::fprintf(stderr, "[hyprimate] indexed-mesh compare: readback unavailable (MISMATCH)\n");
             return;
         }
         std::size_t differing = 0;
@@ -291,8 +254,7 @@ namespace hyprimate::gl {
             if (DELTA != 0) ++differing;
             max_delta = std::max(max_delta, DELTA);
         }
-        const auto N = g_compares.fetch_add(1, std::memory_order_relaxed) + 1;
-        if (differing != 0) g_compare_mismatches.fetch_add(1, std::memory_order_relaxed);
+        if (differing != 0) ++g_compare_mismatches;
         // Log the first few and every 120th so a long session stays readable.
         if (differing != 0 || N <= 3 || N % 120 == 0) {
             std::fprintf(stderr,
@@ -309,4 +271,5 @@ namespace hyprimate::gl {
                 differing == 0 ? "IDENTICAL" : "MISMATCH");
         }
     }
+#endif
 }  // namespace hyprimate::gl

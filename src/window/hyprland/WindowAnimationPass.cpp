@@ -13,6 +13,7 @@
 #include "window/shared/SheetRenderer.hpp"
 #include "window/Profiling.hpp"
 #include "perf/GpuTimer.hpp"
+#include "perf/Diagnostics.hpp"
 
 using namespace hyprimate::animation;
 
@@ -76,12 +77,14 @@ std::vector<UP<IPassElement>> CWindowAnimationPass::draw(Render::CRenderContext 
                 if (shader) texture_data.blurA = m_data.blur_alpha;
                 texture_data.blurAlphaMatte = matte.layer()->getTexture();
                 texture_data.discardMode = 0;
+                HYPRIMATE_GPU_STOPWATCH("pass.blur-composite");
                 g_pHyprRenderer->draw(ctx, texture_data, m_data.damage);
             } else {
                 Render::GL::CHyprOpenGLImpl::STextureRenderData texture_data{};
                 texture_data.damage = &m_data.damage;
                 texture_data.a = m_data.alpha;
                 texture_data.allowCustomUV = true;
+                HYPRIMATE_GPU_STOPWATCH("canvas.final-mesh");
                 Render::GL::g_pHyprOpenGL->renderTextureMesh(
                     ctx, canvas.layer()->getTexture(), BOX, sheet_canvas_quad(), texture_data);
             }

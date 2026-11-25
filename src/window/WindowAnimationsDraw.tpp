@@ -180,9 +180,8 @@ namespace hyprimate::animation {
                     &buffers,
                     indexed};
                 const auto MESH = [&] {
-                    const perf::CpuScope MESH_SCOPE{
-                        perf::Key{perf::Domain::Window, "sheet", "mesh-fill"},
-                        perf::Phase::Update};
+                    HYPRIMATE_CPU_SCOPE((perf::Key{
+                        perf::Domain::Window, "sheet", "mesh-fill"}));
                     return Style::mesh(slot.state, TARGET, resources);
                 }();
                 drawn = draw_info.canvas->submit_mesh(MESH, isolated_draw);

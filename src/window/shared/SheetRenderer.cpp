@@ -25,7 +25,7 @@
 #include "gl/NativeFramebuffer.hpp"
 #include "gl/NativeResource.hpp"
 #include "gl/Storage.hpp"
-#include "perf/GpuStopwatch.hpp"
+#include "perf/Diagnostics.hpp"
 #include "perf/LiveProfiler.hpp"
 #include "window/shared/SheetRenderer.hpp"
 
@@ -127,7 +127,6 @@ SP<Render::IFramebuffer> render_sheet(Render::CRenderContext &ctx, const SSheetD
         return nullptr;
     }
 
-    // Requested while paper_layer is held, so the pool cannot return the same buffer twice.
     const bool LIT =
         draw.shade && (draw.shade_vertices != nullptr) && !draw.shade_vertices->empty();
     const auto SHADE_LAYER =
@@ -135,6 +134,7 @@ SP<Render::IFramebuffer> render_sheet(Render::CRenderContext &ctx, const SSheetD
 
     // Binds the framebuffer as the target and clears it under the canvas damage.
     const auto BEGIN_TARGET = [&](const SP<Render::IFramebuffer> &framebuffer) {
+        HYPRIMATE_GPU_STOPWATCH("sheet.work-buffer-clear");
         g_pHyprRenderer->bindFB(ctx, framebuffer);
         data.damage = CRegion{0.0, 0.0, draw.canvas.x, draw.canvas.y};
         data.fbSize = draw.canvas;
@@ -154,6 +154,7 @@ SP<Render::IFramebuffer> render_sheet(Render::CRenderContext &ctx, const SSheetD
         const bool WAS_BLEND = Render::GL::g_pHyprOpenGL->blendEnabled();
         Render::GL::g_pHyprOpenGL->blend(false);
         texture_data.a = 1.F;
+        HYPRIMATE_GPU_STOPWATCH("sheet.shade-layer");
         Render::GL::g_pHyprOpenGL->renderTextureMesh(
             ctx, draw.shade, draw.mesh_box, *draw.shade_vertices, texture_data);
         Render::GL::g_pHyprOpenGL->blend(WAS_BLEND);
@@ -165,10 +166,13 @@ SP<Render::IFramebuffer> render_sheet(Render::CRenderContext &ctx, const SSheetD
     // translucency against what is behind it is kept.
     // Draws the window layer from the generator's expanded list, or from a gathered copy of its
     // unique vertices when only the indexed form exists (redirect unavailable, compare reference).
-    const auto DRAW_WINDOW_EXPANDED = [&] {
+    const auto PREPARE_WINDOW = [&] {
         BEGIN_TARGET(paper_layer);
         Render::GL::g_pHyprOpenGL->blend(false);
         texture_data.a = draw.alpha;
+    };
+    const auto DRAW_WINDOW_EXPANDED = [&] {
+        PREPARE_WINDOW();
         if (draw.window_indices == nullptr) {
             Render::GL::g_pHyprOpenGL->renderTextureMesh(
                 ctx, draw.window, draw.mesh_box, *draw.window_vertices, texture_data);
@@ -180,24 +184,23 @@ SP<Render::IFramebuffer> render_sheet(Render::CRenderContext &ctx, const SSheetD
             ctx, draw.window, draw.mesh_box, gathered, texture_data);
     };
     const auto DRAW_WINDOW_INDEXED = [&] {
-        BEGIN_TARGET(paper_layer);
-        Render::GL::g_pHyprOpenGL->blend(false);
-        texture_data.a = draw.alpha;
+        PREPARE_WINDOW();
         return hyprimate::gl::render_indexed_mesh(
             ctx, draw.window, draw.mesh_box, *draw.window_vertices, *draw.window_indices,
             texture_data);
     };
     {
-        // CPU time of the window-layer submission goes to `hyprctl hyprimate:profile`. Its GPU
-        // time uses timestamp queries: the host's enclosing style scope already holds the single
-        // GL_TIME_ELAPSED query, so a nested GpuScope here can only be dropped.
+#ifdef HYPRIMATE_DIAGNOSTICS
         constexpr hyprimate::perf::Key KEY{
             hyprimate::perf::Domain::Window, "sheet", "window-layer"};
-        const hyprimate::perf::CpuScope CPU_SCOPE{KEY, hyprimate::perf::Phase::Draw};
-        const hyprimate::perf::GpuStopwatch GPU_STOPWATCH{"window-layer"};
+        HYPRIMATE_CPU_SCOPE(KEY);
+#endif
+        HYPRIMATE_GPU_STOPWATCH("window-layer");
         if (draw.window_indices == nullptr) {
             DRAW_WINDOW_EXPANDED();
-        } else if (hyprimate::gl::indexed_mesh_mode() ==
+        }
+#ifdef HYPRIMATE_DIAGNOSTICS
+        else if (hyprimate::gl::indexed_mesh_mode() ==
                    hyprimate::gl::IndexedMeshMode::Compare) {
             DRAW_WINDOW_EXPANDED();
             const auto EXPANDED_PIXELS = hyprimate::gl::capture_bound_framebuffer(
@@ -211,7 +214,9 @@ SP<Render::IFramebuffer> render_sheet(Render::CRenderContext &ctx, const SSheetD
             } else {
                 DRAW_WINDOW_EXPANDED();
             }
-        } else if (!DRAW_WINDOW_INDEXED()) {
+        }
+#endif
+        else if (!DRAW_WINDOW_INDEXED()) {
             DRAW_WINDOW_EXPANDED();
         }
     }
@@ -223,6 +228,7 @@ SP<Render::IFramebuffer> render_sheet(Render::CRenderContext &ctx, const SSheetD
         Render::GL::g_pHyprOpenGL->blendFunc(GL_DST_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glBlendFunc(GL_DST_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         texture_data.a = 1.F;
+        HYPRIMATE_GPU_STOPWATCH("sheet.tint");
         Render::GL::g_pHyprOpenGL->renderTextureMesh(ctx,
             SHADE_LAYER->getTexture(),
             CBox{0.0, 0.0, draw.canvas.x, draw.canvas.y},

@@ -16,6 +16,7 @@
 #include "gl/NativeFramebuffer.hpp"
 #include "window/WindowAnimations.hpp"
 #include "perf/GpuTimer.hpp"
+#include "perf/Diagnostics.hpp"
 
 using namespace Render;
 using namespace hyprimate::animation;
@@ -238,6 +239,7 @@ SWindowTransformBuffer CAnimationTransformer::transform(CRenderContext &ctx,
         }
         const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
         const auto STATE = ctx.saveDrawState();
+        HYPRIMATE_GPU_STOPWATCH("transform.work-buffer-clear");
         g_pHyprRenderer->bindFB(ctx, canvas.layer());
         ctx.m_data.damage = CRegion{0.0, 0.0, CANVAS.w, CANVAS.h};
         ctx.m_data.fbSize = CANVAS.size();

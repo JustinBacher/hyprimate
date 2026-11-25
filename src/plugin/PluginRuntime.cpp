@@ -3,6 +3,7 @@
 #include <chrono>
 #include <concepts>
 #include <cstdint>
+#include <cstdio>
 #include <memory>
 #include <optional>
 #include <random>
@@ -32,7 +33,9 @@
 #include "gl/IndexedMesh.hpp"
 #include "gl/NativeResource.hpp"
 #include "perf/LiveProfiler.hpp"
+#ifdef HYPRIMATE_DIAGNOSTICS
 #include "perf/GpuStopwatch.hpp"
+#endif
 #include "perf/RuntimeProfiler.hpp"
 #include "shader/ShaderWallpaper.hpp"
 #include "window/WindowAnimations.hpp"
@@ -99,6 +102,7 @@ class CPluginRuntime::Impl {
     std::unique_ptr<hyprimate::perf::RuntimeProfiler> m_profiler;
     CHyprSignalListener m_open, m_close_event, m_destroy, m_pre_checks, m_pre, m_stage;
     CHyprSignalListener m_reload, m_config_refresh, m_monitor_layout, m_monitor_removed;
+    std::optional<hyprimate::gl::IndexedMeshRedirect> m_indexed_mesh;
 };
 
 CPluginRuntime::Impl::Impl(HANDLE handle) : m_handle(handle) {
@@ -114,12 +118,6 @@ CPluginRuntime::Impl::Impl(HANDLE handle) : m_handle(handle) {
     m_close_available = m_close->install(error);
     if (!m_close_available) {
         notify("[hyprimate] close transitions unavailable: " + error);
-    }
-    if (hyprimate::gl::indexed_mesh_mode() != hyprimate::gl::IndexedMeshMode::Off) {
-        std::string indexed_error;
-        if (!hyprimate::gl::install_indexed_mesh(m_handle, indexed_error)) {
-            notify("[hyprimate] indexed mesh unavailable: " + indexed_error);
-        }
     }
     m_workspace = std::make_unique<CWorkspaceAnimation>(m_handle);
     error.clear();
@@ -191,9 +189,17 @@ CPluginRuntime::Impl::Impl(HANDLE handle) : m_handle(handle) {
     }
     m_profiler = std::make_unique<hyprimate::perf::RuntimeProfiler>(m_handle, m_port,
         [this](std::uint64_t monitor) { m_animations.profile_frame_presented(monitor); });
+    m_indexed_mesh.emplace();
+    if (hyprimate::gl::indexed_mesh_mode() != hyprimate::gl::IndexedMeshMode::Off) {
+        std::string indexed_error;
+        if (!m_indexed_mesh->install(indexed_error)) {
+            std::fprintf(stderr, "[hyprimate] indexed mesh unavailable: %s\n", indexed_error.c_str());
+        }
+    }
 }
 
 CPluginRuntime::Impl::~Impl() {
+#ifdef HYPRIMATE_DIAGNOSTICS
     {
         // Timestamp-query results are read at teardown so a profiled run reports GPU time of the
         // regions it stopwatched; the context must be current to read and free the queries.
@@ -204,7 +210,8 @@ CPluginRuntime::Impl::~Impl() {
             hyprimate::perf::gpu_stopwatch_release();
         }
     }
-    hyprimate::gl::uninstall_indexed_mesh();
+#endif
+    m_indexed_mesh.reset();
     m_profiler.reset();
     m_open.reset();
     m_close_event.reset();

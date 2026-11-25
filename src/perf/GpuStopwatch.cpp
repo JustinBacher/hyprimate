@@ -55,6 +55,7 @@ namespace hyprimate::perf {
                 state.slots = {};
                 state.context = CURRENT;
                 state.discovered = false;
+                state.supported = false;
             }
             if (!state.discovered) {
                 state.discovered = true;
@@ -77,32 +78,26 @@ namespace hyprimate::perf {
         }
 
         void poll(State &state) noexcept {
-            GLint disjoint = 0;
-            glGetIntegerv(GL_GPU_DISJOINT_EXT, &disjoint);
             for (auto &slot : state.slots) {
                 if (slot.stage != Slot::Stage::Pending) continue;
                 GLuint ready = 0;
                 state.available(slot.end, GL_QUERY_RESULT_AVAILABLE_EXT, &ready);
                 if (ready == 0U) continue;
                 auto &series = state.series[slot.label];
-                if (disjoint != 0) {
-                    ++series.dropped;
-                } else {
-                    GLuint64 begin = 0;
-                    GLuint64 end = 0;
-                    state.result(slot.begin, GL_QUERY_RESULT_EXT, &begin);
-                    state.result(slot.end, GL_QUERY_RESULT_EXT, &end);
-                    if (end >= begin && series.ns.size() < MAX_SAMPLES) {
-                        series.ns.push_back(static_cast<std::uint32_t>(
-                            std::min<GLuint64>(end - begin, UINT32_MAX)));
-                    }
+                GLuint64 begin = 0;
+                GLuint64 end = 0;
+                state.result(slot.begin, GL_QUERY_RESULT_EXT, &begin);
+                state.result(slot.end, GL_QUERY_RESULT_EXT, &end);
+                if (end >= begin && series.ns.size() < MAX_SAMPLES) {
+                    series.ns.push_back(static_cast<std::uint32_t>(
+                        std::min<GLuint64>(end - begin, UINT32_MAX)));
                 }
                 slot.stage = Slot::Stage::Free;
             }
         }
     }  // namespace
 
-    GpuStopwatch::GpuStopwatch(const char *label) noexcept : m_label(label) {
+    GpuStopwatch::GpuStopwatch(const char *label) noexcept {
         if (!enabled()) return;
         auto &state = g_state;
         if (!discover(state)) return;

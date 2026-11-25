@@ -8,8 +8,9 @@
 
 #include <hyprland/src/helpers/DeformableMesh.hpp>
 #include <hyprland/src/helpers/memory/Memory.hpp>
-#include <hyprland/src/plugins/PluginAPI.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
+
+#include "gl/GotRedirect.hpp"
 
 namespace Render {
     class ITexture;
@@ -29,30 +30,18 @@ namespace hyprimate::gl {
         Compare,  // On, plus a per-frame readback diff against the expanded draw
     };
 
-    struct IndexedMeshStats {
-        std::uint64_t elements_draws = 0;  // glDrawElements issued by the redirect
-        std::uint64_t passthrough_draws = 0;  // glDrawArrays forwarded untouched
-        std::uint64_t vertices_expanded = 0;  // vertices a stock upload would have sent
-        std::uint64_t vertices_uploaded = 0;  // vertices actually uploaded
-        std::uint64_t index_bytes = 0;
-        std::uint64_t compares = 0;
-        std::uint64_t compare_mismatches = 0;
+    // Owns the process-wide redirect and its compositor-context element buffer.
+    class IndexedMeshRedirect {
+      public:
+        ~IndexedMeshRedirect();
+        [[nodiscard]] bool install(std::string &error);
+      private:
+        GotRedirect m_redirect;
     };
 
-    // Reads HYPRIMATE_INDEXED_MESH (unset/0/off, 1/on, compare). Cached on first use.
+    // Unset/on/1 enables indexed meshes; off/0 disables them. Compare requires diagnostics.
     [[nodiscard]] IndexedMeshMode indexed_mesh_mode() noexcept;
-
-    // Installs the glDrawArrays redirect. Returns false with `error` set when it cannot be
-    // installed; generators then keep emitting expanded meshes.
-    [[nodiscard]] bool install_indexed_mesh(HANDLE handle, std::string &error);
-    // Restores the GOT slot and frees the element buffer (the buffer name is deleted only when a
-    // GL context is current; otherwise it is intentionally leaked).
-    void uninstall_indexed_mesh() noexcept;
-    [[nodiscard]] bool indexed_mesh_available() noexcept;
-    // True when generators should emit indexed window meshes: mode is not Off and the
-    // redirect is installed.
     [[nodiscard]] bool indexed_meshes_enabled() noexcept;
-    [[nodiscard]] IndexedMeshStats indexed_mesh_stats() noexcept;
 
     // Gathers an indexed mesh into the expanded triangle list stock draws. Used when the redirect
     // is unavailable at draw time and as the compare-mode reference.
@@ -61,9 +50,8 @@ namespace hyprimate::gl {
         std::vector<SMeshRenderVertex> &out);
 
     // Same contract as CHyprOpenGLImpl::renderTextureMesh but with indices into `vertices`.
-    // Returns true when the draw was issued (or stock skipped it for empty damage). Returns false
-    // without drawing when the redirect is unavailable or the mesh is not indexable (empty,
-    // index count not a multiple of 3, nested use); the caller then draws an expanded list.
+    // Returns true only if the redirect issued at least one indexed draw. Otherwise the caller
+    // clears the target and replays an expanded list.
     // Every index must be < vertices.size().
     [[nodiscard]] bool render_indexed_mesh(Render::CRenderContext &ctx,
         const SP<Render::ITexture> &texture,
@@ -72,6 +60,7 @@ namespace hyprimate::gl {
         std::span<const std::uint16_t> indices,
         const Render::GL::CHyprOpenGLImpl::STextureRenderData &data);
 
+#ifdef HYPRIMATE_DIAGNOSTICS
     // Compare-mode helpers: RGBA8 readback of the currently bound framebuffer.
     struct FramebufferSnapshot {
         std::vector<std::uint8_t> pixels;
@@ -84,4 +73,5 @@ namespace hyprimate::gl {
         const FramebufferSnapshot &indexed,
         std::size_t vertices,
         std::size_t indices);
+#endif
 }  // namespace hyprimate::gl

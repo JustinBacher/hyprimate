@@ -1,6 +1,8 @@
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <utility>
+#include <vector>
 
 #include "Check.hpp"
 #include "window/liquid/LiquidPose.hpp"
@@ -168,6 +170,40 @@ int main() {
         const auto *index_data = liquid_indexed.window_indices.data();
         fill_liquid_mesh(POSE, liquid_indexed_target, grid, std::nullopt, {}, std::nullopt);
         CHECK(liquid_indexed.window_indices.data() == index_data);
+
+        // Reuse one buffer across representation and style changes, including retained indices.
+        animation::MeshBuffers<animation::MeshVertex> reused;
+        auto switching_target = TARGET;
+        switching_target.buffers = &reused;
+        const auto CHECK_SWITCHES = [&](auto fill, std::size_t expected_indices) {
+            std::vector<animation::MeshVertex> expanded;
+            for (bool indexed : {false, true, false, true}) {
+                switching_target.indexed = indexed;
+                const auto mesh = fill();
+                CHECK(mesh.window == &reused.window);
+                if (!indexed) {
+                    CHECK(mesh.window_indices == nullptr);
+                    expanded = reused.window;
+                } else {
+                    CHECK(mesh.window_indices == &reused.window_indices);
+                    CHECK(reused.window_indices.size() == expected_indices);
+                    CHECK(reused.window_indices.size() % 3 == 0);
+                    CHECK(std::all_of(reused.window_indices.begin(), reused.window_indices.end(),
+                        [&](std::uint16_t index) { return index < reused.window.size(); }));
+                    CHECK(SAME_VERTICES(expanded, reused.window, reused.window_indices));
+                }
+            }
+        };
+        CHECK_SWITCHES([&] { return fill_sheet_mesh(frame, switching_target, true, 1.F); },
+            SHEET_VERTEX_COUNT);
+        CHECK_SWITCHES([&] {
+            return fill_liquid_mesh(POSE, switching_target, grid, std::nullopt, {}, std::nullopt);
+        }, LIQUID_RENDER_VERTEX_COUNT);
+        CHECK_SWITCHES([&] { return fill_sheet_mesh(frame, switching_target, false, 1.F); },
+            SHEET_VERTEX_COUNT);
+        CHECK_SWITCHES([&] {
+            return fill_liquid_mesh(POSE, switching_target, grid, std::nullopt, {}, std::nullopt);
+        }, LIQUID_RENDER_VERTEX_COUNT);
     }
     return g_failures == 0 ? 0 : 1;
 }

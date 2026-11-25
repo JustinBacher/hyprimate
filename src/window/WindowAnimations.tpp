@@ -5,6 +5,7 @@
 
 #include "WindowTracker.hpp"
 #include "Profiling.hpp"
+#include "perf/Diagnostics.hpp"
 #include "WindowAnimationClock.hpp"
 #include "WindowAnimationGeometry.hpp"
 

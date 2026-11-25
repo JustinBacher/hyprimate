@@ -7,7 +7,8 @@ namespace hyprimate::perf {
     // GL_TIME_ELAPSED query, which the host's enclosing style scope already holds), timestamp
     // queries nest inside it, so an inner region of an already-timed draw can be measured.
     // Compositor-thread only, active only while the live profiler is running. Results are read
-    // without blocking, a few frames later; discarded when the driver reports a disjoint event.
+    // without blocking, a few frames later. The diagnostics harness must gate samples against
+    // disjoint events; GpuTimer owns the GL_GPU_DISJOINT_EXT read.
     class GpuStopwatch {
       public:
         explicit GpuStopwatch(const char *label) noexcept;
@@ -19,11 +20,11 @@ namespace hyprimate::perf {
 
       private:
         int m_slot = -1;
-        const char *m_label = nullptr;
     };
 
     // One line per label: count, mean/p50/p95/max in microseconds, and samples dropped (no free
-    // slot or disjoint). Consumes any results the driver reports ready first.
+    // slot). Consumes any results the driver reports ready first; the harness must exclude any
+    // samples spanning a disjoint event reported by GpuTimer.
     [[nodiscard]] std::string gpu_stopwatch_report();
     // Deletes the query objects (compositor context must be current) and clears samples.
     void gpu_stopwatch_release() noexcept;
