@@ -3,7 +3,7 @@ find_package(nlohmann_json 3.11 REQUIRED)
 pkg_check_modules(SHADER_GLES REQUIRED IMPORTED_TARGET glesv2)
 
 # Package semantics and GLES execution have no Hyprland or EGL dependency.
-add_library(shader-package STATIC src/shader/Package.cpp)
+add_library(shader-package STATIC src/shader/Package.cpp src/shader/ShaderSource.cpp)
 target_include_directories(shader-package PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(shader-package PRIVATE PNG::PNG nlohmann_json::nlohmann_json)
 add_library(shader-gles STATIC
