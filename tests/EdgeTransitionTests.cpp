@@ -13,7 +13,8 @@
 #include "shared/Core.hpp"
 #include "window/liquid/LiquidMesh.hpp"
 #include "window/liquid/LiquidPose.hpp"
-#include "window/shared/EdgeTransition.hpp"
+#include "window/liquid/EdgeTransition.hpp"
+#include "window/shared/EdgeFrame.hpp"
 
 namespace {
 

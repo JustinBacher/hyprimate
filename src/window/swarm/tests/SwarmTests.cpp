@@ -13,7 +13,7 @@
 
 #include "Check.hpp"
 #include "shared/Core.hpp"
-#include "window/shared/EdgeTransition.hpp"
+#include "window/shared/EdgeFrame.hpp"
 #include "window/swarm/Swarm.hpp"
 #include "window/swarm/SwarmSprite.hpp"
 

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "config_settings_generated.hpp"
-#include "window/shared/EdgeTransition.hpp"
+#include "window/shared/EdgeFrame.hpp"
 #include "window/smoke/Smoke.hpp"
 
 namespace hyprimate {

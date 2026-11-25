@@ -1,7 +1,7 @@
 #pragma once
 
 #include "config_settings_generated.hpp"
-#include "window/shared/EdgeTransition.hpp"
+#include "window/shared/EdgeFrame.hpp"
 #include "window/swarm/Swarm.hpp"
 
 // The swarm settings as the simulation and the sprite layer take them.

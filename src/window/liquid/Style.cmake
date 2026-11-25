@@ -1,4 +1,5 @@
 target_sources(hyprimate-core PRIVATE
+    src/window/liquid/EdgeTransition.cpp
     src/window/liquid/LiquidPose.cpp
     src/window/liquid/LiquidMesh.cpp
 )

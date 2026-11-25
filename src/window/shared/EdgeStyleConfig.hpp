@@ -1,7 +1,7 @@
 #pragma once
 
 #include "config_settings_generated.hpp"
-#include "window/shared/EdgeTransition.hpp"
+#include "window/shared/EdgeFrame.hpp"
 
 namespace hyprimate {
     inline CloseSide close_side(config::Side side) noexcept {

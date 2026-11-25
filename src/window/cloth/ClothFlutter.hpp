@@ -5,7 +5,7 @@
 #include <optional>
 #include <span>
 
-#include "window/shared/EdgeTransition.hpp"
+#include "window/shared/EdgeFrame.hpp"
 #include "window/shared/SheetFrame.hpp"
 
 namespace hyprimate {

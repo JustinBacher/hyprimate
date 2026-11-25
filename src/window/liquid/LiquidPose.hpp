@@ -10,7 +10,7 @@
 #include "shared/Core.hpp"
 #include "window/WindowAnimationFacts.hpp"
 #include "window/liquid/LiquidMesh.hpp"
-#include "window/shared/EdgeTransition.hpp"
+#include "window/liquid/EdgeTransition.hpp"
 
 namespace hyprimate {
 
