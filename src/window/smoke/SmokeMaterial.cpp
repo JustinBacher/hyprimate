@@ -2,6 +2,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <utility>
 
 #include "gl/Storage.hpp"
 #include "window/smoke/SmokeMaterial.hpp"
@@ -29,7 +30,15 @@ void CSmokeField::release() {
     if (m_framebuffer != 0) {
         glDeleteFramebuffers(1, &m_framebuffer);
     }
-    *this = CSmokeField{};
+    m_framebuffer = 0;
+    m_width = m_height = 0;
+    m_velocity = VelocityA;
+    m_dye = DyeA;
+    m_age = AgeA;
+    m_pressure = PressureA;
+    m_time = m_smoke = 0;
+    m_centre = m_position = m_domain = m_size = m_resize_rate = {};
+    m_primed = false;
 }
 
 bool CSmokeMaterial::initialize(const SSmokePrograms &programs) {
@@ -287,10 +296,11 @@ bool CSmokeMaterial::allocate(CSmokeField &field, GLsizei width, GLsizei height)
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, 0, 0);
     glDrawBuffers(1, BOTH.data());
-    pending.m_width = width;
-    pending.m_height = height;
     field.release();
-    field = pending;
+    field.m_textures.swap(pending.m_textures);
+    std::swap(field.m_framebuffer, pending.m_framebuffer);
+    field.m_width = width;
+    field.m_height = height;
     return true;
 }
 

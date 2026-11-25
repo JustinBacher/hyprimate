@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -21,6 +22,11 @@
 #include "window/bubble/BubbleMotion.hpp"
 
 namespace {
+    static_assert(!std::is_copy_constructible_v<CBubbleMaterial>);
+    static_assert(!std::is_copy_assignable_v<CBubbleMaterial>);
+    static_assert(!std::is_move_constructible_v<CBubbleMaterial>);
+    static_assert(!std::is_move_assignable_v<CBubbleMaterial>);
+
     constexpr int WIDTH = 256, HEIGHT = 256;
     using Pixel = std::array<unsigned char, 4>;
     using Image = std::vector<Pixel>;
@@ -248,6 +254,7 @@ namespace {
             }
             CHECK(render(material) == baseline);
             material.release();
+            CHECK(render(fixture.material) == baseline);
         }
     }
 

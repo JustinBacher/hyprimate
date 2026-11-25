@@ -8,6 +8,7 @@
 #include <cstring>
 #include <filesystem>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include <GLES3/gl32.h>
@@ -19,6 +20,94 @@
 #include "window/smoke/SmokeMaterial.hpp"
 
 namespace {
+    struct TrackedName {
+        GLuint name;
+        unsigned deletions = 0;
+    };
+
+    struct AllocationTrace;
+    thread_local AllocationTrace *active_trace = nullptr;
+
+    // These wrappers are linked only into this executable and are inert outside the scope.
+    struct AllocationTrace {
+        explicit AllocationTrace(bool reject_pair)
+            : previous(active_trace), reject_pair(reject_pair) {
+            active_trace = this;
+        }
+        ~AllocationTrace() {
+            active_trace = previous;
+        }
+        AllocationTrace(const AllocationTrace &) = delete;
+        AllocationTrace &operator=(const AllocationTrace &) = delete;
+        AllocationTrace(AllocationTrace &&) = delete;
+        AllocationTrace &operator=(AllocationTrace &&) = delete;
+
+        static void generated(std::vector<TrackedName> &names, GLsizei count, const GLuint *ids) {
+            for (GLsizei i = 0; i < count; ++i) names.push_back({ids[i]});
+        }
+        static void deleted(std::vector<TrackedName> &names, GLsizei count, const GLuint *ids) {
+            for (GLsizei i = 0; i < count; ++i) {
+                for (auto &name : names) {
+                    if (name.name == ids[i]) ++name.deletions;
+                }
+            }
+        }
+
+        AllocationTrace *previous;
+        bool reject_pair;
+        bool rejected_pair = false;
+        std::vector<TrackedName> textures;
+        std::vector<TrackedName> framebuffers;
+    };
+}  // namespace
+
+extern "C" {
+void __real_glGenTextures(GLsizei, GLuint *);
+void __real_glDeleteTextures(GLsizei, const GLuint *);
+void __real_glGenFramebuffers(GLsizei, GLuint *);
+void __real_glDeleteFramebuffers(GLsizei, const GLuint *);
+void __real_glFramebufferTexture2D(GLenum, GLenum, GLenum, GLuint, GLint);
+
+void __wrap_glGenTextures(GLsizei count, GLuint *ids) {
+    __real_glGenTextures(count, ids);
+    if (active_trace != nullptr) AllocationTrace::generated(active_trace->textures, count, ids);
+}
+void __wrap_glDeleteTextures(GLsizei count, const GLuint *ids) {
+    if (active_trace != nullptr) AllocationTrace::deleted(active_trace->textures, count, ids);
+    __real_glDeleteTextures(count, ids);
+}
+void __wrap_glGenFramebuffers(GLsizei count, GLuint *ids) {
+    __real_glGenFramebuffers(count, ids);
+    if (active_trace != nullptr) AllocationTrace::generated(active_trace->framebuffers, count, ids);
+}
+void __wrap_glDeleteFramebuffers(GLsizei count, const GLuint *ids) {
+    if (active_trace != nullptr) AllocationTrace::deleted(active_trace->framebuffers, count, ids);
+    __real_glDeleteFramebuffers(count, ids);
+}
+void __wrap_glFramebufferTexture2D(
+    GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level) {
+    if (active_trace != nullptr && active_trace->reject_pair && !active_trace->rejected_pair &&
+        attachment == GL_COLOR_ATTACHMENT1 && texture != 0 && !active_trace->textures.empty()) {
+        active_trace->rejected_pair = true;
+        // Use another allocated texture so the attachment query remains valid, but mismatches.
+        __real_glFramebufferTexture2D(
+            target, attachment, textarget, active_trace->textures.front().name, level);
+        return;
+    }
+    __real_glFramebufferTexture2D(target, attachment, textarget, texture, level);
+}
+}  // extern "C"
+
+namespace {
+    static_assert(!std::is_copy_constructible_v<CSmokeMaterial>);
+    static_assert(!std::is_copy_assignable_v<CSmokeMaterial>);
+    static_assert(!std::is_move_constructible_v<CSmokeMaterial>);
+    static_assert(!std::is_move_assignable_v<CSmokeMaterial>);
+    static_assert(!std::is_copy_constructible_v<CSmokeField>);
+    static_assert(!std::is_copy_assignable_v<CSmokeField>);
+    static_assert(!std::is_move_constructible_v<CSmokeField>);
+    static_assert(!std::is_move_assignable_v<CSmokeField>);
+
     constexpr int W = 512, H = 256, TW = 160, TH = 120;
     using Pixel = std::array<unsigned char, 4>;
     using Image = std::vector<Pixel>;
@@ -308,9 +397,9 @@ namespace {
         harness.convert(survivor);
         const GLuint SURVIVOR = survivor.framebuffer();
         require(SURVIVOR != 0);
-        // Fail early, halfway through, and at the last texture of a new field. A live
-        // field resizes its world domain without allocating or losing its fluid history.
-        for (const unsigned OCCURRENCE : {1U, 6U, 11U}) {
+        // Fail early, halfway through, and at the last texture, then reject a paired
+        // attachment after all textures are allocated. The survivor retains its fluid.
+        for (const unsigned OCCURRENCE : {1U, 6U, 11U, 0U}) {
             CSmokeField pending;
             Image before;
             {
@@ -319,21 +408,62 @@ namespace {
                 harness.frame.time += 1.0 / 60;
                 before = harness.render(survivor);
                 CHECK(survivor.framebuffer() == SURVIVOR);
-                CHECK(!harness.material.simulate(
-                    pending, harness.frame, harness.target, harness.images()));
-                CHECK(pending.framebuffer() == 0);
+                {
+                    const bool PAIR_FAILURE = OCCURRENCE == 0;
+                    AllocationTrace trace{PAIR_FAILURE};
+                    CHECK(!harness.material.simulate(
+                        pending, harness.frame, harness.target, harness.images()));
+                    CHECK(trace.rejected_pair == PAIR_FAILURE);
+                    CHECK(trace.textures.size() == 11);
+                    CHECK(trace.framebuffers.size() == 1);
+                    for (const auto &texture : trace.textures) {
+                        CHECK(texture.name != 0);
+                        CHECK(texture.deletions == 1);
+                        CHECK(glIsTexture(texture.name) == GL_FALSE);
+                    }
+                    for (const auto &framebuffer : trace.framebuffers) {
+                        CHECK(framebuffer.name != 0);
+                        CHECK(framebuffer.deletions == 1);
+                        CHECK(glIsFramebuffer(framebuffer.name) == GL_FALSE);
+                    }
+                    CHECK(pending.framebuffer() == 0);
+                }
                 CHECK(harness.render(survivor) == before);
             }
             // The same failed field must be usable without release or reconstruction.
             require(harness.material.simulate(
                 pending, harness.frame, harness.target, harness.images()));
-            require(pending.framebuffer() != 0);
+            const GLuint RETRY = pending.framebuffer();
+            require(RETRY != 0 && RETRY != SURVIVOR);
+            CHECK(glIsFramebuffer(RETRY) == GL_TRUE);
             CHECK(harness.render(survivor) == before);
             pending.release();
+            CHECK(pending.framebuffer() == 0);
+            CHECK(glIsFramebuffer(RETRY) == GL_FALSE);
+            CHECK(glIsFramebuffer(SURVIVOR) == GL_TRUE);
+            CHECK(harness.render(survivor) == before);
             CHECK(glGetError() == GL_NO_ERROR);
         }
         CHECK(alpha_sum(harness.render(survivor), 0, W) > 0);
         survivor.release();
+        CHECK(survivor.framebuffer() == 0);
+        CHECK(glIsFramebuffer(SURVIVOR) == GL_FALSE);
+        // A released field can be primed at an earlier frame time, like a new field.
+        harness.frame = {};
+        harness.frame.size = {TW, TH};
+        harness.frame.seed = .37;
+        harness.frame.presence = harness.frame.fade = 1;
+        harness.frame.smoke = .5;
+        const Image REUSED = harness.render(survivor);
+        require(survivor.framebuffer() != 0);
+        CSmokeField fresh;
+        CHECK(harness.render(fresh) == REUSED);
+        harness.frame.time += 1.0 / 60;
+        harness.frame.smoke = .8;
+        CHECK(harness.render(fresh) == harness.render(survivor));
+        fresh.release();
+        survivor.release();
+        CHECK(glGetError() == GL_NO_ERROR);
         harness.frame = {};
         harness.frame.size = {TW, TH};
         harness.frame.seed = .37;

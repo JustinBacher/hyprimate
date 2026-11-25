@@ -38,10 +38,17 @@ struct SBubblePrograms {
 
 class CBubbleMaterial {
   public:
+    CBubbleMaterial() = default;
+    ~CBubbleMaterial() = default;
+    CBubbleMaterial(const CBubbleMaterial &) = delete;
+    CBubbleMaterial &operator=(const CBubbleMaterial &) = delete;
+    CBubbleMaterial(CBubbleMaterial &&) = delete;
+    CBubbleMaterial &operator=(CBubbleMaterial &&) = delete;
+
     // Builds resources using borrowed programs. An initialized material accepts only the same
     // handles; release it before changing programs.
     bool initialize(const SBubblePrograms &programs);
-    // Deletes GL objects; the creating context must be current.
+    // Deletes GL objects; the creating context must be current. Destruction alone makes no GL calls.
     void release();
 
     // Replaces the bound framebuffer's pixels with both membranes, premultiplied. Requires blending

@@ -31,9 +31,16 @@ struct SSmokePrograms {
 
 // One window's smoke fluid: velocity, pressure, window-coloured density and the density's age
 // on a grid that follows the window while the smoke itself stays anchored to the world.
-// release() needs the owning context current.
+// The caller releases it in the owning context; destruction alone makes no GL calls.
 class CSmokeField {
   public:
+    CSmokeField() = default;
+    ~CSmokeField() = default;
+    CSmokeField(const CSmokeField &) = delete;
+    CSmokeField &operator=(const CSmokeField &) = delete;
+    CSmokeField(CSmokeField &&) = delete;
+    CSmokeField &operator=(CSmokeField &&) = delete;
+
     void release();
     [[nodiscard]] GLuint framebuffer() const {
         return m_framebuffer;
@@ -72,9 +79,17 @@ class CSmokeField {
 // restores texture units 0-6 (2D and 3D), program and VAO afterwards.
 class CSmokeMaterial {
   public:
+    CSmokeMaterial() = default;
+    ~CSmokeMaterial() = default;
+    CSmokeMaterial(const CSmokeMaterial &) = delete;
+    CSmokeMaterial &operator=(const CSmokeMaterial &) = delete;
+    CSmokeMaterial(CSmokeMaterial &&) = delete;
+    CSmokeMaterial &operator=(CSmokeMaterial &&) = delete;
+
     // Readiness is published only after all shared textures exist. Failure cleans partial
     // resources and the same instance can initialize again with a complete program set.
     bool initialize(const SSmokePrograms &programs);
+    // The creating context must be current. Destruction alone makes no GL calls.
     void release();
     // Advances the field to frame.time; later calls for the same time do nothing.
     // Initial storage is transactional; later window resizes reuse it and remap the fluid.

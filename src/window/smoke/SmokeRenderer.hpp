@@ -19,10 +19,12 @@ class CSmokeFieldHandle {
     ~CSmokeFieldHandle();
     CSmokeFieldHandle(const CSmokeFieldHandle &) = delete;
     CSmokeFieldHandle &operator=(const CSmokeFieldHandle &) = delete;
-    CSmokeField field;
+    CSmokeFieldHandle(CSmokeFieldHandle &&) = delete;
+    CSmokeFieldHandle &operator=(CSmokeFieldHandle &&) = delete;
 
   private:
     friend class CSmokeRenderer;
+    CSmokeField field;
     hyprimate::gl::CompositorContextOwner m_owner;
 };
 struct SSmokeDraw {
@@ -40,6 +42,8 @@ class CSmokeRenderer {
     ~CSmokeRenderer();
     CSmokeRenderer(const CSmokeRenderer &) = delete;
     CSmokeRenderer &operator=(const CSmokeRenderer &) = delete;
+    CSmokeRenderer(CSmokeRenderer &&) = delete;
+    CSmokeRenderer &operator=(CSmokeRenderer &&) = delete;
     SP<Render::IFramebuffer> render(Render::CRenderContext &ctx, const SSmokeDraw &draw);
     bool warm_up();
 
