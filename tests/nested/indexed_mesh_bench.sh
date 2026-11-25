@@ -300,6 +300,12 @@ run_mode() {
     ticks=$(getconf CLK_TCK)
     read -r utime0 stime0 < <(awk '{print $14, $15}' "/proc/$nested_pid/stat")
     local t0=$SECONDS
+    # One utilization/clock sample per second for every GPU during the workload, so intermittent
+    # contention from unrelated processes is documented per session instead of guessed from the
+    # before/after snapshots.
+    nvidia-smi --query-gpu=timestamp,index,utilization.gpu,clocks.gr,clocks.mem,pstate \
+        --format=csv,noheader -l 1 >"$out/$tag.gpu-samples.csv" 2>&1 &
+    local gpu_sampler=$!
     hc "hyprimate:profile" start >/dev/null
     local end=$((SECONDS + seconds)) n=0 opens=0
     while ((SECONDS < end)); do
@@ -327,6 +333,8 @@ run_mode() {
     echo "loop_iterations=$n open_close_cycles=$opens seconds=$seconds style=$style windows=$windows" \
         >"$out/$tag.workload.txt"
     hc "hyprimate:profile" stop >"$out/$tag.profile.txt"
+    kill "$gpu_sampler" 2>/dev/null || true
+    wait "$gpu_sampler" 2>/dev/null || true
     read -r utime1 stime1 < <(awk '{print $14, $15}' "/proc/$nested_pid/stat")
     echo "nested_pid=$nested_pid clk_tck=$ticks utime_ticks=$((utime1 - utime0)) stime_ticks=$((stime1 - stime0)) wall_s=$((SECONDS - t0))" \
         >"$out/$tag.cpu.txt"
