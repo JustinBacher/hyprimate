@@ -13,7 +13,7 @@
 #include <hyprland/src/protocols/LayerShell.hpp>
 #include <hyprland/src/protocols/core/Compositor.hpp>
 
-#include "shader/HyprWallpaperSource.hpp"
+#include "shader/hyprland/HyprWallpaperSource.hpp"
 
 namespace hyprimate::shader {
     namespace {

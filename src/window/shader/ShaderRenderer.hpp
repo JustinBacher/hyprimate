@@ -4,14 +4,11 @@
 #include <string>
 
 #include "shader/Package.hpp"
+#include "shader/hyprland/HyprShaderProgram.hpp"
+
 #include "window/hyprland/HyprAnimationCanvas.hpp"
 
 namespace hyprimate::shader {
-    struct Frame;
-    class WindowProgram;
-
-    std::shared_ptr<WindowProgram> prepare_window_program(Event event, const std::string &path,
-        const std::string &parameters, std::string &error);
     bool window_program_supports_blur(const std::shared_ptr<WindowProgram> &program) noexcept;
 
     // One instance per window transition. The render callback borrows the mapped

@@ -20,12 +20,12 @@
 #include "perf/LiveProfiler.hpp"
 #include "perf/MonitorIdentity.hpp"
 #include "shader/GlesRuntime.hpp"
-#include "shader/HyprEnvironment.hpp"
-#include "shader/HyprEnvironmentInteractions.hpp"
-#include "shader/HyprWallpaperSource.hpp"
+#include "shader/hyprland/HyprEnvironment.hpp"
+#include "shader/hyprland/HyprEnvironmentInteractions.hpp"
+#include "shader/hyprland/HyprWallpaperSource.hpp"
 #include "shader/SceneShader.hpp"
-#include "shader/ShaderWallpaper.hpp"
-#include "window/shader/DisturbanceAtlas.hpp"
+#include "shader/hyprland/ShaderWallpaper.hpp"
+#include "shader/hyprland/DisturbanceAtlas.hpp"
 #include "workspace/WorkspaceCaptureScope.hpp"
 
 namespace hyprimate::shader {

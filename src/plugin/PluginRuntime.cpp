@@ -37,7 +37,7 @@
 #include "perf/GpuStopwatch.hpp"
 #endif
 #include "perf/RuntimeProfiler.hpp"
-#include "shader/ShaderWallpaper.hpp"
+#include "shader/hyprland/ShaderWallpaper.hpp"
 #include "window/WindowAnimations.hpp"
 #include "window/Profiling.hpp"
 #include "window/hyprland/AnimationCloseRenderer.hpp"

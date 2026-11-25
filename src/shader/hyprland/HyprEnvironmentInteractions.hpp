@@ -7,7 +7,7 @@
 
 #include <hyprland/src/desktop/DesktopTypes.hpp>
 
-#include "GlesRuntime.hpp"
+#include "shader/GlesRuntime.hpp"
 
 class CHyprWindowPort;
 

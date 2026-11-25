@@ -18,7 +18,7 @@
 #include <hyprland/src/render/scene/SceneSelection.hpp>
 #include <hyprland/src/state/MonitorState.hpp>
 
-#include "shader/HyprEnvironmentInteractions.hpp"
+#include "shader/hyprland/HyprEnvironmentInteractions.hpp"
 #include "window/hyprland/HyprWindowPort.hpp"
 
 namespace hyprimate::shader {

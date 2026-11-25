@@ -20,9 +20,12 @@ endforeach()
 target_sources(hyprimate PRIVATE
     src/window/shader/ShaderLiveStyle.cpp
     src/window/shader/ShaderRenderer.cpp
-    src/window/shader/HyprEnvironmentInteractions.cpp
-    src/window/shader/HyprWallpaperSource.cpp
-    src/window/shader/ShaderWallpaper.cpp)
+    src/shader/hyprland/HyprShaderProgram.cpp
+    src/shader/hyprland/HyprShaderTarget.cpp
+    src/shader/hyprland/SceneShader.cpp
+    src/shader/hyprland/HyprEnvironmentInteractions.cpp
+    src/shader/hyprland/HyprWallpaperSource.cpp
+    src/shader/hyprland/ShaderWallpaper.cpp)
 target_link_libraries(hyprimate PRIVATE shader-gles)
 
 if(BUILD_TESTING)
