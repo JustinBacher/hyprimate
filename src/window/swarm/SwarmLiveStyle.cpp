@@ -71,8 +71,7 @@ Frame SSwarmModule::advance(
     }
     if (!step.dying && step.motion) {
         const auto &motion = *step.motion;
-        if (step.movement_enabled && motion.translated && !state.swarm.active() && resources.last &&
-            resources.sprites->sheet(resources.last.value().movement.sprite) != nullptr) {
+        if (step.movement_enabled && !state.swarm.active() && moves(motion, resources)) {
             state.creature = resources.last.value().movement.sprite;
             state.swarm.reset();
             state.swarm.begin_movement(resources.prepared.movement,

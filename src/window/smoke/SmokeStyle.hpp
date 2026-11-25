@@ -34,6 +34,8 @@ struct SSmokePrepared {
     hyprimate::SmokeParams closing;
     double open_duration = 0;
     double close_duration = 0;
+    hyprimate::config::Direction open_direction{};
+    hyprimate::config::Direction close_direction{};
 };
 struct SSmokeResources : hyprimate::animation::ResourcesBase<SSmokeStyle,
                              hyprimate::config::SSmokeSettings,
