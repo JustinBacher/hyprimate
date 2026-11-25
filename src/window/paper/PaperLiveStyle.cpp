@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <utility>
 
@@ -103,6 +104,22 @@ namespace {
             .w = right - left + 2 * PAD,
             .h = bottom - top + 2 * PAD};
     }
+    Box running_bounds(SPaperStyle &state, Box capture) {
+        const auto &surface = state.surface();
+        const auto *const POINTS = surface.points.data();
+        if (!state.running_bounds || state.running_bounds_points != POINTS ||
+            state.bounds_capture.x != capture.w || state.bounds_capture.y != capture.h) {
+            state.running_bounds = bounds(surface, capture);
+            state.running_bounds_points = POINTS;
+            state.bounds_capture = {capture.w, capture.h};
+        }
+        return *state.running_bounds;
+    }
+
+    void invalidate_bounds(SPaperStyle &state) noexcept {
+        state.running_bounds.reset();
+        state.running_bounds_points = nullptr;
+    }
 }  // namespace
 
 SPaperModule::Prepared SPaperModule::prepare_settings(const Settings &settings) {
@@ -148,6 +165,7 @@ bool SPaperModule::open(State &state, const Place &place, Resources &resources, 
             cursor_uv(place, place.rest_capture))) {
         return false;
     }
+    invalidate_bounds(state);
     effects.snap_to_goal = true;
     effects.settle_native_open_alpha = true;
     return true;
@@ -156,25 +174,41 @@ bool SPaperModule::open(State &state, const Place &place, Resources &resources, 
 Frame SPaperModule::advance(State &state, const Step &step, Resources &resources, Effects &) {
     if (state.run) {
         if (!step.dying && !step.open_enabled) {
+            invalidate_bounds(state);
             return {.interrupted = true};
         }
-        const auto status = resources.workers.present(state.run, step.elapsed, state.display);
+        // The worker publishes completed frames only by swapping its distinct retained
+        // writing/pending buffers into display. present unlocks before returning, so the
+        // worker may reuse and reallocate the old display buffer; keep its address as an
+        // integer snapshot. Non-empty live buffers cannot alias, even when storage recurs.
+        // Empty vectors may share an address; their bounds use the same fallback.
+        const auto PREVIOUS_POINTS = reinterpret_cast<std::uintptr_t>(state.display.points.data());
+        const auto STATUS = resources.workers.present(state.run, step.elapsed, state.display);
+        if (PREVIOUS_POINTS != reinterpret_cast<std::uintptr_t>(state.display.points.data())) {
+            invalidate_bounds(state);
+        }
         if (!state.display.faces.empty()) {
+            if (state.closing_from) {
+                invalidate_bounds(state);
+            }
             state.closing_from.reset();
         }
-        if (status == PaperPlayback::Running) {
-            return {.running = true, .bounds = bounds(state.surface(), step.capture)};
+        if (STATUS == PaperPlayback::Running) {
+            return {.running = true, .bounds = running_bounds(state, step.capture)};
         }
-        if (status == PaperPlayback::Interrupted || step.dying) {
-            return {.interrupted = status == PaperPlayback::Interrupted};
+        if (STATUS == PaperPlayback::Interrupted || step.dying) {
+            invalidate_bounds(state);
+            return {.interrupted = STATUS == PaperPlayback::Interrupted};
         }
         // Opening owns its mesh until it has unfolded. A continuing drag can take
         // ownership on the same frame; it never samples a partially packed mesh.
         resources.workers.cancel(state.run);
+        invalidate_bounds(state);
         if (!step.motion || !moves(*step.motion, resources)) {
             return {};
         }
     }
+    invalidate_bounds(state);
     if (step.dying || !step.movement_enabled ||
         !state.interaction.advance(state.display, resources.prepared.interaction, step)) {
         return {};
@@ -190,26 +224,32 @@ CloseStart SPaperModule::close(State &state, const Place &place, Resources &reso
     if (state.run && (state.display.faces.empty() || state.display.opacity <= 0)) {
         // A map that never became visible has nothing to fold. Suppress its native
         // snapshot without flashing a flat sheet or loading another solver.
+        invalidate_bounds(state);
         resources.workers.cancel(state.run);
         return CloseStart::Owned;
     }
     const Vec2 SIZE{place.capture.w, place.capture.h};
     if (!state.run && state.display.interaction_mesh) {
+        invalidate_bounds(state);
         state.closing_from = std::make_shared<PaperSurface>(std::move(state.display));
     } else if (!state.run) {
         flat_capture(state.display, SIZE);
+        invalidate_bounds(state);
     }
-    return resources.workers.begin(state.run,
-               Transition::Close,
-               resources.prepared.close,
-               place.seed,
-               SIZE,
-               cursor_uv(place, place.capture),
-               state.closing_from)
-               ? CloseStart::Owned
-               : CloseStart::Declined;
+    const bool STARTED = resources.workers.begin(state.run,
+        Transition::Close,
+        resources.prepared.close,
+        place.seed,
+        SIZE,
+        cursor_uv(place, place.capture),
+        state.closing_from);
+    if (STARTED) {
+        invalidate_bounds(state);
+    }
+    return STARTED ? CloseStart::Owned : CloseStart::Declined;
 }
 
 void SPaperModule::end(State &state, Resources &resources, End) noexcept {
     resources.workers.cancel(state.run);
+    invalidate_bounds(state);
 }

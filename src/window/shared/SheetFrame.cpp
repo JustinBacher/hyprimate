@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <ranges>
 
 #include "shared/Core.hpp"
@@ -116,6 +117,8 @@ namespace hyprimate {
         std::ranges::transform(mesh.uv, out.position.begin(), [](Vec2 tex_coord) {
             return Vec2{.x = tex_coord.x - 0.5, .y = tex_coord.y - 0.5};
         });
+        out.min_position = {-0.5, -0.5};
+        out.max_position = {0.5, 0.5};
         std::uint16_t triangle = 0;
         for (auto &&[order, shade] : std::views::zip(out.order, out.shade)) {
             order = triangle++;
@@ -130,14 +133,23 @@ namespace hyprimate {
         const double WIDTH = std::isfinite(size.x) && size.x > 0.0 ? size.x : 1.0;
         const double HEIGHT = std::isfinite(size.y) && size.y > 0.0 ? size.y : 1.0;
         const double FOCAL_LENGTH = 3.0 * std::sqrt(WIDTH * HEIGHT);
+        constexpr double INF = std::numeric_limits<double>::infinity();
+        Vec2 minimum{INF, INF}, maximum{-INF, -INF};
 
         std::ranges::transform(world, out.position.begin(), [&](const Vec3 &world_point) {
             const double DENOM = std::max(0.25 * FOCAL_LENGTH, FOCAL_LENGTH - world_point.z);
-            return Vec2{
+            const Vec2 POINT{
                 .x = world_point.x * FOCAL_LENGTH / DENOM / WIDTH,
                 .y = world_point.y * FOCAL_LENGTH / DENOM / HEIGHT,
             };
+            minimum.x = std::min(minimum.x, POINT.x);
+            minimum.y = std::min(minimum.y, POINT.y);
+            maximum.x = std::max(maximum.x, POINT.x);
+            maximum.y = std::max(maximum.y, POINT.y);
+            return POINT;
         });
+        out.min_position = minimum;
+        out.max_position = maximum;
 
         sort_back_to_front(world, out.order);
 

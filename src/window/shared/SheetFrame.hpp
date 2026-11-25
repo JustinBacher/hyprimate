@@ -29,6 +29,8 @@ namespace hyprimate {
         // Displayed grid vertex positions, relative to the rest capture centre, in units of the
         // rest size (x/W, y/H).
         std::array<Vec2, SHEET_GRID_VERTICES> position{};
+        // Point extrema in the same units, accumulated during projection.
+        Vec2 min_position{}, max_position{};
         // Per triangle, per corner, in [-1,1]: <0 darker, >0 lighter. All zero when unlit.
         std::array<std::array<float, 3>, SHEET_TRIANGLES> shade{};
         // Triangle ids sorted back to front.

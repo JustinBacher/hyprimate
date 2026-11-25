@@ -1,6 +1,5 @@
 #include <algorithm>
 #include <cmath>
-#include <limits>
 #include <utility>
 
 #include "window/cloth/ClothStyle.hpp"
@@ -21,22 +20,14 @@ namespace {
     }
 
     Box bounds(const SheetFrame &frame, Vec2 size) {
-        double min_x = std::numeric_limits<double>::infinity();
-        double min_y = min_x;
-        double max_x = -min_x;
-        double max_y = -min_x;
-        for (const auto &point : frame.position) {
-            const double POS_X = size.x * (0.5 + point.x);
-            const double POS_Y = size.y * (0.5 + point.y);
-            min_x = std::min(min_x, POS_X);
-            min_y = std::min(min_y, POS_Y);
-            max_x = std::max(max_x, POS_X);
-            max_y = std::max(max_y, POS_Y);
-        }
-        return {.x = min_x - 4,
-            .y = min_y - 4,
-            .w = std::max(1.0, max_x - min_x) + 8,
-            .h = std::max(1.0, max_y - min_y) + 8};
+        const double MIN_X = size.x * (0.5 + frame.min_position.x);
+        const double MIN_Y = size.y * (0.5 + frame.min_position.y);
+        const double MAX_X = size.x * (0.5 + frame.max_position.x);
+        const double MAX_Y = size.y * (0.5 + frame.max_position.y);
+        return {.x = MIN_X - 4,
+            .y = MIN_Y - 4,
+            .w = std::max(1.0, MAX_X - MIN_X) + 8,
+            .h = std::max(1.0, MAX_Y - MIN_Y) + 8};
     }
 }  // namespace
 

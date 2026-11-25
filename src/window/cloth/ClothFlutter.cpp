@@ -350,7 +350,20 @@ namespace hyprimate {
     };
 
     struct ClothFlutter::MovementPlayback {
-        Run::Snapshot a{}, b{};
+        std::array<Run::Snapshot, 2> snapshots{};
+        unsigned newest = 1;
+        Run::Snapshot &a() noexcept {
+            return snapshots[1 - newest];
+        }
+        Run::Snapshot &b() noexcept {
+            return snapshots[newest];
+        }
+        const Run::Snapshot &a() const noexcept {
+            return snapshots[1 - newest];
+        }
+        const Run::Snapshot &b() const noexcept {
+            return snapshots[newest];
+        }
         Box target{}, previous{};
         ClothMovementParams params{};
         Vec3 rigid_velocity{};
@@ -1018,11 +1031,11 @@ namespace hyprimate {
         auto playback = std::make_unique<MovementPlayback>();
         playback->target = playback->previous = capture;
         playback->params = movement;
-        playback->a.time = -STEP_SECONDS;
-        playback->b.time = 0;
+        playback->a().time = -STEP_SECONDS;
+        playback->b().time = 0;
         const auto *velocity = RUN->velocity.begin();
-        auto *first_sample = playback->a.values.begin();
-        auto *second_sample = playback->b.values.begin();
+        auto *first_sample = playback->a().values.begin();
+        auto *second_sample = playback->b().values.begin();
         for (const auto POSITION : RUN->start) {
             const auto VELOCITY = *velocity++;
             const Run::VertexSample VALUE{
@@ -1287,16 +1300,25 @@ namespace hyprimate {
             // Consume snapshots only until the pair brackets the displayed time; later ones stay
             // queued for later frames.
             const double WANTED = std::max(0.0, m_t - MOVEMENT_LATENCY);
-            unsigned tail = m_run->output_tail.load(std::memory_order_relaxed);
+            const unsigned START = m_run->output_tail.load(std::memory_order_relaxed);
+            unsigned tail = START;
             const unsigned HEAD = m_run->output_head.load(std::memory_order_acquire);
-            const bool PROGRESSED = tail != HEAD && playback.b.time < WANTED;
-            for (; tail != HEAD && playback.b.time < WANTED; ++tail) {
-                playback.a = playback.b;
-                playback.b = m_run->snapshots.at(tail % Run::OUTPUT_CAPACITY);
+            const bool PROGRESSED = tail != HEAD && playback.b().time < WANTED;
+            double newest_time = playback.b().time;
+            for (; tail != HEAD && newest_time < WANTED; ++tail) {
+                newest_time = m_run->snapshots.at(tail % Run::OUTPUT_CAPACITY).time;
+            }
+            const unsigned CONSUMED = tail - START;
+            if (CONSUMED == 1) {
+                playback.newest = 1 - playback.newest;
+                playback.b() = m_run->snapshots.at(START % Run::OUTPUT_CAPACITY);
+            } else if (CONSUMED > 1) {
+                playback.a() = m_run->snapshots.at((tail - 2) % Run::OUTPUT_CAPACITY);
+                playback.b() = m_run->snapshots.at((tail - 1) % Run::OUTPUT_CAPACITY);
             }
             m_run->output_tail.store(tail, std::memory_order_release);
             playback.time =
-                std::min(WANTED, playback.b.time);  // a starved worker holds the newest pose
+                std::min(WANTED, playback.b().time);  // a starved worker holds the newest pose
             if (m_run->recorded.load(std::memory_order_acquire) < 2) {
                 m_startup_wait += elapsed_seconds;
                 if (m_startup_wait >= STALL_SECONDS ||
@@ -1304,7 +1326,7 @@ namespace hyprimate {
                     start_fallback();
                 }
             } else {
-                m_startup_wait = PROGRESSED || WANTED <= playback.b.time + 1e-8
+                m_startup_wait = PROGRESSED || WANTED <= playback.b().time + 1e-8
                                      ? 0
                                      : m_startup_wait + elapsed_seconds;
                 playback.settling = m_t - playback.last_motion >= 0.5;
@@ -1486,8 +1508,8 @@ namespace hyprimate {
             return;
         }
         if (m_phase == Phase::Movement && m_movement) {
-            const auto &previous = m_movement->a;
-            const auto &next = m_movement->b;
+            const auto &previous = m_movement->a();
+            const auto &next = m_movement->b();
             const double INTERVAL = std::max(STEP_SECONDS, next.time - previous.time);
             const double BLEND =
                 std::clamp((m_movement->time - previous.time) / INTERVAL, 0.0, 1.0);
