@@ -55,6 +55,21 @@ if(BUILD_TESTING)
     target_include_directories(bubble-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME bubble-tests COMMAND bubble-tests)
 
+    add_executable(bubble-foam-tests src/window/bubble/tests/BubbleFoamTests.cpp)
+    target_link_libraries(bubble-foam-tests PRIVATE hyprimate-core)
+    target_include_directories(bubble-foam-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    add_test(NAME bubble-foam-tests COMMAND bubble-foam-tests)
+
+    add_executable(bubble-formation-tests src/window/bubble/tests/BubbleFormationTests.cpp)
+    target_link_libraries(bubble-formation-tests PRIVATE hyprimate-core)
+    target_include_directories(bubble-formation-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    add_test(NAME bubble-formation-tests COMMAND bubble-formation-tests)
+
+    add_executable(bubble-rupture-tests src/window/bubble/tests/BubbleRuptureTests.cpp)
+    target_link_libraries(bubble-rupture-tests PRIVATE hyprimate-core)
+    target_include_directories(bubble-rupture-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    add_test(NAME bubble-rupture-tests COMMAND bubble-rupture-tests)
+
     add_executable(bubble-optics-tests src/window/bubble/tests/BubbleOpticsTests.cpp)
     target_link_libraries(bubble-optics-tests PRIVATE hyprimate-core)
     target_include_directories(bubble-optics-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
