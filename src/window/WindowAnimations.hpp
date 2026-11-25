@@ -220,3 +220,6 @@ namespace hyprimate::animation {
 }  // namespace hyprimate::animation
 
 #include "WindowAnimations.tpp"
+#include "WindowAnimationsMapped.tpp"
+#include "WindowAnimationsClose.tpp"
+#include "WindowAnimationsDraw.tpp"
