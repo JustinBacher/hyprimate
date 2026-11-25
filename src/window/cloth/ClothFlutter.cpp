@@ -36,6 +36,7 @@ namespace hyprimate {
         using cloth_detail::sub;
 
         constexpr std::uint64_t BASE_SEED = 0xC1074F1A77E2ULL;
+        constexpr double MAX_INHERITED_SPEED = 50.0;  // Recording's base velocity allowance.
 
         // Live movement displays this far behind the latest target. The worker answers a target
         // only after the compositor posts it, so the snapshot pair around the displayed time must
@@ -187,12 +188,20 @@ namespace hyprimate {
             params.gravity = std::clamp(params.gravity, 0.0, 3.0);
             return true;
         }
+        bool finite_playback_rate(const ClothParams &params) noexcept {
+            const int FRAMES =
+                static_cast<int>(std::ceil(cloth_detail::OPEN_LENGTH / STEP_SECONDS)) + 1;
+            const double LENGTH = (FRAMES - 1) * STEP_SECONDS;
+            const double RATE = LENGTH / params.duration;
+            return std::isfinite(RATE) && RATE > 0 && std::isfinite(1 / RATE);
+        }
         bool valid_transition(Transition kind,
             ClothParams &params,
             const Box &window,
             const std::optional<ClothCloseGeometry> &geometry) noexcept {
             return (kind == Transition::Open || kind == Transition::Close) && sanitize(params) &&
-                   valid_box(window) && valid_close_geometry(geometry);
+                   finite_playback_rate(params) && valid_box(window) &&
+                   valid_close_geometry(geometry);
         }
         bool valid_movement(ClothMovementParams &params, const Box &capture) noexcept {
             return valid_box(capture) && sanitize(params) && params.strength > 0;
@@ -359,9 +368,13 @@ namespace hyprimate {
         const Box &window,
         std::span<const Box> obstacles,
         std::optional<ClothCloseGeometry> geometry) noexcept try {
-        const WorkerAdmission admission;
         ClothParams cloth_params = params;
-        if (!admission.available() || !valid_transition(kind, cloth_params, window, geometry)) {
+        if (!valid_transition(kind, cloth_params, window, geometry)) {
+            reset();
+            return;
+        }
+        const WorkerAdmission admission;
+        if (!admission.available()) {
             reset();
             return;
         }
@@ -406,8 +419,24 @@ namespace hyprimate {
         RUN->length = (RUN->frames - 1) * STEP_SECONDS;
         const double RATE = RUN->length / cloth_params.duration;
         for (auto &initial_velocity : RUN->velocity) {
-            initial_velocity = mul(initial_velocity,
-                1 / RATE);  // displayed real-time velocity -> new simulation clock
+            const double COMPONENT_SCALE =
+                std::max({std::abs(initial_velocity.x),
+                    std::abs(initial_velocity.y),
+                    std::abs(initial_velocity.z)});
+            if (COMPONENT_SCALE > 0) {
+                const Vec3 DIRECTION{.x = initial_velocity.x / COMPONENT_SCALE,
+                    .y = initial_velocity.y / COMPONENT_SCALE,
+                    .z = initial_velocity.z / COMPONENT_SCALE};
+                const double DIRECTION_LENGTH =
+                    std::hypot(DIRECTION.x, DIRECTION.y, DIRECTION.z);
+                const double SCALED_COMPONENT = COMPONENT_SCALE / RATE;
+                if (!std::isfinite(SCALED_COMPONENT) ||
+                    SCALED_COMPONENT > MAX_INHERITED_SPEED / DIRECTION_LENGTH) {
+                    initial_velocity = mul(DIRECTION, MAX_INHERITED_SPEED / DIRECTION_LENGTH);
+                } else {
+                    initial_velocity = mul(initial_velocity, 1 / RATE);
+                }
+            }
             RUN->max_initial_speed = std::max(RUN->max_initial_speed,
                 std::sqrt((initial_velocity.x * initial_velocity.x) +
                           (initial_velocity.y * initial_velocity.y) +

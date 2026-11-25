@@ -8,6 +8,7 @@
 #include <limits>
 #include <optional>
 #include <span>
+#include <string_view>
 #include <vector>
 
 #include "Check.hpp"
@@ -381,6 +382,28 @@ namespace {
         cloth.advance(std::numeric_limits<double>::infinity());
         CHECK(cloth.closed());
     }
+    void be12_duration_admission() {
+        const std::array INVALID_DURATIONS{std::numeric_limits<double>::quiet_NaN(),
+            std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity(),
+            0.0, -1.0, std::numeric_limits<double>::denorm_min(), 1e-310};
+        for (const auto KIND : {Transition::Open, Transition::Close}) {
+            for (const double DURATION : INVALID_DURATIONS) {
+                auto material = params();
+                material.duration = DURATION;
+                CHECK(!ClothFlutter::can_begin(KIND, material, WINDOW));
+                ClothFlutter cloth;
+                cloth.begin(KIND, material, 1, WINDOW, {});
+                CHECK(!cloth.active());
+                CHECK(!cloth.closed());
+            }
+            for (const double DURATION :
+                {std::numeric_limits<double>::min(), std::numeric_limits<double>::max()}) {
+                auto material = params();
+                material.duration = DURATION;
+                CHECK(ClothFlutter::can_begin(KIND, material, WINDOW));
+            }
+        }
+    }
     void starvation() {
         ClothPhysics::pause_workers_for_testing(true);
         ClothFlutter opening;
@@ -556,6 +579,35 @@ namespace {
             CHECK(cloth.wait_for_snapshots(2 + int(std::floor((time * 120) + 1e-7))));
             cloth.advance(0);
         }
+    }
+    void be12_close_inherited_extreme_duration() {
+        ClothFlutter cloth;
+        cloth.begin_movement({}, 1, WINDOW);
+        const bool MOVEMENT_READY = cloth.wait_for_snapshots(2);
+        CHECK(MOVEMENT_READY);
+        if (!MOVEMENT_READY) return;
+
+        Box moved = WINDOW;
+        moved.x += 20;
+        double time = 0;
+        movement_step(cloth, moved, 1.0 / 120, time);
+        CHECK(cloth.moving());
+        if (!cloth.moving()) return;
+        const auto BEFORE = pose(cloth);
+        CHECK(std::ranges::any_of(BEFORE.v, [](const Vec3 &velocity) {
+            return std::abs(velocity.x) > 1;
+        }));
+
+        auto material = params();
+        material.duration = std::numeric_limits<double>::max();
+        CHECK(ClothFlutter::can_begin(Transition::Close, material, moved));
+        cloth.begin(Transition::Close, material, 2, moved, {});
+        CHECK(cloth.active());
+        const bool CLOSE_READY = cloth.wait_for_recording();
+        CHECK(CLOSE_READY);
+        if (!CLOSE_READY) return;
+        const auto AFTER = pose(cloth);
+        CHECK(delta(BEFORE.p, AFTER.p) < 2e-6);
     }
 
     // A curtain's rod is its entire top edge, irrespective of where it travels or where a drag
@@ -1244,7 +1296,27 @@ namespace {
     }
 
 }  // namespace
-int main() {
+int main(int argc, char **argv) {
+    if (argc == 2 && std::string_view{argv[1]} == "--be12-close-inherited") {
+        const ClothPhysics PHYSICS;
+        be12_close_inherited_extreme_duration();
+        if (g_failures != 0) {
+            (void)std::fprintf(stderr, "%d BE12 inherited close checks failed\n", g_failures);
+            return 1;
+        }
+        std::puts("BE12 inherited close checks passed");
+        return 0;
+    }
+    if (argc == 2 && std::string_view{argv[1]} == "--be12-duration") {
+        const ClothPhysics PHYSICS;
+        be12_duration_admission();
+        if (g_failures != 0) {
+            (void)std::fprintf(stderr, "%d BE12 cloth duration checks failed\n", g_failures);
+            return 1;
+        }
+        std::puts("BE12 cloth duration checks passed");
+        return 0;
+    }
     needs_physics();
     {
         const ClothPhysics PHYSICS;
@@ -1258,6 +1330,8 @@ int main() {
         cadence();
         deterministic();
         invalid();
+        be12_duration_admission();
+        be12_close_inherited_extreme_duration();
         starvation();
         publication_recovery();
         movement_publication_recovery();
