@@ -41,7 +41,6 @@ uniform bool opaqueCapture;
 uniform bool parametricMesh;
 uniform bool fullSphere;
 uniform float aspect;
-uniform float coverage;
 out vec4 fragColor;
 vec4 recoverCapture(sampler2D captured, sampler2D background, bool reconstruct, vec2 uv) {
     vec4 color = texture(captured,uv);
