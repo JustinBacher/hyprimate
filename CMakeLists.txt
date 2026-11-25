@@ -91,6 +91,7 @@ add_library(hyprimate SHARED
     src/workspace/WorkspaceCapture.cpp
     src/workspace/WorkspaceAnimation.cpp
     src/workspace/WorkspaceCaptureBuffers.cpp
+    src/workspace/WorkspacePreviews.cpp
 )
 set_target_properties(hyprimate PROPERTIES PREFIX "" INTERPROCEDURAL_OPTIMIZATION FALSE)
 add_dependencies(hyprimate generate-config)
