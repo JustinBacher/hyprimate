@@ -18,7 +18,10 @@ target_sources(hyprimate-core PRIVATE
     ${construction_dir}/studies/EdgeStretch.cpp
     ${construction_dir}/studies/PieceRelocation.cpp
     ${construction_dir}/studies/RegionalClose.cpp
+    ${construction_dir}/studies/RegionalCloseMesh.cpp
     ${construction_dir}/ConstructionCloseSite.cpp
+    ${construction_dir}/ConstructionCloseSource.cpp
+    ${construction_dir}/ConstructionCloseArt.cpp
     ${construction_dir}/ConstructionMotionArt.cpp
     ${construction_dir}/ConstructionCraneArt.cpp
     ${construction_dir}/ConstructionPieceArt.cpp

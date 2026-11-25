@@ -137,6 +137,7 @@ namespace hyprimate::construction::studies {
         };
 
         void emit_crew(Frame &out) const noexcept;
+        bool emit_mesh(SourceView view, Frame &out, double crop_right, double crop_bottom) const noexcept;
 
         Box m_body;
         std::array<Patch, MAX_VISIBLE_FACES> m_patches;
