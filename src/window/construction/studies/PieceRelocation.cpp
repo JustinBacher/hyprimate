@@ -530,31 +530,46 @@ namespace hyprimate::construction::studies {
 
     void PieceRelocation::step(Box body, double elapsed, bool held) noexcept {
         const Box previous = m_body;
-        m_body = body;
         if (!usable(body) || !usable(previous) || body.w != previous.w || body.h != previous.h ||
             !std::isfinite(elapsed) || elapsed < 0 || elapsed >= STALL_SECONDS) {
+            m_body = body;
             clear();
             return;
         }
         const bool translated = body.x != previous.x || body.y != previous.y;
+        double haul_distance = m_count == 0 ? 0 : m_haul_distance;
+        if (translated) {
+            const Vec2 destination{body.x, body.y};
+            const Vec2 origin = m_count == 0 ? Vec2{previous.x, previous.y} : m_origin;
+            const Vec2 landing = m_count == 0 ? origin : m_landing;
+            const auto include_distance = [&](Vec2 point) {
+                const Vec2 delta = destination - point;
+                const double distance = length(delta);
+                if (!std::isfinite(delta.x) || !std::isfinite(delta.y) ||
+                    !std::isfinite(distance))
+                    return false;
+                haul_distance = std::max(haul_distance, distance);
+                return true;
+            };
+            if (!include_distance(origin) || !include_distance(landing)) return;
+            for (std::size_t i = 0; i < m_count; ++i) {
+                const auto &p = m_packs[i];
+                if ((p.job == Job::Carry || p.job == Job::Fit) &&
+                    !include_distance(p.position))
+                    return;
+            }
+            const double reach = std::max(HAUL_SPEED / FOLLOW_RATE,
+                2 * haul_distance / (FOLLOW_RATE * LONG_HAUL_SECONDS));
+            if (!std::isfinite(reach)) return;
+        }
+        // Keep the last publishable pose when this retarget cannot be represented. The
+        // publication boundary sees the body mismatch and interrupts rather than retargeting natively.
+        m_body = body;
         if (!active()) {
             if (!translated) return;
             cut(previous);
         }
-        if (translated) {
-            const Vec2 destination{body.x, body.y};
-            // The spring cruises near rate * radius / 2. Budget for the actual
-            // remaining route on retarget, even when returning to pickup.
-            // Keep the high-water distance until this haul is done so pursuit
-            // doesn't slow down merely because the destination is closer now.
-            m_haul_distance = std::max(
-                {m_haul_distance, length(destination - m_origin), length(destination - m_landing)});
-            for (std::size_t i = 0; i < m_count; ++i) {
-                const auto &p = m_packs[i];
-                if (p.job == Job::Carry || p.job == Job::Fit)
-                    m_haul_distance = std::max(m_haul_distance, length(destination - p.position));
-            }
-        }
+        if (translated) m_haul_distance = haul_distance;
         // Corrections during crew exit keep the completed load seated and retarget
         // its shared landing pose. Only an idle move creates new reservations.
         if (elapsed > 0) {

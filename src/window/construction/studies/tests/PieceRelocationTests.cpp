@@ -430,9 +430,26 @@ namespace {
         }
     }
 
+    void be12_opposite_sign_extreme_retarget_preserves_last_pose() {
+        for (double sign : {-1., 1.}) {
+            const Box source{sign * 1e308, 0, PREVIEW.w, PREVIEW.h};
+            const Box moved{source.x, 10, source.w, source.h};
+            const Box opposite{-source.x, moved.y, moved.w, moved.h};
+            PieceRelocation model;
+            model.reset(source, 1307);
+            model.step(moved, 0, true);
+            CHECK(model.active());
+            model.step(opposite, 0, true);
+            CHECK(model.active());
+            CHECK(same(model.body(), moved));
+            CHECK(!model.faces().empty());
+        }
+    }
+
 }  // namespace
 
 int main() {
+    be12_opposite_sign_extreme_retarget_preserves_last_pose();
     worker_scale_preserves_contacts_and_hidden_transport();
     deterministic_mixed_tiling();
     overlapping_trips_retarget_without_jumps();
