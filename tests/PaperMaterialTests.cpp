@@ -18,6 +18,7 @@
 #include "GlAllocationFault.hpp"
 #include "GlHarness.hpp"
 #include "PaperPoseBank.hpp"
+#include "window/paper/PaperBounds.hpp"
 #include "window/paper/PaperMaterial.hpp"
 #include "window/paper/PaperShaders.hpp"
 
@@ -33,6 +34,7 @@
 
 namespace {
     constexpr int WIDTH = 128, HEIGHT = 96;
+    constexpr int SHADOW_CANVAS_WIDTH = 320, SHADOW_CANVAS_HEIGHT = 256;
     using Pixel = std::array<unsigned char, 4>;
     using Image = std::vector<Pixel>;
     struct Target {
@@ -67,14 +69,14 @@ namespace {
             GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
         return texture;
     }
-    Image read(GLuint framebuffer) {
-        Image pixels(WIDTH * HEIGHT);
+    Image read(GLuint framebuffer, int width = WIDTH, int height = HEIGHT) {
+        Image pixels(static_cast<std::size_t>(width * height));
         glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-        glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+        glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
         return pixels;
     }
-    Pixel top(const Image &pixels, int x, int y) {
-        return pixels[(HEIGHT - 1 - y) * WIDTH + x];
+    Pixel top(const Image &pixels, int x, int y, int width = WIDTH, int height = HEIGHT) {
+        return pixels[static_cast<std::size_t>((height - 1 - y) * width + x)];
     }
     void near(Pixel actual, Pixel expected) {
         bool equal = true;
@@ -492,6 +494,70 @@ namespace {
         glDeleteTextures(1, &HOLES);
         glDeleteTextures(1, &TEXTURE);
     }
+    void shadow_containment(CPaperMaterial &material) {
+        const Image WHITE(WIDTH * HEIGHT, Pixel{255, 255, 255, 255});
+        const auto TEXTURE = upload(WHITE);
+        const Target SHADOW_OUTPUT(SHADOW_CANVAS_WIDTH, SHADOW_CANVAS_HEIGHT);
+        const std::array CASES{
+            std::array{96.0, 72.0, 0.18, -0.12, 0.025, -0.015},
+            std::array{112.0, 64.0, 0.36, 0.14, -0.035, 0.01},
+            std::array{80.0, 88.0, 0.56, -0.22, 0.015, 0.04}};
+        for (const auto &test : CASES) {
+            const double width = test[0], height = test[1], lift = test[2], lateral = test[3];
+            const double slope_x = test[4], slope_y = test[5];
+            const double unit = std::sqrt(width * height);
+            const double x = width * .5 / unit, y = height * .5 / unit;
+            auto surface = sheet();
+            surface.size = {width, height};
+            surface.interaction_mesh = true;
+            surface.shadow_strength = 1;
+            surface.points = {{{-x + lateral, -y, lift - slope_x - slope_y}, {0, 0}},
+                {{x + lateral, -y, lift + slope_x - slope_y}, {1, 0}},
+                {{x + lateral, y, lift + slope_x + slope_y}, {1, 1}},
+                {{-x + lateral, y, lift - slope_x + slope_y}, {0, 1}}};
+            const auto target = SPaperTarget{.canvas = {SHADOW_CANVAS_WIDTH, SHADOW_CANVAS_HEIGHT},
+                .origin = {(width - SHADOW_CANVAS_WIDTH) * .5,
+                    (height - SHADOW_CANVAS_HEIGHT) * .5},
+                .source = {0, 0, width, height},
+                .texture_origin = {},
+                .texture_size = {WIDTH, HEIGHT}};
+            CHECK(target.source.w * .5 - target.origin.x == SHADOW_CANVAS_WIDTH * .5);
+            CHECK(target.source.h * .5 - target.origin.y == SHADOW_CANVAS_HEIGHT * .5);
+            surface.shadow_strength = 0;
+            CHECK(material.draw(surface, target, TEXTURE, SHADOW_OUTPUT.framebuffer));
+            const auto BASELINE =
+                read(SHADOW_OUTPUT.framebuffer, SHADOW_CANVAS_WIDTH, SHADOW_CANVAS_HEIGHT);
+            surface.shadow_strength = 1;
+            CHECK(material.draw(surface, target, TEXTURE, SHADOW_OUTPUT.framebuffer));
+            const auto SHADOW =
+                read(SHADOW_OUTPUT.framebuffer, SHADOW_CANVAS_WIDTH, SHADOW_CANVAS_HEIGHT);
+            const auto BOUNDS = hyprimate::paper_bounds(surface, target.source);
+            const double OFFSET_X = (SHADOW_CANVAS_WIDTH - width) * .5;
+            const double OFFSET_Y = (SHADOW_CANVAS_HEIGHT - height) * .5;
+            CHECK(OFFSET_X + BOUNDS.x > 0);
+            CHECK(OFFSET_X + BOUNDS.x + BOUNDS.w < SHADOW_CANVAS_WIDTH);
+            CHECK(OFFSET_Y + BOUNDS.y > 0);
+            CHECK(OFFSET_Y + BOUNDS.y + BOUNDS.h < SHADOW_CANVAS_HEIGHT);
+            int pixels = 0, shadow_pixels = 0;
+            for (int py = 0; py < SHADOW_CANVAS_HEIGHT; ++py)
+                for (int px = 0; px < SHADOW_CANVAS_WIDTH; ++px) {
+                    const auto BASE =
+                        top(BASELINE, px, py, SHADOW_CANVAS_WIDTH, SHADOW_CANVAS_HEIGHT);
+                    const auto PIXEL =
+                        top(SHADOW, px, py, SHADOW_CANVAS_WIDTH, SHADOW_CANVAS_HEIGHT);
+                    if (BASE == PIXEL) continue;
+                    ++pixels;
+                    if (BASE[3] == 0 && PIXEL[3] > 0) ++shadow_pixels;
+                    CHECK(px + .5 >= OFFSET_X + BOUNDS.x - 1);
+                    CHECK(px + .5 <= OFFSET_X + BOUNDS.x + BOUNDS.w + 1);
+                    CHECK(py + .5 >= OFFSET_Y + BOUNDS.y - 1);
+                    CHECK(py + .5 <= OFFSET_Y + BOUNDS.y + BOUNDS.h + 1);
+                }
+            CHECK(pixels > 0);
+            CHECK(shadow_pixels > 0);
+        }
+        glDeleteTextures(1, &TEXTURE);
+    }
     void isolation_and_resize(
         GLuint program, CPaperMaterial &material, GLuint texture, const Target &output) {
         CPaperMaterial scratch;
@@ -888,6 +954,7 @@ int main(int argc, char **argv) {
         thickness_and_matte(material, OUTPUT);
         fold_shadow(material, OUTPUT);
         desktop_shadow(material, OUTPUT);
+        shadow_containment(material);
         isolation_and_resize(PROGRAM, material, TEXTURE, OUTPUT);
         allocation_retry(PROGRAM, TEXTURE, OUTPUT);
         shader_sentinels_and_shadow_holes(OUTPUT);
