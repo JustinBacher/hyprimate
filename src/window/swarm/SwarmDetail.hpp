@@ -10,11 +10,9 @@ namespace hyprimate::swarm_detail {
     inline constexpr double SPEED_CAP = 1.45;  // top speed over cruise
     inline constexpr double REST_RADIUS =
         0.7;  // spacings from home inside which an agent swings to its rest direction
-    inline constexpr double MERGE_MIN =
-        0.18;  // s to merge into the window, by settling
+    inline constexpr double MERGE_MIN = 0.18;  // s to merge into the window, by settling
     inline constexpr double SPLIT_TIME = 0.14;  // s to shrink from tile to creature
-    inline constexpr double CORNER_TIME =
-        0.18;  // s for the global surface rounding to change
+    inline constexpr double CORNER_TIME = 0.18;  // s for the global surface rounding to change
 
     inline Vec2 operator+(Vec2 lhs, Vec2 rhs) noexcept {
         return {.x = lhs.x + rhs.x, .y = lhs.y + rhs.y};

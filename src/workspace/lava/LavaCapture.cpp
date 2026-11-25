@@ -47,7 +47,7 @@ namespace hyprimate::workspace::lava {
                    capture.composite != capture.windows.accumulated &&
                    capture.composite != capture.bottom.accumulated;
         }
-    }
+    }  // namespace
     bool Renderer::draw(const WorkspaceFrame &frame,
         double progress,
         Direction direction,
@@ -100,4 +100,4 @@ namespace hyprimate::workspace::lava {
             material,
             planes);
     }
-}
+}  // namespace hyprimate::workspace::lava

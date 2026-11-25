@@ -36,7 +36,6 @@ namespace hyprimate::workspace::cube::detail {
             double m_y;
         };
 
-
         struct Angle {
             double sine;
             double cosine;
@@ -274,7 +273,7 @@ namespace hyprimate::workspace::cube::detail {
                 {0.16F, 0.18F, 0.20F},
                 {0.96F, 0.79F, 0.65F, 0.82F});
         }
-    }
+    }  // namespace
     void build_mesh(Mesh &mesh, const Pose &pose, Variant variant) {
         switch (variant) {
             case Variant::Solid:
@@ -285,4 +284,4 @@ namespace hyprimate::workspace::cube::detail {
                 break;
         }
     }
-}
+}  // namespace hyprimate::workspace::cube::detail

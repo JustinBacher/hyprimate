@@ -13,13 +13,13 @@
 #include "window/bubble/BubbleSheets.hpp"
 
 namespace hyprimate {
-    using detail::PI_VALUE;
     using detail::basis;
-    using detail::collapse;
     using detail::BurstEvent;
+    using detail::collapse;
     using detail::cross;
     using detail::dot;
     using detail::normalize;
+    using detail::PI_VALUE;
     using detail::radius_at;
     namespace {
         BubbleHole sheet_hole(

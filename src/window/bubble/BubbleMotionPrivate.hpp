@@ -95,16 +95,12 @@ namespace hyprimate::bubble_motion_detail {
         if (!(SQUARE_LENGTH > 1e-12) || !(CIRCLE_LENGTH > 1e-12)) {
             return {};
         }
-        return add(mul(SQUARE, (1 - roundness) / SQUARE_LENGTH),
-            mul(CIRCLE, roundness / CIRCLE_LENGTH));
+        return add(
+            mul(SQUARE, (1 - roundness) / SQUARE_LENGTH), mul(CIRCLE, roundness / CIRCLE_LENGTH));
     }
     // Advances an outline quadrupole oscillator toward target; stable for any step.
-    inline void ring(Vec2 &squash,
-        Vec2 &rate,
-        Vec2 target,
-        double frequency,
-        double damping,
-        double elapsed) {
+    inline void ring(
+        Vec2 &squash, Vec2 &rate, Vec2 target, double frequency, double damping, double elapsed) {
         const int STEPS = std::max(1, static_cast<int>(std::ceil(frequency * elapsed / .2)));
         const double STEP = elapsed / STEPS;
         for (int i = 0; i < STEPS; ++i) {

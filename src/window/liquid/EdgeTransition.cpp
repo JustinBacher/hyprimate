@@ -56,8 +56,6 @@ namespace hyprimate {
                          QUIET_SPREAD_PER_SECOND =
                              1e-3;  // spreads are unitless; ~0.1 px on a 1000 px half-extent
 
-
-
         double lerp(double start, double end, double fraction) {
             return start + ((end - start) * fraction);
         }
@@ -126,7 +124,6 @@ namespace hyprimate {
         }
 
     }  // namespace
-
 
     void EdgeTransition::begin(Transition kind,
         const EdgeFrame &frame,

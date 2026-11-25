@@ -64,7 +64,7 @@ namespace {
         const SP<Render::IFramebuffer> &source, const SP<Render::IFramebuffer> &thumbnail) {
         return write_thumbnail(source, thumbnail, safe_scene);
     }
-}
+}  // namespace
 
 void CWorkspaceAnimation::Impl::remember_wallpaper(const PHLMONITOR &monitor,
     const PHLWORKSPACE &workspace,
@@ -288,19 +288,18 @@ SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::capture_preview(const Invent
             1.F);
     };
     const auto IMAGE = preview_target(OWNER, plan.side);
-    const bool CAPTURED = IMAGE && data.original && ALLOWED() &&
-                          hyprimate::workspace::capture_workspace(*g_pHyprRenderer,
-                              m_begin_render,
-                              OWNER,
-                              scratch,
-                              resources,
-                              TurnKind::SourceIsolated,
-                              DRAW,
-                              &data,
-                              [](void *context) {
-                                  return static_cast<DrawData *>(context)->allowed();
-                              }) &&
-                          write_thumbnail(scratch, IMAGE, ALLOWED);
+    const bool CAPTURED =
+        IMAGE && data.original && ALLOWED() &&
+        hyprimate::workspace::capture_workspace(*g_pHyprRenderer,
+            m_begin_render,
+            OWNER,
+            scratch,
+            resources,
+            TurnKind::SourceIsolated,
+            DRAW,
+            &data,
+            [](void *context) { return static_cast<DrawData *>(context)->allowed(); }) &&
+        write_thumbnail(scratch, IMAGE, ALLOWED);
     if (!CAPTURED) {
         return nullptr;
     }

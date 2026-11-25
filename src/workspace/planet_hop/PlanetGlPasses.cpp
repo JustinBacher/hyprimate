@@ -1,5 +1,5 @@
-#include <array>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 
@@ -80,9 +80,12 @@ namespace hyprimate::workspace {
             "starOffsetFar"};
     }  // namespace
     namespace detail {
-        void cache_program_uniforms(GLuint planet, std::array<GLint, 48> &planet_uniforms,
-            GLuint quad, std::array<GLint, 48> &quad_uniforms,
-            GLuint sky, std::array<GLint, 48> &sky_uniforms) {
+        void cache_program_uniforms(GLuint planet,
+            std::array<GLint, 48> &planet_uniforms,
+            GLuint quad,
+            std::array<GLint, 48> &quad_uniforms,
+            GLuint sky,
+            std::array<GLint, 48> &sky_uniforms) {
             const auto CACHE = [](GLuint id, auto &target, const auto &names) {
                 target.fill(-1);
                 for (std::size_t i = 0; i < names.size(); ++i) {

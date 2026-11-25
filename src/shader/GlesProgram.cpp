@@ -1,5 +1,3 @@
-#include "GlesRuntimePrivate.hpp"
-
 #include <algorithm>
 #include <charconv>
 #include <cmath>
@@ -9,6 +7,8 @@
 #include <utility>
 #include <vector>
 
+#include "GlesRuntimePrivate.hpp"
+
 namespace hyprimate::shader {
     using namespace gles_detail;
 
@@ -17,22 +17,39 @@ namespace hyprimate::shader {
             std::string_view name;
             GLenum type;
         };
-        constexpr std::array<Builtin, UniformCount> BUILTINS{{
-            {"hypr_progress", GL_FLOAT}, {"hypr_elapsed", GL_FLOAT}, {"hypr_delta", GL_FLOAT},
-            {"hypr_duration", GL_FLOAT}, {"hypr_scale", GL_FLOAT}, {"hypr_size", GL_FLOAT_VEC2},
-            {"hypr_target_size", GL_FLOAT_VEC2}, {"hypr_pointer", GL_FLOAT_VEC2},
-            {"hypr_seed", GL_FLOAT_VEC4}, {"hypr_source_uv", GL_FLOAT_VEC4},
-            {"hypr_domain", GL_FLOAT_VEC4}, {"hypr_event", GL_INT},
-            {"hypr_pointer_valid", GL_BOOL}, {"hypr_fullscreen", GL_BOOL},
-            {"hypr_iteration", GL_INT}, {"hypr_iterations", GL_INT},
-            {"hypr_destination_uv", GL_FLOAT_VEC4}, {"hypr_geometry", GL_FLOAT_VEC4},
-            {"hypr_previous_geometry", GL_FLOAT_VEC4}, {"hypr_velocity", GL_FLOAT_VEC4},
-            {"hypr_direction", GL_FLOAT}, {"hypr_held", GL_BOOL}, {"hypr_settling", GL_BOOL},
-            {"hypr_blur_mask", GL_BOOL}, {"hypr_output_size", GL_FLOAT_VEC2},
-            {"hypr_output_origin", GL_FLOAT_VEC2}, {"hypr_output_rect", GL_FLOAT_VEC4},
-            {"hypr_wallpaper_uv", GL_FLOAT_VEC4}, {"hypr_wallpaper_original_available", GL_BOOL},
-            {"hypr_wallpaper_processed_available", GL_BOOL}, {"hypr_environment_state_available", GL_BOOL},
-            {"hypr_disturbances_available", GL_BOOL}, {"hypr_interaction_count", GL_INT}}};
+        constexpr std::array<Builtin, UniformCount> BUILTINS{{{"hypr_progress", GL_FLOAT},
+            {"hypr_elapsed", GL_FLOAT},
+            {"hypr_delta", GL_FLOAT},
+            {"hypr_duration", GL_FLOAT},
+            {"hypr_scale", GL_FLOAT},
+            {"hypr_size", GL_FLOAT_VEC2},
+            {"hypr_target_size", GL_FLOAT_VEC2},
+            {"hypr_pointer", GL_FLOAT_VEC2},
+            {"hypr_seed", GL_FLOAT_VEC4},
+            {"hypr_source_uv", GL_FLOAT_VEC4},
+            {"hypr_domain", GL_FLOAT_VEC4},
+            {"hypr_event", GL_INT},
+            {"hypr_pointer_valid", GL_BOOL},
+            {"hypr_fullscreen", GL_BOOL},
+            {"hypr_iteration", GL_INT},
+            {"hypr_iterations", GL_INT},
+            {"hypr_destination_uv", GL_FLOAT_VEC4},
+            {"hypr_geometry", GL_FLOAT_VEC4},
+            {"hypr_previous_geometry", GL_FLOAT_VEC4},
+            {"hypr_velocity", GL_FLOAT_VEC4},
+            {"hypr_direction", GL_FLOAT},
+            {"hypr_held", GL_BOOL},
+            {"hypr_settling", GL_BOOL},
+            {"hypr_blur_mask", GL_BOOL},
+            {"hypr_output_size", GL_FLOAT_VEC2},
+            {"hypr_output_origin", GL_FLOAT_VEC2},
+            {"hypr_output_rect", GL_FLOAT_VEC4},
+            {"hypr_wallpaper_uv", GL_FLOAT_VEC4},
+            {"hypr_wallpaper_original_available", GL_BOOL},
+            {"hypr_wallpaper_processed_available", GL_BOOL},
+            {"hypr_environment_state_available", GL_BOOL},
+            {"hypr_disturbances_available", GL_BOOL},
+            {"hypr_interaction_count", GL_INT}}};
         constexpr std::array<GLenum, 6> VALUE_TYPES{
             GL_FLOAT, GL_INT, GL_BOOL, GL_FLOAT_VEC2, GL_FLOAT_VEC3, GL_FLOAT_VEC4};
         unsigned float_columns(GLenum type) {
@@ -40,47 +57,72 @@ namespace hyprimate::shader {
                 case GL_FLOAT:
                 case GL_FLOAT_VEC2:
                 case GL_FLOAT_VEC3:
-                case GL_FLOAT_VEC4: return 1;
+                case GL_FLOAT_VEC4:
+                    return 1;
                 case GL_FLOAT_MAT2:
                 case GL_FLOAT_MAT2x3:
-                case GL_FLOAT_MAT2x4: return 2;
+                case GL_FLOAT_MAT2x4:
+                    return 2;
                 case GL_FLOAT_MAT3:
                 case GL_FLOAT_MAT3x2:
-                case GL_FLOAT_MAT3x4: return 3;
+                case GL_FLOAT_MAT3x4:
+                    return 3;
                 case GL_FLOAT_MAT4:
                 case GL_FLOAT_MAT4x2:
-                case GL_FLOAT_MAT4x3: return 4;
-                default: return 0;
+                case GL_FLOAT_MAT4x3:
+                    return 4;
+                default:
+                    return 0;
             }
         }
 
         unsigned float_components(GLenum type) {
             switch (type) {
-                case GL_FLOAT: return 1;
-                case GL_FLOAT_VEC2: return 2;
-                case GL_FLOAT_VEC3: return 3;
+                case GL_FLOAT:
+                    return 1;
+                case GL_FLOAT_VEC2:
+                    return 2;
+                case GL_FLOAT_VEC3:
+                    return 3;
                 case GL_FLOAT_VEC4:
-                case GL_FLOAT_MAT2: return 4;
+                case GL_FLOAT_MAT2:
+                    return 4;
                 case GL_FLOAT_MAT2x3:
-                case GL_FLOAT_MAT3x2: return 6;
+                case GL_FLOAT_MAT3x2:
+                    return 6;
                 case GL_FLOAT_MAT2x4:
-                case GL_FLOAT_MAT4x2: return 8;
-                case GL_FLOAT_MAT3: return 9;
+                case GL_FLOAT_MAT4x2:
+                    return 8;
+                case GL_FLOAT_MAT3:
+                    return 9;
                 case GL_FLOAT_MAT3x4:
-                case GL_FLOAT_MAT4x3: return 12;
-                case GL_FLOAT_MAT4: return 16;
-                default: return 0;
+                case GL_FLOAT_MAT4x3:
+                    return 12;
+                case GL_FLOAT_MAT4:
+                    return 16;
+                default:
+                    return 0;
             }
         }
 
         void set_value(GLint location, const Value &value) {
             switch (value.type) {
-                case ValueType::Float: glUniform1f(location, value.numbers[0]); break;
+                case ValueType::Float:
+                    glUniform1f(location, value.numbers[0]);
+                    break;
                 case ValueType::Int:
-                case ValueType::Bool: glUniform1i(location, value.integer); break;
-                case ValueType::Vec2: glUniform2fv(location, 1, value.numbers.data()); break;
-                case ValueType::Vec3: glUniform3fv(location, 1, value.numbers.data()); break;
-                case ValueType::Vec4: glUniform4fv(location, 1, value.numbers.data()); break;
+                case ValueType::Bool:
+                    glUniform1i(location, value.integer);
+                    break;
+                case ValueType::Vec2:
+                    glUniform2fv(location, 1, value.numbers.data());
+                    break;
+                case ValueType::Vec3:
+                    glUniform3fv(location, 1, value.numbers.data());
+                    break;
+                case ValueType::Vec4:
+                    glUniform4fv(location, 1, value.numbers.data());
+                    break;
             }
         }
         std::string shader_log(GLuint name, bool program) {
@@ -116,8 +158,8 @@ namespace hyprimate::shader {
             if (status == GL_TRUE) {
                 return shader;
             }
-            error = (stage == GL_VERTEX_SHADER ? "vertex: " : "fragment: ") +
-                    shader_log(shader, false);
+            error =
+                (stage == GL_VERTEX_SHADER ? "vertex: " : "fragment: ") + shader_log(shader, false);
             glDeleteShader(shader);
             return 0;
         }
@@ -130,8 +172,9 @@ namespace hyprimate::shader {
             }
             // Do not inject raster ABI inputs into the inert feedback fragment.
             const auto fragment = compile(GL_FRAGMENT_SHADER,
-                pass.transform_feedback ? "#version 300 es\nvoid main() {}\n" :
-                                          shader_source(package, pass.fragment, false), error);
+                pass.transform_feedback ? "#version 300 es\nvoid main() {}\n"
+                                        : shader_source(package, pass.fragment, false),
+                error);
             if (fragment == 0) {
                 glDeleteShader(vertex);
                 return false;
@@ -150,8 +193,10 @@ namespace hyprimate::shader {
                 for (const auto &varying : pass.varyings) {
                     names.push_back(varying.c_str());
                 }
-                glTransformFeedbackVaryings(gpu.program, static_cast<GLsizei>(names.size()),
-                    names.data(), GL_INTERLEAVED_ATTRIBS);
+                glTransformFeedbackVaryings(gpu.program,
+                    static_cast<GLsizei>(names.size()),
+                    names.data(),
+                    GL_INTERLEAVED_ATTRIBS);
             }
             glLinkProgram(gpu.program);
             glDetachShader(gpu.program, vertex);
@@ -172,8 +217,13 @@ namespace hyprimate::shader {
                 GLsizei length = 0;
                 GLint elements = 0;
                 GLenum type = 0;
-                glGetActiveAttrib(program, static_cast<GLuint>(i), max_name, &length, &elements,
-                    &type, name.data());
+                glGetActiveAttrib(program,
+                    static_cast<GLuint>(i),
+                    max_name,
+                    &length,
+                    &elements,
+                    &type,
+                    name.data());
                 const std::string_view attribute(name.data(), length);
                 if (attribute.starts_with("gl_")) {
                     continue;
@@ -181,8 +231,8 @@ namespace hyprimate::shader {
                 const auto columns = float_columns(type);
                 const GLint location = glGetAttribLocation(program, name.data());
                 if (!mesh || columns == 0 || location < 0 || elements != 1) {
-                    return fail(error, "unbound or non-float vertex attribute: " +
-                                           std::string(attribute));
+                    return fail(
+                        error, "unbound or non-float vertex attribute: " + std::string(attribute));
                 }
                 for (unsigned column = 0; column < columns; ++column) {
                     if (std::ranges::none_of(mesh->attributes, [&](const Attribute &input) {
@@ -195,8 +245,12 @@ namespace hyprimate::shader {
             return true;
         }
 
-        bool reflect_feedback(const Package &package, const Pass &pass, const Mesh *mesh,
-            GLuint program, const Limits &limits, std::string &error) {
+        bool reflect_feedback(const Package &package,
+            const Pass &pass,
+            const Mesh *mesh,
+            GLuint program,
+            const Limits &limits,
+            std::string &error) {
             if (!pass.transform_feedback) {
                 return true;
             }
@@ -210,8 +264,8 @@ namespace hyprimate::shader {
                 GLint elements = 0;
                 GLenum type = 0;
                 GLchar ignored_name[1]{};
-                glGetTransformFeedbackVarying(program, static_cast<GLuint>(i), 1, nullptr,
-                    &elements, &type, ignored_name);
+                glGetTransformFeedbackVarying(
+                    program, static_cast<GLuint>(i), 1, nullptr, &elements, &type, ignored_name);
                 const auto width = float_components(type);
                 if (width == 0 || elements < 1) {
                     return fail(error, "transform feedback requires float varying data");
@@ -221,24 +275,31 @@ namespace hyprimate::shader {
             if (components > static_cast<std::size_t>(limits.feedback_components)) {
                 return fail(error, "transform feedback exceeds GL interleaved component limit");
             }
-            const unsigned primitive_size = mesh->primitive == Primitive::Triangles ? 3U :
-                                            mesh->primitive == Primitive::Lines ? 2U : 1U;
+            const unsigned primitive_size = mesh->primitive == Primitive::Triangles ? 3U
+                                            : mesh->primitive == Primitive::Lines   ? 2U
+                                                                                    : 1U;
             if (mesh->count % primitive_size != 0) {
                 return fail(error, "transform feedback mesh must contain complete primitives");
             }
-            const auto bytes = std::uint64_t{mesh->count} * mesh->instances * components * sizeof(float);
+            const auto bytes =
+                std::uint64_t{mesh->count} * mesh->instances * components * sizeof(float);
             const auto &destination = package.buffers[pass.feedback.index];
             if (bytes > destination.bytes) {
                 return fail(error, "transform feedback output buffer is too small");
             }
             if (destination.lifetime == Lifetime::Transient && bytes != destination.bytes) {
-                return fail(error, "transform feedback must write every byte of a transient buffer");
+                return fail(
+                    error, "transform feedback must write every byte of a transient buffer");
             }
             return true;
         }
 
-        bool reflect_uniforms(const Package &package, const Pass &pass, const Values &values,
-            const Limits &limits, CompiledPass &gpu, std::string &error) {
+        bool reflect_uniforms(const Package &package,
+            const Pass &pass,
+            const Values &values,
+            const Limits &limits,
+            CompiledPass &gpu,
+            std::string &error) {
             GLint count = 0, max_name = 0;
             glGetProgramiv(gpu.program, GL_ACTIVE_UNIFORMS, &count);
             glGetProgramiv(gpu.program, GL_ACTIVE_UNIFORM_MAX_LENGTH, &max_name);
@@ -255,12 +316,14 @@ namespace hyprimate::shader {
                 GLsizei length = 0;
                 GLint elements = 0;
                 GLenum type = 0;
-                glGetActiveUniform(gpu.program, i, max_name, &length, &elements, &type, name.data());
+                glGetActiveUniform(
+                    gpu.program, i, max_name, &length, &elements, &type, name.data());
                 const std::string_view uniform(name.data(), length);
                 const auto location = glGetUniformLocation(gpu.program, name.data());
                 gpu.uses_environment |= package.environment.used();
                 if (uniform == "hypr_interactions[0]" && package.environment.interactions &&
-                    type == GL_FLOAT_VEC4 && elements > 0 && elements <= int(MAX_INTERACTIONS * 4)) {
+                    type == GL_FLOAT_VEC4 && elements > 0 &&
+                    elements <= int(MAX_INTERACTIONS * 4)) {
                     gpu.interactions = location;
                     gpu.interaction_vectors = elements;
                     continue;
@@ -270,38 +333,50 @@ namespace hyprimate::shader {
                     gpu.uniforms[static_cast<std::size_t>(builtin - BUILTINS.begin())] = location;
                     continue;
                 }
-                const auto parameter = std::ranges::find(package.parameters, uniform, &Parameter::name);
+                const auto parameter =
+                    std::ranges::find(package.parameters, uniform, &Parameter::name);
                 if (parameter != package.parameters.end() && elements == 1 &&
                     type == VALUE_TYPES[static_cast<unsigned>(parameter->initial.type)]) {
-                    set_value(location, values[static_cast<std::size_t>(parameter -
-                                            package.parameters.begin())]);
+                    set_value(location,
+                        values[static_cast<std::size_t>(parameter - package.parameters.begin())]);
                     continue;
                 }
                 const auto input = std::ranges::find(pass.inputs, uniform, &Binding::name);
                 const auto &environment = package.environment;
                 std::optional<Ref> sampler;
-                if (uniform == "hypr_source") sampler = Ref{};
-                else if (uniform == "hypr_destination") sampler = Ref{ResourceKind::Destination};
-                else if (uniform == "hypr_wallpaper_original" && environment.original) sampler = Ref{ResourceKind::Original};
-                else if (uniform == "hypr_wallpaper_processed" && environment.processed) sampler = Ref{ResourceKind::Processed};
-                else if (uniform == "hypr_environment_state" && environment.sample_state) sampler = Ref{ResourceKind::EnvironmentState};
-                else if (uniform == "hypr_disturbances" && environment.interactions && !environment.channel.empty()) sampler = Ref{ResourceKind::Disturbances};
-                else if (input != pass.inputs.end()) sampler = input->resource;
+                if (uniform == "hypr_source")
+                    sampler = Ref{};
+                else if (uniform == "hypr_destination")
+                    sampler = Ref{ResourceKind::Destination};
+                else if (uniform == "hypr_wallpaper_original" && environment.original)
+                    sampler = Ref{ResourceKind::Original};
+                else if (uniform == "hypr_wallpaper_processed" && environment.processed)
+                    sampler = Ref{ResourceKind::Processed};
+                else if (uniform == "hypr_environment_state" && environment.sample_state)
+                    sampler = Ref{ResourceKind::EnvironmentState};
+                else if (uniform == "hypr_disturbances" && environment.interactions &&
+                         !environment.channel.empty())
+                    sampler = Ref{ResourceKind::Disturbances};
+                else if (input != pass.inputs.end())
+                    sampler = input->resource;
                 if (type != GL_SAMPLER_2D || elements != 1 || !sampler) {
                     return fail(error, "unsupported or unmapped uniform: " + std::string(uniform));
                 }
                 const auto ref = *sampler;
                 if (ref.kind >= ResourceKind::Original && !package.supports(Event::Wallpaper) &&
                     pass.phase != Phase::Render) {
-                    return fail(error, "window packages can only sample the environment in their render phase");
+                    return fail(error,
+                        "window packages can only sample the environment in their render phase");
                 }
                 unsigned unit = 0;
                 while (unit < gpu.sampler_count && gpu.samplers[unit] != ref) {
                     ++unit;
                 }
                 if (unit == gpu.sampler_count) {
-                    if (unit >= gpu.samplers.size() || unit >= static_cast<unsigned>(limits.samplers)) {
-                        return fail(error, "active sampler bindings exceed the GLES texture unit limit");
+                    if (unit >= gpu.samplers.size() ||
+                        unit >= static_cast<unsigned>(limits.samplers)) {
+                        return fail(
+                            error, "active sampler bindings exceed the GLES texture unit limit");
                     }
                     gpu.samplers[gpu.sampler_count++] = ref;
                 }
@@ -310,8 +385,11 @@ namespace hyprimate::shader {
             return true;
         }
 
-        bool reflect_blocks(const Package &package, const Pass &pass, const Limits &limits,
-            CompiledPass &gpu, std::string &error) {
+        bool reflect_blocks(const Package &package,
+            const Pass &pass,
+            const Limits &limits,
+            CompiledPass &gpu,
+            std::string &error) {
             GLint count = 0, max_name = 0;
             glGetProgramiv(gpu.program, GL_ACTIVE_UNIFORM_BLOCKS, &count);
             if (count > limits.block_bindings || count > static_cast<GLint>(gpu.blocks.size())) {
@@ -330,9 +408,10 @@ namespace hyprimate::shader {
                 GLint bytes = 0;
                 glGetActiveUniformBlockiv(gpu.program, i, GL_UNIFORM_BLOCK_DATA_SIZE, &bytes);
                 if (bytes <= 0 || bytes > limits.block_bytes ||
-                    static_cast<std::size_t>(bytes) > package.buffers[binding->resource.index].bytes) {
-                    return fail(error, "uniform block exceeds its GLES/buffer size: " +
-                                           std::string(block));
+                    static_cast<std::size_t>(bytes) >
+                        package.buffers[binding->resource.index].bytes) {
+                    return fail(
+                        error, "uniform block exceeds its GLES/buffer size: " + std::string(block));
                 }
                 gpu.blocks[gpu.block_count++] = {binding->resource, bytes};
                 glUniformBlockBinding(gpu.program, i, i);
@@ -343,8 +422,8 @@ namespace hyprimate::shader {
         // ES 3.0 can query a named output's location but cannot enumerate or
         // query its type. Accept a deliberately small output declaration grammar.
         bool token_word(char c) {
-            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-                   (c >= '0' && c <= '9') || c == '_';
+            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+                   c == '_';
         }
 
         bool identifier(std::string_view token) {
@@ -359,7 +438,8 @@ namespace hyprimate::shader {
             std::string_view next() {
                 while (!source.empty()) {
                     if (source.front() == ' ' || source.front() == '\t' || source.front() == '\r' ||
-                        source.front() == '\n' || source.front() == '\v' || source.front() == '\f') {
+                        source.front() == '\n' || source.front() == '\v' ||
+                        source.front() == '\f') {
                         source.remove_prefix(1);
                     } else if (source.starts_with("//")) {
                         line();
@@ -431,13 +511,15 @@ namespace hyprimate::shader {
                         macros.insert(macro);
                         for (auto t = directive.next(); !t.empty(); t = directive.next()) {
                             if (t == "out" || t == "#") {
-                                return fail(error, "fragment macros cannot introduce output declarations");
+                                return fail(
+                                    error, "fragment macros cannot introduce output declarations");
                             }
                         }
                         if (!directive.valid) {
                             return fail(error, "fragment macros must fit on one logical line");
                         }
-                    } else if (kind != "elif" && kind != "else" && kind != "line" && kind != "pragma") {
+                    } else if (kind != "elif" && kind != "else" && kind != "line" &&
+                               kind != "pragma") {
                         return fail(error, "unsupported fragment preprocessor directive");
                     }
                     previous = {};
@@ -458,13 +540,15 @@ namespace hyprimate::shader {
                         }
                         unsigned slot = 0;
                         const auto number = previous[4];
-                        const auto result = std::from_chars(number.data(), number.data() + number.size(), slot);
+                        const auto result =
+                            std::from_chars(number.data(), number.data() + number.size(), slot);
                         auto type = lex.next();
                         if (std::ranges::find(PRECISION, type) != PRECISION.end()) {
                             type = lex.next();
                         }
                         const auto name = lex.next();
-                        if (result.ec != std::errc{} || result.ptr != number.data() + number.size() ||
+                        if (result.ec != std::errc{} ||
+                            result.ptr != number.data() + number.size() ||
                             slot >= pass.outputs.size() || !names[slot].empty() || !is_type(type) ||
                             !identifier(name) || lex.next() != ";") {
                             return fail(error, BAD_OUTPUT);
@@ -489,9 +573,11 @@ namespace hyprimate::shader {
             for (std::size_t i = 0; i < pass.outputs.size(); ++i) {
                 const auto name = names[i];
                 if (!lex.valid || name.empty() || macros.contains(name) ||
-                    glGetFragDataLocation(program, std::string(name).c_str()) != static_cast<GLint>(i)) {
-                    return fail(error, "fragment output is missing, inactive, or macro-defined at location " +
-                                           std::to_string(i));
+                    glGetFragDataLocation(program, std::string(name).c_str()) !=
+                        static_cast<GLint>(i)) {
+                    return fail(error,
+                        "fragment output is missing, inactive, or macro-defined at location " +
+                            std::to_string(i));
                 }
             }
             return true;
@@ -519,7 +605,8 @@ namespace hyprimate::shader {
                 }
             }
 
-            bool check(const Package &package, const Pass &pass, Statistics &stats, std::string &error) {
+            bool check(
+                const Package &package, const Pass &pass, Statistics &stats, std::string &error) {
                 if (framebuffer == 0) {
                     glGenFramebuffers(1, &framebuffer);
                     if (framebuffer == 0) {
@@ -556,198 +643,211 @@ namespace hyprimate::shader {
                 slots = outputs;
                 glDrawBuffers(static_cast<GLsizei>(slots), draw.data());
                 if (glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-                    return fail(error, "unsupported GLES framebuffer format/MRT combination: " + pass.name);
+                    return fail(
+                        error, "unsupported GLES framebuffer format/MRT combination: " + pass.name);
                 }
                 return gl_ok(error, "checking GLES framebuffer format probe");
             }
         };
-    }
+    }  // namespace
     bool Program::Impl::direct() const noexcept {
-            return final_draws > 0 && final_is_last && final_source_over && !uses_frag_coord;
-        }
-    Program::Impl::Impl(Package spec) : package(std::move(spec)) {}
+        return final_draws > 0 && final_is_last && final_source_over && !uses_frag_coord;
+    }
+    Program::Impl::Impl(Package spec) : package(std::move(spec)) {
+    }
     Program::Impl::~Impl() {
-            if (!armed) {
-                return;
-            }
-            for (const auto &pass : passes) {
-                if (pass.program != 0) {
-                    glDeleteProgram(pass.program);
-                }
-            }
-            glDeleteTextures(static_cast<GLsizei>(assets.size()), assets.data());
-            glDeleteBuffers(static_cast<GLsizei>(elements.size()), elements.data());
-            if (source_sampler != 0) {
-                glDeleteSamplers(1, &source_sampler);
+        if (!armed) {
+            return;
+        }
+        for (const auto &pass : passes) {
+            if (pass.program != 0) {
+                glDeleteProgram(pass.program);
             }
         }
+        glDeleteTextures(static_cast<GLsizei>(assets.size()), assets.data());
+        glDeleteBuffers(static_cast<GLsizei>(elements.size()), elements.data());
+        if (source_sampler != 0) {
+            glDeleteSamplers(1, &source_sampler);
+        }
+    }
     bool Program::Impl::prepare(const Values &values, GlResolver resolver, std::string &error) {
-            limits.query();
-            if (!color.configure(limits, resolver)) {
-                return fail(error, "indexed GLES draw buffer state requires a GL procedure resolver");
-            }
-            if (color.indexed()) {
-                // Do not mutate indexed host state if an advertised driver API
-                // cannot actually query it.
-                (void)color.mask(0);
-                (void)color.get(GL_BLEND_EQUATION_RGB, 0);
-                (void)color.enabled_slot(GL_BLEND, 0);
-                if (!gl_ok(error, "querying indexed GLES draw buffer state")) {
-                    return false;
-                }
-            }
-            const auto &spec = package;
-            for (const auto &texture : spec.textures) {
-                if (texture.linear && pixel_format(texture.format).type == GL_FLOAT &&
-                    !limits.float_linear) {
-                    return fail(error, "32-bit float linear texture filtering is unsupported: " +
-                                           texture.name);
-                }
-                if (texture.image_width > static_cast<unsigned>(limits.texture) ||
-                    texture.image_height > static_cast<unsigned>(limits.texture)) {
-                    return fail(error, "asset exceeds GLES texture size: " + texture.name);
-                }
-            }
-            for (const auto &mesh : spec.meshes) {
-                if (std::ranges::any_of(mesh.attributes, [&](const Attribute &attr) {
-                        return attr.location >= static_cast<unsigned>(limits.attributes);
-                    })) {
-                    return fail(error, "mesh exceeds GLES vertex attribute limit: " + mesh.name);
-                }
-                if (!mesh.indices.empty() && *std::ranges::max_element(mesh.indices) > limits.index) {
-                    return fail(error, "mesh exceeds GLES element index limit: " + mesh.name);
-                }
-            }
-            for (std::size_t i = 0; i < spec.passes.size(); ++i) {
-                const auto &pass = spec.passes[i];
-                auto &gpu = passes[i];
-                const auto *mesh = pass_mesh(spec, pass);
-                if (pass.outputs.size() > static_cast<std::size_t>(limits.draw_buffers) ||
-                    pass.outputs.size() > static_cast<std::size_t>(limits.color_attachments)) {
-                    return fail(error, "MRT exceeds GLES draw buffer / attachment limit: " + pass.name);
-                }
-                if (pass.transform_feedback &&
-                    (!mesh || !mesh->indices.empty() || mesh->primitive == Primitive::TriangleStrip)) {
-                    return fail(error, "GLES 3.0 feedback requires non-indexed points, lines or triangles: " +
-                                           pass.name);
-                }
-                if (pass.blend && !limits.float_blend &&
-                    std::ranges::any_of(pass.outputs, [&](const Ref &output) {
-                        return output.kind == ResourceKind::Texture &&
-                               pixel_format(spec.textures[output.index].format).type == GL_FLOAT;
-                    })) {
-                    return fail(error, "GLES 32-bit float target cannot blend: " + pass.name);
-                }
-                if (!link(spec, pass, gpu, error) ||
-                    !reflect_outputs(pass, gpu.program, error) ||
-                    !reflect_attributes(mesh, gpu.program, error) ||
-                    !reflect_feedback(spec, pass, mesh, gpu.program, limits, error) ||
-                    !reflect_uniforms(spec, pass, values, limits, gpu, error) ||
-                    !reflect_blocks(spec, pass, limits, gpu, error) || !gl_ok(error, "preparing pass")) {
-                    error = pass.name + ": " + error;
-                    return false;
-                }
-                sampler_count = std::max(sampler_count, gpu.sampler_count);
-                block_count = std::max(block_count, gpu.block_count);
-                max_outputs = std::max(max_outputs, static_cast<unsigned>(pass.outputs.size()));
-                has_feedback |= pass.transform_feedback;
-                uses_destination |= std::ranges::any_of(
-                    std::views::counted(gpu.samplers.begin(), gpu.sampler_count),
-                    [](Ref ref) { return ref.kind == ResourceKind::Destination; });
-                if (!pass.outputs.empty() && pass.outputs.front().kind == ResourceKind::Output) {
-                    final_is_last = i + 1 == spec.passes.size();
-                    const auto builtin = default_vertex();
-                    const bool fullscreen = pass.mesh < 0 &&
-                        (pass.vertex == builtin ||
-                            (pass.vertex.size() == builtin.size() + 1 &&
-                                pass.vertex.front() == '\n' && pass.vertex.ends_with(builtin)));
-                    // Source-over is associative. The first draw may replace
-                    // transparent storage only if it cannot overdraw itself;
-                    // subsequent draws must preserve the accumulated result.
-                    final_source_over &= final_draws == 0
-                        ? (pass.blend || (fullscreen && pass.iterations == 1)) &&
-                              (!pass.clear || pass.iterations == 1)
-                        : pass.blend && !pass.clear;
-                    final_draws += pass.iterations;
-                    // Keep v1 gl_FragCoord relative to its private target.
-                    uses_frag_coord |= pass.fragment.find("gl_FragCoord") != std::string::npos;
-                    samples_borrowed_target |= gpu.sampler_count != 0;
-                    blends_final |= pass.blend;
-                } else if (final_draws != 0) {
-                    // Do not submit to the compositor until all private passes
-                    // that could fail have completed.
-                    final_source_over = false;
-                }
-                // Feedback executes with the already validated borrowed FBO bound.
-                samples_borrowed_target |= pass.transform_feedback && gpu.sampler_count != 0;
-            }
-            if (!preflight_formats(error)) {
+        limits.query();
+        if (!color.configure(limits, resolver)) {
+            return fail(error, "indexed GLES draw buffer state requires a GL procedure resolver");
+        }
+        if (color.indexed()) {
+            // Do not mutate indexed host state if an advertised driver API
+            // cannot actually query it.
+            (void)color.mask(0);
+            (void)color.get(GL_BLEND_EQUATION_RGB, 0);
+            (void)color.enabled_slot(GL_BLEND, 0);
+            if (!gl_ok(error, "querying indexed GLES draw buffer state")) {
                 return false;
             }
-            return upload(error);
         }
-    bool Program::Impl::preflight_formats(std::string &error) {
-            if (!std::ranges::any_of(package.passes, [](const Pass &pass) {
-                    return !pass.outputs.empty() && pass.outputs.front().kind == ResourceKind::Texture;
+        const auto &spec = package;
+        for (const auto &texture : spec.textures) {
+            if (texture.linear && pixel_format(texture.format).type == GL_FLOAT &&
+                !limits.float_linear) {
+                return fail(
+                    error, "32-bit float linear texture filtering is unsupported: " + texture.name);
+            }
+            if (texture.image_width > static_cast<unsigned>(limits.texture) ||
+                texture.image_height > static_cast<unsigned>(limits.texture)) {
+                return fail(error, "asset exceeds GLES texture size: " + texture.name);
+            }
+        }
+        for (const auto &mesh : spec.meshes) {
+            if (std::ranges::any_of(mesh.attributes, [&](const Attribute &attr) {
+                    return attr.location >= static_cast<unsigned>(limits.attributes);
                 })) {
-                return true;
+                return fail(error, "mesh exceeds GLES vertex attribute limit: " + mesh.name);
             }
-            FormatProbe probe;
-            for (const auto &pass : package.passes) {
-                if (!pass.outputs.empty() && pass.outputs.front().kind == ResourceKind::Texture &&
-                    !probe.check(package, pass, stats, error)) {
-                    return false;
-                }
+            if (!mesh.indices.empty() && *std::ranges::max_element(mesh.indices) > limits.index) {
+                return fail(error, "mesh exceeds GLES element index limit: " + mesh.name);
             }
+        }
+        for (std::size_t i = 0; i < spec.passes.size(); ++i) {
+            const auto &pass = spec.passes[i];
+            auto &gpu = passes[i];
+            const auto *mesh = pass_mesh(spec, pass);
+            if (pass.outputs.size() > static_cast<std::size_t>(limits.draw_buffers) ||
+                pass.outputs.size() > static_cast<std::size_t>(limits.color_attachments)) {
+                return fail(error, "MRT exceeds GLES draw buffer / attachment limit: " + pass.name);
+            }
+            if (pass.transform_feedback &&
+                (!mesh || !mesh->indices.empty() || mesh->primitive == Primitive::TriangleStrip)) {
+                return fail(error,
+                    "GLES 3.0 feedback requires non-indexed points, lines or triangles: " +
+                        pass.name);
+            }
+            if (pass.blend && !limits.float_blend &&
+                std::ranges::any_of(pass.outputs, [&](const Ref &output) {
+                    return output.kind == ResourceKind::Texture &&
+                           pixel_format(spec.textures[output.index].format).type == GL_FLOAT;
+                })) {
+                return fail(error, "GLES 32-bit float target cannot blend: " + pass.name);
+            }
+            if (!link(spec, pass, gpu, error) || !reflect_outputs(pass, gpu.program, error) ||
+                !reflect_attributes(mesh, gpu.program, error) ||
+                !reflect_feedback(spec, pass, mesh, gpu.program, limits, error) ||
+                !reflect_uniforms(spec, pass, values, limits, gpu, error) ||
+                !reflect_blocks(spec, pass, limits, gpu, error) ||
+                !gl_ok(error, "preparing pass")) {
+                error = pass.name + ": " + error;
+                return false;
+            }
+            sampler_count = std::max(sampler_count, gpu.sampler_count);
+            block_count = std::max(block_count, gpu.block_count);
+            max_outputs = std::max(max_outputs, static_cast<unsigned>(pass.outputs.size()));
+            has_feedback |= pass.transform_feedback;
+            uses_destination |=
+                std::ranges::any_of(std::views::counted(gpu.samplers.begin(), gpu.sampler_count),
+                    [](Ref ref) { return ref.kind == ResourceKind::Destination; });
+            if (!pass.outputs.empty() && pass.outputs.front().kind == ResourceKind::Output) {
+                final_is_last = i + 1 == spec.passes.size();
+                const auto builtin = default_vertex();
+                const bool fullscreen =
+                    pass.mesh < 0 &&
+                    (pass.vertex == builtin ||
+                        (pass.vertex.size() == builtin.size() + 1 && pass.vertex.front() == '\n' &&
+                            pass.vertex.ends_with(builtin)));
+                // Source-over is associative. The first draw may replace
+                // transparent storage only if it cannot overdraw itself;
+                // subsequent draws must preserve the accumulated result.
+                final_source_over &= final_draws == 0
+                                         ? (pass.blend || (fullscreen && pass.iterations == 1)) &&
+                                               (!pass.clear || pass.iterations == 1)
+                                         : pass.blend && !pass.clear;
+                final_draws += pass.iterations;
+                // Keep v1 gl_FragCoord relative to its private target.
+                uses_frag_coord |= pass.fragment.find("gl_FragCoord") != std::string::npos;
+                samples_borrowed_target |= gpu.sampler_count != 0;
+                blends_final |= pass.blend;
+            } else if (final_draws != 0) {
+                // Do not submit to the compositor until all private passes
+                // that could fail have completed.
+                final_source_over = false;
+            }
+            // Feedback executes with the already validated borrowed FBO bound.
+            samples_borrowed_target |= pass.transform_feedback && gpu.sampler_count != 0;
+        }
+        if (!preflight_formats(error)) {
+            return false;
+        }
+        return upload(error);
+    }
+    bool Program::Impl::preflight_formats(std::string &error) {
+        if (!std::ranges::any_of(package.passes, [](const Pass &pass) {
+                return !pass.outputs.empty() && pass.outputs.front().kind == ResourceKind::Texture;
+            })) {
             return true;
         }
-    bool Program::Impl::upload(std::string &error) {
-            const UploadState pixels;
-            const auto array_buffer = integer(GL_ARRAY_BUFFER_BINDING);
-            for (std::size_t i = 0; i < package.meshes.size(); ++i) {
-                const auto &indices = package.meshes[i].indices;
-                if (indices.empty()) {
-                    continue;
-                }
-                glGenBuffers(1, &elements[i]);
-                // Upload through the generic array binding; attaching the EBO is VAO state.
-                glBindBuffer(GL_ARRAY_BUFFER, elements[i]);
-                const auto bytes = indices.size() * sizeof(indices.front());
-                glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(bytes), indices.data(), GL_STATIC_DRAW);
-                count_storage(stats, bytes);
-                stats.upload_bytes += bytes;
+        FormatProbe probe;
+        for (const auto &pass : package.passes) {
+            if (!pass.outputs.empty() && pass.outputs.front().kind == ResourceKind::Texture &&
+                !probe.check(package, pass, stats, error)) {
+                return false;
             }
-            glBindBuffer(GL_ARRAY_BUFFER, array_buffer);
-            for (std::size_t i = 0; i < package.textures.size(); ++i) {
-                const auto &desc = package.textures[i];
-                if (desc.image.empty()) {
-                    continue;
-                }
-                const Extent size{desc.image_width, desc.image_height};
-                texture_storage(assets[i], desc, size);
-                glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, size.width, size.height, GL_RGBA,
-                    GL_UNSIGNED_BYTE, desc.image.data());
-                count_storage(stats, desc.image.size());
-                stats.upload_bytes += desc.image.size();
-            }
-            const bool source_used = std::ranges::any_of(passes, [](const CompiledPass &pass) {
-                return std::ranges::any_of(std::views::counted(pass.samplers.begin(), pass.sampler_count),
-                    [](Ref ref) { return linear_host_image(ref.kind); });
-            });
-            if (source_used) {
-                glGenSamplers(1, &source_sampler);
-                glSamplerParameteri(source_sampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                glSamplerParameteri(source_sampler, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                glSamplerParameteri(source_sampler, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-                glSamplerParameteri(source_sampler, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-            }
-            return gl_ok(error, "uploading immutable shader resources");
         }
+        return true;
+    }
+    bool Program::Impl::upload(std::string &error) {
+        const UploadState pixels;
+        const auto array_buffer = integer(GL_ARRAY_BUFFER_BINDING);
+        for (std::size_t i = 0; i < package.meshes.size(); ++i) {
+            const auto &indices = package.meshes[i].indices;
+            if (indices.empty()) {
+                continue;
+            }
+            glGenBuffers(1, &elements[i]);
+            // Upload through the generic array binding; attaching the EBO is VAO state.
+            glBindBuffer(GL_ARRAY_BUFFER, elements[i]);
+            const auto bytes = indices.size() * sizeof(indices.front());
+            glBufferData(
+                GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(bytes), indices.data(), GL_STATIC_DRAW);
+            count_storage(stats, bytes);
+            stats.upload_bytes += bytes;
+        }
+        glBindBuffer(GL_ARRAY_BUFFER, array_buffer);
+        for (std::size_t i = 0; i < package.textures.size(); ++i) {
+            const auto &desc = package.textures[i];
+            if (desc.image.empty()) {
+                continue;
+            }
+            const Extent size{desc.image_width, desc.image_height};
+            texture_storage(assets[i], desc, size);
+            glTexSubImage2D(GL_TEXTURE_2D,
+                0,
+                0,
+                0,
+                size.width,
+                size.height,
+                GL_RGBA,
+                GL_UNSIGNED_BYTE,
+                desc.image.data());
+            count_storage(stats, desc.image.size());
+            stats.upload_bytes += desc.image.size();
+        }
+        const bool source_used = std::ranges::any_of(passes, [](const CompiledPass &pass) {
+            return std::ranges::any_of(
+                std::views::counted(pass.samplers.begin(), pass.sampler_count),
+                [](Ref ref) { return linear_host_image(ref.kind); });
+        });
+        if (source_used) {
+            glGenSamplers(1, &source_sampler);
+            glSamplerParameteri(source_sampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glSamplerParameteri(source_sampler, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glSamplerParameteri(source_sampler, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glSamplerParameteri(source_sampler, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        }
+        return gl_ok(error, "uploading immutable shader resources");
+    }
     Program::Program() = default;
     Program::~Program() = default;
 
-    bool Program::initialize(Package package, const Values &values, std::string &error,
-        GlResolver resolver) {
+    bool Program::initialize(
+        Package package, const Values &values, std::string &error, GlResolver resolver) {
         error.clear();
         if (const auto valid = validate_package(package); !valid) {
             return fail(error, valid.error());
@@ -781,7 +881,9 @@ namespace hyprimate::shader {
         return true;
     }
 
-    void Program::release() noexcept { m_impl.reset(); }
+    void Program::release() noexcept {
+        m_impl.reset();
+    }
 
     void Program::abandon() noexcept {
         if (m_impl) {
@@ -790,9 +892,15 @@ namespace hyprimate::shader {
         }
     }
 
-    const Package &Program::package() const { return m_impl->package; }
+    const Package &Program::package() const {
+        return m_impl->package;
+    }
 
-    bool Program::can_composite_direct() const noexcept { return m_impl && m_impl->direct(); }
+    bool Program::can_composite_direct() const noexcept {
+        return m_impl && m_impl->direct();
+    }
 
-    const Statistics &Program::statistics() const noexcept { return m_impl ? m_impl->stats : EMPTY_STATS; }
-}
+    const Statistics &Program::statistics() const noexcept {
+        return m_impl ? m_impl->stats : EMPTY_STATS;
+    }
+}  // namespace hyprimate::shader

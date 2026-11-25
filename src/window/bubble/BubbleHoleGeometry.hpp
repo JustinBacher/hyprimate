@@ -25,8 +25,8 @@ namespace hyprimate::detail {
                           : Vec3{.x = 1, .y = 0, .z = 0};
     }
     inline void basis(Vec3 centre, Vec3 &tangent, Vec3 &bitangent) {
-        tangent = normalize(cross(std::abs(centre.z) < .9 ? Vec3{.x = 0, .y = 0, .z = 1}
-                                                          : Vec3{.x = 1, .y = 0, .z = 0},
+        tangent = normalize(cross(
+            std::abs(centre.z) < .9 ? Vec3{.x = 0, .y = 0, .z = 1} : Vec3{.x = 1, .y = 0, .z = 0},
             centre));
         bitangent = cross(centre, tangent);
     }

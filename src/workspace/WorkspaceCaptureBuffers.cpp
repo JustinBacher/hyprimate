@@ -20,8 +20,8 @@ namespace workspace_animation_detail {
     // Visit only plugin-created captures. Native attachments and history images
     // borrowed by previews are absent. Count each color attachment's level zero
     // once; omit mipmaps, driver padding, depth/stencil and renderer-private data.
-    void sample_resources(hyprimate::perf::Key key,
-        CWorkspaceAnimation::Impl::MonitorState &entry) noexcept {
+    void sample_resources(
+        hyprimate::perf::Key key, CWorkspaceAnimation::Impl::MonitorState &entry) noexcept {
         if (!hyprimate::perf::enabled()) {
             return;
         }
@@ -61,8 +61,9 @@ namespace workspace_animation_detail {
                     }
                 }
             };
-            const auto CAPTURE = [&](const auto &self,
-                                     const hyprimate::workspace::WorkspaceCapture &capture) -> void {
+            const auto CAPTURE =
+                [&](const auto &self,
+                    const hyprimate::workspace::WorkspaceCapture &capture) -> void {
                 ADD(capture.composite);
                 ADD(capture.wallpaper);
                 LAYER(capture.bottom);
@@ -172,7 +173,7 @@ namespace workspace_animation_detail {
         return copy_capture(
             source, target, opaque ? Coverage::OpaqueTarget : Coverage::Preserve, downsample);
     }
-}
+}  // namespace workspace_animation_detail
 
 SP<Render::IFramebuffer> CWorkspaceAnimation::Impl::allocate_capture(
     MonitorState &entry, const PHLMONITOR &monitor, std::optional<Vector2D> size) {

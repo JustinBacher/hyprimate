@@ -13,8 +13,11 @@ namespace hyprimate::workspace {
                        : 1.0F;
         }
 
-        void cache_program_uniforms(GLuint planet, std::array<GLint, 48> &planet_uniforms,
-            GLuint quad, std::array<GLint, 48> &quad_uniforms,
-            GLuint sky, std::array<GLint, 48> &sky_uniforms);
+        void cache_program_uniforms(GLuint planet,
+            std::array<GLint, 48> &planet_uniforms,
+            GLuint quad,
+            std::array<GLint, 48> &quad_uniforms,
+            GLuint sky,
+            std::array<GLint, 48> &sky_uniforms);
     }  // namespace detail
 }  // namespace hyprimate::workspace

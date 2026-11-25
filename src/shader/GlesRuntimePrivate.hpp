@@ -1,15 +1,15 @@
 #pragma once
 
-#include "GlesState.hpp"
-
 #include <algorithm>
-#include <cmath>
 #include <array>
-#include <cstdint>
-#include <string>
+#include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
+
+#include "GlesState.hpp"
 
 namespace hyprimate::shader::gles_detail {
     inline constexpr unsigned MAX_EXTENT = 8192;
@@ -24,15 +24,24 @@ namespace hyprimate::shader::gles_detail {
 
     constexpr PixelFormat pixel_format(Format format) {
         switch (format) {
-            case Format::R8: return {GL_R8, GL_RED, GL_UNSIGNED_BYTE, 1};
-            case Format::RG8: return {GL_RG8, GL_RG, GL_UNSIGNED_BYTE, 2};
-            case Format::RGBA8: return {GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, 4};
-            case Format::R16F: return {GL_R16F, GL_RED, GL_HALF_FLOAT, 2};
-            case Format::RG16F: return {GL_RG16F, GL_RG, GL_HALF_FLOAT, 4};
-            case Format::RGBA16F: return {GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT, 8};
-            case Format::R32F: return {GL_R32F, GL_RED, GL_FLOAT, 4};
-            case Format::RG32F: return {GL_RG32F, GL_RG, GL_FLOAT, 8};
-            case Format::RGBA32F: return {GL_RGBA32F, GL_RGBA, GL_FLOAT, 16};
+            case Format::R8:
+                return {GL_R8, GL_RED, GL_UNSIGNED_BYTE, 1};
+            case Format::RG8:
+                return {GL_RG8, GL_RG, GL_UNSIGNED_BYTE, 2};
+            case Format::RGBA8:
+                return {GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, 4};
+            case Format::R16F:
+                return {GL_R16F, GL_RED, GL_HALF_FLOAT, 2};
+            case Format::RG16F:
+                return {GL_RG16F, GL_RG, GL_HALF_FLOAT, 4};
+            case Format::RGBA16F:
+                return {GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT, 8};
+            case Format::R32F:
+                return {GL_R32F, GL_RED, GL_FLOAT, 4};
+            case Format::RG32F:
+                return {GL_RG32F, GL_RG, GL_FLOAT, 8};
+            case Format::RGBA32F:
+                return {GL_RGBA32F, GL_RGBA, GL_FLOAT, 16};
         }
         return {};
     }
@@ -58,8 +67,8 @@ namespace hyprimate::shader::gles_detail {
     inline void texture_storage(GLuint &name, const Texture &texture, Extent extent) {
         glGenTextures(1, &name);
         glBindTexture(GL_TEXTURE_2D, name);
-        glTexStorage2D(GL_TEXTURE_2D, 1, pixel_format(texture.format).internal, extent.width,
-            extent.height);
+        glTexStorage2D(
+            GL_TEXTURE_2D, 1, pixel_format(texture.format).internal, extent.width, extent.height);
         const GLint filter = texture.linear ? GL_LINEAR : GL_NEAREST;
         const GLint wrap = texture.repeat ? GL_REPEAT : GL_CLAMP_TO_EDGE;
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
@@ -70,26 +79,36 @@ namespace hyprimate::shader::gles_detail {
 
     inline constexpr GLenum draw_primitive(Primitive primitive) {
         switch (primitive) {
-            case Primitive::Points: return GL_POINTS;
-            case Primitive::Lines: return GL_LINES;
-            case Primitive::Triangles: return GL_TRIANGLES;
-            case Primitive::TriangleStrip: return GL_TRIANGLE_STRIP;
+            case Primitive::Points:
+                return GL_POINTS;
+            case Primitive::Lines:
+                return GL_LINES;
+            case Primitive::Triangles:
+                return GL_TRIANGLES;
+            case Primitive::TriangleStrip:
+                return GL_TRIANGLE_STRIP;
         }
         return GL_TRIANGLES;
     }
 
     inline bool linear_host_image(ResourceKind kind) noexcept {
         return kind == ResourceKind::Source || kind == ResourceKind::Destination ||
-            kind == ResourceKind::Original || kind == ResourceKind::Processed;
+               kind == ResourceKind::Original || kind == ResourceKind::Processed;
     }
 
-    inline GLuint environmental_texture(ResourceKind kind, const EnvironmentInputs &inputs) noexcept {
+    inline GLuint environmental_texture(
+        ResourceKind kind, const EnvironmentInputs &inputs) noexcept {
         switch (kind) {
-            case ResourceKind::Original: return inputs.original;
-            case ResourceKind::Processed: return inputs.processed;
-            case ResourceKind::EnvironmentState: return inputs.state;
-            case ResourceKind::Disturbances: return inputs.disturbances;
-            default: return 0;
+            case ResourceKind::Original:
+                return inputs.original;
+            case ResourceKind::Processed:
+                return inputs.processed;
+            case ResourceKind::EnvironmentState:
+                return inputs.state;
+            case ResourceKind::Disturbances:
+                return inputs.disturbances;
+            default:
+                return 0;
         }
     }
 
@@ -98,11 +117,40 @@ namespace hyprimate::shader::gles_detail {
     }
 
     enum Uniform : std::size_t {
-        Progress, Elapsed, Delta, Duration, Scale, SizeXY, TargetSize, Pointer, Seed,
-        SourceUV, Domain, EventID, PointerValid, Fullscreen, Iteration, Iterations,
-        DestinationUV, Geometry, PreviousGeometry, Velocity, Direction, Held, Settling,
-        BlurMask, OutputSize, OutputOrigin, OutputRect, OriginalUV, OriginalAvailable,
-        ProcessedAvailable, StateAvailable, DisturbancesAvailable, InteractionCount, UniformCount
+        Progress,
+        Elapsed,
+        Delta,
+        Duration,
+        Scale,
+        SizeXY,
+        TargetSize,
+        Pointer,
+        Seed,
+        SourceUV,
+        Domain,
+        EventID,
+        PointerValid,
+        Fullscreen,
+        Iteration,
+        Iterations,
+        DestinationUV,
+        Geometry,
+        PreviousGeometry,
+        Velocity,
+        Direction,
+        Held,
+        Settling,
+        BlurMask,
+        OutputSize,
+        OutputOrigin,
+        OutputRect,
+        OriginalUV,
+        OriginalAvailable,
+        ProcessedAvailable,
+        StateAvailable,
+        DisturbancesAvailable,
+        InteractionCount,
+        UniformCount
     };
 
     struct Block {
@@ -120,7 +168,9 @@ namespace hyprimate::shader::gles_detail {
         std::array<Block, MAX_BLOCK_BINDINGS> blocks{};
         unsigned sampler_count = 0, block_count = 0;
 
-        CompiledPass() { uniforms.fill(-1); }
+        CompiledPass() {
+            uniforms.fill(-1);
+        }
     };
 
     struct TexturePair {
@@ -162,7 +212,7 @@ namespace hyprimate::shader::gles_detail {
         Frame frame;
         std::array<float, 4> seed = seed_values(0);
     };
-}
+}  // namespace hyprimate::shader::gles_detail
 
 namespace hyprimate::shader {
     struct Program::Impl {
@@ -175,7 +225,8 @@ namespace hyprimate::shader {
         std::array<GLuint, MAX_MESHES> elements{};
         GLuint source_sampler = 0;
         unsigned sampler_count = 0, block_count = 0, max_outputs = 1;
-        bool has_feedback = false, samples_borrowed_target = false, blends_final = false, armed = true;
+        bool has_feedback = false, samples_borrowed_target = false, blends_final = false,
+             armed = true;
         unsigned final_draws = 0;
         bool final_is_last = false, uses_frag_coord = false, uses_destination = false;
         bool final_source_over = true;
@@ -207,16 +258,29 @@ namespace hyprimate::shader {
         GLuint buffer(Ref ref) const;
         void configure_mesh(unsigned index, bool create);
         void attach_outputs(gles_detail::DrawFramebuffer &fbo, const Pass &pass);
-        bool clear_texture(gles_detail::PrepareState &saved, GLuint name,
-            gles_detail::PixelFormat format, gles_detail::Extent size, std::string &error);
+        bool clear_texture(gles_detail::PrepareState &saved,
+            GLuint name,
+            gles_detail::PixelFormat format,
+            gles_detail::Extent size,
+            std::string &error);
         bool allocate(std::string &error);
         bool owns_texture(GLuint name) const;
         bool validate_target(const Source &source, const Target &target, std::string &error) const;
         void submit_mesh(const Pass &pass);
-        bool draw(std::size_t index, unsigned iteration, const gles_detail::Timing &time,
-            const Source &source, const Target &target, unsigned &active_blocks, bool &clear_final,
+        bool draw(std::size_t index,
+            unsigned iteration,
+            const gles_detail::Timing &time,
+            const Source &source,
+            const Target &target,
+            unsigned &active_blocks,
+            bool &clear_final,
             std::string &error);
-        bool phase(Phase phase, const gles_detail::Timing &frame, const Source &source,
-            const Target &target, unsigned &active_blocks, bool &clear_final, std::string &error);
+        bool phase(Phase phase,
+            const gles_detail::Timing &frame,
+            const Source &source,
+            const Target &target,
+            unsigned &active_blocks,
+            bool &clear_final,
+            std::string &error);
     };
-}
+}  // namespace hyprimate::shader

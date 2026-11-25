@@ -75,4 +75,4 @@ void main() {
             wall(destinationWall, eb, blurRadius * fadeB).rgb, mixAmount), 1.0);
     }
 })";
-}
+}  // namespace hyprimate::workspace

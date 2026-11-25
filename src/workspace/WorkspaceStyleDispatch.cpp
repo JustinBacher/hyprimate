@@ -1,24 +1,24 @@
 #include "workspace/WorkspaceAnimationImpl.hpp"
 
 CWorkspaceAnimation::Impl::Impl(HANDLE handle) : m_handle(handle) {
-        m_styles.for_each([this]<class Style>(auto &resources) {
-            const auto CHANGED = [this] {
-                if (m_last_settings && m_last_settings->style == Style::KIND) {
-                    m_turns.reload();
-                    m_settings_changed = true;
-                    configure(*m_last_settings, false);
-                }
-            };
-            if constexpr (requires { resources.curves.install(m_handle, CHANGED); }) {
-                if (!resources.curves.install(m_handle, CHANGED)) {
-                    HyprlandAPI::addNotification(m_handle,
-                        "[hyprimate] Workspace style Lua curve registration unavailable",
-                        CHyprColor(1.F, 0.35F, 0.2F, 1.F),
-                        10000.F);
-                }
+    m_styles.for_each([this]<class Style>(auto &resources) {
+        const auto CHANGED = [this] {
+            if (m_last_settings && m_last_settings->style == Style::KIND) {
+                m_turns.reload();
+                m_settings_changed = true;
+                configure(*m_last_settings, false);
             }
-        });
-    }
+        };
+        if constexpr (requires { resources.curves.install(m_handle, CHANGED); }) {
+            if (!resources.curves.install(m_handle, CHANGED)) {
+                HyprlandAPI::addNotification(m_handle,
+                    "[hyprimate] Workspace style Lua curve registration unavailable",
+                    CHyprColor(1.F, 0.35F, 0.2F, 1.F),
+                    10000.F);
+            }
+        }
+    });
+}
 
 bool CWorkspaceAnimation::Impl::request_enabled() {
     if (m_native_direction && m_last_settings && m_last_settings->enabled && m_capture_depth == 0 &&
@@ -47,8 +47,8 @@ void CWorkspaceAnimation::Impl::configure(
     }
     const auto settings = requested;
     const auto *previous = m_last_settings ? &*m_last_settings : nullptr;
-    bool native_changed = !previous || previous->enabled != settings.enabled ||
-                          previous->style != settings.style;
+    bool native_changed =
+        !previous || previous->enabled != settings.enabled || previous->style != settings.style;
     if (!native_changed) {
         m_styles.for_each([&]<class Style>(auto & /*resources*/) {
             if (settings.style == Style::KIND) {
@@ -69,12 +69,10 @@ void CWorkspaceAnimation::Impl::configure(
         }
     }
     const double EFFECT_DURATION = settings.effectDuration / 1000.0;
-    const bool SAME_EFFECT = previous && previous->enabled &&
-                             previous->effectDuration > 0.0 &&
+    const bool SAME_EFFECT = previous && previous->enabled && previous->effectDuration > 0.0 &&
                              previous->effect == settings.effect &&
                              previous->effectParameters == settings.effectParameters;
-    const bool MATCHES_PREPARED = m_effect_program &&
-                                  m_effect_request.first == settings.effect &&
+    const bool MATCHES_PREPARED = m_effect_program && m_effect_request.first == settings.effect &&
                                   m_effect_request.second == settings.effectParameters;
     if (!settings.enabled || settings.effect.empty() || !std::isfinite(EFFECT_DURATION) ||
         EFFECT_DURATION <= 0.0) {
@@ -112,8 +110,7 @@ void CWorkspaceAnimation::Impl::configure(
         if (m_lifecycle != lifecycle) {
             return;
         }
-        const bool ENABLED = hyprimate::workspace::configured_transition_available(
-            settings.enabled,
+        const bool ENABLED = hyprimate::workspace::configured_transition_available(settings.enabled,
             m_effect_program != nullptr && m_effect_duration > 0.0,
             resources.settings.prepared.duration);
         const bool PRESERVE_LATCHED_SHADER =
@@ -284,7 +281,6 @@ void CWorkspaceAnimation::Impl::release_styles() {
     });
 }
 
-
 double CWorkspaceAnimation::Impl::TurnPort::duration(
     const hyprimate::workspace::JourneyEndpoint &from,
     const hyprimate::workspace::JourneyEndpoint &destination,
@@ -302,8 +298,7 @@ double CWorkspaceAnimation::Impl::TurnPort::duration(
 }
 
 std::optional<std::pair<double, hyprimate::workspace::Transition::Curve>>
-CWorkspaceAnimation::Impl::TurnPort::next_pair(
-    const hyprimate::workspace::JourneyEndpoint &from,
+CWorkspaceAnimation::Impl::TurnPort::next_pair(const hyprimate::workspace::JourneyEndpoint &from,
     const hyprimate::workspace::JourneyEndpoint &destination) const {
     if (!owner->m_admit_turns || !owner->m_turns.enabled()) {
         return std::pair<double, hyprimate::workspace::Transition::Curve>{};
@@ -311,7 +306,6 @@ CWorkspaceAnimation::Impl::TurnPort::next_pair(
     entry->latch_effect();
     return std::pair{duration(from, destination, entry->base_duration), entry->curve};
 }
-
 
 double CWorkspaceAnimation::Impl::TurnPort::live_boundary() const {
     double boundary = 1.0;

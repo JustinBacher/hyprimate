@@ -116,7 +116,8 @@ namespace hyprimate {
             cohesion = 1;
             m_frame.order = -0.8;
             m_frame.origin_uv = UV(INSIDE);
-            m_frame.wind = SPIN * 0.55 * smoothstep(0.0, 0.15, P) * (1.0 - smoothstep(0.62, 0.99, P));
+            m_frame.wind =
+                SPIN * 0.55 * smoothstep(0.0, 0.15, P) * (1.0 - smoothstep(0.62, 0.99, P));
         } else if (m_opening) {
             // Streams start along the screen edge, gather into a head that travels in along a
             // slight bow, then the head fills out into the window from its arrival side.
@@ -125,10 +126,12 @@ namespace hyprimate {
             m_frame.edge_dir = D;
             m_frame.gather = smoothstep(0.0, 0.05, P) * (1.0 - smoothstep(0.15, 0.42, P));
             const double TRAVEL = smoothstep(0.1, 0.6, P);
-            const double BOW = centred(m_draw[1]) * 0.18 * std::min(m_route.reach, 900.0) * VARIATION;
+            const double BOW =
+                centred(m_draw[1]) * 0.18 * std::min(m_route.reach, 900.0) * VARIATION;
             head = add(blend(ENTRY, {}, TRAVEL), mul(SIDE, std::sin(PI * TRAVEL) * BOW));
             const double FILL = smoothstep(0.46, 0.94, P);
-            half = blend(blend(mul(MASS.half, 0.5), MASS.half, smoothstep(0.05, 0.5, P)), WINDOW, FILL);
+            half = blend(
+                blend(mul(MASS.half, 0.5), MASS.half, smoothstep(0.05, 0.5, P)), WINDOW, FILL);
             radius = std::min(half.x, half.y) * (1.0 - smoothstep(0.6, 0.95, P));
             transit = 1.0 - smoothstep(0.9, 1.0, P);
             smoke = blend(m_start_smoke, 0.0, std::clamp((P - 0.42) / 0.58, 0.0, 1.0));
@@ -138,18 +141,20 @@ namespace hyprimate {
             m_frame.order = -0.8;
             m_frame.origin_uv = UV(add(mul(D, 0.9 * DEPTH), mul(SIDE, ALONG)));
             m_frame.wind = (BOW < 0 ? -SPIN : SPIN) * 0.5 * smoothstep(0.2, 0.45, P) *
-                (1.0 - smoothstep(0.72, 0.99, P));
+                           (1.0 - smoothstep(0.72, 0.99, P));
         } else if (!m_route.edge) {
             // The window breaks down from its rim into a swirling mass at a random point, which
             // contracts and thins away.
             half = blend(blend(mul(MASS.half, 0.3), MASS.half, smoothstep(0.0, 0.4, P)),
-                mul(MASS.half, 0.12), smoothstep(0.55, 1.0, P));
+                mul(MASS.half, 0.12),
+                smoothstep(0.55, 1.0, P));
             radius = std::min(half.x, half.y);
             head = add(INSIDE, mul(WANDER, 0.04 * SHORTEST));
             smoke = blend(m_start_smoke, 1.0, smoothstep(0.0, 0.6, P));
             presence = blend(m_start_presence, 0.0, smoothstep(0.55, 1.0, P));
             m_frame.attract = smoothstep(0.0, 0.2, P) * (1.0 - (0.5 * smoothstep(0.8, 1.0, P)));
-            m_frame.wind = SPIN * 0.9 * smoothstep(0.1, 0.4, P) * (1.0 - (0.6 * smoothstep(0.7, 1.0, P)));
+            m_frame.wind =
+                SPIN * 0.9 * smoothstep(0.1, 0.4, P) * (1.0 - (0.6 * smoothstep(0.7, 1.0, P)));
             m_frame.dispersal = 0.8 * smoothstep(0.65, 1.0, P);
             m_frame.origin_uv = UV(INSIDE);
         } else {
@@ -157,25 +162,28 @@ namespace hyprimate {
             // round a loop to face the exit, pauses, then leaves through the edge with the rest
             // of the window converting behind it and pulled along after it.
             Vec2 turn = std::abs(D.x) > 0.5 ? Vec2{.x = 0, .y = -1}
-                                             : (ALONG > 1e-6 ? mul(SIDE, -1.0) : SIDE);
+                                            : (ALONG > 1e-6 ? mul(SIDE, -1.0) : SIDE);
             if (m_draw[5] < 0.5 * VARIATION) {
                 turn = mul(turn, -1.0);
             }
             const Vec2 ORIGIN = add(mul(D, -0.82 * DEPTH), mul(SIDE, ALONG));
-            const double LOOP =
-                std::max(20.0, std::min(SPAN, DEPTH) * (0.45 + (0.12 * centred(m_draw[2]) * VARIATION)));
+            const double LOOP = std::max(
+                20.0, std::min(SPAN, DEPTH) * (0.45 + (0.12 * centred(m_draw[2]) * VARIATION)));
             const double BACK = -0.3 * LOOP * smoothstep(0.0, 0.2, P);
             const double ANGLE = (-0.5 * PI) - (PI * smoothstep(0.18, 0.5, P));
             const double DEPART = std::clamp((P - 0.44) / 0.56, 0.0, 1.0);
             const double EXIT = m_route.reach + (1.2 * std::max(MASS.half.x, MASS.half.y)) + 40.0;
             const double DISTANCE = (EXIT - dot(ORIGIN, D) - BACK) * std::pow(DEPART, 1.7);
-            const double SERPENT = LOOP * 0.35 * std::sin((DEPART * 2.0 * PI * 1.2) + (6.28 * m_draw[3] * VARIATION)) *
+            const double SERPENT =
+                LOOP * 0.35 * std::sin((DEPART * 2.0 * PI * 1.2) + (6.28 * m_draw[3] * VARIATION)) *
                 (1.0 - DEPART) * smoothstep(0.0, 0.15, DEPART) * (0.4 + (0.6 * VARIATION));
             head = add(ORIGIN,
                 add(mul(D, BACK + (LOOP * std::cos(ANGLE)) + DISTANCE),
                     mul(turn, LOOP + (LOOP * std::sin(ANGLE)) + SERPENT)));
-            half = blend(blend(Vec2{.x = TINY, .y = TINY}, mul(MASS.half, 0.6), smoothstep(0.0, 0.22, P)),
-                MASS.half, smoothstep(0.44, 0.7, P));
+            half = blend(
+                blend(Vec2{.x = TINY, .y = TINY}, mul(MASS.half, 0.6), smoothstep(0.0, 0.22, P)),
+                MASS.half,
+                smoothstep(0.44, 0.7, P));
             radius = std::min(half.x, half.y);
             smoke = blend(m_start_smoke, 1.0, smoothstep(0.03, 0.78, P));
             presence = blend(m_start_presence, 0.0, smoothstep(0.8, 1.0, P));
@@ -184,7 +192,7 @@ namespace hyprimate {
             // The air turns with the head's loop: the sense of rotation from D toward turn.
             const double SENSE = ((D.x * turn.y) - (D.y * turn.x)) > 0 ? -1.0 : 1.0;
             m_frame.wind = SENSE * (0.9 + (0.3 * centred(m_draw[4]) * VARIATION)) *
-                smoothstep(0.1, 0.3, P) * (1.0 - smoothstep(0.6, 1.0, P));
+                           smoothstep(0.1, 0.3, P) * (1.0 - smoothstep(0.6, 1.0, P));
             m_frame.dispersal = 0.7 * smoothstep(0.85, 1.0, P);
             m_frame.order = 1;
             m_frame.origin_uv = UV(ORIGIN);
@@ -202,8 +210,10 @@ namespace hyprimate {
         const Vec2 VELOCITY = m_frame.transit > 0.0 || m_from_transit > 0.01
                                   ? limit(mul(sub(head, m_frame.head), 1.0 / STEP), 2.0 * MAX_SPEED)
                                   : Vec2{};
-        m_frame.head_velocity = blend(m_frame.head_velocity, VELOCITY, 1.0 - std::exp(-STEP / 0.03));
-        m_frame.head_lag = blend(m_frame.head_lag, m_frame.head_velocity, 1.0 - std::exp(-STEP / 0.2));
+        m_frame.head_velocity =
+            blend(m_frame.head_velocity, VELOCITY, 1.0 - std::exp(-STEP / 0.03));
+        m_frame.head_lag =
+            blend(m_frame.head_lag, m_frame.head_velocity, 1.0 - std::exp(-STEP / 0.2));
         m_frame.head = head;
         m_frame.head_half = half;
         m_frame.head_radius = radius;

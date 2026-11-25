@@ -75,17 +75,24 @@
 #include "workspace/WorkspaceCapturePlan.hpp"
 #include "workspace/WorkspaceFrame.hpp"
 #include "workspace/WorkspaceIdentity.hpp"
-#include "workspace/WorkspaceStyleList.hpp"
 #include "workspace/WorkspaceProfiling.hpp"
+#include "workspace/WorkspaceStyleList.hpp"
 #include "workspace/WorkspaceTurn.hpp"
 
 namespace workspace_animation_detail {
     using Clock = std::chrono::steady_clock;
     using TurnKind = hyprimate::workspace::CaptureKind;
     using hyprimate::workspace::Direction;
-    using RenderFn = void (*)(Render::IHyprRenderer *, Render::CRenderContext &, PHLMONITOR,
-        PHLWORKSPACE, const Time::steady_tp &, Render::eSceneMode, const Vector2D &, const float &);
-    using DragFn = void (*)(Render::IHyprRenderer *, Render::CRenderContext &, PHLMONITOR, const Time::steady_tp &);
+    using RenderFn = void (*)(Render::IHyprRenderer *,
+        Render::CRenderContext &,
+        PHLMONITOR,
+        PHLWORKSPACE,
+        const Time::steady_tp &,
+        Render::eSceneMode,
+        const Vector2D &,
+        const float &);
+    using DragFn = void (*)(
+        Render::IHyprRenderer *, Render::CRenderContext &, PHLMONITOR, const Time::steady_tp &);
     // Borrow protected native draw methods without downcasting the renderer.
     struct PreviewDrawAccess : Render::IHyprRenderer {
         static constexpr auto BACKGROUND = &PreviewDrawAccess::renderBackground;
@@ -115,28 +122,32 @@ namespace workspace_animation_detail {
     std::uint32_t capture_format(const PHLMONITOR &monitor);
     std::uint64_t framebuffer_bytes(const SP<Render::IFramebuffer> &framebuffer);
     bool copy_capture(const SP<Render::IFramebuffer> &source,
-        const SP<Render::IFramebuffer> &target, Coverage coverage, bool downsample,
+        const SP<Render::IFramebuffer> &target,
+        Coverage coverage,
+        bool downsample,
         const std::optional<CBox> &crop = std::nullopt,
         CopySource ownership = CopySource::Retained);
     bool copy_opaque(const SP<Render::IFramebuffer> &source,
-        const SP<Render::IFramebuffer> &target, bool opaque = true, bool downsample = false);
-}
+        const SP<Render::IFramebuffer> &target,
+        bool opaque = true,
+        bool downsample = false);
+}  // namespace workspace_animation_detail
 
-using workspace_animation_detail::Clock;
-using workspace_animation_detail::TurnKind;
-using workspace_animation_detail::Direction;
-using workspace_animation_detail::RenderFn;
-using workspace_animation_detail::DragFn;
-using workspace_animation_detail::ScopedCapture;
-using workspace_animation_detail::PreviewDrawAccess;
-using workspace_animation_detail::numbered;
-using workspace_animation_detail::safe_scene;
-using workspace_animation_detail::Coverage;
-using workspace_animation_detail::CopySource;
 using workspace_animation_detail::capture_format;
-using workspace_animation_detail::framebuffer_bytes;
+using workspace_animation_detail::Clock;
 using workspace_animation_detail::copy_capture;
 using workspace_animation_detail::copy_opaque;
+using workspace_animation_detail::CopySource;
+using workspace_animation_detail::Coverage;
+using workspace_animation_detail::Direction;
+using workspace_animation_detail::DragFn;
+using workspace_animation_detail::framebuffer_bytes;
+using workspace_animation_detail::numbered;
+using workspace_animation_detail::PreviewDrawAccess;
+using workspace_animation_detail::RenderFn;
+using workspace_animation_detail::safe_scene;
+using workspace_animation_detail::ScopedCapture;
+using workspace_animation_detail::TurnKind;
 
 class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
   public:
@@ -174,8 +185,7 @@ class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
             const hyprimate::workspace::JourneyEndpoint &destination,
             double base) const;
         [[nodiscard]] std::optional<std::pair<double, hyprimate::workspace::Transition::Curve>>
-        next_pair(
-            const hyprimate::workspace::JourneyEndpoint &from,
+        next_pair(const hyprimate::workspace::JourneyEndpoint &from,
             const hyprimate::workspace::JourneyEndpoint &destination) const;
         [[nodiscard]] hyprimate::workspace::WorkspaceTravel travel() const {
             return owner->m_travel;
@@ -407,9 +417,8 @@ class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
     bool burn_window_planes_allowed(const PHLMONITOR &monitor, bool special_request = false) const;
     bool special_workspace_in_native_scene() const;
     void decline_burn_transition(std::initializer_list<PHLMONITOR> monitors);
-    bool transition_destination_allowed(const PHLMONITOR &monitor,
-        const PHLWORKSPACE &normal,
-        const PHLWORKSPACE &special);
+    bool transition_destination_allowed(
+        const PHLMONITOR &monitor, const PHLWORKSPACE &normal, const PHLWORKSPACE &special);
     bool transition_destination_allowed(const PHLMONITOR &monitor, std::int64_t identity);
     void cancel_transition(const PHLMONITOR &monitor);
     void decline_all_burn_transitions();
@@ -585,7 +594,7 @@ class CWorkspaceAnimation::Impl : public std::enable_shared_from_this<Impl> {
 };
 
 namespace workspace_animation_detail {
-    void sample_resources(hyprimate::perf::Key key,
-        CWorkspaceAnimation::Impl::MonitorState &entry) noexcept;
+    void sample_resources(
+        hyprimate::perf::Key key, CWorkspaceAnimation::Impl::MonitorState &entry) noexcept;
 }
 using workspace_animation_detail::sample_resources;

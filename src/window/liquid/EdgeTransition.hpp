@@ -16,7 +16,6 @@ namespace hyprimate {
         double duration_ms = -1.0;  // -1 keeps the natural timing; 0 skips the transition
     };
 
-
     // Pop-out lifecycle modelled on a droplet leaving a liquid surface. Open: a small round bead
     // pops out from behind a screen edge, the edge liquid fillets, necks, snaps and recoils behind
     // it, then the bead grows (along the edge first) into the window at its rest box. Close: the

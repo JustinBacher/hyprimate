@@ -14,13 +14,13 @@
 
 namespace hyprimate {
     using swarm_detail::CORNER_TIME;
+    using swarm_detail::length;
+    using swarm_detail::lerp;
     using swarm_detail::MERGE_MIN;
     using swarm_detail::REST_RADIUS;
     using swarm_detail::SPEED_CAP;
     using swarm_detail::SPLIT_TIME;
     using swarm_detail::STEP;
-    using swarm_detail::length;
-    using swarm_detail::lerp;
     using swarm_detail::operator+;
     using swarm_detail::operator-;
     using swarm_detail::operator*;
@@ -39,11 +39,13 @@ namespace hyprimate {
         // its meander, so it comes in on a wandering curve; both fade out near home, where the turn
         // would otherwise become an orbit.
         constexpr double MEANDER_ANGLE = 0.9;  // rad either way, at full wander
-        constexpr double ROUTE_LIMIT = 1.15;  // rad: it is never turned further than this off its target
+        constexpr double ROUTE_LIMIT =
+            1.15;  // rad: it is never turned further than this off its target
         constexpr double ROUTE_NEAR = 0.5,
                          ROUTE_FAR = 2.0;  // spacings from home over which route and crowd fade in
-        constexpr double DAWDLE = 0.7,
-                         HURRY = 1.3;  // of cruise: how far an opening agent bends its speed to be on time
+        constexpr double
+            DAWDLE = 0.7,
+            HURRY = 1.3;  // of cruise: how far an opening agent bends its speed to be on time
 
         // The gait. An agent hesitates for part of every gait cycle, so a column of them bunches
         // and strings out.
@@ -70,12 +72,15 @@ namespace hyprimate {
         constexpr double SPRING_MIN = 9.0, SPRING_MAX = 26.0;  // rad/s by settling
         constexpr double SPRING_FORCE = 3.0;  // spring force limit over the steering limit
         constexpr double PATIENCE_MAX = 2.4,
-                         PATIENCE_MIN = 0.5;  // s of a still window, after the stagger, before hurrying
+                         PATIENCE_MIN =
+                             0.5;  // s of a still window, after the stagger, before hurrying
         constexpr double PATIENCE_RAMP = 0.8;
-        constexpr double PATIENCE_DEADLINE = 4.0;  // s after patience at which every agent is placed
+        constexpr double PATIENCE_DEADLINE =
+            4.0;  // s after patience at which every agent is placed
         constexpr double DOCK_DISTANCE = 1.5;  // px
         constexpr double DOCK_SPEED = 60.0;  // px/s
-        constexpr double DOCK_WINDOW_SPEED = 0.5;  // of grip: the window must be slower than this to dock on it
+        constexpr double DOCK_WINDOW_SPEED =
+            0.5;  // of grip: the window must be slower than this to dock on it
 
         // Formation lock.
         constexpr double MERGE_MAX = 0.5;
@@ -83,7 +88,8 @@ namespace hyprimate {
         constexpr double HOLD_LOCK = 0.35;  // a leaving agent waits until its lock is below this
         constexpr double GONE_MARGIN = 1.2;  // fits beyond the edge at which it has left
 
-        constexpr int HASH_SIDE = 32;  // buckets per axis; positions wrap and the distance check rejects aliases
+        constexpr int HASH_SIDE =
+            32;  // buckets per axis; positions wrap and the distance check rejects aliases
         constexpr int HASH_CELLS = HASH_SIDE * HASH_SIDE;
         constexpr std::uint32_t NO_CELL = std::numeric_limits<std::uint32_t>::max();
 

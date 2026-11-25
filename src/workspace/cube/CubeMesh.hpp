@@ -40,8 +40,7 @@ namespace hyprimate::workspace::cube::detail {
         }
 
         void sky() {
-            for (const auto &point :
-                std::array<Clip, 3>{{{-1, -1, 1}, {3, -1, 1}, {-1, 3, 1}}}) {
+            for (const auto &point : std::array<Clip, 3>{{{-1, -1, 1}, {3, -1, 1}, {-1, 3, 1}}}) {
                 push({point, {point.x, point.y}, {}, Chart::Sky});
             }
         }
@@ -52,10 +51,8 @@ namespace hyprimate::workspace::cube::detail {
             }
         }
 
-        void quad(const Quad &points,
-            Chart chart,
-            const Rgb &color,
-            const Shades &shades = FULL_LIGHT) {
+        void quad(
+            const Quad &points, Chart chart, const Rgb &color, const Shades &shades = FULL_LIGHT) {
             for (const auto INDEX : {0U, 1U, 2U, 0U, 2U, 3U}) {
                 // Reflect travel, not lettering. Keep the original quad diagonal,
                 // including on the floor/ceiling where it affects the gradient.

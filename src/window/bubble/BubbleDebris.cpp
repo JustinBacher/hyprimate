@@ -16,10 +16,10 @@
 #include "window/bubble/BubbleRuptureEvents.hpp"
 
 namespace hyprimate {
-    using detail::PI_VALUE;
     using detail::basis;
     using detail::collapse;
     using detail::dot;
+    using detail::PI_VALUE;
     using detail::radius_at;
     Box BubbleImpact::bounds(Vec2 frame_centre, double lifetime) const {
         if (!(radius > 0) || !(lifetime >= 0) || !std::isfinite(drift.x) ||
