@@ -2,6 +2,7 @@ target_sources(hyprimate PRIVATE src/workspace/lava/LavaRenderer.cpp src/workspa
 
 if(BUILD_TESTING)
     add_executable(lava-renderer-tests src/workspace/lava/tests/LavaRendererTests.cpp
+        src/workspace/lava/tests/LavaRendererContractTests.cpp
         src/workspace/lava/LavaRenderer.cpp)
     target_compile_definitions(lava-renderer-tests PRIVATE HYPRIMATE_LAVA_RAW_ONLY)
     target_include_directories(lava-renderer-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
