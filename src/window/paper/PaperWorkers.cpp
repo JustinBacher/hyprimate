@@ -1,8 +1,11 @@
 #include <algorithm>
 #include <charconv>
+#include <cinttypes>
+#include <cstdio>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <new>
 #include <optional>
 #include <stop_token>
@@ -186,6 +189,7 @@ namespace hyprimate {
             run->busy = true;
             const auto REVISION = run->revision;
             const auto KIND = run->load.kind;
+            const auto SEED = run->load.seed;
             const auto BEGIN = std::exchange(run->begin, false);
             const auto LOAD = BEGIN ? std::optional{std::move(run->load)} : std::nullopt;
             const double DELTA = BEGIN ? 0.0 : std::min(run->remaining, PUBLICATION_SLICE);
@@ -193,6 +197,25 @@ namespace hyprimate {
             lock.unlock();
             bool active = false;
             bool failed = false;
+            const char *phase = BEGIN ? "begin" : "advance";
+            bool finished = false;
+            const auto finish = [&] {
+                lock.lock();
+                run->busy = false;
+                const bool current =
+                    !run->cancellation.stop_requested() && run->revision == REVISION;
+                if (current) {
+                    std::swap(run->writing, run->pending);
+                    run->published = true;
+                    run->failed = failed;
+                    run->done = !active;
+                }
+                if (run->runnable()) {
+                    m_changed.notify_one();
+                }
+                lock.unlock();
+                return current;
+            };
             try {
                 const perf::Key KEY{perf::Domain::Window, "paper",
                     KIND == Transition::Close ? "close" : "open"};
@@ -211,6 +234,7 @@ namespace hyprimate {
                     active = run->model.advance(DELTA);
                 }
                 if (!run->cancellation.stop_requested()) {
+                    phase = "frame";
                     run->model.frame(run->writing);
                     if (PROFILE.session() != 0) {
                         perf::resource_sample(KEY, sizeof(PaperRun) +
@@ -219,25 +243,34 @@ namespace hyprimate {
                             PROFILE.session());
                     }
                 }
+            } catch (const std::exception &exception) {
+                active = false;
+                failed = true;
+                const bool current = finish();
+                if (current) {
+                    std::fprintf(stderr,
+                        "hyprimate: paper worker phase=%s direction=%s seed=%" PRIu64 ": %s\n",
+                        phase, KIND == Transition::Close ? "close" : "open", SEED,
+                        exception.what());
+                }
+                finished = true;
             } catch (...) {
                 // A failed allocation/invalid mesh ends only this effect; the caller releases its
                 // handle.
                 active = false;
                 failed = true;
+                const bool current = finish();
+                if (current) {
+                    std::fprintf(stderr,
+                        "hyprimate: paper worker phase=%s direction=%s seed=%" PRIu64
+                        ": unknown exception\n",
+                        phase, KIND == Transition::Close ? "close" : "open", SEED);
+                }
+                finished = true;
             }
-            lock.lock();
-            run->busy = false;
-            if (!run->cancellation.stop_requested() && run->revision == REVISION) {
-                std::swap(run->writing, run->pending);
-                run->published = true;
-                run->failed = failed;
-                run->done = !active;
+            if (!finished) {
+                (void)finish();
             }
-            if (run->runnable()) {
-                m_changed.notify_one();
-            }
-            // Never destroy a cancelled solver with the scheduler lock held.
-            lock.unlock();
             {
                 const perf::CpuScope PROFILE{{perf::Domain::Window, "paper",
                     KIND == Transition::Close ? "close" : "open"}, perf::Phase::Worker};
