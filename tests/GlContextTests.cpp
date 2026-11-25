@@ -4,6 +4,7 @@
 
 #include "Check.hpp"
 #include "GlHarness.hpp"
+#include "gl/ContextOwnerState.hpp"
 #include "gl/EglContext.hpp"
 #include "gl/NativeRetirement.hpp"
 
@@ -68,11 +69,27 @@ int main() {
     OwnerCalls calls;
     Retained retained;
     const Owner origin{target, calls};
+    using hyprimate::gl::ContextOwnerState;
+    using hyprimate::gl::EglContextId;
+    using hyprimate::gl::detail::classify_context_owner;
+    const EglContextId caller_id{display, caller};
+    CHECK(caller_id.current());
+    CHECK(classify_context_owner({}, caller_id, false) == ContextOwnerState::current);
+    CHECK(classify_context_owner(caller_id, caller_id, true) == ContextOwnerState::current);
+    CHECK(classify_context_owner(caller_id, caller_id, false) == ContextOwnerState::replaced);
+    CHECK(classify_context_owner(caller_id, {}, true) == ContextOwnerState::unavailable);
+    const EglContextId different_display{reinterpret_cast<EGLDisplay>(&config), caller};
+    CHECK(classify_context_owner(caller_id, different_display, true) == ContextOwnerState::replaced);
     EGLContext cached_destroyed = EGL_NO_CONTEXT, borrowed_destroyed = EGL_NO_CONTEXT;
     SP<NativeBuffer> cached, borrowed;
     {
         const hyprimate::gl::ScopedEglContext enter(target);
         if (!enter || eglGetCurrentContext() != owner) return 1;
+        CHECK(target.current());
+        CHECK(!caller_id.current());
+        CHECK(classify_context_owner(caller_id, target, true) == ContextOwnerState::replaced);
+        CHECK(classify_context_owner(target, target, true) == ContextOwnerState::current);
+        CHECK(classify_context_owner(target, target, false) == ContextOwnerState::replaced);
         owner_buffer = new_buffer();
         cached = makeShared<NativeBuffer>(new_buffer(), cached_destroyed);
         borrowed = makeShared<NativeBuffer>(new_buffer(), borrowed_destroyed);
@@ -134,6 +151,9 @@ int main() {
     glDeleteBuffers(1, &third_caller);
 
     if (!eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT)) return 1;
+    CHECK(!caller_id.current() && !target.current());
+    CHECK(classify_context_owner(caller_id, {}, false) == ContextOwnerState::unavailable);
+    CHECK(classify_context_owner({}, {}, false) == ContextOwnerState::unavailable);
     {
         const hyprimate::gl::ScopedEglContext retry(target);
         if (!retry) return 1;

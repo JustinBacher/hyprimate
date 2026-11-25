@@ -2,7 +2,7 @@
 
 #include <hyprland/src/helpers/memory/Memory.hpp>
 
-#include "gl/EglContext.hpp"
+#include "gl/ContextOwnerState.hpp"
 
 namespace Render::GL {
     class CHyprOpenGLImpl;
@@ -33,6 +33,11 @@ namespace hyprimate::gl {
       public:
         [[nodiscard]] bool ensure_current() noexcept;
         [[nodiscard]] bool ensure_current(const CurrentCompositorContext &) noexcept;
+
+        // Classification does not adopt a new owner or retire names. An unowned handle
+        // classifies a validated current context as current.
+        [[nodiscard]] ContextOwnerState classify_current() const noexcept;
+        [[nodiscard]] ContextOwnerState classify_current(const CurrentCompositorContext &) const noexcept;
         void reset() noexcept;
 
       private:

@@ -48,6 +48,19 @@ namespace hyprimate::gl {
         return true;
     }
 
+    ContextOwnerState CompositorContextOwner::classify_current() const noexcept {
+        const CurrentCompositorContext current;
+        return classify_current(current);
+    }
+
+    ContextOwnerState CompositorContextOwner::classify_current(
+        const CurrentCompositorContext &current) const noexcept {
+        const bool available = current && !current.m_backend.expired();
+        return detail::classify_context_owner(m_id,
+            available ? current.m_id : EglContextId{},
+            available && !m_backend.expired() && m_backend == current.m_backend);
+    }
+
     void CompositorContextOwner::reset() noexcept {
         m_backend.reset();
         m_id = {};
