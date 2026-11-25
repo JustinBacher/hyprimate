@@ -16,7 +16,7 @@
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprutils/math/Vector2D.hpp>
 
-#include "gl/NativeFramebuffer.hpp"
+#include "gl/RawGlState.hpp"
 #include "gl/RawGlBracket.hpp"
 #include "gl/Storage.hpp"
 #include "swarm_shaders_generated.hpp"
@@ -46,8 +46,7 @@ CSwarmSurface::~CSwarmSurface() {
         glDeleteBuffers(1, &m_instances);
     }
     if (m_field_framebuffer != 0U) {
-        renderer.onFramebufferDeleted(m_field_framebuffer);
-        glDeleteFramebuffers(1, &m_field_framebuffer);
+        hyprimate::gl::delete_framebuffer(m_field_framebuffer);
     }
     if (m_field_texture != 0U) {
         glDeleteTextures(1, &m_field_texture);

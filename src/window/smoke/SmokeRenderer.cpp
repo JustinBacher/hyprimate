@@ -7,7 +7,7 @@
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 
-#include "gl/NativeFramebuffer.hpp"
+#include "gl/RawGlState.hpp"
 #include "gl/RawGlBracket.hpp"
 #include "smoke_shaders_generated.hpp"
 #include "window/hyprland/HyprAnimationCanvas.hpp"
@@ -19,8 +19,6 @@ CSmokeFieldHandle::~CSmokeFieldHandle() {
     if (!CONTEXT) return;
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     const hyprimate::gl::CRawGlBracket<7> BRACKET{{}};
-    if (field.framebuffer() != 0)
-        Render::GL::g_pHyprOpenGL->onFramebufferDeleted(field.framebuffer());
     field.release();
 }
 CSmokeRenderer::~CSmokeRenderer() {

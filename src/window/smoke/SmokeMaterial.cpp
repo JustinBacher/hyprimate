@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <utility>
 
-#include "gl/Storage.hpp"
+#include "gl/RawGlState.hpp"
 #include "window/smoke/SmokeMaterial.hpp"
 
 namespace {
@@ -28,7 +28,7 @@ void CSmokeField::release() {
         texture = 0;
     }
     if (m_framebuffer != 0) {
-        glDeleteFramebuffers(1, &m_framebuffer);
+        hyprimate::gl::delete_framebuffer(m_framebuffer);
     }
     m_framebuffer = 0;
     m_width = m_height = 0;
