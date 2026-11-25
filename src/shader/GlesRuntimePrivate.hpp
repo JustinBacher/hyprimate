@@ -8,6 +8,8 @@
 #include <cstdint>
 #include <string>
 #include <cstddef>
+#include <memory>
+#include <vector>
 
 namespace hyprimate::shader::gles_detail {
     inline constexpr unsigned MAX_EXTENT = 8192;
@@ -120,6 +122,46 @@ namespace hyprimate::shader::gles_detail {
 
         CompiledPass() { uniforms.fill(-1); }
     };
+
+    struct TexturePair {
+        Extent size;
+        std::array<GLuint, 2> names{};
+        unsigned read = 0;
+    };
+
+    struct BufferPair {
+        std::array<GLuint, 2> names{};
+        unsigned read = 0;
+    };
+
+    struct DrawFramebuffer {
+        GLuint name = 0;
+        Extent size;
+        std::array<GLuint, MAX_TEXTURES> attached{};
+    };
+
+    struct VertexArray {
+        GLuint name = 0;
+        std::array<GLuint, 16> attached{};
+    };
+
+    inline std::array<float, 4> seed_values(std::uint64_t seed) {
+        std::array<float, 4> values{};
+        for (auto &value : values) {
+            // SplitMix64. A high 24-bit integer converts to float without rounding to 1.
+            auto x = (seed += 0x9e3779b97f4a7c15ULL);
+            x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+            x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+            x ^= x >> 31;
+            value = static_cast<float>(x >> 40) * (1.F / 16777216.F);
+        }
+        return values;
+    }
+
+    struct Timing {
+        Frame frame;
+        std::array<float, 4> seed = seed_values(0);
+    };
 }
 
 namespace hyprimate::shader {
@@ -144,5 +186,37 @@ namespace hyprimate::shader {
         bool prepare(const Values &values, GlResolver resolver, std::string &error);
         bool preflight_formats(std::string &error);
         bool upload(std::string &error);
+    };
+
+    struct Instance::Impl {
+        std::shared_ptr<Program::Impl> owner;
+        gles_detail::Extent capture;
+        Statistics stats;
+        std::array<gles_detail::TexturePair, MAX_TEXTURES> textures;
+        std::array<gles_detail::BufferPair, MAX_BUFFERS> buffers;
+        std::array<gles_detail::DrawFramebuffer, MAX_PASSES> framebuffers;
+        std::array<gles_detail::VertexArray, MAX_MESHES> vaos;
+        std::vector<GLenum> saved_draw_buffers;
+        GLuint empty_vao = 0, feedback = 0;
+        gles_detail::Timing pending_frame, committed_frame;
+        bool have_tick = false, pending = false, primed = false, faulted = false, armed = true;
+
+        ~Impl();
+        bool size_storage(std::string &error);
+        GLuint texture(Ref ref, const Source &source) const;
+        GLuint buffer(Ref ref) const;
+        void configure_mesh(unsigned index, bool create);
+        void attach_outputs(gles_detail::DrawFramebuffer &fbo, const Pass &pass);
+        bool clear_texture(gles_detail::PrepareState &saved, GLuint name,
+            gles_detail::PixelFormat format, gles_detail::Extent size, std::string &error);
+        bool allocate(std::string &error);
+        bool owns_texture(GLuint name) const;
+        bool validate_target(const Source &source, const Target &target, std::string &error) const;
+        void submit_mesh(const Pass &pass);
+        bool draw(std::size_t index, unsigned iteration, const gles_detail::Timing &time,
+            const Source &source, const Target &target, unsigned &active_blocks, bool &clear_final,
+            std::string &error);
+        bool phase(Phase phase, const gles_detail::Timing &frame, const Source &source,
+            const Target &target, unsigned &active_blocks, bool &clear_final, std::string &error);
     };
 }

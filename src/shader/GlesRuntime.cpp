@@ -14,23 +14,6 @@
 
 namespace hyprimate::shader {
     using namespace gles_detail;
-    namespace {
-        constexpr std::array<std::uint8_t, MAX_EXTENT * 16> ZEROS{};
-
-
-
-
-
-
-
-
-
-
-
-
-
-    }  // namespace
-
 
 
 
@@ -40,31 +23,8 @@ namespace hyprimate::shader {
 
     namespace {
 
-        // UBO indexed bindings are context state; TF indexed bindings belong to
-        // the selected TF object and are preserved by reselecting the caller's object.
 
 
-        struct TexturePair {
-            Extent size;
-            std::array<GLuint, 2> names{};
-            unsigned read = 0;
-        };
-
-        struct BufferPair {
-            std::array<GLuint, 2> names{};
-            unsigned read = 0;
-        };
-
-        struct DrawFramebuffer {
-            GLuint name = 0;
-            Extent size;
-            std::array<GLuint, MAX_TEXTURES> attached{};
-        };
-
-        struct VertexArray {
-            GLuint name = 0;
-            std::array<GLuint, 16> attached{};
-        };
 
 
         GLint attachment(GLenum point, GLenum parameter) {
@@ -81,23 +41,6 @@ namespace hyprimate::shader {
                    r[1] + r[3] <= ONE;
         }
 
-        std::array<float, 4> seed_values(std::uint64_t seed) {
-            std::array<float, 4> values{};
-            for (auto &value : values) {
-                // SplitMix64. A high 24-bit integer converts to float without rounding to 1.
-                auto x = (seed += 0x9e3779b97f4a7c15ULL);
-                x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
-                x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
-                x ^= x >> 31;
-                value = static_cast<float>(x >> 40) * (1.F / 16777216.F);
-            }
-            return values;
-        }
-
-        struct Timing {
-            Frame frame;
-            std::array<float, 4> seed = seed_values(0);
-        };
 
         void frame_uniforms(const CompiledPass &gpu, const Timing &time, const Source &source,
             Extent extent, const std::array<float, 4> &domain, unsigned iter, unsigned iterations,
@@ -144,288 +87,26 @@ namespace hyprimate::shader {
         }
     }  // namespace
 
-    struct Instance::Impl {
-        std::shared_ptr<Program::Impl> owner;
-        Extent capture;
-        Statistics stats;
-        std::array<TexturePair, MAX_TEXTURES> textures;
-        std::array<BufferPair, MAX_BUFFERS> buffers;
-        std::array<DrawFramebuffer, MAX_PASSES> framebuffers;
-        std::array<VertexArray, MAX_MESHES> vaos;
-        std::vector<GLenum> saved_draw_buffers;
-        GLuint empty_vao = 0, feedback = 0;
-        Timing pending_frame, committed_frame;
-        bool have_tick = false, pending = false, primed = false, faulted = false, armed = true;
 
-        ~Impl() {
-            if (!armed) {
-                return;
-            }
-            if (feedback != 0) {
-                glDeleteTransformFeedbacks(1, &feedback);
-            }
-            if (empty_vao != 0) {
-                glDeleteVertexArrays(1, &empty_vao);
-            }
-            for (const auto &vao : vaos) {
-                if (vao.name != 0) {
-                    glDeleteVertexArrays(1, &vao.name);
-                }
-            }
-            for (const auto &fbo : framebuffers) {
-                if (fbo.name != 0) {
-                    glDeleteFramebuffers(1, &fbo.name);
-                }
-            }
-            for (const auto &buffer : buffers) {
-                if (buffer.names[0] != 0) {
-                    glDeleteBuffers(static_cast<GLsizei>(buffer.names.size()), buffer.names.data());
-                }
-            }
-            for (const auto &texture : textures) {
-                if (texture.names[0] != 0) {
-                    glDeleteTextures(static_cast<GLsizei>(texture.names.size()), texture.names.data());
-                }
-            }
-        }
 
-        bool size_storage(std::string &error) {
-            if (!capture.bounded() || !owner->limits.viewport_fits(capture.width, capture.height)) {
-                return fail(error, "capture dimensions exceed the GLES/bounded extent");
-            }
-            const auto &package = owner->package;
-            std::uint64_t bytes = 0;
-            for (std::size_t i = 0; i < package.textures.size(); ++i) {
-                const auto &desc = package.textures[i];
-                if (!desc.image.empty()) {
-                    continue;
-                }
-                const auto size = texture_extent(desc.size, capture);
-                if (!size.bounded() || size.width > static_cast<unsigned>(owner->limits.texture) ||
-                    size.height > static_cast<unsigned>(owner->limits.texture)) {
-                    return fail(error, "texture dimensions exceed the GLES/bounded extent: " + desc.name);
-                }
-                textures[i].size = size;
-                bytes += std::uint64_t{size.width} * size.height * pixel_format(desc.format).bytes *
-                         (desc.ping_pong ? 2 : 1);
-            }
-            for (const auto &buffer : package.buffers) {
-                bytes += buffer.bytes * (buffer.ping_pong ? 2 : 1);
-            }
-            if (bytes > MAX_INSTANCE_BYTES) {
-                return fail(error, "shader instance exceeds its 128 MiB storage budget");
-            }
-            for (std::size_t i = 0; i < package.passes.size(); ++i) {
-                const auto &outputs = package.passes[i].outputs;
-                if (outputs.empty() || outputs.front().kind != ResourceKind::Texture) {
-                    continue;
-                }
-                const auto size = textures[outputs.front().index].size;
-                if (!owner->limits.viewport_fits(size.width, size.height) ||
-                    std::ranges::any_of(outputs, [&](Ref ref) { return textures[ref.index].size != size; })) {
-                    return fail(error, "incompatible GLES output dimensions: " + package.passes[i].name);
-                }
-                framebuffers[i].size = size;
-            }
-            return true;
-        }
 
-        GLuint texture(Ref ref, const Source &source) const {
-            if (ref.kind == ResourceKind::Source) {
-                return source.texture;
-            }
-            if (ref.kind == ResourceKind::Destination) {
-                return source.destination_texture;
-            }
-            if (ref.kind >= ResourceKind::Original) return environmental_texture(ref.kind, source.environment);
-            if (owner->assets[ref.index] != 0) {
-                return owner->assets[ref.index];
-            }
-            const auto &pair = textures[ref.index];
-            return pair.names[pair.read ^ static_cast<unsigned>(ref.side == Side::Write)];
-        }
 
-        GLuint buffer(Ref ref) const {
-            const auto &pair = buffers[ref.index];
-            return pair.names[pair.read ^ static_cast<unsigned>(ref.side == Side::Write)];
-        }
 
-        void configure_mesh(unsigned index, bool create) {
-            const auto &mesh = owner->package.meshes[index];
-            auto &vao = vaos[index];
-            glBindVertexArray(vao.name);
-            if (create && owner->elements[index] != 0) {
-                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, owner->elements[index]);
-            }
-            for (std::size_t i = 0; i < mesh.attributes.size(); ++i) {
-                const auto &attr = mesh.attributes[i];
-                const auto name = buffer(attr.buffer);
-                if (vao.attached[i] == name) {
-                    continue;
-                }
-                glBindBuffer(GL_ARRAY_BUFFER, name);
-                glVertexAttribPointer(attr.location, attr.components, GL_FLOAT, GL_FALSE, attr.stride,
-                    reinterpret_cast<const void *>(static_cast<std::uintptr_t>(attr.offset)));
-                if (create) {
-                    glEnableVertexAttribArray(attr.location);
-                    glVertexAttribDivisor(attr.location, attr.divisor);
-                }
-                vao.attached[i] = name;
-            }
-        }
 
-        void attach_outputs(DrawFramebuffer &fbo, const Pass &pass) {
-            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbo.name);
-            for (std::size_t i = 0; i < pass.outputs.size(); ++i) {
-                const auto name = texture(pass.outputs[i], {});
-                if (fbo.attached[i] != name) {
-                    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i,
-                        GL_TEXTURE_2D, name, 0);
-                    fbo.attached[i] = name;
-                }
-            }
-        }
 
-        bool clear_texture(PrepareState &saved, GLuint name, PixelFormat format, Extent size,
-            std::string &error) {
-            if (saved.zero_framebuffer == 0) {
-                glGenFramebuffers(1, &saved.zero_framebuffer);
-                if (saved.zero_framebuffer == 0) {
-                    return fail(error, "cannot create texture initialization framebuffer");
-                }
-            }
-            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, saved.zero_framebuffer);
-            glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, name, 0);
-            if (glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
-                glClearBufferfv(GL_COLOR, 0, TRANSPARENT.data());
-            } else {
-                // A legal sampled floating-point format need not be color-renderable.
-                const auto row = std::size_t{size.width} * format.bytes;
-                const auto batch = static_cast<unsigned>(ZEROS.size() / row);
-                for (unsigned y = 0; y < size.height;) {
-                    const auto rows = std::min(batch, size.height - y);
-                    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, y, size.width, rows, format.layout,
-                        format.type, ZEROS.data());
-                    stats.upload_bytes += row * rows;
-                    y += rows;
-                }
-            }
-            return gl_ok(error, "zeroing persistent texture");
-        }
 
-        bool allocate(std::string &error) {
-            if (!size_storage(error)) {
-                return false;
-            }
-            const auto &package = owner->package;
-            PrepareState saved(owner->color);
-            saved_draw_buffers.resize(static_cast<std::size_t>(owner->limits.draw_buffers));
-            for (std::size_t i = 0; i < package.textures.size(); ++i) {
-                const auto &desc = package.textures[i];
-                if (!desc.image.empty()) {
-                    continue;
-                }
-                auto &pair = textures[i];
-                const auto format = pixel_format(desc.format);
-                const auto size = pair.size;
-                for (unsigned side = 0; side < (desc.ping_pong ? 2U : 1U); ++side) {
-                    auto &name = pair.names[side];
-                    texture_storage(name, desc, size);
-                    if (!gl_ok(error, "allocating texture")) {
-                        return false;
-                    }
-                    count_storage(stats, std::size_t{size.width} * size.height * format.bytes);
-                    if (desc.lifetime == Lifetime::Persistent &&
-                        !clear_texture(saved, name, format, size, error)) {
-                        return false;
-                    }
-                }
-            }
-            for (std::size_t i = 0; i < package.buffers.size(); ++i) {
-                const auto &desc = package.buffers[i];
-                auto &pair = buffers[i];
-                for (unsigned side = 0; side < (desc.ping_pong ? 2U : 1U); ++side) {
-                    auto &name = pair.names[side];
-                    glGenBuffers(1, &name);
-                    glBindBuffer(GL_ARRAY_BUFFER, name);
-                    const auto *initial = desc.initial.size() == desc.bytes ? desc.initial.data() : nullptr;
-                    glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(desc.bytes), initial,
-                        GL_DYNAMIC_COPY);
-                    if (!gl_ok(error, "allocating buffer")) {
-                        return false;
-                    }
-                    count_storage(stats, desc.bytes);
-                    if (initial) {
-                        stats.upload_bytes += desc.bytes;
-                        continue;
-                    }
-                    if (!desc.initial.empty()) {
-                        glBufferSubData(GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(desc.initial.size()),
-                            desc.initial.data());
-                        stats.upload_bytes += desc.initial.size();
-                    }
-                    for (std::size_t at = desc.initial.size(); at < desc.bytes;) {
-                        const auto bytes = std::min(ZEROS.size(), desc.bytes - at);
-                        glBufferSubData(GL_ARRAY_BUFFER, static_cast<GLintptr>(at),
-                            static_cast<GLsizeiptr>(bytes), ZEROS.data());
-                        at += bytes;
-                        stats.upload_bytes += bytes;
-                    }
-                    if (!gl_ok(error, "initializing buffer")) {
-                        return false;
-                    }
-                }
-            }
-            for (std::size_t i = 0; i < package.passes.size(); ++i) {
-                auto &fbo = framebuffers[i];
-                if (fbo.size.width == 0) {
-                    continue;
-                }
-                const auto &pass = package.passes[i];
-                glGenFramebuffers(1, &fbo.name);
-                if (fbo.name == 0) {
-                    return fail(error, "cannot create shader output framebuffer");
-                }
-                attach_outputs(fbo, pass);
-                std::array<GLenum, MAX_TEXTURES> slots;
-                for (std::size_t j = 0; j < pass.outputs.size(); ++j) {
-                    slots[j] = GL_COLOR_ATTACHMENT0 + j;
-                }
-                glDrawBuffers(static_cast<GLsizei>(pass.outputs.size()), slots.data());
-                if (glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-                    return fail(error, "incomplete shader framebuffer (unsupported GLES format/MRT): " + pass.name);
-                }
-            }
-            for (unsigned i = 0; i < package.meshes.size(); ++i) {
-                glGenVertexArrays(1, &vaos[i].name);
-                if (vaos[i].name == 0) {
-                    return fail(error, "cannot create shader mesh VAO");
-                }
-                configure_mesh(i, true);
-            }
-            if (std::ranges::any_of(package.passes, [](const Pass &pass) { return pass.mesh < 0; })) {
-                glGenVertexArrays(1, &empty_vao);
-                if (empty_vao == 0) {
-                    return fail(error, "cannot create shader fullscreen VAO");
-                }
-            }
-            if (owner->has_feedback) {
-                glGenTransformFeedbacks(1, &feedback);
-                if (feedback == 0) {
-                    return fail(error, "cannot create shader transform feedback object");
-                }
-            }
-            return gl_ok(error, "preparing shader instance");
-        }
 
-        bool owns_texture(GLuint name) const {
+
+
+
+
+    bool Instance::Impl::owns_texture(GLuint name) const {
             return std::ranges::find(owner->assets, name) != owner->assets.end() ||
                    std::ranges::any_of(textures, [name](const TexturePair &pair) {
                        return pair.names[0] == name || pair.names[1] == name;
                    });
         }
-
-        bool validate_target(const Source &source, const Target &target, std::string &error) const {
+    bool Instance::Impl::validate_target(const Source &source, const Target &target, std::string &error) const {
             if (glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
                 return fail(error, "borrowed output framebuffer is incomplete");
             }
@@ -480,8 +161,7 @@ namespace hyprimate::shader {
             }
             return true;
         }
-
-        void submit_mesh(const Pass &pass) {
+    void Instance::Impl::submit_mesh(const Pass &pass) {
             const auto *mesh = pass_mesh(owner->package, pass);
             if (!mesh) {
                 glDrawArrays(GL_TRIANGLES, 0, 3);
@@ -501,8 +181,7 @@ namespace hyprimate::shader {
                 glDrawArraysInstanced(primitive, 0, mesh->count, mesh->instances);
             }
         }
-
-        bool draw(std::size_t index, unsigned iteration, const Timing &time, const Source &source,
+    bool Instance::Impl::draw(std::size_t index, unsigned iteration, const Timing &time, const Source &source,
             const Target &target, unsigned &active_blocks, bool &clear_final, std::string &error) {
             constexpr std::array<float, 4> FULL_DOMAIN{0, 0, 1, 1};
             const auto &pass = owner->package.passes[index];
@@ -617,8 +296,7 @@ namespace hyprimate::shader {
             }
             return true;
         }
-
-        bool phase(Phase phase, const Timing &frame, const Source &source, const Target &target,
+    bool Instance::Impl::phase(Phase phase, const Timing &frame, const Source &source, const Target &target,
             unsigned &active_blocks, bool &clear_final, std::string &error) {
             const auto &passes = owner->package.passes;
             for (std::size_t i = 0; i < passes.size(); ++i) {
@@ -636,8 +314,6 @@ namespace hyprimate::shader {
             }
             return true;
         }
-    };
-
     Instance::Instance() = default;
     Instance::~Instance() = default;
 

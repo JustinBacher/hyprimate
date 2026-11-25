@@ -6,7 +6,11 @@ pkg_check_modules(SHADER_GLES REQUIRED IMPORTED_TARGET glesv2)
 add_library(shader-package STATIC src/shader/Package.cpp)
 target_include_directories(shader-package PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(shader-package PRIVATE PNG::PNG nlohmann_json::nlohmann_json)
-add_library(shader-gles STATIC src/shader/GlesRuntime.cpp src/shader/GlesState.cpp src/shader/GlesProgram.cpp)
+add_library(shader-gles STATIC
+    src/shader/GlesRuntime.cpp
+    src/shader/GlesState.cpp
+    src/shader/GlesProgram.cpp
+    src/shader/GlesInstanceStorage.cpp)
 target_include_directories(shader-gles PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(shader-gles PUBLIC shader-package PkgConfig::SHADER_GLES)
 foreach(target shader-package shader-gles)
