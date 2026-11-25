@@ -280,6 +280,9 @@ namespace hyprimate::workspace {
                             next.retarget(
                                 DESTINATION, DURATION, m_last_presented, m_port->travel());
                         })) {
+                        if (m_revision == revision) {
+                            cancel("curve-sample");
+                        }
                         return;
                     }
                     m_retarget_time = STARTED;
@@ -292,43 +295,46 @@ namespace hyprimate::workspace {
             m_port->damage();
         }
 
-        void frame(const Composition &current, double elapsed) {
+        enum class FrameOutcome { Continued, Finished, Superseded };
+        FrameOutcome frame(const Composition &current, double elapsed) {
             invalidate_frame();
-            const auto revision = m_revision;
+            const auto REVISION = m_revision;
+            const auto FINISH = [&](std::string_view reason = {}) {
+                cancel_impl(reason, false);
+                return m_revision == REVISION ? FrameOutcome::Finished : FrameOutcome::Superseded;
+            };
             if (!m_active) {
-                return;
+                return FrameOutcome::Continued;
             }
             if (!m_port->scene_safe()) {
-                cancel("scene-unsafe");
-                return;
+                return FINISH("scene-unsafe");
             }
             if (m_port->native_hud() && !m_port->hud_safe()) {
-                cancel("hud-unsafe");
-                return;
+                return FINISH("hud-unsafe");
             }
-            const bool buffered = m_port->buffers(true);
-            if (m_revision != revision) {
-                return;
+            const bool BUFFERED = m_port->buffers(true);
+            if (m_revision != REVISION) {
+                return FrameOutcome::Superseded;
             }
-            if (!buffered) {
-                cancel("frame-buffers");
-                return;
+            if (!BUFFERED) {
+                return FINISH("frame-buffers");
             }
             if (m_presented) {
                 if (!std::isfinite(elapsed) || elapsed < 0.0) {
-                    cancel("clock-stall");
-                    return;
+                    return FINISH("clock-stall");
                 }
                 const double STEP = m_retarget_time
                                         ? std::clamp(m_port->now() - *m_retarget_time, 0.0, elapsed)
                                         : elapsed;
                 m_retarget_time.reset();
                 if (STEP > m_port->max_frame_gap()) {
-                    cancel("clock-stall");
-                    return;
+                    return FINISH("clock-stall");
                 }
-                if (!sample_transition(revision, [&](Transition &next) { next.advance(STEP); })) {
-                    return;
+                if (!sample_transition(REVISION, [&](Transition &next) { next.advance(STEP); })) {
+                    if (m_revision != REVISION) {
+                        return FrameOutcome::Superseded;
+                    }
+                    return FINISH("curve-sample");
                 }
                 m_elapsed += STEP;
                 // Sampled completion is provisional until the endpoint was actually
@@ -337,12 +343,11 @@ namespace hyprimate::workspace {
                     m_last_presented.position == m_transition.progress() &&
                     m_last_presented.velocity == 0.0) {
                     m_port->landed();
-                    if (m_revision != revision) {
-                        return;
+                    if (m_revision != REVISION) {
+                        return FrameOutcome::Superseded;
                     }
                     if (!m_pending) {
-                        cancel();
-                        return;
+                        return FINISH({});
                     }
                     if constexpr (requires {
                                       m_port->next_pair(m_source.endpoint(), m_pending->endpoint());
@@ -350,14 +355,13 @@ namespace hyprimate::workspace {
                         const auto &landed =
                             m_transition.target_destination() ? m_destination : m_source;
                         auto next = m_port->next_pair(landed.endpoint(), m_pending->endpoint());
-                        if (m_revision != revision) {
-                            return;
+                        if (m_revision != REVISION) {
+                            return FrameOutcome::Superseded;
                         }
                         if (next) {
                             auto &[duration, curve] = *next;
                             if (!std::isfinite(duration) || duration <= 0.0 || !curve) {
-                                cancel();
-                                return;
+                                return FINISH({});
                             }
                             m_duration = duration;
                             m_curve = std::move(curve);
@@ -382,30 +386,30 @@ namespace hyprimate::workspace {
             const bool LIVE_SOURCE = should_refresh(CaptureKind::SourceIsolated);
             if (current.identity == m_source.identity && LIVE_SOURCE) {
                 captured = capture(CaptureKind::SourceIsolated, current);
-                if (m_revision != revision) {
-                    return;
+                if (m_revision != REVISION) {
+                    return FrameOutcome::Superseded;
                 }
             } else if (current.identity == m_destination.identity) {
                 if (m_presented && LIVE_SOURCE) {
                     captured = refresh_inactive_source();
-                    if (m_revision != revision) {
-                        return;
+                    if (m_revision != REVISION) {
+                        return FrameOutcome::Superseded;
                     }
                 }
                 if (captured &&
                     (!m_destination_ready || should_refresh(CaptureKind::DestinationLive))) {
                     captured = capture(CaptureKind::DestinationLive, current);
-                    if (m_revision != revision) {
-                        return;
+                    if (m_revision != REVISION) {
+                        return FrameOutcome::Superseded;
                     }
                     m_destination_ready = captured;
                 }
             }
             if (!captured || !m_destination_ready) {
-                cancel(captured ? "destination-not-ready" : "frame-capture");
-                return;
+                return FINISH(captured ? "destination-not-ready" : "frame-capture");
             }
             m_port->damage();
+            return m_revision == REVISION ? FrameOutcome::Continued : FrameOutcome::Superseded;
         }
 
         enum class Presentation { Skipped, Cancelled, Displayed, FirstDisplay };
@@ -552,30 +556,7 @@ namespace hyprimate::workspace {
             m_port->damage();
         }
         void cancel(std::string_view reason = {}) {
-            invalidate_frame();
-            const auto revision = m_revision;
-            const bool WAS_ACTIVE = m_active;
-            m_active = m_presented = m_destination_ready = m_staged = false;
-            m_pending.reset();
-            m_transition.cancel();
-            m_retarget_time.reset();
-            reset_blend(CaptureKind::SourceIsolated);
-            if (m_revision != revision) {
-                return;
-            }
-            reset_blend(CaptureKind::DestinationLive);
-            if (m_revision != revision) {
-                return;
-            }
-            if (!reason.empty()) {
-                m_port->diagnostic(reason);
-            }
-            if (m_revision != revision) {
-                return;
-            }
-            if (WAS_ACTIVE) {
-                m_port->damage();
-            }
+            cancel_impl(reason, true);
         }
 
         template <class Prepare>
@@ -726,6 +707,34 @@ namespace hyprimate::workspace {
             m_pair_duration = duration;
         }
 
+        void cancel_impl(std::string_view reason, bool invalidate) {
+            if (invalidate) {
+                invalidate_frame();
+            }
+            const auto REVISION = m_revision;
+            const bool WAS_ACTIVE = m_active;
+            m_active = m_presented = m_destination_ready = m_staged = false;
+            m_pending.reset();
+            m_transition.cancel();
+            m_retarget_time.reset();
+            reset_blend(CaptureKind::SourceIsolated);
+            if (m_revision != REVISION) {
+                return;
+            }
+            reset_blend(CaptureKind::DestinationLive);
+            if (m_revision != REVISION) {
+                return;
+            }
+            if (!reason.empty()) {
+                m_port->diagnostic(reason);
+            }
+            if (m_revision != REVISION) {
+                return;
+            }
+            if (WAS_ACTIVE) {
+                m_port->damage();
+            }
+        }
         template <class Sample>
         bool sample_transition(std::uint64_t revision, Sample sample) {
             // Keep the last committed timeline available to a nested gesture/retarget.
@@ -734,9 +743,6 @@ namespace hyprimate::workspace {
             try {
                 sample(next);
             } catch (...) {
-                if (m_revision == revision) {
-                    cancel("curve-sample");
-                }
                 return false;
             }
             if (m_revision != revision) {

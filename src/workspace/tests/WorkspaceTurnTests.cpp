@@ -64,6 +64,83 @@ namespace {
         }
     };
 
+    struct LandingCallbackPort : FakeWorkspacePort {
+        std::function<void()> on_landed;
+
+        void landed() {
+            FakeWorkspacePort::landed();
+            if (on_landed) {
+                on_landed();
+            }
+        }
+    };
+
+    void landing_revision_distinguishes_supersession() {
+        for (const bool SUPERSEDE : {false, true}) {
+            LandingCallbackPort port;
+            WorkspaceTurn<LandingCallbackPort> turn{port};
+            const auto ONE = std::make_shared<FakeWorkspace>(1);
+            const auto TWO = std::make_shared<FakeWorkspace>(2);
+            const auto FROM = port.composition(ONE);
+            const auto TARGET = port.composition(TWO);
+            CHECK(turn.stage(FROM));
+            turn.begin(FROM, TARGET, 1.0, LINEAR);
+            turn.frame(TARGET, 0.0);
+            CHECK(turn.drawable());
+            turn.presented(true);
+            if (SUPERSEDE) {
+                port.on_landed = [&] { turn.begin(TARGET, FROM, 1.0, LINEAR); };
+            }
+            auto landing_revision = std::uint64_t{0};
+            auto outcome = WorkspaceTurn<LandingCallbackPort>::FrameOutcome::Continued;
+            for (int i = 0; i < 40 && port.landings == 0; ++i) {
+                port.advance(.05);
+                landing_revision = turn.revision();
+                outcome = turn.frame(TARGET, .05);
+                if (turn.drawable()) {
+                    turn.presented(true);
+                }
+            }
+            CHECK(port.landings == 1);
+            if (SUPERSEDE) {
+                CHECK(outcome == WorkspaceTurn<LandingCallbackPort>::FrameOutcome::Superseded);
+                CHECK(turn.active());
+                CHECK(turn.revision() > landing_revision + 1);
+            } else {
+                CHECK(outcome == WorkspaceTurn<LandingCallbackPort>::FrameOutcome::Finished);
+                CHECK(!turn.active());
+                CHECK(turn.revision() == landing_revision + 1);
+            }
+        }
+    }
+
+
+    void frame_damage_reentrancy_is_superseded() {
+        struct DamageCallbackPort : FakeWorkspacePort {
+            std::function<void()> on_damage;
+
+            void damage() {
+                FakeWorkspacePort::damage();
+                if (auto callback = std::exchange(on_damage, {})) {
+                    callback();
+                }
+            }
+        } port;
+        WorkspaceTurn<DamageCallbackPort> turn{port};
+        const auto SOURCE_WORKSPACE = std::make_shared<FakeWorkspace>(1);
+        const auto DESTINATION_WORKSPACE = std::make_shared<FakeWorkspace>(2);
+        const auto SOURCE = port.composition(SOURCE_WORKSPACE);
+        const auto DESTINATION = port.composition(DESTINATION_WORKSPACE);
+        CHECK(turn.stage(SOURCE));
+        turn.begin(SOURCE, DESTINATION, 1.0, LINEAR);
+        turn.frame(DESTINATION, 0.0);
+        CHECK(turn.drawable());
+        turn.presented(true);
+        port.on_damage = [&] { turn.cancel(); };
+        const auto OUTCOME = turn.frame(DESTINATION, .1);
+        CHECK(OUTCOME == WorkspaceTurn<DamageCallbackPort>::FrameOutcome::Superseded);
+        CHECK(!turn.active());
+    }
     void identity_and_direction() {
         Fixture fixture;
         const auto SPECIAL = std::make_shared<FakeWorkspace>(99);
@@ -720,12 +797,9 @@ namespace {
         turn.frame(b, .1);
         CHECK(turn.drawable() && std::abs(turn.progress() - .1) < 1e-9);
         throw_during_sample = true;
-        try {
-            turn.frame(b, .1);
-        } catch (int) {
-        }
+        const auto CURVE_OUTCOME = turn.frame(b, .1);
+        CHECK(CURVE_OUTCOME == WorkspaceTurn<Port>::FrameOutcome::Finished);
         CHECK(!turn.active());
-
         port.callback = [&] {
             CHECK(turn.stage(a));
             turn.begin(a, b, 1.0, LINEAR);
@@ -1366,6 +1440,8 @@ namespace {
 
 int main() {
     identity_and_direction();
+    landing_revision_distinguishes_supersession();
+    frame_damage_reentrancy_is_superseded();
     latched_shader_pair_lands_after_effect_disable();
     capture_plan_tests::run();
     returning_to_destination_discards_pending();

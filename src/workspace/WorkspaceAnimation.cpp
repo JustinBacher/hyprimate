@@ -2319,9 +2319,13 @@ void CWorkspaceAnimation::Impl::pre_render(const PHLMONITOR &monitor) {
     const auto ELAPSED = std::chrono::duration<double>(NOW - entry->last).count();
     entry->last = NOW;
     const auto current = composition(monitor);
-    const auto revision = active_turn->revision() + 1;
-    active_turn->frame(current, ELAPSED);
-    if (turn(monitor) != active_turn.get() || active_turn->revision() != revision) {
+    const auto OUTCOME = active_turn->frame(current, ELAPSED);
+    if (turn(monitor) != active_turn.get() ||
+        OUTCOME == hyprimate::workspace::WorkspaceTurn<TurnPort>::FrameOutcome::Superseded) {
+        return;
+    }
+    if (OUTCOME == hyprimate::workspace::WorkspaceTurn<TurnPort>::FrameOutcome::Finished) {
+        erase_state(monitor);
         return;
     }
     if (m_uses_previews && active_turn->drawable()) {
