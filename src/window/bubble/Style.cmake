@@ -47,6 +47,7 @@ target_sources(hyprimate PRIVATE
     src/window/bubble/BubbleLiveStyle.cpp
     src/window/bubble/BubbleRenderer.cpp
     src/window/bubble/BubbleMaterial.cpp
+    src/window/bubble/BubbleMaterialMembranes.cpp
     src/window/bubble/BubbleVestige.cpp
     src/window/bubble/BubbleWallpaper.cpp
 )
@@ -89,7 +90,8 @@ if(BUILD_TESTING)
 
     add_executable(bubble-material-tests
         src/window/bubble/tests/BubbleMaterialTests.cpp
-        src/window/bubble/BubbleMaterial.cpp)
+        src/window/bubble/BubbleMaterial.cpp
+        src/window/bubble/BubbleMaterialMembranes.cpp)
     add_dependencies(bubble-material-tests generate-bubble-shaders)
     target_include_directories(bubble-material-tests PRIVATE ${CONFIG_GENERATED_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     target_link_libraries(bubble-material-tests PRIVATE hyprimate-core PkgConfig::TEST_EGL)
