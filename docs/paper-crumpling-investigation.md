@@ -5,6 +5,11 @@
 At the time of this investigation, Cloth used Jolt 5.6.0. The shipped Cloth effect now uses a
 dedicated CPU solver; the Jolt discussion below records the alternatives available at the time.
 
+The current renderer keeps CPU topology, reconstruction and reusable scratch in
+`PaperRenderMesh`, owned by `PaperMaterial`. The material remains the sole GL-resource
+owner and uploads the prepared vertex view in its creating context. An allocation failure
+invalidates the topology key so a later build can reconstruct adjacency on the same cache.
+
 **Research and licensing.** Narain, Samii & O'Brien, [Adaptive Anisotropic Remeshing for Cloth Simulation](http://graphics.eecs.berkeley.edu/resources/ARCSim/), and Narain, Pfaff & O'Brien, [Folding and Crumpling Adaptive Sheets](http://graphics.cs.berkeley.edu/papers/Narain-FCA-2013-07/Narain-FCA-2013-07.pdf), identify bending lock, diffusion of plastic creases during remeshing, and jitter when reprojecting a stiff sheet. ARCSim uses a plastic embedding distinct from both material coordinates and current pose, a curvature/strain sizing metric, and contact processing. The important constraints here are to keep the printed material chart fixed, transport signed bend history, preserve contacted features and test swept motion rather than just end-of-step overlap. The [Berkeley distribution](http://graphics.eecs.berkeley.edu/resources/ARCSim/) is offered for non-profit use with licensing and attribution requirements. Hyprimate does not import its code, datasets, or SELF-CCD library; its bounded interactive solver is independently implemented.
 
 ## Baseline before replacement (957c488)

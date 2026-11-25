@@ -11,6 +11,7 @@ target_sources(hyprimate PRIVATE
     src/window/paper/PaperDraw.cpp
     src/window/paper/PaperRenderer.cpp
     src/window/paper/PaperMaterial.cpp
+    src/window/paper/PaperRenderMesh.cpp
 )
 
 if(BUILD_TESTING)
@@ -34,12 +35,20 @@ if(BUILD_TESTING)
     endforeach()
 
     add_executable(paper-material-tests tests/PaperMaterialTests.cpp
-        src/window/paper/PaperMaterial.cpp)
+        src/window/paper/PaperMaterial.cpp
+        src/window/paper/PaperRenderMesh.cpp)
     target_link_libraries(paper-material-tests PRIVATE hyprimate-core PkgConfig::TEST_EGL)
     target_include_directories(paper-material-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests
         ${CMAKE_CURRENT_SOURCE_DIR}/tools/dev/bench)
     add_test(NAME paper-material-tests COMMAND paper-material-tests)
     set_tests_properties(paper-material-tests PROPERTIES ENVIRONMENT "EGL_PLATFORM=surfaceless")
+
+    add_executable(paper-render-mesh-failure-tests
+        src/window/paper/tests/PaperRenderMeshFailureTests.cpp
+        src/window/paper/PaperRenderMesh.cpp)
+    target_link_libraries(paper-render-mesh-failure-tests PRIVATE hyprimate-core)
+    target_include_directories(paper-render-mesh-failure-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    add_test(NAME paper-render-mesh-failure-tests COMMAND paper-render-mesh-failure-tests)
 
     add_executable(paper-style-tests
         src/window/paper/tests/PaperStyleTests.cpp
