@@ -1,6 +1,9 @@
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <dlfcn.h>
+#include <new>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -80,7 +83,10 @@ class CHyprglassCompat::Impl {
     std::vector<CPlugin *> m_plugins;
     HANDLE m_plugin = nullptr;
     std::array<void **, 2> m_slots{};
-    std::array<void *, 2> m_previous{};
+    std::string m_loader_name;
+    std::uintptr_t m_loader_map_address = 0;
+    ElfW(Addr) m_loader_base = 0;
+    hyprimate::PluginImportOwnership<2> m_import_ownership;
     RenderFn m_render = nullptr;
     ApplyFn m_apply = nullptr;
     OwnerFn m_get_owner = nullptr;
@@ -88,21 +94,39 @@ class CHyprglassCompat::Impl {
 };
 
 void CHyprglassCompat::Impl::reset() {
-    // A plugin may already have been unloaded (or reloaded at the same address).
-    // Resolve its current slots afresh; never dereference an old DSO address.
-    if (g_pPluginSystem && g_pPluginSystem->getPluginByHandle(m_plugin)) {
-        const auto SLOTS = hyprimate::writable_plugin_imports(m_plugin, IMPORTS);
-        const std::array REPLACEMENTS{
-            reinterpret_cast<void *>(&render), reinterpret_cast<void *>(&apply)};
-        for (std::size_t index = 0; index < SLOTS.size(); ++index) {
-            if (SLOTS[index] != nullptr && SLOTS[index] == m_slots[index] &&
-                *SLOTS[index] == REPLACEMENTS[index]) {
-                *SLOTS[index] = m_previous[index];
-            }
+    std::array<void **, 2> slots{};
+    void *temporary_handle = nullptr;
+    bool resolved = false;
+    if (m_plugin && g_pPluginSystem && g_pPluginSystem->getPluginByHandle(m_plugin)) {
+        slots = hyprimate::writable_plugin_imports(m_plugin, IMPORTS);
+        resolved = true;
+    } else if (!m_loader_name.empty() && m_loader_map_address != 0) {
+        // During teardown the registry may already have dropped its handle.
+        // Reacquire only this exact still-loaded link_map, for this call only.
+        temporary_handle = dlopen(m_loader_name.c_str(), RTLD_LAZY | RTLD_NOLOAD);
+        link_map *map = nullptr;
+        if (temporary_handle != nullptr &&
+            dlinfo(temporary_handle, RTLD_DI_LINKMAP, &map) == 0 && map != nullptr &&
+            reinterpret_cast<std::uintptr_t>(map) == m_loader_map_address &&
+            map->l_addr == m_loader_base && map->l_name != nullptr && m_loader_name == map->l_name) {
+            slots = hyprimate::writable_plugin_imports(temporary_handle, IMPORTS);
+            resolved = true;
         }
     }
+    const std::array REPLACEMENTS{
+        reinterpret_cast<void *>(&render), reinterpret_cast<void *>(&apply)};
+    if (resolved) {
+        m_import_ownership.restore(slots, REPLACEMENTS);
+    } else {
+        // If identity capture failed, teardown cannot safely find a still-mapped
+        // orphan; its slot may retain our callback (reported residual).
+        m_import_ownership.clear();
+    }
+    if (temporary_handle != nullptr) dlclose(temporary_handle);
     m_slots = {};
-    m_previous = {};
+    m_loader_name.clear();
+    m_loader_map_address = 0;
+    m_loader_base = 0;
     m_render = nullptr;
     m_apply = nullptr;
     m_get_owner = nullptr;
@@ -123,15 +147,34 @@ void CHyprglassCompat::Impl::refresh() {
         }
     }
     if (glass == nullptr) {
-        reset();
+        // The plugin may be temporarily absent from the registry while another
+        // loader reference keeps its import slots alive. Suspend without touching
+        // saved slot pointers; refresh or reset will resolve current slots afresh.
+        m_import_ownership.suspend();
         return;
     }
     const auto SLOTS = hyprimate::writable_plugin_imports(glass->m_handle, IMPORTS);
-    if (glass->m_handle == m_plugin && SLOTS == m_slots &&
-        ((s_active != this && m_render == nullptr) ||
-            (SLOTS[0] != nullptr && SLOTS[1] != nullptr &&
-                *SLOTS[0] == reinterpret_cast<void *>(&render) &&
-                *SLOTS[1] == reinterpret_cast<void *>(&apply)))) return;
+    const std::array REPLACEMENTS{
+        reinterpret_cast<void *>(&render), reinterpret_cast<void *>(&apply)};
+    if (glass->m_handle == m_plugin && SLOTS == m_slots) {
+        if (m_import_ownership.observe(SLOTS, REPLACEMENTS, glass)) {
+            HyprlandAPI::addNotification(m_owner,
+                "[hyprimate] Hyprglass import ownership conflict; conflicting entry left untouched",
+                CHyprColor(1.F, 0.6F, 0.2F, 1.F),
+                5000.F);
+        }
+        // CPlugin's registry record identifies this load independently of a
+        // recycled dlopen handle and import-slot addresses. If its exact address
+        // is also reused, the API cannot distinguish reload from conflict; fail
+        // safe by reporting a conflict and leaving the changed slot untouched.
+        // A foreign wrapper can retain our callback after replacing its slot;
+        // pinning would prevent clean reloads, so lifetime after unload remains unresolved (BD5).
+        if (m_import_ownership.conflicted()) return;
+        if ((s_active != this && m_render == nullptr) ||
+            (SLOTS[0] != nullptr && SLOTS[1] != nullptr && *SLOTS[0] == REPLACEMENTS[0] &&
+                *SLOTS[1] == REPLACEMENTS[1]))
+            return;
+    }
     reset();
     m_plugin = glass->m_handle;
     m_slots = SLOTS;
@@ -146,17 +189,42 @@ void CHyprglassCompat::Impl::refresh() {
             CHyprColor(1.F, 0.6F, 0.2F, 1.F), 5000.F);
         return;
     }
-    m_previous = {*SLOTS[0], *SLOTS[1]};
+    link_map *map = nullptr;
+    if (dlinfo(m_plugin, RTLD_DI_LINKMAP, &map) == 0 && map != nullptr &&
+        map->l_name != nullptr && *map->l_name != '\0') {
+        try {
+            m_loader_name = map->l_name;
+        } catch (const std::bad_alloc &) {
+            m_loader_name.clear();
+        }
+        if (!m_loader_name.empty()) {
+            m_loader_map_address = reinterpret_cast<std::uintptr_t>(map);
+            m_loader_base = map->l_addr;
+        } else {
+            m_loader_map_address = 0;
+            m_loader_base = 0;
+        }
+    } else {
+        m_loader_name.clear();
+        m_loader_map_address = 0;
+        m_loader_base = 0;
+    }
+    if (m_loader_name.empty() || m_loader_map_address == 0 || m_loader_base == 0)
+        return;
     s_active = this;
-    // These are this DSO's writable import slots, not executable instructions.
-    // No loader pin: normal unload/reload must be free to map a rebuilt plugin.
-    *SLOTS[0] = reinterpret_cast<void *>(&render);
-    *SLOTS[1] = reinterpret_cast<void *>(&apply);
+    m_import_ownership.install(SLOTS, REPLACEMENTS, glass);
 }
 
-void CHyprglassCompat::Impl::render(CGlassDecoration *decoration, Render::CRenderContext &ctx,
-    PHLMONITOR monitor, const float &alpha, bool xray) {
+void CHyprglassCompat::Impl::render(CGlassDecoration *decoration,
+    Render::CRenderContext &ctx,
+    PHLMONITOR monitor,
+    const float &alpha,
+    bool xray) {
     auto &self = *s_active;
+    if (self.m_import_ownership.suspended()) {
+        self.m_render(decoration, ctx, monitor, alpha, xray);
+        return;
+    }
     auto previous = std::exchange(self.m_window, self.m_get_owner(decoration));
     // Preserve by-value ABI arguments: the original borrows their caller-owned storage.
     self.m_render(decoration, ctx, monitor, alpha, xray);
@@ -168,6 +236,11 @@ void CHyprglassCompat::Impl::apply(Render::CRenderContext &ctx, Image sample, Im
     float rounding, const Vector2D &padding, const SResolveContext &resolve,
     const GlassRenderer::SMaskInfo *mask, float light, const GlassRenderer::SFrostInput *frost) {
     auto &self = *s_active;
+    if (self.m_import_ownership.suspended()) {
+        self.m_apply(ctx, sample, target, raw, transformed, alpha, radii, rounding,
+            padding, resolve, mask, light, frost);
+        return;
+    }
     // Layer/item glass has its own mask and does not belong to a window animation.
     if (!mask && self.deform(ctx, sample, target, raw, transformed, alpha, radii,
             rounding, padding, resolve, light, frost)) return;
