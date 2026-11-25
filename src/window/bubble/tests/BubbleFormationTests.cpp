@@ -409,6 +409,34 @@ namespace {
         CHECK(actual.window.motion.carry.y == expected.window.motion.carry.y);
     }
 
+    void numeric_dimensions_keep_geometry_finite() {
+        const double INF = std::numeric_limits<double>::infinity();
+        const double NAN_VALUE = std::numeric_limits<double>::quiet_NaN();
+        const double TINY = std::numeric_limits<double>::denorm_min();
+        const double HUGE = std::numeric_limits<double>::max();
+        for (const double SIDE : {NAN_VALUE, INF, -INF, TINY, HUGE}) {
+            BubbleFormation formation;
+            formation.begin({.x = SIDE, .y = 100}, 42, {.count = 0});
+            formation.advance(.2, {.x = 100, .y = 100});
+            BubbleFrame frame{.size = {.x = 100, .y = 100}};
+            formation.writeFrame(frame);
+            CHECK(std::isfinite(frame.window.half_size.x));
+            CHECK(std::isfinite(frame.window.half_size.y));
+            CHECK(std::isfinite(frame.window.motion.carry.x));
+            CHECK(std::isfinite(frame.window.motion.carry.y));
+
+            BubbleFormation sampled;
+            sampled.begin(SIZE, 42, {.count = 0});
+            sampled.advance(.2, SIZE);
+            BubbleFrame unusual{.size = {.x = SIDE, .y = 100}};
+            sampled.writeFrame(unusual);
+            CHECK(std::isfinite(unusual.window.half_size.x));
+            CHECK(std::isfinite(unusual.window.half_size.y));
+            CHECK(std::isfinite(unusual.window.motion.carry.x));
+            CHECK(std::isfinite(unusual.window.motion.carry.y));
+        }
+    }
+
 }  // namespace
 
 int main() {
@@ -418,5 +446,6 @@ int main() {
     formation_controls_keep_the_endpoint();
     single_companion_cannot_block_emergence();
     deferred_size_preserves_seed();
+    numeric_dimensions_keep_geometry_finite();
     return g_failures == 0 ? 0 : 1;
 }

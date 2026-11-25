@@ -20,9 +20,10 @@ namespace hyprimate {
         constexpr double TIMELINE_START = .05, TIMELINE_END = .87;
         struct Shape { double x, y, corner; };
 
+        constexpr double MIN_SIZE = 1e-9;
         bool usable(Vec2 size) {
-            return std::isfinite(size.x) && std::isfinite(size.y) && size.x > 0 && size.y > 0 &&
-                   size.x <= 1e9 && size.y <= 1e9;
+            return std::isfinite(size.x) && std::isfinite(size.y) && size.x >= MIN_SIZE &&
+                   size.y >= MIN_SIZE && size.x <= 1e9 && size.y <= 1e9;
         }
         Vec2 add(Vec2 lhs, Vec2 rhs) { return {.x = lhs.x + rhs.x, .y = lhs.y + rhs.y}; }
         Vec2 sub(Vec2 lhs, Vec2 rhs) { return {.x = lhs.x - rhs.x, .y = lhs.y - rhs.y}; }

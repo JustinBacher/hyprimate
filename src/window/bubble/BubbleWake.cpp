@@ -6,6 +6,7 @@
 #include <span>
 
 #include "shared/Core.hpp"
+#include "shared/NumericDomain.hpp"
 #include "window/bubble/BubbleMotion.hpp"
 #include "window/bubble/BubbleWake.hpp"
 
@@ -32,6 +33,10 @@ namespace hyprimate {
 
         bool finite(Vec2 value) {
             return std::isfinite(value.x) && std::isfinite(value.y);
+        }
+        bool within_domain(double value) {
+            constexpr double LIMIT = 1e9;
+            return std::isfinite(value) && std::abs(value) <= LIMIT;
         }
         Vec2 sub(Vec2 left, Vec2 right) {
             return {.x = left.x - right.x, .y = left.y - right.y};
@@ -125,10 +130,20 @@ namespace hyprimate {
     }
 
     bool BubbleWake::release(const BubbleRelease &bubble, Vec2 origin) noexcept {
+        constexpr double LIMIT = 1e9;
         const auto &micro = bubble.micro;
         const Vec2 CENTRE{.x = origin.x + micro.centre.x, .y = origin.y + micro.centre.y};
-        if (!finite(CENTRE) || !finite(bubble.velocity) || !std::isfinite(micro.radius) ||
-            micro.radius <= 0 || !std::isfinite(bubble.life)) {
+        const Vec2 ANCHOR{.x = origin.x + micro.anchor.x, .y = origin.y + micro.anchor.y};
+        if (!finite(CENTRE) || !finite(ANCHOR) || !finite(bubble.velocity) ||
+            !within_domain(CENTRE.x) || !within_domain(CENTRE.y) ||
+            !within_domain(ANCHOR.x) || !within_domain(ANCHOR.y) ||
+            !within_domain(bubble.velocity.x) || !within_domain(bubble.velocity.y) ||
+            !std::isfinite(micro.radius) || micro.radius <= 0 || micro.radius > LIMIT ||
+            !within_domain(micro.thickness) || micro.thickness <= 0 ||
+            !within_domain(micro.flow) || !std::isfinite(micro.seed) ||
+            !within_domain(micro.squash.x) || !within_domain(micro.squash.y) ||
+            !std::isfinite(micro.attach) || !std::isfinite(bubble.life) ||
+            std::abs(bubble.life) > LIMIT) {
             return true;
         }
         const int SLOT = foam.spawn(
@@ -138,14 +153,16 @@ namespace hyprimate {
         }
         // The same bubble as was drawn on the window: its film pattern, its outline still ringing.
         auto &film = foam.film(SLOT);
-        film.seed = micro.seed;
+        film.seed = std::clamp(micro.seed, 0.0, 1.0);
         film.phase = 0;
         film.flow = micro.flow;
-        film.squash = micro.squash;
-        film.squash_rate = finite(bubble.squash_rate) ? bubble.squash_rate : Vec2{};
+        film.squash = {.x = std::clamp(micro.squash.x, -1.0, 1.0),
+            .y = std::clamp(micro.squash.y, -1.0, 1.0)};
+        film.squash_rate = {
+            .x = std::clamp(finite_or(bubble.squash_rate.x, 0.0), -LIMIT, LIMIT),
+            .y = std::clamp(finite_or(bubble.squash_rate.y, 0.0), -LIMIT, LIMIT)};
         necks[static_cast<std::size_t>(SLOT)] = {
-            .anchor = {.x = origin.x + micro.anchor.x, .y = origin.y + micro.anchor.y},
-            .attach = std::clamp(micro.attach, 0.0, 1.0)};
+            .anchor = ANCHOR, .attach = std::clamp(micro.attach, 0.0, 1.0)};
         return true;
     }
 

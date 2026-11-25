@@ -226,6 +226,34 @@ namespace {
             first_bubble.bounds({.x = std::numeric_limits<double>::infinity(), .y = 2});
         CHECK(INVALID.w == 0 && INVALID.h == 0);
     }
+    void numeric_duration_and_resize_frames_are_finite() {
+        const double INF = std::numeric_limits<double>::infinity();
+        const double NAN_VALUE = std::numeric_limits<double>::quiet_NaN();
+        const double TINY = std::numeric_limits<double>::denorm_min();
+        const double HUGE = std::numeric_limits<double>::max();
+        for (const double DURATION : {NAN_VALUE, INF, -INF, TINY, HUGE}) {
+            Bubble bubble;
+            bubble.begin(Transition::Close, BubbleDuration{DURATION}, 7, SIZE);
+            const auto FRAME = bubble.frame(SIZE);
+            CHECK(std::isfinite(FRAME.window.clock));
+            CHECK(std::isfinite(FRAME.window.rate));
+            CHECK(std::isfinite(FRAME.window.half_size.x));
+            for (const auto &hole : std::span(FRAME.window.holes).first(FRAME.window.hole_count)) {
+                CHECK(std::isfinite(hole.radius) && std::isfinite(hole.rim));
+            }
+        }
+        for (const double SIDE : {NAN_VALUE, INF, -INF, TINY, HUGE}) {
+            Bubble bubble;
+            bubble.begin(Transition::Close, BubbleDuration{1}, 7, {.x = SIDE, .y = 100});
+            const auto FRAME = bubble.frame({.x = 100, .y = 100});
+            CHECK(std::isfinite(FRAME.window.half_size.x));
+            CHECK(std::isfinite(FRAME.window.motion.extent.x));
+            for (const auto &hole : std::span(FRAME.window.holes).first(FRAME.window.hole_count)) {
+                CHECK(std::isfinite(hole.centre.x));
+            }
+        }
+    }
+
 }  // namespace
 
 int main() {
@@ -234,5 +262,6 @@ int main() {
     bounds_contain_the_surfaces();
     wide_windows_keep_tight_vertical_bounds();
     deterministic_and_invalid_input();
+    numeric_duration_and_resize_frames_are_finite();
     return g_failures == 0 ? 0 : 1;
 }

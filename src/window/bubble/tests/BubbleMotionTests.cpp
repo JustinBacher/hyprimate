@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <functional>
 #include <span>
 
@@ -727,6 +728,102 @@ namespace {
         }
     }
 
+    void wake_releases_keep_geometry_finite() {
+        const double INF = std::numeric_limits<double>::infinity();
+        const double NAN_VALUE = std::numeric_limits<double>::quiet_NaN();
+        const double TINY = std::numeric_limits<double>::denorm_min();
+        const double HUGE = std::numeric_limits<double>::max();
+        for (const double VALUE : {INF, -INF, NAN_VALUE, TINY, HUGE}) {
+            BubbleWake wake(91);
+            BubbleRelease release;
+            release.micro.radius = 9;
+            release.micro.thickness = 500;
+            release.micro.flow = VALUE;
+            release.micro.squash = {.x = VALUE, .y = 0};
+            release.micro.attach = .5;
+            release.micro.anchor = {.x = 5, .y = 3};
+            release.velocity = {.x = 10, .y = 0};
+            release.life = .5;
+            CHECK(wake.release(release, {}));
+            const Box BOUNDS = wake.bounds();
+            CHECK(std::isfinite(BOUNDS.x) && std::isfinite(BOUNDS.y));
+            CHECK(std::isfinite(BOUNDS.w) && std::isfinite(BOUNDS.h));
+            BubbleWakeView view;
+            wake.view(view);
+            for (const auto &bubble : std::span(view.bubbles).first(view.bubble_count)) {
+                CHECK(std::isfinite(bubble.centre.x) && std::isfinite(bubble.centre.y));
+                CHECK(std::isfinite(bubble.anchor.x) && std::isfinite(bubble.anchor.y));
+                CHECK(std::isfinite(bubble.flow));
+                CHECK(std::isfinite(bubble.squash.x) && std::isfinite(bubble.squash.y));
+                CHECK(std::isfinite(bubble.radius) && std::isfinite(bubble.thickness));
+            }
+        }
+        for (const double VALUE : {INF, -INF, NAN_VALUE, TINY, HUGE}) {
+            BubbleWake wake(92);
+            BubbleRelease release;
+            release.micro.radius = 9;
+            release.micro.thickness = VALUE;
+            release.micro.flow = 1;
+            release.micro.attach = .5;
+            release.micro.anchor = {.x = 5, .y = 3};
+            release.velocity = {.x = 10, .y = 0};
+            release.life = .5;
+            CHECK(wake.release(release, {}));
+            BubbleWakeView view;
+            wake.view(view);
+            for (const auto &bubble : std::span(view.bubbles).first(view.bubble_count)) {
+                CHECK(std::isfinite(bubble.thickness));
+            }
+            const Box BOUNDS = wake.bounds();
+            CHECK(std::isfinite(BOUNDS.x) && std::isfinite(BOUNDS.y));
+            CHECK(std::isfinite(BOUNDS.w) && std::isfinite(BOUNDS.h));
+        }
+        for (const double VALUE : {INF, -INF, NAN_VALUE, TINY, HUGE}) {
+            BubbleWake wake(94);
+            BubbleRelease release;
+            release.micro.radius = 9;
+            release.micro.thickness = 500;
+            release.micro.attach = VALUE;
+            release.micro.anchor = {.x = 5, .y = 3};
+            release.velocity = {.x = 10, .y = 0};
+            release.life = .5;
+            CHECK(wake.release(release, {}));
+            BubbleWakeView view;
+            wake.view(view);
+            for (const auto &bubble : std::span(view.bubbles).first(view.bubble_count)) {
+                CHECK(std::isfinite(bubble.attach));
+                CHECK(std::isfinite(bubble.anchor.x) && std::isfinite(bubble.anchor.y));
+            }
+        }
+        for (const double RADIUS : {TINY, HUGE}) {
+            BubbleWake wake(95);
+            BubbleRelease release;
+            release.micro.radius = RADIUS;
+            release.micro.thickness = 500;
+            release.life = .5;
+            CHECK(wake.release(release, {}));
+            const Box RADIUS_BOUNDS = wake.bounds();
+            CHECK(std::isfinite(RADIUS_BOUNDS.x) && std::isfinite(RADIUS_BOUNDS.y));
+            CHECK(std::isfinite(RADIUS_BOUNDS.w) && std::isfinite(RADIUS_BOUNDS.h));
+            BubbleWakeView view;
+            wake.view(view);
+            for (const auto &bubble : std::span(view.bubbles).first(view.bubble_count)) {
+                CHECK(std::isfinite(bubble.radius));
+                CHECK(std::isfinite(bubble.centre.x) && std::isfinite(bubble.centre.y));
+            }
+        }
+        BubbleWake wake(93);
+        BubbleRelease release;
+        release.micro.radius = 9;
+        release.micro.thickness = 500;
+        release.micro.attach = 1;
+        release.micro.anchor = {.x = HUGE, .y = HUGE};
+        CHECK(wake.release(release, {.x = HUGE, .y = HUGE}));
+        const Box BOUNDS = wake.bounds();
+        CHECK(std::isfinite(BOUNDS.x) && std::isfinite(BOUNDS.y));
+        CHECK(std::isfinite(BOUNDS.w) && std::isfinite(BOUNDS.h));
+    }
+
 }  // namespace
 
 int main() {
@@ -749,5 +846,6 @@ int main() {
     microbubbles_ride_the_rounded_film();
     layout_moves_carry_the_film();
     wake_rejoins_after_input_resumes();
+    wake_releases_keep_geometry_finite();
     return g_failures == 0 ? 0 : 1;
 }

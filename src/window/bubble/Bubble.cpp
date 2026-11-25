@@ -12,12 +12,13 @@
 namespace hyprimate {
     namespace {
 
-        // Reject unrealistically large dimensions as well as non-finite values so all
-        // derived distances and bounds remain representable.
+        // Reject dimensions outside this range so normalization, resize ratios and derived
+        // distances remain representable.
+        constexpr double MIN_SIZE = 1e-9;
+        constexpr double MAX_SIZE = 1e9;
         bool usable(Vec2 size) {
-            constexpr double LIMIT = 1.0e9;
-            return std::isfinite(size.x) && std::isfinite(size.y) && size.x > 0 && size.y > 0 &&
-                   size.x <= LIMIT && size.y <= LIMIT;
+            return std::isfinite(size.x) && std::isfinite(size.y) && size.x >= MIN_SIZE &&
+                   size.y >= MIN_SIZE && size.x <= MAX_SIZE && size.y <= MAX_SIZE;
         }
 
     }  // namespace
@@ -152,7 +153,8 @@ namespace hyprimate {
         Vec2 size,
         const BubbleFormationParams &formation) {
         if ((direction != Transition::Open && direction != Transition::Close) ||
-            !std::isfinite(duration.seconds) || duration.seconds <= 0 || !usable(size)) {
+            !std::isfinite(duration.seconds) || duration.seconds <= 0 ||
+            !std::isfinite(1 / duration.seconds) || !usable(size)) {
             reset();
             return;
         }
