@@ -16,6 +16,6 @@ struct SPaperStyle {
     const hyprimate::PaperPoint *running_bounds_points = nullptr;
     hyprimate::Vec2 bounds_capture;
     [[nodiscard]] const hyprimate::PaperSurface &surface() const {
-        return closing_from && display.faces.empty() ? *closing_from : display;
+        return closing_from ? *closing_from : display;
     }
 };

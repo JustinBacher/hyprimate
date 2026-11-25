@@ -184,14 +184,16 @@ Frame SPaperModule::advance(State &state, const Step &step, Resources &resources
         // Empty vectors may share an address; their bounds use the same fallback.
         const auto PREVIOUS_POINTS = reinterpret_cast<std::uintptr_t>(state.display.points.data());
         const auto STATUS = resources.workers.present(state.run, step.elapsed, state.display);
-        if (PREVIOUS_POINTS != reinterpret_cast<std::uintptr_t>(state.display.points.data())) {
+        const bool DISPLAY_CHANGED =
+            PREVIOUS_POINTS != reinterpret_cast<std::uintptr_t>(state.display.points.data());
+        if (DISPLAY_CHANGED) {
             invalidate_bounds(state);
         }
-        if (!state.display.faces.empty()) {
-            if (state.closing_from) {
-                invalidate_bounds(state);
-            }
+        // Only a newly presented worker frame can replace the movement handoff.
+        // An interrupted present leaves display untouched, even if it has faces.
+        if (state.closing_from && DISPLAY_CHANGED && !state.display.faces.empty()) {
             state.closing_from.reset();
+            invalidate_bounds(state);
         }
         if (STATUS == PaperPlayback::Running) {
             return {.running = true, .bounds = running_bounds(state, step.capture)};

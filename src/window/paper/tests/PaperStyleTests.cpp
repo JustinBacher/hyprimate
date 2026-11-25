@@ -73,13 +73,24 @@ int main() {
     CHECK(SPaperModule::close(moving, place, resources) == CloseStart::Owned);
     const auto HANDOFF = moving.closing_from;
     CHECK(HANDOFF && moving.surface().interaction_mesh);
+    if (HANDOFF) {
+        // A populated display must not supersede the handoff without a new worker frame.
+        moving.display = *HANDOFF;
+        CHECK(&moving.surface() == HANDOFF.get());
+        const Step FAILED_CLOSE{
+            .elapsed = STALL_SECONDS + 0.01, .capture = place.capture, .dying = true};
+        CHECK(SPaperModule::advance(moving, FAILED_CLOSE, resources, effects).interrupted);
+        CHECK(moving.closing_from == HANDOFF && &moving.surface() == HANDOFF.get());
+    }
     const auto CLOSE_DEADLINE = Clock::now() + std::chrono::seconds(2);
     const Step FIRST_CLOSE{.capture = place.capture, .dying = true};
     while (moving.closing_from && Clock::now() < CLOSE_DEADLINE) {
         CHECK(SPaperModule::advance(moving, FIRST_CLOSE, resources, effects).running);
+        if (moving.closing_from) CHECK(&moving.surface() == HANDOFF.get());
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     CHECK(!moving.closing_from && !moving.display.points.empty());
+    CHECK(&moving.surface() == &moving.display);
     if (HANDOFF) {
         for (const auto &point : moving.display.points) {
             const auto source = PaperInteraction::sample(*HANDOFF, point.uv);
