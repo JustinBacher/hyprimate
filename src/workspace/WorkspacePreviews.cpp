@@ -13,11 +13,6 @@ namespace {
             // Losing an optional lower-bound sample must not cancel a capture.
         }
     }
-    // Borrow protected native draw methods without downcasting the renderer.
-    struct PreviewDrawAccess : Render::IHyprRenderer {
-        static constexpr auto BACKGROUND = &PreviewDrawAccess::renderBackground;
-        static constexpr auto LAYER = &PreviewDrawAccess::renderLayer;
-    };
 
     SP<Render::IFramebuffer> preview_target(const PHLMONITOR &monitor, int longest_side) {
         const hyprimate::gl::ScopedCompositorContext CONTEXT{};

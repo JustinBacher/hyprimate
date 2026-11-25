@@ -86,6 +86,11 @@ namespace workspace_animation_detail {
     using RenderFn = void (*)(Render::IHyprRenderer *, Render::CRenderContext &, PHLMONITOR,
         PHLWORKSPACE, const Time::steady_tp &, Render::eSceneMode, const Vector2D &, const float &);
     using DragFn = void (*)(Render::IHyprRenderer *, Render::CRenderContext &, PHLMONITOR, const Time::steady_tp &);
+    // Borrow protected native draw methods without downcasting the renderer.
+    struct PreviewDrawAccess : Render::IHyprRenderer {
+        static constexpr auto BACKGROUND = &PreviewDrawAccess::renderBackground;
+        static constexpr auto LAYER = &PreviewDrawAccess::renderLayer;
+    };
     // Native draw callbacks can synchronously dispatch another workspace request.
     // Never capture recursively or stage a new turn from an offscreen pass.
     struct ScopedCapture {
@@ -123,6 +128,7 @@ using workspace_animation_detail::Direction;
 using workspace_animation_detail::RenderFn;
 using workspace_animation_detail::DragFn;
 using workspace_animation_detail::ScopedCapture;
+using workspace_animation_detail::PreviewDrawAccess;
 using workspace_animation_detail::numbered;
 using workspace_animation_detail::safe_scene;
 using workspace_animation_detail::Coverage;
