@@ -38,9 +38,12 @@ namespace hyprimate::paper {
             const double d = dot(u, r), e = dot(v, r);
             double s = 0, t = 0;
             if (a > 1e-28 && c > 1e-28) {
-                const double determinant = a * c - b * b;
-                if (determinant > 1e-14 * a * c)
-                    s = std::clamp((b * e - c * d) / determinant, 0.0, 1.0);
+                // The Gram determinant a*c-b*b loses the small angle to
+                // cancellation for long, nearly parallel segments.
+                const Vec3 perpendicular = cross(u, v);
+                const double determinant = dot(perpendicular, perpendicular);
+                if (determinant > 0)
+                    s = std::clamp(dot(cross(v, r), perpendicular) / determinant, 0.0, 1.0);
                 t = (b * s + e) / c;
                 if (t < 0) {
                     t = 0;
@@ -139,9 +142,8 @@ namespace hyprimate::paper {
             return true;
         }
 
-        // Distance is Lipschitz with bound max vertex speed(A)+max vertex speed(B).
-        // Conservative advancement therefore cannot jump over a thin contact interval,
-        // unlike uniform temporal sampling or a test only at the predicted endpoint.
+        // Advance only while a separating plane proves the features remain apart;
+        // unlike temporal sampling this cannot skip a thin contact interval.
         bool swept(const Topology &mesh,
             const std::array<std::uint32_t, 4> &index,
             bool vf,
@@ -154,19 +156,30 @@ namespace hyprimate::paper {
                 start[i] = mesh.nodes[index[i]].prev;
                 movement[i] = sub(mesh.nodes[index[i]].x, start[i]);
             }
-            // Remove common transport before bounding relative feature motion. This
-            // keeps fast, co-moving folds from exhausting conservative advancement.
-            const double s1 = length(sub(movement[1], movement[0]));
-            const double s2 = length(sub(movement[2], movement[0]));
-            const double s3 = length(sub(movement[3], movement[0]));
-            const double speed = vf ? std::max({s1, s2, s3}) : s1 + std::max(s2, s3);
             const double tolerance = std::max(1e-10, thickness * 1e-5);
+            const unsigned a_count = vf ? 1U : 2U;
+            const unsigned b_begin = vf ? 1U : 2U;
             double t = 0;
             for (unsigned iteration = 0; iteration < 160; ++iteration) {
                 for (unsigned i = 0; i < 4; ++i) x[i] = add(start[i], mul(movement[i], t));
                 witness = vf ? vertex_face(x) : edges(x);
                 const double distance = length(witness.delta);
-                if (distance <= thickness + tolerance || iteration == 159) {
+                const Vec3 axis = distance > 0 ? mul(witness.delta, 1 / distance) : Vec3{};
+                double lower_bound = std::numeric_limits<double>::infinity();
+                double projection_error = 0;
+                for (unsigned a = 0; a < a_count; ++a) {
+                    for (unsigned b = b_begin; b < 4; ++b) {
+                        lower_bound = std::min(lower_bound, dot(sub(x[a], x[b]), axis));
+                        projection_error = std::max(projection_error,
+                            (std::abs(x[a].x) + std::abs(x[b].x)) * std::abs(axis.x) +
+                                (std::abs(x[a].y) + std::abs(x[b].y)) * std::abs(axis.y) +
+                                (std::abs(x[a].z) + std::abs(x[b].z)) * std::abs(axis.z));
+                    }
+                }
+                projection_error *= 16 * std::numeric_limits<double>::epsilon();
+                lower_bound -= projection_error;
+                if (distance <= thickness + tolerance || lower_bound <= thickness ||
+                    iteration == 159) {
                     // Exhausted advancement remains conservative: retain the last safe
                     // witness rather than silently accept a possible grazing crossing.
                     if (distance > 1e-14)
@@ -184,21 +197,26 @@ namespace hyprimate::paper {
                     impact = t;
                     return true;
                 }
-                if (speed < 1e-15 || distance - thickness > speed * (1 - t)) return false;
-                // Use the closest-feature separating plane, not the magnitude of
-                // tangential motion, to bound the next possible impact. All projected
-                // vertex-pair gaps evolve linearly even when the triangles rotate.
-                // This is conservative for the entire convex features and rejects
-                // fast co-moving/sliding layers without hundreds of tiny time steps.
-                const Vec3 axis = mul(witness.delta, 1 / distance);
+                // A witness distance is an upper bound unless its axis separates
+                // both entire features. Endpoint projections provide the lower
+                // bound needed for rejection, including near-parallel edges.
+                // Projected vertex-pair gaps evolve linearly, giving a safe
+                // advance even as the features rotate.
                 double advance = std::numeric_limits<double>::infinity();
-                const unsigned a_count = vf ? 1U : 2U;
-                const unsigned b_begin = vf ? 1U : 2U;
                 for (unsigned a = 0; a < a_count; ++a) {
                     for (unsigned b = b_begin; b < 4; ++b) {
-                        const double closing = -dot(sub(movement[a], movement[b]), axis);
+                        const double closing_error =
+                            16 * std::numeric_limits<double>::epsilon() *
+                            ((std::abs(movement[a].x) + std::abs(movement[b].x)) *
+                                    std::abs(axis.x) +
+                                (std::abs(movement[a].y) + std::abs(movement[b].y)) *
+                                    std::abs(axis.y) +
+                                (std::abs(movement[a].z) + std::abs(movement[b].z)) *
+                                    std::abs(axis.z));
+                        const double closing =
+                            -dot(sub(movement[a], movement[b]), axis) + closing_error;
                         if (closing <= 0) continue;
-                        const double gap = dot(sub(x[a], x[b]), axis);
+                        const double gap = dot(sub(x[a], x[b]), axis) - projection_error;
                         advance = std::min(advance, std::max(0.0, gap - thickness) / closing);
                     }
                 }
@@ -483,7 +501,7 @@ namespace hyprimate::paper {
         parent.resize(count);
         fraction.assign(count, 1);
         mass.resize(count);
-        fixed.resize(count);
+        fixed.assign(count, 0);
         for (std::uint32_t i = 0; i < count; ++i) {
             parent[i] = i;
             goal[i] = mesh.nodes[i].x;
@@ -495,9 +513,9 @@ namespace hyprimate::paper {
             }
             return i;
         };
-        // Each nonterminal iteration merges components or rigidifies a zone.
-        // At most N-1 merges and N rigidifications are possible. Redetection
-        // after every update catches impacts introduced at the zone boundary.
+        // Redetection after every update catches impacts introduced at the zone
+        // boundary. Conflicting prescriptions may remain unresolved, so keep the
+        // iteration bound even after a component has reached zero fraction.
         for (std::size_t iteration = 0; iteration <= count * 2; ++iteration) {
             broadphase(mesh, core);
             bool changed = false;
@@ -505,7 +523,7 @@ namespace hyprimate::paper {
                 const std::array<std::uint32_t, 4> index{
                     feature[1], feature[2], feature[3], feature[4]};
                 const auto first = root(index[0]);
-                bool internal = fraction[first] == 0;
+                bool internal = fraction[first] == 0 && fixed[first] != 2;
                 for (const auto i : index) internal = internal && root(i) == first;
                 // A rigidly translated feature pair has exactly its initial
                 // relative trajectory; it cannot introduce an intersection.
@@ -517,15 +535,21 @@ namespace hyprimate::paper {
                         mesh, index, feature[0] == 0, thickness, witness, normal, radius, impact))
                     continue;
                 auto merged = first;
-                bool previously_limited = false;
+                bool previously_limited = false, joining = false;
                 for (const auto i : index) {
                     const auto component = root(i);
                     merged = std::min(merged, component);
+                    joining = joining || component != first;
                     previously_limited = previously_limited || fraction[component] < 1;
                 }
-                for (const auto i : index) parent[root(i)] = merged;
-                fraction[merged] = previously_limited ? 0 : impact * 0.9999;
+                const double next_fraction = previously_limited ? 0 : impact * 0.9999;
                 for (const auto i : index) protected_[i] = 1;
+                if (!joining && fraction[merged] == next_fraction) continue;
+                for (const auto i : index) parent[root(i)] = merged;
+                fraction[merged] = next_fraction;
+                // The merged component's prescribed frame is not known until
+                // it is recomputed below; do not treat it as rigid in this pass.
+                fixed[merged] = 2;
                 changed = true;
             }
             if (!changed) return;
@@ -537,9 +561,17 @@ namespace hyprimate::paper {
                 if (fraction[component] == 1) continue;
                 const auto movement = sub(goal[i], mesh.nodes[i].prev);
                 if (mesh.nodes[i].inv_mass <= 0) {
-                    // A prescribed/static node fixes this zone's frame.
-                    transport[component] = movement;
-                    fixed[component] = 1;
+                    // A shared prescription fixes the frame; conflicting
+                    // prescriptions have no common rigid transport.
+                    if (!fixed[component]) {
+                        transport[component] = movement;
+                        fixed[component] = 1;
+                    } else if (fixed[component] == 1 && (transport[component].x != movement.x ||
+                                                            transport[component].y != movement.y ||
+                                                            transport[component].z != movement.z)) {
+                        transport[component] = {};
+                        fixed[component] = 2;
+                    }
                 } else if (!fixed[component]) {
                     const double weight = 1 / mesh.nodes[i].inv_mass;
                     transport[component] = add(transport[component], mul(movement, weight));
@@ -553,9 +585,9 @@ namespace hyprimate::paper {
             for (std::uint32_t i = 0; i < count; ++i) {
                 const auto component = root(i);
                 const auto common = transport[component];
-                // Restoring common transport changes no relative contact
-                // trajectory, while preserving intended mass-weighted COM.
-                mesh.nodes[i].x = fraction[component] == 1
+                // Prescribed trajectories are immutable, even when the group
+                // cannot be made rigid. Only movable nodes are limited.
+                mesh.nodes[i].x = fraction[component] == 1 || mesh.nodes[i].inv_mass <= 0
                                       ? goal[i]
                                       : add(mesh.nodes[i].prev,
                                             add(common,

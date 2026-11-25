@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 
 #include "Check.hpp"
@@ -191,6 +192,87 @@ int main() {
     }
     contact.solve(edge_crossing, 0.01, 0);
     CHECK((edge_crossing.nodes[3].x.z + edge_crossing.nodes[4].x.z) * 0.5 >= 0.0099);
+
+    // The closest pair lies in the interiors of long, nearly parallel edges.
+    // An endpoint witness is farther away than the whole remaining approach,
+    // even though the true interior gap closes below the requested thickness.
+    for (const double scale : {0.1, 1.0, 10.0}) {
+        Topology parallel;
+        const std::array<Vec3, 6> positions = {{{-1000000, 0, 0},
+            {1000000, 0, 0},
+            {-1000000, -0.0001, 0},
+            {-800000, -0.05, 0.02},
+            {1200000, 0.05, 0.02},
+            {1200000, 0.0501, 0.02}}};
+        for (unsigned i = 0; i < positions.size(); ++i) {
+            Node node{};
+            node.uv = {static_cast<double>(i), static_cast<double>(i % 2)};
+            node.prev =
+                node.x = {positions[i].x * scale, positions[i].y * scale, positions[i].z * scale};
+            node.inv_mass = i < 3 ? 0 : 1;
+            if (i >= 3) node.x.z = 0.005 * scale;
+            parallel.nodes.push_back(node);
+        }
+        parallel.faces = {{{0, 1, 2}}, {{3, 4, 5}}};
+        contact.solve(parallel, 0.01 * scale, 0);
+        // The moving edge midpoint lies on the fixed edge at x = 200000 * scale.
+        CHECK((parallel.nodes[3].x.z + parallel.nodes[4].x.z) * 0.5 >= 0.0099 * scale);
+    }
+
+    // Offset parallel edges start inside the contact shell but move apart.
+    // A nonseparating endpoint witness must not freeze their free motion.
+    {
+        Topology separating;
+        const std::array<Vec3, 6> positions = {{{-2, 0, 0},
+            {2, 0, 0},
+            {-2, -0.1, 0},
+            {-1, 0, 0.000005},
+            {3, 0, 0.000005},
+            {3, 0.1, 0.000005}}};
+        for (unsigned i = 0; i < positions.size(); ++i) {
+            Node node{};
+            node.uv = {static_cast<double>(i), static_cast<double>(i % 2)};
+            node.prev = node.x = positions[i];
+            node.inv_mass = i < 3 ? 0 : 1;
+            if (i >= 3) node.x.z = 0.02;
+            separating.nodes.push_back(node);
+        }
+        separating.faces = {{{0, 1, 2}}, {{3, 4, 5}}};
+        contact.solve(separating, 0.01, 0);
+        for (unsigned i = 3; i < 6; ++i) {
+            CHECK(std::abs(separating.nodes[i].x.x - positions[i].x) < 1e-12);
+            CHECK(std::abs(separating.nodes[i].x.y - positions[i].y) < 1e-12);
+            CHECK(std::abs(separating.nodes[i].x.z - 0.02) < 1e-12);
+        }
+    }
+
+    // The two prescribed vertices are driven through each other, so normal
+    // refinement cannot resolve their impact. Neither prescribed endpoint may
+    // be moved when the remaining movable vertex's component is limited.
+    for (const bool moving_first : {false, true}) {
+        auto blocked = layers(-0.4);
+        blocked.nodes[3].inv_mass = 0;
+        blocked.nodes[4].inv_mass = 0;
+        if (moving_first) {
+            std::swap(blocked.nodes[0], blocked.nodes[3]);
+            std::swap(blocked.nodes[1], blocked.nodes[4]);
+            for (auto &face : blocked.faces)
+                for (auto &vertex : face.v) {
+                    if (vertex < 2)
+                        vertex += 3;
+                    else if (vertex == 3 || vertex == 4)
+                        vertex -= 3;
+                }
+        }
+        const auto prescribed = blocked.nodes;
+        contact.solve(blocked, 0.01, 0);
+        for (unsigned i = 0; i < blocked.nodes.size(); ++i) {
+            if (prescribed[i].inv_mass > 0) continue;
+            CHECK(blocked.nodes[i].x.x == prescribed[i].x.x);
+            CHECK(blocked.nodes[i].x.y == prescribed[i].x.y);
+            CHECK(blocked.nodes[i].x.z == prescribed[i].x.z);
+        }
+    }
 
     // A common translation does not create relative normal or friction forces.
     auto translating = layers(0);

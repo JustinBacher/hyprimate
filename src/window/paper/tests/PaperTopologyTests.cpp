@@ -152,6 +152,60 @@ int main() {
         result.rebuild();
         return result;
     };
+    // Exercise exactly one diagonal split of a near-line patch. The large
+    // diagonal memory selects that edge ahead of compression; the low-quality
+    // node capacity stops adaptation immediately after the split.
+    {
+        auto low = params;
+        low.simulation_quality = PaperQuality::Low;
+        for (const double scale : {1000.0, 3000.0, 10000.0}) {
+            auto slender = square();
+            while (slender.nodes.size() < 179) {
+                Node unused{};
+                unused.id = 1000 + slender.nodes.size();
+                unused.inv_mass = 0;
+                slender.nodes.push_back(unused);
+            }
+            slender.rebuild();
+            const auto diagonal = std::find_if(slender.hinges.begin(),
+                slender.hinges.end(),
+                [](const Hinge &h) { return std::min(h.a, h.b) == 0 && std::max(h.a, h.b) == 2; });
+            CHECK(diagonal != slender.hinges.end());
+            if (diagonal == slender.hinges.end()) continue;
+            diagonal->memory = 3;
+            for (unsigned i = 0; i < 4; ++i) {
+                auto &node = slender.nodes[i];
+                node.x = node.prev = {
+                    (node.uv.x - 0.5) * 0.7 * scale, (node.uv.y - 0.5) * 0.0000005 * scale, 0};
+                node.velocity = {0, 0, (node.uv.x * node.uv.y + node.uv.y) * scale};
+            }
+            // The original patch has unit mass, z momentum 5s/6 and
+            // y angular momentum -0.175s^2.
+            slender.adapt(low, 4);
+            CHECK(slender.nodes.size() == 180);
+            if (slender.nodes.size() != 180) continue;
+            CHECK(near(slender.nodes.back().uv.x, 0.5));
+            CHECK(near(slender.nodes.back().uv.y, 0.5));
+            const std::array<std::array<std::uint32_t, 3>, 4> expected_faces = {
+                {{{2, 179, 1}}, {{0, 179, 3}}, {{179, 0, 1}}, {{179, 2, 3}}}};
+            CHECK(slender.faces.size() == expected_faces.size());
+            for (std::size_t i = 0; i < std::min(slender.faces.size(), expected_faces.size()); ++i)
+                CHECK(slender.faces[i].v == expected_faces[i]);
+            double linear_z = 0, angular_y = 0;
+            for (const auto i : {0U, 1U, 2U, 3U, 179U}) {
+                const auto &node = slender.nodes[i];
+                linear_z += node.velocity.z / node.inv_mass;
+                angular_y -= node.x.x * node.velocity.z / node.inv_mass;
+            }
+            CHECK(near(linear_z / scale, 5.0 / 6, 1e-9));
+            CHECK(near(angular_y / (scale * scale), -0.175, 1e-9));
+            const std::array<double, 5> expected{-0.5, 0.5, 2.5, 0.5, 1};
+            for (unsigned i = 0; i < expected.size(); ++i) {
+                const auto index = i < 4 ? i : 179;
+                CHECK(near(slender.nodes[index].velocity.z / scale, expected[i], 1e-9));
+            }
+        }
+    }
     {
         auto control = square();
         control.adapt(params, 4);

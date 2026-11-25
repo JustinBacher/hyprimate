@@ -95,11 +95,13 @@ namespace hyprimate::paper {
             double largest = 0;
             for (unsigned row = 0; row < 3; ++row)
                 largest = std::max(largest, std::abs(matrix[row][row]));
+            std::array<bool, 3> solved{};
             for (unsigned col = 0; col < 3; ++col) {
                 unsigned pivot = col;
                 for (unsigned row = col + 1; row < 3; ++row)
                     if (std::abs(matrix[row][col]) > std::abs(matrix[pivot][col])) pivot = row;
                 if (std::abs(matrix[pivot][col]) <= largest * 1e-12) continue;
+                solved[col] = true;
                 for (unsigned j = 0; j < 4; ++j) std::swap(matrix[col][j], matrix[pivot][j]);
                 const double divisor = matrix[col][col];
                 for (unsigned j = col; j < 4; ++j) matrix[col][j] /= divisor;
@@ -110,9 +112,9 @@ namespace hyprimate::paper {
                             matrix[row][j] -= factor * matrix[col][j];
                     }
             }
-            const Vec3 omega{std::abs(matrix[0][0]) > 1e-12 ? matrix[0][3] : 0,
-                std::abs(matrix[1][1]) > 1e-12 ? matrix[1][3] : 0,
-                std::abs(matrix[2][2]) > 1e-12 ? matrix[2][3] : 0};
+            const Vec3 omega{solved[0] ? matrix[0][3] : 0,
+                solved[1] ? matrix[1][3] : 0,
+                solved[2] ? matrix[2][3] : 0};
             for (const auto index : patch) {
                 auto &node = nodes[index];
                 const auto rotation = cross(omega, sub(node.x, centre));
