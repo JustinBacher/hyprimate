@@ -37,6 +37,7 @@ target_sources(hyprimate-core PRIVATE
     src/window/bubble/BubbleOptics.cpp
     src/window/bubble/BubbleMotion.cpp
     src/window/bubble/BubbleDeformation.cpp
+    src/window/bubble/BubbleMicrobubbles.cpp
     src/window/bubble/BubbleWake.cpp
 )
 
