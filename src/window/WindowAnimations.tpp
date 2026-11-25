@@ -1,11 +1,15 @@
 #pragma once
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <optional>
 #include <utility>
 
 #include "WindowTracker.hpp"
 #include "Profiling.hpp"
+#include "WindowAnimationClock.hpp"
+#include "WindowAnimationGeometry.hpp"
 
 namespace hyprimate::animation {
     namespace detail {
@@ -16,28 +20,6 @@ namespace hyprimate::animation {
             box.x += offset.x;
             box.y += offset.y;
             return box;
-        }
-        inline Box presented_body(const Observation &observation) {
-            return translated(observation.body,
-                {observation.workspace_offset.x + observation.floating_offset.x,
-                    observation.workspace_offset.y + observation.floating_offset.y});
-        }
-        inline Box source_device(const Observation &observation) {
-            const Vec2 OFFSET{observation.workspace_offset.x + observation.floating_offset.x -
-                    observation.screen.x,
-                observation.workspace_offset.y + observation.floating_offset.y -
-                    observation.screen.y};
-            const auto SOURCE = translated(observation.capture, OFFSET);
-            return {SOURCE.x * observation.scale,
-                SOURCE.y * observation.scale,
-                SOURCE.w * observation.scale,
-                SOURCE.h * observation.scale};
-        }
-        inline Box rest_capture(const Observation &observation, const Box &goal) {
-            return {.x = goal.x + observation.capture.x - observation.body.x,
-                .y = goal.y + observation.capture.y - observation.body.y,
-                .w = goal.w + observation.capture.w - observation.body.w,
-                .h = goal.h + observation.capture.h - observation.body.h};
         }
     }  // namespace detail
 
@@ -126,28 +108,6 @@ namespace hyprimate::animation {
         return ITER == m_entries.end() ? nullptr : &*ITER;
     }
     template <class Port, class... Styles>
-    Place CWindowAnimations<Port, StyleList<Styles...>>::place(
-        const Observation &observation, Neighbourhood near, std::uint64_t seed) {
-        if (near.cursor) {
-            near.cursor->x -= observation.workspace_offset.x + observation.floating_offset.x;
-            near.cursor->y -= observation.workspace_offset.y + observation.floating_offset.y;
-        }
-        return {.body = observation.body,
-            .capture = observation.capture,
-            .goal_body = observation.goal_body,
-            .rest_capture = detail::rest_capture(observation, observation.goal_body),
-            .screen = observation.screen,
-            .work_area = observation.work_area,
-            .near = near,
-            .seed = seed,
-            .opening_edge = std::nullopt,
-            .monitor = observation.monitor,
-            .workspace = observation.workspace,
-            .pinned = observation.pinned,
-            .scale = observation.scale,
-            .fullscreen = observation.fullscreen};
-    }
-    template <class Port, class... Styles>
     void CWindowAnimations<Port, StyleList<Styles...>>::track(Port::WindowRef window) {
         const auto WINDOW_ID = m_port.identity(window);
         if (WINDOW_ID == 0 || tracked(WINDOW_ID) != nullptr) {
@@ -214,53 +174,6 @@ namespace hyprimate::animation {
             result = ENTRY_HANDLE;
         });
         return result;
-    }
-    template <class Port, class... Styles>
-    void CWindowAnimations<Port, StyleList<Styles...>>::release_drive(Tracked &tracked_window) {
-        if (!tracked_window.driven) {
-            return;
-        }
-        const auto OBSERVED = m_port.observe(tracked_window.window);
-        if (!OBSERVED && !m_port.window_alive(tracked_window.window)) {
-            tracked_window.driven = false;
-            return;
-        }
-        if (OBSERVED && is_usable(OBSERVED->goal_body) &&
-            !detail::same_box(OBSERVED->goal_body, tracked_window.last_warp)) {
-            tracked_window.goal = OBSERVED->goal_body;
-        }
-        m_port.warp_body(tracked_window.window, tracked_window.goal);
-        tracked_window.driven = false;
-        m_port.damage_window(tracked_window.window);
-    }
-    template <class Port, class... Styles>
-    bool CWindowAnimations<Port, StyleList<Styles...>>::apply(
-        Tracked &tracked_window, const Observation &observation, const Effects &effects) {
-        if ((effects.drive_body && effects.snap_to_goal) ||
-            (effects.drive_body && !is_usable(*effects.drive_body)) ||
-            (effects.snap_to_goal && !is_usable(observation.goal_body))) {
-            return false;
-        }
-        if (tracked_window.driven &&
-            !detail::same_box(observation.goal_body, tracked_window.last_warp)) {
-            tracked_window.goal = observation.goal_body;
-        }
-        if (effects.release_body) {
-            release_drive(tracked_window);
-        }
-        if (effects.drive_body || effects.snap_to_goal) {
-            if (!tracked_window.driven) {
-                tracked_window.goal = observation.goal_body;
-            }
-            const auto BOX = effects.drive_body ? *effects.drive_body : observation.goal_body;
-            m_port.warp_body(tracked_window.window, BOX);
-            tracked_window.last_warp = BOX;
-            tracked_window.driven = true;
-        }
-        if (effects.settle_native_open_alpha) {
-            m_port.settle_open_alpha(tracked_window.window);
-        }
-        return true;
     }
     template <class Port, class... Styles>
     void CWindowAnimations<Port, StyleList<Styles...>>::end(Handle handle, End why) {
@@ -417,239 +330,6 @@ namespace hyprimate::animation {
     }
 
     template <class Port, class... Styles>
-    void CWindowAnimations<Port, StyleList<Styles...>>::close(
-        WindowId window_id, Clock::time_point now) {
-        auto *window = tracked(window_id);
-        if (window == nullptr) {
-            return;
-        }
-        if (window->handle) {
-            const auto *existing = record(*window->handle);
-            if (existing != nullptr && existing->life != Life::Mapped) {
-                return;
-            }
-        }
-        auto observation = m_port.observe(window->window);
-        if (!m_policy.enabled || m_policy.inert || !m_policy.closing || !m_policy.close_available ||
-            !observation || !observation->mapped || observation->fullscreen ||
-            !is_usable(observation->capture) || !is_usable(observation->body) ||
-            !std::isfinite(observation->scale) || observation->scale <= 0) {
-            if (window->handle) {
-                end(*window->handle, End::Interrupted);
-            }
-            return;
-        }
-        const auto KIND = m_policy.close_style.value_or(m_policy.style);
-        if (window->handle && window->handle->style != KIND) {
-            end(*window->handle, End::Interrupted);
-            observation = m_port.observe(window->window);
-            if (!observation || !observation->mapped || observation->fullscreen ||
-                !is_usable(observation->capture) || !is_usable(observation->body) ||
-                !std::isfinite(observation->scale) || observation->scale <= 0) {
-                return;
-            }
-        }
-        auto handle = window->handle;
-        if (!handle) {
-            handle = acquire(*window, *observation, 0, KIND);
-        }
-        if (!handle) {
-            return;
-        }
-        auto event_place = place(*observation, m_port.neighbourhood(window->window), ++m_seed);
-        event_place.opening_edge = window->opening_edge;
-        if (window->driven) {
-            if (is_usable(observation->goal_body) &&
-                !detail::same_box(observation->goal_body, window->last_warp)) {
-                window->goal = observation->goal_body;
-            }
-            event_place.goal_body = window->goal;
-            event_place.rest_capture = detail::rest_capture(*observation, window->goal);
-        }
-        CloseStart result = CloseStart::Declined;
-        bool public_only = false;
-        bool allows_blur = false;
-        bool allows_pre_blur = true;
-        visit(*handle, [&]<class Style>(auto &slot, auto &resources) {
-            if constexpr (requires { Style::PUBLIC_CLOSE_ONLY; }) {
-                public_only = Style::PUBLIC_CLOSE_ONLY;
-                if (public_only && (observation->no_screen_share || !m_port.session_unlocked() ||
-                    observation->window != window->id || m_port.identity(window->window) != window->id)) {
-                    return;
-                }
-            }
-            const perf::CpuScope PROFILE{profile_key(Style::KIND, "close"), perf::Phase::Setup};
-            result = Style::close(slot.state, event_place, resources);
-            allows_blur = Style::DRAWS_UNDER_BLUR;
-            if constexpr (requires { Style::close_blur_safe(slot.state); }) {
-                allows_pre_blur = Style::close_blur_safe(slot.state);
-            }
-        });
-        if (result == CloseStart::Declined) {
-            end(*handle, End::Interrupted);
-            return;
-        }
-        auto *entry = record(*handle);
-        if (entry->monitor != observation->monitor) {
-            entry->stall_count = 0;
-        }
-        entry->life = Life::PendingCapture;
-        entry->monitor = observation->monitor;
-        entry->workspace = observation->workspace;
-        entry->ownership = result;
-        entry->pending_since = now;
-        entry->last_step = now;
-        entry->stepped = true;
-        entry->close_place = event_place;
-        entry->close_place.near = {};
-        entry->no_screen_share = observation->no_screen_share;
-        entry->public_close_only = public_only;
-        entry->allows_close_blur = allows_blur;
-        entry->allows_close_pre_blur = allows_pre_blur;
-        entry->captured_scale = observation->scale;
-        entry->source_device = detail::source_device(*observation);
-        m_port.detach_transformer(window->window);
-    }
-    template <class Port, class... Styles>
-    void CWindowAnimations<Port, StyleList<Styles...>>::bind_fadeout(
-        WindowId window_id, const FadeoutFacts &fadeout, Port::RetainedImage image) {
-        auto *window = tracked(window_id);
-        if (window == nullptr || !window->handle) {
-            return;
-        }
-        const auto CURRENT_HANDLE = *window->handle;
-        auto *entry = record(CURRENT_HANDLE);
-        if (entry == nullptr || entry->life != Life::PendingCapture) {
-            return;
-        }
-        auto observation = m_port.observe(window->window);
-        const auto COUNT = std::count_if(m_entries.begin(), m_entries.end(), [](const auto &item) {
-            return item.life == Life::DyingNative || item.life == Life::DyingOwned;
-        });
-        const bool ALREADY_BOUND =
-            std::any_of(m_entries.begin(),
-                m_entries.end(),
-                [&](const auto &item) {
-                    return item.fadeout != 0 && item.fadeout == fadeout.fadeout;
-                }) ||
-            std::ranges::find(m_tombstones, fadeout.fadeout) != m_tombstones.end();
-        if (!observation || observation->monitor != entry->monitor ||
-            fadeout.monitor != entry->monitor ||
-            (entry->public_close_only &&
-                (entry->no_screen_share || observation->no_screen_share || fadeout.no_screen_share ||
-                    observation->window != entry->origin || m_port.identity(window->window) != entry->origin ||
-                    !m_port.session_unlocked() || !is_usable(entry->source_device) ||
-                    (fadeout.workspace_bound && fadeout.workspace != entry->workspace))) ||
-            observation->scale != entry->captured_scale ||
-            fadeout.scale != entry->captured_scale || !std::isfinite(fadeout.scale) ||
-            fadeout.scale <= 0 || fadeout.now < entry->pending_since ||
-            std::chrono::duration<double>(fadeout.now - entry->pending_since).count() > 1.0 ||
-            fadeout.fadeout == 0 || !fadeout.alive || !fadeout.image_available ||
-            fadeout.alpha <= 0 || !std::isfinite(fadeout.alpha) || !is_usable(fadeout.native_box) ||
-            !std::isfinite(fadeout.image_size.x) || !std::isfinite(fadeout.image_size.y) ||
-            fadeout.image_size.x <= 0 || fadeout.image_size.y <= 0 ||
-            !close_blur_allowed(*entry, fadeout) || ALREADY_BOUND || COUNT >= 16) {
-            end(CURRENT_HANDLE, End::Interrupted);
-            return;
-        }
-        const bool INITIALIZE_CLOSE = entry->public_close_only && entry->ownership == CloseStart::Owned;
-        if (INITIALIZE_CLOSE) {
-            bool source_allowed = true;
-            visit(CURRENT_HANDLE, [&]<class Style>(auto &slot, auto &) {
-                const auto &source = entry->source_device;
-                const auto SCALE = entry->captured_scale;
-                if constexpr (requires { Style::accepts_close_crop(slot.state, Box{}, Box{}, 1.0); }) {
-                    const double LEFT = std::clamp(-source.x, 0.0, source.w);
-                    const double TOP = std::clamp(-source.y, 0.0, source.h);
-                    const double RIGHT = std::clamp(fadeout.image_size.x - source.x, LEFT, source.w);
-                    const double BOTTOM = std::clamp(fadeout.image_size.y - source.y, TOP, source.h);
-                    const Box CROP{LEFT / SCALE, TOP / SCALE, (RIGHT - LEFT) / SCALE, (BOTTOM - TOP) / SCALE};
-                    static_assert(noexcept(Style::accepts_close_crop(slot.state, CROP, source, SCALE)));
-                    source_allowed = Style::accepts_close_crop(slot.state, CROP, source, SCALE);
-                }
-            });
-            if (!source_allowed) {
-                end(CURRENT_HANDLE, End::Interrupted);
-                return;
-            }
-        }
-        bool retained = false;
-        try {
-            retained = m_port.bind_fadeout(CURRENT_HANDLE, fadeout.fadeout, image);
-        } catch (...) {
-            end(CURRENT_HANDLE, End::Interrupted);
-            throw;
-        }
-        if (!retained) {
-            end(CURRENT_HANDLE, End::Interrupted);
-            return;
-        }
-        entry = record(CURRENT_HANDLE);
-        if (entry == nullptr) return;
-        if (INITIALIZE_CLOSE) {
-            entry->last_step = fadeout.now;
-            entry->last_frame = 0;
-            entry->stall_count = 0;
-            const auto STEP = dying_step(*entry, 0);
-            visit(CURRENT_HANDLE, [&]<class Style>(auto &slot, auto &resources) {
-                if constexpr (requires { Style::bind_close_source(slot.state, entry->source_device, image); }) {
-                    static_assert(noexcept(Style::bind_close_source(slot.state, entry->source_device, image)));
-                    if (!m_port.session_unlocked() ||
-                        !Style::bind_close_source(slot.state, entry->source_device, image)) {
-                        entry->current = {.interrupted = true};
-                        return;
-                    }
-                }
-                if constexpr (requires { Style::PUBLIC_CLOSE_ONLY; }) {
-                    if constexpr (Style::PUBLIC_CLOSE_ONLY) {
-                        static_assert(noexcept(Style::initial_close_frame(slot.state, STEP, resources)));
-                        const perf::CpuScope PROFILE{
-                            profile_key(Style::KIND, "close"), perf::Phase::Update};
-                        entry->current = Style::initial_close_frame(slot.state, STEP, resources);
-                    }
-                }
-            });
-            if (entry->current.interrupted) {
-                end(CURRENT_HANDLE, End::Interrupted);
-                return;
-            }
-        }
-        entry->captured_alpha = fadeout.alpha;
-        entry->no_screen_share |= observation->no_screen_share || fadeout.no_screen_share;
-        entry->fadeout = fadeout.fadeout;
-        entry->fadeout_info = fadeout;
-        entry->life = entry->ownership == CloseStart::Owned ? Life::DyingOwned : Life::DyingNative;
-        if (entry->life == Life::DyingOwned) {
-            try {
-                m_port.suppress_native(fadeout.fadeout, true);
-            } catch (...) {
-                if (INITIALIZE_CLOSE) {
-                    end(CURRENT_HANDLE, End::Interrupted);
-                }
-                throw;
-            }
-        }
-        release_drive(*window);
-        window->handle.reset();
-        m_port.forget_window_reference(window_id);
-        std::erase_if(m_tracked, [window_id](const auto &item) { return item.id == window_id; });
-        if (INITIALIZE_CLOSE) {
-            if (!entry->current.running) {
-                // An intentionally empty close still owns this fadeout; native must not flash.
-                const auto MONITOR = entry->monitor;
-                end(CURRENT_HANDLE, End::Completed);
-                m_port.schedule(MONITOR);
-                return;
-            }
-            entry->awaiting_close_presentation = true;
-            if (is_usable(entry->footprint)) {
-                m_port.damage(entry->footprint);
-            }
-            damage_dying(*entry);
-        }
-        m_port.schedule(entry->monitor);
-    }
-    template <class Port, class... Styles>
     template <class Style>
     void CWindowAnimations<Port, StyleList<Styles...>>::tick_screen(
         ScreenFacts &facts, MonitorId monitor) {
@@ -790,6 +470,210 @@ namespace hyprimate::animation {
         return std::nullopt;
     }
     template <class Port, class... Styles>
+    void CWindowAnimations<Port, StyleList<Styles...>>::frame(const FrameStamp &stamp) {
+        tick_screens(stamp);
+        for (auto &window : m_tracked) {
+            frame_mapped(window, stamp);
+        }
+        // Releases erase records: retain the reverse traversal and never reuse a released
+        // reference.
+        for (std::size_t index = m_entries.size(); index > 0; --index) {
+            frame_dying(m_entries[index - 1], stamp);
+        }
+        std::erase_if(m_tracked, [&](const auto &window) {
+            if (!window.expired || window.handle) {
+                return false;
+            }
+            m_port.forget_window_reference(window.id);
+            return true;
+        });
+    }
+
+    template <class Port, class... Styles>
+    bool CWindowAnimations<Port, StyleList<Styles...>>::active(Handle handle) const {
+        return record(handle) != nullptr &&
+               visit(handle, []<class Style>(const auto &, const auto &) {});
+    }
+    template <class Port, class... Styles>
+    std::optional<Frame> CWindowAnimations<Port, StyleList<Styles...>>::view(Handle handle) const {
+        const auto *entry = record(handle);
+        if (entry == nullptr || !active(handle)) {
+            return std::nullopt;
+        }
+        return entry->current;
+    }
+    template <class Port, class... Styles>
+    bool CWindowAnimations<Port, StyleList<Styles...>>::needs_frame(MonitorId monitor) const {
+        if (std::any_of(m_entries.begin(), m_entries.end(), [monitor](const auto &entry) {
+                return entry.monitor == monitor && entry.life != Life::PendingCapture;
+            })) {
+            return true;
+        }
+        bool needed = false;
+        (
+            [&] {
+                if constexpr (requires(const Styles::Resources &resources) {
+                                  Styles::Screen::needs_frame(resources, monitor);
+                              }) {
+                    needed = needed || Styles::Screen::needs_frame(
+                                           m_resources.template get<Styles>(), monitor);
+                }
+            }(),
+            ...);
+        return needed;
+    }
+    template <class Port, class... Styles>
+    void CWindowAnimations<Port, StyleList<Styles...>>::monitor_changed(MonitorId monitor) {
+        if (needs_frame(monitor)) {
+            if (const auto facts = m_port.monitor_facts(monitor)) {
+                m_port.damage(facts->screen);
+            }
+            m_port.schedule(monitor);
+        }
+        for (std::size_t index = m_entries.size(); index > 0; --index) {
+            const auto &entry = m_entries[index - 1];
+            if (entry.monitor == monitor && entry.life != Life::Mapped) {
+                end(entry.handle, End::Interrupted);
+            }
+        }
+        (
+            [&] {
+                if constexpr (requires(Styles::Resources &resources) {
+                                  Styles::Screen::clear(resources, std::optional<MonitorId>{});
+                              }) {
+                    Styles::Screen::clear(
+                        m_resources.template get<Styles>(), std::optional<MonitorId>{monitor});
+                }
+            }(),
+            ...);
+        std::erase_if(
+            m_screen_frames, [monitor](const auto &item) { return item.first == monitor; });
+        m_port.recheck_scanout(monitor);
+    }
+    template <class Port, class... Styles>
+    void CWindowAnimations<Port, StyleList<Styles...>>::detach_transformers() {
+        for (const auto &window : m_tracked) {
+            if (window.handle) {
+                m_port.detach_transformer(window.window);
+            }
+        }
+    }
+    template <class Port, class... Styles>
+    void CWindowAnimations<Port, StyleList<Styles...>>::end_all() {
+        reset(false);
+    }
+    template <class Port, class... Styles>
+    void CWindowAnimations<Port, StyleList<Styles...>>::reset(bool preserve_pinned) {
+        const bool HAS_PINNED = preserve_pinned &&
+            std::ranges::any_of(m_entries, [](const auto &entry) { return entry.preserve_on_reload; });
+        if (!HAS_PINNED) {
+            m_callbacks.invalidate();
+        }
+        for (const auto &[monitor, frame] : m_screen_frames) {
+            if (!needs_frame(monitor)) {
+                continue;
+            }
+            if (const auto facts = m_port.monitor_facts(monitor)) {
+                m_port.damage(facts->screen);
+            }
+            m_port.schedule(monitor);
+        }
+        for (std::size_t index = m_entries.size(); index > 0; --index) {
+            const auto &entry = m_entries[index - 1];
+            if (!preserve_pinned || !entry.preserve_on_reload) {
+                end(entry.handle, End::Interrupted);
+            }
+        }
+        // Completed owned closes still hide the native fade. A config reload
+        // cannot resurrect one; only native completion or an explicit stop can.
+        if (!preserve_pinned) {
+            for (const auto FADEOUT : m_tombstones) {
+                m_port.suppress_native(FADEOUT, false);
+            }
+            m_tombstones.clear();
+        }
+        (
+            [&] {
+                if constexpr (requires(Styles::Resources &resources) {
+                                  Styles::Screen::clear(resources, std::optional<MonitorId>{});
+                              }) {
+                    Styles::Screen::clear(m_resources.template get<Styles>(), std::nullopt);
+                }
+            }(),
+            ...);
+        m_screen_frames.clear();
+    }
+    template <class Port, class... Styles>
+    void CWindowAnimations<Port, StyleList<Styles...>>::reload() {
+        reset(true);
+        for (auto &window : m_tracked) {
+            if (window.handle) {
+                continue;
+            }
+            window.previous = m_port.observe(window.window);
+            window.previous_sample = {};
+            window.opening_seen = window.previous && window.previous->animating_in;
+            window.native_open_goal = window.opening_seen ? std::optional{window.previous->goal_body} : std::nullopt;
+            window.rejected_motion.reset();
+            window.workspace_movement =
+                m_policy.workspace_movement && window.previous && !window.previous->pinned;
+        }
+    }
+}  // namespace hyprimate::animation
+#pragma once
+
+#include <chrono>
+#include <optional>
+
+namespace hyprimate::animation {
+    template <class Port, class... Styles>
+    void CWindowAnimations<Port, StyleList<Styles...>>::release_drive(Tracked &tracked_window) {
+        if (!tracked_window.driven) {
+            return;
+        }
+        const auto OBSERVED = m_port.observe(tracked_window.window);
+        if (!OBSERVED && !m_port.window_alive(tracked_window.window)) {
+            tracked_window.driven = false;
+            return;
+        }
+        if (OBSERVED && is_usable(OBSERVED->goal_body) &&
+            !detail::same_box(OBSERVED->goal_body, tracked_window.last_warp)) {
+            tracked_window.goal = OBSERVED->goal_body;
+        }
+        m_port.warp_body(tracked_window.window, tracked_window.goal);
+        tracked_window.driven = false;
+        m_port.damage_window(tracked_window.window);
+    }
+    template <class Port, class... Styles>
+    bool CWindowAnimations<Port, StyleList<Styles...>>::apply(
+        Tracked &tracked_window, const Observation &observation, const Effects &effects) {
+        if ((effects.drive_body && effects.snap_to_goal) ||
+            (effects.drive_body && !is_usable(*effects.drive_body)) ||
+            (effects.snap_to_goal && !is_usable(observation.goal_body))) {
+            return false;
+        }
+        if (tracked_window.driven &&
+            !detail::same_box(observation.goal_body, tracked_window.last_warp)) {
+            tracked_window.goal = observation.goal_body;
+        }
+        if (effects.release_body) {
+            release_drive(tracked_window);
+        }
+        if (effects.drive_body || effects.snap_to_goal) {
+            if (!tracked_window.driven) {
+                tracked_window.goal = observation.goal_body;
+            }
+            const auto BOX = effects.drive_body ? *effects.drive_body : observation.goal_body;
+            m_port.warp_body(tracked_window.window, BOX);
+            tracked_window.last_warp = BOX;
+            tracked_window.driven = true;
+        }
+        if (effects.settle_native_open_alpha) {
+            m_port.settle_open_alpha(tracked_window.window);
+        }
+        return true;
+    }
+    template <class Port, class... Styles>
     bool CWindowAnimations<Port, StyleList<Styles...>>::begin_mapped(
         Tracked &window, const Observation &observation, const std::optional<Motion> &motion,
         std::optional<MotionKind> active_motion) {
@@ -905,7 +789,7 @@ namespace hyprimate::animation {
             const auto CURRENT_HANDLE = *window.handle;
             Effects effects;
             bool accepted = false;
-            const auto INITIAL = place(
+            const auto INITIAL = detail::place(
                 observation, m_port.neighbourhood(window.window), acquired ? m_seed : ++m_seed);
             visit(CURRENT_HANDLE, [&]<class Style>(auto &slot, auto &resources) {
                 const perf::CpuScope PROFILE{profile_key(Style::KIND, "open"), perf::Phase::Setup};
@@ -936,7 +820,7 @@ namespace hyprimate::animation {
                         MOTION == MotionKind::Move ? "move" : "resize"), perf::Phase::Setup};
                     if constexpr (requires { Style::begin_motion(slot.state, Place{}, resources, MOTION); }) {
                         accepted = Style::begin_motion(slot.state,
-                            place(observation, m_port.neighbourhood(window.window), m_seed), resources, MOTION);
+                            detail::place(observation, m_port.neighbourhood(window.window), m_seed), resources, MOTION);
                         if (accepted) {
                             auto *entry = record(*handle);
                             entry->mapped_motion = MOTION;
@@ -955,33 +839,6 @@ namespace hyprimate::animation {
             acquire(window, observation, ++m_seed, m_policy.style);
         }
         return reread;
-    }
-    template <class Port, class... Styles>
-    std::optional<double> CWindowAnimations<Port, StyleList<Styles...>>::step_clock(
-        Record &entry, const FrameStamp &stamp) {
-        const double ELAPSED =
-            entry.stepped ? std::chrono::duration<double>(stamp.now - entry.last_step).count() : 0;
-        if (!std::isfinite(ELAPSED) || ELAPSED < 0 || ELAPSED > STALL_WINDOW_SECONDS) {
-            return std::nullopt;
-        }
-        if (ELAPSED > STALL_SECONDS) {
-            std::size_t kept = 0;
-            for (std::size_t index = 0; index < entry.stall_count; ++index) {
-                if (std::chrono::duration<double>(stamp.now - entry.stalls[index]).count() <=
-                    STALL_WINDOW_SECONDS) {
-                    entry.stalls[kept++] = entry.stalls[index];
-                }
-            }
-            entry.stall_count = kept;
-            entry.stalls[entry.stall_count++] = stamp.now;
-            if (entry.stall_count == entry.stalls.size()) {
-                return std::nullopt;
-            }
-        }
-        entry.last_frame = stamp.frame;
-        entry.last_step = stamp.now;
-        entry.stepped = true;
-        return ELAPSED;
     }
     template <class Port, class... Styles>
     void CWindowAnimations<Port, StyleList<Styles...>>::present_mapped(
@@ -1062,7 +919,8 @@ namespace hyprimate::animation {
         window.previous = *observation;
         if (!entry) return;
         const auto CURRENT_HANDLE = entry->handle;
-        const auto ELAPSED = step_clock(*entry, stamp);
+        const auto ELAPSED = detail::step_clock(entry->stepped, entry->last_step,
+            entry->last_frame, entry->stall_count, entry->stalls, stamp);
         if (!ELAPSED) {
             end(CURRENT_HANDLE, End::Interrupted);
             return;
@@ -1133,6 +991,251 @@ namespace hyprimate::animation {
         }
         present_mapped(window, *entry, *observation);
     }
+}  // namespace hyprimate::animation
+#pragma once
+
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <optional>
+
+namespace hyprimate::animation {
+    template <class Port, class... Styles>
+    void CWindowAnimations<Port, StyleList<Styles...>>::close(
+        WindowId window_id, Clock::time_point now) {
+        auto *window = tracked(window_id);
+        if (window == nullptr) {
+            return;
+        }
+        if (window->handle) {
+            const auto *existing = record(*window->handle);
+            if (existing != nullptr && existing->life != Life::Mapped) {
+                return;
+            }
+        }
+        auto observation = m_port.observe(window->window);
+        if (!m_policy.enabled || m_policy.inert || !m_policy.closing || !m_policy.close_available ||
+            !observation || !observation->mapped || observation->fullscreen ||
+            !is_usable(observation->capture) || !is_usable(observation->body) ||
+            !std::isfinite(observation->scale) || observation->scale <= 0) {
+            if (window->handle) {
+                end(*window->handle, End::Interrupted);
+            }
+            return;
+        }
+        const auto KIND = m_policy.close_style.value_or(m_policy.style);
+        if (window->handle && window->handle->style != KIND) {
+            end(*window->handle, End::Interrupted);
+            observation = m_port.observe(window->window);
+            if (!observation || !observation->mapped || observation->fullscreen ||
+                !is_usable(observation->capture) || !is_usable(observation->body) ||
+                !std::isfinite(observation->scale) || observation->scale <= 0) {
+                return;
+            }
+        }
+        auto handle = window->handle;
+        if (!handle) {
+            handle = acquire(*window, *observation, 0, KIND);
+        }
+        if (!handle) {
+            return;
+        }
+        auto event_place = detail::place(*observation, m_port.neighbourhood(window->window), ++m_seed);
+        event_place.opening_edge = window->opening_edge;
+        if (window->driven) {
+            if (is_usable(observation->goal_body) &&
+                !detail::same_box(observation->goal_body, window->last_warp)) {
+                window->goal = observation->goal_body;
+            }
+            event_place.goal_body = window->goal;
+            event_place.rest_capture = detail::rest_capture(*observation, window->goal);
+        }
+        CloseStart result = CloseStart::Declined;
+        bool public_only = false;
+        bool allows_blur = false;
+        bool allows_pre_blur = true;
+        visit(*handle, [&]<class Style>(auto &slot, auto &resources) {
+            if constexpr (requires { Style::PUBLIC_CLOSE_ONLY; }) {
+                public_only = Style::PUBLIC_CLOSE_ONLY;
+                if (public_only && (observation->no_screen_share || !m_port.session_unlocked() ||
+                    observation->window != window->id || m_port.identity(window->window) != window->id)) {
+                    return;
+                }
+            }
+            const perf::CpuScope PROFILE{profile_key(Style::KIND, "close"), perf::Phase::Setup};
+            result = Style::close(slot.state, event_place, resources);
+            allows_blur = Style::DRAWS_UNDER_BLUR;
+            if constexpr (requires { Style::close_blur_safe(slot.state); }) {
+                allows_pre_blur = Style::close_blur_safe(slot.state);
+            }
+        });
+        if (result == CloseStart::Declined) {
+            end(*handle, End::Interrupted);
+            return;
+        }
+        auto *entry = record(*handle);
+        if (entry->monitor != observation->monitor) {
+            entry->stall_count = 0;
+        }
+        entry->life = Life::PendingCapture;
+        entry->monitor = observation->monitor;
+        entry->workspace = observation->workspace;
+        entry->ownership = result;
+        entry->pending_since = now;
+        entry->last_step = now;
+        entry->stepped = true;
+        entry->close_place = event_place;
+        entry->close_place.near = {};
+        entry->no_screen_share = observation->no_screen_share;
+        entry->public_close_only = public_only;
+        entry->allows_close_blur = allows_blur;
+        entry->allows_close_pre_blur = allows_pre_blur;
+        entry->captured_scale = observation->scale;
+        entry->source_device = detail::source_device(*observation);
+        m_port.detach_transformer(window->window);
+    }
+    template <class Port, class... Styles>
+    void CWindowAnimations<Port, StyleList<Styles...>>::bind_fadeout(
+        WindowId window_id, const FadeoutFacts &fadeout, Port::RetainedImage image) {
+        auto *window = tracked(window_id);
+        if (window == nullptr || !window->handle) {
+            return;
+        }
+        const auto CURRENT_HANDLE = *window->handle;
+        auto *entry = record(CURRENT_HANDLE);
+        if (entry == nullptr || entry->life != Life::PendingCapture) {
+            return;
+        }
+        auto observation = m_port.observe(window->window);
+        const auto COUNT = std::count_if(m_entries.begin(), m_entries.end(), [](const auto &item) {
+            return item.life == Life::DyingNative || item.life == Life::DyingOwned;
+        });
+        const bool ALREADY_BOUND =
+            std::any_of(m_entries.begin(),
+                m_entries.end(),
+                [&](const auto &item) {
+                    return item.fadeout != 0 && item.fadeout == fadeout.fadeout;
+                }) ||
+            std::ranges::find(m_tombstones, fadeout.fadeout) != m_tombstones.end();
+        if (!observation || observation->monitor != entry->monitor ||
+            fadeout.monitor != entry->monitor ||
+            (entry->public_close_only &&
+                (entry->no_screen_share || observation->no_screen_share || fadeout.no_screen_share ||
+                    observation->window != entry->origin || m_port.identity(window->window) != entry->origin ||
+                    !m_port.session_unlocked() || !is_usable(entry->source_device) ||
+                    (fadeout.workspace_bound && fadeout.workspace != entry->workspace))) ||
+            observation->scale != entry->captured_scale ||
+            fadeout.scale != entry->captured_scale || !std::isfinite(fadeout.scale) ||
+            fadeout.scale <= 0 || fadeout.now < entry->pending_since ||
+            std::chrono::duration<double>(fadeout.now - entry->pending_since).count() > 1.0 ||
+            fadeout.fadeout == 0 || !fadeout.alive || !fadeout.image_available ||
+            fadeout.alpha <= 0 || !std::isfinite(fadeout.alpha) || !is_usable(fadeout.native_box) ||
+            !std::isfinite(fadeout.image_size.x) || !std::isfinite(fadeout.image_size.y) ||
+            fadeout.image_size.x <= 0 || fadeout.image_size.y <= 0 ||
+            !close_blur_allowed(*entry, fadeout) || ALREADY_BOUND || COUNT >= 16) {
+            end(CURRENT_HANDLE, End::Interrupted);
+            return;
+        }
+        const bool INITIALIZE_CLOSE = entry->public_close_only && entry->ownership == CloseStart::Owned;
+        if (INITIALIZE_CLOSE) {
+            bool source_allowed = true;
+            visit(CURRENT_HANDLE, [&]<class Style>(auto &slot, auto &) {
+                const auto &source = entry->source_device;
+                const auto SCALE = entry->captured_scale;
+                if constexpr (requires { Style::accepts_close_crop(slot.state, Box{}, Box{}, 1.0); }) {
+                    const double LEFT = std::clamp(-source.x, 0.0, source.w);
+                    const double TOP = std::clamp(-source.y, 0.0, source.h);
+                    const double RIGHT = std::clamp(fadeout.image_size.x - source.x, LEFT, source.w);
+                    const double BOTTOM = std::clamp(fadeout.image_size.y - source.y, TOP, source.h);
+                    const Box CROP{LEFT / SCALE, TOP / SCALE, (RIGHT - LEFT) / SCALE, (BOTTOM - TOP) / SCALE};
+                    static_assert(noexcept(Style::accepts_close_crop(slot.state, CROP, source, SCALE)));
+                    source_allowed = Style::accepts_close_crop(slot.state, CROP, source, SCALE);
+                }
+            });
+            if (!source_allowed) {
+                end(CURRENT_HANDLE, End::Interrupted);
+                return;
+            }
+        }
+        bool retained = false;
+        try {
+            retained = m_port.bind_fadeout(CURRENT_HANDLE, fadeout.fadeout, image);
+        } catch (...) {
+            end(CURRENT_HANDLE, End::Interrupted);
+            throw;
+        }
+        if (!retained) {
+            end(CURRENT_HANDLE, End::Interrupted);
+            return;
+        }
+        entry = record(CURRENT_HANDLE);
+        if (entry == nullptr) return;
+        if (INITIALIZE_CLOSE) {
+            entry->last_step = fadeout.now;
+            entry->last_frame = 0;
+            entry->stall_count = 0;
+            const auto STEP = detail::dying_step(entry->close_place, entry->source_device,
+                entry->captured_scale,
+                entry->public_close_only && entry->ownership == CloseStart::Owned,
+                entry->monitor, 0);
+            visit(CURRENT_HANDLE, [&]<class Style>(auto &slot, auto &resources) {
+                if constexpr (requires { Style::bind_close_source(slot.state, entry->source_device, image); }) {
+                    static_assert(noexcept(Style::bind_close_source(slot.state, entry->source_device, image)));
+                    if (!m_port.session_unlocked() ||
+                        !Style::bind_close_source(slot.state, entry->source_device, image)) {
+                        entry->current = {.interrupted = true};
+                        return;
+                    }
+                }
+                if constexpr (requires { Style::PUBLIC_CLOSE_ONLY; }) {
+                    if constexpr (Style::PUBLIC_CLOSE_ONLY) {
+                        static_assert(noexcept(Style::initial_close_frame(slot.state, STEP, resources)));
+                        const perf::CpuScope PROFILE{
+                            profile_key(Style::KIND, "close"), perf::Phase::Update};
+                        entry->current = Style::initial_close_frame(slot.state, STEP, resources);
+                    }
+                }
+            });
+            if (entry->current.interrupted) {
+                end(CURRENT_HANDLE, End::Interrupted);
+                return;
+            }
+        }
+        entry->captured_alpha = fadeout.alpha;
+        entry->no_screen_share |= observation->no_screen_share || fadeout.no_screen_share;
+        entry->fadeout = fadeout.fadeout;
+        entry->fadeout_info = fadeout;
+        entry->life = entry->ownership == CloseStart::Owned ? Life::DyingOwned : Life::DyingNative;
+        if (entry->life == Life::DyingOwned) {
+            try {
+                m_port.suppress_native(fadeout.fadeout, true);
+            } catch (...) {
+                if (INITIALIZE_CLOSE) {
+                    end(CURRENT_HANDLE, End::Interrupted);
+                }
+                throw;
+            }
+        }
+        release_drive(*window);
+        window->handle.reset();
+        m_port.forget_window_reference(window_id);
+        std::erase_if(m_tracked, [window_id](const auto &item) { return item.id == window_id; });
+        if (INITIALIZE_CLOSE) {
+            if (!entry->current.running) {
+                // An intentionally empty close still owns this fadeout; native must not flash.
+                const auto MONITOR = entry->monitor;
+                end(CURRENT_HANDLE, End::Completed);
+                m_port.schedule(MONITOR);
+                return;
+            }
+            entry->awaiting_close_presentation = true;
+            if (is_usable(entry->footprint)) {
+                m_port.damage(entry->footprint);
+            }
+            damage_dying(*entry);
+        }
+        m_port.schedule(entry->monitor);
+    }
     template <class Port, class... Styles>
     bool CWindowAnimations<Port, StyleList<Styles...>>::refresh_fadeout(
         Record &entry, const std::optional<FadeoutFacts> &fadeout) {
@@ -1156,39 +1259,10 @@ namespace hyprimate::animation {
         return true;
     }
     template <class Port, class... Styles>
-    Step CWindowAnimations<Port, StyleList<Styles...>>::dying_step(
-        const Record &entry, double elapsed) {
-        const auto &place = entry.close_place;
-        auto screen = place.screen;
-        if (entry.public_close_only && entry.ownership == CloseStart::Owned) {
-            // The model uses unoffset geometry; the snapshot includes workspace/floating offsets.
-            screen.x = place.capture.x - entry.source_device.x / entry.captured_scale;
-            screen.y = place.capture.y - entry.source_device.y / entry.captured_scale;
-        }
-        return {.elapsed = elapsed,
-            .stalled = elapsed > STALL_SECONDS,
-            .body = place.body,
-            .capture = place.capture,
-            .goal_body = place.goal_body,
-            .rest_capture = place.rest_capture,
-            .screen = screen,
-            .work_area = place.work_area,
-            .motion = std::nullopt,
-            .dying = true,
-            .monitor = entry.monitor,
-            .workspace = place.workspace,
-            .pinned = place.pinned,
-            .scale = place.scale,
-            .fullscreen = place.fullscreen};
-    }
-    template <class Port, class... Styles>
     void CWindowAnimations<Port, StyleList<Styles...>>::damage_dying(Record &entry) {
         const auto BOUNDS = dying_view(entry).bounds_device;
         const auto &screen = entry.close_place.screen;
-        entry.footprint = {screen.x + (BOUNDS.x / entry.captured_scale),
-            screen.y + (BOUNDS.y / entry.captured_scale),
-            BOUNDS.w / entry.captured_scale,
-            BOUNDS.h / entry.captured_scale};
+        entry.footprint = detail::dying_footprint(BOUNDS, screen, entry.captured_scale);
         if (is_usable(entry.footprint)) {
             m_port.damage(entry.footprint);
         }
@@ -1252,12 +1326,16 @@ namespace hyprimate::animation {
             m_port.schedule(stamp.monitor);
             return;
         }
-        const auto ELAPSED = step_clock(entry, stamp);
+        const auto ELAPSED = detail::step_clock(entry.stepped, entry.last_step,
+            entry.last_frame, entry.stall_count, entry.stalls, stamp);
         if (!ELAPSED) {
             end(CURRENT_HANDLE, End::Interrupted);
             return;
         }
-        const auto STEP = dying_step(entry, *ELAPSED);
+        const auto STEP = detail::dying_step(entry.close_place, entry.source_device,
+            entry.captured_scale,
+            entry.public_close_only && entry.ownership == CloseStart::Owned,
+            entry.monitor, *ELAPSED);
         if (is_usable(entry.footprint)) {
             m_port.damage(entry.footprint);
         }
@@ -1275,39 +1353,6 @@ namespace hyprimate::animation {
             return;
         }
         m_port.schedule(stamp.monitor);
-    }
-    template <class Port, class... Styles>
-    void CWindowAnimations<Port, StyleList<Styles...>>::frame(const FrameStamp &stamp) {
-        tick_screens(stamp);
-        for (auto &window : m_tracked) {
-            frame_mapped(window, stamp);
-        }
-        // Releases erase records: retain the reverse traversal and never reuse a released
-        // reference.
-        for (std::size_t index = m_entries.size(); index > 0; --index) {
-            frame_dying(m_entries[index - 1], stamp);
-        }
-        std::erase_if(m_tracked, [&](const auto &window) {
-            if (!window.expired || window.handle) {
-                return false;
-            }
-            m_port.forget_window_reference(window.id);
-            return true;
-        });
-    }
-
-    template <class Port, class... Styles>
-    bool CWindowAnimations<Port, StyleList<Styles...>>::active(Handle handle) const {
-        return record(handle) != nullptr &&
-               visit(handle, []<class Style>(const auto &, const auto &) {});
-    }
-    template <class Port, class... Styles>
-    std::optional<Frame> CWindowAnimations<Port, StyleList<Styles...>>::view(Handle handle) const {
-        const auto *entry = record(handle);
-        if (entry == nullptr || !active(handle)) {
-            return std::nullopt;
-        }
-        return entry->current;
     }
     template <class Port, class... Styles>
     std::optional<Handle> CWindowAnimations<Port, StyleList<Styles...>>::pending_for(
@@ -1381,6 +1426,72 @@ namespace hyprimate::animation {
         }
     }
     template <class Port, class... Styles>
+    DyingView CWindowAnimations<Port, StyleList<Styles...>>::dying_view(const Record &entry) const {
+        const auto &facts = entry.fadeout_info;
+        Box render = facts.native_box;
+        bool fixed = false;
+        visit(entry.handle,
+            [&]<class Style>(const auto &, const auto &) { fixed = Style::FIXED_CLOSE_PLACEMENT; });
+        if (entry.life == Life::DyingOwned) {
+            render = entry.source_device;
+            if (!fixed) {
+                render.x = facts.native_box.x + ((facts.native_box.w - render.w) / 2);
+                render.y = facts.native_box.y + ((facts.native_box.h - render.h) / 2);
+            }
+        }
+        const auto BOUNDS = entry.current.bounds;
+        return {entry.handle,
+            entry.monitor,
+            entry.workspace,
+            entry.fadeout,
+            entry.ownership,
+            entry.source_device,
+            render,
+            {render.x + (BOUNDS.x * facts.scale),
+                render.y + (BOUNDS.y * facts.scale),
+                BOUNDS.w * facts.scale,
+                BOUNDS.h * facts.scale},
+            facts.image_size,
+            facts.scale,
+            entry.life == Life::DyingOwned ? entry.captured_alpha : facts.alpha,
+            facts.workspace_bound,
+            entry.no_screen_share,
+            entry.public_close_only};
+    }
+    template <class Port, class... Styles>
+    std::span<const DyingView> CWindowAnimations<Port, StyleList<Styles...>>::dying_views() const {
+        m_views.clear();
+        for (const auto &entry : m_entries) {
+            if (entry.life != Life::DyingOwned && entry.life != Life::DyingNative) {
+                continue;
+            }
+            m_views.push_back(dying_view(entry));
+        }
+        return m_views;
+    }
+    template <class Port, class... Styles>
+    std::optional<DyingView> CWindowAnimations<Port, StyleList<Styles...>>::dying_view_for(
+        std::uint64_t fadeout) const {
+        if (fadeout == 0) {
+            return std::nullopt;
+        }
+        for (const auto &entry : m_entries) {
+            if (entry.fadeout == fadeout &&
+                (entry.life == Life::DyingOwned || entry.life == Life::DyingNative)) {
+                return dying_view(entry);
+            }
+        }
+        return std::nullopt;
+    }
+}  // namespace hyprimate::animation
+#pragma once
+
+#include <cmath>
+#include <optional>
+#include <utility>
+
+namespace hyprimate::animation {
+    template <class Port, class... Styles>
     Box CWindowAnimations<Port, StyleList<Styles...>>::extents(
         Handle handle, const Box &capture) const {
         const auto STATE = view(handle);
@@ -1449,8 +1560,11 @@ namespace hyprimate::animation {
             return false;
         }
         const bool PUBLIC_OWNED = entry->public_close_only && entry->life == Life::DyingOwned;
-        const bool REAL_PASS = draw_info.real_pass && draw_info.canvas->pass() == PassKind::Live &&
-                               (!PUBLIC_OWNED || !draw_info.canvas->captures_pixels());
+        const auto qualifies_real_pass = [&] {
+            return draw_info.real_pass && draw_info.canvas->pass() == PassKind::Live &&
+                   (!PUBLIC_OWNED || !draw_info.canvas->captures_pixels());
+        };
+        const bool REAL_PASS = qualifies_real_pass();
         if (PUBLIC_OWNED && public_close_revoked(*entry)) {
             if (REAL_PASS) {
                 interrupt_public_close(handle);
@@ -1759,180 +1873,5 @@ namespace hyprimate::animation {
                 }
             }(),
             ...);
-    }
-    template <class Port, class... Styles>
-    bool CWindowAnimations<Port, StyleList<Styles...>>::needs_frame(MonitorId monitor) const {
-        if (std::any_of(m_entries.begin(), m_entries.end(), [monitor](const auto &entry) {
-                return entry.monitor == monitor && entry.life != Life::PendingCapture;
-            })) {
-            return true;
-        }
-        bool needed = false;
-        (
-            [&] {
-                if constexpr (requires(const Styles::Resources &resources) {
-                                  Styles::Screen::needs_frame(resources, monitor);
-                              }) {
-                    needed = needed || Styles::Screen::needs_frame(
-                                           m_resources.template get<Styles>(), monitor);
-                }
-            }(),
-            ...);
-        return needed;
-    }
-    template <class Port, class... Styles>
-    void CWindowAnimations<Port, StyleList<Styles...>>::monitor_changed(MonitorId monitor) {
-        if (needs_frame(monitor)) {
-            if (const auto facts = m_port.monitor_facts(monitor)) {
-                m_port.damage(facts->screen);
-            }
-            m_port.schedule(monitor);
-        }
-        for (std::size_t index = m_entries.size(); index > 0; --index) {
-            const auto &entry = m_entries[index - 1];
-            if (entry.monitor == monitor && entry.life != Life::Mapped) {
-                end(entry.handle, End::Interrupted);
-            }
-        }
-        (
-            [&] {
-                if constexpr (requires(Styles::Resources &resources) {
-                                  Styles::Screen::clear(resources, std::optional<MonitorId>{});
-                              }) {
-                    Styles::Screen::clear(
-                        m_resources.template get<Styles>(), std::optional<MonitorId>{monitor});
-                }
-            }(),
-            ...);
-        std::erase_if(
-            m_screen_frames, [monitor](const auto &item) { return item.first == monitor; });
-        m_port.recheck_scanout(monitor);
-    }
-    template <class Port, class... Styles>
-    void CWindowAnimations<Port, StyleList<Styles...>>::detach_transformers() {
-        for (const auto &window : m_tracked) {
-            if (window.handle) {
-                m_port.detach_transformer(window.window);
-            }
-        }
-    }
-    template <class Port, class... Styles>
-    void CWindowAnimations<Port, StyleList<Styles...>>::end_all() {
-        reset(false);
-    }
-    template <class Port, class... Styles>
-    void CWindowAnimations<Port, StyleList<Styles...>>::reset(bool preserve_pinned) {
-        const bool HAS_PINNED = preserve_pinned &&
-            std::ranges::any_of(m_entries, [](const auto &entry) { return entry.preserve_on_reload; });
-        if (!HAS_PINNED) {
-            m_callbacks.invalidate();
-        }
-        for (const auto &[monitor, frame] : m_screen_frames) {
-            if (!needs_frame(monitor)) {
-                continue;
-            }
-            if (const auto facts = m_port.monitor_facts(monitor)) {
-                m_port.damage(facts->screen);
-            }
-            m_port.schedule(monitor);
-        }
-        for (std::size_t index = m_entries.size(); index > 0; --index) {
-            const auto &entry = m_entries[index - 1];
-            if (!preserve_pinned || !entry.preserve_on_reload) {
-                end(entry.handle, End::Interrupted);
-            }
-        }
-        // Completed owned closes still hide the native fade. A config reload
-        // cannot resurrect one; only native completion or an explicit stop can.
-        if (!preserve_pinned) {
-            for (const auto FADEOUT : m_tombstones) {
-                m_port.suppress_native(FADEOUT, false);
-            }
-            m_tombstones.clear();
-        }
-        (
-            [&] {
-                if constexpr (requires(Styles::Resources &resources) {
-                                  Styles::Screen::clear(resources, std::optional<MonitorId>{});
-                              }) {
-                    Styles::Screen::clear(m_resources.template get<Styles>(), std::nullopt);
-                }
-            }(),
-            ...);
-        m_screen_frames.clear();
-    }
-    template <class Port, class... Styles>
-    void CWindowAnimations<Port, StyleList<Styles...>>::reload() {
-        reset(true);
-        for (auto &window : m_tracked) {
-            if (window.handle) {
-                continue;
-            }
-            window.previous = m_port.observe(window.window);
-            window.previous_sample = {};
-            window.opening_seen = window.previous && window.previous->animating_in;
-            window.native_open_goal = window.opening_seen ? std::optional{window.previous->goal_body} : std::nullopt;
-            window.rejected_motion.reset();
-            window.workspace_movement =
-                m_policy.workspace_movement && window.previous && !window.previous->pinned;
-        }
-    }
-    template <class Port, class... Styles>
-    DyingView CWindowAnimations<Port, StyleList<Styles...>>::dying_view(const Record &entry) const {
-        const auto &facts = entry.fadeout_info;
-        Box render = facts.native_box;
-        bool fixed = false;
-        visit(entry.handle,
-            [&]<class Style>(const auto &, const auto &) { fixed = Style::FIXED_CLOSE_PLACEMENT; });
-        if (entry.life == Life::DyingOwned) {
-            render = entry.source_device;
-            if (!fixed) {
-                render.x = facts.native_box.x + ((facts.native_box.w - render.w) / 2);
-                render.y = facts.native_box.y + ((facts.native_box.h - render.h) / 2);
-            }
-        }
-        const auto BOUNDS = entry.current.bounds;
-        return {entry.handle,
-            entry.monitor,
-            entry.workspace,
-            entry.fadeout,
-            entry.ownership,
-            entry.source_device,
-            render,
-            {render.x + (BOUNDS.x * facts.scale),
-                render.y + (BOUNDS.y * facts.scale),
-                BOUNDS.w * facts.scale,
-                BOUNDS.h * facts.scale},
-            facts.image_size,
-            facts.scale,
-            entry.life == Life::DyingOwned ? entry.captured_alpha : facts.alpha,
-            facts.workspace_bound,
-            entry.no_screen_share,
-            entry.public_close_only};
-    }
-    template <class Port, class... Styles>
-    std::span<const DyingView> CWindowAnimations<Port, StyleList<Styles...>>::dying_views() const {
-        m_views.clear();
-        for (const auto &entry : m_entries) {
-            if (entry.life != Life::DyingOwned && entry.life != Life::DyingNative) {
-                continue;
-            }
-            m_views.push_back(dying_view(entry));
-        }
-        return m_views;
-    }
-    template <class Port, class... Styles>
-    std::optional<DyingView> CWindowAnimations<Port, StyleList<Styles...>>::dying_view_for(
-        std::uint64_t fadeout) const {
-        if (fadeout == 0) {
-            return std::nullopt;
-        }
-        for (const auto &entry : m_entries) {
-            if (entry.fadeout == fadeout &&
-                (entry.life == Life::DyingOwned || entry.life == Life::DyingNative)) {
-                return dying_view(entry);
-            }
-        }
-        return std::nullopt;
     }
 }  // namespace hyprimate::animation

@@ -187,7 +187,6 @@ namespace hyprimate::animation {
         bool public_mapped_source_allowed(const Tracked &window, const Observation &observation) const;
         void release_drive(Tracked &tracked);
         bool apply(Tracked &tracked, const Observation &observation, const Effects &effects);
-        static Place place(const Observation &observation, Neighbourhood near, std::uint64_t seed);
         void tick_screens(const FrameStamp &stamp);
         template <class Style>
         void tick_screen(ScreenFacts &facts, MonitorId monitor);
@@ -199,12 +198,10 @@ namespace hyprimate::animation {
         bool begin_mapped(
             Tracked &window, const Observation &observation, const std::optional<Motion> &motion,
             std::optional<MotionKind> active_motion);
-        static std::optional<double> step_clock(Record &entry, const FrameStamp &stamp);
         void present_mapped(Tracked &window, Record &entry, const Observation &observation);
         void frame_mapped(Tracked &window, const FrameStamp &stamp);
         bool refresh_fadeout(Record &entry, const std::optional<FadeoutFacts> &fadeout);
         static bool close_blur_allowed(const Record &entry, const FadeoutFacts &fadeout);
-        static Step dying_step(const Record &entry, double elapsed);
         void damage_dying(Record &entry);
         bool public_close_revoked(Record &entry);
         void frame_dying(Record &entry, const FrameStamp &stamp);

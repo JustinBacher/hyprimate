@@ -62,6 +62,8 @@ endif()
 # Hyprland-independent core: liquid mesh, edge transition, paper, cloth and swarm models. The plugin and the tests
 # link it.
 add_library(hyprimate-core STATIC
+    src/window/WindowAnimationClock.cpp
+    src/window/WindowAnimationGeometry.cpp
     src/window/shared/EdgeFrame.cpp
     src/window/shared/SheetFrame.cpp
     src/workspace/WorkspaceTransition.cpp
