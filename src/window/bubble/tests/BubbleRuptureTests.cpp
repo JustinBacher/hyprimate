@@ -374,6 +374,64 @@ namespace {
         CHECK(attached);
     }
 
+    void spherical_peel_azimuth_round_trip() {
+        BubbleSurface surface;
+        surface.spherical = true;
+        surface.half_size = {.x = 200, .y = 200};
+        surface.aureole = .8;
+        surface.hole_count = 4;
+        const std::array<double, 4> heights{.2, -.899, .9, -.96};
+        for (std::size_t i = 0; i < surface.hole_count; ++i) {
+            auto &hole = surface.holes[i];
+            const double Z = heights[i];
+            hole.centre = {.x = std::sqrt(1 - (Z * Z)), .y = 0, .z = Z};
+            hole.radius = .45 + (.03 * static_cast<double>(i));
+            hole.amplitude = {.03, -.02, .01, .005};
+            hole.phase = {.2, -.4, .7, -1.1};
+        }
+        // Expected tangent signs for the four fixed centres, including z == .9.
+        const std::array<double, 4> tangent_y{1, 1, -1, 1};
+        for (std::size_t i = 0; i < surface.hole_count; ++i) {
+            const auto &hole = surface.holes[i];
+            for (const double PHI : std::array{-3.0, -1.2, 0.0, .7, 2.8}) {
+                const auto SAMPLE = bubble_peel_sample(surface, hole, PHI, 0);
+                const double ACTUAL = bubble_hole_azimuth(hole, SAMPLE.position, true);
+                CHECK(std::abs(std::remainder(ACTUAL - PHI, 2 * std::numbers::pi)) < 1e-12);
+                const double BOUNDARY = bubble_hole_boundary(hole, PHI);
+                const auto SECTION = bubble_curl_section(surface, hole, BOUNDARY * 200, PHI);
+                const double ROOT = BOUNDARY + (SECTION.width / 200);
+                // These centres lie in the x-z plane. Independently, z-axis cross centre
+                // points along +y; x-axis cross centre points along -sign(z) y.
+                const double TANGENT_Y = tangent_y[i];
+                const double RADIAL = 200 * std::sin(ROOT);
+                const double AXIAL_DISTANCE = 200 * std::cos(ROOT);
+                const Vec3 EXPECTED{
+                    .x = (hole.centre.x * AXIAL_DISTANCE) -
+                         (hole.centre.z * TANGENT_Y * std::sin(PHI) * RADIAL),
+                    .y = TANGENT_Y * std::cos(PHI) * RADIAL,
+                    .z = (hole.centre.z * AXIAL_DISTANCE) +
+                         (hole.centre.x * TANGENT_Y * std::sin(PHI) * RADIAL),
+                };
+                CHECK(std::abs(SAMPLE.position.x - EXPECTED.x) < 1e-10);
+                CHECK(std::abs(SAMPLE.position.y - EXPECTED.y) < 1e-10);
+                CHECK(std::abs(SAMPLE.position.z - EXPECTED.z) < 1e-10);
+                const double EXPECTED_AZIMUTH = bubble_hole_azimuth(hole, EXPECTED, true);
+                CHECK(std::abs(std::remainder(EXPECTED_AZIMUTH - PHI, 2 * std::numbers::pi)) <
+                      1e-12);
+                const double AXIAL = ((hole.centre.x * SAMPLE.position.x) +
+                                         (hole.centre.y * SAMPLE.position.y) +
+                                         (hole.centre.z * SAMPLE.position.z)) /
+                                     200;
+                CHECK(std::abs(AXIAL - std::cos(ROOT)) < 1e-12);
+                CHECK(std::abs(std::hypot(SAMPLE.position.x, SAMPLE.position.y, SAMPLE.position.z) -
+                               200) < 1e-10);
+                CHECK(std::abs(SAMPLE.normal.x - (SAMPLE.position.x / 200)) < 1e-12);
+                CHECK(std::abs(SAMPLE.normal.y - (SAMPLE.position.y / 200)) < 1e-12);
+                CHECK(std::abs(SAMPLE.normal.z - (SAMPLE.position.z / 200)) < 1e-12);
+            }
+        }
+    }
+
     void sheets_contract() {
         Bubble bubble;
         bubble.begin(Transition::Close, BubbleDuration{2.0}, 19, SIZE);
@@ -534,6 +592,7 @@ int main() {
     particle_continuity_and_evaporation();
     fingers_start_gradually();
     curled_geometry_and_attachments();
+    spherical_peel_azimuth_round_trip();
     sheets_contract();
     pinch_birth_is_continuous();
     sheets_keep_their_source_material();

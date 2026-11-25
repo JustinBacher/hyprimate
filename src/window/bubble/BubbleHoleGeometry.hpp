@@ -24,11 +24,23 @@ namespace hyprimate::detail {
         return LENGTH > 0 ? Vec3{.x = lhs.x / LENGTH, .y = lhs.y / LENGTH, .z = lhs.z / LENGTH}
                           : Vec3{.x = 1, .y = 0, .z = 0};
     }
-    inline void basis(Vec3 centre, Vec3 &tangent, Vec3 &bitangent) {
-        tangent = normalize(cross(
+    // The peel's degenerate input historically keeps the raw cross product; the other hole
+    // geometry uses normalize's x-axis fallback. Valid spherical centres are unit vectors.
+    inline void spherical_hole_frame(
+        Vec3 centre, Vec3 &tangent, Vec3 &bitangent, bool fallback = true) {
+        tangent = cross(
             std::abs(centre.z) < .9 ? Vec3{.x = 0, .y = 0, .z = 1} : Vec3{.x = 1, .y = 0, .z = 0},
-            centre));
+            centre);
+        const double LENGTH = std::sqrt(dot(tangent, tangent));
+        if (LENGTH > 0) {
+            tangent = {.x = tangent.x / LENGTH, .y = tangent.y / LENGTH, .z = tangent.z / LENGTH};
+        } else if (fallback) {
+            tangent = {.x = 1, .y = 0, .z = 0};
+        }
         bitangent = cross(centre, tangent);
+    }
+    inline void basis(Vec3 centre, Vec3 &tangent, Vec3 &bitangent) {
+        spherical_hole_frame(centre, tangent, bitangent);
     }
     inline double radius_at(const BubbleSurface &surface, const BubbleHole &hole, double clock) {
         const double AGE = std::max(0.0, clock - hole.start);

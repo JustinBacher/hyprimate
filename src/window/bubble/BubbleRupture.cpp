@@ -12,7 +12,7 @@ namespace hyprimate {
         }
         Vec3 basis_first;
         Vec3 basis_second;
-        detail::basis(hole.centre, basis_first, basis_second);
+        detail::spherical_hole_frame(hole.centre, basis_first, basis_second);
         return std::atan2(detail::dot(point, basis_second), detail::dot(point, basis_first));
     }
 
