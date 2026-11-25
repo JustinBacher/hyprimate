@@ -6,6 +6,7 @@
 #include <GLES3/gl32.h>
 
 #include "window/bubble/Bubble.hpp"
+#include "window/bubble/BubbleSheets.hpp"
 #include "window/bubble/BubbleWake.hpp"
 
 // The bubble's GLES 3 material, free of compositor types so offscreen previews render exactly what
@@ -85,7 +86,9 @@ class CBubbleMaterial {
     std::array<GLint, K_SURFACE_UNIFORMS> m_curl_surface_uniforms{};
     std::array<GLint, 15> m_curl_uniforms{};
     std::array<GLint, 10> m_sheet_uniforms{};
-    std::array<std::array<GLint, 3>, 7> m_sheet_mask_uniforms{};
+    // curl.frag declares and visits seven masks; the material GL test exercises the last slot.
+    static_assert(hyprimate::K_BUBBLE_MAX_SHEETS == 7);
+    std::array<std::array<GLint, 3>, hyprimate::K_BUBBLE_MAX_SHEETS> m_sheet_mask_uniforms{};
     std::array<GLint, 6> m_particle_uniforms{};
     std::array<GLint, 10> m_film_uniforms{};
     std::array<GLint, 6> m_micro_uniforms{};

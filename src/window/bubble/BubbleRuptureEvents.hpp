@@ -16,7 +16,7 @@ namespace hyprimate::detail {
         BubbleSurface key{};
         Vec3 position{};
         double time = 0;
-        std::array<BurstEvent, 6> merges{};
+        std::array<BurstEvent, K_BUBBLE_MAX_MERGES> merges{};
         std::size_t merge_count = 0;
         bool valid = false;
     };

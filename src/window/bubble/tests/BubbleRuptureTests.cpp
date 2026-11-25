@@ -11,6 +11,7 @@
 #include "window/bubble/Bubble.hpp"
 #include "window/bubble/BubbleCurl.hpp"
 #include "window/bubble/BubbleRupture.hpp"
+#include "window/bubble/BubbleRuptureEvents.hpp"
 #include "window/bubble/BubbleSheets.hpp"
 
 namespace {
@@ -432,6 +433,60 @@ namespace {
         }
     }
 
+    void all_pairwise_merges_fit() {
+        static_assert(K_BUBBLE_MAX_MERGES == 6);
+        static_assert(K_BUBBLE_MAX_SHEETS == K_BUBBLE_MAX_MERGES + 1);
+        BubbleSurface surface;
+        surface.half_size = {.x = 200, .y = 200};
+        surface.speed = 300;
+        surface.hole_count = K_BUBBLE_HOLES;
+        const double OFFSET = std::sqrt(5000.0);
+        surface.holes[0].centre = {0, -OFFSET, 0};
+        surface.holes[1].centre = {OFFSET, 0, 0};
+        surface.holes[2].centre = {0, OFFSET, 0};
+        surface.holes[3].centre = {-OFFSET, 0, 0};
+        // The four fronts nearly meet at the centre. Recede there so both diagonal
+        // merges survive. The first farthest corner belongs to holes 0 and 3; recede
+        // there as well, leaving visible material inside the rectangular boundary.
+        for (std::size_t i = 0; i < surface.holes.size(); ++i) {
+            auto &hole = surface.holes[i];
+            const double PHI = std::atan2(-hole.centre.y, -hole.centre.x);
+            const double CORNER_PHI = std::atan2(-200 - hole.centre.y, -200 - hole.centre.x);
+            const double DELTA = (i == 0 || i == 3)
+                                     ? std::remainder(CORNER_PHI - PHI, 2 * std::numbers::pi)
+                                     : 0;
+            for (std::size_t mode = 0; mode < K_BUBBLE_RIM_MODES.size(); ++mode) {
+                const double HALF = K_BUBBLE_RIM_MODES[mode] * DELTA * .5;
+                hole.phase[mode] = std::numbers::pi - (K_BUBBLE_RIM_MODES[mode] * PHI) - HALF +
+                                   (std::cos(HALF) < 0 ? std::numbers::pi : 0);
+            }
+        }
+        const auto &EVENTS = detail::collapse(surface);
+        CHECK(EVENTS.merge_count == K_BUBBLE_MAX_MERGES);
+        const std::array<std::uint32_t, K_BUBBLE_MAX_MERGES> EXPECTED{
+            1005, 1010, 1015, 1030, 1035, 1055};
+        for (std::size_t i = 0; i < EXPECTED.size(); ++i) {
+            CHECK(EVENTS.merges[i].id == EXPECTED[i]);
+            CHECK(EVENTS.merges[i].time > 0 && EVENTS.merges[i].time < 1);
+            CHECK(std::isfinite(EVENTS.merges[i].position.x));
+            CHECK(std::isfinite(EVENTS.merges[i].position.y));
+        }
+        surface.closing = true;
+        surface.aureole = 1;
+        surface.clock = 1;
+        std::array<BubbleSheet, K_BUBBLE_MAX_SHEETS> sheets{};
+        const auto COUNT = bubble_sheets(surface, sheets);
+        CHECK(COUNT == K_BUBBLE_MAX_SHEETS);
+        const auto ACTUAL = std::span(sheets).first(COUNT);
+        for (const auto ID : EXPECTED) {
+            CHECK(std::ranges::any_of(ACTUAL, [ID](const BubbleSheet &sheet) {
+                return sheet.id == ID;
+            }));
+        }
+        CHECK(std::ranges::any_of(
+            ACTUAL, [](const BubbleSheet &sheet) { return sheet.id == 1200; }));
+    }
+
     void sheets_contract() {
         Bubble bubble;
         bubble.begin(Transition::Close, BubbleDuration{2.0}, 19, SIZE);
@@ -593,6 +648,7 @@ int main() {
     fingers_start_gradually();
     curled_geometry_and_attachments();
     spherical_peel_azimuth_round_trip();
+    all_pairwise_merges_fit();
     sheets_contract();
     pinch_birth_is_continuous();
     sheets_keep_their_source_material();

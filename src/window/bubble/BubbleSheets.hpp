@@ -8,7 +8,8 @@
 
 namespace hyprimate {
 
-    constexpr std::size_t K_BUBBLE_MAX_SHEETS = 7;  // Six pairwise necks and the final island.
+    // One sheet per pairwise neck, plus the final island.
+    constexpr std::size_t K_BUBBLE_MAX_SHEETS = K_BUBBLE_MAX_MERGES + 1;
 
     // A finite sector of the original rolled film, not an independently spawned sprite.
     struct BubbleSheet {

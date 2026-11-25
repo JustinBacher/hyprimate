@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <limits>
 #include <type_traits>
+#include <numbers>
 #include <utility>
 #include <vector>
 
@@ -165,6 +166,111 @@ namespace {
     }
     const Pixel &at(const Image &image, int column, int row) {
         return image[(row * WIDTH) + column];
+    }
+
+    // The material must upload every generated sheet, including the last mask. Compare the
+    // attached curl with and without that uploaded mask, keeping all other uniforms unchanged.
+    void test_last_sheet_mask(Fixture &fixture) {
+        hyprimate::BubbleFrame frame{};
+        frame.size = {.x = 400, .y = 400};
+        auto &surface = frame.window;
+        surface.half_size = {.x = 200, .y = 200};
+        surface.speed = 300;
+        surface.hole_count = hyprimate::K_BUBBLE_HOLES;
+        const double OFFSET = std::sqrt(5000.0);
+        surface.holes[0].centre = {0, -OFFSET, 0};
+        surface.holes[1].centre = {OFFSET, 0, 0};
+        surface.holes[2].centre = {0, OFFSET, 0};
+        surface.holes[3].centre = {-OFFSET, 0, 0};
+        for (std::size_t i = 0; i < surface.holes.size(); ++i) {
+            auto &hole = surface.holes[i];
+            const double PHI = std::atan2(-hole.centre.y, -hole.centre.x);
+            const double CORNER_PHI = std::atan2(-200 - hole.centre.y, -200 - hole.centre.x);
+            const double DELTA = (i == 0 || i == 3)
+                                     ? std::remainder(CORNER_PHI - PHI, 2 * std::numbers::pi)
+                                     : 0;
+            for (std::size_t mode = 0; mode < hyprimate::K_BUBBLE_RIM_MODES.size(); ++mode) {
+                const double HALF = hyprimate::K_BUBBLE_RIM_MODES[mode] * DELTA * .5;
+                hole.phase[mode] = std::numbers::pi -
+                                   (hyprimate::K_BUBBLE_RIM_MODES[mode] * PHI) - HALF +
+                                   (std::cos(HALF) < 0 ? std::numbers::pi : 0);
+            }
+        }
+        surface.closing = true;
+        surface.clock = 1;
+        surface.aureole = 1;
+        surface.visibility = 1;
+        surface.content = 1;
+        std::array<hyprimate::BubbleSheet, hyprimate::K_BUBBLE_MAX_SHEETS> sheets{};
+        const auto COUNT = hyprimate::bubble_sheets(surface, sheets);
+        CHECK(COUNT == sheets.size());
+        if (COUNT != sheets.size()) {
+            return;
+        }
+        const auto &last = sheets.back();
+        for (std::size_t i = 0; i < surface.holes.size(); ++i) {
+            surface.holes[i].radius = last.radii[i];
+            for (std::size_t mode = 0; mode < surface.holes[i].amplitude.size(); ++mode) {
+                surface.holes[i].amplitude[mode] =
+                    last.onsets[i] * (.014 - (.002 * static_cast<double>(mode)));
+            }
+        }
+        const auto MATERIAL_IMAGE =
+            fixture.render(frame, {fixture.window, fixture.scene}, {28, 28}, {200, 200});
+        const GLuint PROGRAM = fixture.programs.curl;
+        glUseProgram(PROGRAM);
+        const GLint MASK_COUNT = glGetUniformLocation(PROGRAM, "maskCount");
+        GLint uploaded_count = 0;
+        glGetUniformiv(PROGRAM, MASK_COUNT, &uploaded_count);
+        CHECK(uploaded_count == static_cast<GLint>(sheets.size()));
+        char name[32];
+        std::snprintf(name, sizeof(name), "masks[%zu].domain", sheets.size() - 1);
+        const GLint DOMAIN = glGetUniformLocation(PROGRAM, name);
+        std::snprintf(name, sizeof(name), "masks[%zu].radii", sheets.size() - 1);
+        const GLint RADII = glGetUniformLocation(PROGRAM, name);
+        std::snprintf(name, sizeof(name), "masks[%zu].onsets", sheets.size() - 1);
+        const GLint ONSETS = glGetUniformLocation(PROGRAM, name);
+        CHECK(DOMAIN >= 0 && RADII >= 0 && ONSETS >= 0);
+        std::array<GLfloat, 4> domain{}, radii{}, onsets{};
+        glGetUniformfv(PROGRAM, DOMAIN, domain.data());
+        glGetUniformfv(PROGRAM, RADII, radii.data());
+        glGetUniformfv(PROGRAM, ONSETS, onsets.data());
+        CHECK(domain[0] == static_cast<float>(last.hole));
+        CHECK(domain[1] == static_cast<float>(last.phi));
+        CHECK(domain[2] == static_cast<float>(last.half_angle));
+        for (std::size_t i = 0; i < radii.size(); ++i) {
+            CHECK(radii[i] == static_cast<float>(last.radii[i]));
+            CHECK(onsets[i] == static_cast<float>(last.onsets[i]));
+        }
+        // The material has already drawn the attached curl with its own mask count.
+        // Overlay it once more unchanged, then repeat from the same material image with
+        // only the final mask omitted. This isolates the last mask from ordinary overdraw.
+        const auto OVERLAY = [&]() {
+            glUniform1f(glGetUniformLocation(PROGRAM, "sheet.visibility"), 1);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+            glDrawArraysInstanced(GL_TRIANGLES, 0, 96 * 12 * 6,
+                static_cast<GLsizei>(hyprimate::K_BUBBLE_HOLES));
+            glDisable(GL_BLEND);
+            Image pixels(static_cast<std::size_t>(WIDTH) * HEIGHT);
+            glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+            CHECK(glGetError() == GL_NO_ERROR);
+            return pixels;
+        };
+        const auto WITH = OVERLAY();
+        const auto REPEATED =
+            fixture.render(frame, {fixture.window, fixture.scene}, {28, 28}, {200, 200});
+        CHECK(REPEATED == MATERIAL_IMAGE);
+        glUseProgram(PROGRAM);
+        glUniform4f(RADII, 0, 0, 0, 0);
+        const auto WITHOUT = OVERLAY();
+        std::size_t removed = 0;
+        for (std::size_t i = 0; i < WITHOUT.size(); ++i) {
+            if (WITHOUT[i][3] > WITH[i][3]) {
+                ++removed;
+            }
+        }
+        CHECK(removed > 0);
     }
 
     void test_allocation_retry(Fixture &fixture) {
@@ -728,6 +834,7 @@ int main() {
     {
         Fixture fixture;
         test_allocation_retry(fixture);
+        test_last_sheet_mask(fixture);
         test_settled(fixture);
         test_wake_malformed_segments(fixture);
         test_settling(fixture);

@@ -14,6 +14,8 @@ namespace hyprimate {
     // Rim corrugation mode numbers. The GPU material mirrors these values; change both together.
     inline constexpr std::array<int, 4> K_BUBBLE_RIM_MODES{3, 5, 9, 14};
     inline constexpr std::size_t K_BUBBLE_HOLES = 4;
+    inline constexpr std::size_t K_BUBBLE_MAX_MERGES =
+        K_BUBBLE_HOLES * (K_BUBBLE_HOLES - 1) / 2;
     // Debris a renderer must be able to draw per surface; bubble_particles never writes more than
     // its span holds.
     inline constexpr std::size_t K_BUBBLE_MAX_PARTICLES = 384;
