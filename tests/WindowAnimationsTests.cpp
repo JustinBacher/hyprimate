@@ -1,8 +1,10 @@
+#include <algorithm>
 #include <cmath>
 #include <concepts>
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <set>
 #include <vector>
 
 #include "Check.hpp"
@@ -265,6 +267,69 @@ namespace {
     using Effect = TestStyle<config::Style::Shader>;
     using List = StyleList<Style, Other, Effect>;
     using Module = CWindowAnimations<FakeWindowPort, List>;
+
+    struct BubbleScreenStyle : TestStyle<config::Style::Bubble> {
+        struct Resources : TestStyle::Resources {
+            std::set<MonitorId> active_outputs;
+        };
+        struct Screen : TestStyle::Screen {
+            static void tick(Resources &resources, const ScreenFacts &facts) {
+                if (facts.monitor == 0 && !facts.enabled) {
+                    resources.active_outputs.clear();
+                }
+            }
+            static bool needs_frame(const Resources &resources, MonitorId monitor) {
+                return resources.active_outputs.contains(monitor);
+            }
+            static void clear(Resources &resources, std::optional<MonitorId> monitor) {
+                if (monitor) {
+                    resources.active_outputs.erase(*monitor);
+                } else {
+                    resources.active_outputs.clear();
+                }
+            }
+        };
+    };
+
+    struct ScreenCallbackPort : FakeWindowPort {
+        std::function<void()> on_damage, on_schedule, on_scanout;
+
+        void damage(const Box &box) {
+            FakeWindowPort::damage(box);
+            if (on_damage) on_damage();
+        }
+        void schedule(MonitorId monitor) {
+            FakeWindowPort::schedule(monitor);
+            if (on_schedule) on_schedule();
+        }
+        void recheck_scanout(MonitorId monitor) {
+            FakeWindowPort::recheck_scanout(monitor);
+            if (on_scanout) on_scanout();
+        }
+    };
+
+    struct BubbleScreenFixture {
+        using Controller =
+            CWindowAnimations<ScreenCallbackPort, StyleList<BubbleScreenStyle, Other>>;
+        ScreenCallbackPort port;
+        Controller::Resources resources;
+        Controller module{port, resources};
+        Policy policy{.style = BubbleScreenStyle::KIND, .enabled = true, .opening = true};
+
+        BubbleScreenFixture() {
+            module.configure(policy);
+            resources.get<BubbleScreenStyle>().active_outputs = {1, 2};
+            for (const MonitorId monitor : {1, 2, 3}) {
+                const Box box{.x = 800. * static_cast<double>(monitor), .y = 0, .w = 800, .h = 600};
+                port.monitors.emplace(monitor, ScreenFacts{.monitor = monitor, .screen = box});
+                module.frame({.monitor = monitor, .frame = 1, .now = port.now});
+            }
+            port.damage_log.clear();
+            port.scheduled.clear();
+            port.scanout.clear();
+            resources.get<Other>().log.events.clear();
+        }
+    };
 
     struct Fixture {
         FakeWindowPort port;
@@ -1787,6 +1852,190 @@ namespace {
             CHECK(last.x == 0 && last.y == 0 && last.w == 800 && last.h == 600);
         }
     }
+
+    void bubble_disable_repaints_each_active_output_before_global_clear() {
+        BubbleScreenFixture f;
+        CHECK(f.module.needs_frame(1) && f.module.needs_frame(2));
+        const auto before_clear = [&] {
+            CHECK(f.module.needs_frame(1) && f.module.needs_frame(2));
+        };
+        f.port.on_damage = before_clear;
+        f.port.on_schedule = before_clear;
+        f.port.on_scanout = [&] { CHECK(!f.module.needs_frame(1) && !f.module.needs_frame(2)); };
+
+        f.policy.enabled = false;
+        f.module.configure(f.policy);
+        CHECK(!f.module.needs_frame(1) && !f.module.needs_frame(2));
+        CHECK(f.port.damage_log.size() == 2);
+        CHECK(f.port.scheduled.size() == 2);
+        CHECK(f.port.scanout.size() == 2);
+        for (const MonitorId monitor : {1, 2}) {
+            const auto &box = f.port.monitors.at(monitor).screen;
+            CHECK(std::ranges::count_if(f.port.damage_log, [&](const Box &damage) {
+                return damage.x == box.x && damage.y == box.y && damage.w == box.w &&
+                       damage.h == box.h;
+            }) == 1);
+            CHECK(std::ranges::count(f.port.scheduled, monitor) == 1);
+            CHECK(std::ranges::count(f.port.scanout, monitor) == 1);
+        }
+    }
+
+    void nested_configure_supersedes_bubble_disable() {
+        BubbleScreenFixture f;
+        bool superseded = false;
+        f.port.on_damage = [&] {
+            CHECK(!superseded);
+            if (superseded) return;
+            superseded = true;
+            CHECK(f.module.needs_frame(1) && f.module.needs_frame(2));
+            f.policy.during_workspace_switch = true;
+            f.module.configure(f.policy);
+            f.resources.get<BubbleScreenStyle>().active_outputs = {3};
+        };
+
+        auto disabled = f.policy;
+        disabled.enabled = false;
+        f.module.configure(disabled);
+        CHECK(superseded);
+        CHECK(f.module.needs_frame(3));
+        CHECK(f.port.scheduled.empty() && f.port.scanout.empty());
+        CHECK(f.resources.get<Other>().log.events.size() == 1);
+        FakeCanvas canvas;
+        canvas.destination_live = true;
+        CHECK(f.module.allows_draw(canvas));
+    }
+
+    void nested_configure_during_scanout_reconciles_all_cleared_outputs() {
+        BubbleScreenFixture f;
+        bool superseded = false;
+        f.port.on_scanout = [&] {
+            if (superseded) return;
+            superseded = true;
+            f.policy.during_workspace_switch = true;
+            f.module.configure(f.policy);
+            f.resources.get<BubbleScreenStyle>().active_outputs = {3};
+        };
+
+        auto disabled = f.policy;
+        disabled.enabled = false;
+        f.module.configure(disabled);
+        CHECK(superseded);
+        CHECK(f.module.needs_frame(3));
+        CHECK(f.port.scanout.size() == 2);
+        CHECK(std::ranges::count(f.port.scanout, 1) == 1);
+        CHECK(std::ranges::count(f.port.scanout, 2) == 1);
+        CHECK(f.resources.get<Other>().log.events.size() == 1);
+        FakeCanvas canvas;
+        canvas.destination_live = true;
+        CHECK(f.module.allows_draw(canvas));
+    }
+
+    void bubble_reload_then_disable_rechecks_every_cleared_output() {
+        BubbleScreenFixture f;
+        // Neither output is assumed to be in the host's scanout-inhibited list.
+        f.port.on_damage = [&] { CHECK(f.module.needs_frame(1) && f.module.needs_frame(2)); };
+        f.port.on_schedule = f.port.on_damage;
+        f.port.on_scanout = [&] { CHECK(!f.module.needs_frame(1) && !f.module.needs_frame(2)); };
+        f.module.reload();
+        f.policy.enabled = false;
+        f.module.configure(f.policy);
+        CHECK(!f.module.needs_frame(1) && !f.module.needs_frame(2));
+        CHECK(f.port.damage_log.size() == 2);
+        CHECK(f.port.scheduled.size() == 2);
+        CHECK(f.port.scanout.size() == 2);
+        for (const MonitorId monitor : {1, 2}) {
+            CHECK(std::ranges::count(f.port.scheduled, monitor) == 1);
+            CHECK(std::ranges::count(f.port.scanout, monitor) == 1);
+        }
+    }
+
+    void nested_configure_during_style_switch_finishes_mapped_cleanup() {
+        BubbleScreenFixture f;
+        f.resources.get<BubbleScreenStyle>().active_outputs.clear();
+        for (const WindowId id : {1, 2}) {
+            Observation observation{.window = id,
+                .monitor = 1,
+                .workspace = 1,
+                .body = {100, 100, 100, 80},
+                .capture = {95, 95, 110, 90},
+                .goal_body = {100, 100, 100, 80},
+                .screen = {0, 0, 800, 600},
+                .work_area = {0, 0, 800, 600},
+                .mapped = true,
+                .animating_in = true};
+            f.port.windows.emplace(id, observation);
+            f.module.track(id);
+        }
+        f.module.frame({.monitor = 1, .frame = 2, .now = f.port.advance(.016)});
+        CHECK(f.port.transformers.size() == 2);
+        auto switched = f.policy;
+        switched.style = Other::KIND;
+        bool nested = false;
+        f.port.on_scanout = [&] {
+            if (!nested) {
+                nested = true;
+                f.module.configure(switched);
+            }
+        };
+        f.module.configure(switched);
+        CHECK(nested);
+        CHECK(f.port.transformers.empty());
+        CHECK(f.resources.get<BubbleScreenStyle>().log.ends == 2);
+        f.port.on_scanout = {};
+        f.module.end_all();
+    }
+
+    void nested_configure_removing_dying_entry_preserves_mapped_cleanup() {
+        BubbleScreenFixture f;
+        f.resources.get<BubbleScreenStyle>().active_outputs.clear();
+        f.policy.closing = true;
+        f.policy.close_available = true;
+        f.module.configure(f.policy);
+        const auto add_window = [&](WindowId id) {
+            Observation observation{.window = id,
+                .monitor = 1,
+                .workspace = 1,
+                .body = {100, 100, 100, 80},
+                .capture = {95, 95, 110, 90},
+                .goal_body = {100, 100, 100, 80},
+                .screen = {0, 0, 800, 600},
+                .work_area = {0, 0, 800, 600},
+                .mapped = true,
+                .animating_in = true};
+            f.port.windows.emplace(id, observation);
+            f.module.track(id);
+        };
+        add_window(1);
+        f.module.frame({.monitor = 1, .frame = 2, .now = f.port.advance(.016)});
+        const auto dying = f.port.transformers.at(1);
+        f.module.close(1, f.port.now);
+        CHECK(f.module.pending_for(1).has_value());
+        add_window(2);
+        add_window(3);
+        f.module.frame({.monitor = 1, .frame = 3, .now = f.port.advance(.016)});
+        const auto first = f.port.transformers.at(2);
+        const auto second = f.port.transformers.at(3);
+        auto switched = f.policy;
+        switched.style = Other::KIND;
+        switched.closing = false;
+        bool nested = false;
+        f.port.on_scanout = [&] {
+            if (!nested) {
+                nested = true;
+                f.module.configure(switched);
+            }
+        };
+        f.module.configure(switched);
+        CHECK(nested);
+        CHECK(!f.module.active(dying));
+        CHECK(!f.module.active(first));
+        CHECK(!f.module.active(second));
+        CHECK(f.port.transformers.empty());
+        CHECK(f.resources.get<BubbleScreenStyle>().log.ends == 3);
+        f.port.on_scanout = {};
+        f.module.end_all();
+    }
+
     void screen_survives_window_and_allocation_failure() {
         Fixture fixture;
         fixture.log().screen_active = true;
@@ -3122,6 +3371,12 @@ int main() try {
     screen_order_and_shutdown();
     screen_survives_window_and_allocation_failure();
     screen_damages_its_final_frame();
+    bubble_disable_repaints_each_active_output_before_global_clear();
+    nested_configure_supersedes_bubble_disable();
+    nested_configure_during_scanout_reconciles_all_cleared_outputs();
+    bubble_reload_then_disable_rechecks_every_cleared_output();
+    nested_configure_during_style_switch_finishes_mapped_cleanup();
+    nested_configure_removing_dying_entry_preserves_mapped_cleanup();
     screen_policy_requires_an_enabled_feature();
     out_of_order_and_duplicate_fadeouts();
     close_placement_and_invalid_fadeouts();

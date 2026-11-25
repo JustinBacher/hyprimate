@@ -219,6 +219,7 @@ namespace hyprimate::animation {
         std::vector<std::uint64_t> m_tombstones;
         std::vector<std::pair<MonitorId, FrameId>> m_screen_frames;
         mutable std::vector<DyingView> m_views;
+        std::uint64_t m_configure_revision = 0;
         std::uint64_t m_seed = 0;
         CallbackLifetime m_callbacks;
         InFlightDraw *m_draws = nullptr;

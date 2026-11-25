@@ -194,8 +194,9 @@ bool SBubbleModule::draw(State &state,
 
 void SBubbleModule::Screen::tick(
     Resources &resources, const hyprimate::animation::ScreenFacts &facts) {
-    resources.vestige.set_enabled(facts.enabled);
-    if (facts.enabled && facts.monitor != 0) {
+    if (facts.monitor == 0) {
+        resources.vestige.set_enabled(facts.enabled);
+    } else if (facts.enabled) {
         resources.vestige.tick(facts);
     }
 }

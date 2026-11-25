@@ -252,29 +252,61 @@ namespace hyprimate::animation {
     }
     template <class Port, class... Styles>
     void CWindowAnimations<Port, StyleList<Styles...>>::configure(const Policy &policy) {
+        const auto REVISION = ++m_configure_revision;
+        // Port calls can synchronously configure again and mutate the frame list.
+        // Capture the affected Bubble outputs before making any such calls.
+        std::vector<MonitorId> bubble_outputs;
+        if (!policy.enabled || policy.inert ||
+            !(policy.opening || policy.movement || policy.closing)) {
+            (
+                [&] {
+                    if constexpr (Styles::KIND == config::Style::Bubble &&
+                                  requires(const Styles::Resources &resources, MonitorId monitor) {
+                                      Styles::Screen::needs_frame(resources, monitor);
+                                  }) {
+                        const auto &resources = m_resources.template get<Styles>();
+                        for (const auto &[monitor, frame] : m_screen_frames) {
+                            (void)frame;
+                            if (Styles::Screen::needs_frame(resources, monitor)) {
+                                bubble_outputs.push_back(monitor);
+                            }
+                        }
+                    }
+                }(),
+                ...);
+        }
         const bool SELECTION_CHANGED = m_policy.style != policy.style;
         const bool STOP_CLOSES =
             !policy.enabled || policy.inert || !policy.closing || !policy.close_available;
-        m_policy = policy;
-        for (std::size_t index = m_entries.size(); index > 0; --index) {
-            const auto ITEM = m_entries[index - 1];
-            if ((ITEM.life == Life::Mapped &&
-                    ((SELECTION_CHANGED && !ITEM.preserve_on_reload) ||
+        // End callbacks may remove entries or admit new ones. Only the original
+        // selected handles belong to this cleanup, regardless of vector changes.
+        std::vector<Handle> ending;
+        for (auto it = m_entries.rbegin(); it != m_entries.rend(); ++it) {
+            const auto &item = *it;
+            if ((item.life == Life::Mapped &&
+                    ((SELECTION_CHANGED && !item.preserve_on_reload) ||
                         !policy.enabled || policy.inert ||
-                        (ITEM.mapped_motion && !policy.movement) ||
-                        (ITEM.preserve_on_reload && !ITEM.mapped_motion && !policy.opening))) ||
-                (ITEM.life != Life::Mapped && STOP_CLOSES)) {
-                end(ITEM.handle, End::Interrupted);
+                        (item.mapped_motion && !policy.movement) ||
+                        (item.preserve_on_reload && !item.mapped_motion && !policy.opening))) ||
+                (item.life != Life::Mapped && STOP_CLOSES)) {
+                ending.push_back(item.handle);
             }
         }
+        m_policy = policy;
+        for (const auto ENDING_HANDLE : ending) {
+            end(ENDING_HANDLE, End::Interrupted);
+        }
+        if (m_configure_revision != REVISION) return;
         if (STOP_CLOSES) {
             for (const auto FADEOUT : m_tombstones) {
                 m_port.suppress_native(FADEOUT, false);
+                if (m_configure_revision != REVISION) return;
             }
             m_tombstones.clear();
         }
         (
             [&] {
+                if (m_configure_revision != REVISION) return;
                 if constexpr (requires(Styles::Resources &resources, const ScreenFacts &facts) {
                                   Styles::Screen::tick(resources, facts);
                               }) {
@@ -291,8 +323,31 @@ namespace hyprimate::animation {
                     facts.enabled = policy.enabled && !policy.inert &&
                                     (policy.opening || policy.movement || policy.closing) &&
                                     (policy.style == Styles::KIND || RETAINED || SCREEN_ACTIVE);
+                    if constexpr (Styles::KIND == config::Style::Bubble) {
+                        if (!facts.enabled) {
+                            for (const auto MONITOR : bubble_outputs) {
+                                const auto monitor_facts = m_port.monitor_facts(MONITOR);
+                                if (m_configure_revision != REVISION) return;
+                                if (monitor_facts) {
+                                    m_port.damage(monitor_facts->screen);
+                                    if (m_configure_revision != REVISION) return;
+                                }
+                                m_port.schedule(MONITOR);
+                                if (m_configure_revision != REVISION) return;
+                            }
+                        }
+                    }
                     const perf::CpuScope PROFILE{profile_key(Styles::KIND), perf::Phase::Update};
                     Styles::Screen::tick(resources, facts);
+                    if constexpr (Styles::KIND == config::Style::Bubble) {
+                        if (!facts.enabled) {
+                            for (const auto MONITOR : bubble_outputs) {
+                                // Scanout is recalculated from current state even if a
+                                // callback reconfigures; every cleared output still needs it.
+                                m_port.recheck_scanout(MONITOR);
+                            }
+                        }
+                    }
                 }
             }(),
             ...);
@@ -562,6 +617,25 @@ namespace hyprimate::animation {
     }
     template <class Port, class... Styles>
     void CWindowAnimations<Port, StyleList<Styles...>>::reset(bool preserve_pinned) {
+        std::vector<MonitorId> bubble_outputs;
+        if (preserve_pinned) {
+            (
+                [&] {
+                    if constexpr (Styles::KIND == config::Style::Bubble &&
+                                  requires(const Styles::Resources &resources, MonitorId monitor) {
+                                      Styles::Screen::needs_frame(resources, monitor);
+                                  }) {
+                        const auto &resources = m_resources.template get<Styles>();
+                        for (const auto &[monitor, frame] : m_screen_frames) {
+                            (void)frame;
+                            if (Styles::Screen::needs_frame(resources, monitor)) {
+                                bubble_outputs.push_back(monitor);
+                            }
+                        }
+                    }
+                }(),
+                ...);
+        }
         const bool HAS_PINNED = preserve_pinned &&
             std::ranges::any_of(m_entries, [](const auto &entry) { return entry.preserve_on_reload; });
         if (!HAS_PINNED) {
@@ -600,6 +674,9 @@ namespace hyprimate::animation {
             }(),
             ...);
         m_screen_frames.clear();
+        for (const auto MONITOR : bubble_outputs) {
+            m_port.recheck_scanout(MONITOR);
+        }
     }
     template <class Port, class... Styles>
     void CWindowAnimations<Port, StyleList<Styles...>>::reload() {

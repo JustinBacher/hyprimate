@@ -107,8 +107,9 @@ void CBubbleVestige::tick(const ScreenFacts &screen) {
         }
         deposit.last = screen.now;
     }
-    std::erase_if(m_deposits, [](const Deposit &deposit) {
-        return deposit.age >= deposit.lifetime || (deposit.clock && deposit.clock->cancelled);
+    std::erase_if(m_deposits, [&](const Deposit &deposit) {
+        return deposit.monitor == screen.monitor &&
+               (deposit.age >= deposit.lifetime || (deposit.clock && deposit.clock->cancelled));
     });
     for (auto &wake : m_wakes) {
         if (wake.monitor != screen.monitor) {
@@ -124,7 +125,8 @@ void CBubbleVestige::tick(const ScreenFacts &screen) {
         // pixels behind.
         wake.film.advance(ELAPSED);
     }
-    std::erase_if(m_wakes, [](const Wake &wake) { return wake.film.done(); });
+    std::erase_if(m_wakes,
+        [&](const Wake &wake) { return wake.monitor == screen.monitor && wake.film.done(); });
 }
 
 CBubbleVestige::Wake *CBubbleVestige::wake_for(MonitorId monitor, std::uint64_t wake_id) {

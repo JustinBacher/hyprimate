@@ -89,6 +89,18 @@ if(BUILD_TESTING)
     target_include_directories(bubble-motion-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME bubble-motion-tests COMMAND bubble-motion-tests)
 
+    pkg_check_modules(BUBBLE_TEST_PIXMAN REQUIRED IMPORTED_TARGET pixman-1)
+    add_executable(bubble-vestige-tests
+        src/window/bubble/tests/BubbleVestigeTests.cpp
+        src/window/bubble/BubbleLiveStyle.cpp
+        src/window/bubble/BubbleVestige.cpp)
+    add_dependencies(bubble-vestige-tests generate-config)
+    target_include_directories(bubble-vestige-tests PRIVATE ${CONFIG_GENERATED_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_compile_options(bubble-vestige-tests PRIVATE -ffunction-sections -fdata-sections)
+    target_link_options(bubble-vestige-tests PRIVATE -Wl,--gc-sections)
+    target_link_libraries(bubble-vestige-tests PRIVATE hyprimate-core PkgConfig::HYPRLAND PkgConfig::BUBBLE_TEST_PIXMAN)
+    add_test(NAME bubble-vestige-tests COMMAND bubble-vestige-tests)
+
     add_executable(bubble-material-tests
         src/window/bubble/tests/BubbleMaterialTests.cpp
         src/window/bubble/BubbleMaterial.cpp
