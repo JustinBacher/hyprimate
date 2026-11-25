@@ -2865,6 +2865,86 @@ namespace {
         fixture.module.end_all();
         CHECK(!TICKET.valid());
     }
+    void workspace_switch_presentation_policy() {
+        Fixture fixture;
+        fixture.log().backdrop = true;
+        fixture.log().tail = true;
+        fixture.window(1);
+        fixture.frame(1);
+        const auto HANDLE = fixture.handle();
+        FakeCanvas canvas;
+        FakeCanvas::Image image{.id = 91};
+        const Draw<FakeCanvas> DRAW{.canvas = &canvas, .image = &image, .real_pass = true};
+        CHECK(fixture.module.draw(HANDLE, DRAW));
+        CHECK(fixture.port.retained_mapped_image(HANDLE));
+
+        for (const bool destination : {false, true}) {
+            canvas.workspace_source = !destination;
+            canvas.destination_live = destination;
+            canvas.pass_kind = destination ? PassKind::Live : PassKind::WorkspaceSource;
+            CHECK(fixture.module.draw(HANDLE, DRAW)); // Default preserves both endpoint passes.
+            fixture.policy.during_workspace_switch = false;
+            fixture.module.configure(fixture.policy);
+            fixture.log().events.clear();
+            fixture.port.backdrop_captures.clear();
+            fixture.port.queued_tails.clear();
+            const auto DRAWS = canvas.draws.size();
+            fixture.module.before_window(1, canvas, 1, 1);
+            fixture.module.before_windows(1, canvas);
+            fixture.module.after_windows(1, canvas);
+            CHECK(!fixture.module.draw(HANDLE, DRAW));
+            CHECK(!fixture.module.draw_tail(HANDLE, DRAW, false));
+            CHECK(canvas.draws.size() == DRAWS);
+            CHECK(fixture.port.backdrop_captures.empty());
+            CHECK(fixture.port.queued_tails.empty());
+            CHECK(fixture.log().events.empty());
+            CHECK(fixture.module.active(HANDLE));
+            fixture.policy.during_workspace_switch = true;
+            fixture.module.configure(fixture.policy);
+            CHECK(fixture.module.draw(HANDLE, DRAW));
+        }
+        fixture.policy.during_workspace_switch = false;
+        fixture.module.configure(fixture.policy);
+        canvas.destination_live = false;
+        canvas.workspace_source = false;
+        canvas.pass_kind = PassKind::WorkspaceSource; // Isolated inventory preview, not a turn.
+        CHECK(fixture.module.draw(HANDLE, DRAW));
+        canvas.pass_kind = PassKind::Live;
+        CHECK(fixture.module.draw(HANDLE, DRAW));
+        canvas.native_workspace_switch = true;
+        CHECK(!fixture.module.draw(HANDLE, DRAW));
+        canvas.native_workspace_switch = false;
+        CHECK(fixture.module.draw(HANDLE, DRAW));
+        fixture.module.close(1, fixture.port.now);
+        fixture.module.bind_fadeout(1, fixture.fade(704), {.id = 91});
+        const auto CLOSE = fixture.module.dying_view_for(704);
+        CHECK(CLOSE && fixture.module.suppresses(704));
+        if (CLOSE) {
+            const std::optional<Handle> CLOSE_HANDLE = CLOSE->handle;
+            CHECK(workspace_native_fallback_valid(fixture.module, CLOSE_HANDLE, 704, 704, true, false));
+            CHECK(!workspace_native_fallback_valid(fixture.module, CLOSE_HANDLE, 704, 705, true, false));
+            CHECK(!workspace_native_fallback_valid(fixture.module, CLOSE_HANDLE, 704, 704, false, false));
+            CHECK(!workspace_native_fallback_valid(fixture.module, CLOSE_HANDLE, 704, 704, true, true));
+            const std::optional<Handle> NO_HANDLE;
+            CHECK(workspace_native_fallback_valid(fixture.module, NO_HANDLE, 704, 704, true, false));
+            CHECK(!workspace_native_fallback_valid(fixture.module, NO_HANDLE, 705, 705, true, false));
+            canvas.workspace_source = true;
+            canvas.pass_kind = PassKind::WorkspaceSource;
+            CHECK(!fixture.module.draw(CLOSE->handle, DRAW));
+            canvas.workspace_source = false;
+            canvas.destination_live = true;
+            canvas.pass_kind = PassKind::Live;
+            CHECK(!fixture.module.draw(CLOSE->handle, DRAW));
+            CHECK(fixture.module.active(CLOSE->handle) && fixture.module.suppresses(704));
+            canvas.native_workspace_switch = true;
+            canvas.destination_live = false;
+            CHECK(!fixture.module.draw(CLOSE->handle, DRAW));
+            CHECK(fixture.module.active(CLOSE->handle) && fixture.module.suppresses(704));
+            canvas.native_workspace_switch = false;
+            canvas.destination_live = false;
+            CHECK(fixture.module.draw(CLOSE->handle, DRAW));
+        }
+    }
     void close_lookup_survives_view_scratch_rebuild() {
         Fixture fixture;
         fixture.window(1);
@@ -2946,6 +3026,7 @@ int main() try {
     retained_close_privacy_is_monotonic();
     queued_close_rechecks_session();
     close_batch_capacity_fallback_and_reentry();
+    workspace_switch_presentation_policy();
     close_lookup_survives_view_scratch_rebuild();
     backdrop_failure_preserves_close_content();
     close_draw_rechecks_callback_invalidation();

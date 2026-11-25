@@ -80,6 +80,25 @@ namespace hyprimate::animation {
         return view && view->handle == *handle && view_allowed(*view);
     }
 
+    // A workspace switch may show the compositor's live fadeout instead of
+    // the plugin close, without changing physical-frame ownership.
+    template <class Model, class Handle>
+    bool workspace_native_fallback_valid(const Model &model,
+        const std::optional<Handle> &handle,
+        std::uint64_t fadeout,
+        std::uint64_t current_id,
+        bool native_live,
+        bool workspace_effects_allowed) {
+        if (!native_live || current_id != fadeout || workspace_effects_allowed) {
+            return false;
+        }
+        if (handle) {
+            const auto view = model.dying_view_for(fadeout);
+            return view && view->handle == *handle;
+        }
+        return model.suppresses(fadeout);
+    }
+
     // Style code can re-enter the host between drawing a layer and displaying it.
     // Check before touching queued model state, then again at the composite.
     template <class Valid, class Draw>

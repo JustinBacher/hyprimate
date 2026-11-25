@@ -24,6 +24,8 @@ class CHyprWindowPort {
     Canvas::Resources &canvas_resources() {
         return m_canvas_resources;
     }
+    void update_workspace_switch(const PHLMONITOR &monitor);
+    void forget_workspace_switch(const PHLMONITOR &monitor);
     struct VisualCache {
         ~VisualCache() {
             hyprimate::gl::release_native(image, image_owner);

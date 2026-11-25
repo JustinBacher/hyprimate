@@ -11,6 +11,7 @@
 #include <hyprland/src/managers/SessionLockManager.hpp>
 #include <hyprland/src/managers/fullscreen/FullscreenController.hpp>
 #include <hyprland/src/managers/input/InputManager.hpp>
+#include <hyprland/src/managers/input/UnifiedWorkspaceSwipeGesture.hpp>
 #include <hyprland/src/output/Monitor.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/render/Texture.hpp>
@@ -18,6 +19,8 @@
 #include <hyprland/src/render/scene/SceneSelection.hpp>
 #include <hyprland/src/render/transformer/TransformerList.hpp>
 #include <hyprland/src/state/MonitorState.hpp>
+#include <hyprland/src/state/WorkspaceState.hpp>
+#include <hyprland/src/workspace/HLWorkspace.hpp>
 
 #include "AnimationTransformer.hpp"
 #include "HyprWindowPort.hpp"
@@ -26,6 +29,7 @@
 #include "gl/NativeResource.hpp"
 #include "window/WindowAnimations.hpp"
 #include "window/bubble/BubbleWallpaper.hpp"
+#include "workspace/WorkspaceCapturePolicy.hpp"
 #include "HyprWindowPortGeometry.hpp"
 
 using namespace hyprimate::animation;
@@ -38,6 +42,42 @@ namespace {
 
 void CHyprWindowPort::bind(HyprWindowAnimations &module) {
     m_module = &module;
+}
+
+void CHyprWindowPort::update_workspace_switch(const PHLMONITOR &monitor) {
+    if (!monitor) {
+        return;
+    }
+    const bool GESTURE = g_pUnifiedWorkspaceSwipe && g_pUnifiedWorkspaceSwipe->isGestureInProgress();
+    bool active = false;
+    for (const auto &workspace : State::Workspace::state()->workspaces()) {
+        if (workspace->m_monitor.lock() != monitor) {
+            continue;
+        }
+        const auto &offset = workspace->m_renderOffset;
+        const auto &alpha = workspace->m_alpha;
+        const bool PARTICIPATING = GESTURE && (workspace->visible() || workspace->m_forceRendering);
+        const bool DISPLACED = PARTICIPATING &&
+            ((offset && offset->value() != Vector2D{}) || (alpha && alpha->value() != 1.F));
+        if (hyprimate::workspace::native_workspace_switch(offset && offset->isBeingAnimated(),
+                alpha && alpha->isBeingAnimated(), GESTURE, PARTICIPATING, DISPLACED)) {
+            active = true;
+            break;
+        }
+    }
+    auto &states = m_canvas_resources.workspace_switches;
+    for (auto &state : states) {
+        if (state.monitor.lock() == monitor) {
+            state.active = active;
+            return;
+        }
+    }
+    states.push_back({.monitor = monitor, .active = active});
+}
+
+void CHyprWindowPort::forget_workspace_switch(const PHLMONITOR &monitor) {
+    std::erase_if(m_canvas_resources.workspace_switches,
+        [&](const auto &state) { return state.monitor.expired() || state.monitor.lock() == monitor; });
 }
 
 std::optional<Observation> CHyprWindowPort::observe(const WindowRef &ref) const {

@@ -123,6 +123,9 @@ CAnimationTransformer::~CAnimationTransformer() {
 }
 
 void CAnimationTransformer::preWindowRender(CRenderContext &ctx, CSurfacePassElement::SRenderData *data) {
+    if (!m_animations.allows_draw(CHyprAnimationCanvas{ctx, m_port.canvas_resources()})) {
+        return;
+    }
     if (m_handle.style != hyprimate::config::Style::Construction &&
         m_handle.style != hyprimate::config::Style::Shader) {
         return;
@@ -170,6 +173,9 @@ SWindowTransformBuffer CAnimationTransformer::transform(CRenderContext &ctx,
     const SWindowTransformContext &context) {
     if (!active() || context.standalone || context.renderingSnapshot || !context.monitor ||
         !input.framebuffer || !input.framebuffer->getTexture()) {
+        return input;
+    }
+    if (!m_animations.allows_draw(CHyprAnimationCanvas{ctx, m_port.canvas_resources()})) {
         return input;
     }
     if (m_handle.style == hyprimate::config::Style::Shader) {

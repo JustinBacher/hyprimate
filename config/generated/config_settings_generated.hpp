@@ -597,6 +597,7 @@ struct SConfig {
     SWorkspaceSettings workspace{};
     SWallpaperSettings wallpaper{};
     bool enabled{};
+    bool duringWorkspaceSwitch{};
     Style style{};
     STransitionConfig open{};
     STransitionConfig close{};

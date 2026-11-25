@@ -18,7 +18,7 @@ namespace hyprimate::animation {
     bool CWindowAnimations<Port, StyleList<Styles...>>::tail_allowed(
         Handle handle, const Canvas &canvas, bool retained_no_screen_share) const {
         const auto *entry = record(handle);
-        if (!m_policy.enabled || m_policy.inert || entry == nullptr ||
+        if (!allows_draw(canvas) || !m_policy.enabled || m_policy.inert || entry == nullptr ||
             entry->life != Life::Mapped || !entry->current.running || !entry->current.tail) {
             return false;
         }
@@ -66,7 +66,8 @@ namespace hyprimate::animation {
     bool CWindowAnimations<Port, StyleList<Styles...>>::draw(
         Handle handle, const Draw<Canvas> &draw_info) {
         auto *entry = record(handle);
-        if (entry == nullptr || !entry->current.running ||
+        if (draw_info.canvas == nullptr || !allows_draw(*draw_info.canvas) || entry == nullptr ||
+            !entry->current.running ||
             (entry->life == Life::Mapped && entry->current.native_presentation)) {
             return false;
         }
@@ -244,6 +245,9 @@ namespace hyprimate::animation {
     template <class Port, class... Styles>
     void CWindowAnimations<Port, StyleList<Styles...>>::before_window(
         WindowId window_id, Canvas &canvas, MonitorId render_monitor, FrameId render_frame) {
+        if (!allows_draw(canvas)) {
+            return;
+        }
         auto *window = tracked(window_id);
         if (window != nullptr && window->handle) {
             auto *entry = record(*window->handle);
@@ -317,7 +321,7 @@ namespace hyprimate::animation {
     template <class Port, class... Styles>
     void CWindowAnimations<Port, StyleList<Styles...>>::before_windows(
         MonitorId monitor, Canvas &canvas) {
-        if (canvas.pass() != PassKind::Live) {
+        if (!allows_draw(canvas) || canvas.pass() != PassKind::Live) {
             return;
         }
         auto facts = m_port.monitor_facts(monitor);
@@ -340,6 +344,9 @@ namespace hyprimate::animation {
     template <class Port, class... Styles>
     void CWindowAnimations<Port, StyleList<Styles...>>::after_windows(
         MonitorId monitor, Canvas &canvas) {
+        if (!allows_draw(canvas)) {
+            return;
+        }
         auto facts = m_port.monitor_facts(monitor);
         if (!facts) {
             return;

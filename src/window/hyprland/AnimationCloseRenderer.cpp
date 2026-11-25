@@ -27,6 +27,7 @@
 #include "AnimationCloseRendererPrivate.hpp"
 #include "CloseRenderGuard.hpp"
 
+#include "HyprAnimationCanvas.hpp"
 #include "HyprWindowPort.hpp"
 #include "NativeFadeoutPass.hpp"
 #include "StyleTypes.hpp"
@@ -320,6 +321,30 @@ void CAnimationCloseRenderer::draw_item(
     const auto SUBMIT = [&](UP<IPassElement> content) {
         Render::IHyprRenderer::addPassElement(ctx, std::move(content));
     };
+    const CHyprAnimationCanvas canvas{ctx, m_port.canvas_resources()};
+    if (!m_animations.allows_draw(canvas) && !item.fadeout) {
+        return;  // A retained-only plugin close has no native fadeout to show.
+    }
+    if (!m_animations.allows_draw(canvas) && (item.view || item.suppressed)) {
+        // The native fadeout remains owned by the compositor. Bypass plugin
+        // suppression only during the switch, without changing the live close.
+        guard.fadeout = m_port.fadeout_identity(item.fadeout);
+        guard.public_close_only = false;
+        guard.native_workspace_fallback = true;
+        const auto FRAMEBUFFER = item.fadeout->framebuffer(Render::eSceneMode::MONITOR);
+        if (FRAMEBUFFER && FRAMEBUFFER->getTexture()) {
+            const auto EFFECTS = item.fadeout->effects();
+            const bool QUEUED = submit_close([&] { return guard.valid(ctx, true); },
+                [&] { return native.prepare_texture(*item.fadeout, FRAMEBUFFER->getTexture(), EFFECTS, guard); },
+                [&] { native.draw_backdrop(EFFECTS, guard); },
+                SUBMIT);
+            if (QUEUED && guard.renderer.valid() && guard.model.valid() && physical_monitor(ctx, monitor)) {
+                const auto record = std::ranges::find(m_records, item.fadeout_id, &Record::fadeout);
+                if (record != m_records.end()) { record->awaiting_physical_queue = false; }
+            }
+        }
+        return;
+    }
     if (FOUND) {
         const auto IMAGE = m_port.fadeout_image(FOUND->handle);
         const auto bounds = FOUND->public_close_only ?

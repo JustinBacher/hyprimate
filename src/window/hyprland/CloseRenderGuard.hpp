@@ -28,6 +28,7 @@ struct CloseRenderGuard {
     std::optional<hyprimate::animation::Handle> handle;
     bool no_screen_share = false;
     bool public_close_only = false;
+    bool native_workspace_fallback = false;
     [[nodiscard]] bool valid(Render::CRenderContext &ctx, bool require_native = false) const;
     void physical_failure(Render::CRenderContext &ctx) const;
     void physical_presented(Render::CRenderContext &ctx, bool submitted) const;

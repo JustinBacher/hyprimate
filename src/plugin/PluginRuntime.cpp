@@ -165,6 +165,7 @@ CPluginRuntime::Impl::Impl(HANDLE handle) : m_handle(handle) {
     m_monitor_removed =
         Event::bus()->m_events.monitor.preRemoved.listen([this](const PHLMONITOR &monitor) {
             m_workspace->remove_monitor(monitor);
+            m_port.forget_workspace_switch(monitor);
             m_animations.monitor_changed(m_port.monitor_identity(monitor));
             restore_scanout();
         });
@@ -293,6 +294,7 @@ void CPluginRuntime::Impl::configure(bool refresh_effects) {
         .movement = m_config.movement.enabled,
         .closing = m_config.close.enabled,
         .workspace_movement = m_config.movement.workspaceMovement,
+        .during_workspace_switch = m_config.duringWorkspaceSwitch,
         .close_available = m_close_available});
 }
 
@@ -356,6 +358,9 @@ void CPluginRuntime::Impl::render_pre(const PHLMONITOR &monitor) {
     }
     restore_scanout();
     if (monitor) {
+        if (!m_config.duringWorkspaceSwitch) {
+            m_port.update_workspace_switch(monitor);
+        }
         m_animations.frame({.monitor = m_port.monitor_identity(monitor),
             .frame = ++m_frame,
             .now = hyprimate::animation::Clock::now()});

@@ -159,6 +159,7 @@ hl.window_rule({ name = "suppress-maximize-events", match = { class = ".*" }, su
 --             },
 --             window = {
 --                 enabled = true,
+--                 during_workspace_switch = true,
 --                 style = "liquid",
 --                 open = {
 --                     effect = "",

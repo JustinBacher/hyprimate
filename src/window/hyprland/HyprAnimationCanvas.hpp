@@ -1,5 +1,8 @@
 #pragma once
 
+#include <vector>
+
+#include <hyprland/src/desktop/DesktopTypes.hpp>
 #include <hyprland/src/helpers/DeformableMesh.hpp>
 #include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/Framebuffer.hpp>
@@ -18,6 +21,11 @@ class CHyprAnimationCanvas {
     struct Resources {
         CSheetShade shade;
         CSolidFill solid;
+        struct WorkspaceSwitch {
+            PHLMONITORREF monitor;
+            bool active = false;
+        };
+        std::vector<WorkspaceSwitch> workspace_switches;
     };
     CHyprAnimationCanvas(Render::CRenderContext &ctx, Resources &resources,
         bool blur_mask = false, double mask_rounding = 0, double mask_rounding_power = 2)
@@ -26,6 +34,7 @@ class CHyprAnimationCanvas {
     }
     [[nodiscard]] hyprimate::animation::PassKind pass() const;
     [[nodiscard]] bool captures_pixels() const;
+    [[nodiscard]] bool workspace_switch() const;
     [[nodiscard]] bool blur_mask() const { return m_blur_mask; }
     [[nodiscard]] double mask_rounding() const { return m_mask_rounding; }
     [[nodiscard]] double mask_rounding_power() const { return m_mask_rounding_power; }

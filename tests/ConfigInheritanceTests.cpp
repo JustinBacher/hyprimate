@@ -134,6 +134,11 @@ int main() try {
     assert(!config.workspace.enabled);
     assert(config.workspace.style == WorkspaceStyle::Rotation);
     assert(config.style == Style::Liquid);
+    assert(config.duringWorkspaceSwitch);
+    set("window:during_workspace_switch", false);
+    assert(!readConfig(values).duringWorkspaceSwitch);
+    set("window:during_workspace_switch", true);
+    assert(readConfig(values).duringWorkspaceSwitch);
     assert(near(config.workspace.rotation.duration, 600));
     assert(config.workspace.planetHop.windowMode == PlanetHopWindowMode::Surface);
     assert(config.workspace.planetHop.overlayMode == PlanetHopOverlayMode::Fade);

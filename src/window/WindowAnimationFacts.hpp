@@ -25,6 +25,7 @@ namespace hyprimate::animation {
         std::optional<config::Style> move_style{}, resize_style{};
         bool enabled = false, inert = false;
         bool opening = false, movement = false, closing = false, workspace_movement = false;
+        bool during_workspace_switch = true;
         bool close_available = false;
     };
     enum class MotionKind : std::uint8_t { Move, Resize };

@@ -75,6 +75,9 @@ namespace hyprimate::animation {
         bool suppresses(std::uint64_t fadeout) const;
         void native_finished(std::uint64_t fadeout);
         Box extents(Handle handle, const Box &capture) const;
+        [[nodiscard]] bool allows_draw(const Canvas &canvas) const {
+            return m_policy.during_workspace_switch || !canvas.workspace_switch();
+        }
         bool draw(Handle handle, const Draw<Canvas> &draw);
         bool tail_allowed(Handle handle, const Canvas &canvas, bool retained_no_screen_share) const;
         bool draw_tail(Handle handle, const Draw<Canvas> &draw, bool retained_no_screen_share);

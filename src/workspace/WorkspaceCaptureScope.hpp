@@ -42,6 +42,10 @@ class WorkspaceCaptureScope {
         const auto *capture = current(ctx);
         return capture && capture->m_kind == Kind::DestinationLive;
     }
+    static bool is_workspace_switch(const Render::CRenderContext &ctx) {
+        const auto *capture = current(ctx);
+        return capture && hyprimate::workspace::is_workspace_switch_capture(capture->m_kind);
+    }
 
   private:
     static WorkspaceCaptureScope *current(const Render::CRenderContext &ctx) {

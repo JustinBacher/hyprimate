@@ -6,6 +6,7 @@
 
 #include "AnimationCloseRendererPrivate.hpp"
 #include "CloseRenderGuard.hpp"
+#include "HyprAnimationCanvas.hpp"
 #include "HyprWindowPort.hpp"
 #include "StyleTypes.hpp"
 #include "window/WindowAnimations.hpp"
@@ -56,6 +57,11 @@ bool CloseRenderGuard::valid(Render::CRenderContext &ctx, bool require_native) c
         std::ranges::any_of(Desktop::fadingOutState()->fadeouts(),
             [&](const auto &value) { return value.get() == native.get(); });
     if (require_native && !NATIVE_LIVE) { return false; }
+    if (native_workspace_fallback) {
+        const CHyprAnimationCanvas canvas{ctx, port->canvas_resources()};
+        return workspace_native_fallback_valid(
+            *animations, handle, fadeout, ID, NATIVE_LIVE, animations->allows_draw(canvas));
+    }
     const bool ALLOWED_ASSOCIATION = close_association_valid(
         *animations, *port, handle, fadeout, ID, NATIVE_LIVE,
         [&](const auto &view) {

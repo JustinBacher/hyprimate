@@ -97,6 +97,7 @@ namespace hyprimate::animation {
         typename P::VisualCache;
         { std::as_const(canvas).pass() } -> std::same_as<PassKind>;
         { std::as_const(canvas).captures_pixels() } -> std::same_as<bool>;
+        { std::as_const(canvas).workspace_switch() } -> std::same_as<bool>;
         { canvas.composite(box, 1.0F) } -> std::same_as<void>;
         { std::as_const(canvas).image_size(image) } -> std::same_as<Vec2>;
         { P::Canvas::same_image(image, image) } -> std::same_as<bool>;

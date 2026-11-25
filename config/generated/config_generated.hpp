@@ -576,6 +576,7 @@ struct SConfigValues {
     SP<Config::Values::CIntValue> m_wallpaperEffectDuration;
     SP<Config::Values::CStringValue> m_wallpaperSourceNamespace;
     SP<Config::Values::CBoolValue> m_enabled;
+    SP<Config::Values::CBoolValue> m_duringWorkspaceSwitch;
     SP<Config::Values::CStringValue> m_style;
     SP<Config::Values::CStringValue> m_openEffect;
     SP<Config::Values::CStringValue> m_closeEffect;
@@ -1261,6 +1262,7 @@ inline void registerConfigValues(HANDLE handle, SConfigValues& values) {
         Config::Values::SIntValueOptions{.min = 0, .max = 60000});
     values.m_wallpaperSourceNamespace = makeShared<Config::Values::CStringValue>("plugin:hyprimate:wallpaper:source_namespace", "Exact layer-shell BACKGROUND namespace allowed as a shader wallpaper source. Empty allows only the unobscured stock wallpaper.", "");
     values.m_enabled = makeShared<Config::Values::CBoolValue>("plugin:hyprimate:window:enabled", "Enable window movement, opening and closing effects. When false, none of these effects run.", true);
+    values.m_duringWorkspaceSwitch = makeShared<Config::Values::CBoolValue>("plugin:hyprimate:window:during_workspace_switch", "Show window effects during workspace switches. When false, use native window presentation where available until the switch ends.", true);
     values.m_style = makeShared<Config::Values::CStringValue>("plugin:hyprimate:window:style", "Choose the built-in style for movement and for transitions without an external effect override.", "liquid",
         Config::Values::SStringValueOptions{.validator = [](const Config::STRING& value) -> std::expected<void, std::string> {
             if (value == "liquid" || value == "paper" || value == "cloth" || value == "swarm" || value == "bubble" || value == "smoke" || value == "burn" || value == "construction") {
@@ -1912,6 +1914,7 @@ inline void registerConfigValues(HANDLE handle, SConfigValues& values) {
      || !HyprlandAPI::addConfigValueV2(handle, values.m_wallpaperEffectDuration)
      || !HyprlandAPI::addConfigValueV2(handle, values.m_wallpaperSourceNamespace)
      || !HyprlandAPI::addConfigValueV2(handle, values.m_enabled)
+     || !HyprlandAPI::addConfigValueV2(handle, values.m_duringWorkspaceSwitch)
      || !HyprlandAPI::addConfigValueV2(handle, values.m_style)
      || !HyprlandAPI::addConfigValueV2(handle, values.m_openEffect)
      || !HyprlandAPI::addConfigValueV2(handle, values.m_closeEffect)
@@ -2436,6 +2439,7 @@ inline SConfig readConfig(const SConfigValues& values) {
     config.wallpaper.effectDuration = detail::clamp_int(values.m_wallpaperEffectDuration->value(), 0, 60000);
     config.wallpaper.sourceNamespace = values.m_wallpaperSourceNamespace->value();
     config.enabled = values.m_enabled->value();
+    config.duringWorkspaceSwitch = values.m_duringWorkspaceSwitch->value();
     config.style = detail::parse_style(values.m_style->value());
     config.open.effect = values.m_openEffect->value();
     config.close.effect = values.m_closeEffect->value();

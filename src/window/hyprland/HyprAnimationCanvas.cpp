@@ -32,6 +32,20 @@ bool CHyprAnimationCanvas::captures_pixels() const {
            WorkspaceCaptureScope::for_context(context()) != nullptr ||
            WorkspaceCaptureScope::is_destination_live(context());
 }
+bool CHyprAnimationCanvas::workspace_switch() const {
+    const auto &ctx = context();
+    if (WorkspaceCaptureScope::for_context(ctx) ||
+        WorkspaceCaptureScope::is_destination_live(ctx)) {
+        return WorkspaceCaptureScope::is_workspace_switch(ctx);
+    }
+    const auto monitor = ctx.m_data.pMonitor.lock();
+    for (const auto &state : m_resources->workspace_switches) {
+        if (monitor && state.monitor.lock() == monitor) {
+            return state.active;
+        }
+    }
+    return false;
+}
 CHyprAnimationCanvas::Backdrop CHyprAnimationCanvas::capture_wallpaper(
     const CBox &source, const CBox &bounds) {
     if (pass() != PassKind::Live || context().readOnlyEffects() || context().m_renderingCapture ||

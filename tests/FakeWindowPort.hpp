@@ -29,6 +29,10 @@ namespace hyprimate::animation::test {
             return destination_live || rendering_capture || rendering_snapshot ||
                    pass_kind != PassKind::Live;
         }
+        [[nodiscard]] bool workspace_switch() const {
+            return workspace_source || destination_live || native_workspace_switch;
+        }
+        bool workspace_source = false, native_workspace_switch = false;
         std::vector<int> draws;
         std::vector<Box> composites;
         static Vec2 image_size(const Image &image) {
