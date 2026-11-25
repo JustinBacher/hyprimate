@@ -84,7 +84,22 @@ namespace {
         simulation.open(CAPTURE, params, 29);
         advance(simulation, 150);
         CHECK(simulation.front().progress == 1);
-        if (simulation.front().progress != 1) return false;
+        auto uncurled_params = params;
+        uncurled_params.consume = false;
+        uncurled_params.curl = 0;
+        hyprimate::BurnSimulation uncurled;
+        uncurled.close(CAPTURE, uncurled_params, 29);
+        advance(uncurled, 40);
+        CHECK(uncurled.front().progress > 0 && uncurled.front().progress < 1);
+        if (uncurled.front().progress <= 0 || uncurled.front().progress >= 1) return false;
+        auto curl_params = params;
+        curl_params.consume = false;
+        curl_params.curl = 1;
+        hyprimate::BurnSimulation folded;
+        folded.close(CAPTURE, curl_params, 29);
+        advance(folded, 40);
+        CHECK(folded.front().progress > 0 && folded.front().progress < 1);
+        if (folded.front().progress <= 0 || folded.front().progress >= 1) return false;
         const auto DRAW =
             [&](CBurnMaterial &material, const SBurnTarget &placement, const Target &output) {
                 const bool OK = material.draw(simulation, placement, texture, output.framebuffer);
@@ -95,7 +110,7 @@ namespace {
                     near(IMAGE[index], source[index]);
                 return true;
             };
-        for (const unsigned occurrence : {1U, 2U}) {
+        for (const unsigned occurrence : {1U, 2U, 3U}) {
             CBurnMaterial material;
             {
                 const gl_harness::FailAllocation FAIL(gl_harness::Allocation::buffer, occurrence);
@@ -111,8 +126,40 @@ namespace {
             CHECK(INITIALIZED);
             if (!INITIALIZED) return false;
             const bool DRAWN = DRAW(material, placement(), target);
+            if (!DRAWN) {
+                material.release();
+                return false;
+            }
+            const bool UNCURLED_DRAWN =
+                material.draw(uncurled, placement(), texture, target.framebuffer);
+            CHECK(UNCURLED_DRAWN);
+            if (!UNCURLED_DRAWN) {
+                material.release();
+                return false;
+            }
+            const auto UNCURLED = read(target);
+            const bool CURL_DRAWN =
+                material.draw(folded, placement(), texture, target.framebuffer);
+            CHECK(CURL_DRAWN);
+            if (!CURL_DRAWN) {
+                material.release();
+                return false;
+            }
+            const auto CURL = read(target);
+            unsigned contracted = 0;
+            for (std::size_t index = 0; index < CURL.size(); ++index)
+                if (UNCURLED[index][3] > 240 && CURL[index][3] < 16) ++contracted;
+            CHECK(contracted > 15);
+            for (int row = 44; row < 52; ++row)
+                for (int column = 44; column < 52; ++column) {
+                    const auto index = static_cast<std::size_t>(row * WIDTH + column);
+                    near(CURL[index], source[index]);
+                }
+            if (contracted <= 15) {
+                material.release();
+                return false;
+            }
             material.release();
-            if (!DRAWN) return false;
         }
         const Target larger{384, HEIGHT};
         if (!larger.valid) return false;
