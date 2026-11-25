@@ -59,6 +59,7 @@ namespace hyprimate {
         int m_fed = -1;
         BubbleFoam::Film m_origin{};  // the film it grew from, drawn while its membrane fades in
         std::uint64_t m_random = 0;
+        std::uint64_t m_seed = 0;
         int m_ticks = 0;
         bool m_landed = false;
 

@@ -89,6 +89,7 @@ namespace hyprimate {
         m_params.damping = BOUNDED(REQUESTED.damping, 1, .5, 2);
         m_params.buoyancy = BOUNDED(REQUESTED.buoyancy, 1, 0, 2);
         m_params.linger = BOUNDED(REQUESTED.linger, .5, 0, 1);
+        m_seed = seed;
         if (!usable(size)) { return; }
         m_size = size;
         m_random = seed;
@@ -125,7 +126,7 @@ namespace hyprimate {
 
     void BubbleFormation::advance(double progress, Vec2 size) {
         if (!usable(size) || !std::isfinite(progress)) { return; }
-        if (!usable(m_size)) { begin(size, m_random, m_params); }
+        if (!usable(m_size)) { begin(size, m_seed, m_params); }
         if (size.x != m_size.x || size.y != m_size.y) {
             // Preserve fractional fill and normalized positions on resize.
             const double OLD_SHORT = std::min(m_size.x, m_size.y);

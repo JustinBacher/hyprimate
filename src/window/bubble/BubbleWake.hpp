@@ -81,6 +81,7 @@ namespace hyprimate {
             double tail = 0, head = 0;  // px its free ends have retracted
             bool open = false;  // still drawn out of the window: its head is not free
             double idle = 0;  // s since the window last sent it a point
+            bool idle_closed = false;  // closed only because the producer stopped sending points
             bool thread = false;
         };
         struct Neck {

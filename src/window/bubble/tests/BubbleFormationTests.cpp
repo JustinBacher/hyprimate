@@ -384,6 +384,31 @@ namespace {
         CHECK(visible.window.visibility > 0 && visible.window.content > 0);
     }
 
+    void deferred_size_preserves_seed() {
+        const BubbleFormationParams PARAMS{.count = 40};
+        BubbleFormation direct;
+        BubbleFormation deferred;
+        BubbleFormation zero_seed;
+        direct.begin(SIZE, 255, PARAMS);
+        deferred.begin({}, 255, PARAMS);
+        zero_seed.begin(SIZE, 0, PARAMS);
+        direct.advance(.2, SIZE);
+        deferred.advance(.2, SIZE);
+        zero_seed.advance(.2, SIZE);
+        BubbleFrame expected{.size = SIZE};
+        BubbleFrame actual{.size = SIZE};
+        BubbleFrame other{.size = SIZE};
+        direct.writeFrame(expected);
+        deferred.writeFrame(actual);
+        zero_seed.writeFrame(other);
+        // Before emergence the inlet position is exposed as the window's carry.
+        // Also show that this observation distinguishes the requested seed from zero.
+        CHECK(expected.window.motion.carry.x != other.window.motion.carry.x ||
+              expected.window.motion.carry.y != other.window.motion.carry.y);
+        CHECK(actual.window.motion.carry.x == expected.window.motion.carry.x);
+        CHECK(actual.window.motion.carry.y == expected.window.motion.carry.y);
+    }
+
 }  // namespace
 
 int main() {
@@ -392,5 +417,6 @@ int main() {
     pressure_changes_inflation_and_settles();
     formation_controls_keep_the_endpoint();
     single_companion_cannot_block_emergence();
+    deferred_size_preserves_seed();
     return g_failures == 0 ? 0 : 1;
 }

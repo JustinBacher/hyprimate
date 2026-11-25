@@ -703,6 +703,30 @@ namespace {
         first_bubble.stop_motion();
         CHECK(!first_bubble.stirred() && first_bubble.frame(SIZE).window.motion.still());
     }
+    void wake_rejoins_after_input_resumes() {
+        BubbleWake wake(7);
+        BubbleTrailPoint point{.position = {.x = 0, .y = 0},
+            .half_width = 10, .thickness = 500, .strand = 1};
+        CHECK(wake.extend(point, {}));
+        point.position.x = 200;
+        point.provisional = true;
+        CHECK(wake.extend(point, {}));
+        // The producer pauses longer than the wake's idle timeout, then resumes.
+        wake.advance(.12);
+        point.position.x = 300;
+        CHECK(wake.extend(point, {}));
+        wake.advance(.02);
+        BubbleWakeView view;
+        wake.view(view);
+        CHECK(view.segment_count == 1);
+        if (view.segment_count == 1) {
+            const auto &segment = view.segments[0];
+            const auto &last = view.nodes[segment.first + segment.count - 1];
+            // A resumed provisional head is still attached to the window.
+            CHECK(std::abs(segment.to - last.arc) < 1e-9);
+        }
+    }
+
 }  // namespace
 
 int main() {
@@ -724,5 +748,6 @@ int main() {
     roundness_zero_keeps_the_rectangle();
     microbubbles_ride_the_rounded_film();
     layout_moves_carry_the_film();
+    wake_rejoins_after_input_resumes();
     return g_failures == 0 ? 0 : 1;
 }

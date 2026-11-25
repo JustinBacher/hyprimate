@@ -81,6 +81,16 @@ namespace hyprimate {
             current->open = true;
             current->thread = point.half_width < 6;
         }
+        if (!point.last && current->idle_closed) {
+            // The prior run retracted its head while idle. Resume the joined strand at the new
+            // point instead of carrying that stale retraction into the resumed head.
+            current->head = 0;
+            current->idle_closed = false;
+            current->open = true;
+        } else if (point.last) {
+            current->open = false;
+            current->idle_closed = false;
+        }
         Node node;
         node.position = POSITION;
         node.velocity = point.velocity;
@@ -161,6 +171,7 @@ namespace hyprimate {
             auto active = std::span{item.nodes}.first(item.count);
             if (item.open && item.idle > .1) {
                 item.open = false;
+                item.idle_closed = true;
                 active.back().provisional = false;
             }
             for (auto &node : active) {
