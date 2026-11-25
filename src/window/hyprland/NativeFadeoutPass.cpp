@@ -10,7 +10,7 @@
 #include <hyprutils/math/Region.hpp>
 #include <hyprutils/memory/UniquePtr.hpp>
 
-#include "AnimationCloseRenderer.hpp"
+#include "CloseRenderGuard.hpp"
 #include "NativeFadeoutPass.hpp"
 
 namespace {

@@ -3,7 +3,7 @@
 #include <hyprland/src/render/pass/PassElement.hpp>
 #include <hyprutils/math/Region.hpp>
 
-#include "AnimationCloseRenderer.hpp"
+#include "CloseRenderGuard.hpp"
 #include "HyprAnimationCanvas.hpp"
 #include "HyprWindowAnimations.hpp"
 #include "gl/CompositorContext.hpp"

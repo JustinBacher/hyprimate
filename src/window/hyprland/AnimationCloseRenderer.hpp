@@ -17,24 +17,6 @@
 
 class CHyprWindowPort;
 
-// Shared by the submission boundary and the queued pass. Raw model/port pointers are
-// consulted only while both owner tickets remain valid.
-struct CloseRenderGuard {
-    hyprimate::animation::CallbackLifetime::Ticket renderer, model;
-    HyprWindowAnimations *animations = nullptr;
-    CHyprWindowPort *port = nullptr;
-    SP<Desktop::IFadeout> native;
-    PHLMONITOR monitor;
-    PHLWORKSPACE workspace;
-    Desktop::eFadeoutPlane plane = Desktop::FADEOUT_PLANE_WINDOW_TILED;
-    std::uint64_t fadeout = 0;
-    std::optional<hyprimate::animation::Handle> handle;
-    bool no_screen_share = false;
-    bool public_close_only = false;
-    [[nodiscard]] bool valid(Render::CRenderContext &ctx, bool require_native = false) const;
-    void physical_failure(Render::CRenderContext &ctx) const;
-    void physical_presented(Render::CRenderContext &ctx, bool submitted) const;
-};
 
 // Associates native fadeouts with module-owned animations and preserves native batch ordering.
 class CAnimationCloseRenderer {
