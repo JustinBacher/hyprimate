@@ -2,6 +2,7 @@ find_package(PNG REQUIRED)
 target_sources(hyprimate-core PRIVATE src/workspace/planet_hop/PlanetScene.cpp)
 add_library(planet-gl STATIC
     src/workspace/planet_hop/PlanetGlRenderer.cpp
+    src/workspace/planet_hop/PlanetGlResources.cpp
     src/workspace/planet_hop/PlanetDepth.cpp)
 target_include_directories(planet-gl PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # depth_source is a production setting, not evidence tooling: retain bounded PNG decoding.
