@@ -18,6 +18,9 @@ namespace hyprimate::gl {
     [[nodiscard]] bool native_current(const SP<Render::IFramebuffer> &) noexcept;
     [[nodiscard]] bool native_current(
         const SP<Render::IFramebuffer> &, const CurrentCompositorContext &) noexcept;
+    // Only for the exact CPU-uploaded, non-EGLImage sheet ramp retained by this registry.
+    [[nodiscard]] bool retire_replaced_sheet_shade(
+        const SP<Render::ITexture> &, const CurrentCompositorContext &) noexcept;
 
     // For a borrowed native object retained by a cache or queued pass. Do not extend a pool
     // lease if another reference (including the pool itself) can take over its lifetime.

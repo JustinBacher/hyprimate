@@ -4,6 +4,7 @@
 
 #include "Check.hpp"
 #include "GlHarness.hpp"
+#include "SheetShadeEgl.hpp"
 #include "gl/ContextOwnerState.hpp"
 #include "gl/EglContext.hpp"
 #include "gl/NativeRetirement.hpp"
@@ -54,6 +55,8 @@ int main() {
     if (owner == EGL_NO_CONTEXT || read == EGL_NO_SURFACE ||
         !eglMakeCurrent(display, draw, read, caller))
         return 1;
+    sheet_shade_test::run(display, draw, config, caller, owner);
+    if (!eglMakeCurrent(display, draw, read, caller)) return 1;
 
     const auto new_buffer = [] {
         GLuint buffer = 0;
@@ -62,7 +65,7 @@ int main() {
         return buffer;
     };
     const GLuint caller_buffer = new_buffer();
-    GLuint owner_buffer = 0;
+    GLuint owner_buffer = 0, cached_name = 0, borrowed_name = 0;
     const hyprimate::gl::EglContextId target{display, owner};
     using Retained =
         hyprimate::gl::NativeRetirement<NativeBuffer, Owner, hyprimate::gl::ScopedEglContext>;
@@ -93,6 +96,8 @@ int main() {
         owner_buffer = new_buffer();
         cached = makeShared<NativeBuffer>(new_buffer(), cached_destroyed);
         borrowed = makeShared<NativeBuffer>(new_buffer(), borrowed_destroyed);
+        cached_name = cached->name;
+        borrowed_name = borrowed->name;
         retained.keep(cached, origin);
         CHECK(retained.current(cached));
         CHECK(calls.standalone == 1 && calls.checked == 0);
@@ -102,15 +107,16 @@ int main() {
         CHECK(!retained.current(borrowed, checked));
         CHECK(calls.standalone == 1 && calls.checked == 1);
     }
-    // These independent object namespaces deliberately assign the same numeric name.
-    if (!owner_buffer || owner_buffer != caller_buffer) return 1;
+    // Independent namespaces may or may not reuse names; the foreign sentinels must survive
+    // either way, including when the driver supplies a numeric collision.
+    if (!owner_buffer || !caller_buffer || !cached_name || !borrowed_name) return 1;
     CHECK(eglGetCurrentContext() == caller);
     CHECK(!retained.current(cached));
     const hyprimate::gl::EglContextId caller_identity{eglGetCurrentDisplay(), eglGetCurrentContext()};
     CHECK(!retained.current(cached, caller_identity));
     CHECK(calls.standalone == 2 && calls.checked == 2);
     const GLuint second_caller = new_buffer(), third_caller = new_buffer();
-    if (second_caller != cached->name || third_caller != borrowed->name) return 1;
+    if (!second_caller || !third_caller) return 1;
     // The native pool still owns this borrowed reference. Never pin it in order to retire ours.
     auto pool = borrowed;
     retained.drop_borrowed(borrowed, origin);
@@ -145,6 +151,14 @@ int main() {
     worker.join();
     retained.collect();
     CHECK(cached_destroyed == owner && borrowed_destroyed == owner);
+    {
+        const hyprimate::gl::ScopedEglContext verify_owner(target);
+        CHECK(verify_owner);
+        if (verify_owner) {
+            CHECK(!glIsBuffer(cached_name) && !glIsBuffer(borrowed_name));
+            CHECK(glIsBuffer(owner_buffer));
+        }
+    }
     CHECK(eglGetCurrentContext() == caller);
     CHECK(glIsBuffer(second_caller) && glIsBuffer(third_caller));
     glDeleteBuffers(1, &second_caller);

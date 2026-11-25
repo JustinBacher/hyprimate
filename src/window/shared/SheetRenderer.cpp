@@ -1,9 +1,4 @@
-#include <algorithm>
-#include <array>
-#include <cmath>
-#include <cstddef>
 #include <cstdint>
-#include <ranges>
 #include <utility>
 #include <vector>
 
@@ -29,62 +24,24 @@
 #include "perf/LiveProfiler.hpp"
 #include "window/shared/SheetRenderer.hpp"
 
-namespace {
-    constexpr int RAMP_SIZE = 256;
-    constexpr int RAMP_CENTRE = 128;
-    constexpr double RAMP_SPAN = 127.0;  // texels from centre to either end, for k in [-1, 1]
-    constexpr double SHADOW_STRENGTH = 0.6;  // peak black alpha for k = -1
-    constexpr double HIGHLIGHT_STRENGTH = 0.45;  // peak white alpha for k = +1
-
-    uint8_t ramp_byte(double unit) noexcept {
-        return static_cast<uint8_t>(std::lround(std::clamp(unit, 0.0, 1.0) * 255.0));
-    }
-
-}  // namespace
-
 SP<Render::ITexture> CSheetShade::texture() {
-    if (m_texture) return m_owner.ensure_current() ? m_texture : nullptr;
     if (!g_pHyprRenderer) return nullptr;
-
-    // Premultiplied; memory order is B, G, R, A for DRM_FORMAT_ARGB8888.
-    static_assert(sizeof(std::array<uint8_t, 4>) == 4);
-    std::array<std::array<uint8_t, 4>, RAMP_SIZE> pixels{};
-    int pixel_index = 0;
-    for (auto &pixel : pixels) {
-        const double RAMP_COORD = std::max((pixel_index - RAMP_CENTRE) / RAMP_SPAN, -1.0);
-        uint8_t colour =
-            0;  // black for shadow; white highlight is premultiplied, so colour equals alpha
-        uint8_t alpha = 0;
-        if (RAMP_COORD < 0.0) {
-            alpha = ramp_byte(-RAMP_COORD * SHADOW_STRENGTH);
-        } else if (RAMP_COORD > 0.0) {
-            colour = alpha = ramp_byte(RAMP_COORD * HIGHLIGHT_STRENGTH);
-        }
-
-        std::get<0>(pixel) = colour;
-        std::get<1>(pixel) = colour;
-        std::get<2>(pixel) = colour;
-        std::get<3>(pixel) = alpha;
-        ++pixel_index;
-    }
-
-    const hyprimate::gl::ScopedCompositorContext CONTEXT{};
-    if (!CONTEXT || !m_owner.ensure_current()) {
-        return nullptr;
-    }
-    const hyprimate::gl::TextureUploadBinding BINDING;
-    const hyprimate::gl::ClientPixelUnpack UNPACK;
-    auto candidate = g_pHyprRenderer->createTexture(DRM_FORMAT_ARGB8888,
-        pixels.front().data(),
-        RAMP_SIZE * 4,
-        Vector2D{RAMP_SIZE, 1},
-        false,
-        false);
-    if (!candidate || !hyprimate::gl::has_color_storage(candidate->m_texID)) {
-        return nullptr;
-    }
-    m_texture = hyprimate::gl::retain_native(std::move(candidate));
-    return m_texture;
+    return m_cache.texture(
+        [](std::uint8_t *pixels, int size) {
+            return g_pHyprRenderer->createTexture(DRM_FORMAT_ARGB8888,
+                pixels,
+                size * 4,
+                Vector2D{size, 1},
+                false,
+                false);
+        },
+        [](SP<Render::ITexture> texture) {
+            return hyprimate::gl::retain_native(std::move(texture));
+        },
+        [](const SP<Render::ITexture> &texture,
+            const hyprimate::gl::CurrentCompositorContext &current) {
+            return hyprimate::gl::retire_replaced_sheet_shade(texture, current);
+        });
 }
 
 const std::vector<SMeshRenderVertex> &sheet_canvas_quad() {

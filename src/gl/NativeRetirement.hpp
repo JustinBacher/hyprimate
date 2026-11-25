@@ -5,6 +5,7 @@
 #include <utility>
 
 #include <hyprland/src/helpers/memory/Memory.hpp>
+#include "gl/ContextOwnerState.hpp"
 
 namespace hyprimate::gl {
     // Hyprland native wrappers can unconditionally switch EGL and delete on destruction. Keep
@@ -31,6 +32,18 @@ namespace hyprimate::gl {
             const auto it = m_entries.find(resource.get());
             return it != m_entries.end() && it->second.owner.ensure_current(context);
         }
+        // Only the CPU-uploaded sheet shade uses this: its name is detached in a verified
+        // replacement context before either the cache or any consumer can release it.
+        template <class Context, class Disarm>
+        bool disarm_replaced(const SP<T> &resource, const Context &current, Disarm disarm) noexcept {
+            const auto it = m_entries.find(resource.get());
+            if (it == m_entries.end() || it->second.disarmed ||
+                it->second.owner.classify_current(current) != ContextOwnerState::replaced)
+                return false;
+            disarm(*it->second.resource);
+            it->second.disarmed = true;
+            return true;
+        }
         void drop_borrowed(SP<T> &resource, const Owner &owner) noexcept {
             if (!resource || resource.strongRef() > 1) {
                 resource.reset();
@@ -53,8 +66,15 @@ namespace hyprimate::gl {
             for (unsigned n = 0; n < 8 && m_cursor != m_entries.end(); ++n) {
                 auto it = m_cursor++;
                 if (it->second.resource.strongRef() != 1) continue;
-                const Scope scope{it->second.owner};
-                if (scope) m_entries.erase(it);
+                if (it->second.disarmed) {
+                    if constexpr (requires { Scope{}; }) {
+                        const Scope scope;
+                        if (scope) m_entries.erase(it);
+                    }
+                } else {
+                    const Scope scope{it->second.owner};
+                    if (scope) m_entries.erase(it);
+                }
             }
         }
         // A host pass can still hold a reference at unload. Without an owner-aware deleter,
@@ -63,12 +83,26 @@ namespace hyprimate::gl {
             std::size_t unavailable = 0;
             for (auto &[_, item] : m_entries) {
                 if (!backend_gone) {
-                    const Scope scope{item.owner};
-                    if (!scope || item.resource.strongRef() > 1) {
-                        abandon(item.resource);
-                        ++unavailable;
+                    if (item.disarmed) {
+                        if constexpr (requires { Scope{}; }) {
+                            const Scope scope;
+                            if (!scope || item.resource.strongRef() > 1) {
+                                abandon(item.resource);
+                                ++unavailable;
+                            }
+                            item.resource.reset();
+                        } else {
+                            abandon(item.resource);
+                            ++unavailable;
+                        }
+                    } else {
+                        const Scope scope{item.owner};
+                        if (!scope || item.resource.strongRef() > 1) {
+                            abandon(item.resource);
+                            ++unavailable;
+                        }
+                        item.resource.reset();
                     }
-                    item.resource.reset();
                 } else {
                     item.resource.reset();
                 }
@@ -93,6 +127,7 @@ namespace hyprimate::gl {
         struct Entry {
             Owner owner;
             SP<T> resource;
+            bool disarmed = false;
         };
         std::unordered_map<const T *, Entry> m_entries;
         typename decltype(m_entries)::iterator m_cursor = m_entries.end();

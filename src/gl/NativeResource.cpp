@@ -58,6 +58,11 @@ namespace hyprimate::gl {
     SP<Render::ITexture> retain_native(SP<Render::ITexture> resource) {
         return retain(resources.textures, std::move(resource));
     }
+    bool retire_replaced_sheet_shade(const SP<Render::ITexture> &resource,
+        const CurrentCompositorContext &current) noexcept {
+        return resources.textures.disarm_replaced(
+            resource, current, [](Render::ITexture &texture) { texture.m_texID = 0; });
+    }
     bool native_current(const SP<Render::IFramebuffer> &resource) noexcept {
         return resources.framebuffers.current(resource);
     }

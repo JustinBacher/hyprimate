@@ -10,18 +10,21 @@
 #include <hyprland/src/render/Texture.hpp>
 
 #include "gl/CompositorContext.hpp"
+#include "window/shared/SheetShadeCache.hpp"
 
 // Shade ramp for sheet lighting: a 256x1 premultiplied texture indexed by triangle shade. Texel 128
 // is fully transparent (neutral); lower texels are black shadow, higher texels are white highlight.
-// texture() creates GL objects, so call it only while rendering; the texture is built once and
-// reused only in its creating compositor context.
+// texture() creates GL objects, so call it only while rendering; the texture is cached for its
+// creating compositor context and rebuilt after a verified replacement.
 class CSheetShade {
   public:
     SP<Render::ITexture> texture();
 
   private:
-    hyprimate::gl::CompositorContextOwner m_owner;
-    SP<Render::ITexture> m_texture;
+    hyprimate::gl::SheetShadeCache<Render::ITexture,
+        hyprimate::gl::CompositorContextOwner,
+        hyprimate::gl::CurrentCompositorContext,
+        hyprimate::gl::ScopedCompositorContext> m_cache;
 };
 
 // Six vertices covering a unit box with uv equal to position. Draws a full-canvas texture as a
