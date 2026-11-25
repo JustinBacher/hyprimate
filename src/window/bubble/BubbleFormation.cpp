@@ -170,6 +170,11 @@ namespace hyprimate {
                             total / static_cast<double>(m_plumes.size());
         m_birth_hazard += RATE * step;
         const double SHORT_REACH = std::sqrt(m_gas / PI_VALUE);
+        // Keep one slot for the inlet film until it has been selected or created.
+        std::size_t free_slots =
+            !m_exists && m_fed < 0 && m_birth_hazard >= m_birth_threshold && total > 0
+                ? m_foam.capacity() - m_foam.live_count()
+                : 0;
         while (m_birth_hazard >= m_birth_threshold && total > 0) {
             m_birth_hazard -= m_birth_threshold;
             m_birth_threshold = -std::log(1 - unit_draw(m_random));
@@ -202,8 +207,14 @@ namespace hyprimate {
             // Wall thickness is the film's own (formation, drainage), not its size.
             const double THICKNESS = 500 + (380 * unit_draw(m_random));
             const double LIFE = (.22 + (.45 * unit_draw(m_random))) * (.7 + (.6 * m_params.linger));
+            if (!m_exists && m_fed < 0 && free_slots <= 1) {
+                continue;
+            }
             const int SLOT = m_foam.spawn(point, {}, RADIUS, THICKNESS, 0, LIFE);
             if (SLOT < 0) { continue; }
+            if (!m_exists && m_fed < 0) {
+                --free_slots;
+            }
             m_foam.film(SLOT).surface_rate *=
                 std::exp(1.4 * m_params.growthVariation * (unit_draw(m_random) - .5));
         }

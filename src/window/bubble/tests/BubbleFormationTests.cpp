@@ -364,6 +364,26 @@ namespace {
         }
     }
 
+    // The final foam slot must not prevent the window bubble from emerging.
+    void single_companion_cannot_block_emergence() {
+        constexpr int DEADLINE_TICK = 245;  // first simulation tick at or after .68
+        const BubbleFormationParams PARAMS{.count = 1, .birthRate = 2, .linger = 1};
+        BubbleFormation formation;
+        // Before reserving a slot, seed 255 stranded the only film away from the inlet.
+        formation.begin(SIZE, 255, PARAMS);
+        formation.advance(DEADLINE_TICK / 360.0, SIZE);
+        BubbleFrame deadline{.size = SIZE};
+        formation.writeFrame(deadline);
+        // At emergence the window membrane fades in from zero; geometry, rather than
+        // incidental companion films, identifies the primary at the deadline.
+        CHECK(deadline.window.half_size.x > 0 && deadline.window.half_size.y > 0);
+
+        formation.advance(.78, SIZE);
+        BubbleFrame visible{.size = SIZE};
+        formation.writeFrame(visible);
+        CHECK(visible.window.visibility > 0 && visible.window.content > 0);
+    }
+
 }  // namespace
 
 int main() {
@@ -371,5 +391,6 @@ int main() {
     formation_movement_depends_on_seed();
     pressure_changes_inflation_and_settles();
     formation_controls_keep_the_endpoint();
+    single_companion_cannot_block_emergence();
     return g_failures == 0 ? 0 : 1;
 }
