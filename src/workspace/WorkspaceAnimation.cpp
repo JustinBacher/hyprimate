@@ -129,8 +129,10 @@ namespace {
     constexpr const char *GESTURE_BEGIN_SIGNATURE =
         "CUnifiedWorkspaceSwipeGesture::begin(Hyprutils::Memory::CSharedPointer<Monitor::CMonitor>"
         ")";
-    constexpr const char *GESTURE_END_NAME = "CUnifiedWorkspaceSwipeGesture3end";
-    constexpr const char *GESTURE_END_SIGNATURE = "CUnifiedWorkspaceSwipeGesture::end()";
+    // Public end() can be a relative-jump forwarding stub, which Hyprland's
+    // current hook trampoline cannot relocate. Hook the native segment body.
+    constexpr const char *GESTURE_END_NAME = "CUnifiedWorkspaceSwipeGesture10endSegment";
+    constexpr const char *GESTURE_END_SIGNATURE = "CUnifiedWorkspaceSwipeGesture::endSegment()";
     constexpr const char *GESTURE_CANCEL_NAME = "CUnifiedWorkspaceSwipeGesture6cancel";
     constexpr const char *GESTURE_CANCEL_SIGNATURE = "CUnifiedWorkspaceSwipeGesture::cancel()";
 
@@ -152,6 +154,7 @@ namespace {
         "Hyprutils::Memory::CSharedPointer<Render::IFramebuffer>, float, "
         "Hyprutils::Math::CRegion const&, Render::SBlurContext const&)";
     using GestureBeginFn = bool (*)(CUnifiedWorkspaceSwipeGesture *, PHLMONITOR);
+    using GestureEndFn = bool (*)(CUnifiedWorkspaceSwipeGesture *);
     using GestureVoidFn = void (*)(CUnifiedWorkspaceSwipeGesture *);
     using WindowFn = void (*)(Render::IHyprRenderer *,
         Render::CRenderContext &,
@@ -671,17 +674,15 @@ namespace {
     }
     // NOLINTEND(performance-unnecessary-value-param)
 
-    void hook_gesture_end(CUnifiedWorkspaceSwipeGesture *gesture) {
+    bool hook_gesture_end(CUnifiedWorkspaceSwipeGesture *gesture) {
         auto *manager = active();
         auto function =
-            original<GestureVoidFn>(manager != nullptr ? manager->m_gesture_end_hook : nullptr);
+            original<GestureEndFn>(manager != nullptr ? manager->m_gesture_end_hook : nullptr);
         // Detach the outgoing gesture before native code can begin another one.
         if (manager != nullptr) {
             manager->clear_gesture();
         }
-        if (function != nullptr) {
-            function(gesture);
-        }
+        return function != nullptr ? function(gesture) : false;
     }
 
     void hook_gesture_cancel(CUnifiedWorkspaceSwipeGesture *gesture) {

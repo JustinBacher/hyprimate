@@ -161,6 +161,7 @@ include(CTest)
 if(BUILD_TESTING)
     # Surfaceless EGL for the GL material tests any Style may add.
     pkg_check_modules(TEST_EGL REQUIRED IMPORTED_TARGET egl glesv2)
+    pkg_check_modules(PLANET_LUA REQUIRED IMPORTED_TARGET lua)
 endif()
 set(HYPRIMATE_STYLES liquid paper cloth swarm bubble smoke burn construction shader)
 foreach(style IN LISTS HYPRIMATE_STYLES)
@@ -281,5 +282,9 @@ if(BUILD_TESTING)
     add_executable(slot-pool-tests tests/SlotPoolTests.cpp)
     target_include_directories(slot-pool-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     add_test(NAME slot-pool-tests COMMAND slot-pool-tests)
+
+    add_library(workspace-swipe-probe SHARED tests/nested/WorkspaceSwipeProbe.cpp)
+    set_target_properties(workspace-swipe-probe PROPERTIES PREFIX "")
+    target_link_libraries(workspace-swipe-probe PRIVATE PkgConfig::HYPRLAND PkgConfig::PLANET_LUA)
 
 endif()
