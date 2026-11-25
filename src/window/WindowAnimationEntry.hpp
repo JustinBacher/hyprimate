@@ -1,6 +1,5 @@
 #pragma once
 
-#include <array>
 #include <cstdint>
 #include <utility>
 
@@ -10,18 +9,6 @@
 
 namespace hyprimate::animation {
     enum class Life : std::uint8_t { Mapped, PendingCapture, DyingOwned, DyingNative };
-    struct EntryFacts {
-        Life life = Life::Mapped;
-        WindowId origin = 0;
-        MonitorId monitor = 0;
-        WorkspaceId workspace = 0;
-        Place closing_place{};
-        Frame frame{};
-        Clock::time_point last_step;
-        FrameId last_frame = 0;
-        std::array<Clock::time_point, STALL_LIMIT> stalls{};
-        std::uint8_t stall_count = 0;
-    };
     template <class State>
     struct Slot {
         template <class Factory>
@@ -31,7 +18,6 @@ namespace hyprimate::animation {
         explicit Slot(Args &&...args) : state(std::forward<Args>(args)...) {
         }
         State state;
-        EntryFacts entry;
     };
     template <class State, class Settings, class Prepared>
     struct ResourcesBase : SStyleSettingsCache<Settings, Prepared> {
