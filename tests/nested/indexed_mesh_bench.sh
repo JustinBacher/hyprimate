@@ -173,17 +173,26 @@ run_mode() {
         kill "$runner" 2>/dev/null || true
         wait "$runner" 2>/dev/null || true
     }
-    for _ in $(seq 100); do
+    # run.sh answers IPC, then waits up to 15 s for a sized output before it loads the plugin and
+    # prints its instance line, so allow for both (10 s + 15 s) plus margin.
+    for _ in $(seq 300); do
         kill -0 "$runner" 2>/dev/null || break
         instance=$(awk '/^  instance=/ {sub(/^  instance=/, ""); print; exit}' "$runner_log")
         [[ -n $instance ]] && break
         sleep .1
     done
     if [[ -z $instance ]]; then
-        # The nested Hyprland exited or never registered (for example it crashed before IPC).
-        echo "nested compositor did not start; runner log tail:" >"$out/$tag.INVALID"
-        tail -n 5 "$runner_log" >>"$out/$tag.INVALID" 2>/dev/null || true
-        tail -n 5 "$nested_log" >>"$out/$tag.INVALID" 2>/dev/null || true
+        # The nested Hyprland exited or never finished starting (for example it crashed before IPC,
+        # or the parent never configured its output). Keep whatever log it wrote.
+        {
+            echo "nested compositor did not start (runner $(kill -0 "$runner" 2>/dev/null && echo still running || echo exited)); runner log tail:"
+            tail -n 5 "$runner_log" 2>/dev/null
+            tail -n 5 "$nested_log" 2>/dev/null
+        } >"$out/$tag.INVALID" || true
+        local newest
+        newest=$(find "$XDG_RUNTIME_DIR/hypr" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null |
+            sort -rn | head -n 1 | cut -d' ' -f2-)
+        [[ -n $newest ]] && cp "$newest"/hyprland*.log "$out/$tag.compositor.log" 2>/dev/null
         stop_nested_early
         return 3
     fi
