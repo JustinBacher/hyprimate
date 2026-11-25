@@ -309,8 +309,9 @@ void CBurnGroundDraw::queue(CHyprAnimationCanvas &canvas,
     Extent draw_extent, source_extent;
     std::size_t min_col = CBurnGround::WIDTH, min_row = CBurnGround::HEIGHT, max_col = 0,
                 max_row = 0;
-    for (const auto &area : ground.areas()) {
-        if (!area || area->monitor != screen.monitor || !area->active() ||
+    for (const auto &field : ground.areas()) {
+        const auto *area = &field;
+        if (area->monitor != screen.monitor || !area->active() ||
             (area->workspace != 0 && area->workspace != screen.workspace &&
                 area->workspace != screen.special_workspace))
             continue;

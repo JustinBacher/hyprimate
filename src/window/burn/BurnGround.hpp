@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
-#include <span>
+#include <ranges>
 
 #include "BurnDynamics.hpp"
 #include "window/WindowAnimationFacts.hpp"
@@ -72,8 +72,10 @@ class CBurnGround {
     void cancel(std::uint64_t owner) noexcept;
     void clear(std::optional<MonitorId> monitor = std::nullopt) noexcept;
     [[nodiscard]] bool active(MonitorId monitor) const noexcept;
-    [[nodiscard]] std::span<const std::unique_ptr<Area>> areas() const noexcept {
-        return m_areas;
+    // The view borrows the ground; clearing an area invalidates references to it.
+    [[nodiscard]] auto areas() const noexcept {
+        return m_areas | std::views::filter([](const auto &area) { return bool(area); }) |
+               std::views::transform([](const auto &area) -> const Area & { return *area; });
     }
 
   private:

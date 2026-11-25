@@ -2,6 +2,8 @@
 #include <chrono>
 #include <cmath>
 #include <span>
+#include <type_traits>
+#include <utility>
 
 #include "Check.hpp"
 #include "window/burn/BurnGround.hpp"
@@ -9,6 +11,9 @@
 using namespace hyprimate;
 using namespace hyprimate::animation;
 using Particle = CBurnGround::Particle;
+static_assert(std::is_same_v<
+    std::ranges::range_reference_t<decltype(std::declval<const CBurnGround &>().areas())>,
+    const CBurnGround::Area &>);
 namespace {
     const Box SCREEN{0, 0, 960, 640};
     ScreenFacts screen(double seconds, MonitorId monitor = 1, WorkspaceId workspace = 11) {
@@ -30,11 +35,12 @@ namespace {
     }
     const CBurnGround::Area &area(
         const CBurnGround &ground, MonitorId monitor = 1, WorkspaceId workspace = 11) {
-        const auto FOUND = std::ranges::find_if(ground.areas(), [&](const auto &item) {
-            return item && item->monitor == monitor && item->workspace == workspace;
+        auto areas = ground.areas();
+        const auto FOUND = std::ranges::find_if(areas, [&](const auto &item) {
+            return item.monitor == monitor && item.workspace == workspace;
         });
-        CHECK(FOUND != ground.areas().end());
-        return **FOUND;
+        CHECK(FOUND != areas.end());
+        return *FOUND;
     }
     const CBurnGround::Cell &cell(const CBurnGround::Area &area, Vec2 point) {
         const auto COLUMN = static_cast<std::size_t>(
@@ -89,6 +95,31 @@ namespace {
 }  // namespace
 int main() {
     const BurnParams params;
+    {
+        CBurnGround ground;
+        auto first = step();
+        ground.stamp({first.capture, .5, false, 1}, params, first);
+        auto second = first;
+        second.monitor = 2;
+        second.workspace = 22;
+        second.screen.x += 960;
+        second.capture.x += 960;
+        ground.stamp({second.capture, .5, false, 2}, params, second);
+        auto areas = ground.areas();
+        auto it = areas.begin();
+        CHECK(it != areas.end() && (*it).monitor == 1 && (*it).workspace == 11 && (*it).active());
+        if (it != areas.end()) ++it;
+        CHECK(it != areas.end() && (*it).monitor == 2 && (*it).workspace == 22 && (*it).active());
+        if (it != areas.end()) ++it;
+        CHECK(it == areas.end());
+
+        ground.clear(1);
+        auto remaining = ground.areas();
+        auto only = remaining.begin();
+        CHECK(only != remaining.end() && (*only).monitor == 2);
+        if (only != remaining.end()) ++only;
+        CHECK(only == remaining.end());
+    }
     {
         CBurnGround ground;
         ground.tick(screen(0));
