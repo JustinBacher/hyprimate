@@ -134,7 +134,7 @@ int main() try {
     assert(!config.workspace.enabled);
     assert(config.workspace.style == WorkspaceStyle::Rotation);
     assert(config.style == Style::Liquid);
-    assert(config.duringWorkspaceSwitch);
+    assert(!config.duringWorkspaceSwitch);
     set("window:during_workspace_switch", false);
     assert(!readConfig(values).duringWorkspaceSwitch);
     set("window:during_workspace_switch", true);

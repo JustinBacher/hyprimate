@@ -1262,7 +1262,7 @@ inline void registerConfigValues(HANDLE handle, SConfigValues& values) {
         Config::Values::SIntValueOptions{.min = 0, .max = 60000});
     values.m_wallpaperSourceNamespace = makeShared<Config::Values::CStringValue>("plugin:hyprimate:wallpaper:source_namespace", "Exact layer-shell BACKGROUND namespace allowed as a shader wallpaper source. Empty allows only the unobscured stock wallpaper.", "");
     values.m_enabled = makeShared<Config::Values::CBoolValue>("plugin:hyprimate:window:enabled", "Enable window movement, opening and closing effects. When false, none of these effects run.", true);
-    values.m_duringWorkspaceSwitch = makeShared<Config::Values::CBoolValue>("plugin:hyprimate:window:during_workspace_switch", "Show window effects during workspace switches. When false, use native window presentation where available until the switch ends.", true);
+    values.m_duringWorkspaceSwitch = makeShared<Config::Values::CBoolValue>("plugin:hyprimate:window:during_workspace_switch", "Show window effects during workspace switches. When false, use native window presentation where available until the switch ends.", false);
     values.m_style = makeShared<Config::Values::CStringValue>("plugin:hyprimate:window:style", "Choose the built-in style for movement and for transitions without an external effect override.", "liquid",
         Config::Values::SStringValueOptions{.validator = [](const Config::STRING& value) -> std::expected<void, std::string> {
             if (value == "liquid" || value == "paper" || value == "cloth" || value == "swarm" || value == "bubble" || value == "smoke" || value == "burn" || value == "construction") {

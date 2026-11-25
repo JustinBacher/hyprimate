@@ -351,6 +351,7 @@ namespace {
     void opening_override_pins_settings_and_yields_to_native_movement() {
         Fixture f;
         f.policy.open_style = Effect::KIND;
+        f.policy.during_workspace_switch = true;
         f.log().accepts_resize = true;
         f.module.configure(f.policy);
         f.window(1);
@@ -1359,6 +1360,8 @@ namespace {
         for (int pass = 0; pass < 6; ++pass) {
             for (int change = 0; change < 10; ++change) {
                 Fixture fixture;
+                fixture.policy.during_workspace_switch = true;
+                fixture.module.configure(fixture.policy);
                 fixture.log().tail = true;
                 fixture.window(1);
                 fixture.frame(1);
@@ -1564,6 +1567,8 @@ namespace {
     void retained_tail_rechecks_final_submission() {
         for (int change = 0; change < 9; ++change) {
             Fixture fixture;
+            fixture.policy.during_workspace_switch = true;
+            fixture.module.configure(fixture.policy);
             fixture.log().tail = true;
             fixture.window(1);
             fixture.frame(1);
@@ -2882,9 +2887,7 @@ namespace {
             canvas.workspace_source = !destination;
             canvas.destination_live = destination;
             canvas.pass_kind = destination ? PassKind::Live : PassKind::WorkspaceSource;
-            CHECK(fixture.module.draw(HANDLE, DRAW)); // Default preserves both endpoint passes.
-            fixture.policy.during_workspace_switch = false;
-            fixture.module.configure(fixture.policy);
+            CHECK(!fixture.module.draw(HANDLE, DRAW)); // Default suppresses both endpoint passes.
             fixture.log().events.clear();
             fixture.port.backdrop_captures.clear();
             fixture.port.queued_tails.clear();
@@ -2902,9 +2905,9 @@ namespace {
             fixture.policy.during_workspace_switch = true;
             fixture.module.configure(fixture.policy);
             CHECK(fixture.module.draw(HANDLE, DRAW));
+            fixture.policy.during_workspace_switch = false;
+            fixture.module.configure(fixture.policy);
         }
-        fixture.policy.during_workspace_switch = false;
-        fixture.module.configure(fixture.policy);
         canvas.destination_live = false;
         canvas.workspace_source = false;
         canvas.pass_kind = PassKind::WorkspaceSource; // Isolated inventory preview, not a turn.
@@ -3037,10 +3040,10 @@ namespace {
         default_policy.log().drive = driven;
         default_policy.frame(1);
         default_policy.module.prepare_workspace_capture(1);
-        CHECK(detail::same_box(default_policy.port.windows.at(1).body, driven));
+        CHECK(detail::same_box(default_policy.port.windows.at(1).body, goal));
         default_policy.port.workspace_switches.insert(1);
         default_policy.frame(1);
-        CHECK(detail::same_box(default_policy.port.windows.at(1).body, driven));
+        CHECK(detail::same_box(default_policy.port.windows.at(1).body, goal));
 
         Fixture retargeted;
         retargeted.policy.during_workspace_switch = false;

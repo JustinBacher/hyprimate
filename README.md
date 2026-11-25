@@ -185,7 +185,7 @@ hl.config({
                     },
                 },
                 enabled = true,
-                during_workspace_switch = true,
+                during_workspace_switch = false,
                 style = "liquid",
                 open = {
                     effect = "",
@@ -521,7 +521,7 @@ Formation controls listed under `window.open.options.bubble` apply only to openi
 | `wallpaper:effect_duration` | int / `0` | 0–60000 | Milliseconds of wallpaper simulation before holding the final frame. Zero runs continuously. |
 | `wallpaper:source_namespace` | string / `""` | — | Exact layer-shell BACKGROUND namespace allowed as a shader wallpaper source. Empty allows only the unobscured stock wallpaper. |
 | `window:enabled` | boolean / `true` | — | Enable window movement, opening and closing effects. When false, none of these effects run. |
-| `window:during_workspace_switch` | boolean / `true` | — | Show window effects during workspace switches. When false, use native window presentation where available until the switch ends. |
+| `window:during_workspace_switch` | boolean / `false` | — | Show window effects during workspace switches. When false, use native window presentation where available until the switch ends. |
 | `window:style` | string / `"liquid"` | — | Choose the built-in style for movement and for transitions without an external effect override. Allowed: `liquid`, `paper`, `cloth`, `swarm`, `bubble`, `smoke`, `burn`, `construction`. |
 | `window:open:effect` | string / `""` | — | Path to a native GLES shader effect manifest for window opening. Empty uses window.style. |
 | `window:close:effect` | string / `""` | — | Path to a native GLES shader effect manifest for window closing. Empty uses window.style. |
