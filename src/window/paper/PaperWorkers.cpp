@@ -32,7 +32,7 @@ namespace hyprimate {
     }  // namespace
 
     struct PaperRun {
-        PaperCrumple model;  // exclusive to the worker holding busy
+        std::optional<PaperCrumple> model;  // exclusive to the worker holding busy
         PaperSurface writing, pending;
         Load load{};
         std::stop_source cancellation;
@@ -205,8 +205,10 @@ namespace hyprimate {
                 const bool current =
                     !run->cancellation.stop_requested() && run->revision == REVISION;
                 if (current) {
-                    std::swap(run->writing, run->pending);
-                    run->published = true;
+                    if (!failed) {
+                        std::swap(run->writing, run->pending);
+                    }
+                    run->published = !failed;
                     run->failed = failed;
                     run->done = !active;
                 }
@@ -216,26 +218,41 @@ namespace hyprimate {
                 lock.unlock();
                 return current;
             };
+            const auto fail = [&](const char *reason) {
+                // A failed operation can leave topology and adjacency out of sync. Discard
+                // the solver before releasing busy, even when this revision was superseded.
+                run->model.reset();
+                active = false;
+                failed = true;
+                if (finish()) {
+                    std::fprintf(stderr,
+                        "hyprimate: paper worker phase=%s direction=%s seed=%" PRIu64 ": %s\n",
+                        phase, KIND == Transition::Close ? "close" : "open", SEED, reason);
+                }
+                finished = true;
+            };
             try {
                 const perf::Key KEY{perf::Domain::Window, "paper",
                     KIND == Transition::Close ? "close" : "open"};
                 const perf::CpuScope PROFILE{KEY, perf::Phase::Worker};
                 if (LOAD) {
-                    run->model.begin(LOAD->kind,
+                    // Only a begin can run after failure; healthy reversals keep the model.
+                    if (!run->model) run->model.emplace();
+                    run->model->begin(LOAD->kind,
                         LOAD->params,
                         LOAD->seed,
                         LOAD->size,
                         LOAD->cursor,
                         run->cancellation.get_token(),
                         LOAD->initial.get());
-                    active = run->model.active();
+                    active = run->model->active();
                     failed = !active;
                 } else {
-                    active = run->model.advance(DELTA);
+                    active = run->model->advance(DELTA);
                 }
                 if (!run->cancellation.stop_requested()) {
                     phase = "frame";
-                    run->model.frame(run->writing);
+                    run->model->frame(run->writing);
                     if (PROFILE.session() != 0) {
                         perf::resource_sample(KEY, sizeof(PaperRun) +
                             run->writing.points.capacity() * sizeof(PaperPoint) +
@@ -244,29 +261,9 @@ namespace hyprimate {
                     }
                 }
             } catch (const std::exception &exception) {
-                active = false;
-                failed = true;
-                const bool current = finish();
-                if (current) {
-                    std::fprintf(stderr,
-                        "hyprimate: paper worker phase=%s direction=%s seed=%" PRIu64 ": %s\n",
-                        phase, KIND == Transition::Close ? "close" : "open", SEED,
-                        exception.what());
-                }
-                finished = true;
+                fail(exception.what());
             } catch (...) {
-                // A failed allocation/invalid mesh ends only this effect; the caller releases its
-                // handle.
-                active = false;
-                failed = true;
-                const bool current = finish();
-                if (current) {
-                    std::fprintf(stderr,
-                        "hyprimate: paper worker phase=%s direction=%s seed=%" PRIu64
-                        ": unknown exception\n",
-                        phase, KIND == Transition::Close ? "close" : "open", SEED);
-                }
-                finished = true;
+                fail("unknown exception");
             }
             if (!finished) {
                 (void)finish();

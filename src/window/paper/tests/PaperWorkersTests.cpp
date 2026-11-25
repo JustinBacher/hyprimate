@@ -1,7 +1,9 @@
 #include <cstddef>
 #include <cstdint>
+#include <array>
 #include <atomic>
 #include <charconv>
+#include <cmath>
 #include <cerrno>
 #include <chrono>
 #include <cinttypes>
@@ -16,6 +18,8 @@
 #include <unistd.h>
 
 #include "Check.hpp"
+#include "window/paper/PaperInteraction.hpp"
+#include "window/paper/PaperTopology.hpp"
 #include "window/paper/PaperWorkers.hpp"
 
 namespace {
@@ -23,10 +27,19 @@ namespace {
     thread_local int allocation_countdown = -1;
     thread_local std::size_t worker_allocation_limit = 0;
     thread_local bool pause_worker_allocation = false;
+    // This fault identifies libstdc++'s 48-to-96 node-buffer growth for the
+    // fixed low-quality fixture, then fails the first split-parent allocation.
+    // The worker-local pointers also let the test pause its solver destruction.
+    thread_local bool mutation_fault = false, pause_mutation_destruction = false;
+    thread_local void *initial_nodes = nullptr, *grown_nodes = nullptr;
+    thread_local bool growing_nodes = false, nodes_grown = false;
+    bool fail_worker_mutation = false;
     bool fail_worker_allocation = false;  // Read only by the event-thread pthread_create wrapper.
     bool wait_for_worker_allocation = false;
     std::atomic<bool> worker_allocation_entered = false;
     std::atomic<bool> release_worker_allocation = false;
+    std::atomic<bool> worker_destruction_entered = false;
+    std::atomic<bool> release_worker_destruction = false;
     thread_local bool fail_after_start = false;
     thread_local bool fail_thread_start = false;
     thread_local bool saw_thread_start = false;
@@ -35,12 +48,14 @@ namespace {
         void *(*start)(void *);
         void *argument;
         bool pause_allocation;
+        bool mutation;
     };
 
     void *start_worker_with_fault(void *argument) {
         const auto context = *static_cast<WorkerStart *>(argument);
         std::free(argument);
-        worker_allocation_limit = 4096;
+        worker_allocation_limit = context.mutation ? 0 : 4096;
+        mutation_fault = context.mutation;
         pause_worker_allocation = context.pause_allocation;
         return context.start(context.argument);
     }
@@ -106,6 +121,17 @@ namespace {
 }  // namespace
 
 void *operator new(std::size_t size) {
+    if (mutation_fault && nodes_grown && size == sizeof(std::array<std::uint64_t, 3>)) {
+        mutation_fault = false;
+        pause_mutation_destruction = true;
+        worker_allocation_entered.store(true, std::memory_order_release);
+        while (!release_worker_allocation.load(std::memory_order_acquire))
+            std::this_thread::yield();
+        throw std::bad_alloc();
+    }
+    if (mutation_fault && initial_nodes &&
+        size == 2 * 48 * sizeof(hyprimate::paper::Node))
+        growing_nodes = true;
     if (worker_allocation_limit != 0 && size >= worker_allocation_limit) {
         worker_allocation_limit = 0;
         if (pause_worker_allocation) {
@@ -121,14 +147,28 @@ void *operator new(std::size_t size) {
         throw std::bad_alloc();
     }
     if (allocation_countdown > 0) --allocation_countdown;
-    if (void *memory = std::malloc(size ? size : 1)) return memory;
+    if (void *memory = std::malloc(size ? size : 1)) {
+        if (mutation_fault && !initial_nodes && size == 48 * sizeof(hyprimate::paper::Node))
+            initial_nodes = memory;
+        if (mutation_fault && growing_nodes &&
+            size == 2 * 48 * sizeof(hyprimate::paper::Node))
+            grown_nodes = memory;
+        return memory;
+    }
     throw std::bad_alloc();
 }
 void operator delete(void *memory) noexcept {
+    if (mutation_fault && growing_nodes && memory == initial_nodes) nodes_grown = true;
+    if (pause_mutation_destruction && memory == grown_nodes) {
+        pause_mutation_destruction = false;
+        worker_destruction_entered.store(true, std::memory_order_release);
+        while (!release_worker_destruction.load(std::memory_order_acquire))
+            std::this_thread::yield();
+    }
     std::free(memory);
 }
 void operator delete(void *memory, std::size_t) noexcept {
-    std::free(memory);
+    ::operator delete(memory);
 }
 
 extern "C" int pthread_create(
@@ -140,13 +180,14 @@ extern "C" int pthread_create(
     using Create = int (*)(pthread_t *, const pthread_attr_t *, void *(*)(void *), void *);
     static const auto REAL = reinterpret_cast<Create>(dlsym(RTLD_NEXT, "pthread_create"));
     if (!REAL) std::abort();
-    if (fail_worker_allocation) {
+    if (fail_worker_allocation || fail_worker_mutation) {
         auto *context = static_cast<WorkerStart *>(std::malloc(sizeof(WorkerStart)));
         if (!context) return ENOMEM;
-        *context = {start, argument, wait_for_worker_allocation};
+        *context = {start, argument, wait_for_worker_allocation, fail_worker_mutation};
         const int result = REAL(thread, attr, start_worker_with_fault, context);
         if (result != 0) std::free(context);
         fail_worker_allocation = false;
+        fail_worker_mutation = false;
         wait_for_worker_allocation = false;
         if (result == 0 && fail_after_start) allocation_countdown = 0;
         return result;
@@ -176,6 +217,76 @@ namespace {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         return false;
+    }
+    bool publishes_without_time(
+        PaperWorkers &workers, const std::shared_ptr<PaperRun> &run, PaperSurface &display) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (std::chrono::steady_clock::now() < deadline) {
+            const auto status = workers.present(run, 0, display);
+            if (!display.faces.empty()) return status == PaperPlayback::Running;
+            if (status != PaperPlayback::Running) return false;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        return false;
+    }
+    std::shared_ptr<PaperSurface> curved_surface() {
+        PaperInteraction interaction;
+        auto initial = std::make_shared<PaperSurface>();
+        animation::Step step{};
+        step.body = step.capture = {0, 0, SIZE.x, SIZE.y};
+        step.elapsed = 1.0 / 60;
+        (void)interaction.advance(*initial, {}, step);
+        const double width = std::sqrt(SIZE.x / SIZE.y), height = 1 / width;
+        constexpr double RADIUS = 0.45;
+        for (auto &point : initial->points) {
+            const double angle = (point.uv.x - 0.5) * width / RADIUS;
+            point.position = {RADIUS * std::sin(angle), (point.uv.y - 0.5) * height,
+                RADIUS * (1 - std::cos(angle))};
+        }
+        return initial;
+    }
+    bool same_pose(const PaperSurface &a, const PaperSurface &b) {
+        if (a.points.size() != b.points.size() || a.faces.size() != b.faces.size() ||
+            a.points.empty() || a.faces.empty()) return false;
+        for (std::size_t i = 0; i < a.points.size(); ++i) {
+            const auto &p = a.points[i], &q = b.points[i];
+            if (p.position.x != q.position.x || p.position.y != q.position.y ||
+                p.position.z != q.position.z || p.uv.x != q.uv.x || p.uv.y != q.uv.y ||
+                p.contact != q.contact)
+                return false;
+        }
+        for (std::size_t i = 0; i < a.faces.size(); ++i)
+            if (a.faces[i].vertex != b.faces[i].vertex || a.faces[i].crease != b.faces[i].crease)
+                return false;
+        return true;
+    }
+    bool fresh_low_surface(const PaperSurface &surface) {
+        // Low quality at SIZE has 7 by 5 cells. A fresh close starts flat.
+        if (surface.points.size() != 48 || surface.faces.size() != 70) return false;
+        const double width = std::sqrt(SIZE.x / SIZE.y), height = 1 / width;
+        for (const auto &point : surface.points) {
+            if (!std::isfinite(point.position.x) || !std::isfinite(point.position.y) ||
+                !std::isfinite(point.position.z) || !std::isfinite(point.uv.x) ||
+                !std::isfinite(point.uv.y) || point.uv.x < 0 || point.uv.x > 1 ||
+                point.uv.y < 0 || point.uv.y > 1 ||
+                std::abs(point.position.x - (point.uv.x - 0.5) * width) > 1e-10 ||
+                std::abs(point.position.y - (point.uv.y - 0.5) * height) > 1e-10 ||
+                std::abs(point.position.z) > 1e-10)
+                return false;
+        }
+        double area = 0;
+        for (const auto &face : surface.faces) {
+            if (face.vertex[0] >= surface.points.size() ||
+                face.vertex[1] >= surface.points.size() ||
+                face.vertex[2] >= surface.points.size()) return false;
+            const auto a = surface.points[face.vertex[0]].uv;
+            const auto b = surface.points[face.vertex[1]].uv;
+            const auto c = surface.points[face.vertex[2]].uv;
+            const double twice = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+            if (twice <= 0) return false;
+            area += twice / 2;
+        }
+        return std::abs(area - 1) < 1e-10;
     }
 }  // namespace
 
@@ -306,6 +417,118 @@ int main() {
             }
         }
         CHECK(capture_ready && started && fault_reached && superseded && replacement_published);
+        CHECK(captured && diagnostic_size == 0);
+    }
+    {
+        // No physical tick is queued: a same-handle reversal must retain the
+        // non-flat published pose rather than reconstructing a fresh solver.
+        PaperWorkers workers;
+        std::shared_ptr<PaperRun> run;
+        auto params = PARAMS;
+        params.simulation_quality = PaperQuality::Low;
+        const auto initial = curved_surface();
+        const bool started =
+            workers.begin(run, Transition::Close, params, 7, SIZE, CURSOR, initial);
+        PaperSurface before, after;
+        const bool first_published = started && publishes_without_time(workers, run, before);
+        const bool reversed = first_published &&
+            workers.begin(run, Transition::Open, params, 8, SIZE, CURSOR);
+        const bool second_published = reversed && publishes_without_time(workers, run, after);
+        CHECK(started && first_published && reversed && second_published);
+        CHECK(second_published && same_pose(before, after));
+        workers.cancel(run);
+    }
+    {
+        // Start on a gently cylindrical interaction sheet: its curvature forces
+        // adaptive bisection without relying on a particular random force seed.
+        auto initial = curved_surface();
+        char diagnostic[512]{};
+        std::size_t diagnostic_size = 0;
+        bool capture_ready = false, started = false, fault_reached = false;
+        bool superseded = false, old_frame_suppressed = false, replacement_valid = false;
+        bool destruction_reached = false, busy_held = false, second_worker_progress = false;
+        bool captured = false;
+        {
+            StderrCapture capture;
+            capture_ready = capture.ready();
+            if (capture_ready) {
+                worker_allocation_entered.store(false, std::memory_order_relaxed);
+                release_worker_allocation.store(false, std::memory_order_relaxed);
+                worker_destruction_entered.store(false, std::memory_order_relaxed);
+                release_worker_destruction.store(false, std::memory_order_relaxed);
+                {
+                    PaperWorkers workers;
+                    std::shared_ptr<PaperRun> run;
+                    auto params = PARAMS;
+                    params.simulation_quality = PaperQuality::Low;
+                    fail_worker_mutation = true;
+                    started = workers.begin(run, Transition::Close, params, 7, SIZE, CURSOR, initial);
+                    fail_worker_mutation = false;
+                    PaperSurface old_display;
+                    const auto deadline =
+                        std::chrono::steady_clock::now() + std::chrono::seconds(10);
+                    while (started && std::chrono::steady_clock::now() < deadline &&
+                        !worker_allocation_entered.load(std::memory_order_acquire)) {
+                        if (workers.present(run, 1.0 / 240, old_display) != PaperPlayback::Running)
+                            break;
+                        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    }
+                    fault_reached = worker_allocation_entered.load(std::memory_order_acquire);
+                    PaperSurface replacement;
+                    if (fault_reached) {
+                        superseded = workers.begin(run, Transition::Close, params, 7, SIZE, CURSOR);
+                        if (superseded)
+                            old_frame_suppressed =
+                                workers.present(run, 0, replacement) == PaperPlayback::Running &&
+                                replacement.faces.empty();
+                    }
+                    release_worker_allocation.store(true, std::memory_order_release);
+                    if (fault_reached) {
+                        const auto destruction_deadline =
+                            std::chrono::steady_clock::now() + std::chrono::seconds(10);
+                        while (std::chrono::steady_clock::now() < destruction_deadline &&
+                            !worker_destruction_entered.load(std::memory_order_acquire))
+                            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                        destruction_reached =
+                            worker_destruction_entered.load(std::memory_order_acquire);
+                    }
+                    if (destruction_reached && superseded) {
+                        // The pool's production limit permits two workers only on
+                        // systems reporting at least six hardware threads.
+                        second_worker_progress = std::thread::hardware_concurrency() < 6;
+                        if (!second_worker_progress) {
+                            std::shared_ptr<PaperRun> other;
+                            PaperSurface other_display;
+                            second_worker_progress = begin(workers, other) &&
+                                publishes_without_time(workers, other, other_display);
+                            workers.cancel(other);
+                        }
+                        busy_held = workers.present(run, 0, replacement) ==
+                                PaperPlayback::Running &&
+                            replacement.faces.empty();
+                    }
+                    release_worker_destruction.store(true, std::memory_order_release);
+                    if (superseded) {
+                        const auto replacement_deadline =
+                            std::chrono::steady_clock::now() + std::chrono::seconds(10);
+                        while (std::chrono::steady_clock::now() < replacement_deadline) {
+                            const auto status = workers.present(run, 0, replacement);
+                            if (!replacement.faces.empty()) {
+                                replacement_valid = status == PaperPlayback::Running &&
+                                    fresh_low_surface(replacement);
+                                break;
+                            }
+                            if (status != PaperPlayback::Running) break;
+                            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                        }
+                    }
+                    workers.cancel(run);
+                }
+                captured = capture.read(diagnostic, sizeof(diagnostic), diagnostic_size);
+            }
+        }
+        CHECK(capture_ready && started && fault_reached && superseded && destruction_reached);
+        CHECK(second_worker_progress && busy_held && old_frame_suppressed && replacement_valid);
         CHECK(captured && diagnostic_size == 0);
     }
     {
