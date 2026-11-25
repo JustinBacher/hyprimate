@@ -28,6 +28,7 @@ add_custom_target(generate-bubble-shaders DEPENDS ${CONFIG_GENERATED_DIR}/bubble
 
 target_sources(hyprimate-core PRIVATE
     src/window/bubble/Bubble.cpp
+    src/window/bubble/BubbleFrame.cpp
     src/window/bubble/BubbleFoam.cpp
     src/window/bubble/BubbleFormation.cpp
     src/window/bubble/BubbleRupture.cpp
