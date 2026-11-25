@@ -1,6 +1,8 @@
 #include <array>
+#include <atomic>
 #include <bit>
 #include <cerrno>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -9,6 +11,7 @@
 #include <memory>
 #include <new>
 #include <system_error>
+#include <thread>
 
 #include <dlfcn.h>
 #include <pthread.h>
@@ -17,6 +20,9 @@
 
 #include "shared/Core.hpp"
 #include "window/cloth/ClothFlutter.hpp"
+#include "window/cloth/ClothPrivate.hpp"
+#include "window/cloth/ClothSimulation.hpp"
+#include "window/cloth/ClothWorkers.hpp"
 
 namespace {
     struct SpawnGate {
@@ -28,6 +34,47 @@ namespace {
     // Only the launching thread is intercepted, never unrelated reaper/helper threads.
     thread_local SpawnGate *s_spawn_gate = nullptr;
     thread_local SpawnGate *s_shutdown_gate = nullptr;
+    thread_local pthread_t *s_capture_reaper = nullptr;
+
+    struct ReaperGate {
+        pthread_t thread{};
+        pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+        pthread_cond_t changed = PTHREAD_COND_INITIALIZER;
+        unsigned waits = 0;
+    };
+    // The gate remains alive until the observed registry has shut down.
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+    std::atomic<ReaperGate *> s_reaper_gate{nullptr};
+
+    timespec deadline();
+
+    void note_reaper_wait() {
+        auto *gate = s_reaper_gate.load(std::memory_order_acquire);
+        if (gate != nullptr && pthread_equal(pthread_self(), gate->thread)) {
+            pthread_mutex_lock(&gate->mutex);
+            ++gate->waits;
+            pthread_cond_broadcast(&gate->changed);
+            pthread_mutex_unlock(&gate->mutex);
+        }
+    }
+
+    bool wait_for_reaper_scans(ReaperGate &gate) {
+        const auto LIMIT = deadline();
+        pthread_mutex_lock(&gate.mutex);
+        // Two wait entries guarantee a complete registry scan after the gate was armed.
+        while (gate.waits < 2) {
+            if (pthread_cond_timedwait(&gate.changed, &gate.mutex, &LIMIT) != 0) {
+                break;
+            }
+        }
+        const bool SCANNED = gate.waits >= 2;
+        pthread_mutex_unlock(&gate.mutex);
+        return SCANNED;
+    }
+
+    // Fail the large recording allocation on the worker rather than the startup thread.
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+    std::atomic<int> s_recording_failure{0};  // 0 disabled, 1 armed, 2 injected
 
     timespec deadline() {
         timespec value{};
@@ -62,9 +109,14 @@ namespace {
         unsigned outstanding = 0;  // Protected by Tracker::mutex.
         void *first_allocation = nullptr;  // Protected by Tracker::mutex.
         bool first_freed = false;  // Protected by Tracker::mutex.
+        pthread_t first_freed_on{};  // Protected by Tracker::mutex.
         bool injected = false;
         bool tracker_exhausted = false;
     };
+
+    // The worker publishes recording allocation tracking to this test's longer-lived Attempt.
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+    std::atomic<Attempt *> s_recording_tracker{nullptr};
 
     struct Slot {
         void *pointer = nullptr;
@@ -88,7 +140,17 @@ namespace {
     }
 
     void *allocate(std::size_t size, std::size_t alignment = 0) {
-        Attempt *const OWNER = current_attempt();
+        constexpr std::size_t MIN_RECORDING_BYTES =
+            hyprimate::SHEET_GRID_VERTICES * 6 * sizeof(float) * 100;
+        int armed = 1;
+        if (size >= MIN_RECORDING_BYTES &&
+            s_recording_failure.compare_exchange_strong(armed, 2, std::memory_order_relaxed)) {
+            throw std::bad_alloc();
+        }
+        Attempt *OWNER = current_attempt();
+        if (OWNER == nullptr && size >= MIN_RECORDING_BYTES) {
+            OWNER = s_recording_tracker.load(std::memory_order_acquire);
+        }
         if (OWNER != nullptr && ++OWNER->allocations == OWNER->fail_at) {
             OWNER->injected = true;
             throw std::bad_alloc();
@@ -144,6 +206,7 @@ namespace {
             if (slot.pointer == pointer) {
                 if (!slot.owner->first_freed && slot.owner->first_allocation == pointer) {
                     slot.owner->first_freed = true;
+                    slot.owner->first_freed_on = pthread_self();
                 }
                 --slot.owner->outstanding;
                 slot = {};
@@ -206,6 +269,9 @@ extern "C" int pthread_create(pthread_t *thread,
         return EAGAIN;
     }
     const int RESULT = CREATE(thread, attributes, entry, argument);
+    if (RESULT == 0 && s_capture_reaper != nullptr) {
+        *s_capture_reaper = *thread;
+    }
     if (gate != nullptr && RESULT == 0) {
         const auto LIMIT = deadline();
         pthread_mutex_lock(&gate->mutex);
@@ -220,6 +286,25 @@ extern "C" int pthread_create(pthread_t *thread,
         pthread_mutex_unlock(&gate->mutex);
     }
     return RESULT;
+}
+
+// Observe the real reaper's condition-variable cycles without changing worker production code.
+extern "C" int pthread_cond_timedwait(
+    pthread_cond_t *condition, pthread_mutex_t *mutex, const timespec *limit) {
+    using Wait = int (*)(pthread_cond_t *, pthread_mutex_t *, const timespec *);
+    static const auto WAIT = std::bit_cast<Wait>(dlsym(RTLD_NEXT, "pthread_cond_timedwait"));
+    note_reaper_wait();
+    return WAIT != nullptr ? WAIT(condition, mutex, limit) : EINVAL;
+}
+
+extern "C" int pthread_cond_clockwait(pthread_cond_t *condition,
+    pthread_mutex_t *mutex,
+    clockid_t clock,
+    const timespec *limit) {
+    using Wait = int (*)(pthread_cond_t *, pthread_mutex_t *, clockid_t, const timespec *);
+    static const auto WAIT = std::bit_cast<Wait>(dlsym(RTLD_NEXT, "pthread_cond_clockwait"));
+    note_reaper_wait();
+    return WAIT != nullptr ? WAIT(condition, mutex, clock, limit) : EINVAL;
 }
 
 extern "C" int __real_pthread_mutex_lock(pthread_mutex_t *mutex) noexcept;
@@ -388,6 +473,20 @@ namespace {
         };
     }
 
+    bool worker_recording_failure() {
+        ClothFlutter cloth;
+        s_recording_failure.store(1, std::memory_order_relaxed);
+        cloth.begin(Transition::Open, {}, 123, WINDOW, {});
+        const bool INCOMPLETE = !cloth.wait_for_recording();
+        const bool INJECTED = s_recording_failure.exchange(0, std::memory_order_relaxed) == 2;
+        const bool FAILED = INCOMPLETE && INJECTED;
+        const bool ENTERED_FALLBACK = cloth.active() && cloth.advance(0);
+        cloth.advance(.2);
+        const bool RECOVERED = !cloth.active() && cloth.opacity() == 1;
+        cloth.begin(Transition::Open, {}, 124, WINDOW, {});
+        return FAILED && ENTERED_FALLBACK && RECOVERED && cloth.wait_for_recording();
+    }
+
     bool restart_allocation_failure() {
         ClothFlutter cloth;
         cloth.begin_movement({}, 1, WINDOW);
@@ -452,6 +551,51 @@ namespace {
         producer.reset();
         // The retained pose can still play, but nobody can post another movement target.
         return wait_for_first_free(attempt) && retained.advance(0);
+    }
+
+    bool recording_is_destroyed_on_reaper() {
+        // Keep an actual Run owner across the exact post-release reaper scans. This models the
+        // releasing Lease before its shared_ptr member has finished destruction.
+        ReaperGate gate;
+        s_capture_reaper = &gate.thread;
+        const ClothPhysics PHYSICS;
+        s_capture_reaper = nullptr;
+        static Attempt recording;  // Outlives a timeout and any asynchronous reclamation.
+        auto run = std::make_shared<ClothFlutter::Run>();
+        run->kind = Transition::Close;
+        run->window = run->screen = WINDOW;
+        run->frames = 169;
+        run->outside_frame.store(run->frames, std::memory_order_relaxed);
+        run->start = cloth_detail::rest_grid();
+        std::shared_ptr<cloth_detail::Lease> lease;
+        s_recording_tracker.store(&recording, std::memory_order_release);
+        {
+            const cloth_detail::WorkerAdmission admission;
+            if (admission.available()) {
+                lease = admission.launch_transition(run, cloth_detail::SimInput{});
+            }
+        }
+        const auto LIMIT = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (lease && run->recorded.load(std::memory_order_acquire) < 1 &&
+               !run->finished.load(std::memory_order_acquire) &&
+               std::chrono::steady_clock::now() < LIMIT) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        lease.reset();
+        while (!run->finished.load(std::memory_order_acquire) &&
+               std::chrono::steady_clock::now() < LIMIT) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        const bool FINISHED = run->finished.load(std::memory_order_acquire);
+        s_recording_tracker.store(nullptr, std::memory_order_release);
+        s_reaper_gate.store(&gate, std::memory_order_release);
+        const bool SCANNED = FINISHED && wait_for_reaper_scans(gate);
+        s_reaper_gate.store(nullptr, std::memory_order_release);
+        const bool REGISTRY_OWNS_RUN = run.use_count() >= 2;
+        run.reset();
+        const bool FREED = wait_for_first_free(recording);
+        return FINISHED && SCANNED && REGISTRY_OWNS_RUN && FREED &&
+               pthread_equal(recording.first_freed_on, gate.thread);
     }
 
     bool shutdown_during_launch(Startup startup) {
@@ -538,7 +682,15 @@ int main() {
     }
     passed = shutdown_during_launch(Startup::Transition) && passed;
     passed = shutdown_during_launch(Startup::Movement) && passed;
+    if (!recording_is_destroyed_on_reaper()) {
+        std::fputs("cloth recording was not reclaimed by its reaper\n", stderr);
+        passed = false;
+    }
     const ClothPhysics PHYSICS;
+    if (!worker_recording_failure()) {
+        std::fputs("worker recording allocation failure/retry failed\n", stderr);
+        passed = false;
+    }
     // Filling 16 slots establishes capacity; reaping the first run leaves one free slot.
     // The warm attempt can own retained registry storage and must outlive physics.
     {

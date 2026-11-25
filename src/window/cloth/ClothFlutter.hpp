@@ -26,9 +26,11 @@ namespace hyprimate {
         Box screen;  // physical monitor boundary, including reserved areas, in logical pixels
     };
 
-    // Shared owners of the worker registry. The last owner's shutdown stops and joins every
-    // admitted simulation. Releasing/cancelling a cloth only requests stop; joining and
-    // recording destruction happen on the reaper.
+    // Shared owners of the worker registry. During normal operation, releasing/cancelling a cloth
+    // only requests stop; the reaper joins and destroys its recording after the final lease ends.
+    // The last owner's shutdown stops and joins all workers and releases registry references on
+    // the shutdown thread. A playback retained beyond shutdown frees its recording on the thread
+    // releasing that final playback instead.
     class ClothPhysics {
       public:
         ClothPhysics();

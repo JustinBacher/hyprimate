@@ -1,5 +1,9 @@
 target_sources(hyprimate-core PRIVATE
     src/window/cloth/ClothFlutter.cpp
+    src/window/cloth/ClothWorkers.cpp
+    src/window/cloth/ClothRecording.cpp
+    src/window/cloth/ClothPlayback.cpp
+    src/window/cloth/ClothSimulation.cpp
     src/window/cloth/ClothSolver.cpp
 )
 
@@ -7,7 +11,13 @@ target_sources(hyprimate PRIVATE
     src/window/cloth/ClothLiveStyle.cpp
 )
 
-set_source_files_properties(src/window/cloth/ClothFlutter.cpp src/window/cloth/ClothSolver.cpp
+set_source_files_properties(
+    src/window/cloth/ClothFlutter.cpp
+    src/window/cloth/ClothWorkers.cpp
+    src/window/cloth/ClothRecording.cpp
+    src/window/cloth/ClothPlayback.cpp
+    src/window/cloth/ClothSimulation.cpp
+    src/window/cloth/ClothSolver.cpp
     PROPERTIES COMPILE_OPTIONS "-fvisibility=hidden;-fvisibility-inlines-hidden;-ffp-contract=off")
 # The solver consumes IEEE square-root results, not libm errno. Keep contraction disabled.
 set_property(SOURCE src/window/cloth/ClothSolver.cpp APPEND PROPERTY COMPILE_OPTIONS -fno-math-errno)
