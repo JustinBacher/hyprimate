@@ -107,7 +107,13 @@ start_parent() {
         >"$out/$attempt_tag.parent.log" 2>&1 &
     parent_pid=$!
     for _ in $(seq 100); do
-        [[ -S $XDG_RUNTIME_DIR/$parent ]] && return 0
+        [[ -S $XDG_RUNTIME_DIR/$parent ]] && break
+        sleep .1
+    done
+    # A socket file can exist before the compositor accepts connections; require a real connect.
+    for _ in $(seq 100); do
+        python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.settimeout(1); s.connect(sys.argv[1])' \
+            "$XDG_RUNTIME_DIR/$parent" 2>/dev/null && return 0
         sleep .1
     done
     echo "$attempt_tag: private parent socket missing" >&2
@@ -160,13 +166,24 @@ run_mode() {
         "$root/tests/nested/run.sh" --style "$style" --no-build --no-window >"$runner_log" 2>&1 &
     local runner=$!
     local instance=""
+    stop_nested_early() {
+        kill "$runner" 2>/dev/null || true
+        wait "$runner" 2>/dev/null || true
+    }
     for _ in $(seq 100); do
-        kill -0 "$runner" 2>/dev/null || { cat "$runner_log" >&2; return 1; }
+        kill -0 "$runner" 2>/dev/null || break
         instance=$(awk '/^  instance=/ {sub(/^  instance=/, ""); print; exit}' "$runner_log")
         [[ -n $instance ]] && break
         sleep .1
     done
-    [[ -n $instance ]] || { echo "$tag: nested compositor did not start" >&2; return 1; }
+    if [[ -z $instance ]]; then
+        # The nested Hyprland exited or never registered (for example it crashed before IPC).
+        echo "nested compositor did not start; runner log tail:" >"$out/$tag.INVALID"
+        tail -n 5 "$runner_log" >>"$out/$tag.INVALID" 2>/dev/null || true
+        tail -n 5 "$nested_log" >>"$out/$tag.INVALID" 2>/dev/null || true
+        stop_nested_early
+        return 3
+    fi
     hc() { hyprctl -i "$instance" "$@"; }
     local compositor_log=${XDG_RUNTIME_DIR:-/tmp}/hypr/$instance/hyprland.log
     save_compositor_log() { cp "$compositor_log" "$out/$tag.compositor.log" 2>/dev/null || true; }
@@ -400,14 +417,29 @@ run_mode() {
     fi
     if ((${#reasons[@]})); then
         printf '%s\n' "${reasons[@]}" >"$out/$tag.INVALID"
-        return 3
+        return 4
     fi
     : >"$out/$tag.VALID"
     echo "$tag: report $out/$tag.profile.txt"
 }
 
 # One session = one (mode, round) cell. Each attempt gets a fresh nested compositor (and parent in
-# --private-kwin mode); gate failures retry up to --max-attempts and every attempt is preserved.
+# --private-kwin mode). ONLY startup admission failures (parent or nested compositor did not start,
+# output not ready, windows not mapped; run_mode returns 3) are retried, up to --max-attempts in
+# total. A failure after the workload (result or correctness gates; run_mode returns 4) is final for
+# the session and is never retried. Every attempt, with its crash reports, is preserved.
+save_crash_reports() {
+    local attempt_tag=$1 dir
+    for dir in "$XDG_CACHE_HOME/hyprland" "$HOME/.cache/hyprland"; do
+        compgen -G "$dir/hyprlandCrashReport*" >/dev/null || continue
+        mkdir -p "$out/$attempt_tag.crash"
+        cp "$dir"/hyprlandCrashReport* "$out/$attempt_tag.crash/" 2>/dev/null || true
+        # Reports are keyed by pid; remove them from the shared cache dir so the next attempt only
+        # sees its own.
+        [[ -n $private_node ]] && rm -f "$dir"/hyprlandCrashReport*
+    done
+}
+
 run_session() {
     local mode=$1 round=$2 attempt rc tag
     for attempt in $(seq "$max_attempts"); do
@@ -421,18 +453,23 @@ run_session() {
         fi
         rc=0
         run_mode "$mode" "$round" "$tag" || rc=$?
+        save_crash_reports "$tag"
         [[ -n $private_node ]] && stop_parent
         if ((rc == 0)); then
             echo "$mode-$round attempts=$attempt valid=1" >>"$out/sessions.txt"
             return 0
         elif ((rc == 3)); then
-            echo "$tag: INVALID, not counted: $(tr '\n' ';' <"$out/$tag.INVALID")" >&2
+            echo "$tag: INVALID startup, not counted: $(tr '\n' ';' <"$out/$tag.INVALID")" >&2
             sleep 3
+        elif ((rc == 4)); then
+            echo "$tag: INVALID after workload, final (no retry): $(tr '\n' ';' <"$out/$tag.INVALID")" >&2
+            echo "$mode-$round attempts=$attempt valid=0 reason=result-gate" >>"$out/sessions.txt"
+            return 0
         else
             exit "$rc"
         fi
     done
-    echo "$mode-$round attempts=$max_attempts valid=0" >>"$out/sessions.txt"
+    echo "$mode-$round attempts=$max_attempts valid=0 reason=startup" >>"$out/sessions.txt"
     return 0
 }
 
