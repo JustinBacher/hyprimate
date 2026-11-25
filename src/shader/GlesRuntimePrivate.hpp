@@ -1,0 +1,148 @@
+#pragma once
+
+#include "GlesState.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <array>
+#include <cstdint>
+#include <string>
+#include <cstddef>
+
+namespace hyprimate::shader::gles_detail {
+    inline constexpr unsigned MAX_EXTENT = 8192;
+    inline constexpr std::uint64_t MAX_PIXELS = 16'777'216;
+    inline constexpr std::array<GLfloat, 4> TRANSPARENT{};
+    inline constexpr Statistics EMPTY_STATS{};
+
+    struct PixelFormat {
+        GLenum internal, layout, type;
+        unsigned bytes;
+    };
+
+    constexpr PixelFormat pixel_format(Format format) {
+        switch (format) {
+            case Format::R8: return {GL_R8, GL_RED, GL_UNSIGNED_BYTE, 1};
+            case Format::RG8: return {GL_RG8, GL_RG, GL_UNSIGNED_BYTE, 2};
+            case Format::RGBA8: return {GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, 4};
+            case Format::R16F: return {GL_R16F, GL_RED, GL_HALF_FLOAT, 2};
+            case Format::RG16F: return {GL_RG16F, GL_RG, GL_HALF_FLOAT, 4};
+            case Format::RGBA16F: return {GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT, 8};
+            case Format::R32F: return {GL_R32F, GL_RED, GL_FLOAT, 4};
+            case Format::RG32F: return {GL_RG32F, GL_RG, GL_FLOAT, 8};
+            case Format::RGBA32F: return {GL_RGBA32F, GL_RGBA, GL_FLOAT, 16};
+        }
+        return {};
+    }
+
+    struct Extent {
+        unsigned width = 0, height = 0;
+        bool operator==(const Extent &) const = default;
+
+        bool bounded() const {
+            return width != 0 && height != 0 && width <= MAX_EXTENT && height <= MAX_EXTENT &&
+                   std::uint64_t{width} * height <= MAX_PIXELS;
+        }
+    };
+
+    inline Extent texture_extent(const Size &size, Extent capture) {
+        if (size.width != 0) {
+            return {size.width, size.height};
+        }
+        return {std::max(1U, static_cast<unsigned>(std::ceil(capture.width * double{size.scale}))),
+            std::max(1U, static_cast<unsigned>(std::ceil(capture.height * double{size.scale})))};
+    }
+
+    inline void texture_storage(GLuint &name, const Texture &texture, Extent extent) {
+        glGenTextures(1, &name);
+        glBindTexture(GL_TEXTURE_2D, name);
+        glTexStorage2D(GL_TEXTURE_2D, 1, pixel_format(texture.format).internal, extent.width,
+            extent.height);
+        const GLint filter = texture.linear ? GL_LINEAR : GL_NEAREST;
+        const GLint wrap = texture.repeat ? GL_REPEAT : GL_CLAMP_TO_EDGE;
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrap);
+    }
+
+    inline constexpr GLenum draw_primitive(Primitive primitive) {
+        switch (primitive) {
+            case Primitive::Points: return GL_POINTS;
+            case Primitive::Lines: return GL_LINES;
+            case Primitive::Triangles: return GL_TRIANGLES;
+            case Primitive::TriangleStrip: return GL_TRIANGLE_STRIP;
+        }
+        return GL_TRIANGLES;
+    }
+
+    inline bool linear_host_image(ResourceKind kind) noexcept {
+        return kind == ResourceKind::Source || kind == ResourceKind::Destination ||
+            kind == ResourceKind::Original || kind == ResourceKind::Processed;
+    }
+
+    inline GLuint environmental_texture(ResourceKind kind, const EnvironmentInputs &inputs) noexcept {
+        switch (kind) {
+            case ResourceKind::Original: return inputs.original;
+            case ResourceKind::Processed: return inputs.processed;
+            case ResourceKind::EnvironmentState: return inputs.state;
+            case ResourceKind::Disturbances: return inputs.disturbances;
+            default: return 0;
+        }
+    }
+
+    inline const Mesh *pass_mesh(const Package &package, const Pass &pass) {
+        return pass.mesh < 0 ? nullptr : &package.meshes[static_cast<unsigned>(pass.mesh)];
+    }
+
+    enum Uniform : std::size_t {
+        Progress, Elapsed, Delta, Duration, Scale, SizeXY, TargetSize, Pointer, Seed,
+        SourceUV, Domain, EventID, PointerValid, Fullscreen, Iteration, Iterations,
+        DestinationUV, Geometry, PreviousGeometry, Velocity, Direction, Held, Settling,
+        BlurMask, OutputSize, OutputOrigin, OutputRect, OriginalUV, OriginalAvailable,
+        ProcessedAvailable, StateAvailable, DisturbancesAvailable, InteractionCount, UniformCount
+    };
+
+    struct Block {
+        Ref buffer;
+        GLsizeiptr bytes;
+    };
+
+    struct CompiledPass {
+        GLuint program = 0;
+        std::array<GLint, UniformCount> uniforms;
+        std::array<Ref, MAX_SHADER_SAMPLERS> samplers{};
+        GLint interactions = -1;
+        GLint interaction_vectors = 0;
+        bool uses_environment = false;
+        std::array<Block, MAX_BLOCK_BINDINGS> blocks{};
+        unsigned sampler_count = 0, block_count = 0;
+
+        CompiledPass() { uniforms.fill(-1); }
+    };
+}
+
+namespace hyprimate::shader {
+    struct Program::Impl {
+        const Package package;
+        gles_detail::Limits limits;
+        gles_detail::IndexedColor color;
+        Statistics stats;
+        std::array<gles_detail::CompiledPass, MAX_PASSES> passes;
+        std::array<GLuint, MAX_TEXTURES> assets{};
+        std::array<GLuint, MAX_MESHES> elements{};
+        GLuint source_sampler = 0;
+        unsigned sampler_count = 0, block_count = 0, max_outputs = 1;
+        bool has_feedback = false, samples_borrowed_target = false, blends_final = false, armed = true;
+        unsigned final_draws = 0;
+        bool final_is_last = false, uses_frag_coord = false, uses_destination = false;
+        bool final_source_over = true;
+
+        bool direct() const noexcept;
+        explicit Impl(Package spec);
+        ~Impl();
+        bool prepare(const Values &values, GlResolver resolver, std::string &error);
+        bool preflight_formats(std::string &error);
+        bool upload(std::string &error);
+    };
+}
