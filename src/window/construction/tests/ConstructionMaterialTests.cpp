@@ -70,6 +70,14 @@ void check_pixels(CConstructionMaterial &material, GLuint image, GLuint target, 
         {
             gl::CRawGlState<2, Shadow> state({.viewport_width = WIDTH, .viewport_height = HEIGHT,
                 .framebuffer = framebuffer}, shadow);
+            if (generation == 0) {
+                const GLenum NONE = GL_NONE;
+                glDrawBuffers(1, &NONE);
+                CHECK(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+                CHECK(!material.draw(batch, *view, image, target));
+                const GLenum COLOR = GL_COLOR_ATTACHMENT0;
+                glDrawBuffers(1, &COLOR);
+            }
             CHECK(material.draw(batch, *view, image, target));
             glReadPixels(0,0,WIDTH,HEIGHT,GL_RGBA,GL_UNSIGNED_BYTE,actual.data());
         }

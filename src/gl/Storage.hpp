@@ -92,11 +92,37 @@ namespace hyprimate::gl {
         std::array<GLint, UNITS.size()> m_saved{};
     };
 
-    [[nodiscard]] inline bool framebuffer_attachment_is(GLenum attachment, GLuint name) {
+    [[nodiscard]] inline bool framebuffer_attachment_is(
+        GLenum attachment, GLuint name, GLenum object_type) {
         GLint attached = 0;
+        GLint attached_type = GL_NONE;
         glGetFramebufferAttachmentParameteriv(
             GL_DRAW_FRAMEBUFFER, attachment, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &attached);
-        return static_cast<GLuint>(attached) == name;
+        glGetFramebufferAttachmentParameteriv(GL_DRAW_FRAMEBUFFER,
+            attachment,
+            GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE,
+            &attached_type);
+        return static_cast<GLuint>(attached) == name &&
+            static_cast<GLenum>(attached_type) == object_type;
+    }
+
+    // Construction writes one output and must not publish a texture routed elsewhere.
+    [[nodiscard]] inline bool framebuffer_has_single_draw_buffer(GLenum attachment) {
+        GLint draw_buffer = GL_NONE;
+        glGetIntegerv(GL_DRAW_BUFFER0, &draw_buffer);
+        if (static_cast<GLenum>(draw_buffer) != attachment) {
+            return false;
+        }
+        GLint max_draw_buffers = 0;
+        glGetIntegerv(GL_MAX_DRAW_BUFFERS, &max_draw_buffers);
+        for (GLint index = 1; index < max_draw_buffers; ++index) {
+            const GLenum DRAW_BUFFER = GL_DRAW_BUFFER0 + static_cast<GLenum>(index);
+            glGetIntegerv(DRAW_BUFFER, &draw_buffer);
+            if (draw_buffer != GL_NONE) {
+                return false;
+            }
+        }
+        return true;
     }
 
     // Hyprland's createTexture returns a wrapper even when its first TexImage2D fails.

@@ -35,6 +35,53 @@ int main() {
     CHECK(static_cast<GLuint>(read) == fbos[0]);
     CHECK(static_cast<GLuint>(draw) == fbos[1]);
     CHECK(glGetError() == GL_NO_ERROR);
+    // Texture and renderbuffer namespaces may expose the same integer name. The
+    // attachment validator must distinguish object type, not just the name.
+    std::array<GLuint, 32> texture_names{};
+    std::array<GLuint, 32> renderbuffer_names{};
+    glGenTextures(static_cast<GLsizei>(texture_names.size()), texture_names.data());
+    glGenRenderbuffers(static_cast<GLsizei>(renderbuffer_names.size()), renderbuffer_names.data());
+    GLuint collision = 0;
+    for (const GLuint TEXTURE_NAME : texture_names) {
+        for (const GLuint RENDERBUFFER_NAME : renderbuffer_names) {
+            if (TEXTURE_NAME == RENDERBUFFER_NAME) {
+                collision = TEXTURE_NAME;
+            }
+        }
+    }
+    CHECK(collision != 0);
+    if (collision != 0) {
+        GLuint routed = 0;
+        glGenFramebuffers(1, &routed);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, routed);
+        glBindTexture(GL_TEXTURE_2D, collision);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, 8, 8);
+        glBindRenderbuffer(GL_RENDERBUFFER, collision);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, 8, 8);
+        glFramebufferRenderbuffer(
+            GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, collision);
+        CHECK(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+        CHECK(!hyprimate::gl::framebuffer_attachment_is(
+            GL_COLOR_ATTACHMENT0, collision, GL_TEXTURE));
+
+        glFramebufferTexture2D(
+            GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, collision, 0);
+        CHECK(hyprimate::gl::framebuffer_attachment_is(
+            GL_COLOR_ATTACHMENT0, collision, GL_TEXTURE));
+        const GLenum NONE = GL_NONE;
+        glDrawBuffers(1, &NONE);
+        CHECK(hyprimate::gl::framebuffer_attachment_is(
+            GL_COLOR_ATTACHMENT0, collision, GL_TEXTURE));
+        CHECK(!hyprimate::gl::framebuffer_has_single_draw_buffer(GL_COLOR_ATTACHMENT0));
+        glDeleteFramebuffers(1, &routed);
+        glDeleteRenderbuffers(1, &collision);
+        glDeleteTextures(1, &collision);
+    }
+    glDeleteRenderbuffers(static_cast<GLsizei>(renderbuffer_names.size()),
+        renderbuffer_names.data());
+    glDeleteTextures(static_cast<GLsizei>(texture_names.size()), texture_names.data());
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbos[1]);
+    CHECK(glGetError() == GL_NO_ERROR);
     // Exercise both the host's TexImage upload and the ground field's TexSubImage
     // under compositor-owned unpack state, including a bound pixel buffer.
     constexpr std::array<GLenum, 6> FIELDS{GL_UNPACK_ALIGNMENT,

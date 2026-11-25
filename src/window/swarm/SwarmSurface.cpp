@@ -16,8 +16,9 @@
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprutils/math/Vector2D.hpp>
 
-#include "gl/RawGlState.hpp"
+#include "gl/NativeFramebuffer.hpp"
 #include "gl/RawGlBracket.hpp"
+#include "gl/RawGlState.hpp"
 #include "gl/Storage.hpp"
 #include "swarm_shaders_generated.hpp"
 #include "window/swarm/SwarmSurface.hpp"
@@ -153,7 +154,8 @@ bool CSwarmSurface::bind_field(GLsizei width, GLsizei height) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, candidate, 0);
-    if (!hyprimate::gl::framebuffer_attachment_is(GL_COLOR_ATTACHMENT0, candidate) ||
+    if (!hyprimate::gl::framebuffer_attachment_is(
+            GL_COLOR_ATTACHMENT0, candidate, GL_TEXTURE) ||
         glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
         glFramebufferTexture2D(
             GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_field_texture, 0);

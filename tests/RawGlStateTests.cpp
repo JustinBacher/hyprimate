@@ -2,8 +2,10 @@
 #include <cstdint>
 #include <string_view>
 
+
 #include "Check.hpp"
 #include "GlHarness.hpp"
+#include <GLES2/gl2ext.h>
 #include "gl/RawGlState.hpp"
 
 namespace {
@@ -21,6 +23,17 @@ namespace {
         GLint value = 0;
         glGetIntegerv(name, &value);
         return value;
+    }
+    bool has_extension(std::string_view wanted) {
+        const GLint COUNT = integer(GL_NUM_EXTENSIONS);
+        for (GLint i = 0; i < COUNT; ++i) {
+            const auto *name = glGetStringi(GL_EXTENSIONS, static_cast<GLuint>(i));
+            if (name != nullptr &&
+                std::string_view{reinterpret_cast<const char *>(name)} == wanted) {
+                return true;
+            }
+        }
+        return false;
     }
     void enabled(GLenum cap, bool value) {
         if (value) {
@@ -359,8 +372,8 @@ namespace {
             glDeleteSamplers(1, &sampler);
             glDeleteBuffers(1, &buffer);
             glDeleteVertexArrays(1, &vao);
-            glDeleteFramebuffers(1, &draw.framebuffer);
-            glDeleteFramebuffers(1, &read.framebuffer);
+            hyprimate::gl::delete_framebuffers(1, &draw.framebuffer);
+            hyprimate::gl::delete_framebuffers(1, &read.framebuffer);
             // Pending deletion while still current is legal, but cannot be restored.
             glDeleteProgram(PROGRAM);
         }
@@ -388,6 +401,248 @@ namespace {
         draw.framebuffer = 0;
         read.framebuffer = 0;
     }
+    void indexed_state_is_restored(bool require_extension = false) {
+        const GLint MAJOR = integer(GL_MAJOR_VERSION);
+        const GLint MINOR = integer(GL_MINOR_VERSION);
+        const bool CORE = !require_extension && (MAJOR > 3 || (MAJOR == 3 && MINOR >= 2));
+        const bool has_ext = has_extension("GL_EXT_draw_buffers_indexed");
+        const bool has_oes = has_extension("GL_OES_draw_buffers_indexed");
+        if (!CORE && !has_ext && !has_oes) {
+            (void)std::fprintf(stderr,
+                "[skip] indexed state: GL ES %d.%d; no EXT/OES draw buffers indexed\n",
+                MAJOR, MINOR);
+            return;
+        }
+        const char *const API =
+            CORE ? "core" : (has_ext ? "GL_EXT_draw_buffers_indexed" : "GL_OES_draw_buffers_indexed");
+        (void)std::fprintf(stderr, "[run] indexed state: GL ES %d.%d; %s\n", MAJOR, MINOR, API);
+        const auto color_mask = CORE ? &glColorMaski : reinterpret_cast<decltype(&glColorMaski)>(
+            eglGetProcAddress(has_ext ? "glColorMaskiEXT" : "glColorMaskiOES"));
+        const auto enable = CORE ? &glEnablei : reinterpret_cast<decltype(&glEnablei)>(
+            eglGetProcAddress(has_ext ? "glEnableiEXT" : "glEnableiOES"));
+        const auto disable = CORE ? &glDisablei : reinterpret_cast<decltype(&glDisablei)>(
+            eglGetProcAddress(has_ext ? "glDisableiEXT" : "glDisableiOES"));
+        const auto is_enabled = CORE ? &glIsEnabledi : reinterpret_cast<decltype(&glIsEnabledi)>(
+            eglGetProcAddress(has_ext ? "glIsEnablediEXT" : "glIsEnablediOES"));
+        const auto factors = CORE ? &glBlendFuncSeparatei
+                                  : reinterpret_cast<decltype(&glBlendFuncSeparatei)>(
+                                        eglGetProcAddress(has_ext ? "glBlendFuncSeparateiEXT"
+                                                                  : "glBlendFuncSeparateiOES"));
+        const auto equation = CORE ? &glBlendEquationSeparatei
+                                   : reinterpret_cast<decltype(&glBlendEquationSeparatei)>(
+                                         eglGetProcAddress(has_ext ? "glBlendEquationSeparateiEXT"
+                                                                   : "glBlendEquationSeparateiOES"));
+        CHECK(color_mask && enable && disable && is_enabled && factors && equation);
+        if (!color_mask || !enable || !disable || !is_enabled || !factors || !equation) {
+            return;
+        }
+
+        const std::array<std::array<GLboolean, 4>, 2> MASKS{{
+            {GL_TRUE, GL_FALSE, GL_TRUE, GL_FALSE},
+            {GL_FALSE, GL_TRUE, GL_FALSE, GL_TRUE}}};
+        const std::array<std::array<GLenum, 4>, 2> FACTORS{{
+            {GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_DST_ALPHA, GL_ZERO},
+            {GL_ONE, GL_ZERO, GL_ONE_MINUS_DST_ALPHA, GL_SRC_ALPHA}}};
+        const std::array<std::array<GLenum, 2>, 2> EQUATIONS{{
+            {GL_FUNC_REVERSE_SUBTRACT, GL_FUNC_ADD},
+            {GL_FUNC_SUBTRACT, GL_FUNC_REVERSE_SUBTRACT}}};
+        constexpr std::array<GLboolean, 2> BLEND{GL_TRUE, GL_FALSE};
+        for (GLuint i = 0; i < 2; ++i) {
+            color_mask(i, MASKS[i][0], MASKS[i][1], MASKS[i][2], MASKS[i][3]);
+            if (BLEND[i] == GL_TRUE) {
+                enable(GL_BLEND, i);
+            } else {
+                disable(GL_BLEND, i);
+            }
+            factors(i, FACTORS[i][0], FACTORS[i][1], FACTORS[i][2], FACTORS[i][3]);
+            equation(i, EQUATIONS[i][0], EQUATIONS[i][1]);
+        }
+        SShadow shadow;
+        {
+            const Guard GUARD{{}, shadow};
+            for (GLuint i = 0; i < 2; ++i) {
+                std::array<GLint, 4> mask{};
+                glGetIntegeri_v(GL_COLOR_WRITEMASK, i, mask.data());
+                for (const auto channel : mask) {
+                    CHECK(channel == GL_TRUE);
+                }
+                CHECK(is_enabled(GL_BLEND, i) == GL_FALSE);
+                for (const auto property : {GL_BLEND_SRC_RGB, GL_BLEND_SRC_ALPHA}) {
+                    GLint value = 0;
+                    glGetIntegeri_v(property, i, &value);
+                    CHECK(value == GL_ONE);
+                }
+                for (const auto property : {GL_BLEND_DST_RGB, GL_BLEND_DST_ALPHA}) {
+                    GLint value = 0;
+                    glGetIntegeri_v(property, i, &value);
+                    CHECK(value == GL_ZERO);
+                }
+                for (const auto property : {GL_BLEND_EQUATION_RGB, GL_BLEND_EQUATION_ALPHA}) {
+                    GLint value = 0;
+                    glGetIntegeri_v(property, i, &value);
+                    CHECK(value == GL_FUNC_ADD);
+                }
+            }
+        }
+        for (GLuint i = 0; i < 2; ++i) {
+            std::array<GLint, 4> mask{};
+            glGetIntegeri_v(GL_COLOR_WRITEMASK, i, mask.data());
+            for (std::size_t channel = 0; channel < mask.size(); ++channel) {
+                CHECK(mask[channel] == MASKS[i][channel]);
+            }
+            CHECK((is_enabled(GL_BLEND, i) == GL_TRUE) == (BLEND[i] == GL_TRUE));
+            GLint factor = 0;
+            glGetIntegeri_v(GL_BLEND_SRC_RGB, i, &factor);
+            CHECK(static_cast<GLenum>(factor) == FACTORS[i][0]);
+            glGetIntegeri_v(GL_BLEND_DST_RGB, i, &factor);
+            CHECK(static_cast<GLenum>(factor) == FACTORS[i][1]);
+            glGetIntegeri_v(GL_BLEND_SRC_ALPHA, i, &factor);
+            CHECK(static_cast<GLenum>(factor) == FACTORS[i][2]);
+            glGetIntegeri_v(GL_BLEND_DST_ALPHA, i, &factor);
+            CHECK(static_cast<GLenum>(factor) == FACTORS[i][3]);
+            glGetIntegeri_v(GL_BLEND_EQUATION_RGB, i, &factor);
+            CHECK(static_cast<GLenum>(factor) == EQUATIONS[i][0]);
+            glGetIntegeri_v(GL_BLEND_EQUATION_ALPHA, i, &factor);
+            CHECK(static_cast<GLenum>(factor) == EQUATIONS[i][1]);
+        }
+        for (GLuint i = 0; i < 2; ++i) {
+            disable(GL_BLEND, i);
+            color_mask(i, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        }
+        CHECK(glGetError() == GL_NO_ERROR);
+    }
+    void advanced_equation_is_restored() {
+        if (!has_extension("GL_KHR_blend_equation_advanced")) {
+            (void)std::fprintf(stderr, "[skip] advanced equation: GL_KHR_blend_equation_advanced unavailable\n");
+            return;
+        }
+        (void)std::fprintf(stderr, "[run] advanced equation: GL_KHR_blend_equation_advanced\n");
+        glBlendEquation(GL_MULTIPLY_KHR);
+        const GLenum SET_ERROR = glGetError();
+        CHECK(SET_ERROR == GL_NO_ERROR);
+        CHECK(integer(GL_BLEND_EQUATION_RGB) == GL_MULTIPLY_KHR);
+        CHECK(integer(GL_BLEND_EQUATION_ALPHA) == GL_MULTIPLY_KHR);
+        if (SET_ERROR != GL_NO_ERROR) {
+            glBlendEquation(GL_FUNC_ADD);
+            return;
+        }
+        const bool INDEXED = integer(GL_MAJOR_VERSION) > 3 || integer(GL_MINOR_VERSION) >= 2 ||
+                             has_extension("GL_EXT_draw_buffers_indexed") ||
+                             has_extension("GL_OES_draw_buffers_indexed");
+        if (INDEXED) {
+            GLint slot_zero = 0;
+            glGetIntegeri_v(GL_BLEND_EQUATION_RGB, 0, &slot_zero);
+            CHECK(slot_zero == GL_MULTIPLY_KHR);
+            CHECK(glGetError() == GL_NO_ERROR);
+        }
+        SShadow shadow;
+        {
+            const Guard GUARD{{}, shadow};
+        }
+        CHECK(glGetError() == GL_NO_ERROR);
+        CHECK(integer(GL_BLEND_EQUATION_RGB) == GL_MULTIPLY_KHR);
+        CHECK(integer(GL_BLEND_EQUATION_ALPHA) == GL_MULTIPLY_KHR);
+        if (INDEXED) {
+            GLint slot_zero = 0;
+            glGetIntegeri_v(GL_BLEND_EQUATION_RGB, 0, &slot_zero);
+            CHECK(slot_zero == GL_MULTIPLY_KHR);
+            CHECK(glGetError() == GL_NO_ERROR);
+        }
+        glBlendEquation(GL_FUNC_ADD);
+    }
+    void mixed_advanced_equations_are_restored(bool require_extension = false) {
+        const bool CORE = !require_extension &&
+                          (integer(GL_MAJOR_VERSION) > 3 || integer(GL_MINOR_VERSION) >= 2);
+        const bool EXT = has_extension("GL_EXT_draw_buffers_indexed");
+        const bool OES = has_extension("GL_OES_draw_buffers_indexed");
+        if (!has_extension("GL_KHR_blend_equation_advanced") || (!CORE && !EXT && !OES)) {
+            (void)std::fprintf(stderr, "[skip] mixed advanced equations: required extensions unavailable\n");
+            return;
+        }
+        const char *const API = CORE ? "core" : (EXT ? "EXT" : "OES");
+        (void)std::fprintf(stderr, "[run] mixed advanced equations: %s\n", API);
+        const auto equation = CORE ? &glBlendEquationSeparatei
+                                   : reinterpret_cast<decltype(&glBlendEquationSeparatei)>(
+                                         eglGetProcAddress(EXT ? "glBlendEquationSeparateiEXT"
+                                                               : "glBlendEquationSeparateiOES"));
+        CHECK(equation != nullptr);
+        if (equation == nullptr) {
+            return;
+        }
+        glBlendEquation(GL_MULTIPLY_KHR);
+        const GLenum GLOBAL_ERROR = glGetError();
+        CHECK(GLOBAL_ERROR == GL_NO_ERROR);
+        equation(0, GL_FUNC_SUBTRACT, GL_FUNC_REVERSE_SUBTRACT);
+        const GLenum INDEXED_ERROR = glGetError();
+        CHECK(INDEXED_ERROR == GL_NO_ERROR);
+        if (GLOBAL_ERROR != GL_NO_ERROR || INDEXED_ERROR != GL_NO_ERROR) {
+            glBlendEquation(GL_FUNC_ADD);
+            return;
+        }
+        const auto check_equations = [] {
+            constexpr std::array<std::array<GLint, 2>, 2> EXPECTED{{
+                {GL_FUNC_SUBTRACT, GL_FUNC_REVERSE_SUBTRACT},
+                {GL_MULTIPLY_KHR, GL_MULTIPLY_KHR}}};
+            for (GLuint index = 0; index < 2; ++index) {
+                GLint rgb = 0;
+                GLint alpha = 0;
+                glGetIntegeri_v(GL_BLEND_EQUATION_RGB, index, &rgb);
+                glGetIntegeri_v(GL_BLEND_EQUATION_ALPHA, index, &alpha);
+                CHECK(rgb == EXPECTED[index][0]);
+                CHECK(alpha == EXPECTED[index][1]);
+            }
+            CHECK(glGetError() == GL_NO_ERROR);
+        };
+        check_equations();
+        SShadow shadow;
+        {
+            const Guard GUARD{{}, shadow};
+        }
+        CHECK(glGetError() == GL_NO_ERROR);
+        check_equations();
+        glBlendEquation(GL_FUNC_ADD);
+        CHECK(glGetError() == GL_NO_ERROR);
+    }
+
+
+
+    void bound_program_pending_deletion_survives_bracket() {
+        const GLuint PROGRAM = gl_harness::build_program(VERTEX, FRAGMENT);
+        CHECK(PROGRAM != 0);
+        glUseProgram(PROGRAM);
+        glDeleteProgram(PROGRAM);
+        SShadow shadow;
+        {
+            const Guard GUARD{{}, shadow};
+        }
+        CHECK(integer(GL_CURRENT_PROGRAM) == static_cast<GLint>(PROGRAM));
+        GLint deleted = GL_FALSE;
+        glGetProgramiv(PROGRAM, GL_DELETE_STATUS, &deleted);
+        CHECK(deleted == GL_TRUE);
+        glUseProgram(0);
+        CHECK(glIsProgram(PROGRAM) == GL_FALSE);
+        CHECK(glGetError() == GL_NO_ERROR);
+    }
+
+    void reused_framebuffer_name_is_not_restored() {
+        STarget target;
+        const GLuint SAVED = target.framebuffer;
+        SShadow shadow;
+        {
+            const Guard GUARD{{.framebuffer = SAVED}, shadow};
+            hyprimate::gl::delete_framebuffers(1, &target.framebuffer);
+            target.framebuffer = 0;
+            // Binding a deleted nonzero name creates a new framebuffer with that name.
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, SAVED);
+            CHECK(glIsFramebuffer(SAVED) == GL_TRUE);
+        }
+        CHECK(integer(GL_DRAW_FRAMEBUFFER_BINDING) == 0);
+        CHECK(integer(GL_READ_FRAMEBUFFER_BINDING) == 0);
+        CHECK(shadow.outer_draw_framebuffer == 0);
+        glDeleteFramebuffers(1, &SAVED);
+        CHECK(glGetError() == GL_NO_ERROR);
+    }
+
 
     void zero_units_preserves_active_texture() {
         glActiveTexture(GL_TEXTURE5);
@@ -409,6 +664,21 @@ int main(int argc, char **argv) {
     if (!CONTEXT.valid()) {
         return 77;
     }
+    if (argc == 2 && std::string_view{argv[1]} == "--require-indexed-extension") {
+        if (integer(GL_MAJOR_VERSION) != 3 || integer(GL_MINOR_VERSION) >= 2) {
+            std::fprintf(stderr, "[skip] indexed extension: GLES 3.0/3.1 required, got %s\n",
+                glGetString(GL_VERSION));
+            return 77;
+        }
+        if (!has_extension("GL_EXT_draw_buffers_indexed") &&
+            !has_extension("GL_OES_draw_buffers_indexed")) {
+            (void)std::fprintf(stderr, "[skip] indexed extension: neither EXT nor OES advertised\n");
+            return 77;
+        }
+        indexed_state_is_restored(true);
+        mixed_advanced_equations_are_restored(true);
+        return g_failures == 0 ? 0 : 1;
+    }
     if (argc == 2 && std::string_view{argv[1]} == "--require-es30" &&
         (integer(GL_MAJOR_VERSION) != 3 || integer(GL_MINOR_VERSION) != 0)) {
         std::fprintf(stderr, "ES 3.0 unavailable; got %s\n", glGetString(GL_VERSION));
@@ -416,6 +686,11 @@ int main(int argc, char **argv) {
     }
     hostile_draw_and_early_exit();
     deletion_does_not_resurrect_bindings();
+    indexed_state_is_restored();
+    advanced_equation_is_restored();
+    mixed_advanced_equations_are_restored();
+    bound_program_pending_deletion_survives_bracket();
+    reused_framebuffer_name_is_not_restored();
     zero_units_preserves_active_texture();
     return g_failures == 0 ? 0 : 1;
 }

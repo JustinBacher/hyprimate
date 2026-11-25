@@ -4,6 +4,7 @@
 #include <exception>
 #include <vector>
 
+#include "gl/RawGlState.hpp"
 #include "gl/Storage.hpp"
 #include "window/burn/BurnMaterial.hpp"
 
@@ -145,7 +146,7 @@ bool CBurnMaterial::resize(GLsizei width, GLsizei height) {
     glGenTextures(1, &color);
     glGenRenderbuffers(1, &depth);
     const auto DISCARD = [&] {
-        glDeleteFramebuffers(1, &framebuffer);
+        hyprimate::gl::delete_framebuffer(framebuffer);
         glDeleteTextures(1, &color);
         glDeleteRenderbuffers(1, &depth);
     };
@@ -189,7 +190,7 @@ bool CBurnMaterial::resize(GLsizei width, GLsizei height) {
         DISCARD();
         return false;
     }
-    glDeleteFramebuffers(1, &m_framebuffer);
+    hyprimate::gl::delete_framebuffer(m_framebuffer);
     glDeleteTextures(1, &m_color);
     glDeleteRenderbuffers(1, &m_depth);
     m_framebuffer = framebuffer;
@@ -203,7 +204,7 @@ bool CBurnMaterial::resize(GLsizei width, GLsizei height) {
 void CBurnMaterial::release() {
     glDeleteBuffers(2, m_buffer.data());
     glDeleteVertexArrays(2, m_vao.data());
-    glDeleteFramebuffers(1, &m_framebuffer);
+    hyprimate::gl::delete_framebuffer(m_framebuffer);
     glDeleteTextures(1, &m_color);
     glDeleteRenderbuffers(1, &m_depth);
     m_framebuffer = m_color = m_depth = 0;

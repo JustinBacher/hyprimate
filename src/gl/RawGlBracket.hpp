@@ -30,10 +30,11 @@ namespace hyprimate::gl {
     }  // namespace detail
 
     // Raw GL isolation for material work (ADR-0002). The raw guard installs the draw
-    // baseline before synchronizing Hyprland's caches, then restores the caller's exact
-    // bindings and shadow on exit, including independent READ/DRAW framebuffers.
-    // Resources deleted inside the bracket are restored as 0, never resurrected.
-    // Construct and destroy only with the owning compositor context current.
+    // baseline before synchronizing Hyprland's caches, then restores caller state, including
+    // independent READ/DRAW framebuffers.
+    // Route plugin FBO deletion through delete_framebuffers to invalidate saved and outer
+    // bindings before name reuse. External deletions do not notify the raw guard.
+    // Construct and destroy with the owning context current.
     template <std::size_t Units>
     class CRawGlBracket {
       public:

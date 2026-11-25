@@ -3,6 +3,7 @@
 #include <new>
 #include <vector>
 
+#include "gl/RawGlState.hpp"
 #include "gl/Storage.hpp"
 #include "workspace/planet_hop/PlanetGlPrivate.hpp"
 
@@ -59,7 +60,7 @@ namespace hyprimate::workspace {
             glDeleteBuffers(1, &mesh.indices);
             mesh = {};
         }
-        glDeleteFramebuffers(1, &m_framebuffer);
+        hyprimate::gl::delete_framebuffer(m_framebuffer);
         for (auto &buffer : m_depth_buffers) {
             glDeleteRenderbuffers(1, &buffer.id);
             buffer = {};

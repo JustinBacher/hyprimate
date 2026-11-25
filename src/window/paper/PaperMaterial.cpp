@@ -110,8 +110,8 @@ bool CPaperMaterial::initialize(GLuint program) {
 void CPaperMaterial::release() {
     glDeleteVertexArrays(1, &m_vao);
     glDeleteBuffers(1, &m_buffer);
-    glDeleteFramebuffers(1, &m_framebuffer);
-    glDeleteFramebuffers(1, &m_shadow_framebuffer);
+    hyprimate::gl::delete_framebuffer(m_framebuffer);
+    hyprimate::gl::delete_framebuffer(m_shadow_framebuffer);
     glDeleteTextures(1, &m_color);
     glDeleteTextures(1, &m_depth);
     glDeleteRenderbuffers(1, &m_depth_buffer);
@@ -185,8 +185,8 @@ bool CPaperMaterial::resize(GLsizei width, GLsizei height, bool shaded) {
     struct Pending {
         GLuint framebuffer = 0, shadow_framebuffer = 0, color = 0, depth = 0, depth_buffer = 0;
         ~Pending() {
-            glDeleteFramebuffers(1, &framebuffer);
-            glDeleteFramebuffers(1, &shadow_framebuffer);
+            hyprimate::gl::delete_framebuffer(framebuffer);
+            hyprimate::gl::delete_framebuffer(shadow_framebuffer);
             glDeleteTextures(1, &color);
             glDeleteTextures(1, &depth);
             glDeleteRenderbuffers(1, &depth_buffer);
@@ -226,8 +226,10 @@ bool CPaperMaterial::resize(GLsizei width, GLsizei height, bool shaded) {
             GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, pending.color, 0);
         glFramebufferRenderbuffer(
             GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, pending.depth_buffer);
-        if (!hyprimate::gl::framebuffer_attachment_is(GL_COLOR_ATTACHMENT0, pending.color) ||
-            !hyprimate::gl::framebuffer_attachment_is(GL_DEPTH_ATTACHMENT, pending.depth_buffer) ||
+        if (!hyprimate::gl::framebuffer_attachment_is(
+                GL_COLOR_ATTACHMENT0, pending.color, GL_TEXTURE) ||
+            !hyprimate::gl::framebuffer_attachment_is(
+                GL_DEPTH_ATTACHMENT, pending.depth_buffer, GL_RENDERBUFFER) ||
             glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
             return false;
     }

@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "gl/RawGlState.hpp"
+#include "gl/Storage.hpp"
 #include "window/smoke/SmokeMaterial.hpp"
 
 namespace {
@@ -268,7 +269,7 @@ bool CSmokeMaterial::allocate(CSmokeField &field, GLsizei width, GLsizei height)
         glFramebufferTexture2D(
             GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, pending.m_textures[i], 0);
         if (!hyprimate::gl::framebuffer_attachment_is(
-                GL_COLOR_ATTACHMENT0, pending.m_textures[i]) ||
+                GL_COLOR_ATTACHMENT0, pending.m_textures[i], GL_TEXTURE) ||
             glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
             return FAIL();
         glClear(GL_COLOR_BUFFER_BIT);
@@ -287,9 +288,9 @@ bool CSmokeMaterial::allocate(CSmokeField &field, GLsizei width, GLsizei height)
         glFramebufferTexture2D(
             GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, pending.m_textures[pair[1]], 0);
         if (!hyprimate::gl::framebuffer_attachment_is(
-                GL_COLOR_ATTACHMENT0, pending.m_textures[pair[0]]) ||
+                GL_COLOR_ATTACHMENT0, pending.m_textures[pair[0]], GL_TEXTURE) ||
             !hyprimate::gl::framebuffer_attachment_is(
-                GL_COLOR_ATTACHMENT1, pending.m_textures[pair[1]]) ||
+                GL_COLOR_ATTACHMENT1, pending.m_textures[pair[1]], GL_TEXTURE) ||
             glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
             return FAIL();
     }

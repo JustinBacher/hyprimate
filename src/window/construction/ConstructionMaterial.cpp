@@ -50,7 +50,8 @@ void instance_attribute(GLuint location, GLint components, GLenum type, GLboolea
 bool valid_attachment(GLuint image, GLuint output_texture) noexcept {
     if (!image || !output_texture || image == output_texture ||
         glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE ||
-        !gl::framebuffer_attachment_is(GL_COLOR_ATTACHMENT0, output_texture))
+        !gl::framebuffer_attachment_is(GL_COLOR_ATTACHMENT0, output_texture, GL_TEXTURE) ||
+        !gl::framebuffer_has_single_draw_buffer(GL_COLOR_ATTACHMENT0))
         return false;
     GLint alpha = 0;
     glGetFramebufferAttachmentParameteriv(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,

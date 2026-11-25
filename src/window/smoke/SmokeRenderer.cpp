@@ -7,7 +7,7 @@
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 
-#include "gl/RawGlState.hpp"
+#include "gl/NativeFramebuffer.hpp"
 #include "gl/RawGlBracket.hpp"
 #include "smoke_shaders_generated.hpp"
 #include "window/hyprland/HyprAnimationCanvas.hpp"
