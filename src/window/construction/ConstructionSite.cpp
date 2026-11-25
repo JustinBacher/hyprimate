@@ -210,9 +210,8 @@ void receiving_ledge(ConstructionBatch &batch, Box bay, Box area, double y,
 
 void station_deck(ConstructionBatch &batch, const auto &station, double opacity, double scale) noexcept {
     const Vec3 DEPTH{0, 0, std::max(24.0, 19 + 3 * scale)};
-    const double apron = 13 * std::max(0.0, scale - 1);
-    const Vec3 top{station.deck_left - apron, station.floor.y, -5},
-        width{station.deck_right - station.deck_left + 2 * apron, 0, 0};
+    const Vec3 top{station.deck_left, station.floor.y, -5},
+        width{station.deck_right - station.deck_left, 0, 0};
     quad(batch, top, width, DEPTH, tint({137, 107, 69, 255}, opacity));
     quad(batch, top + DEPTH, width, {0, 4, 0}, tint(NAVY, opacity));
     line(batch, top + DEPTH, top + DEPTH + width, 1.4, tint(GOLD, opacity));
@@ -351,7 +350,7 @@ void ConstructionSite::build(Box body, Box capture, Box work_area, std::uint64_t
     m_body = body;
     m_capture = capture;
     m_duration = duration;
-    // Worker size never changes the panel plan, scheduling or source geometry.
+    // Scale the crew without changing the panel partition or source geometry.
     m_worker_scale = .075 * std::min(body.w, body.h) / CREW_HEIGHT *
         (std::isfinite(worker_size) ? std::clamp(worker_size, 0.0, 2.0) : 1.0);
     m_elapsed = 0;
@@ -567,13 +566,15 @@ void ConstructionSite::build(Box body, Box capture, Box work_area, std::uint64_t
 
         const auto overlaps = [&](const Reservation &other) {
             return other.job != index && job.start < other.end && other.start < job.clear &&
-                std::abs(y - other.y) < 32;
+                   std::abs(y - other.y) < 32 * m_worker_scale;
         };
         const auto separate = [](double left, double r, double other_left, double other_right) {
             return r + 2 <= other_left || left >= other_right + 2;
         };
         const auto place = [&](double nominal, double facing, double walk, bool guide) {
-            const double extent_left = std::min(0.0, walk) - 13, extent_right = std::max(0.0, walk) + 13;
+            const double swept_walk = walk * std::max(1.0, m_worker_scale);
+            const double extent_left = std::min(0.0, swept_walk) - 13 * m_worker_scale;
+            const double extent_right = std::max(0.0, swept_walk) + 13 * m_worker_scale;
             const double lo = guide ? nominal : std::max(area.x, bay.x) - extent_left;
             const double hi = guide ? nominal : std::min(right(area), right(bay)) - extent_right;
             if (lo > hi) return false;

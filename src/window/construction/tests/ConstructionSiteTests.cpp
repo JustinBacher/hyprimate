@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 
 #include <tuple>
 #include <vector>
@@ -647,10 +648,13 @@ void opening_worker_size_preserves_source_faces() {
             scaled.build(body,body,area,42,OPEN_SECONDS,multiplier);
             CHECK(reference.active() && scaled.active());
             bool saw_workers=false,saw_client=false,saw_identity=false;
+            std::vector<std::array<float, 4>> reference_sources, scaled_sources;
             for (int frame=0;frame<80 && reference.active();++frame) {
                 const auto &a=reference.batch(),&b=scaled.batch();
                 CHECK(scaled.active() && !b.overflow);
-                std::size_t next=0;
+                for (std::size_t i = 0; i < a.count; ++i)
+                    if (a.quads[i].surface == ConstructionSurface::Client)
+                        reference_sources.push_back(a.quads[i].uv);
                 for (std::size_t i=0;i<b.count;++i) {
                     const auto &q=b.quads[i];
                     for (int corner=0;corner<4;++corner) {
@@ -666,23 +670,125 @@ void opening_worker_size_preserves_source_faces() {
                     if (q.surface!=ConstructionSurface::Client) continue;
                     saw_client=true;
                     saw_identity|=full_identity(q,body);
-                    while (next<a.count && a.quads[next].surface!=ConstructionSurface::Client) ++next;
-                    CHECK(next<a.count);
-                    if (next>=a.count) continue;
-                    const auto &expected=a.quads[next++];
-                    CHECK(q.origin==expected.origin && q.u==expected.u && q.v==expected.v && q.uv==expected.uv);
+                    // Source origins and sizes are independently rounded to float.
+                    const double tolerance =
+                        2 * std::numeric_limits<float>::epsilon() * std::max(body.w, body.h);
+                    const bool in_bounds = q.uv[0] >= 0 && q.uv[1] >= 0 && q.uv[2] > 0 &&
+                                           q.uv[3] > 0 &&
+                                           double(q.uv[0]) + q.uv[2] <= body.w + tolerance &&
+                                           double(q.uv[1]) + q.uv[3] <= body.h + tolerance;
+                    if (!in_bounds)
+                        std::fprintf(stderr,
+                            "client source xywh=(%.9g,%.9g,%.9g,%.9g) capture=(%.9g,%.9g) "
+                            "tolerance=%.9g\n",
+                            q.uv[0],
+                            q.uv[1],
+                            q.uv[2],
+                            q.uv[3],
+                            body.w,
+                            body.h,
+                            tolerance);
+                    CHECK(in_bounds);
+                    scaled_sources.push_back(q.uv);
                 }
-                while (next<a.count && a.quads[next].surface!=ConstructionSurface::Client) ++next;
-                CHECK(next==a.count);
                 const animation::Step tick{.elapsed=1.0/120,.body=body,.capture=body,.goal_body=body,
                     .rest_capture=body,.screen=area,.work_area=area,.motion={},.open_enabled=true};
                 reference.step(tick);
                 scaled.step(tick);
             }
+            const auto unique_sources = [](auto &sources) {
+                std::sort(sources.begin(), sources.end());
+                sources.erase(std::unique(sources.begin(), sources.end()), sources.end());
+            };
+            unique_sources(reference_sources);
+            unique_sources(scaled_sources);
+            // Station availability may retime or repose a panel; its captured
+            // source rectangles must still be the same over the whole opening.
+            CHECK(reference_sources == scaled_sources);
             CHECK(saw_workers==(multiplier>0));
             CHECK(saw_client && saw_identity && !scaled.active());
         }
     }
+}
+
+void straddling_guide_must_fit_the_output() {
+    constexpr Box body{0, 0, 1920, 1080};
+    constexpr Box open_area{-2000, -1000, 6000, 4000};
+    constexpr double scale = .075 * 1080 / CREW_HEIGHT * 2;
+    ConstructionSite reference;
+    reference.build(body, body, open_area, 42, OPEN_SECONDS, 2);
+    CHECK(reference.active());
+    if (!reference.active()) return;
+    reference.step({.elapsed = OPEN_SECONDS * .4,
+        .body = body,
+        .capture = body,
+        .goal_body = body,
+        .rest_capture = body,
+        .screen = open_area,
+        .work_area = open_area,
+        .motion = {},
+        .open_enabled = true});
+    const auto *face = marker_face(reference.batch(), body);
+    CHECK(face);
+    if (!face) return;
+    const auto workers = receiving_workers(
+        reference.batch(), face->uv[0], double(face->uv[0]) + face->uv[2], body.h, scale);
+    CHECK(workers.guide.near_boot && workers.guide.far_boot);
+    if (!workers.guide.near_boot || !workers.guide.far_boot) return;
+
+    // Put the output edge beyond both actual planted guide soles. The window
+    // still substantially overlaps the output and its fitter remains visible.
+    const double edge = std::max(socket(*workers.guide.near_boot, NEAR_BOOT.tip).x,
+                            socket(*workers.guide.far_boot, FAR_BOOT.tip).x) +
+                        1;
+    const Box straddling{edge, -1000, body.w + 400 - edge, 4000};
+    ConstructionSite clipped;
+    clipped.build(body, body, straddling, 42, OPEN_SECONDS, 2);
+    CHECK(!clipped.active());
+}
+
+void scaled_station_decks_do_not_overlap() {
+    constexpr Box body{0, 0, 1920, 1080};
+    constexpr Box area{-2000, -1000, 6000, 4000};
+    constexpr double scale = .075 * 1080 / CREW_HEIGHT * 2;
+    bool compared = false, overlap = false;
+    for (std::uint64_t seed = 0; seed < 128 && !overlap; ++seed) {
+        ConstructionSite site;
+        site.build(body, body, area, seed, OPEN_SECONDS, 2);
+        for (int frame = 0; frame < 120 && site.active() && !overlap; ++frame) {
+            std::vector<const ConstructionQuad *> decks;
+            const auto &batch = site.batch();
+            for (std::size_t i = 0; i < batch.count; ++i) {
+                const auto &q = batch.quads[i];
+                // Ordinary station deck tops are horizontal solid quads at z=-5.
+                // Read their painted extents, not the scheduler's reservations.
+                if (q.surface == ConstructionSurface::Solid && q.tint[3] > 0 && q.origin[2] == -5 &&
+                    q.u[0] > 0 && q.u[1] == 0 && q.u[2] == 0 && q.v[0] == 0 && q.v[1] == 0 &&
+                    q.v[2] >= 24)
+                    decks.push_back(&q);
+            }
+            for (std::size_t i = 0; i < decks.size(); ++i) {
+                for (std::size_t j = i + 1; j < decks.size(); ++j) {
+                    const auto &a = *decks[i], &b = *decks[j];
+                    if (std::abs(a.origin[1] - b.origin[1]) >= 32 * scale) continue;
+                    compared = true;
+                    overlap |= a.origin[0] < double(b.origin[0]) + b.u[0] &&
+                               b.origin[0] < double(a.origin[0]) + a.u[0];
+                }
+            }
+            site.step({.elapsed = OPEN_SECONDS / 120,
+                .body = body,
+                .capture = body,
+                .goal_body = body,
+                .rest_capture = body,
+                .screen = area,
+                .work_area = area,
+                .motion = {},
+                .open_enabled = true});
+        }
+    }
+    CHECK(compared);
+    CHECK(!overlap);
 }
 
 }  // namespace
@@ -693,6 +799,8 @@ int main() {
     animated_capture_keeps_the_opening_pose_and_clock();
     scaled_rigs_keep_world_contacts();
     opening_worker_size_preserves_source_faces();
+    straddling_guide_must_fit_the_output();
+    scaled_station_decks_do_not_overlap();
     const auto early=contacts(42), delayed=contacts(43);
     const int delay=delayed.seat-early.seat;
     CHECK(delay>=30);
