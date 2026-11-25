@@ -38,7 +38,7 @@ set -euo pipefail
 
 rounds=3 style=cloth seconds=20 out="" modes="off on" parent="" expect="" node="" gpu_index=""
 expect_output="" startup_only=0 windows=1 max_attempts=3 private_node=""
-plugin=${HYPRIMATE_PLUGIN:-} production=0
+plugin=${HYPRIMATE_PLUGIN:-} production=0 nested_eval=""
 while (($#)); do
     case "$1" in
         --rounds) rounds=$2; shift 2 ;;
@@ -57,6 +57,7 @@ while (($#)); do
         --plugin) plugin=$2; shift 2 ;;
         --production) production=1; shift ;;
         --startup-only) startup_only=1; shift ;;
+        --nested-eval) nested_eval=$2; shift 2 ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
 done
@@ -162,8 +163,10 @@ run_mode() {
     local runner_log=$out/$tag.runner.log nested_log=$out/$tag.nested.log
     local env_value=$mode
     [[ $mode == off ]] && env_value=0
+    local nested_args=(--style "$style" --no-build --no-window)
+    [[ -n $nested_eval ]] && nested_args+=(--eval "$nested_eval")
     env "${child_env[@]}" HYPRIMATE_INDEXED_MESH=$env_value HYPRIMATE_NESTED_LOG=$nested_log \
-        "$root/tests/nested/run.sh" --style "$style" --no-build --no-window >"$runner_log" 2>&1 &
+        "$root/tests/nested/run.sh" "${nested_args[@]}" >"$runner_log" 2>&1 &
     local runner=$!
     local instance=""
     stop_nested_early() {

@@ -36,6 +36,7 @@ std::vector<UP<IPassElement>> CWindowAnimationPass::draw(Render::CRenderContext 
         const auto PROFILE_KEY =
             profile_key(m_data.handle.style, m_data.retained_tail ? "shared" : "close");
         const hyprimate::perf::GpuScope GPU_PROFILE{PROFILE_KEY};
+        HYPRIMATE_GPU_STOPWATCH("style.outer-close");
         CHyprAnimationCanvas canvas{ctx, *m_data.resources};
         const bool shader = m_data.handle.style == hyprimate::config::Style::Shader;
         if (shader && !m_data.blur) canvas.allow_direct();

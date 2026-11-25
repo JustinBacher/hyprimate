@@ -218,6 +218,7 @@ SWindowTransformBuffer CAnimationTransformer::transform(CRenderContext &ctx,
     }
     CHyprAnimationCanvas canvas{ctx, m_port.canvas_resources(), BLUR_MASK};
     const hyprimate::perf::GpuScope GPU_PROFILE{profile_key(m_handle.style)};
+    HYPRIMATE_GPU_STOPWATCH("style.outer");
     const Draw<CHyprAnimationCanvas> DRAW{.canvas = &canvas,
         .image = &input.framebuffer,
         .source = to_box(SOURCE),
