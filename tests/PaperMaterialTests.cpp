@@ -246,6 +246,31 @@ namespace {
         CHECK(material.draw(surface, placement(), texture, output.framebuffer));
         CHECK(BEFORE == read(output.framebuffer));
     }
+    void invalid_crease(CPaperMaterial &material, GLuint texture, const Target &output) {
+        auto surface = sheet();
+        surface.points[3].position.z = .4;
+        const std::array INVALID{std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::infinity(),
+            -std::numeric_limits<float>::infinity()};
+        for (std::size_t face = 0; face < surface.faces.size(); ++face) {
+            for (std::size_t edge = 0; edge < 3; ++edge) {
+                for (const float value : INVALID) {
+                    surface.faces[face].crease[edge] = value;
+                    CHECK(!material.draw(surface, placement(), texture, output.framebuffer));
+                    surface.faces[face].crease[edge] = 0;
+                    CHECK(material.draw(surface, placement(), texture, output.framebuffer));
+                }
+            }
+        }
+        const std::array FINITE{std::numeric_limits<float>::denorm_min(),
+            std::numeric_limits<float>::max(),
+            -std::numeric_limits<float>::max()};
+        // Finite crease values remain usable: the material clamps them to [0, 1].
+        for (const float value : FINITE) {
+            surface.faces[1].crease[0] = value;
+            CHECK(material.draw(surface, placement(), texture, output.framebuffer));
+        }
+    }
     void continuous_crease(CPaperMaterial &material, GLuint texture, const Target &output) {
         auto surface = sheet();
         surface.points[3].position.z = .4;
@@ -857,6 +882,7 @@ int main(int argc, char **argv) {
         native_text_and_crop(material, TEXTURE, OUTPUT, SOURCE);
         sided_depth_and_holes(material, OUTPUT);
         crease_and_contact(material, TEXTURE, OUTPUT);
+        invalid_crease(material, TEXTURE, OUTPUT);
         continuous_crease(material, TEXTURE, OUTPUT);
         composite_orientation(material, TEXTURE, OUTPUT);
         thickness_and_matte(material, OUTPUT);

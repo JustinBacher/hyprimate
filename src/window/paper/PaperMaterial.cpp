@@ -261,6 +261,15 @@ bool CPaperMaterial::draw(const hyprimate::PaperSurface &surface,
         !std::isfinite(surface.shading) || !std::isfinite(surface.thickness) ||
         !std::isfinite(surface.shadow_strength) || !std::isfinite(target.alpha))
         return false;
+    if (std::any_of(surface.faces.begin(),
+            surface.faces.end(),
+            [](const auto &face) {
+                return std::any_of(
+                    face.crease.begin(),
+                    face.crease.end(),
+                    [](float value) { return !std::isfinite(value); });
+            }))
+        return false;
     const bool CASTS_SHADOW =
         surface.shadow_strength > 0 && std::any_of(surface.points.begin(),
                                            surface.points.end(),
