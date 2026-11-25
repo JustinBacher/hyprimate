@@ -565,6 +565,31 @@ namespace {
         CHECK(DISTANCE(1.0) > DISTANCE(0.1) * 2.0);
     }
 
+    void held_wander_keeps_large_finite_geometry_visible() {
+        // Both extents and a tile-scale wander distance are representable, although the
+        // rectangular area is not. Holding still must not lose the visible tile.
+        constexpr double SIDE = 1e155;
+        const Box LARGE{.x = 0.0, .y = 0.0, .w = SIDE, .h = SIDE};
+        const SwarmPlacement large{.capture = LARGE, .body = LARGE, .screen = LARGE};
+        SwarmParams params;
+        params.count = 1;
+        params.wander = 1.0;
+        Swarm swarm;
+        swarm.begin_movement(params, 23, large);
+        CHECK(swarm.moving());
+        CHECK(swarm.agents().size() == 1);
+        const Box BEFORE = swarm.bounds();
+        CHECK(BEFORE.w > 0.0 && BEFORE.h > 0.0);
+
+        swarm.advance(1.0 / 120.0, true);
+        const SwarmAgent &agent = swarm.agents().front();
+        CHECK(std::isfinite(agent.position.x) && std::isfinite(agent.position.y));
+        const Box AFTER = swarm.bounds();
+        CHECK(std::isfinite(AFTER.x) && std::isfinite(AFTER.y) &&
+              std::isfinite(AFTER.w) && std::isfinite(AFTER.h));
+        CHECK(AFTER.w > 0.0 && AFTER.h > 0.0);
+    }
+
     void departures_are_staggered() {
         // How long the middle four fifths of an opening's agents take to land.
         const auto LANDING_SPAN = [](double stagger) {
@@ -1408,6 +1433,7 @@ int main() {
     fast_movement_scatters_then_regroups();
     held_movement_wanders_until_release();
     held_movement_respects_wander();
+    held_wander_keeps_large_finite_geometry_visible();
     departures_are_staggered();
     routes_are_not_straight_lines();
     bodies_in_transit_do_not_pass_through_each_other();

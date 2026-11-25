@@ -152,7 +152,9 @@ namespace hyprimate {
             m_rows = static_cast<int>(std::lround(ROWS));
         }
         const int ROWS = m_rows;
-        m_spacing = std::sqrt(m_body.w * m_body.h / COUNT);
+        const double AREA = m_body.w * m_body.h;
+        m_spacing = std::isfinite(AREA) ? std::sqrt(AREA / COUNT)
+                                        : std::sqrt(m_body.w / COUNT) * std::sqrt(m_body.h);
 
         // Rows share the agents as evenly as integers allow, so every row's tiles are near square.
         const auto COLUMNS_OF = [&](int row) {
