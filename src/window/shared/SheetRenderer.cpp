@@ -104,8 +104,8 @@ SP<Render::IFramebuffer> render_sheet(Render::CRenderContext &ctx, const SSheetD
         (!(draw.canvas.x > 0.0) || !(draw.canvas.y > 0.0))) {
         return nullptr;
     }
-    hyprimate::gl::CompositorContextOwner current;
-    if (!current.ensure_current()) return nullptr;
+    const hyprimate::gl::CurrentCompositorContext CONTEXT;
+    if (!CONTEXT) return nullptr;
 
     // Preserve split alpha factors as well as the RGB factors shadowed by Hyprland.
     const bool ENTRY_BLEND = Render::GL::g_pHyprOpenGL->blendEnabled();
@@ -122,7 +122,7 @@ SP<Render::IFramebuffer> render_sheet(Render::CRenderContext &ctx, const SSheetD
     const auto STATE = ctx.saveDrawState();
     auto &data = ctx.m_data;
 
-    auto paper_layer = hyprimate::gl::get_work_buffer(ctx, draw.canvas);
+    auto paper_layer = hyprimate::gl::get_work_buffer(ctx, draw.canvas, CONTEXT);
     if (!paper_layer) {
         return nullptr;
     }
@@ -131,7 +131,7 @@ SP<Render::IFramebuffer> render_sheet(Render::CRenderContext &ctx, const SSheetD
     const bool LIT =
         draw.shade && (draw.shade_vertices != nullptr) && !draw.shade_vertices->empty();
     const auto SHADE_LAYER =
-        LIT ? hyprimate::gl::get_work_buffer(ctx, draw.canvas) : SP<Render::IFramebuffer>{};
+        LIT ? hyprimate::gl::get_work_buffer(ctx, draw.canvas, CONTEXT) : SP<Render::IFramebuffer>{};
 
     // Binds the framebuffer as the target and clears it under the canvas damage.
     const auto BEGIN_TARGET = [&](const SP<Render::IFramebuffer> &framebuffer) {

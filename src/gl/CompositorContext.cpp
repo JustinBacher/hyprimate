@@ -16,6 +16,13 @@ namespace hyprimate::gl {
         }
     }  // namespace
 
+    CurrentCompositorContext::CurrentCompositorContext() noexcept {
+        const auto CURRENT = compositor_id();
+        if (!CURRENT.current()) return;
+        m_backend = WP<Render::GL::CHyprOpenGLImpl>{Render::GL::g_pHyprOpenGL};
+        m_id = CURRENT;
+    }
+
     bool CompositorContextOwner::ensure_current() noexcept {
         const auto &backend = Render::GL::g_pHyprOpenGL;
         if (m_id.valid()) {
@@ -28,6 +35,16 @@ namespace hyprimate::gl {
         }
         m_backend = WP<Render::GL::CHyprOpenGLImpl>{backend};
         m_id = CURRENT;
+        return true;
+    }
+
+    bool CompositorContextOwner::ensure_current(const CurrentCompositorContext &current) noexcept {
+        if (!current || current.m_backend.expired()) return false;
+        if (m_id.valid()) {
+            return !m_backend.expired() && m_backend == current.m_backend && m_id == current.m_id;
+        }
+        m_backend = current.m_backend;
+        m_id = current.m_id;
         return true;
     }
 

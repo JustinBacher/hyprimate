@@ -43,10 +43,13 @@ namespace hyprimate::workspace {
         const auto &source = frame.source.composite;
         const auto &destination = frame.destination.composite;
         const auto &output = frame.presentation;
-        if (!m_owner.ensure_current() || g_pHyprRenderer->type() != Render::IHyprRenderer::RT_GL ||
-            !source || !destination || !output || source->m_size != destination->m_size ||
-            source->m_size != output->m_size || !gl::native_current(source) ||
-            !gl::native_current(destination) || !gl::native_current(output)) {
+        const gl::CurrentCompositorContext CURRENT_CONTEXT{};
+        if (!m_owner.ensure_current(CURRENT_CONTEXT) ||
+            g_pHyprRenderer->type() != Render::IHyprRenderer::RT_GL || !source || !destination ||
+            !output || source->m_size != destination->m_size || source->m_size != output->m_size ||
+            !gl::native_current(source, CURRENT_CONTEXT) ||
+            !gl::native_current(destination, CURRENT_CONTEXT) ||
+            !gl::native_current(output, CURRENT_CONTEXT)) {
             return false;
         }
         const auto src = source->getTexture();

@@ -8,9 +8,21 @@
 #include "gl/NativeRetirement.hpp"
 
 namespace {
+    struct OwnerCalls {
+        unsigned standalone = 0;
+        unsigned checked = 0;
+    };
+
     struct Owner : hyprimate::gl::EglContextId {
+        OwnerCalls &calls;
+
         bool ensure_current() const {
+            ++calls.standalone;
             return current();
+        }
+        bool ensure_current(const hyprimate::gl::EglContextId &checked) const noexcept {
+            ++calls.checked;
+            return valid() && *this == checked;
         }
     };
     struct NativeBuffer {
@@ -53,8 +65,9 @@ int main() {
     const hyprimate::gl::EglContextId target{display, owner};
     using Retained =
         hyprimate::gl::NativeRetirement<NativeBuffer, Owner, hyprimate::gl::ScopedEglContext>;
+    OwnerCalls calls;
     Retained retained;
-    const Owner origin{target};
+    const Owner origin{target, calls};
     EGLContext cached_destroyed = EGL_NO_CONTEXT, borrowed_destroyed = EGL_NO_CONTEXT;
     SP<NativeBuffer> cached, borrowed;
     {
@@ -65,11 +78,20 @@ int main() {
         borrowed = makeShared<NativeBuffer>(new_buffer(), borrowed_destroyed);
         retained.keep(cached, origin);
         CHECK(retained.current(cached));
+        CHECK(calls.standalone == 1 && calls.checked == 0);
+        const hyprimate::gl::EglContextId checked{eglGetCurrentDisplay(), eglGetCurrentContext()};
+        CHECK(retained.current(cached, checked));
+        CHECK(calls.standalone == 1 && calls.checked == 1);
+        CHECK(!retained.current(borrowed, checked));
+        CHECK(calls.standalone == 1 && calls.checked == 1);
     }
     // These independent object namespaces deliberately assign the same numeric name.
     if (!owner_buffer || owner_buffer != caller_buffer) return 1;
     CHECK(eglGetCurrentContext() == caller);
     CHECK(!retained.current(cached));
+    const hyprimate::gl::EglContextId caller_identity{eglGetCurrentDisplay(), eglGetCurrentContext()};
+    CHECK(!retained.current(cached, caller_identity));
+    CHECK(calls.standalone == 2 && calls.checked == 2);
     const GLuint second_caller = new_buffer(), third_caller = new_buffer();
     if (second_caller != cached->name || third_caller != borrowed->name) return 1;
     // The native pool still owns this borrowed reference. Never pin it in order to retire ours.

@@ -34,8 +34,8 @@ struct CBurnRenderer::Impl {
         return size.x >= 1 && size.y >= 1 && size.x <= maximum_edge && size.y <= maximum_edge &&
                size.x * size.y <= CBurnMaterial::MAX_TARGET_PIXELS;
     }
+    // Both callers have already checked owner in the current EGL binding.
     bool initialize() {
-        if (!owner.ensure_current()) return false;
         if (ready) return true;
         try {
             shader = std::make_unique<CShader>();
@@ -81,7 +81,8 @@ bool CBurnRenderer::warm_up() {
 bool CBurnRenderer::draw(const hyprimate::BurnSimulation &simulation,
     const hyprimate::animation::Draw<CHyprAnimationCanvas> &draw) {
     if (!draw.canvas) return false;
-    if (!m_impl->owner.ensure_current()) return false;
+    const hyprimate::gl::CurrentCompositorContext CURRENT_CONTEXT{};
+    if (!m_impl->owner.ensure_current(CURRENT_CONTEXT)) return false;
     draw.canvas->layer().reset();
     if (!simulation.initialized() || !g_pHyprRenderer || !Render::GL::g_pHyprOpenGL ||
         !draw.image || !*draw.image || !(draw.scale > 0) || !hyprimate::is_usable(draw.source) ||
@@ -99,8 +100,8 @@ bool CBurnRenderer::draw(const hyprimate::BurnSimulation &simulation,
     // Reject oversized debris bounds before Hyprland allocates the work buffer
     // or any dimension is converted to the backend's integer representation.
     if (!m_impl->supports({draw.canvas_box.w, draw.canvas_box.h})) return false;
-    const auto LAYER =
-        hyprimate::gl::get_work_buffer(ctx, Vector2D{draw.canvas_box.w, draw.canvas_box.h});
+    const auto LAYER = hyprimate::gl::get_work_buffer(
+        ctx, Vector2D{draw.canvas_box.w, draw.canvas_box.h}, CURRENT_CONTEXT);
     if (!LAYER || !LAYER->getTexture() || LAYER->getTexture()->m_texID == IMAGE->m_texID)
         return false;
     // Work buffers are allocated by Hyprland's GL backend.

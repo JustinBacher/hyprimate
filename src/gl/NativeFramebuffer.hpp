@@ -8,6 +8,14 @@
 #include "gl/FramebufferAllocationState.hpp"
 
 namespace hyprimate::gl {
+    namespace detail {
+        [[nodiscard]] inline SP<Render::IFramebuffer> allocate_work_buffer(
+            Render::CRenderContext &context, const Vector2D &size) {
+            const FramebufferAllocationState ALLOCATION;
+            return g_pHyprRenderer->getWorkBuffer(context, size);
+        }
+    }  // namespace detail
+
     // Host allocation can upload nullptr through an ambient unpack PBO and disturb texture/depth
     // state. Preserve only that allocation state: framebuffer/viewport remain the host's contract.
     // Rendering callbacks must already have the compositor current; never switch their context.
@@ -17,8 +25,17 @@ namespace hyprimate::gl {
         if (!current.ensure_current()) {
             return nullptr;
         }
-        const FramebufferAllocationState ALLOCATION;
-        return g_pHyprRenderer->getWorkBuffer(context, size);
+        return detail::allocate_work_buffer(context, size);
+    }
+
+    [[nodiscard]] inline SP<Render::IFramebuffer> get_work_buffer(
+        Render::CRenderContext &context, const Vector2D &size,
+        const CurrentCompositorContext &current) {
+        CompositorContextOwner owner;
+        if (!owner.ensure_current(current)) {
+            return nullptr;
+        }
+        return detail::allocate_work_buffer(context, size);
     }
 
     [[nodiscard]] inline bool allocate_framebuffer(

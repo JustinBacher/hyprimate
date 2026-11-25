@@ -162,7 +162,8 @@ namespace hyprimate::workspace {
         Direction direction,
         const GapFill &gap,
         bool matching_wallpaper) {
-        if (!m_context.ensure_current()) {
+        const gl::CurrentCompositorContext CURRENT_CONTEXT{};
+        if (!m_context.ensure_current(CURRENT_CONTEXT)) {
             return false;
         }
         if (!g_pHyprRenderer || !Render::GL::g_pHyprOpenGL ||
@@ -175,9 +176,11 @@ namespace hyprimate::workspace {
             source->m_size != destination_wallpaper->m_size) {
             return false;
         }
-        if (!gl::native_current(source) || !gl::native_current(destination) ||
-            !gl::native_current(presentation) || !gl::native_current(source_wallpaper) ||
-            !gl::native_current(destination_wallpaper)) {
+        if (!gl::native_current(source, CURRENT_CONTEXT) ||
+            !gl::native_current(destination, CURRENT_CONTEXT) ||
+            !gl::native_current(presentation, CURRENT_CONTEXT) ||
+            !gl::native_current(source_wallpaper, CURRENT_CONTEXT) ||
+            !gl::native_current(destination_wallpaper, CURRENT_CONTEXT)) {
             return false;
         }
         const GLuint SRC = source->getTexture()->m_texID;

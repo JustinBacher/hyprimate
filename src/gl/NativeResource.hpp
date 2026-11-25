@@ -16,6 +16,8 @@ namespace hyprimate::gl {
     [[nodiscard]] SP<Render::ITexture> retain_native(SP<Render::ITexture>);
     [[nodiscard]] SP<Render::CSceneResources> retain_native(SP<Render::CSceneResources>);
     [[nodiscard]] bool native_current(const SP<Render::IFramebuffer> &) noexcept;
+    [[nodiscard]] bool native_current(
+        const SP<Render::IFramebuffer> &, const CurrentCompositorContext &) noexcept;
 
     // For a borrowed native object retained by a cache or queued pass. Do not extend a pool
     // lease if another reference (including the pool itself) can take over its lifetime.

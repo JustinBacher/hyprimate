@@ -79,12 +79,13 @@ bool CPaperRenderer::draw(const hyprimate::PaperSurface &surface,
     if (!IMAGE || IMAGE->m_texID == 0 ||
         (IMAGE->m_type != Render::TEXTURE_RGBA && IMAGE->m_type != Render::TEXTURE_RGBX))
         return false;
-    if (!m_impl->context.ensure_current()) return false;
+    const hyprimate::gl::CurrentCompositorContext CURRENT_CONTEXT{};
+    if (!m_impl->context.ensure_current(CURRENT_CONTEXT)) return false;
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     auto &ctx = draw.canvas->context();
     const auto STATE = ctx.saveDrawState();
-    const auto LAYER =
-        hyprimate::gl::get_work_buffer(ctx, Vector2D{draw.canvas_box.w, draw.canvas_box.h});
+    const auto LAYER = hyprimate::gl::get_work_buffer(
+        ctx, Vector2D{draw.canvas_box.w, draw.canvas_box.h}, CURRENT_CONTEXT);
     if (!LAYER || !LAYER->getTexture() || LAYER->getTexture()->m_texID == IMAGE->m_texID)
         return false;
     // Work buffers belong to Hyprland's GL backend.

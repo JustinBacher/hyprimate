@@ -61,6 +61,10 @@ namespace hyprimate::gl {
     bool native_current(const SP<Render::IFramebuffer> &resource) noexcept {
         return resources.framebuffers.current(resource);
     }
+    bool native_current(const SP<Render::IFramebuffer> &resource,
+        const CurrentCompositorContext &current) noexcept {
+        return resources.framebuffers.current(resource, current);
+    }
     void release_native(
         SP<Render::IFramebuffer> &resource, const CompositorContextOwner &owner) noexcept {
         resources.framebuffers.drop_borrowed(resource, owner);

@@ -38,8 +38,8 @@ CSmokeRenderer::~CSmokeRenderer() {
     m_material.release();
     for (auto &shader : m_shaders) shader.reset();
 }
+// Both callers have already checked m_owner in the current EGL binding.
 bool CSmokeRenderer::initialize() {
-    if (!m_owner.ensure_current()) return false;
     if (m_ready) return true;
     const std::array<const char *, SSmokePrograms::ProgramCount> SOURCES{
         smoke_shader::VELOCITY.data(),
@@ -87,11 +87,14 @@ SP<Render::IFramebuffer> CSmokeRenderer::render(
         !(draw.canvas.x > 0 && draw.canvas.y > 0 && draw.source.w > 0 && draw.source.h > 0 &&
             draw.texture_size.x > 0 && draw.texture_size.y > 0))
         return nullptr;
-    if (!m_owner.ensure_current() || !draw.field->m_owner.ensure_current()) return nullptr;
+    const hyprimate::gl::CurrentCompositorContext CURRENT_CONTEXT{};
+    if (!m_owner.ensure_current(CURRENT_CONTEXT) ||
+        !draw.field->m_owner.ensure_current(CURRENT_CONTEXT))
+        return nullptr;
     if (!draw.simulate && draw.field->field.framebuffer() == 0) return nullptr;
     const Render::GL::CFramebufferBindingGuard BINDINGS{g_pHyprRenderer->glBackend()};
     const auto state = ctx.saveDrawState();
-    const auto layer = hyprimate::gl::get_work_buffer(ctx, draw.canvas);
+    const auto layer = hyprimate::gl::get_work_buffer(ctx, draw.canvas, CURRENT_CONTEXT);
     if (!layer || !layer->getTexture() || layer->getTexture()->m_texID == draw.window->m_texID)
         return nullptr;
     auto *gl_layer = dynamic_cast<Render::GL::CGLFramebuffer *>(layer.get());

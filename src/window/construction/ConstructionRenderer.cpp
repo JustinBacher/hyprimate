@@ -172,7 +172,8 @@ bool CConstructionRenderer::Impl::submit(const ConstructionBatch *batch, Box bod
         if (close_scratch->mesh.source_faces().empty() && close_scratch->effects.count == 0)
             return true;
     }
-    if (!owner.ensure_current() || !material.supports_view(*VIEW)) return false;
+    const gl::CurrentCompositorContext CURRENT_CONTEXT{};
+    if (!owner.ensure_current(CURRENT_CONTEXT) || !material.supports_view(*VIEW)) return false;
 
     auto &ctx = draw.canvas->context();
     if (!ctx.m_data.pMonitor) return false;
@@ -182,7 +183,7 @@ bool CConstructionRenderer::Impl::submit(const ConstructionBatch *batch, Box bod
     // SIGABRT in CGLFramebuffer::internalAlloc before a lease can be returned.
     const Vector2D SIZE{VIEW->width, VIEW->height};
     const auto LAYER = close ? close_work_buffer(ctx, SIZE, input, *IMAGE) :
-        gl::get_work_buffer(ctx, SIZE);
+        gl::get_work_buffer(ctx, SIZE, CURRENT_CONTEXT);
     if (!LAYER || LAYER == *draw.image || LAYER == ctx.m_data.currentFB || LAYER->getMirrorTexture() ||
         !LAYER->isAllocated() || LAYER->m_drmFormat != (*draw.image)->m_drmFormat)
         return false;

@@ -26,6 +26,11 @@ namespace hyprimate::gl {
             const auto it = m_entries.find(resource.get());
             return it != m_entries.end() && it->second.owner.ensure_current();
         }
+        template <class Context>
+        bool current(const SP<T> &resource, const Context &context) noexcept {
+            const auto it = m_entries.find(resource.get());
+            return it != m_entries.end() && it->second.owner.ensure_current(context);
+        }
         void drop_borrowed(SP<T> &resource, const Owner &owner) noexcept {
             if (!resource || resource.strongRef() > 1) {
                 resource.reset();
